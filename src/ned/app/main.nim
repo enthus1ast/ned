@@ -61,6 +61,8 @@ proc pumpJobs(ready: HashSet[cint]) =
     if not j.done: keep.add j
   jobs = keep
 
+var privSwept = false
+
 proc mainLoop() =
   lastFileCheck = getMonoTime()
   while not quitting:
@@ -87,6 +89,9 @@ proc mainLoop() =
       if startTrace and startRss.len == 0:
         smark("first frame")
         startRss.add ("first frame", rssMB())
+      if not privSwept:
+        privSwept = true
+        privSweep()                  # (after the first frame: nothing in the way of the start)
     if startTrace and startRss.len == 1:
       # settled: the file list made, git and the other background jobs done (10 s at most)
       var busyJobs = false

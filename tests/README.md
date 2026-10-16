@@ -54,8 +54,10 @@ NEDBIN=./ned_debug tests/fuzz/batch.sh 120 mixed vim helix emacs palette refacto
 
 Each mode is a two-minute round with a different mix of input (`ai` drives the assistant, `git` a repository with
 history, `fixes` code full of compiler errors, `refactor` procs to change). The fuzzer works in a scratch home of
-its own, but random palette commands can run tasks and shell commands in its test project: give it a throwaway
-user if you can (`NED_FUZZ_USER=fuzz`, run as root). Logs go to `/tmp/ned-fuzz-UID-logs`.
+its own, with a copy of the Nim toolchain (random keys can go to a definition in the standard library and save
+it), but random palette commands can run tasks and shell commands in its test project, and random keys can
+"save as" anywhere ned may write: give it a throwaway user (`NED_FUZZ_USER=fuzz`, run as root — as root it does
+not start without one). Logs go to `/tmp/ned-fuzz-UID-logs`.
 
 ## The engine comparison
 

@@ -70,6 +70,25 @@ proc nxApplyToolchain() =
       if dirExists(d): extra.add d
   nxSetToolchain(nxLibFound, sp, lazy, extra)
 
+proc isLibraryFile(path: string): bool =
+  ## a file of the Nim toolchain (its standard library, or the compiler next to it) or of an installed nimble
+  ## package — and not of the project you have open (working on Nim itself, or on a package in place, is fine)
+  if path.len == 0 or not sBool("files.protectLibraries"): return false
+  if rootDir.len > 1 and path.startsWith(rootDir & "/"): return false
+  if nxLibFound.len == 0 and haveExe("nim"): nxLibFound = nxGuessLib()
+  var roots: seq[string]
+  if nxLibFound.len > 0:
+    roots.add nxLibFound
+    let top = parentDir(nxLibFound)               # a Nim tree (choosenim, a checkout): its compiler/ too
+    if lastPathPart(nxLibFound) == "lib" and dirExists(top / "compiler") and fileExists(top / "bin" / "nim"):
+      roots.add top
+  let nimble = getEnv("NIMBLE_DIR", getHomeDir() / ".nimble")
+  roots.add nimble / "pkgs2"
+  roots.add nimble / "pkgs"
+  for r in roots:
+    if r.len > 1 and path.startsWith(r & "/"): return true
+  false
+
 proc nxEnsureToolchain(b: Buffer) =
   ## guess the toolchain at once; ask `nim dump` (in the background, once per project) for the real
   ## search paths: config.nims / nim.cfg --path, nimble packages

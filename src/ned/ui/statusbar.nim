@@ -108,6 +108,9 @@ proc drawStatusBar() =
     let rh = remotes[remoteOf(rootDir)].host
     x = button(x, y, " " & (if remotePushing > 0: "⇡ " else: "⇅ ") & rh & " ", proc() = runCmd("Remote: SSH menu…"),
                "A remote folder: saves go to " & rh & ", the terminal and Run work there", theme.accent, bg)
+  if b.libLocked and scrW >= 60:
+    x = button(x, y, " Read-only ", proc() = runCmd("File: allow editing this file"),
+               "Part of the Nim toolchain or an installed package — click to edit it anyway", theme.warn, bg)
   if b.largeOn:
     x = button(x, y, " Large file ", proc() = runCmd("Large file mode: on/off for this file"),
                "Large-file mode (" & b.largeWhy & ") — click to turn the code features back on", theme.warn, bg)

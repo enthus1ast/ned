@@ -37,6 +37,8 @@ proc cmdMergeEditor()
 
 proc openWorkspace(f: string): bool
 
+proc isLibraryFile(path: string): bool
+
 proc openFile(path: string, line = -1, col = -1): Buffer =
   let full = absolutePath(path).normalizedPath
   if (full.endsWith(".ned-workspace") or full.endsWith(".code-workspace")) and fileExists(full) and line < 0:
@@ -55,6 +57,9 @@ proc openFile(path: string, line = -1, col = -1): Buffer =
   if i < 0:
     let b = newBuffer()
     if not b.loadFile(full): return nil
+    if not b.readOnly and isLibraryFile(full):
+      b.readOnly = true            # (the standard library, an installed package: not changed by accident)
+      b.libLocked = true
     if curBuf in 0..bufs.high and bufs[curBuf].isWelcome():
       bufs[curBuf] = b
       i = curBuf

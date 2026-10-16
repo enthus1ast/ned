@@ -130,6 +130,7 @@ type
     lspChangeAt: MonoTime
     git: seq[uint8]     # per line: 0 none, 1 added, 2 modified, 3 deleted-below
     readOnly: bool
+    libLocked: bool     # read-only because it belongs to the Nim toolchain or an installed package (files.protectLibraries)
     mdSrc: int          # a Markdown preview: the id of the buffer it shows
     noEol: bool
     blankNl: bool                          # the file was one empty line ("\n"): it stays that, not 0 bytes

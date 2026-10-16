@@ -25,6 +25,11 @@ PROJ = HOME + '/proj'
 BIN = HOME + '/ned_fuzz'
 SOCK = 'fz'
 OUT = os.environ.get('NED_FUZZ_OUT', HOME + '-logs')
+if os.getuid() == 0 and not USER and os.environ.get('NED_FUZZ_ALLOW_ROOT') != '1':
+    # as root, ned under random keys can save over any file it can reach (a system header it went to the
+    # definition of, a file "saved as" anywhere): run it as a throwaway user
+    sys.exit('fuzz.py: running as root — set NED_FUZZ_USER to a throwaway user (ned runs as that user), or run '
+             'as an ordinary user; NED_FUZZ_ALLOW_ROOT=1 if this machine is disposable')
 os.makedirs(OUT, exist_ok=True)
 LOG = OUT + '/run_%d.log' % SEED
 
@@ -38,7 +43,27 @@ def tm(args):
 def own(path):
     if USER: sh('chown -R %s:%s %s' % (USER, USER, path))
 
+def nim_copy():
+    """a copy of the Nim toolchain for ned to use: random keys can go to a definition in the standard library,
+    allow editing it and save it — the copy takes that, not the Nim you build with (made again for each run)"""
+    nim = shutil.which('nim')
+    if not nim: return ''
+    real = os.path.realpath(nim)
+    top = os.path.dirname(os.path.dirname(real))
+    dst = HOME + '/nim'
+    shutil.rmtree(dst, ignore_errors=True)
+    os.makedirs(dst + '/bin')
+    for x in ('nim', 'nimsuggest', 'nimble'):
+        p = os.path.join(os.path.dirname(real), x)
+        if os.path.exists(p): shutil.copy2(os.path.realpath(p), dst + '/bin/' + x)
+    for d in ('lib', 'config'):
+        if os.path.isdir(top + '/' + d): shutil.copytree(top + '/' + d, dst + '/' + d, symlinks=True)
+    return dst + '/bin'
+
+NIM_BIN = ''
+
 def setup():
+    global NIM_BIN
     sh('tmux -L %s kill-server 2>/dev/null' % SOCK)
     sh('pkill -9 -f ' + BIN); time.sleep(0.5)
     shutil.rmtree(PROJ, ignore_errors=True)
@@ -141,6 +166,7 @@ proc total(xs: seq[int]): int =
         cfg.update({"ui.accessible": True, "editor.largeFileSize": 200000, "editor.longLineLimit": 1000,
                     "editor.spellCheck": "on", "editor.spellDictionary": os.environ.get('NED_TEST_DICT', '/usr/share/hunspell/en_US.dic')})
     json.dump(cfg, open(HOME + '/.config/ned/config.json', 'w'))
+    NIM_BIN = nim_copy()
     shutil.copy(SRC_BIN, BIN)
     sh('rm -f %s/.local/state/ned/errors.log %s/exitcode' % (HOME, HOME))
     own(HOME)
@@ -150,7 +176,7 @@ def start():
     w, h = rnd.choice([(120, 40), (80, 24), (60, 20), (160, 50), (45, 30)])
     script = HOME + '/run.sh'
     with open(script, 'w') as f:
-        f.write(('#!/bin/bash\nexport HOME=%s PATH=' + os.environ.get('PATH', '/usr/bin:/bin') + ' TERM=xterm-256color COLORTERM=truecolor\n'
+        f.write(('#!/bin/bash\nexport HOME=%s PATH=' + (NIM_BIN + ':' if NIM_BIN else '') + os.environ.get('PATH', '/usr/bin:/bin') + ' TERM=xterm-256color COLORTERM=truecolor\n'
                  'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
     os.chmod(script, 0o755); own(script)
     tm('-f ' + TESTS + '/ui/tmux.conf new-session -d -s fz -x %d -y %d %s' % (w, h, script))

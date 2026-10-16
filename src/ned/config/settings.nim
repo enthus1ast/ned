@@ -188,6 +188,9 @@ proc initSettingDefs() =
        "venv", ".nimble", "zig-cache", "zig-out", ".gradle", ".idea", ".cache", "htmldocs", "testresults"],
        "Folders skipped by the file tree, file finder and built-in search")
   defS("Files", "files.scanLimit", %500000, "Maximum number of files indexed for Ctrl+P")
+  defS("Files", "files.protectLibraries", %true, "Files of the Nim toolchain (the standard library, the compiler) " &
+       "and of installed nimble packages open read-only — go to definition often lands there, and a stray key " &
+       "followed by a save would change them for every project. Palette › File: allow editing this file")
   defS("Files", "files.autoReload", %true, "Reload files changed on disk when they have no unsaved edits")
   defS("Files", "files.restoreSession", %true, "Reopen the files that were open last time in this folder")
   # ── Search ──

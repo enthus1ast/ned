@@ -43,6 +43,20 @@ proc privTmp(name: string): string =
   inc privTmpN
   privDir() / (name & "-" & $getCurrentProcessId() & "-" & $privTmpN)
 
+proc privSweep() =
+  ## what a ned that was killed left in privDir() (its process gone, the file 10 minutes old): its temp files
+  ## are named name-PID-N, and only those whose PID runs no more are removed
+  try:
+    let now = getTime()
+    for kind, p in walkDir(privDir()):
+      let parts = extractFilename(p).split('-')
+      if parts.len < 3 or parts[^2].len == 0 or not parts[^2].allCharsInSet(Digits) or parts[^2].len > 9: continue
+      let pid = parseInt(parts[^2])
+      if pid <= 1 or pid == getCurrentProcessId() or kill(Pid(pid), 0) == 0 or errno == EPERM: continue
+      if now - getLastModificationTime(p) < initDuration(minutes = 10): continue
+      if kind == pcDir: removeDir(p) else: removeFile(p)
+  except CatchableError: discard
+
 # ── persistent undo: a file's undo history is kept (state/undo) and comes back while the file is unchanged ──
 
 var undoWritten: Table[int, int]        # buffer id → the undo step last written

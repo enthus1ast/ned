@@ -18,7 +18,10 @@ proc isCloser(pairs: string, ch: char): bool =
 
 proc canEdit(b: Buffer): bool =
   if b.readOnly:
-    warn("Buffer is read-only")
+    if b.libLocked:
+      warn(b.name & " is part of the Nim toolchain or an installed package: read-only, so it is not changed by " &
+           "accident — palette › File: allow editing this file")
+    else: warn("Buffer is read-only")
     return false
   true
 

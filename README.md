@@ -67,6 +67,18 @@ assistant's MCP client — grouped in folders (`core`, `editor`, `ui`, `nim`, `l
 - `tests/engine` — ned's Nim engine against nimsuggest (the numbers in *How good it is*);
 - `tests/build/cross.sh` — Linux, macOS and Android builds from one machine (with zig).
 
+**Safer:**
+- **Libraries open read-only.** Go to definition often lands in the standard library or in an installed nimble
+  package, and a stray key followed by a save would change it for every project. Those files now open read-only:
+  the status bar says *Read-only*, and a click on it (or palette › *File: allow editing this file*) unlocks the
+  file. The project you have open is never locked — working on Nim itself or on a package in place is unchanged.
+  `files.protectLibraries: false` turns this off.
+- The private temporary files of a ned that was killed (the unsaved text it was checking) are removed at the next
+  start.
+- Fixed (found by the fuzzer): vim's `f` `t` `F` `T` `;` `,` and `b` with the cursor past the end of a line that a
+  change elsewhere had shortened; any cursor left past the end of its line is put back on the text before a key
+  moves it.
+
 Older releases are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
@@ -629,6 +641,10 @@ Regex syntax: `.` `[abc]` `[^a-z]` `[[:digit:]]` `\d \w \s \b` (and negations) `
 - **No silent overwrites**: if a file changed on disk since you opened it, saving asks whether to overwrite or
   reload; if another running ned has unsaved edits to the same file, you are warned.
 - **Binary files** open as a read-only hex dump and are never saved; files over 512 MB are refused.
+- **Libraries open read-only**: files of the Nim toolchain (the standard library, the compiler) and of installed
+  nimble packages — where go to definition often lands — cannot be changed by a stray key; *Read-only* in the
+  status bar (or *File: allow editing this file*) unlocks one. The project you have open is never locked.
+  `files.protectLibraries: false` turns it off.
 - **Project settings that run programs** (`lsp`, `run`, `run.configs`, `formatters`, `languages`, `debug.adapters`,
   `repl.commands`, `terminal.shell`, `keys`, `editor.keymap`, `commands`, `ai.*` including MCP servers,
   `nim.nimsuggestPath`, `sync.repository`) are ignored until you run *Workspace: trust this folder*, so opening a cloned

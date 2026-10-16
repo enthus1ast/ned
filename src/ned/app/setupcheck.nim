@@ -187,6 +187,16 @@ proc initCommandsV4() =
   add("File: open recent project…", "", cmdRecentProjects())
   add("File: compare with saved", "", diffWithSaved())
   add("File: recover unsaved edits…", "", cmdRecoverFiles())
+  add("File: allow editing this file", "read-only off", (block:
+    let b = buf()
+    if b.binary: info("A binary file is shown as a hex dump: it cannot be edited here")
+    elif not b.readOnly: info(b.name & " can be edited")
+    elif b.path.len == 0 or b.title.len > 0: info("This view is made by ned: it cannot be edited")
+    else:
+      b.readOnly = false
+      b.libLocked = false
+      info("You can edit " & b.name & " now — a save changes it for every project that uses it")
+      needRender = true))
   add("Git: next change", "F7", gotoHunk(1))
   add("Git: previous change", "Shift+F7", gotoHunk(-1))
   add("Git: show this change", "", showHunk())
