@@ -10,6 +10,7 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 | [`fuzz/`](fuzz) | random keys, mouse events, pastes, palette commands and resizes; crashes, hangs and internal errors reported | as long as you like | `tests/fuzz/batch.sh 120 mixed vim palette` |
 | [`engine/`](engine) | ned's Nim engine against nimsuggest on the standard library, nimble packages and the compiler | ~1 hour | `tests/engine/build.sh && tests/engine/corpus.sh /tmp/out` |
 | [`build/`](build) | ned built for every target: gcc, clang, and with zig macOS (arm64, x86_64) and Android/Linux arm64 | minutes | `tests/build/cross.sh` |
+| [`themes/`](themes) | every built-in theme's colours against its background; ned's own must pass | a second | `python3 tests/themes/contrast.py` |
 
 Speed and memory are checked by [`.github/ci/bench.py`](../.github/ci/bench.py) (`nimble perf`) against the
 limits in `bench-budget.json`, and [`.github/ci/pty_smoke.py`](../.github/ci/pty_smoke.py) runs ned in a real

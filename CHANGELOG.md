@@ -1,6 +1,25 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-62). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-63). Older releases:
+
+## What's new in 6.2
+
+![A dialog with a soft half-cell shadow and rounded buttons, the Git dock's actions in the text colour](screenshots/desktop-62.png)
+
+**A calmer, more desktop-like look.**
+- **Soft shadows.** Popups, menus, dialogs, the completion list, toasts and tooltips cast a shadow half a cell wide
+  and half a cell high, drawn with block characters, instead of a full dark row and column; text that falls under
+  a shadow stays readable.
+- **Rounded-looking buttons** in dialogs and toasts, and a rounded search box in the title bar.
+- **The part with the keyboard is tinted**: a dock's header, or the panel's, takes a touch of the accent colour
+  (in place of the underline across it).
+- **Quieter lists**: the Git dock's actions, the outline and the assistant's suggestions are in the text colour,
+  with coloured icons, rather than all in the accent colour.
+- **The mouse pointer changes like in a desktop app**: a hand over what can be clicked, an I-beam over the text you
+  edit, the arrow elsewhere — in terminals that let programs set it (OSC 22: kitty, foot, WezTerm, Ghostty, xterm;
+  the others ignore it). `ui.pointerShapes: false` leaves the pointer alone.
+- The completion list's documentation goes above or below the list rather than over a dock when there is no room
+  beside it in the editor.
 
 ## What's new in 6.1
 

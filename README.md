@@ -21,7 +21,7 @@ library, and builds to one binary of about 8 MB.
 
 ## Contents
 
-- [What's new in 6.2](#whats-new-in-62) · [6.1](CHANGELOG.md#whats-new-in-61) · [older releases](CHANGELOG.md)
+- [What's new in 6.3](#whats-new-in-63) · [6.2](CHANGELOG.md#whats-new-in-62) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -35,30 +35,58 @@ library, and builds to one binary of about 8 MB.
 - [Files ned uses](#files-ned-uses)
 - [Building, tasks and performance](#building-tasks-and-performance)
 - [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
 
 ---
 
-## What's new in 6.2
+## What's new in 6.3
 
-![A dialog with a soft half-cell shadow and rounded buttons, the Git dock's actions in the text colour](screenshots/desktop-62.png)
+![A Nim wrapper of C: the C declaration dimmed after each importc proc, and the hover with the C documentation from the header](screenshots/c-docs-63.png)
 
-**A calmer, more desktop-like look.**
-- **Soft shadows.** Popups, menus, dialogs, the completion list, toasts and tooltips cast a shadow half a cell wide
-  and half a cell high, drawn with block characters, instead of a full dark row and column; text that falls under
-  a shadow stays readable.
-- **Rounded-looking buttons** in dialogs and toasts, and a rounded search box in the title bar.
-- **The part with the keyboard is tinted**: a dock's header, or the panel's, takes a touch of the accent colour
-  (in place of the underline across it).
-- **Quieter lists**: the Git dock's actions, the outline and the assistant's suggestions are in the text colour,
-  with coloured icons, rather than all in the accent colour.
-- **The mouse pointer changes like in a desktop app**: a hand over what can be clicked, an I-beam over the text you
-  edit, the arrow elsewhere — in terminals that let programs set it (OSC 22: kitty, foot, WezTerm, Ghostty, xterm;
-  the others ignore it). `ui.pointerShapes: false` leaves the pointer alone.
-- The completion list's documentation goes above or below the list rather than over a dock when there is no room
-  beside it in the editor.
+**C from Nim, explained.** A proc that imports C now tells you what it imports:
+- **The C documentation in the hover and in completion**: the declaration from the header (or the `{.emit.}`), short
+  and readable — `char *getenv(const char *name)` — with the comment written above it in the header. The standard
+  library's procs that come from C (`posix`, `c_printf` …) get theirs from your system's headers.
+- **The C signature beside each wrapper**, dimmed (`nim.cSignatureHints`): a wrong type stands out at once.
+- **`header: "…"` and `importc: "…"` have colours of their own**: the hover on a header tells where it is, what it
+  says it is and how much it declares; F12 opens it. On `importc: "…"`, the C declaration.
+- **A wrapper written from C**: Alt+Enter on an importc proc › *Rewrite this wrapper from its C declaration* — the
+  parameters and result in the Nim types C asks for (`size_t` → `csize_t`, `char *` → `cstring`), the pragmas kept.
+- **A new wrapper completed**: type `proc ` and part of a C name in a file that uses headers — the functions not
+  wrapped yet are offered, and accepting one writes the whole wrapper.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.1](CHANGELOG.md#whats-new-in-61) made the colours smarter and
-the engine more accurate, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
+**The formatter, your way** (new settings; the layout ones start out as nph does):
+- `nim.format.lineLength` (88), and how lists are laid out — `nim.format.params`, `nim.format.arguments` and
+  `nim.format.collections`: `fit` (as nph), `onePerLine` (one per line when too long), `always` (one per line when
+  there are two or more) or `keep` (your line breaks).
+- `nim.format.imports`: `sort`, or `merge` — `std/os` and `std/strutils` become `std/[os, strutils]`.
+- `nim.format.align` lines up an object's field types and the `=` of const/let/var sections;
+  `nim.format.reflowDocComments` re-wraps long `##` paragraphs; `nim.format.maxBlankLines` keeps up to 3.
+- **The C in `{.emit.}` is formatted with the Nim around it** (`nim.formatEmitC`): with clang-format and your
+  `.clang-format` when installed, else with ned's own C formatter — which also formats `.c` files when there is no
+  clang-format (indentation and spaces; your line breaks stay; it checks its result like the Nim one).
+- **Pasted code takes the indentation of where it goes** (`editor.formatOnPaste`: `indent`, `format` — the Nim
+  formatted too — or `off`). At column 0 a paste stays exactly as copied.
+
+**Git for new folders and other people's projects.** *File › Clone from a link…* (and on the Welcome screen: `g`)
+takes any link as it is copied — GitHub, GitLab, Codeberg, a `/tree/branch` link, `user/repo`, ssh — offers
+*Latest version only*, opens the README, and offers `nimble install --depsOnly` for a Nim project; a link with a
+password or token in it is refused. *Initialize a repository here* is in the Git dock, the File tree's menu and
+the palette (it asks first inside another repository), a new Nim project gets its first commit, and git asks your
+name and email once when it does not know them.
+
+**Eight new themes**, ned's own, every colour checked for contrast (`tests/themes/contrast.py`): `frankincense`,
+`desert-dusk`, `lagoon`, `sea-glass`, `paper-ink`, `rose-quartz`, and two old terminals, `amber-crt` and
+`green-phosphor` (Alt+T).
+
+![The eight new themes](screenshots/themes-63.png)
+
+And: TODO and NOTE marks on the scrollbar (and errors) move with their code as you type; CONTRIBUTING.md,
+SECURITY.md and issue templates for working on ned in the open.
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.2](CHANGELOG.md#whats-new-in-62) gave ned a calmer,
+desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) made the colours smarter and the engine more accurate,
+[6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
 
 ## Features
 
@@ -66,9 +94,10 @@ the engine more accurate, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a p
 most-used first), left dock (files, search & replace, git, Nim, tests), right dock (AI assistant, outline,
 timeline), bottom panel (problems, output, terminal), tabs, breadcrumbs, minimap, sticky scroll, indent
 guides, rainbow brackets, tooltips, toasts, modal dialogs, context menus (right click), drop shadows,
-hover effects, 42 themes (VS Code dark/light, One Dark, Tokyo Night, Catppuccin, Gruvbox, Dracula, Nord,
-Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Nim Crown, Slate, Monochrome, Everforest, Night Owl, and from
-vim Molokai, Jellybeans, Iceberg, Sonokai and PaperColor …)
+hover effects, 50 themes (VS Code dark/light, One Dark, Tokyo Night, Catppuccin, Gruvbox, Dracula, Nord,
+Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Slate, Monochrome, Everforest, Night Owl, from
+vim Molokai, Jellybeans, Iceberg, Sonokai and PaperColor, and ned's own: Nim Crown, Frankincense, Desert Dusk,
+Lagoon, Sea Glass, Paper Ink, Rose Quartz, Amber CRT and Green Phosphor …)
 — or `auto`, following the terminal's background, your own colours, and VS Code or base16 themes imported —
 three icon sets (unicode, Nerd Font, ASCII), phone layout below 70 columns, an accessibility mode (ASCII, letters
 beside colours, high contrast), multi-root workspaces (git for each folder), remote folders over SSH (git, Run
@@ -492,6 +521,26 @@ Alt+F (*Format document*) and `"editor.formatOnSave": true` use ned's own format
 
 With several lines selected, Alt+F (or *Format selection*) formats only those lines, at their indentation.
 
+Its layout is yours to choose (settings, Nim section):
+
+| setting | default | |
+|---|---|---|
+| `nim.format.lineLength` | 88 | where lines wrap (80 and 100 are common too) |
+| `nim.format.params` | `fit` | a routine's parameters: `fit` — on one line, else all on the next line or one per line (nph) · `onePerLine` — one per line when too long · `always` — one per line when there are two or more · `keep` — your line breaks |
+| `nim.format.arguments` | `fit` | a call's arguments: the same four (`fit` packs them on the next lines) |
+| `nim.format.collections` | `fit` | array, seq, table, set and tuple literals: the same four |
+| `nim.format.imports` | `keep` | `sort` — std/, pkg/, others, ./relative · `merge` — sorted, and `std/a` + `std/b` → `std/[a, b]` (module initialisation follows import order: keep it if that matters) |
+| `nim.format.align` | off | line up object field types and the `=` of const / let / var members |
+| `nim.format.reflowDocComments` | off | re-wrap a `##` paragraph with a line longer than the line length (lists and code stay) |
+| `nim.format.maxBlankLines` | 1 | empty lines kept in a row (up to 3) |
+| `nim.formatEmitC` | on | the C in `{.emit: """…""".}` formatted too: clang-format (your `.clang-format`), else ned's own C formatter |
+| `editor.formatOnPaste` | `indent` | pasted lines take the indentation of where they go · `format` — and pasted Nim is formatted · `off` |
+
+ned's own **C formatter** (used for the emits, and for `.c` files when clang-format is not installed) indents by
+braces in LLVM's layout and evens out spaces — after commas and keywords, around assignments and comparisons,
+none inside brackets — and keeps your line breaks; like the Nim one, it checks that the code is the same token for
+token, or changes nothing.
+
 From the shell: `ned --format file.nim src/ …` formats files (and the files in folders) in place; `ned --format
 --check …` lists the ones that would change (exit 1), for CI or a pre-commit hook. *Format: every file in the
 project…* does it from the editor, with a review first (see the 5.24 notes).
@@ -529,7 +578,10 @@ in the palette. Your own `formatters` entry for `nim` always wins.
   branches, raises, ambiguous names, deprecated names), with *Fix all like this in the file*; AI fix (checked
   with `nim check` before it is applied) / explain.
 - *Nim: toggle export marker (\*)*, *Nim: open documentation for symbol*, *Nim: REPL*.
-- C interop: F12 on an `importc` declaration opens the C prototype (the hover shows it), wrappers are checked
+- C interop: F12 on an `importc` declaration opens the C prototype (the hover shows it, with the comment that
+  documents it in the header — in completion too), the C signature is shown dimmed after each wrapper
+  (`nim.cSignatureHints`), `header: "…"` and `importc: "…"` are coloured and have a hover and F12, Alt+Enter
+  rewrites a wrapper from its C declaration, and `proc ` + a C name completes a whole new wrapper; wrappers are checked
   against their headers (`nim.checkWrappers`), completion in `header: "…"` and `importc: "…"`, *wrap a C header
   (c2nim)*, *compile_commands.json for clangd*.
 - Code inside strings in its own colours: `{.emit}` as C (C++, JS), `sql"…"`, `re"…"`, `peg"…"`, `parseJson("…")`,
@@ -809,6 +861,11 @@ other programs can import them (`import ned/nim/index`). The tests are described
   its `.ned/settings.json`), and please report the file.
 - **Something crashed** — start ned again and restore the offered edits; please report the stack trace it
   printed.
+
+## Contributing
+
+Bug reports, ideas, themes and code are welcome — [CONTRIBUTING.md](CONTRIBUTING.md) explains how ned is built,
+laid out and tested. Security problems: please report them privately ([SECURITY.md](SECURITY.md)).
 
 ## License
 
