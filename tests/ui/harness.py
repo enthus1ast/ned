@@ -133,9 +133,10 @@ def demo_template():
     if not os.path.exists(t + '/.git'):
         shutil.rmtree(t, ignore_errors=True)
         shutil.copytree(FIX + '/demo', t)
-        subprocess.run('git init -q -b master && git add -A && '
-                       'git -c user.name=t -c user.email=t@t commit -qm init', shell=True, cwd=t, check=True,
-                       capture_output=True)
+        # (its own name and email for commits: a machine without a git identity — a CI runner — commits too)
+        subprocess.run('git init -q -b master && git config user.name t && git config user.email t@t && '
+                       'git config commit.gpgsign false && git add -A && git commit -qm init', shell=True, cwd=t,
+                       check=True, capture_output=True)
     return t
 
 def setup(cfg=None):
