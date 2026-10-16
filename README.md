@@ -608,19 +608,20 @@ in the palette. Your own `formatters` entry for `nim` always wins.
 ## C: ned's own engine
 
 C files get an IDE without installing anything: ned reads the file and the headers it includes, the way a person
-skimming them does, and answers from that — a few milliseconds the first time a file is opened, about a
-millisecond after.
+skimming them does, and answers from that — about 15 ms the first time a file is opened (with every header it
+includes), under a millisecond after.
 
 - **Completion**: locals, parameters, the file's and its headers' functions, types, macros and enum constants, and
-  **members after `.` and `->`** — through typedefs, pointers, arrays, casts and calls (`opts->`, `list.items[i].`,
-  `get(x)->`), each with its type and comment beside the list. After `goto`, the function's labels.
+  **members after `.` and `->`** — through typedefs, pointers, arrays, casts, calls and macros (`opts->`,
+  `list.items[i].`, `get(x)->`, `P_OPERAND(p)->`), and in designated initializers (`{ .x = 1, .`), each with its type
+  and comment beside the list. After `goto`, the function's labels; in `#include "` and `<`, the headers there.
 - **Hover**: the declaration on one line, where it is, and the comment that documents it (`/** … */`, `///` or `//`
   above it, `/**< … */` after it); a definition without a comment shows its prototype's from the header. A struct
   lists its fields.
 - **Go to definition (F12)** through `#include`s: the file's folder, the project's `include/`, `inc/`, `src/` and
   `lib/`, the `-I` folders of `compile_commands.json`, `C_INCLUDE_PATH` and `CPATH`, then the compiler's own. On a
-  function declared in a header, its body — in the project's other `.c` files too; on a definition's name, its
-  prototype, and back; on `goto x`, the label.
+  function or global declared in a header, its definition — in the project's other `.c` files too (a system
+  header's declaration stays); on a definition's name, its prototype, and back; on `goto x`, the label.
 - **References (Alt+Q) and rename (F2, with a preview)**: a local, parameter or label in its function, anything else
   across the project's C files — never inside strings or comments. A name declared outside the project (in the
   system's headers) is not renamed.
@@ -632,8 +633,10 @@ millisecond after.
 
 It does not run the preprocessor: every `#if` branch is read, except where the answer is known without one — `#if 0`,
 C++-only code (`#ifdef __cplusplus`, `extern "C++" { … }`) and the compiler's target (`__x86_64__`, `__linux__`,
-`_WIN32` … as `cc -dM -E` reports them). Macros are not expanded, so code built out of macros is understood less
-than clangd understands it, and C++ is left to clangd.
+`_WIN32` … as `cc -dM -E` reports them) —, and of branches that open a brace each (`#ifdef X  if (a) {  #else  if (b)
+{`) the first, as ctags does. Macros used as expressions are expanded for the types (`#define atime tv[0]`), as are
+export markers (`mod_export int x;`) and prototypes written through a macro (`int f _((int a));`); declarations a
+macro makes (`local_list1(foo);`) are not understood, and C++ is left to clangd.
 
 `c.engine` chooses: `auto` (the default: ned's engine when clangd is not installed, clangd when it is), `builtin`,
 `clangd`, or `both`. How it compares with clangd is measured in [tests/engine](tests/engine/README.md#c-ned-against-clangd).
