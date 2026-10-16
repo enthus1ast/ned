@@ -1,6 +1,30 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-64). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-65). Older releases:
+
+## What's new in 6.4
+
+**The Nim engine goes further** — still no nimsuggest, still a fraction of a millisecond per answer:
+- **Parameter names before arguments**: `draw(width: 10, height: 20, filled: true)` — before numbers, strings,
+  `true`/`false`/`nil` and literal collections, where a reader cannot tell what they mean (`nim.parameterHints`:
+  `literals`, `all` or `off`). Never for one-parameter routines, one-letter names, an argument that already is the
+  name, or named arguments.
+- **A generic routine's instance on hover**: hovering `biggest(3, 4)` shows what it is here —
+  `biggest(a: int, b: int): int   (T = int)`.
+- **More types known**: `let a = 1; let s = "x"` (statements after `;`), `Box[string](val: x)`, `Box[int]()` and
+  `Box(val: "x")` (a generic object built without its arguments: the field values tell), `if c:value` written without
+  a space, `not(…)`; after a `.` on a value whose type is a **concept** (`x: Shape`, `[T: Shape]`), what the
+  concept asks of it comes first.
+- **Organize imports** (*Nim › Refactor*, palette): the imports the compiler found unused go, the rest are sorted —
+  the standard library in one `import std/[…]`, then packages, then the project's own modules.
+- **An import from your own project**: Alt+Enter on an undeclared name offers to import the project's module that
+  exports it (`import ./extra`), next to the standard library's.
+- F12 on a name inside `defined(…)` explains the define.
+
+Measured against nimsuggest on the same 23 files as before, go to definition now agrees 95.5% (was 94.7%), type hints
+94%, variables' types 91%, member completion 90.5% (nimsuggest 74%). The first question in a file whose imports
+pull in a hundred modules takes 0.05–0.15 s (the compiler's own `semexprs.nim`: 0.15 s), every later one 0.1–0.3 ms —
+fast enough that a cache on disk would only add something to go stale.
 
 ## What's new in 6.3
 

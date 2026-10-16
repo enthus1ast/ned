@@ -14,7 +14,7 @@ proc argIsLiteral(a: string): bool =
   t in ["true", "false", "nil"]
 
 proc engineParamHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, seq[(int, string)]], t0: MonoTime) =
-  ## the names of the parameters before the arguments of calls (nim.parameterHints): `draw(x: 10, y: 20)` —
+  ## the names of the parameters before the arguments of calls (nim.parameterHints): `draw(width: 10, height: 20)` —
   ## only before literals unless "all"; never for one-parameter routines, single-letter names, an argument that
   ## already is the name, named arguments, or varargs
   let all = cfgParamHints == "all"

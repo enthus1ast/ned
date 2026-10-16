@@ -100,6 +100,7 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("Toggle indent guides", "Indent guides", chk(cfgGuides)), mc("Toggle whitespace", "Whitespace", chk(cfgShowWs)),
         mc("View: toggle rulers", "Rulers" & (if cfgRulers.len > 0: " (" & rulerList() & ")" else: ""),
            chk(cfgRulers.len > 0 and not rulersHidden)),
+        mc("View: ligatures (off › font › symbols)", "Ligatures: " & cfgLigatures),
         mc("Toggle sticky scroll", "Sticky scroll", chk(cfgSticky)), mc("Toggle rainbow brackets", "Rainbow brackets", chk(cfgRainbow)),
         mc("Toggle inlay hints", "Inlay hints", chk(cfgInlayHints)), mc("Toggle auto hover", "Auto hover", chk(cfgAutoHover)),
         mc("Toggle auto-completion", "Auto completion", chk(cfgAutoComplete)), mc("Toggle code lens", "Run buttons (code lens)", chk(cfgCodeLens))]),

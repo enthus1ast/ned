@@ -1,4 +1,8 @@
-# ned's Nim engine against nimsuggest
+# ned's engines against nimsuggest and clangd
+
+[The C engine against clangd](#c-ned-against-clangd) is further down.
+
+## Nim: ned against nimsuggest
 
 The numbers in the README's *How good it is* come from here. `compare.py` asks ned's built-in engine and
 nimsuggest the same questions about one file and counts where they agree:
@@ -28,3 +32,40 @@ templates, and it crashes on some files (the count is in each report; it is star
 after small differences in how they are written are taken out: `system.int` is `int`, `lent string` is
 `string`, `array[0..1, T]` is `array[2, T]`, `tuple[a, b: int]` is `tuple[a: int, b: int]`, pragmas of proc
 types are left out.
+
+## C: ned against clangd
+
+`ccompare.py` asks ned's C engine (`cdriver.nim`, the engine as a program) and clangd the same questions about
+C files:
+
+1. **go to definition** at random identifiers — is ned's first answer the file and line of clangd's?
+2. **member completion** right after `->` and `.` — is the member written there offered?
+
+```sh
+nim c -d:release -o:/tmp/ned-cengine tests/engine/cdriver.nim
+cd ~/src/openssh && python3 ~/ned/tests/engine/ccompare.py /tmp/ned-cengine /tmp/out ssh.c sftp.c … --bg-index
+```
+
+For clangd to be at its best, the files' folder needs a `compile_commands.json` (`bear -- make`, or CMake's
+`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`); ned gets its `-I` folders, as the editor does. `--bg-index` lets clangd
+index the whole project first, so that it knows the bodies in the other `.c` files (ned looks them up when asked).
+Code the configuration leaves out (`#ifdef` branches not taken — clangd reports them) is not asked about: clangd
+has no answer there, only a guess by name.
+
+Last run (clangd 22, ned 6.5, `--n 40`):
+
+| | OpenSSH (18 files) | zsh (12 files) |
+|---|---|---|
+| go to definition: the same answer | DEF_O | DEF_Z |
+| member completion: ned · clangd | MEM_O | MEM_Z |
+| a file's first answer: ned · clangd | FIRST_O | FIRST_Z |
+| each answer after: ned · clangd | EACH_O | EACH_Z |
+| memory at the end: ned · clangd | RSS_O | RSS_Z |
+
+Where they differ, it is mostly what only the build's configuration decides: ned does not run the preprocessor,
+so of two `#ifdef` branches that declare the same name it takes the first (`#ifndef HAVE_STRUCT_ADDRINFO` and the
+system's own), and a name that is also a macro (`#define stdout stdout`) goes to the declaration, not the macro.
+Branches it does decide: `#if 0`, C++-only code (`__cplusplus`, `extern "C++"`), and the compiler's target
+(`__x86_64__`, `_WIN32` … from `cc -dM -E`). Branches that open or close a brace differently (`#ifdef X  if (a) {
+#else  if (b) {`) are read as the first, as ctags does. Declarations made by macros (`local_list1(foo);`) are not
+understood; macros used as expressions are (`#define atime tv[0]`, `P_OPERAND(p)->l`).

@@ -140,6 +140,17 @@ proc afterType(ch: int) =
   if p.col == 0: return
   # lexing a huge line on every key would make typing in it quadratic; such lines are data, not code
   let long = b.lines[p.line].len > 2000
+  if not long and cEngineOn(b) and b.lines[p.line].strip(trailing = false).startsWith("#include"):
+    # C: the headers there, in the quotes or <> of an #include, as the name is typed
+    let c = if ch < 128: char(ch) else: 'a'
+    if compOpen and compLine == p.line and isWordByte(c) and compFromLsp and compItems.len > 0 and
+       b.wordStart(p) == compStartCol:
+      refilterComp()
+    elif c in {'<', '"', '/', '.'} or isWordByte(c):
+      closeComp()
+      discard cEngComplete(b, p, false)
+    else: closeComp()
+    return
   let tk = if long: tkText else: b.tokenAt(Pos(line: p.line, col: p.col - 1))
   if tk in {tkString, tkPragma} and not long and b.lang.mode == lmNim and pragmaStringComplete(b, p, false): return
   if tk in {tkComment, tkDoc, tkString} or (not long and foreignAt(p.col - 1)):

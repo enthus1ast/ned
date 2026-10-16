@@ -137,6 +137,12 @@ proc initSettingDefs() =
   defS("Editor", "editor.showWhitespace", %false, "Show spaces and tabs")
   defS("Editor", "editor.stickyScroll", %true, "Keep the enclosing proc/type headers visible while scrolling")
   defS("Editor", "editor.rainbowBrackets", %true, "Colour brackets by nesting depth")
+  defS("Editor", "editor.fontLigatures", %"off",
+       "Ligatures for operators in code (->, =>, !=, <=, >=, :=). The terminal's font draws ligatures, not ned: font = " &
+       "each operator kept in one colour and style so a terminal with a ligature font (Kitty, WezTerm, iTerm2, " &
+       "Ghostty, Windows Terminal with Fira Code, JetBrains Mono, Cascadia Code …) joins it · symbols = ned draws " &
+       "them itself, in any terminal (Termux too): ─→ ═⇒ ≠ ≤ ≥ ≔ in the same columns, the real text on the line " &
+       "with the cursor · off", @["off", "font", "symbols"])
   defS("Editor", "editor.highlightOccurrences", %true, "Highlight other occurrences of the word under the cursor")
   defS("Editor", "editor.autoClosePairs", %true, "Type the closing bracket/quote automatically")
   defS("Editor", "editor.autoComplete", %true, "Show completions while typing (Ctrl+Space always works)")
@@ -260,8 +266,8 @@ proc initSettingDefs() =
        "C++) · both = ned's answers at once and clangd's errors and fixes · auto = clangd when it is installed, " &
        "else ned's own", @["auto", "builtin", "clangd", "both"])
   defS("Nim", "nim.parameterHints", %"literals", "Parameter names shown before the arguments of a call " &
-       "(built-in engine, with the inlay hints): literals = before numbers, strings, true/false/nil — draw(x: 10, " &
-       "y: 20) · all = before every argument · off", @["literals", "all", "off"])
+       "(built-in engine, with the inlay hints): literals = before numbers, strings, true/false/nil — draw(width: 10, " &
+       "height: 20) · all = before every argument · off", @["literals", "all", "off"])
   defS("Nim", "nim.cSignatureHints", %true, "After a wrapper that imports C (importc), its C declaration — dimmed, " &
        "from the header or the {.emit.} (int puts(const char *s))")
   defS("Nim", "nim.formatEmitC", %true, "Formatting a Nim file also formats the C in its {.emit: \"\"\"…\"\"\".} blocks: " &
@@ -617,6 +623,10 @@ proc applySettings() =
   cfgShowWs = sBool("editor.showWhitespace")
   cfgSticky = sBool("editor.stickyScroll")
   cfgRainbow = sBool("editor.rainbowBrackets")
+  block:
+    let v = sval("editor.fontLigatures")          # (true / false as in VS Code: font / off)
+    cfgLigatures = if v.kind == JBool: (if v.getBool: "font" else: "off")
+                   elif v.getStr in ["font", "symbols"]: v.getStr else: "off"
   cfgHighlightOcc = sBool("editor.highlightOccurrences")
   cfgAutoPairs = sBool("editor.autoClosePairs")
   cfgAutoComplete = sBool("editor.autoComplete")

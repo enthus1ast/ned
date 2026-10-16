@@ -21,12 +21,13 @@ library, and builds to one binary of about 8 MB.
 
 ## Contents
 
-- [What's new in 6.4](#whats-new-in-64) · [6.3](CHANGELOG.md#whats-new-in-63) · [older releases](CHANGELOG.md)
+- [What's new in 6.5](#whats-new-in-65) · [6.4](CHANGELOG.md#whats-new-in-64) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
 - [Key bindings](#key-bindings)
 - [Nim IDE: the built-in engine](#nim-ide-the-built-in-engine)
+- [C: ned's own engine](#c-neds-own-engine)
 - [AI assistant](#ai-assistant)
 - [Search and replace](#search-and-replace)
 - [Safety: how ned protects your work](#safety-how-ned-protects-your-work)
@@ -39,32 +40,43 @@ library, and builds to one binary of about 8 MB.
 
 ---
 
-## What's new in 6.4
+## What's new in 6.5
 
-**The Nim engine goes further** — still no nimsuggest, still a fraction of a millisecond per answer:
-- **Parameter names before arguments**: `draw(x: 10, y: 20, filled: true)` — before numbers, strings,
-  `true`/`false`/`nil` and literal collections, where a reader cannot tell what they mean (`nim.parameterHints`:
-  `literals`, `all` or `off`). Never for one-parameter routines, one-letter names, an argument that already is the
-  name, or named arguments.
-- **A generic routine's instance on hover**: hovering `biggest(3, 4)` shows what it is here —
-  `biggest(a: int, b: int): int   (T = int)`.
-- **More types known**: `let a = 1; let s = "x"` (statements after `;`), `Box[string](val: x)`, `Box[int]()` and
-  `Box(val: "x")` (a generic object built without its arguments: the field values tell), `if c:value` written without
-  a space, `not(…)`; after a `.` on a value whose type is a **concept** (`x: Shape`, `[T: Shape]`), what the
-  concept asks of it comes first.
-- **Organize imports** (*Nim › Refactor*, palette): the imports the compiler found unused go, the rest are sorted —
-  the standard library in one `import std/[…]`, then packages, then the project's own modules.
-- **An import from your own project**: Alt+Enter on an undeclared name offers to import the project's module that
-  exports it (`import ./extra`), next to the standard library's.
-- F12 on a name inside `defined(…)` explains the define.
+![ned's own C engine: the members after `.` with each field's comment from the header](screenshots/c-engine-65.png)
 
-Measured against nimsuggest on the same 23 files as before, go to definition now agrees 95.5% (was 94.7%), type hints
-94%, variables' types 91%, member completion 90.5% (nimsuggest 74%). The first question in a file whose imports
-pull in a hundred modules takes 0.05–0.15 s (the compiler's own `semexprs.nim`: 0.15 s), every later one 0.1–0.3 ms —
-fast enough that a cache on disk would only add something to go stale.
+**C without clangd.** ned has its own C engine now — nothing to install (`c.engine`: `auto` uses it when clangd is
+not installed; `builtin`, `clangd` or `both`):
+- **Members after `.` and `->`** through typedefs, pointers, arrays, casts, calls and macros (`#define atime tv[0]`,
+  `P_OPERAND(p)->`), and in designated initializers (`{ .x = 1, .`) — each with its type and comment.
+- **Hover** with the comment that documents a declaration — above it, or after it on its line; a definition
+  without one shows its prototype's from the header.
+- **F12 through `#include`s**: a function declared in a header goes to its body, in the project's other `.c` files
+  too; a definition's name to its prototype and back; `goto x` to the label. `#include "` and `<` complete the
+  headers there.
+- **References and rename** (with a preview — a local in its function, the rest across the project's C files),
+  **signature help**, the **outline**, symbols in the file.
+- **The C compiler's errors while you type**, on the unsaved text (a private copy, removed after), and **Alt+Enter
+  adds a missing `#include`** for a standard function, type or macro (`printf` → `<stdio.h>`).
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and
-gave the formatter your settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look,
+Measured against clangd 22 — with a `compile_commands.json` and its background index, at its best — on OpenSSH and
+zsh ([tests/engine](tests/engine/README.md#c-ned-against-clangd)): go to definition gives the same answer DEF_BOTH,
+member completion offers the member written there MEM_BOTH; ned reads a file and every header it includes in
+FIRST_NED where clangd takes FIRST_CLANGD, and uses RSS_NED of memory to clangd's RSS_CLANGD. clangd stays the more
+precise where only the build's configuration decides (`#ifdef HAVE_…`), for declarations made by macros, and for
+C++: with clangd installed, `auto` uses it.
+
+![editor.fontLigatures: symbols — ≥ ≤ ≠ and the arrows drawn by ned, the cursor's line as written](screenshots/ligatures-65.png)
+
+**Ligatures** (`editor.fontLigatures`, *View › Editor › Ligatures*): `font` keeps each operator in one colour and
+style, so a terminal with a ligature font (Kitty, WezTerm, iTerm2, Ghostty, Windows Terminal) joins it; `symbols`
+has ned draw them itself, in any terminal — Termux too: `─→ ═⇒ ≠ ≤ ≥ ≔` in the same columns, never in strings or
+comments, and the line with the cursor shows what is really there.
+
+Also: after a rename's preview, ned goes back to the file the rename started in (not the tab beside the preview).
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine
+further (parameter names, a generic's instance, organize imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C
+from Nim and gave the formatter your settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look,
 [6.1](CHANGELOG.md#whats-new-in-61) smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project
 with its tests.
 
@@ -89,7 +101,8 @@ completion, auto-pairs, smart indentation, soft wrap, split editor, bookmarks, r
 case transforms, line-ending and indentation conversion, format on save (built in for Nim, JSON, Markdown and
 CSS; a whole project at once),
 rulers at the columns you choose (long lines tinted), colour swatches, `.editorconfig` support, spell check,
-CSV and TSV files as tables (columns lined up, sort by a column, a column's sum and mean), large-file mode, a 3-pane merge editor, keyboard macros, vim, Emacs and Helix key bindings.
+CSV and TSV files as tables (columns lined up, sort by a column, a column's sum and mean), large-file mode, a 3-pane merge editor, keyboard macros, vim, Emacs and Helix key bindings, operator ligatures
+(`editor.fontLigatures`: drawn by ned in any terminal — `─→ ═⇒ ≠ ≤ ≥` — or kept whole for a ligature font).
 
 **Languages** — syntax highlighting for Nim, C, C++, JS/TS, Rust, Go, Python, Kotlin, C#, PHP, SQL, Java, Lua,
 Ruby, shell, Markdown, JSON, YAML, TOML, HTML, CSS, Makefiles, diffs, Nim templates (`.nimf`) and more — and your
@@ -112,6 +125,10 @@ debugging in the terminal (logpoints, stops when a value changes), a profiler th
 share of the time beside it, quick fixes from the compiler's messages, AI fixes checked by `nim check`, REPL (Shift+Enter sends code to inim), docs lookup, run configurations, what a
 proc can raise, benchmarks, nimble releases and newer dependency versions, testament, runnableExamples with a ▶,
 type mismatches explained argument by argument.
+
+**C** — ned's own C engine, no clangd needed: completion (struct members after `.` and `->` too), hover with the
+comment that documents a declaration, go to definition through `#include`s, references, rename, signature help, the
+outline, the C compiler's errors while you type and a missing `#include` added; clangd when you prefer it.
 
 **Integrated terminal** — a real pty with an xterm-compatible emulator: vim, htop, less, git, ssh all work;
 several terminals (two side by side), scrollback, mouse, selection and copy; with bash, zsh and fish every command
@@ -226,6 +243,8 @@ pseudo-terminal, and attaches the binaries to the release when you push a tag su
 | `nimlangserver` | only if you choose it (`"nim.ide": "nimlangserver"`) instead of the built-in engine |
 | `nph`, `nimpretty` | only if you choose one (`"nim.formatter"`) instead of the built-in formatter |
 | `inim` | Nim REPL (palette › Nim: REPL) — falls back to `nim secret` |
+| `clangd` | C and C++ language server — for C, ned's own engine answers when it is not installed (`c.engine`) |
+| `cc` (gcc or clang) | C errors while you type, the C in `{.emit}` checked, what the system's headers declare |
 | `rg` (ripgrep) | fast project search (falls back to grep, then to a built-in search) |
 | `git` | git dock, gutter marks, blame, timeline |
 | `curl` | the AI assistant |
@@ -390,7 +409,7 @@ aliases (`Vec2 = GVec2[float32]`, so `v.x` is a `float32`). It also handles:
 
 **Type hints.** A `let`, `var` or `const` written without a type shows it after its name, in grey:
 `let n: int = parseInt(s)`. The engine works them out for the lines on screen as you scroll and edit. Calls show
-their parameters' names before literal arguments — `draw(x: 10, y: 20, filled: true)` (`nim.parameterHints`:
+their parameters' names before literal arguments — `draw(width: 10, height: 20, filled: true)` (`nim.parameterHints`:
 `literals`, `all` or `off`).
 `"nim.typeHints": "nimsuggest"` asks nimsuggest instead (when it is turned on); `"editor.inlayHints": false` turns them off.
 
@@ -586,6 +605,39 @@ in the palette. Your own `formatters` entry for `nim` always wins.
   build modes (debug / release / danger), backends (C, C++, JS, ObjC), Nimony.
 - Test explorer (Tests dock) for `std/unittest` suites, with ▶ buttons in the gutter.
 
+## C: ned's own engine
+
+C files get an IDE without installing anything: ned reads the file and the headers it includes, the way a person
+skimming them does, and answers from that — a few milliseconds the first time a file is opened, about a
+millisecond after.
+
+- **Completion**: locals, parameters, the file's and its headers' functions, types, macros and enum constants, and
+  **members after `.` and `->`** — through typedefs, pointers, arrays, casts and calls (`opts->`, `list.items[i].`,
+  `get(x)->`), each with its type and comment beside the list. After `goto`, the function's labels.
+- **Hover**: the declaration on one line, where it is, and the comment that documents it (`/** … */`, `///` or `//`
+  above it, `/**< … */` after it); a definition without a comment shows its prototype's from the header. A struct
+  lists its fields.
+- **Go to definition (F12)** through `#include`s: the file's folder, the project's `include/`, `inc/`, `src/` and
+  `lib/`, the `-I` folders of `compile_commands.json`, `C_INCLUDE_PATH` and `CPATH`, then the compiler's own. On a
+  function declared in a header, its body — in the project's other `.c` files too; on a definition's name, its
+  prototype, and back; on `goto x`, the label.
+- **References (Alt+Q) and rename (F2, with a preview)**: a local, parameter or label in its function, anything else
+  across the project's C files — never inside strings or comments. A name declared outside the project (in the
+  system's headers) is not renamed.
+- **Signature help** on `(` and `,` with the parameter being typed marked; the **outline** with each struct's fields;
+  symbols in the file (Ctrl+T).
+- **Errors while you type**: the C compiler (`cc -fsyntax-only`) checks the unsaved text — a private copy, removed
+  after — with `compile_commands.json`'s `-D`s; **Alt+Enter adds a missing `#include`** for a standard function,
+  type or macro (`printf` → `<stdio.h>`, `size_t` → `<stddef.h>`).
+
+It does not run the preprocessor: every `#if` branch is read, except where the answer is known without one — `#if 0`,
+C++-only code (`#ifdef __cplusplus`, `extern "C++" { … }`) and the compiler's target (`__x86_64__`, `__linux__`,
+`_WIN32` … as `cc -dM -E` reports them). Macros are not expanded, so code built out of macros is understood less
+than clangd understands it, and C++ is left to clangd.
+
+`c.engine` chooses: `auto` (the default: ned's engine when clangd is not installed, clangd when it is), `builtin`,
+`clangd`, or `both`. How it compares with clangd is measured in [tests/engine](tests/engine/README.md#c-ned-against-clangd).
+
 ## AI assistant
 
 Set a key in your shell (e.g. `~/.bashrc`) and restart ned:
@@ -685,6 +737,7 @@ A few examples:
   "ui.italics": false,
   "editor.tabSize": 2,
   "editor.rulers": [80],
+  "editor.fontLigatures": "symbols",
   "editor.formatOnSave": true,
   "editor.vimMode": false,
   "editor.completionDocs": true,
@@ -716,7 +769,7 @@ back to its default after asking. Your old file stays next to it as `config.json
 
 Setting groups: Appearance (`theme`, `ui.*`), Editor (`editor.*`), Zen (`zen.*`), Vim (`vim.*`), Files
 (`files.*`), Search (`search.*`), Terminal (`terminal.*`), Git (`git.*`), Nim (`nim.*`, including every
-nimlangserver option), AI (`ai.*`), Languages (`lsp`, `formatters`, `run`, `snippets`) and `keys`.
+nimlangserver option), C (`c.*`), AI (`ai.*`), Languages (`lsp`, `formatters`, `run`, `snippets`) and `keys`.
 
 ## Vim mode and zen mode
 

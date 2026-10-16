@@ -3,7 +3,7 @@
 palette commands and resizes at it. Reports crashes (non-zero exit), hangs and logged internal errors.
 
   NEDBIN=./ned_debug python3 tests/fuzz/fuzz.py [SEED [SECONDS [MODE]]]
-  MODE: mixed · vim · helix · emacs · palette · refactor · ai · git · fixes · emit · strings · ws · term · a11y …
+  MODE: mixed · vim · helix · emacs · palette · refactor · ai · git · fixes · c · emit · strings · ws · term · a11y …
 
 It works in a scratch home of its own (NED_FUZZ_HOME, default /tmp/ned-fuzz-UID): ned's settings, state and
 a copy of the test project live there. Random palette commands can run tasks, git and shell commands in that
@@ -153,10 +153,13 @@ proc total(xs: seq[int]): int =
     sum += x
   sum
 """)
+    # C for ned's own engine, with ligatures drawn (mode "c")
+    open(PROJ + '/cmain.c', 'w').write(C_MAIN)
     os.makedirs(HOME + '/.config/ned', exist_ok=True)
     cfg = {"terminal.shell": "/bin/cat", "ai.provider": "custom", "ai.baseUrl": "http://127.0.0.1:8765/v1",
            "ai.model": "gpt-6", "ai.apiKey": "x"}
     if MODE == 'vim': cfg["editor.vimMode"] = True
+    if MODE == 'c': cfg.update({"c.engine": "builtin", "editor.fontLigatures": rnd.choice(["symbols", "font"])})
     if MODE == 'term': cfg["terminal.shell"] = "/bin/bash"
     if MODE == 'ai': cfg["ai.autoApprove"] = rnd.choice(["edits", "reads", "all"])
     if MODE == 'nimsuggest': cfg["nim.ide"] = "nimsuggest"
@@ -177,7 +180,7 @@ def start():
     script = HOME + '/run.sh'
     with open(script, 'w') as f:
         f.write(('#!/bin/bash\nexport HOME=%s PATH=' + (NIM_BIN + ':' if NIM_BIN else '') + os.environ.get('PATH', '/usr/bin:/bin') + ' TERM=xterm-256color COLORTERM=truecolor\n'
-                 'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
+                 'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
     os.chmod(script, 0o755); own(script)
     tm('-f ' + TESTS + '/ui/tmux.conf new-session -d -s fz -x %d -y %d %s' % (w, h, script))
     time.sleep(1.5)
@@ -216,8 +219,61 @@ ENGINE = ['p.', 'p.name.', '"x".', 'greet(', 'shout("a", ', 'import std/[os, str
           '\x1bh', '\x1b.', '\x1bq', '\x1b[12~', '\x1bOQ', '\x00', '\x14', '\x1b[1;5A', '\x1b[1;5B', '\x1b,',
           '\r  let t = initTable[string, int]()\r  t.', '\r  for i, (a, b) in @[(1, 2)]:\r    a.', 'echo some(3).',
           '\x1bf', 'q.', '\x0b', '\x1b[A', '\x1b[B', '\t', '\r']
+C_MAIN = '''#include <stdio.h>
+#include <string.h>
+#include "mathx.h"
+
+/** A node of a list. */
+struct node {
+    struct node *next;
+    int value;       /**< what it holds */
+    union { int i; float f; } u;
+};
+
+typedef struct { int x, y; } Pt;
+
+static const struct { const char *name; int v; } table[] = { { "a", 1 }, { "b", 2 } };
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int walk(struct node *head, Pt *p)
+{
+    int n = 0;
+#ifdef FAST
+    while (head) {
+#else
+    while (head != NULL) {
+#endif
+        n += head->value;
+        head = head->next;
+    }
+    if (n < 0) goto out;
+    p->x = n >= 0 ? n : -n;
+    return n;
+out:
+    return -1;
+}
+
+#ifdef __cplusplus
+}
+#endif
+
+int main(int argc, char **argv)
+{
+    struct node a = { .next = NULL, .value = 1 };
+    Pt q = { .x = 1, .y = 2 };
+    printf("%d %s\\n", walk(&a, &q), table[0].name);
+    return argc > 1 && strcmp(argv[1], "x") != 0;
+}
+'''
+C_TOKS = ['head->', 'a.', 'a.u.', 'q.', 'p->', 'table[0].', '{ .', '#include "', '#include <st', '#include <sys/',
+          'goto ', 'walk(', 'printf(', 'struct node *m = ', '->', '!=', '<=', '>=', '=>', ':=', '\x1b[24~', '\x1bOQ',
+          '\x1bh', '\x1bq', '\x1b\r', '\x00', '\x14', '\x1b,', '\x13', '\x1a', '\x0b', '\r', '\t', '\x07']
 def token():
     if MODE == 'engine' and rnd.random() < 0.4: return rnd.choice(ENGINE)
+    if MODE == 'c' and rnd.random() < 0.4: return rnd.choice(C_TOKS)
     if MODE == 'term' and rnd.random() < 0.3:
         # the terminal with shell integration: commands, their marks, menus, split terminals; macros
         return rnd.choice(['\x1c', '\x1b[1;5A', '\x1b[1;5B', '\x1b\r', '\x1b[5;5~', '\x1b[6;5~', 'echo hi\r', 'false\r',
@@ -273,7 +329,7 @@ def token():
         seq = '\x07' + str(rnd.randint(1, 42)) + '\r' + ESC + '\r'
         seq += ESC + '[B' * rnd.randint(0, 6)
         return seq + rnd.choice(['\r', '\r', '\r', ESC, 'Fix all\r', 'Convert\r', 'AI\r'])
-    if MODE in ('palette', 'vim', 'nimsuggest', 'nls', 'helix', 'emacs', 'a11y', 'emit', 'strings', 'fixes', 'ws', 'term', 'refactor', 'ai', 'git') and rnd.random() < 0.06:
+    if MODE in ('palette', 'vim', 'nimsuggest', 'nls', 'helix', 'emacs', 'a11y', 'emit', 'strings', 'fixes', 'c', 'ws', 'term', 'refactor', 'ai', 'git') and rnd.random() < 0.06:
         c = rnd.choice(CMDS)
         return '\x10' + '>' + c + '\r'
     r = rnd.random()

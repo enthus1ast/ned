@@ -301,7 +301,7 @@ proc mainLoop() =
         if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb): typingCheck(cb)
         else: cb.chkAt = -1
       elif cfgLiveCheck and (cb.dirty or cb.chkAt > 0) and cb.chkAt != cb.changeId and msSince(cb.lspChangeAt) > 1200 and
-         cb.path notin typingChecks:
+         cb.path notin typingChecks and not cEngineOn(cb):           # (C: below)
         if typingCheckUsable(cb): typingCheck(cb)           # the compiler, on the unsaved text
         elif nsUsable(cb):
           cb.chkAt = cb.changeId
