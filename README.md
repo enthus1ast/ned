@@ -40,7 +40,7 @@ library, and builds to one binary of about 8 MB.
 
 ## What's new in 6.0
 
-**ned is a project now, not one file.** The 53 000 lines of `ned.nim` are about 210 files in `src/`, one subject
+**ned is a project now, not one file.** The 53 000 lines of `ned.nim` are about 215 files in `src/`, one subject
 each — the file tree, the menus, the find widget, the Nim index's type inference, the clangd bridge, the
 assistant's MCP client — grouped in folders (`core`, `editor`, `ui`, `nim`, `lsp`, `ai`, `git`, `term`, `debug`,
 `c`, `format` …; [the layout](#the-source)). Finding your way around, or sending a patch, is easier.
@@ -759,7 +759,7 @@ notes); CI checks those numbers on every push.
 
 ### The source
 
-ned is one program in about 210 files, standard library only:
+ned is one program in about 215 files, standard library only:
 
 ```
 src/ned.nim            the program: the parts below, in the order they build on each other

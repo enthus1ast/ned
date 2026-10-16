@@ -12,3 +12,5 @@ nimcache/
 tests/engine/ned-engine
 # tests/build/cross.sh
 /build/
+# python
+__pycache__/

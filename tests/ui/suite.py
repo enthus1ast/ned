@@ -3296,9 +3296,10 @@ def t_512_c_interop():
     if which('c2nim'): check('512 the wrapper has the procs, importc and header', 'proc mx_add*' in out and 'header: "mathx.h"' in out, out[:300])
     # without c2nim or futhark: an offer to install
     prep()
-    start('wrap.nim', w=150, h=40, path=TOOLS + ':/usr/bin:/bin')
+    start('wrap.nim', w=150, h=40, path=no_nim_dir() + ':/usr/bin:/bin')     # (nim, and no c2nim or futhark)
     palette('Nim: wrap a C header'); time.sleep(0.8); text('mathx.h'); time.sleep(0.4); keys('Enter'); time.sleep(3)
-    check('512 no c2nim: an offer to install it', 'Install c2nim' in screen(), screen())
+    if not any(os.path.exists(d + '/' + x) for d in ['/usr/bin', '/bin'] for x in ['c2nim', 'futhark']):
+        check('512 no c2nim: an offer to install it', 'Install c2nim' in screen(), screen())
     keys('Escape')
     # the setting turns the check off
     prep({"nim.checkWrappers": False})
