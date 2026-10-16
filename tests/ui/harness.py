@@ -75,6 +75,35 @@ def wait_for(pat, t=8.0):
         if re.search(pat, s): return True
         time.sleep(0.2)
     return False
+def screen_ansi():
+    """the screen with its colours (SGR escapes)"""
+    return tm('capture-pane', '-t', 'f', '-p', '-e').stdout
+
+def fg_at(row, word, nth=0):
+    """the 24-bit foreground colour (r, g, b strings) where the nth `word` starts on an ANSI row, or None"""
+    plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)
+    k = -1
+    for _ in range(nth + 1):
+        k = plain.find(word, k + 1)
+        if k < 0: return None
+    fg, col, i = None, 0, 0
+    while i < len(row):
+        m = re.match(r'\x1b\[([0-9;:]*)m', row[i:])
+        if m:
+            ps = m.group(1).split(';')
+            j = 0
+            while j < len(ps):
+                if ps[j] == '38' and j + 4 < len(ps) and ps[j + 1] == '2':
+                    fg = tuple(ps[j + 2:j + 5]); j += 5
+                elif ps[j] in ('0', '39', ''):
+                    fg = None; j += 1
+                elif ps[j] in ('48', '58') and j + 4 < len(ps) and ps[j + 1] == '2':
+                    j += 5
+                else: j += 1
+            i += m.end(); continue
+        if col == k: return fg
+        col += 1; i += 1
+    return None
 def palette(cmd):
     keys('Escape'); time.sleep(0.2); keys('C-p'); text('>' + cmd); time.sleep(0.4); keys('Enter'); time.sleep(0.4)
 
