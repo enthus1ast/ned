@@ -855,7 +855,7 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
     # for a value that goes on in the lines below)
     let fl2 = nxFlat(s)
     let colon = fl2.find(":")
-    if colon > 0 and colon + 1 < s.len and s[colon + 1] == ' ':
+    if colon > 0 and colon + 1 < s.len and s[colon + 1 .. ^1].strip.len > 0:     # (if a:b too)
       var e = s.len
       for stop in [" elif ", " else:", " except", " …", " finally:"]:
         let k = fl2.find(stop, colon)
@@ -876,7 +876,7 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
   let fl = nxFlat(s)
   for op in [" == ", " != ", " <= ", " >= ", " < ", " > ", " not ", " in ", " notin ", " is ", " isnot ", " of "]:
     if op in fl: return NxVal(typ: "bool")
-  if fl.startsWith("not "): return NxVal(typ: "bool")
+  if fl.startsWith("not ") or fl.startsWith("not("): return NxVal(typ: "bool")
   for op in [" and ", " or ", " xor "]:
     let k = fl.find(op)
     if k > 0:
@@ -1156,7 +1156,28 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
       let ce = nxMatchClose(s, i)
       if ce < 0: return NxVal()
       if v.typeName.len > 0:
-        v = NxVal(typ: v.typeName)             # Foo(...) builds a Foo (or converts to it)
+        var tn = v.typeName                    # Foo(...) builds a Foo (or converts to it)
+        if '[' notin tn:
+          # a generic object built without its arguments: Box(val: "x") is a Box[string]
+          for r in nxTypeSyms(sc, tn):
+            let names = nxGenericNames(r.sym.generics)
+            if names.len == 0: break
+            var binds: Table[string, string]
+            for a in nxSplitTop(s[i + 1 ..< ce], {','}):
+              let col = nxFindTop(a, ':')
+              if col <= 0: continue
+              let fname = a[0 ..< col].strip
+              for fr in nxFields(sc, tn):
+                if nxNorm(fr.sym.name) == nxNorm(fname):
+                  let at = nxTypeOfExpr(f, sc, locals, a[col + 1 .. ^1].strip, line, depth + 1).typ
+                  if at.len > 0: nxUnify(fr.sym.typ, at, names, binds)
+                  break
+            var args: seq[string]
+            for nm in names:
+              if nm in binds: args.add binds[nm]
+            if args.len == names.len: tn = tn & "[" & args.join(", ") & "]"
+            break
+        v = NxVal(typ: tn)
       elif v.routine.len > 0:
         var recv = recvForCall
         let argText = s[i + 1 ..< ce]
@@ -1208,7 +1229,8 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
       if v.routine.len > 0:
         genArgs.setLen(0)                      # explicit generic arguments: newSeq[int]()
         for a in nxSplitTop(s[i + 1 ..< ce], {','}): genArgs.add a.strip
-      elif v.typeName.len > 0: discard         # Foo[int](…)
+      elif v.typeName.len > 0:                 # Foo[int](…): a Foo[int]
+        if '[' notin v.typeName: v = NxVal(typeName: v.typeName & "[" & s[i + 1 ..< ce].strip & "]")
       else:
         let inner = s[i + 1 ..< ce].strip
         let tt = nxTupleTypes(v.typ)

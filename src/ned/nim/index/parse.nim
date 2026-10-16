@@ -533,7 +533,14 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
         let r = rest.strip
         if r.len == 0: stack.add NxFrame(ind: ind, kind: bkVarSec, sym: -1, secKind: kk, memberInd: -1)
         else:
-          varMember(r, kk)
+          # (let a = 1; let b = "x" — statements after `;` on the same line)
+          let parts = if ';' in r: nxSplitTop(r, {';'}) else: @[r]
+          varMember(parts[0], kk)
+          for pk in 1 ..< parts.len:
+            let p2 = parts[pk].strip
+            for kw2 in ["let ", "var ", "const "]:
+              if p2.startsWith(kw2):
+                varMember(p2[kw2.len .. ^1].strip, (if kw2 == "const ": nxConst elif kw2 == "let ": nxLet else: nxVar))
           if opensBlock: stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
       elif w0 in ["when", "elif", "else"] and opensBlock:
         whenBranch(bkTransparent)

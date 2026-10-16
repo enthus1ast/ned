@@ -21,7 +21,7 @@ library, and builds to one binary of about 8 MB.
 
 ## Contents
 
-- [What's new in 6.3](#whats-new-in-63) · [6.2](CHANGELOG.md#whats-new-in-62) · [older releases](CHANGELOG.md)
+- [What's new in 6.4](#whats-new-in-64) · [6.3](CHANGELOG.md#whats-new-in-63) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -39,54 +39,34 @@ library, and builds to one binary of about 8 MB.
 
 ---
 
-## What's new in 6.3
+## What's new in 6.4
 
-![A Nim wrapper of C: the C declaration dimmed after each importc proc, and the hover with the C documentation from the header](screenshots/c-docs-63.png)
+**The Nim engine goes further** — still no nimsuggest, still a fraction of a millisecond per answer:
+- **Parameter names before arguments**: `draw(x: 10, y: 20, filled: true)` — before numbers, strings,
+  `true`/`false`/`nil` and literal collections, where a reader cannot tell what they mean (`nim.parameterHints`:
+  `literals`, `all` or `off`). Never for one-parameter routines, one-letter names, an argument that already is the
+  name, or named arguments.
+- **A generic routine's instance on hover**: hovering `biggest(3, 4)` shows what it is here —
+  `biggest(a: int, b: int): int   (T = int)`.
+- **More types known**: `let a = 1; let s = "x"` (statements after `;`), `Box[string](val: x)`, `Box[int]()` and
+  `Box(val: "x")` (a generic object built without its arguments: the field values tell), `if c:value` written without
+  a space, `not(…)`; after a `.` on a value whose type is a **concept** (`x: Shape`, `[T: Shape]`), what the
+  concept asks of it comes first.
+- **Organize imports** (*Nim › Refactor*, palette): the imports the compiler found unused go, the rest are sorted —
+  the standard library in one `import std/[…]`, then packages, then the project's own modules.
+- **An import from your own project**: Alt+Enter on an undeclared name offers to import the project's module that
+  exports it (`import ./extra`), next to the standard library's.
+- F12 on a name inside `defined(…)` explains the define.
 
-**C from Nim, explained.** A proc that imports C now tells you what it imports:
-- **The C documentation in the hover and in completion**: the declaration from the header (or the `{.emit.}`), short
-  and readable — `char *getenv(const char *name)` — with the comment written above it in the header. The standard
-  library's procs that come from C (`posix`, `c_printf` …) get theirs from your system's headers.
-- **The C signature beside each wrapper**, dimmed (`nim.cSignatureHints`): a wrong type stands out at once.
-- **`header: "…"` and `importc: "…"` have colours of their own**: the hover on a header tells where it is, what it
-  says it is and how much it declares; F12 opens it. On `importc: "…"`, the C declaration.
-- **A wrapper written from C**: Alt+Enter on an importc proc › *Rewrite this wrapper from its C declaration* — the
-  parameters and result in the Nim types C asks for (`size_t` → `csize_t`, `char *` → `cstring`), the pragmas kept.
-- **A new wrapper completed**: type `proc ` and part of a C name in a file that uses headers — the functions not
-  wrapped yet are offered, and accepting one writes the whole wrapper.
+Measured against nimsuggest on the same 23 files as before, go to definition now agrees 95.5% (was 94.7%), type hints
+94%, variables' types 91%, member completion 90.5% (nimsuggest 74%). The first question in a file whose imports
+pull in a hundred modules takes 0.05–0.15 s (the compiler's own `semexprs.nim`: 0.15 s), every later one 0.1–0.3 ms —
+fast enough that a cache on disk would only add something to go stale.
 
-**The formatter, your way** (new settings; the layout ones start out as nph does):
-- `nim.format.lineLength` (88), and how lists are laid out — `nim.format.params`, `nim.format.arguments` and
-  `nim.format.collections`: `fit` (as nph), `onePerLine` (one per line when too long), `always` (one per line when
-  there are two or more) or `keep` (your line breaks).
-- `nim.format.imports`: `sort`, or `merge` — `std/os` and `std/strutils` become `std/[os, strutils]`.
-- `nim.format.align` lines up an object's field types and the `=` of const/let/var sections;
-  `nim.format.reflowDocComments` re-wraps long `##` paragraphs; `nim.format.maxBlankLines` keeps up to 3.
-- **The C in `{.emit.}` is formatted with the Nim around it** (`nim.formatEmitC`): with clang-format and your
-  `.clang-format` when installed, else with ned's own C formatter — which also formats `.c` files when there is no
-  clang-format (indentation and spaces; your line breaks stay; it checks its result like the Nim one).
-- **Pasted code takes the indentation of where it goes** (`editor.formatOnPaste`: `indent`, `format` — the Nim
-  formatted too — or `off`). At column 0 a paste stays exactly as copied.
-
-**Git for new folders and other people's projects.** *File › Clone from a link…* (and on the Welcome screen: `g`)
-takes any link as it is copied — GitHub, GitLab, Codeberg, a `/tree/branch` link, `user/repo`, ssh — offers
-*Latest version only*, opens the README, and offers `nimble install --depsOnly` for a Nim project; a link with a
-password or token in it is refused. *Initialize a repository here* is in the Git dock, the File tree's menu and
-the palette (it asks first inside another repository), a new Nim project gets its first commit, and git asks your
-name and email once when it does not know them.
-
-**Eight new themes**, ned's own, every colour checked for contrast (`tests/themes/contrast.py`): `frankincense`,
-`desert-dusk`, `lagoon`, `sea-glass`, `paper-ink`, `rose-quartz`, and two old terminals, `amber-crt` and
-`green-phosphor` (Alt+T).
-
-![The eight new themes](screenshots/themes-63.png)
-
-And: TODO and NOTE marks on the scrollbar (and errors) move with their code as you type; CONTRIBUTING.md,
-SECURITY.md and issue templates for working on ned in the open.
-
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.2](CHANGELOG.md#whats-new-in-62) gave ned a calmer,
-desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) made the colours smarter and the engine more accurate,
-[6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and
+gave the formatter your settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look,
+[6.1](CHANGELOG.md#whats-new-in-61) smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project
+with its tests.
 
 ## Features
 
@@ -404,10 +384,14 @@ aliases (`Vec2 = GVec2[float32]`, so `v.x` is a `float32`). It also handles:
 - routines inside routines, an async proc's `result` (what its Future holds), a macro's `untyped` arguments
   (`NimNode`s);
 - what a template of the file declares (`genVecConstructor(vec, Vec, float32)` makes `vec2`, `vec3` …);
-- block scoping: a `let` in one `of` branch is not seen in the next.
+- block scoping: a `let` in one `of` branch is not seen in the next;
+- generic objects built with or without their arguments (`Box[int]()`, `Box(val: "x")` is a `Box[string]`), a
+  generic routine's instance on hover (`T = int`), what a concept asks of a value of its type, statements after `;`.
 
 **Type hints.** A `let`, `var` or `const` written without a type shows it after its name, in grey:
-`let n: int = parseInt(s)`. The engine works them out for the lines on screen as you scroll and edit.
+`let n: int = parseInt(s)`. The engine works them out for the lines on screen as you scroll and edit. Calls show
+their parameters' names before literal arguments — `draw(x: 10, y: 20, filled: true)` (`nim.parameterHints`:
+`literals`, `all` or `off`).
 `"nim.typeHints": "nimsuggest"` asks nimsuggest instead (when it is turned on); `"editor.inlayHints": false` turns them off.
 
 **What completion offers:**
@@ -422,10 +406,10 @@ nimble packages and the compiler (see [What's new in 5.25](CHANGELOG.md#whats-ne
 
 | | ned's engine | nimsuggest |
 |---|---|---|
-| type hints: the same as nimsuggest's | 93% | — |
-| go to definition: the same place | 95% | — |
+| type hints: the same as nimsuggest's | 94% | — |
+| go to definition: the same place | 95.5% | — |
 | a variable's type: the same | 91% | — |
-| member completion: the member written there is offered | 90% | 74% |
+| member completion: the member written there is offered | 90.5% | 74% |
 | time for one question | 0.6 ms | 250 ms |
 
 The differences are mostly places where both answers are defensible (a proc's forward declaration versus its

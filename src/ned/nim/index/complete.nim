@@ -265,6 +265,51 @@ proc nxJoinBack(lines: seq[string], line, upto: int): string =
     dec l
     result = codeOf(lines[l]).strip & " " & result.strip(trailing = false)
 
+proc nxConceptNeeds*(f: NxFile, sc: NxScope, lines: seq[string], line: int, typ: string): seq[string] =
+  ## the routines a concept asks of its type — `s.area() is float`, `area(s)` → "area" — when `typ` is the concept
+  ## or a generic parameter of the routine around `line` constrained by one ([T: Shape])
+  if typ.len == 0 or '[' in typ: return
+  var cname = typ
+  let ri = nxEnclosing(f, line)
+  if ri >= 0:
+    let g = f.syms[ri].generics.strip(chars = {'[', ']'})
+    for part in nxSplitTop(g, {';', ','}):
+      let c = part.find(':')
+      if c > 0 and part[0 ..< c].strip == typ: cname = part[c + 1 .. ^1].strip
+  for r in nxTypeSyms(sc, cname):
+    let def = r.sym.typ.strip
+    if not def.startsWith("concept"): return
+    var vars: seq[string]
+    for v in def[7 .. ^1].split({',', ' '}):
+      if v.strip.len > 0: vars.add v.strip
+    let src = if r.file == f: lines
+              else:
+                try: readFile(r.file.path).splitLines() except CatchableError: @[]
+    let l0 = r.sym.line
+    if l0 >= src.len: return
+    let ind0 = src[l0].len - src[l0].strip(trailing = false).len
+    var l = l0 + 1
+    while l < src.len and (src[l].strip.len == 0 or src[l].len - src[l].strip(trailing = false).len > ind0):
+      let t = src[l]
+      for v in vars:
+        var k = t.find(v & ".")
+        while k >= 0:
+          if k == 0 or not nxIsIdent(t[k - 1]):
+            var e = k + v.len + 1
+            while e < t.len and nxIsIdent(t[e]): inc e
+            let nm = t[k + v.len + 1 ..< e]
+            if nm.len > 0 and nm notin result: result.add nm
+          k = t.find(v & ".", k + 1)
+        k = t.find("(" & v)
+        while k >= 0:
+          var a = k
+          while a > 0 and nxIsIdent(t[a - 1]): dec a
+          let nm = t[a ..< k]
+          if nm.len > 0 and nm notin NxKeywords and nm notin result: result.add nm
+          k = t.find("(" & v, k + 1)
+      inc l
+    return
+
 proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
   let sc = nxScope(f)
   let text = lines[line]
@@ -417,6 +462,17 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     nxAddRefs(result.items, f, exact, ufcs = true, recv = typ)
     nxAddRefs(result.items, f, related, ufcs = true, rankBias = 1, recv = typ)
     nxAddRefs(result.items, f, generic, ufcs = true, rankBias = 2, recv = typ)
+    # a concept (x: Shape, or [T: Shape]): what it asks of its type comes first
+    if result.known:
+      let need = nxConceptNeeds(f, sc, lines, line, nxStripMods(typ))
+      if need.len > 0:
+        var have: HashSet[string]
+        for it in result.items: have.incl it.label
+        var reqs: seq[NxRef]
+        for nm in need:
+          for r in nxLookup(sc, nm):
+            if r.sym.kind in NxRoutineKinds and r.sym.name notin have: reqs.add r
+        nxAddRefs(result.items, f, reqs, ufcs = true, rankBias = -1)
     return
   # a plain name: locals, this module, imports, system, module names, keywords
   var seenLocal: HashSet[string]

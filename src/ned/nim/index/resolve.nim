@@ -202,6 +202,13 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
     if col < text.len and text[col] in NxOpChars: return (nxOpTargets(f, lines, line, col), @[], "")
     return
   let w = text[a ..< e]
+  # a symbol named inside defined(…) / declared(…): what it means is that magic's (a define, not a declaration)
+  for magic in ["defined", "declared"]:
+    let pre = text[0 ..< a].strip(leading = false)
+    if pre.endsWith(magic & "(") and w != magic:
+      for r in nxLookup(sc, magic):
+        if r.sym.kind in NxRoutineKinds: result[0].add r
+      if result[0].len > 0: return
   # on an import line: the module
   let tl = text.strip
   if tl.startsWith("import ") or tl.startsWith("from ") or tl.startsWith("include "):

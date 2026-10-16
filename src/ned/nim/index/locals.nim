@@ -134,7 +134,19 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
         secKind = kk
         secInd = ind
         memberInd = -1
-      else: addVars(whole(rest), kk, result, l, raw, lines, ind)
+      else:
+        let wr = whole(rest)
+        if ';' in wr:
+          # let a = 1; let b = "x": each statement after `;` on the same line too
+          let parts = nxSplitTop(wr, {';'})
+          addVars(parts[0], kk, result, l, raw, lines, ind)
+          for pk in 1 ..< parts.len:
+            let p2 = parts[pk].strip
+            for kw2 in ["let ", "var ", "const "]:
+              if p2.startsWith(kw2):
+                addVars(p2[kw2.len .. ^1].strip, (if kw2 == "const ": nxConst elif kw2 == "let ": nxLet else: nxVar),
+                        result, l, raw, lines, ind)
+        else: addVars(wr, kk, result, l, raw, lines, ind)
     elif w0 == "for":
       let k = t.find(" in ")
       if k > 3:
