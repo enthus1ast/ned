@@ -69,6 +69,10 @@ proc drawTitleBar() =
     let isH = hov(sx, y, sw)
     let bg = blend(theme.titleBg, theme.fg, (if isH: 0.16 else: 0.09))
     fillRect(sx, y, sw, 1, theme.dim, bg)
+    if sx - 1 > x and sx + sw < rightEdge:
+      # rounded-looking ends
+      setCell(sx - 1, y, Cell(ch: 0x2590, fg: bg, bg: theme.titleBg))
+      setCell(sx + sw, y, Cell(ch: 0x258C, fg: bg, bg: theme.titleBg))
     let keyW = if sw >= 30: 8 else: 1                    # "Ctrl+P " and a gap before it
     var txt = " " & ic("search") & "  Search files, or > for commands"
     if strWidth(txt) + keyW > sw: txt = " " & ic("search") & " Search files"

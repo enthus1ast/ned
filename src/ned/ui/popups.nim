@@ -57,6 +57,7 @@ proc drawCompletion() =
   if compShown.len > n:
     discard putStr(px + pw - 6, py + n - 1, " " & $(compSel + 1) & "/" & $compShown.len, theme.dim,
                    theme.popupBg, {}, px + pw)
+  dropShadow(px, py, pw, n)
   # documentation of the selected item, beside the list (or above/below it on a narrow screen)
   compDocRect = (0, 0, 0, 0)
   if not cfgCompDocs or compSel >= compShown.len: return
@@ -104,6 +105,7 @@ proc drawCompletion() =
     drawDocLines(lines, docX + 1, docY, docW - 1, docH, compDocScroll, dbg)
     fillRect(docX, docY, 1, docH, theme.fg, dbg)
   compDocRect = (docX, docY, docW, docH)
+  dropShadow(docX, docY, docW, docH)
   if compDocLines > docH:
     let more = if compDocScroll + docH < compDocLines: " Ctrl+↓ more " else: " Ctrl+↑ "
     discard putStr(docX + docW - strWidth(more), docY + docH - 1, more, theme.dim, dbg, {}, docX + docW)
