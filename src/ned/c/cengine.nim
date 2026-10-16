@@ -67,10 +67,22 @@ proc cxSetDirs(b: Buffer) =
         if p.len >= 2 and p[0] == "#define": cxPredef[p[1]] = (if p.len > 2: p[2] else: "")
       break
 
+var cxBufParse: Table[int, (int, float, CxFile)]      # buffer id → (the change it was read at, when, its index)
+
 proc cxFileOf(b: Buffer): CxFile =
-  ## this buffer's index (its unsaved text)
+  ## this buffer's index (its unsaved text). A very long file (reading it takes a tenth of a second or more) is read
+  ## again at most every two seconds while it is typed in: in between, its declarations as they were a moment
+  ## ago, with the text as it is now
   cxSetDirs(b)
-  cxLoad(b.path, b.allText & "\n", "buf:" & $b.id & ":" & $b.changeId)
+  let now = epochTime()
+  if b.lines.len > 20_000 and b.id in cxBufParse:
+    let (cid, at, f) = cxBufParse[b.id]
+    if f != nil and (cid == b.changeId or now - at < 2.0):
+      if cid != b.changeId: f.lines = b.lines
+      return f
+  result = cxLoad(b.path, b.allText & "\n", "buf:" & $b.id & ":" & $b.changeId)
+  if b.lines.len > 20_000: cxBufParse[b.id] = (b.changeId, now, result)
+  else: cxBufParse.del b.id
 
 proc cxKindIcon(k: CxKind): int =
   ## the completion list's icon (LSP's numbers)
