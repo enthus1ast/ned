@@ -117,7 +117,7 @@ proc fmtAllPump(budgetMs: int) =
     var by = ""
     if how == "builtin":
       let iw = if bi >= 0: bufs[bi].indentW() else: 2
-      (res, err) = builtinFormatText(what, text, iw)
+      (res, err) = builtinFormatText(what, text, iw, p)
       by = "built-in"
     else:
       let cmd = what.replace("$file", p).replace("$dir", parentDir(p)).replace("$name", splitFile(p).name)

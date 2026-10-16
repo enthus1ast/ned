@@ -29,7 +29,21 @@ type
     origText*: string
     complexKind*: int  # 1 routine with a body · 2 type section · 3 object/enum type member
 
-var FmtMax* = 88          # line width (smaller while formatting an indented selection)
+type
+  FWrap* = enum        # how a list (parameters, call arguments, literals) is laid out — nim.format.*
+    fwFit = "fit"                 # one line when it fits, else wrapped (nph: parameters all on one line or one each)
+    fwOnePerLine = "onePerLine"   # one line when it fits, else one element per line
+    fwAlways = "always"           # one element per line whenever there are two or more
+    fwKeep = "keep"               # the line breaks as you wrote them
+
+var
+  FmtWidth* = 88       # the line length chosen (nim.format.lineLength)
+  FmtMax* = 88         # line width now (smaller while formatting an indented selection)
+  FmtParams*, FmtArgs*, FmtColl*: FWrap   # parameter lists · call arguments · array/seq/table/set/tuple literals
+  FmtBlank* = 1        # empty lines kept in a row (nim.format.maxBlankLines)
+  FmtImports* = 0      # 0 as written · 1 sorted · 2 sorted, std modules merged into std/[a, b]
+  FmtAlign* = false    # object field types and the `=` of const/let/var sections lined up
+  FmtReflow* = false   # long ## doc comments re-wrapped at the line length
 
 const
   FKeywords* = ["addr", "and", "as", "asm", "bind", "block", "break", "case", "cast", "concept", "const",

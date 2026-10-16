@@ -315,7 +315,9 @@ proc editorKey(k: Key) =
       afterType(k.ch)
   of kPaste:
     closeComp()
-    b.insertText(k.text)
+    let l0 = b.primary.range[0].line
+    b.insertText(b.pasteLayout(k.text, b.primary.range[0]))
+    b.pasteFinish(l0)
   of kEnter:
     closeComp()
     if alt or ctrl: cmdCodeActions()          # Alt+Enter: quick fixes (imports, AI fix, server actions)

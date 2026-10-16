@@ -59,6 +59,8 @@ var
   cfgNimTarget = "c"           # c | cpp | js | objc
   cfgCheckWrappers = true      # importc wrappers checked against their C headers
   cfgEmitClangd = true         # C in {.emit.} goes through clangd when it is installed
+  cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
+  cfgPasteFmt = "indent"       # editor.formatOnPaste: indent | format | off
   cfgNimCompiler = "nim"       # nim | nimony
   # nimsuggest pool, tools, side panel
   nimSugs: seq[NimSug]

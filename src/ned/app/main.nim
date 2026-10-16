@@ -472,7 +472,7 @@ proc runBench(path: string) =
 
 proc formatFiles(args: seq[string]) =
   ## ned --format [--check] FILE|FOLDER… : ned's own formatters from the shell — Nim (nph's style), JSON,
-  ## Markdown (tables) and CSS. Each file is rewritten in place when it changes (written atomically); --check
+  ## Markdown (tables), CSS and C (indentation and spaces). Each file is rewritten in place when it changes (written atomically); --check
   ## only says which would change (exit 1). A file a formatter is not sure about is left alone and named (exit 2).
   ## A folder: every file in it these formatters know (git's list in a repository: ignored files stay out).
   var check = false
@@ -501,7 +501,7 @@ proc formatFiles(args: seq[string]) =
       stderr.writeLine(f & ": " & e.msg)
       inc refused
       continue
-    let (res, err) = builtinFormatText(kind, text)
+    let (res, err) = builtinFormatText(kind, text, 2, absolutePath(f))
     if err.len > 0:
       stderr.writeLine(f & ": " & err)
       inc refused

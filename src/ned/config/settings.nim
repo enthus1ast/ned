@@ -153,6 +153,10 @@ proc initSettingDefs() =
        "a click lists them; \"no references\" in yellow for an export nothing uses")
   defS("Editor", "editor.folding", %true, "Code folding by indentation (Ctrl+Shift+[ / ], gutter ▾ ▸, palette)")
   defS("Editor", "editor.formatOnSave", %false, "Run the formatter when saving (for Nim: nim.formatter)")
+  defS("Editor", "editor.formatOnPaste", %"indent",
+       "Pasted lines of code: indent = they take the indentation of where they go (their own layout kept) · " &
+       "format = that, and Nim is formatted too (built-in formatter) · off = pasted exactly as copied",
+       @["indent", "format", "off"])
   defS("Editor", "csv.alignColumns", %true, "CSV and TSV files: line their columns up on screen (the file itself is not " &
        "changed) and keep the first row in view")
   defS("Editor", "editor.formatOnSaveLanguages", newJArray(), "With editor.formatOnSave: only these languages, " &
@@ -226,6 +230,31 @@ proc initSettingDefs() =
        "Formatter for Nim (Alt+F, editor.formatOnSave): builtin = ned's own, in nph's style, instant and always there " &
        "(it checks its result and leaves the file alone if the code would change) · nph · nimpretty (installed " &
        "separately). A \"formatters\" entry for \"nim\" wins over this", @["builtin", "nph", "nimpretty"])
+  defS("Nim", "nim.format.lineLength", %88, "The built-in Nim formatter's line length (nph's is 88; 80 and 100 are " &
+       "common)")
+  defS("Nim", "nim.format.params", %"fit",
+       "How a routine's parameters are laid out (built-in formatter): fit = on one line when it fits, else all on " &
+       "the next line or one per line (nph) · onePerLine = one per line when the line is too long · always = one per " &
+       "line whenever there are two or more · keep = the line breaks you wrote", @["fit", "onePerLine", "always", "keep"])
+  defS("Nim", "nim.format.arguments", %"fit",
+       "How a call's arguments are laid out (built-in formatter): fit = on one line when it fits, else packed on the " &
+       "next lines · onePerLine = one per line when the line is too long · always = one per line whenever there are " &
+       "two or more · keep = the line breaks you wrote", @["fit", "onePerLine", "always", "keep"])
+  defS("Nim", "nim.format.collections", %"fit",
+       "How array, seq, table, set and tuple literals are laid out (built-in formatter): fit · onePerLine · always · " &
+       "keep — as for nim.format.arguments", @["fit", "onePerLine", "always", "keep"])
+  defS("Nim", "nim.format.imports", %"keep",
+       "The modules of an import (built-in formatter): keep = as written · sort = std/, pkg/, others, ./relative, " &
+       "each alphabetical · merge = sorted, and imports that follow each other joined: std/os + std/strutils → " &
+       "std/[os, strutils]. (Modules run their top-level code in import order: keep, if that matters to you)",
+       @["keep", "sort", "merge"])
+  defS("Nim", "nim.format.align", %false, "Built-in formatter: line up the types of an object's fields and the `=` of " &
+       "const / let / var section members")
+  defS("Nim", "nim.format.reflowDocComments", %false, "Built-in formatter: a ## doc comment paragraph with a line " &
+       "longer than nim.format.lineLength is re-wrapped to fit (lists, code and tables stay as they are)")
+  defS("Nim", "nim.format.maxBlankLines", %1, "Built-in formatter: empty lines kept in a row (1–3)")
+  defS("Nim", "nim.formatEmitC", %true, "Formatting a Nim file also formats the C in its {.emit: \"\"\"…\"\"\".} blocks: " &
+       "with clang-format when it is installed (your .clang-format applies), else with ned's own C formatter")
   defS("Nim", "nim.nimsuggestMaxMB", %1500,
        "Restart a nimsuggest whose memory grows beyond this many MB (0 = no limit; 800 in Termux unless you set it)")
   defS("Nim", "nim.nimsuggestIdleMinutes", %15,
@@ -653,6 +682,20 @@ proc applySettings() =
   cfgCheckOnSave = sBool("nim.checkOnSave")
   cfgCheckWrappers = sBool("nim.checkWrappers")
   cfgEmitClangd = sBool("nim.emitClangd")
+  cfgFormatEmitC = sBool("nim.formatEmitC")
+  cfgPasteFmt = sStr("editor.formatOnPaste")
+  FmtWidth = clamp(sInt("nim.format.lineLength"), 40, 240)
+  FmtMax = FmtWidth
+  FmtParams = parseEnum[FWrap](sStr("nim.format.params"), fwFit)
+  FmtArgs = parseEnum[FWrap](sStr("nim.format.arguments"), fwFit)
+  FmtColl = parseEnum[FWrap](sStr("nim.format.collections"), fwFit)
+  FmtImports = case sStr("nim.format.imports")
+               of "sort": 1
+               of "merge": 2
+               else: 0
+  FmtAlign = sBool("nim.format.align")
+  FmtReflow = sBool("nim.format.reflowDocComments")
+  FmtBlank = clamp(sInt("nim.format.maxBlankLines"), 1, 3)
   cfgNimFlags = sStr("nim.extraFlags")
   cfgNimTestFlags = sStr("nim.testFlags")
   cfgAiProvider = sStr("ai.provider")

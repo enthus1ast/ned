@@ -6,16 +6,85 @@ proc builtinFmtKind(path, langId: string): string =
   if ext in [".md", ".markdown"] or langId == "markdown": return (if ext == ".mdx": "" else: "markdown")
   if ext in [".scss", ".less"]: return "scss"
   if ext == ".css" or langId == "css": return "css"
+  if ext in [".c", ".h"] or langId == "c": return "c"
   ""
 
-proc builtinFormatText(kind, text: string, indentW = 2): (string, string) =
+proc looksCpp(text: string): bool =
+  ## C++ rather than C (a .h file can be either): templates and namespaces give it away
+  for w in ["template<", "template <", "namespace ", "std::", "class ", "public:", "private:", "nullptr"]:
+    if w in text: return true
+
+proc formatEmitBlocks(text, path: string): (string, int, string) =
+  ## the C in each {.emit: """…""".} of a Nim file formatted (nim.formatEmitC): clang-format when it is installed
+  ## (your .clang-format applies), else ned's own C formatter — (new text, blocks changed, what formatted them).
+  ## A block with `nim symbols` in backticks, or on the string's first line, stays as it is
+  result = (text, 0, "")
+  if not cfgFormatEmitC or "emit" notin text: return
+  var ok = true
+  let toks = fLex(text, ok)
+  if not ok: return
+  let cpp = cfgNimTarget == "cpp"
+  let clang = haveExe("clang-format")
+  var outp = ""
+  var at = 0
+  for k in 0 ..< toks.len - 3:
+    if not (toks[k].kind == fkPragOpen and toks[k + 1].kind == fkIdent and toks[k + 1].text == "emit" and
+            toks[k + 2].kind == fkColon and toks[k + 3].kind == fkStr): continue
+    let st = toks[k + 3]
+    if not (st.text.startsWith("\"\"\"") and st.text.endsWith("\"\"\"") and st.text.len >= 7): continue
+    let body = st.text[3 ..< st.text.len - 3]
+    if '`' in body or not body.startsWith("\n"): continue
+    var ls = body[1 .. ^1].split('\n')
+    # the closing quotes on a line of their own: that line's indentation stays
+    var closing = ""
+    if ls.len > 0 and ls[^1].strip.len == 0:
+      closing = ls[^1]
+      ls.setLen(ls.len - 1)
+    var base = high(int)
+    for l in ls:
+      if l.strip.len > 0: base = min(base, l.len - l.strip(trailing = false).len)
+    if base == high(int): continue
+    var c = ""
+    for l in ls: c.add (if l.strip.len == 0: "" else: l[min(base, l.len) .. ^1].strip(leading = false)) & "\n"
+    var res = ""
+    if clang:
+      let fake = parentDir(if path.len > 0: path else: rootDir / "x") / (if cpp: "emit.cpp" else: "emit.c")
+      let (fok, o, _) = runFilter("clang-format --sort-includes=false --assume-filename=" & quoteShell(fake), c,
+                                  (if path.len > 0: parentDir(path) else: rootDir), 5000)
+      if fok and o.strip.len > 0: res = o
+      result[2] = "clang-format"
+    if res.len == 0:
+      let (r, e) = fmtC(c, 2, cpp)
+      if e.len > 0: continue
+      res = r
+      if result[2].len == 0: result[2] = "ned's C formatter"
+    if res.strip(chars = {'\n'}) == c.strip(chars = {'\n'}): continue
+    var nb = "\"\"\"\n"
+    for l in res.strip(chars = {'\n'}).split('\n'):
+      nb.add (if l.strip.len == 0: "" else: spaces(base) & l.strip(leading = false)) & "\n"
+    nb.add closing & "\"\"\""
+    outp.add text[at ..< st.pos]
+    outp.add nb
+    at = st.pos + st.text.len
+    inc result[1]
+  if result[1] == 0: return
+  outp.add text[at .. ^1]
+  result[0] = outp
+
+proc nimFormatAll(text, path: string): (string, string) =
+  ## ned's own Nim formatter on a whole file, then the C in its emits (nim.formatEmitC)
+  var err = ""
+  var r = fFormat(text, err)
+  if err.len > 0: return (text, err)
+  r = formatEmitBlocks(r, path)[0]
+  (r, "")
+
+proc builtinFormatText(kind, text: string, indentW = 2, path = ""): (string, string) =
   ## (result, error) of ned's own formatter `kind` (builtinFmtKind) on a whole file's text
   try:
     case kind
-    of "nim":
-      var err = ""
-      let r = fFormat(text, err)
-      (r, err)
+    of "nim": nimFormatAll(text, path)
+    of "c": fmtC(text, max(1, indentW), looksCpp(text))
     of "json": fmtJson(text, max(1, indentW))
     of "markdown": fmtMarkdown(text)
     of "css": fmtCss(text, max(1, indentW))
@@ -37,7 +106,7 @@ proc formatBuiltin(b: Buffer, quiet = false) =
   var err = ""
   let text = b.allText & "\n"
   var res = ""
-  try: res = fFormat(text, err)
+  try: (res, err) = nimFormatAll(text, b.path)
   except CatchableError, Defect: err = "the built-in formatter failed on this file (please report it)"
   if err.len > 0:
     error("Format: " & err)
@@ -47,6 +116,36 @@ proc formatBuiltin(b: Buffer, quiet = false) =
     return
   b.setTextMinimal(res)
   info("Formatted (built-in, nph style) in " & $msSince(t0) & " ms")
+
+proc formatLineRange(b: Buffer, l0, l1: int, quiet: bool): bool =
+  ## lines l0..l1 of a Nim file with the built-in formatter, as a block at their own indentation; true when done
+  var ind = int.high
+  for l in l0 .. l1:
+    if b.lines[l].strip.len > 0: ind = min(ind, leadingWs(b.lines[l]).len)
+  if ind == int.high: return false
+  var src = ""
+  for l in l0 .. l1:
+    let s = b.lines[l]
+    src.add (if s.len >= ind: s[ind .. ^1] else: "") & "\n"
+  var err = ""
+  FmtMax = max(40, FmtWidth - ind)
+  var res = ""
+  try: res = fFormat(src, err)
+  except CatchableError, Defect: err = "the built-in formatter failed on this selection"
+  FmtMax = FmtWidth
+  if err.len > 0:
+    if not quiet: error("Format selection: " & err)
+    return false
+  var outp: seq[string]
+  for l in res.strip(leading = false, chars = {'\n'}).split('\n'):
+    outp.add (if l.len > 0: spaces(ind) & l else: "")
+  if outp == b.lines[l0 .. l1]: return true
+  var all = if l0 > 0: b.lines[0 ..< l0] else: @[]
+  all.add outp
+  if l1 + 1 < b.lines.len: all.add b.lines[l1 + 1 .. ^1]
+  b.setTextMinimal(all.join("\n"))
+  if not quiet: info("Formatted " & $(l1 - l0 + 1) & " line(s)")
+  true
 
 proc formatSelection(b: Buffer) =
   ## the selected lines only, with the built-in Nim formatter: formatted as a block at their own indentation
@@ -66,34 +165,9 @@ proc formatSelection(b: Buffer) =
          "Alt+F formats the whole file")
     return
   let (a, e) = b.primary.range
-  let l0 = a.line
   var l1 = e.line
-  if e.col == 0 and l1 > l0: dec l1
-  var ind = int.high
-  for l in l0 .. l1:
-    if b.lines[l].strip.len > 0: ind = min(ind, leadingWs(b.lines[l]).len)
-  if ind == int.high: return
-  var src = ""
-  for l in l0 .. l1:
-    let s = b.lines[l]
-    src.add (if s.len >= ind: s[ind .. ^1] else: "") & "\n"
-  var err = ""
-  FmtMax = max(40, 88 - ind)
-  var res = ""
-  try: res = fFormat(src, err)
-  except CatchableError, Defect: err = "the built-in formatter failed on this selection"
-  FmtMax = 88
-  if err.len > 0:
-    error("Format selection: " & err)
-    return
-  var outp: seq[string]
-  for l in res.strip(leading = false, chars = {'\n'}).split('\n'):
-    outp.add (if l.len > 0: spaces(ind) & l else: "")
-  var all = if l0 > 0: b.lines[0 ..< l0] else: @[]
-  all.add outp
-  if l1 + 1 < b.lines.len: all.add b.lines[l1 + 1 .. ^1]
-  b.setTextMinimal(all.join("\n"))
-  info("Formatted " & $(l1 - l0 + 1) & " line(s)")
+  if e.col == 0 and l1 > a.line: dec l1
+  discard b.formatLineRange(a.line, l1, quiet = false)
 
 proc formatBuffer(b: Buffer) =
   if not b.canEdit(): return
@@ -144,6 +218,8 @@ proc formatBuffer(b: Buffer) =
     else:
       (ok, o, e) = runFilter(expandCmd(c, b), text, cwd)
     if ok and o.strip.len > 0:
+      # (nph or nimpretty for the Nim, then the C in its emits)
+      if b.lang.mode == lmNim: o = formatEmitBlocks(o, b.path)[0]
       b.setTextMinimal(o)
       info("Formatted with " & exe)
     else:
@@ -154,7 +230,7 @@ proc formatBuffer(b: Buffer) =
   proc builtin(b: Buffer) =
     let t0 = getMonoTime()
     let text = b.allText & "\n"
-    let (res, err) = builtinFormatText(bk, text, b.indentW())
+    let (res, err) = builtinFormatText(bk, text, b.indentW(), b.path)
     if err.len > 0:
       error("Format: " & err)
       return
@@ -162,7 +238,8 @@ proc formatBuffer(b: Buffer) =
       info("Already formatted")
       return
     b.setTextMinimal(res)
-    info("Formatted (built-in" & (if bk == "markdown": ": tables lined up" else: "") & ") in " & $msSince(t0) & " ms")
+    info("Formatted (built-in" & (if bk == "markdown": ": tables lined up" elif bk == "c": " C formatter: " &
+         "indentation and spaces — clang-format does more" else: "") & ") in " & $msSince(t0) & " ms")
   if bk == "json":
     builtin(b)
     return
@@ -172,7 +249,7 @@ proc formatBuffer(b: Buffer) =
       "options": {"tabSize": b.indentW(), "insertSpaces": b.indent != "\t"}},
       LspReq(kind: lrFormat, bufId: b.id))
     return
-  if bk in ["markdown", "css", "scss"]:
+  if bk in ["markdown", "css", "scss", "c"]:
     builtin(b)
     return
   let hint = if b.lang.fmt.len > 0: " (install " & b.lang.fmt[0].firstWord & ")" else: ""
@@ -298,7 +375,7 @@ proc formatOnSave(b: Buffer) =
       return
   # ned's own JSON, Markdown and CSS formatters (quietly: a file it is not sure about stays as it is)
   let bk = builtinFmtKind(b.path, b.lang.id)
-  if bk in ["json", "markdown", "css", "scss"]:
+  if bk in ["json", "markdown", "css", "scss", "c"]:
     let text = b.allText & "\n"
-    let (res, err) = builtinFormatText(bk, text, b.indentW())
+    let (res, err) = builtinFormatText(bk, text, b.indentW(), b.path)
     if err.len == 0 and res != text: b.setTextMinimal(res)

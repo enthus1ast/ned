@@ -92,6 +92,75 @@ proc copySel(cut: bool) =
   info((if cut: "Cut " else: "Copied ") & (if lineMode: $parts.len & " line(s)" else: $text.len & " chars" &
        (if n > 1: " / " & $n & " lines" else: "")))
 
+proc pasteLayout(b: Buffer, text: string, at: Pos, lineMode = false): string =
+  ## pasted lines of code take the indentation of where they go (editor.formatOnPaste): the first line sits where
+  ## the cursor is, the others keep their indentation relative to it. Pasting at column 0 — or lines inside a
+  ## """string""" — stays exactly as copied
+  result = text
+  if cfgPasteFmt == "off" or b.cursors.len != 1 or '\n' notin text or text.len > 500_000: return
+  if b.lang == nil or b.lang.mode in {lmPlain, lmMarkdown, lmDiff, lmMake}: return
+  let w = b.indentW()
+  proc cols(s: string): int =
+    for ch in s:
+      if ch == ' ': inc result
+      elif ch == '\t': result = (result div w + 1) * w
+      else: break
+  var ls = text.split('\n')
+  let line = b.lines[at.line]
+  let before = line[0 ..< min(at.col, line.len)]
+  # the copied lines: where the first one stood — its own indentation, or (copied from the middle of a line)
+  # guessed from the lines under it
+  var minRest, firstRest = -1
+  for k in 1 ..< ls.len:
+    if ls[k].strip.len > 0:
+      let c = cols(ls[k])
+      if minRest < 0 or c < minRest: minRest = c
+      if firstRest < 0: firstRest = c
+  if minRest < 0: return                        # one line of code
+  let t0 = ls[0].strip
+  let firstWs = ls[0].len > 0 and ls[0][0] in {' ', '\t'}
+  let srcFirst =
+    if t0.len == 0: firstRest
+    elif lineMode or firstWs: cols(ls[0])
+    elif t0[^1] in {':', '=', '(', '[', '{'} or t0.endsWith(" do") or t0.endsWith("->"): max(0, firstRest - w)
+    else: minRest
+  # where they go
+  var target: int
+  var stripFirst = false
+  if lineMode:
+    if line.strip.len == 0: return
+    target = cols(line)
+    stripFirst = true
+  elif before.len == 0: return                  # (column 0: as copied)
+  elif before.strip.len == 0:
+    target = cols(before)
+    stripFirst = true
+  else: target = cols(line)
+  proc indentStr(n: int): string =
+    if b.indent == "\t": repeat('\t', n div w) & spaces(n mod w) else: spaces(n)
+  var inString = false
+  var outp: seq[string]
+  for k, l in ls:
+    let lead = leadingWs(l)
+    if inString: outp.add l
+    elif k == 0:
+      outp.add (if stripFirst and t0.len > 0: indentStr(max(0, cols(l) - srcFirst)) & l[lead.len .. ^1]
+                elif stripFirst: "" else: l)
+    elif l.strip.len == 0: outp.add ""
+    else: outp.add indentStr(max(0, target + cols(l) - srcFirst)) & l[lead.len .. ^1]
+    if l.count("\"\"\"") mod 2 == 1: inString = not inString
+  result = outp.join("\n")
+  if lineMode and stripFirst: result = indentStr(target) & result.strip(trailing = false, chars = {' ', '\t'})
+
+proc pasteFinish(b: Buffer, l0: int) =
+  ## editor.formatOnPaste "format": the pasted Nim lines formatted too (built-in formatter; quietly left alone
+  ## when they are not complete statements)
+  if cfgPasteFmt != "format" or b.lang == nil or b.lang.mode != lmNim or cfgNimFormatter != "builtin": return
+  let l1 = b.primary.head.line
+  if l1 > l0 and l0 >= 0 and l1 < b.lines.len:
+    let last = if b.lines[l1].strip.len == 0 or b.primary.head.col == 0: l1 - 1 else: l1
+    if last > l0: discard b.formatLineRange(l0, last, quiet = true)
+
 proc paste() =
   let b = buf()
   if not b.canEdit(): return
@@ -107,13 +176,16 @@ proc paste() =
   var allEmpty = true
   for c in b.cursors:
     if c.hasSel: allEmpty = false
+  let l0 = b.primary.range[0].line
   if clipLineMode and allEmpty:
     b.beginEdit()
     for i in countdown(b.cursors.high, 0):
       let l = b.cursors[i].head.line
-      let part = if clipParts.len == b.cursors.len: clipParts[i] else: text
+      let part = if clipParts.len == b.cursors.len: clipParts[i]
+                 else: b.pasteLayout(text, Pos(line: l, col: 0), lineMode = true)
       discard b.replaceText(Pos(line: l, col: 0), Pos(line: l, col: 0), part)
     b.endEdit()
     b.normalize()
   else:
-    b.insertText(text)
+    b.insertText(b.pasteLayout(text, b.primary.range[0]))
+    b.pasteFinish(l0)
