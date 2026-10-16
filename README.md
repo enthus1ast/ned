@@ -21,7 +21,7 @@ library, and builds to one binary of about 8 MB.
 
 ## Contents
 
-- [What's new in 6.0](#whats-new-in-60) · [5.29](CHANGELOG.md#whats-new-in-529) · [older releases](CHANGELOG.md)
+- [What's new in 6.1](#whats-new-in-61) · [6.0](CHANGELOG.md#whats-new-in-60) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -38,48 +38,57 @@ library, and builds to one binary of about 8 MB.
 
 ---
 
-## What's new in 6.0
+## What's new in 6.1
 
-**ned is a project now, not one file.** The 53 000 lines of `ned.nim` are about 215 files in `src/`, one subject
-each — the file tree, the menus, the find widget, the Nim index's type inference, the clangd bridge, the
-assistant's MCP client — grouped in folders (`core`, `editor`, `ui`, `nim`, `lsp`, `ai`, `git`, `term`, `debug`,
-`c`, `format` …; [the layout](#the-source)). Finding your way around, or sending a patch, is easier.
-- Still the standard library only, still one binary, built with one command: `nim c -d:release src/ned.nim`, or
-  `nimble release` / `nimble termux` / `nimble install` as before.
-- The parts that stand on their own are **modules**: the Nim index (`ned/nim/index`), the formatters
-  (`ned/format/formatters`), the regular expressions (`ned/editor/regex`) and the text measuring they share
-  (`ned/core/text`). They compile to C of their own, in parallel with the rest, and other programs can use them:
-  `import ned/nim/index` gives you ned's Nim engine as a library.
-- The engine follows `include`s up to three folders up, so ned keeps completion, hover and go to definition across
-  ned's own files (and any project laid out like it). A forward declaration in one file and its body in another are
-  one routine: hover shows it once, not as two overloads.
+![Semantic colours: parameters in a colour of their own, fields and calls after a dot told apart, a template in the macro colour](screenshots/semantic-61.png)
 
-![ned editing its own source: hover on a routine declared in another file of the module](screenshots/own-source.png)
+**Smarter colours.** Names were coloured by what the engine knows they are; now also by where they stand:
+- a routine's **parameters** (and `result`) have a colour of their own inside it, so what comes from outside
+  stands out from what the routine makes;
+- after a dot, a **field** and a **call** look different (`p.name` · `p.size(n)`); a name that is both somewhere
+  and written without a call (`x.len`) keeps the colour its shape gives it rather than a guess;
+- **templates and macros** are in the macro colour, not a proc's (`twice(x)`, `check`);
+- a **module name** before a dot is in the type colour (`strutils.join`).
 
-**The tests are in the repository**, with a GitHub workflow that runs them on every push
-([tests/README.md](tests/README.md)):
-- `nimble test` — unit tests of the Nim index, the formatters (formatting ned's own source a second time changes
-  nothing) and the regular expressions;
-- `tests/ui` — the UI suite: the whole editor driven through tmux, about 730 checks of every feature, with a
-  mock AI server that answers like the real APIs. The tools some tests need (language servers, clangd, gdb, fish,
-  an SSH server) are used when installed, and their tests skipped — saying what they need — when not;
-- `tests/fuzz` — the fuzzer: random keys, mouse events, pastes, palette commands and resizes;
-- `tests/engine` — ned's Nim engine against nimsuggest (the numbers in *How good it is*);
-- `tests/build/cross.sh` — Linux, macOS and Android builds from one machine (with zig).
+**Faster colours.** What the imported modules declare is worked out once and kept while they stay the same;
+after an edit only the file's own names are gone through again. *Nim: language server status* shows how long the
+last update took.
 
-**Safer:**
-- **Libraries open read-only.** Go to definition often lands in the standard library or in an installed nimble
-  package, and a stray key followed by a save would change it for every project. Those files now open read-only:
-  the status bar says *Read-only*, and a click on it (or palette › *File: allow editing this file*) unlocks the
-  file. The project you have open is never locked — working on Nim itself or on a package in place is unchanged.
-  `files.protectLibraries: false` turns this off.
-- The private temporary files of a ned that was killed (the unsaved text it was checking) are removed at the next
-  start.
-- Fixed (found by the fuzzer): vim's `f` `t` `F` `T` `;` `,` and `b` with the cursor past the end of a line that a
-  change elsewhere had shortened; any cursor left past the end of its line is put back on the text before a key
-  moves it.
+**The engine knows more.** The same questions to ned's engine and to nimsuggest on the 23 files of the
+comparison ([tests/engine](tests/engine)), 6.0 → 6.1:
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md).
+| | 6.0 | 6.1 | nimsuggest |
+|---|---|---|---|
+| member completion: the member written there is offered | 88.9% | 90.5% | 73.8% |
+| type hints: the same as nimsuggest's | 91.1% | 93.0% | — |
+| go to definition: the same place | 94.0% | 94.6% | — |
+| a variable's type: the same | 90.0% | 90.7% | — |
+
+What it learned:
+- **types declared inside a routine** — `type Date = tuple[year, month: int]` in a proc — their fields after a
+  dot, hover and go to definition (member completion in `times.nim`: 99 → 114 of 120);
+- **routines declared inside a routine**, called with a dot (`shape.addQuadratic(…)`);
+- a receiver that **starts on an earlier line** (`{"a": 1,⏎ "b": 2}.toTable`);
+- **arithmetic on two number types** gives the wider one (`uint8 * uint32` is a `uint32`), a bare number takes
+  the other side's type (`1 / x.float32` is a `float32`, `0 ..< n` with `n: int32` a slice of `int32`), and an
+  operator on another type asks that type (`(prev + next) / 2` on vectors is a vector);
+- **types as receivers**: `float32.high`, `Color.low`, `high(int8)` are of that type;
+- `newException(ValueError, "…")` is a `ref ValueError`; `@({"a": "b"})` a `seq[(string, string)]`; a routine
+  that returns a `ref` says so;
+- an integer converts to an enum with a dot (`i.Color`, offered after `i.`).
+
+**Light and quick.** On the Nim compiler's own `sem.nim` (123 files with what it imports), measured with
+`tests/engine/bench.nim`: ned's engine reads everything in 0.16 s, answers again after an edit in 5 ms and lists
+completions in 7 ms, holding 17 MB. nimsuggest (which nimlangserver runs underneath) takes 8.5 s for its first
+answer and then 0.5 s, holding 460 MB.
+
+**For working on the engine:** `NED_NS_CACHE=/tmp/ns tests/engine/corpus.sh /tmp/out` keeps nimsuggest's answers,
+so comparing a new build of the engine over the whole corpus takes 15 seconds instead of an hour, and
+`tests/engine/bench.nim` times the engine on your own code (cold, after an edit, completion) with the memory it
+holds.
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project
+with its tests.
 
 ## Features
 
@@ -414,10 +423,10 @@ nimble packages and the compiler (see [What's new in 5.25](CHANGELOG.md#whats-ne
 
 | | ned's engine | nimsuggest |
 |---|---|---|
-| type hints: the same as nimsuggest's | 91% | — |
-| go to definition: the same place | 94% | — |
-| a variable's type: the same | 90% | — |
-| member completion: the member written there is offered | 89% | 74% |
+| type hints: the same as nimsuggest's | 93% | — |
+| go to definition: the same place | 95% | — |
+| a variable's type: the same | 91% | — |
+| member completion: the member written there is offered | 90% | 74% |
 | time for one question | 0.6 ms | 250 ms |
 
 The differences are mostly places where both answers are defensible (a proc's forward declaration versus its

@@ -1,6 +1,47 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-60). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-61). Older releases:
+
+## What's new in 6.0
+
+**ned is a project now, not one file.** The 53 000 lines of `ned.nim` are about 215 files in `src/`, one subject
+each — the file tree, the menus, the find widget, the Nim index's type inference, the clangd bridge, the
+assistant's MCP client — grouped in folders (`core`, `editor`, `ui`, `nim`, `lsp`, `ai`, `git`, `term`, `debug`,
+`c`, `format` …; [the layout](README.md#the-source)). Finding your way around, or sending a patch, is easier.
+- Still the standard library only, still one binary, built with one command: `nim c -d:release src/ned.nim`, or
+  `nimble release` / `nimble termux` / `nimble install` as before.
+- The parts that stand on their own are **modules**: the Nim index (`ned/nim/index`), the formatters
+  (`ned/format/formatters`), the regular expressions (`ned/editor/regex`) and the text measuring they share
+  (`ned/core/text`). They compile to C of their own, in parallel with the rest, and other programs can use them:
+  `import ned/nim/index` gives you ned's Nim engine as a library.
+- The engine follows `include`s up to three folders up, so ned keeps completion, hover and go to definition across
+  ned's own files (and any project laid out like it). A forward declaration in one file and its body in another are
+  one routine: hover shows it once, not as two overloads.
+
+![ned editing its own source: hover on a routine declared in another file of the module](screenshots/own-source.png)
+
+**The tests are in the repository**, with a GitHub workflow that runs them on every push
+([tests/README.md](tests/README.md)):
+- `nimble test` — unit tests of the Nim index, the formatters (formatting ned's own source a second time changes
+  nothing) and the regular expressions;
+- `tests/ui` — the UI suite: the whole editor driven through tmux, about 730 checks of every feature, with a
+  mock AI server that answers like the real APIs. The tools some tests need (language servers, clangd, gdb, fish,
+  an SSH server) are used when installed, and their tests skipped — saying what they need — when not;
+- `tests/fuzz` — the fuzzer: random keys, mouse events, pastes, palette commands and resizes;
+- `tests/engine` — ned's Nim engine against nimsuggest (the numbers in *How good it is*);
+- `tests/build/cross.sh` — Linux, macOS and Android builds from one machine (with zig).
+
+**Safer:**
+- **Libraries open read-only.** Go to definition often lands in the standard library or in an installed nimble
+  package, and a stray key followed by a save would change it for every project. Those files now open read-only:
+  the status bar says *Read-only*, and a click on it (or palette › *File: allow editing this file*) unlocks the
+  file. The project you have open is never locked — working on Nim itself or on a package in place is unchanged.
+  `files.protectLibraries: false` turns this off.
+- The private temporary files of a ned that was killed (the unsaved text it was checking) are removed at the next
+  start.
+- Fixed (found by the fuzzer): vim's `f` `t` `F` `T` `;` `,` and `b` with the cursor past the end of a line that a
+  change elsewhere had shortened; any cursor left past the end of its line is put back on the text before a key
+  moves it.
 
 ## What's new in 5.29
 
