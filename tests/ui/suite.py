@@ -1626,7 +1626,7 @@ def t_59_small():
     start('src/cv.nim', w=110, h=24); time.sleep(0.4)
     keys('C-g'); text('2:7'); keys('Enter'); time.sleep(0.2)
     palette('Nim: evaluate at compile time')
-    check('59 evaluate a const', wait_for(r'= 1024[\s\S]*Copy +OK', 30), screen())   # (the dialog, not the hover)
+    check('59 evaluate a const', wait_for(r'= 1024[\s\S]*Copy[\s▌▐]+OK', 30), screen())   # (the dialog, not the hover)
     keys('Escape'); time.sleep(0.2)
     keys('C-g'); text('5:6'); keys('Enter'); time.sleep(0.2)
     for _ in range(12): keys('S-Right')
