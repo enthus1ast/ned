@@ -3993,6 +3993,26 @@ def t_64_engine():
     t = ftext('src/u64.nim')
     check('64 … the import is added', t.startswith('import ./extra64\n'), repr(t))
 
+PT_H = """#ifndef PT_H
+#define PT_H
+
+/** A point in the plane. */
+typedef struct {
+    int x;       /**< across */
+    int y;       /**< down */
+} Point;
+
+struct node {
+    struct node *next;
+    Point at;
+};
+
+/** Moves a point by dx, dy. */
+Point pt_move(Point p, int dx, int dy);
+
+#endif
+"""
+
 def t_65_cengine():
     # 6.5: ned's own C engine (c.engine: builtin) — no clangd started; members after ->, hover with the header's
     # comment, F12 through #include and to the body in another .c file, goto labels, rename, signature help, the
