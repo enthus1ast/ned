@@ -3,7 +3,7 @@
 **A fast, safe code editor and Nim IDE for Termux and Linux.**
 It runs in any terminal but looks and behaves like a desktop editor: menus, docks, tabs, split panes,
 mouse and touch support, dialogs, toasts and tooltips. It is written in Nim, uses only the standard
-library, and builds to one binary of about 8 MB.
+library, and builds to one binary of about 9 MB.
 
 ![Member completion from the built-in Nim engine, with the documentation beside the list (nim-crown theme)](screenshots/completion-docs.png)
 
