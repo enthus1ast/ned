@@ -26,12 +26,19 @@ proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
   var diagLines: HashSet[int]
   for d in ds:
     if d.sev <= 2: diagLines.incl d.line
+  # TODO / NOTE comments in their tag's colour (errors win)
+  var todoLines: Table[int, Rgb]
+  if cfgTodoHl and todoTags.len > 0:
+    for it in todoForBuf(b): todoLines[it.line] = todoColor(min(it.tag, todoTags.high), bg)
   for row in 0 ..< h:
     let l0 = start + row * 4
     if l0 >= total: break
     let inView = l0 + 3 >= vpA and l0 < vpB
     let rbg = if inView: blend(bg, theme.fg, 0.10) else: bg
     var hasErr = false
+    var tagCol = NoColor
+    for dy in 0 .. 3:
+      if l0 + dy in todoLines and tagCol == NoColor: tagCol = todoLines[l0 + dy]
     for cx in 0 ..< w:
       var bits = 0
       for dy in 0 .. 3:
@@ -48,7 +55,8 @@ proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
               break
           if on:
             bits = bits or (if dx == 0: [0x01, 0x02, 0x04, 0x40][dy] else: [0x08, 0x10, 0x20, 0x80][dy])
-      setCell(x0 + cx, y0 + row, Cell(ch: uint32(0x2800 + bits), fg: (if hasErr: theme.err else: theme.minimap), bg: rbg))
+      setCell(x0 + cx, y0 + row, Cell(ch: uint32(0x2800 + bits), fg: (if hasErr: theme.err elif tagCol != NoColor: tagCol
+                                                                      else: theme.minimap), bg: rbg))
   mmRect = (x0, y0, w, h)
   mmFirst = mmStart
   region(x0, y0, w, h, proc() =

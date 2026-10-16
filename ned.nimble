@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.2.0"
+version       = "6.3.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &

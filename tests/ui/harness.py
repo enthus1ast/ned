@@ -92,6 +92,20 @@ def fg_at(row, word, nth=0):
     for _ in range(nth + 1):
         k = plain.find(word, k + 1)
         if k < 0: return None
+    return fg_at_col(row, k)
+
+def char_at_col(row, k):
+    """the character at column k of an ANSI row ('' past its end)"""
+    plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)
+    return plain[k] if 0 <= k < len(plain) else ''
+
+def paste(s):
+    """text arriving as a terminal paste (bracketed): one event, as when you paste from the clipboard"""
+    tm('set-buffer', '-b', 'nedtest', s)
+    tm('paste-buffer', '-p', '-d', '-b', 'nedtest', '-t', 'f')
+
+def fg_at_col(row, k):
+    """the 24-bit foreground colour at column k of an ANSI row, or None"""
     fg, col, i = None, 0, 0
     while i < len(row):
         m = re.match(r'\x1b\[([0-9;:]*)m', row[i:])

@@ -147,3 +147,33 @@ var
   todoGitName = ""
 
 proc todoScanProject()
+
+proc shiftTodos(b: Buffer, a, c, e: Pos) =
+  ## an open file's TODO / NOTE marks (the scrollbar's, the gutter's, the TODOs dock's) move with its lines at
+  ## once — the scan when typing pauses only confirms them
+  if e.line == c.line or b.binary: return
+  let delta = e.line - c.line
+  proc moved(items: var seq[TodoItem]): bool =
+    var keep: seq[TodoItem]
+    for it in items:
+      var it = it
+      if it.line == c.line and it.col >= c.col:      # after the edit on its last line: on the new last line
+        it.col = it.col - c.col + e.col
+        it.line = e.line
+        result = true
+      elif it.line > c.line:                         # below it
+        it.line += delta
+        result = true
+      elif it.line > a.line or (it.line == a.line and it.col >= a.col):
+        result = true
+        continue                                     # inside the text that went: gone
+      keep.add it
+    items = keep
+  if b.id in todoBufCache:
+    var (cid, items) = todoBufCache[b.id]
+    if moved(items): todoBufCache[b.id] = (cid, items)
+  if b.path.len > 0 and b.path in todoFiles:
+    var items = todoFiles[b.path]
+    if moved(items):
+      todoFiles[b.path] = items
+      inc todoGen

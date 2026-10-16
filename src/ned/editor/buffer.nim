@@ -215,8 +215,10 @@ proc shiftFolds(b: Buffer, a, c, e: Pos) =
   b.folds = keep
 
 proc shiftMarks(b: Buffer, a, c, e: Pos) =
-  ## line-anchored state (folds, bookmarks) follows every edit — typing, undo, redo, replace
+  ## line-anchored state (folds, bookmarks, TODO marks, breakpoints) follows every edit — typing, undo, redo,
+  ## replace
   if b.folds.len > 0: b.shiftFolds(a, c, e)
+  b.shiftTodos(a, c, e)
   if b.marks.len > 0 and e.line != c.line:
     let delta = e.line - c.line
     var keep: seq[int]
