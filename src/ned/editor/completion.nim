@@ -98,6 +98,7 @@ proc startCompletion(manual: bool) =
   compStartCol = ws
   compManual = manual
   if b.lang.mode == lmNim and pragmaStringComplete(b, p, manual): return
+  if b.lang.mode == lmNim and cWrapperComplete(b, p, manual): return  # proc ⟨C function⟩: the whole wrapper
   if b.lang.mode == lmNim and emitComplete(b, p, manual): return      # C in an emit
   if b.lang.mode == lmNim and embComplete(b, p, manual): return       # HTML, CSS, SQL … in a string
   if nimEngineOn(b) and engineComplete(b, manual): return

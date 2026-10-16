@@ -1,0 +1,46 @@
+name: Something does not work
+description: ned did something wrong, crashed, or showed "Internal error"
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Opened a nimble project with `ned .`
+        2. Typed `foo.` in src/main.nim
+        3. Expected the completion list; nothing came up
+    validations:
+      required: true
+  - type: textarea
+    id: info
+    attributes:
+      label: ned's details
+      description: "*Help › Copy info for bug report* puts these on the clipboard — paste them here."
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where you run ned
+      options: [Termux (Android), Linux, macOS, WSL, other]
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      placeholder: "Termux, kitty, WezTerm, GNOME Terminal, tmux inside …"
+  - type: textarea
+    id: errors
+    attributes:
+      label: errors.log
+      description: If ned showed "Internal error", paste ~/.local/state/ned/errors.log (or the part about this).
+      render: text
+  - type: textarea
+    id: file
+    attributes:
+      label: A file that shows it (optional)
+      description: The smallest file that shows the problem helps most. Screenshots are welcome too.

@@ -129,6 +129,9 @@ proc colourSwatches(lang: Lang, s: string, toks: seq[TokKind]): seq[(int, int, R
 proc lineDecor(b: Buffer, line: int, toks: seq[TokKind], sw: seq[(int, int, Rgb)]): seq[(int, string)] =
   ## what is drawn between the characters of a line: inlay hints and colour swatches, in column order
   if (cfgInlayHints or b.lang.mode == lmCsv) and line in b.inlays: result = b.lineInlays(line, toks)
+  if cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]:
+    let (c, lb) = cSigHints[b.id][line]
+    if line < b.lines.len and c == b.lines[line].len: result.add (c, lb)     # (at the end of the line it was made for)
   for (c, _, _) in sw: result.add (c, SwatchMark)
   if sw.len > 0: result.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
 

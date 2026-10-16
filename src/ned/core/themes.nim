@@ -200,6 +200,26 @@ proc monoTheme(name: string, dark: bool): Theme =
   result.match = if dark: 0x333333 else: 0xE2E2E2
   result.bracket = if dark: 0x3C3C3C else: 0xD6D6D6
 
+proc phosphorTheme(name: string, bg, fg, bright, dim, comment, err, warn: Rgb): Theme =
+  ## an old terminal's one-colour screen: structure by brightness and weight — keywords bold and brightest, names
+  ## bright, strings and numbers a step down, punctuation and comments dim; errors keep a colour of their own
+  result = mkTheme(name, true, bg, fg, bright, blend(bg, fg, 0.20), comment, bright, blend(fg, bright, 0.55),
+                   blend(fg, dim, 0.45), blend(fg, bright, 0.30), blend(fg, 0xFFFFFF, 0.45), dim,
+                   blend(fg, bright, 0.75), blend(fg, dim, 0.20), err, warn, bright)
+                   .chrome(blend(bg, 0x000000, 0.35), blend(bg, 0x000000, 0.20), blend(bg, 0x000000, 0.35))
+  result.boldKw = true
+  result.syn[tkPunct] = dim
+  result.syn[tkDoc] = blend(comment, fg, 0.30)
+  result.curLine = blend(bg, fg, 0.07)
+  result.guide = blend(bg, fg, 0.12)
+  result.inlay = blend(bg, fg, 0.45)
+  result.rainbow = [bright, fg, dim]
+  result.popupBg = blend(bg, fg, 0.10)
+  result.menuBg = result.popupBg
+  result.popupSel = blend(bg, fg, 0.28)
+  result.menuSel = result.popupSel
+  result.crumbBg = blend(bg, fg, 0.06)
+
 proc allThemesRaw(): seq[Theme] =
   #            name                dark   bg        fg        accent    sel       comment   keyword   type      string    number    func      operator  macro     property  error     warning   ok
   @[
@@ -242,6 +262,17 @@ proc allThemesRaw(): seq[Theme] =
     mkTheme("iceberg",           true,  0x161821, 0xC6C8D1, 0x84A0C6, 0x272C42, 0x6B7089, 0x84A0C6, 0xB4BE82, 0x89B8C2, 0xA093C7, 0xE2A478, 0x84A0C6, 0xB4BE82, 0x89B8C2, 0xE27878, 0xE2A478, 0xB4BE82),
     mkTheme("sonokai",           true,  0x2C2E34, 0xE2E2E3, 0x76CCE0, 0x414550, 0x7F8490, 0xFC5D7C, 0x76CCE0, 0xE7C664, 0xB39DF3, 0x9ED072, 0xFC5D7C, 0xB39DF3, 0xF39660, 0xFC5D7C, 0xE7C664, 0x9ED072),
     mkTheme("papercolor-light",  false, 0xEEEEEE, 0x444444, 0x0087AF, 0xD0D0D0, 0x878787, 0xD70087, 0x005F87, 0x5F8700, 0xD75F00, 0x0087AF, 0x0087AF, 0x8700AF, 0x005FAF, 0xAF0000, 0xD75F00, 0x008700),
+    # ned's own (6.3): frankincense resin and Omani silver, a desert evening, a lagoon at noon, sea glass, ink on
+    # paper, rose quartz — and two old terminals (every colour checked for contrast: tests/themes/contrast.py)
+    mkTheme("frankincense",      true,  0x1C1712, 0xE8DCC8, 0xE0A84E, 0x3D3224, 0x8F806C, 0xE6A94F, 0x9FC7B5, 0xC9D18A, 0xE8916C, 0xF2C77E, 0xC2A68A, 0xDC8FA4, 0xB8C8E0, 0xF07060, 0xF0B860, 0xA8C88A).chrome(0x15110D, 0x18140F, 0x15110D),
+    mkTheme("desert-dusk",       true,  0x1E1A2B, 0xE6DCEB, 0xFF9E6B, 0x3A3150, 0x857B9C, 0xFF9E6B, 0xF5C97A, 0xB8D88B, 0xFF8FA3, 0x9EC3FF, 0xD4B8E8, 0xF7A6D0, 0xA8E0D8, 0xFF6B6B, 0xFFC66B, 0xA6D88B).chrome(0x171421, 0x1A1626, 0x171421),
+    mkTheme("lagoon",            true,  0x0E1F24, 0xD5ECEC, 0x4FD6C8, 0x1E4148, 0x648F94, 0x4FD6C8, 0x8AC6FF, 0xF2D492, 0xFF9F8A, 0x8FE3A8, 0x9CC7CC, 0xE59BD8, 0xB0D8F0, 0xFF6E6E, 0xF2C46D, 0x7FE0A0).chrome(0x0A181C, 0x0C1B20, 0x0A181C),
+    mkTheme("sea-glass",         false, 0xEEF6F3, 0x24403E, 0x177A71, 0xBCDBD3, 0x6E8C88, 0x1B6E82, 0x7E4E93, 0x3A7535, 0xA8522A, 0x0D6662, 0x4D6A68, 0x9E3F63, 0x2C5A84, 0xB83226, 0x9A6100, 0x2A7230).chrome(0xE2EFEB, 0xE7F2EE, 0xE2EFEB),
+    mkTheme("paper-ink",         false, 0xF7F3EA, 0x23263A, 0x2A4BA0, 0xCCD7EF, 0x857F70, 0x2A4BA0, 0x74399A, 0x4D6B26, 0xA8372B, 0x1F3F7A, 0x55586E, 0x9A2E6C, 0x2A6874, 0xBA261C, 0x8F5B00, 0x2C7237).chrome(0xEEE8DB, 0xF2EDE2, 0xEEE8DB),
+    mkTheme("rose-quartz",       false, 0xFAF1F2, 0x3D2B33, 0xB8406F, 0xF0D3DC, 0x927C87, 0xA62D63, 0x6650A0, 0x477552, 0xA9502A, 0x72379A, 0x6E5560, 0x26797F, 0x3A6893, 0xBF2626, 0x8F6000, 0x2B7449).chrome(0xF3E4E7, 0xF6EAEC, 0xF3E4E7),
+    #             name              bg        fg        bright    dim       comment   error     warning
+    phosphorTheme("amber-crt",      0x140C02, 0xFFB347, 0xFFD580, 0xD9962F, 0xA5732C, 0xFF7A3D, 0xFFE066),
+    phosphorTheme("green-phosphor", 0x041208, 0x6CF08A, 0xB8FFC8, 0x49B861, 0x43935A, 0xFF6F5E, 0xE8F06A),
     #          name            bg        title     dock      cur line  popup
     slateTheme("slate",        0x242430, 0x1B1B24, 0x1F1F29, 0x262633, 0x3E4452),
     slateTheme("slate-night",  0x18181F, 0x101015, 0x141419, 0x1E1E27, 0x343A46),

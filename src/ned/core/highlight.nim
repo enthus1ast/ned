@@ -418,3 +418,25 @@ proc lexHtml(s: string, st: uint8, toks: var seq[TokKind], at = 0): LexSt =
       else: inc i
     else: inc i
   state
+
+proc pragmaStrColors(s: string, toks: var seq[TokKind]) =
+  ## Nim: the strings of header: "…" and dynlib: "…" (files: the link colour) and of importc: "…" (a C name: the
+  ## function colour) stand out from other strings — F12 opens them, the hover tells what they are
+  for key in ["header", "importc", "importcpp", "exportc", "dynlib"]:
+    var k = s.find(key)
+    while k >= 0:
+      let e = k + key.len
+      if (k == 0 or s[k - 1] notin IdentChars) and e < s.len and s[e] notin IdentChars:
+        var q = e
+        while q < s.len and s[q] == ' ': inc q
+        if q < s.len and s[q] == ':':
+          inc q
+          while q < s.len and s[q] == ' ': inc q
+          if q < s.len and s[q] == '"' and q < toks.len and toks[q] in {tkString, tkPragma}:
+            var z = q + 1
+            while z < s.len and s[z] != '"':
+              if s[z] == '\\': inc z
+              inc z
+            let kind = if key in ["header", "dynlib"]: tkLink else: tkFunc
+            for c in q .. min(z, toks.high): toks[c] = kind
+      k = s.find(key, e)

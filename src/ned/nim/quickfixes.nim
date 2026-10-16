@@ -19,6 +19,12 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
         result.add act("Use " & typ, "what the C header declares", ffiTypeAct(b.id, Pos(line: d.line, col: d.col),
                                                                                 Pos(line: d.eline, col: d.ecol), typ))
     if "add {.varargs.}" in d.msg: result.add act("Add {.varargs.}", "C takes more arguments (…)", ffiVarargsAct(b.id, d.line))
+  if b.lang.mode == lmNim and "importc" in b.lines[b.primary.head.line] or
+     (b.primary.head.line + 1 < b.lines.len and "importc" in b.lines[b.primary.head.line + 1]):
+    try:
+      let (t, dsc, a) = ffiRewriteFix(b)
+      if t.len > 0: result.add act(t, dsc, a)
+    except CatchableError as e: internalError("C wrapper fix", e)
   let refStart = result.len
   block refactors:
     let (ra, re) = b.primary.range

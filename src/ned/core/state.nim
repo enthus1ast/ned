@@ -60,6 +60,9 @@ var
   cfgCheckWrappers = true      # importc wrappers checked against their C headers
   cfgEmitClangd = true         # C in {.emit.} goes through clangd when it is installed
   cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
+  cfgCSigHints = true          # nim.cSignatureHints: the C declaration dimmed after an importc wrapper
+  cSigHints: Table[int, Table[int, (int, string)]]   # buffer id → line → (column, the C signature shown there)
+  cSigHintsAt: Table[int, (int, int, int)]           # buffer id → (changeId, first, last line) they were made for
   cfgPasteFmt = "indent"       # editor.formatOnPaste: indent | format | off
   cfgNimCompiler = "nim"       # nim | nimony
   # nimsuggest pool, tools, side panel

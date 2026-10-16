@@ -415,6 +415,7 @@ proc lspExtras(b: Buffer) =
 
 proc cmdDefinition() =
   let b = buf()
+  if b.lang.mode == lmNim and pragmaStringGoto(b, b.primary.head): return  # header: "…" opens it, importc: "…" its C
   if b.lang.mode == lmNim and emitGoto(b, b.primary.head): return          # in an emit: the C (or Nim) side
   if b.lang.mode == lmNim and cGotoFromDecl(b, b.primary.head): return     # an importc declaration: C's
   if nimEngineOn(b) and b.wordAt(b.primary.head).len > 0:
@@ -526,6 +527,11 @@ proc cmdHover(auto = false) =
       if pm != d.msg: lines.add "**error**\n```text\n" & pm.strip(leading = false) & "\n```"     # keep its layout
       else: lines.add (if d.sev == 1: "error: " elif d.sev == 2: "warning: " else: "info: ") & d.msg
   hoverPrefix = if lines.len > 0: lines.join("\n") & "\n\n" else: ""
+  if b.lang.mode == lmNim:
+    let ph = pragmaStringHover(b, p)             # header: "…" / importc: "…": the header, the C declaration
+    if ph.len > 0:
+      showHoverAuto(hoverPrefix & ph, auto)
+      return
   let w = b.wordAt(p)
   let tk = if w.len > 0: b.tokenAt(p) else: tkText
   let onSymbol = w.len > 0 and not w[0].isDigit and tk notin {tkComment, tkString, tkDoc, tkNumber} and

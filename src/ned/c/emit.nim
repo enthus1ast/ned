@@ -152,6 +152,8 @@ proc emitHoverInfo(b: Buffer, p: Pos): string =
   result = "**" & w & "** — C " & d.kind & ", " &
            (if h.len == 0: "line " & $(d.line + 1) & " of this file" else: extractFilename(d.path) & ":" & $(d.line + 1)) &
            "\n```c\n" & d.text & "\n```"
+  let doc = cDocAt(if h.len == 0: b.lines else: cRawLines(d.path), d.line)
+  if doc.len > 0: result.add "\n" & doc
   for nd in nimFfiDecls(b.lines):
     if nd.cname == w and nd.kind in ["proc", "func"]:
       result.add "\n\nImported into Nim as `" & nd.name & "` (line " & $(nd.line + 1) & ")"

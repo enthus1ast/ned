@@ -253,6 +253,8 @@ proc initSettingDefs() =
   defS("Nim", "nim.format.reflowDocComments", %false, "Built-in formatter: a ## doc comment paragraph with a line " &
        "longer than nim.format.lineLength is re-wrapped to fit (lists, code and tables stay as they are)")
   defS("Nim", "nim.format.maxBlankLines", %1, "Built-in formatter: empty lines kept in a row (1–3)")
+  defS("Nim", "nim.cSignatureHints", %true, "After a wrapper that imports C (importc), its C declaration — dimmed, " &
+       "from the header or the {.emit.} (int puts(const char *s))")
   defS("Nim", "nim.formatEmitC", %true, "Formatting a Nim file also formats the C in its {.emit: \"\"\"…\"\"\".} blocks: " &
        "with clang-format when it is installed (your .clang-format applies), else with ned's own C formatter")
   defS("Nim", "nim.nimsuggestMaxMB", %1500,
@@ -683,6 +685,9 @@ proc applySettings() =
   cfgCheckWrappers = sBool("nim.checkWrappers")
   cfgEmitClangd = sBool("nim.emitClangd")
   cfgFormatEmitC = sBool("nim.formatEmitC")
+  cfgCSigHints = sBool("nim.cSignatureHints")
+  if not cfgCSigHints: cSigHints.clear()
+  cSigHintsAt.clear()
   cfgPasteFmt = sStr("editor.formatOnPaste")
   FmtWidth = clamp(sInt("nim.format.lineLength"), 40, 240)
   FmtMax = FmtWidth

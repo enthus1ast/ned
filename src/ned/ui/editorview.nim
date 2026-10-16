@@ -253,6 +253,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       let foreign = lexForeign
       let lexed = if foreign.len > 0: toks else: @[]
       if sem != nil: applySem(s, toks, sem, line)
+      if b.lang.mode == lmNim and s.len < 4000 and '"' in s and ("header" in s or "importc" in s or "dynlib" in s):
+        pragmaStrColors(s, toks)
       if lsem.len > 0 and line in lsem:
         for (c, n, k) in lsem[line]:
           for q in c ..< min(c + n, toks.len):
@@ -345,7 +347,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     let sw = if cfgSwatches and s.len <= 4000 and b.lang.mode != lmDiff and b.id notin graphBufs:
                colourSwatches(b.lang, s, toks) else: @[]
     var swBg: seq[(int, int, Rgb)]       # swatches with no room on the row: the colour behind the text instead
-    if (showInlays and line in b.inlays) or sw.len > 0:
+    if (showInlays and line in b.inlays) or sw.len > 0 or
+       (cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]):
       hints = b.lineDecor(line, (if toksUnfaded.len > 0: toksUnfaded else: toks), sw)
       var hw = 0
       for (_, lb) in hints: hw += strWidth(lb)

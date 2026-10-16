@@ -92,7 +92,9 @@ proc compDocOf(i: int): string =
   var d = compItems[i].doc
   let nx = compItems[i].nx
   if d.len == 0 and nx > 0 and nx <= compNx.len:
-    try: d = nxDocItem(compNx[nx - 1])
+    try:
+      d = nxDocItem(compNx[nx - 1])
+      d.add cDocForNx(compNx[nx - 1])          # an importc proc: its C declaration and documentation
     except Exception as e: internalError("Nim index", e)
   elif d.len == 0 and compItems[i].snippet.len > 0:
     d = "```" & buf().lang.name.toLowerAscii & "\n" & stripSnippet(compItems[i].snippet) & "\n```\nsnippet — Tab or Enter expands it"

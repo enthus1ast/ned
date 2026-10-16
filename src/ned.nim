@@ -221,6 +221,7 @@ include ned/nim/codegen
 include ned/nim/refactors
 include ned/editor/spelldicts
 include ned/c/headers
+include ned/c/cdoctext
 include ned/c/nimside
 include ned/c/types
 include ned/c/navigation
@@ -230,6 +231,7 @@ include ned/c/emitclangd
 include ned/lsp/embedded
 include ned/c/c2nim
 include ned/c/compiledb
+include ned/c/cdocs
 include ned/nim/fixes
 include ned/nim/refactor/core
 include ned/nim/refactor/signature

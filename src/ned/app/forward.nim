@@ -31,6 +31,11 @@ proc emitShadowDiags(s: LspServer, shadowPath: string, params: JsonNode)
 proc emitClose(b: Buffer)
 proc emitNimNote(b: Buffer, w: string): string
 proc pragmaStringComplete(b: Buffer, p: Pos, manual: bool): bool
+proc pragmaStringHover(b: Buffer, p: Pos): string
+proc pragmaStringGoto(b: Buffer, p: Pos): bool
+proc cDocForNx(it: NxItem): string
+proc cSigHintsUpdate(b: Buffer)
+proc cWrapperComplete(b: Buffer, p: Pos, manual: bool): bool
 proc lspAttach(b: Buffer)
 proc lspDidSave(b: Buffer)
 proc lspDidClose(b: Buffer)

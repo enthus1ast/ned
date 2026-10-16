@@ -1,0 +1,21 @@
+name: An idea
+description: Something ned could do, or do better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: What you would like
+      description: What you want to do, and how you do it today (or in another editor).
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters to you
+      description: The work you were doing when you missed it.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Editing, Nim IDE, C interop, Formatter, Git, Terminal, AI assistant, Debugger, Themes and look, Other]

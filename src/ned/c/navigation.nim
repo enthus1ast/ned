@@ -67,5 +67,7 @@ proc cHoverInfo(b: Buffer, p: Pos): string =
   if d.name.len == 0: return ""
   let (cp, _) = ffiCDecl(d, path, lines, false)
   if cp.kind.len == 0: return ""
+  let doc = cProtoDoc(cp)
   "\n\n**C** — " & (if d.header.len == 0: "{.emit.} in " else: "") & extractFilename(cp.path) & ":" & $(cp.line + 1) &
-    " (F12 on the declaration opens it)\n```c\n" & cp.text & "\n```"
+    " (F12 on the declaration opens it)\n```c\n" & (if cp.kind == "function": cPrettyProto(cp, d.cname) else: cp.text) &
+    "\n```" & (if doc.len > 0: "\n" & doc else: "")

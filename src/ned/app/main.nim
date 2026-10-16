@@ -231,6 +231,7 @@ proc mainLoop() =
         let ri = hitRegion(mouseX, mouseY)
         if ri >= 0 and regions[ri].tip.len > 0: needRender = true
       if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0: requestInlays(buf())
+      if cfgCSigHints and inBuf.len == 0: cSigHintsUpdate(buf())
       if inBuf.len == 0: lspExtras(buf())
       if inBuf.len == 0: engineWarm(buf())
       if inBuf.len == 0: ghostTick()

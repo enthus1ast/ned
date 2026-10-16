@@ -1,7 +1,7 @@
 ## ned's built-in formatters: Nim (in nph's style, checked), JSON, Markdown tables, CSS and C (indentation).
 ## Text in, text out.
 
-import std/[os, strutils, tables, sets, json, posix, times, monotimes, algorithm, sequtils]
+import std/[os, strutils, tables, sets, json, posix, times, monotimes, algorithm]
 import ../core/text
 
 include nimlex
