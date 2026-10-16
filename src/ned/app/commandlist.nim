@@ -289,6 +289,7 @@ proc initCommands() =
   add("Git: compare with last commit (side by side)", "", cmdCompareHead())
   add("File: compare with another file…", "side by side", cmdCompareWithFile())
   add("Nim: sort imports", "", cmdSortImports())
+  add("Nim: organize imports (remove unused, sort)", "", cmdOrganizeImports())
   add("Nim: toggle proc ⇄ func", "", cmdToggleFunc())
   add("Settings: open project settings (this folder)", "", (block:
     let p = projectSettingsFile()

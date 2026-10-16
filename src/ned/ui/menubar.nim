@@ -210,7 +210,7 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("Refactor: extract into a variable", "Extract into a variable"), mc("Nim: inline variable", "Inline variable"),
         mc("Nim: use fmt for this string", "\"a\" & x → fmt\"a{x}\""),
         mc("Nim: evaluate at compile time", "Evaluate at compile time"),
-        mc("Nim: sort imports", "Sort imports"), mc("Nim: toggle proc ⇄ func", "proc ⇄ func"),
+        mc("Nim: sort imports", "Sort imports"), mc("Nim: organize imports (remove unused, sort)", "Organize imports"), mc("Nim: toggle proc ⇄ func", "proc ⇄ func"),
         mc("Nim: toggle export marker (*)", "Toggle export (*)"), msep(),
         mc("Nim: add the missing case branches", "Add missing case branches"),
         mc("Nim: generate $, ==, hash and a constructor for this type", "Generate $, ==, hash, constructor"),

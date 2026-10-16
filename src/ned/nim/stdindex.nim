@@ -203,7 +203,7 @@ proc addImport(b: Buffer, module: string) =
   for (l, le) in b.importStmts():
     let t = b.lines[l]
     let lb = t.find("std/[")
-    if le == l and t.startsWith("import ") and lb >= 0 and t.endsWith("]"):
+    if module.startsWith("std/") and le == l and t.startsWith("import ") and lb >= 0 and t.endsWith("]"):
       let inner = t[lb + 5 ..< t.len - 1]
       for m in inner.split(','):
         if m.strip == short:
@@ -295,3 +295,28 @@ proc removeImportAct(id: int, module: string): Action =
     if b != nil:
       if b.removeImport(module): info("Removed the unused import " & module)
       else: info("Could not find the import of " & module)
+
+proc projectModulesExporting(b: Buffer, name: string): seq[string] =
+  ## the project's own modules that export `name`, as this file would import them (./x, ../lib/y)
+  if rootDir.len == 0 or b.path.len == 0 or name.len == 0: return
+  let want = nxNorm(name)
+  let here = parentDir(b.path)
+  var n = 0
+  let t0 = getMonoTime()
+  try:
+    for f in projectFiles():
+      if not f.endsWith(".nim"): continue
+      let full = if f.isAbsolute: f else: rootDir / f
+      if full == b.path: continue
+      inc n
+      if n > 800 or msSince(t0) > 1500: break
+      let g = nxLoad(full)
+      if g == nil: continue
+      for s in g.syms:
+        if s.exported and not s.local and nxNorm(s.name) == want:
+          var rel = relativePath(full.changeFileExt(""), here).replace('\\', '/')
+          if not rel.startsWith(".."): rel = "./" & rel
+          if rel notin result: result.add rel
+          break
+      if result.len >= 4: break
+  except CatchableError as e: internalError("Nim index", e)

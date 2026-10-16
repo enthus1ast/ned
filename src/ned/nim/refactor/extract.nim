@@ -283,3 +283,15 @@ proc nimbleAddDep(pkg: string) =
           proc() = runNimble("install -d -y"), 15000)
   except CatchableError as e:
     error("Could not update " & nimble.file & ": " & e.msg)
+
+proc cmdOrganizeImports() =
+  ## the imports tidied: the ones the compiler found unused (on the last check) removed, the rest sorted —
+  ## standard library first in one `import std/[…]`, then packages, then the project's own modules
+  let b = buf()
+  if not b.canEdit() or b.lang.mode != lmNim: return
+  let (n, act) = nimFixAll(b, "unusedImport")
+  if n > 0: act()
+  cmdSortImports()
+  if n > 0: info("Imports organised: " & $n & " unused removed, the rest sorted")
+  elif b.dirty: info("Imports sorted — save first to have the compiler find unused ones too")
+  else: info("Imports sorted (none unused)")

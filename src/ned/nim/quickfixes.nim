@@ -111,6 +111,12 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
           if ("Import " & md) in titles: continue
           titles.incl "Import " & md
           result.add act("Import " & md, "exports " & name, importAct(b.id, md))
+        # the project's own modules that export it
+        if "undeclared field" notin m:
+          for md in projectModulesExporting(b, name):
+            if ("Import " & md) in titles: continue
+            titles.incl "Import " & md
+            result.add act("Import " & md, "this project's module exports " & name, importAct(b.id, md))
       elif "imported and not used" in m:
         result.add act("Remove unused import " & name, "", removeImportAct(b.id, name))
   if result.len > diagStart and diagStart > refStart:

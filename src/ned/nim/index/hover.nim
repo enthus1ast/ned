@@ -108,6 +108,58 @@ proc nxConstValue*(f: NxFile, e: string, depth: int): string =
 
 proc nxExpandTemplate*(f: NxFile, lines: seq[string], line, col: int): (string, string)
 
+proc nxCallInstance*(f: NxFile, lines: seq[string], line, col: int, s: NxSym): string =
+  ## a generic routine at a call: its signature with the generic parameters bound from the arguments written
+  ## there — `max(x: int, y: int): int   (T = int)` — or "" when it is not a call or nothing can be bound
+  let names = nxGenericNames(s.generics)
+  if names.len == 0 or line >= lines.len: return
+  let t = lines[line]
+  var a = min(col, t.len)
+  while a > 0 and nxIsIdent(t[a - 1]): dec a
+  var e = a
+  while e < t.len and nxIsIdent(t[e]): inc e
+  if e == a: return
+  let sc = nxScope(f)
+  let locals = nxLocals(f, lines, line, col)
+  var argTypes: seq[string]
+  if a > 0 and t[a - 1] == '.':
+    argTypes.add nxTypeOfExpr(f, sc, locals, nxReceiver(t, a - 1), line, 0).typ     # x.name(…): x is the first
+  var q = e
+  var genArgs: seq[string]
+  if q < t.len and t[q] == '[':
+    let c = nxMatchClose(t, q)
+    if c < 0: return
+    for g in nxSplitTop(t[q + 1 ..< c], {','}): genArgs.add g.strip
+    q = c + 1
+  if q < t.len and t[q] == '(':
+    let c = nxMatchClose(t, q)
+    if c < 0: return
+    if c > q + 1:
+      for part in nxSplitTop(t[q + 1 ..< c], {','}):
+        let x = part.strip
+        argTypes.add (if x.len == 0 or nxFindTop(x, '=') >= 0: "" else: nxTypeOfExpr(f, sc, locals, x, line, 0).typ)
+  elif argTypes.len == 0 and genArgs.len == 0: return
+  var binds: Table[string, string]
+  if genArgs.len > 0:
+    for i in 0 ..< min(names.len, genArgs.len): binds[names[i]] = genArgs[i]
+  else:
+    for i, at in argTypes:
+      if at.len == 0 or i >= s.params.len: continue
+      nxUnify(s.params[i].typ, at, names, binds)
+  if binds.len == 0: return
+  result = s.name & "("
+  for i, p in s.params:
+    if i > 0: result.add ", "
+    result.add p.name
+    if p.typ.len > 0: result.add ": " & nxSubst(p.typ, binds)
+    elif p.default.len > 0: result.add " = " & p.default
+  result.add ")"
+  if s.ret.len > 0: result.add ": " & nxSubst(s.ret, binds)
+  var bs: seq[string]
+  for n in names:
+    if n in binds: bs.add n & " = " & binds[n]
+  result.add "   (" & bs.join(", ") & ")"
+
 proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
   let (refs, locals, modPath) = nxTargets(f, lines, line, col)
   if modPath.len > 0:
@@ -138,6 +190,10 @@ proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
     var it = NxItem(label: refs[0].sym.name, kind: refs[0].sym.kind, refs: refs)
     result = nxDocItem(it, 3)
   let s0 = refs[0].sym
+  if s0.kind in NxRoutineKinds and s0.generics.len > 0 and not (refs[0].file == f and s0.line == line):
+    # a generic routine called here: what it is for these arguments
+    let here = nxCallInstance(f, lines, line, col, s0)
+    if here.len > 0: result.add "\n\n**Here:** `" & here & "`"
   if s0.kind == nxConst and s0.value.len > 0:
     # a constant's value, worked out: const KiB = 4 * 1024  → 4096
     let v = nxConstValue(refs[0].file, s0.value, 0)

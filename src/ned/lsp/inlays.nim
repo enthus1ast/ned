@@ -4,6 +4,106 @@ var engineInlayBudget = 60                 # ms for the type hints of the lines 
 
 var inlayRetries: Table[int, (int, int)]     # buffer id → (changeId, rounds cut short for it)
 
+proc argIsLiteral(a: string): bool =
+  ## a number, string, character, true / false / nil, or a literal collection — what a reader cannot tell the
+  ## meaning of without the parameter's name
+  let t = a.strip
+  if t.len == 0: return false
+  if t[0] in Digits or (t[0] == '-' and t.len > 1 and t[1] in Digits): return true
+  if t[0] in {'"', '\'', '[', '{'} or t.startsWith("r\"") or t.startsWith("@["): return true
+  t in ["true", "false", "nil"]
+
+proc engineParamHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, seq[(int, string)]], t0: MonoTime) =
+  ## the names of the parameters before the arguments of calls (nim.parameterHints): `draw(x: 10, y: 20)` —
+  ## only before literals unless "all"; never for one-parameter routines, single-letter names, an argument that
+  ## already is the name, named arguments, or varargs
+  let all = cfgParamHints == "all"
+  for l in lo .. hi:
+    if msSince(t0) > engineInlayBudget: return
+    let s = b.lines[l]
+    if s.len > 500 or '(' notin s: continue
+    var st: NxLexState
+    # where the code is on this line: identifiers outside strings and comments
+    var code = newSeq[bool](s.len)
+    for (a, e) in nxLexRuns(s, st, false):
+      for k in a ..< e: code[k] = true
+    var i = 0
+    while i < s.len:
+      if s[i] == '#':
+        var inStr = false
+        for k in 0 ..< i:
+          if s[k] == '"': inStr = not inStr
+        if not inStr: break
+      if s[i] == '"':
+        inc i
+        while i < s.len and s[i] != '"':
+          if s[i] == '\\': inc i
+          inc i
+        inc i
+        continue
+      if s[i] != '(' or i == 0 or not code[i - 1]:
+        inc i
+        continue
+      # a call: name( … ) on this line
+      let open = i
+      var d = 0
+      var close = -1
+      var k = open
+      var args: seq[(int, int)]           # each argument's text: (start, end)
+      var argStart = open + 1
+      while k < s.len:
+        let c = s[k]
+        if c == '"':
+          inc k
+          while k < s.len and s[k] != '"':
+            if s[k] == '\\': inc k
+            inc k
+        elif c in {'(', '[', '{'}: inc d
+        elif c in {')', ']', '}'}:
+          dec d
+          if d == 0:
+            close = k
+            break
+        elif c == ',' and d == 1:
+          args.add (argStart, k)
+          argStart = k + 1
+        elif c == '#' and d >= 1: break
+        inc k
+      if close < 0: break                 # (an argument list that goes on below: its next lines are left alone)
+      if close > open + 1: args.add (argStart, close)
+      i = open + 1
+      if args.len == 0: continue
+      var lits = false
+      for (a, e) in args:
+        if all or argIsLiteral(s[a ..< e]): lits = true
+      if not lits: continue
+      var h: NxSigHelp
+      try: h = nxSignatureHelp(f, b.lines, l, open + 1)
+      except Exception: continue
+      if h.overloads.len == 0: continue
+      let off = if h.ufcs: 1 else: 0
+      for ai, (a, e) in args:
+        let txt = s[a ..< e]
+        if nxFindTop(txt, '=') >= 0: break           # named from here on: positions no longer tell
+        if not (all or argIsLiteral(txt)): continue
+        var name = ""
+        var agree = true
+        var many = true
+        for r in h.overloads:
+          let ps = r.sym.params
+          if ps.len - off < args.len and not (ps.len > 0 and ps[^1].typ.startsWith("varargs")): continue
+          let idx = ai + off
+          if idx >= ps.len or ps[idx].typ.startsWith("varargs"):
+            agree = false
+            break
+          if ps.len - off < 2: many = false
+          if name.len == 0: name = ps[idx].name
+          elif ps[idx].name != name: agree = false
+        if not agree or not many or name.len <= 1 or txt.strip == name: continue
+        var c = a
+        while c < e and s[c] == ' ': inc c
+        hints.mgetOrPut(l, @[]).add (c, name & ": ")
+
 proc engineInlays(b: Buffer, lo, hi: int) =
   ## the types of lets, vars and consts written without one, worked out by ned's own engine (no nimsuggest)
   let f = nxFileFor(b)
@@ -65,6 +165,9 @@ proc engineInlays(b: Buffer, lo, hi: int) =
         while e <= b.lines.high and (b.lines[e].len == 0 or b.lines[e][0] in {' ', '\t', '#', ')', ']', '}'}): inc e
         if e - 1 > s0: hintLocals(min(hi, e - 1))
   except Exception as e: internalError("type hints", e)
+  if cfgParamHints != "off" and not cut:
+    try: engineParamHints(b, f, lo, hi, hints, t0)
+    except Exception as e: internalError("parameter hints", e)
   b.inlays.clear()
   for l, v in hints:
     var vs = v
