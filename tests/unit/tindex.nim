@@ -67,6 +67,28 @@ suite "completion":
     let c = nxComplete(f, ls, 2, ls[2].len)
     check "toUpperAscii" in c.labels
 
+  test "a type declared inside a routine: its fields after a dot":
+    let (f, ls) = fixture("proc main() =\n  type Date = tuple[year, month: int]\n  type P = object\n    name: string\n" &
+                          "  var d: Date = (1, 2)\n  var p = P(name: \"x\")\n  echo d.\n  echo p.\n")
+    check "month" in nxComplete(f, ls, 6, ls[6].len).labels
+    check "name" in nxComplete(f, ls, 7, ls[7].len).labels
+
+  test "… and not offered by name in another routine, nor in the outline's module-level names":
+    let (f, ls) = fixture("proc a() =\n  type Local = object\n    x: int\n  discard\nproc b() =\n  let v = Lo\n")
+    check "Local" notin nxComplete(f, ls, 5, ls[5].len).labels
+    check f.syms.filterIt(it.name == "Local")[0].local
+
+  test "a receiver that starts on an earlier line":
+    let (f, ls) = fixture("import std/tables\nlet t = {\"a\": 1,\n  \"b\": 2}.\n")
+    check "toTable" in nxComplete(f, ls, 2, ls[2].len).labels
+
+  test "two number types: the wider one; an integer converts to an enum":
+    let (f, ls) = fixture("type Color = enum red, green\nlet u: uint8 = 3\nlet w = (u * 2'u32).\nlet i = 1\necho i.\n")
+    let c = nxComplete(f, ls, 2, ls[2].len)
+    check c.receiverType == "uint32"
+    check "uint8" in c.labels
+    check "Color" in nxComplete(f, ls, 4, ls[4].len).labels
+
 suite "definitions and types":
   test "go to definition of a proc":
     let (f, ls) = fixture("proc twice(x: int): int = x * 2\necho twice(3)\n")

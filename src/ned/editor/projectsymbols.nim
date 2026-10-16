@@ -14,7 +14,7 @@ proc cmdProjectSymbols() =
         let f = nxLoad(path)
         if f != nil:
           for s in f.syms:
-            if s.kind in {nxModule}: continue
+            if s.kind in {nxModule} or s.local: continue
             let owner = if s.kind in {nxField, nxEnumVal}: s.owner & "." else: ""
             items.add PickItem(label: owner & s.name, detail: rel & ":" & $(s.line + 1), icon: nxIconText(s.kind),
                                path: path, line: s.line, col: s.col)

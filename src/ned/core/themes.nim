@@ -107,6 +107,7 @@ proc mkTheme(name: string, dark: bool, bg, fg, accent, sel, comment, keyword, ty
   result.syn[tkPreproc] = macroC
   result.syn[tkProperty] = prop
   result.syn[tkVariable] = prop
+  result.syn[tkParam] = blend(fg, prop, 0.6)   # (quieter than a field: there are many of them)
   result.syn[tkTag] = keyword
   result.syn[tkAttr] = typ
   result.syn[tkHeading] = fn

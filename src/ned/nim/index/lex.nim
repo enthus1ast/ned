@@ -27,6 +27,7 @@ type
     owner*: string             # fields and enum values: the type they belong to
     slot*, slots*: int16        # loop variables: which one of how many (for k, v in …)
     made*: bool                # declared by a template call on its line (genVecConstructor(vec, …))
+    local*: bool               # declared in a routine's body (a local type, its fields): not the module's own
   NxImport* = object
     spec*: string              # as written: "std/strutils", "../x", "pkg/foo"
     line*: int

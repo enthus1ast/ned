@@ -1,7 +1,8 @@
 # ── the declaration parser ──
 
 type
-  NxBlock* = enum bkRoutine, bkTypeSec, bkVarSec, bkObject, bkEnum, bkTransparent, bkObjTransparent, bkOther
+  NxBlock* = enum bkRoutine, bkTypeSec, bkVarSec, bkObject, bkEnum, bkTransparent, bkObjTransparent, bkOther,
+    bkLocal                  # a block inside a routine (if, for, an active `when` branch …): it can declare types
   NxFrame* = object
     ind*: int
     kind*: NxBlock
@@ -281,8 +282,10 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
   let n = lines.len
   var whenTaken = initTable[int, int]()
 
+  var localDepth = 0         # > 0: inside a routine's body (a type declared there is a local one)
   template addSym(s0: NxSym) =
     f.syms.add s0
+    if localDepth > 0: f.syms[^1].local = true
     let (pl, pc) = nxLocate(lines, f.syms[^1].name, startLine, i - 1, posFrom)
     f.syms[^1].line = pl
     f.syms[^1].col = pc
@@ -332,7 +335,7 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
         if ce > 5:
           for p in nxParseParams(def[6 ..< ce]):
             f.syms.add NxSym(name: p.name.strip(chars = {'*'}), kind: nxField, line: startLine,
-                             col: nxWordCol(raw, p.name), owner: nm, typ: p.typ, exported: true)
+                             col: nxWordCol(raw, p.name), owner: nm, typ: p.typ, exported: true, local: localDepth > 0)
         docTarget = tyIdx
       elif t.endsWith(":") or t.endsWith("=") or def.len == 0:
         stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
@@ -463,6 +466,9 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
     var k = stack.high
     while k >= 0 and stack[k].kind == bkTransparent: dec k
     let fk = if k >= 0: stack[k].kind else: bkTransparent
+    localDepth = 0
+    for fr in stack:
+      if fr.kind == bkRoutine: inc localDepth
     docTarget = -1               # a code line ends a doc comment run (its own trailing ## aside)
     if t.startsWith("{.pragma:"):
       let (pn, _) = nxName(t, 9)
@@ -620,8 +626,15 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
       else:
         varMember(t, stack[k].secKind)
         if opensBlock: stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
-    of bkRoutine:
-      if opensBlock: stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
+    of bkRoutine, bkLocal:
+      # a routine's body: what it declares is local, but its types are worth knowing (their fields, for `x.`)
+      if w0 == "type":
+        let r = rest.strip
+        if r.len == 0: stack.add NxFrame(ind: ind, kind: bkTypeSec, sym: -1, memberInd: -1)
+        else: typeMember(r)
+      elif w0 in ["when", "elif", "else"] and opensBlock: whenBranch(bkLocal)
+      elif w0 in NxRoutineKw: (if opensBlock: stack.add NxFrame(ind: ind, kind: bkOther, sym: -1))  # (a nested routine)
+      elif opensBlock: stack.add NxFrame(ind: ind, kind: bkLocal, sym: -1)
     of bkOther: discard
   while stack.len > 0:
     let fr = stack.pop()

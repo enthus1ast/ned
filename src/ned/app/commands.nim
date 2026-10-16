@@ -296,6 +296,8 @@ proc nimServerStatus() =
           "rename without a compiler\n"
     o.add "- standard library: " & (if nxLibFound.len > 0: nxLibFound else: "not found (is nim installed?)") & "\n"
     o.add "- files indexed: " & $nxFiles.len & "\n"
+    o.add "- semantic colours: " & (if not cfgSemColors: "off (nim.semanticColors)"
+                                   else: "the last update took " & formatFloat(semLastMs, ffDecimal, 1) & " ms") & "\n"
     o.add "- search paths: " & $nxSearchPaths.len & " · nimble packages: " & $nxPkgDirs.len & "\n"
     o.add "- project config read with `nim dump`: " & (if nxDumped.len == 0: "not yet" else: $nxDumped.len & " project(s)") & "\n"
     var live = 0

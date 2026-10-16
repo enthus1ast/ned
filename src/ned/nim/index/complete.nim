@@ -238,6 +238,33 @@ const NxPragmas* = [
   ("boundChecks", "on / off"), ("rangeChecks", "on / off"), ("nilChecks", "on / off"), ("checks", "on / off"),
   ("optimization", "speed / size / none"), ("warnings", "on / off"), ("hints", "on / off"), ("line", "the line errors report")]
 
+proc nxJoinBack(lines: seq[string], line, upto: int): string =
+  ## the line up to `upto`, with the lines above joined in front while a bracket closed on it opened there:
+  ## `{"a": 1,⏎  "b": 2}.` is one receiver
+  proc codeOf(x: string): string =
+    ## (a line without its comment)
+    var q = '\0'
+    for i, c in x:
+      if q != '\0':
+        if c == q and (i == 0 or x[i - 1] != '\\'): q = '\0'
+      elif c in {'"', '\''}: q = c
+      elif c == '#': return x[0 ..< i]
+    x
+  proc balance(x: string): int =
+    var q = '\0'
+    for i, c in x:
+      if q != '\0':
+        if c == q and (i == 0 or x[i - 1] != '\\'): q = '\0'
+      elif c == '"': q = c
+      elif c in {'(', '[', '{'}: inc result
+      elif c in {')', ']', '}'}: dec result
+  result = lines[line][0 ..< min(upto, lines[line].len)]
+  if result.strip.len == 0 or result.strip[0] notin {')', ']', '}'} and balance(result) >= 0: return
+  var l = line
+  while balance(result) < 0 and l > 0 and line - l < 30:
+    dec l
+    result = codeOf(lines[l]).strip & " " & result.strip(trailing = false)
+
 proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
   let sc = nxScope(f)
   let text = lines[line]
@@ -279,7 +306,8 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
   let locals = nxLocals(f, lines, line, col)
   if ws > 0 and text[ws - 1] == '.' and not (ws > 1 and text[ws - 2] == '.'):
     result.member = true
-    let recv = nxReceiver(text, ws - 1)
+    let joined = nxJoinBack(lines, line, ws - 1)
+    let recv = nxReceiver(joined, joined.len)
     if recv.len == 0: return
     let v = nxTypeOfExpr(f, sc, locals, recv, line, 0)
     if v.module.len > 0:
@@ -348,15 +376,24 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
                                       local: NxSym(name: t, kind: nxType, typ: "converts to " & t))
         break
       if numLike:
-        # and the distinct numbers in scope: fd.AsyncFD, h.SocketHandle (and back: x.int)
+        # and the distinct numbers in scope: fd.AsyncFD, h.SocketHandle (and back: x.int); and from an integer,
+        # this module's enums and its imports': i.Color
+        let intLike = ra in NxInts or ownDistinct.len > 0
         var seenD: HashSet[string]
         for r in sc.refs:
           let s = r.sym
-          if s.kind != nxType or not s.typ.strip.startsWith("distinct ") or s.name in seenD or s.name == st: continue
-          let b = nxBaseName(s.typ.strip[9 .. ^1])
-          if b in NxInts or nxResolveAlias(sc, b) in NxInts:
+          if s.kind != nxType or s.name in seenD or s.name == st: continue
+          let def = s.typ.strip
+          if def.startsWith("distinct "):
+            let b = nxBaseName(def[9 .. ^1])
+            if b in NxInts or nxResolveAlias(sc, b) in NxInts:
+              seenD.incl s.name
+              result.items.add NxItem(label: s.name, detail: "conversion", kind: nxType, rank: 4, refs: @[r])
+          elif intLike and r.origin in {1, 2} and (def == "enum" or def.startsWith("enum ")) and
+               (r.file == f or s.exported):
             seenD.incl s.name
-            result.items.add NxItem(label: s.name, detail: "conversion", kind: nxType, rank: 4, refs: @[r])
+            result.items.add NxItem(label: s.name, detail: "conversion to the enum", kind: nxType, rank: 4,
+                                    refs: @[r])
     var exact, related, generic: seq[NxRef]
     for r in sc.refs:
       let s = r.sym
@@ -385,8 +422,11 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       ls.typ = nxTypeOfName(f, sc, locals[0 .. i], s.name, line, 0).typ
     result.items.add NxItem(label: s.name, detail: nxShortDetail(ls), kind: s.kind, local: ls, rank: 0)
   var plain: seq[NxRef]
+  let here = nxEnclosing(f, line)
   for r in sc.refs:
-    if r.sym.kind != nxField: plain.add r
+    if r.sym.kind == nxField: continue
+    if r.sym.local and (r.file != f or here < 0 or nxEnclosing(f, r.sym.line) != here): continue   # (another routine's type)
+    plain.add r
   nxAddRefs(result.items, f, plain)
   for m, p in sc.modules:
     result.items.add NxItem(label: m, detail: "module", kind: nxModule, rank: 2,

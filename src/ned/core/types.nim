@@ -9,7 +9,8 @@ type
     tkText, tkKeyword, tkType, tkConst, tkString, tkChar, tkEscape, tkNumber,
     tkComment, tkDoc, tkPragma, tkOperator, tkFunc, tkPunct, tkPreproc,
     tkProperty, tkVariable, tkTag, tkAttr, tkHeading, tkLink, tkBold, tkCode,
-    tkAdded, tkRemoved
+    tkAdded, tkRemoved,
+    tkParam                     # a routine's parameter, where it is used (semantic colours)
 
   LexMode = enum
     lmPlain, lmGeneric, lmNim, lmC, lmJs, lmRust, lmShell, lmPython, lmMarkdown,

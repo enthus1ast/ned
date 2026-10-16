@@ -363,7 +363,9 @@ var
 
 proc semKindOf(t: string): TokKind =
   case t
-  of "function", "method", "macro", "decorator": tkFunc
+  of "function", "method", "decorator": tkFunc
+  of "macro": tkPreproc
+  of "parameter": tkParam
   of "type", "class", "enum", "interface", "struct", "typeParameter", "namespace": tkType
   of "enumMember": tkConst
   of "property": tkProperty

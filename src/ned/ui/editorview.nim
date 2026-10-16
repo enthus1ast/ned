@@ -252,7 +252,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       # code of another language in this line (C in an emit, HTML in a string): the Nim name colours stay out
       let foreign = lexForeign
       let lexed = if foreign.len > 0: toks else: @[]
-      if sem != nil: applySem(s, toks, sem)
+      if sem != nil: applySem(s, toks, sem, line)
       if lsem.len > 0 and line in lsem:
         for (c, n, k) in lsem[line]:
           for q in c ..< min(c + n, toks.len):

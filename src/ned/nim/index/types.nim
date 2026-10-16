@@ -906,11 +906,26 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
       if lr in ["string", "cstring"] and op == "%": return NxVal(typ: "string")     # "$1 is $2" % [a, b]
       if lr in NxInts or lr in NxFloats or lr == "char":
         var t = nxStripMods(lt)
+        let rightE = s[k + opLen .. ^1].strip
         if leftE.len > 0 and leftE[0] in Digits and leftE.allCharsInSet(Digits + {'_'}):
           # 5 * x: x's type
-          let rt = nxTypeOfExpr(f, sc, locals, s[k + opLen .. ^1], line, depth + 1).typ
+          let rt = nxTypeOfExpr(f, sc, locals, rightE, line, depth + 1).typ
           let rr = nxResolveAlias(sc, nxStripMods(rt))
           if rr in NxInts or rr in NxFloats: t = nxStripMods(rt)
+        elif rightE.len > 0 and not rightE.allCharsInSet(Digits + {'_', '.'}) and lr != "char":
+          # a * b of two number types: the wider one (uint8 * uint32 is a uint32, int * float a float) — a bare
+          # literal on the right takes the left's type
+          let rt = nxTypeOfExpr(f, sc, locals, rightE, line, depth + 1).typ
+          let rr = nxResolveAlias(sc, nxStripMods(rt))
+          proc width(x: string): int =
+            case x
+            of "int8", "uint8", "byte": 8
+            of "int16", "uint16": 16
+            of "int32", "uint32", "float32", "cint", "cuint", "cfloat": 32
+            else: 64
+          if (rr in NxFloats and lr notin NxFloats) or
+             (((rr in NxInts and lr in NxInts) or (rr in NxFloats and lr in NxFloats)) and width(rr) > width(lr)):
+            t = nxStripMods(rt)
         if t in ["Natural", "Positive"] or nxResolveAlias(sc, t) == "range": t = "int"     # (a range's sums are its base type's)
         elif lr == "char" and op in ["+", "-"]: t = "char"
         return NxVal(typ: t)

@@ -9,7 +9,7 @@ proc engineOutline(b: Buffer): seq[SideItem] =
     return heuristicOutline(b)
   if f == nil: return heuristicOutline(b)
   for s in f.syms:
-    if s.kind == nxModule: continue
+    if s.kind == nxModule or s.local: continue
     let depth = if s.kind in {nxField, nxEnumVal}: 1 else: 0
     var detail = nxKindWord(s.kind)
     if s.kind == nxType:
@@ -26,7 +26,7 @@ proc engineSymbols(b: Buffer): seq[PickItem] =
   let f = nxFileFor(b)
   if f == nil: return
   for s in f.syms:
-    if s.kind in {nxModule, nxEnumVal}: continue
+    if s.kind in {nxModule, nxEnumVal} or s.local: continue
     let owner = if s.kind == nxField: s.owner & "." else: ""
     result.add PickItem(label: owner & s.name, detail: truncTo(nxShortDetail(s), 60), icon: nxIconText(s.kind),
                         path: b.path, line: s.line, col: s.col)

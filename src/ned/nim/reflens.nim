@@ -151,7 +151,7 @@ proc hasBody(b: Buffer, s: NxSym): bool =
 proc refLensDecls(b: Buffer, f: NxFile): seq[int] =
   ## the declarations that get a count: top-level routines (not forward declarations), and types
   for i, s in f.syms:
-    if s.line < 0 or s.line >= b.lines.len or s.made: continue
+    if s.line < 0 or s.line >= b.lines.len or s.made or s.local: continue
     if s.kind in NxRoutineKinds:
       if b.lines[s.line].len > 0 and b.lines[s.line][0] notin {' ', '\t'} and b.hasBody(s): result.add i
     elif s.kind == nxType: result.add i
