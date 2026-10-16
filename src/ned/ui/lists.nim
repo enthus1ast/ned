@@ -195,6 +195,7 @@ proc drawDockList(dl: var DockList, v: SideView, x0, y0, w, h: int, focused: boo
     let maxT = x0 + w - 1 - (if dw > 0: dw + 2 else: 0)
     let fg = if v == svGit and it.data.len > 0: theme.fg
              elif it.data == "hit": theme.fg
+             elif it.role in {7, 8, 9}: theme.fg       # (actions, routines, types: the icon carries the colour)
              else: roleColor(it.role)
     if it.data == "hit" and dockQueryRan.len > 0:
       # the matches inside the result line; with the replace box open, old → new inline

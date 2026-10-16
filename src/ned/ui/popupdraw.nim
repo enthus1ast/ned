@@ -39,7 +39,7 @@ proc drawToasts(bottom: int) =
       discard button(x + w - 3, y + 1, ic("close"), proc() =
         if idx < toasts.len: toasts.delete(idx), "Dismiss", theme.dim, theme.toastBg)
       if a != nil:
-        discard button(x + 4, y + 1 + n, " " & lbl & " ", proc() =
+        discard pill(x + 3, y + 1 + n, lbl, proc() =
           if idx < toasts.len: toasts.delete(idx)
           a(), "", theme.badgeFg, theme.accent, {aBold}, blend(theme.accent, theme.fg, 0.2))
     dec y
@@ -69,10 +69,9 @@ proc drawDialog() =
     let bg = if primary: (if d.danger: theme.warn else: theme.accent) else: theme.btnBg
     let fg = if primary: theme.badgeFg else: theme.fg
     let kk = key
-    let lab = "  " & label & "  "
     capture kk:
-      bx = button(bx, by, lab, proc() = closeDialog(kk), "", fg, bg, (if primary: {aBold} else: {}),
-                  blend(bg, theme.fg, 0.15)) + 1
+      bx = pill(bx, by, label, proc() = closeDialog(kk), "", fg, bg, (if primary: {aBold} else: {}),
+                blend(bg, theme.fg, 0.15)) + 1
   cursorX = -1
 
 proc dialogKey(k: Key) =
@@ -111,5 +110,5 @@ proc drawTooltip() =
   if y >= scrH - 1: y = mouseY - 1
   fillRect(x, y, w, 1, theme.fg, theme.toastBg)
   discard putStr(x + 1, y, t, theme.fg, theme.toastBg)
-  shadeRect(x + 1, y + 1, w, 1)
+  dropShadow(x, y, w, 1)
   tipShown = true

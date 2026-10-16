@@ -454,4 +454,4 @@ proc drawSignature() =
   if he < lbl.len: x = putStr(x, sy, lbl[max(he, ha) .. ^1], theme.fg, theme.menuBg, {}, sx + bw)
   if more.len > 0: discard putStr(x, sy, more, theme.dim, theme.menuBg, {}, sx + bw)
   if dh > 0: drawDocLines(docs, sx, docY, bw, dh, 0, theme.menuBg)
-  shadeRect(sx + 1, sy + 1 + dh, bw, 1)
+  dropShadow(sx, sy, bw, 1 + dh)

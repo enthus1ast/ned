@@ -40,8 +40,7 @@ proc drawFindWidget() =
   let y = lay.textY
   let bg = theme.menuBg
   fillRect(x, y, w, 1, theme.fg, bg)
-  shadeRect(x + 1, y + 1, w, 1)
-  shadeRect(x + w, y, 1, 1)
+  dropShadow(x, y, w, 1)
   if isReplace:
     var xx = putStr(x + 1, y, "Replace \"" & truncTo(replaceQuery, 14) & "\"?", theme.fg, bg, {aBold})
     xx += 1

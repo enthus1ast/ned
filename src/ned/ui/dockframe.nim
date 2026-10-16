@@ -86,8 +86,9 @@ proc drawDock(side: DockSide, x0, y0, w, h: int) =
   let v = if isRight: rightView else: sideView
   let focused = focus == (if isRight: fRight else: fTree)
   fillRect(x0, y0, w, h, theme.fg, theme.dockBg)
-  # header: view icons · title · actions
-  fillRect(x0, y0, w, 1, theme.dim, theme.dockHeadBg)
+  # header: view icons · title · actions — tinted with the accent while the dock has the keyboard
+  let hb = if focused: blend(theme.dockHeadBg, theme.accent, 0.09) else: theme.dockHeadBg
+  fillRect(x0, y0, w, 1, theme.dim, hb)
   var x = x0 + 1
   let views = if isRight: @RightViews else: @LeftViews
   var ranges: seq[(int, int, SideView)]
@@ -100,7 +101,7 @@ proc drawDock(side: DockSide, x0, y0, w, h: int) =
     label.add " "
     let active = vv == v
     let fg = if active: theme.accent else: theme.dim
-    let bg = if active: blend(theme.dockHeadBg, theme.accent, 0.16) else: theme.dockHeadBg
+    let bg = if active: blend(hb, theme.accent, 0.16) else: hb
     let x1 = x
     let target = vv
     capture target:
@@ -115,18 +116,14 @@ proc drawDock(side: DockSide, x0, y0, w, h: int) =
   var ax = x0 + w - aw
   let titleW = ax - x - 2
   if titleW >= strWidth(viewTitle(v)):
-    discard putStr(ax - strWidth(viewTitle(v)) - 1, y0, viewTitle(v), (if focused: theme.fg else: theme.dim),
-                   theme.dockHeadBg, {aBold})
+    discard putStr(ax - strWidth(viewTitle(v)) - 1, y0, viewTitle(v), (if focused: theme.accent else: theme.dim),
+                   hb, {aBold})
   if ax > x:
     for (l, tip, a) in acts:
-      ax = button(ax, y0, " " & l & " ", a, tip, theme.dim, theme.dockHeadBg)
+      ax = button(ax, y0, " " & l & " ", a, tip, theme.dim, hb)
     discard button(ax, y0, " " & ic("close") & " ", proc() =
       if isRight: rightOpen = false else: treeOpen = false
-      focus = fEditor, "Close", theme.dim, theme.dockHeadBg)
-  # focus line under the header
-  if focused:
-    for xx in x0 ..< x0 + w:
-      grid[y0 * scrW + xx].at.incl aUnder
+      focus = fEditor, "Close", theme.dim, hb)
   let cy = y0 + 1
   let ch = h - 1
   case v
