@@ -394,7 +394,8 @@ proc buildChat(width: int): seq[ChatLine] =
                             ("Make it faster", "Suggest concrete performance improvements for this code.")]:
       let p = prompt
       var l = ChatLine(bg: bg)
-      l.spans.add span("  " & ic("chevR") & " " & label, theme.syn[tkFunc], bg)
+      l.spans.add span("  " & ic("chevR") & " ", theme.syn[tkFunc], bg)      # (the arrow coloured, the words plain)
+      l.spans.add span(label, theme.fg, bg)
       capture p:
         l.act = proc() =
           let cb = buf()
