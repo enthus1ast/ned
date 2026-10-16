@@ -59,11 +59,11 @@ not installed; `builtin`, `clangd` or `both`):
   adds a missing `#include`** for a standard function, type or macro (`printf` → `<stdio.h>`).
 
 Measured against clangd 22 — with a `compile_commands.json` and its background index, at its best — on OpenSSH and
-zsh ([tests/engine](tests/engine/README.md#c-ned-against-clangd)): go to definition gives the same answer DEF_BOTH,
-member completion offers the member written there MEM_BOTH; ned reads a file and every header it includes in
-FIRST_NED where clangd takes FIRST_CLANGD, and uses RSS_NED of memory to clangd's RSS_CLANGD. clangd stays the more
-precise where only the build's configuration decides (`#ifdef HAVE_…`), for declarations made by macros, and for
-C++: with clangd installed, `auto` uses it.
+zsh ([tests/engine](tests/engine/README.md#c-ned-against-clangd)): go to definition gives the same answer 97.8% and
+97.3% of the time; member completion offers the member written there 100% and 99.4% of the time (clangd: 95.1% and
+97.4%); ned reads a file and every header it includes in 13 ms where clangd takes 0.2 s, and uses 31–37 MB of memory
+to clangd's 160–270 MB. clangd stays the more precise where only the build's configuration decides
+(`#ifdef HAVE_…`), for declarations made by macros, and for C++: with clangd installed, `auto` uses it.
 
 ![editor.fontLigatures: symbols — ≥ ≤ ≠ and the arrows drawn by ned, the cursor's line as written](screenshots/ligatures-65.png)
 

@@ -56,11 +56,11 @@ Last run (clangd 22, ned 6.5, `--n 40`):
 
 | | OpenSSH (18 files) | zsh (12 files) |
 |---|---|---|
-| go to definition: the same answer | DEF_O | DEF_Z |
-| member completion: ned · clangd | MEM_O | MEM_Z |
-| a file's first answer: ned · clangd | FIRST_O | FIRST_Z |
-| each answer after: ned · clangd | EACH_O | EACH_Z |
-| memory at the end: ned · clangd | RSS_O | RSS_Z |
+| go to definition: the same answer | 97.8% (635 of 649) | 97.3% (465 of 478) |
+| member completion: ned · clangd | 100% · 95.1% (of 183) | 99.4% · 97.4% (of 156) |
+| a file's first answer: ned · clangd | 13 ms · 0.17 s | 13 ms · 0.21 s |
+| each answer after: ned · clangd | 0.33 ms · 0.2 ms | 0.46 ms · 0.3 ms |
+| memory at the end: ned · clangd | 37 MB · 274 MB | 31 MB · 160 MB |
 
 Where they differ, it is mostly what only the build's configuration decides: ned does not run the preprocessor,
 so of two `#ifdef` branches that declare the same name it takes the first (`#ifndef HAVE_STRUCT_ADDRINFO` and the
