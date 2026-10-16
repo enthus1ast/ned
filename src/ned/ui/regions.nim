@@ -42,8 +42,15 @@ proc dropShadow(x, y, w, h: int) =
   let k = if theme.dark: 0.55 else: 0.22
   proc put(xx, yy: int, ch: uint32) =
     if xx < 0 or yy < 0 or xx >= scrW or yy >= scrH: return
-    let under = grid[yy * scrW + xx].bg
-    setCell(xx, yy, Cell(ch: ch, fg: blend(under, 0x000000'u32, k), bg: under))
+    let i = yy * scrW + xx
+    let under = grid[i].bg
+    if grid[i].ch in [32'u32, 0x2502, 0x2503, 0x258C, 0x2580, 0x2598, 0x2590] or grid[i].ch == 0:
+      # a blank (or a line, or an earlier shadow): the half block
+      setCell(xx, yy, Cell(ch: ch, fg: blend(under, 0x000000'u32, k), bg: under))
+    else:
+      # text stays readable: a little darker, not hidden
+      grid[i].bg = blend(under, 0x000000'u32, k * 0.4)
+      grid[i].fg = blend(grid[i].fg, grid[i].bg, 0.35)
   for yy in y + 1 ..< y + h: put(x + w, yy, 0x258C)      # ▌
   for xx in x + 1 ..< x + w: put(xx, y + h, 0x2580)      # ▀
   put(x + w, y + h, 0x2598)                              # ▘
