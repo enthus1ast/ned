@@ -88,6 +88,8 @@ proc semMapFor(b: Buffer): SemMap =
       if s.kind in NxRoutineKinds and s.endLine >= s.line:
         var ps: seq[string]
         for p in s.params: ps.add nxNorm(p.name)
+        if s.ret.len > 0 and s.ret != "void" and s.kind notin {nxTemplate, nxMacro, nxIterator}:
+          ps.add "result"           # (the routine's implicit variable, coloured like its parameters)
         if ps.len > 0: result.routines.add (s.line, s.endLine, ps)
   except Exception as e: internalError("Nim index", e)
   semLastMs = float((getMonoTime() - t0).inMicroseconds) / 1000.0
