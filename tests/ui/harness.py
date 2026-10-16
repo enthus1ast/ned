@@ -79,6 +79,12 @@ def screen_ansi():
     """the screen with its colours (SGR escapes)"""
     return tm('capture-pane', '-t', 'f', '-p', '-e').stdout
 
+def ansi_row(text):
+    """the screen row (with its colours) whose text contains `text`, or ''"""
+    for l in screen_ansi().split('\n'):
+        if text in re.sub(r'\x1b\[[0-9;:]*m', '', l): return l
+    return ''
+
 def fg_at(row, word, nth=0):
     """the 24-bit foreground colour (r, g, b strings) where the nth `word` starts on an ANSI row, or None"""
     plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)

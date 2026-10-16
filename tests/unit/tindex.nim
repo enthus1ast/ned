@@ -89,6 +89,13 @@ suite "completion":
     check "uint8" in c.labels
     check "Color" in nxComplete(f, ls, 4, ls[4].len).labels
 
+  test "a routine declared inside this one, called with a dot":
+    let (f, ls) = fixture("proc outer() =\n  proc addQ(s: var seq[int], x: int) =\n    s.add x\n  var s: seq[int]\n" &
+                          "  s.\n  s.addQ(3)\n")
+    check "addQ" in nxComplete(f, ls, 4, ls[4].len).labels
+    let d = nxDefinition(f, ls, 5, colOf(ls, 5, "addQ"))
+    check d.len == 1 and d[0][1] == 1
+
 suite "definitions and types":
   test "go to definition of a proc":
     let (f, ls) = fixture("proc twice(x: int): int = x * 2\necho twice(3)\n")

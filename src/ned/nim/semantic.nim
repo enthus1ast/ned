@@ -111,7 +111,7 @@ proc applySem(s: string, toks: var seq[TokKind], m: SemMap, line = -1) =
     if s[i] in IdentStartChars and (i == 0 or s[i - 1] notin IdentChars):
       var j = i
       while j < n and s[j] in IdentChars: inc j
-      if toks[i] in {tkText, tkType}:
+      if toks[i] in {tkText, tkType, tkFunc, tkProperty}:     # (what the lexer guessed from the shape: f(…), x.y)
         let w = nxNorm(s[i ..< j])
         var q = j
         while q < n and s[q] == ' ': inc q
@@ -121,9 +121,10 @@ proc applySem(s: string, toks: var seq[TokKind], m: SemMap, line = -1) =
           let call = q < n and s[q] in {'(', '"', '['}
           let isField = w in m.fields or w in m.importFields
           let isCall = w in m.calls or w in m.importCalls
-          if isField and (not isCall or not call): k = tkProperty
-          elif isCall: k = (if w in m.macros or w in m.importMacros: tkPreproc else: tkFunc)
-          else: k = m.semKind(w)
+          if isField and not isCall: k = tkProperty
+          elif isCall and (call or not isField): k = (if w in m.macros or w in m.importMacros: tkPreproc else: tkFunc)
+          elif not isField: k = m.semKind(w)
+          # (both a field somewhere and a routine, written without a call — x.len, x.name: the lexer's guess stays)
         elif w in params: k = tkParam
         elif q < n and s[q] == '.' and (q + 1 >= n or s[q + 1] != '.') and w in m.modules and
              m.semKind(w) == tkText:

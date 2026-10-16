@@ -394,6 +394,14 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
             seenD.incl s.name
             result.items.add NxItem(label: s.name, detail: "conversion to the enum", kind: nxType, rank: 4,
                                     refs: @[r])
+    # routines declared inside this one, callable with a dot too
+    var seenLocalR: HashSet[string]
+    for i in countdown(locals.high, 0):
+      let s = locals[i]
+      if s.kind notin NxRoutineKinds or s.params.len == 0 or s.line > line or s.name in seenLocalR: continue
+      if result.known and nxCompatP(sc, s.params[0], s.generics, typ) == 0: continue
+      seenLocalR.incl s.name
+      result.items.add NxItem(label: s.name, detail: nxShortDetail(s), kind: s.kind, local: s, rank: 0, ufcs: true)
     var exact, related, generic: seq[NxRef]
     for r in sc.refs:
       let s = r.sym

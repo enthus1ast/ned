@@ -231,9 +231,16 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
       for r in nxLookup(sc, w):
         if r.sym.kind == nxEnumVal and r.sym.owner == v.typeName: result[0].add r
       if result[0].len > 0: return
+    # a routine declared inside this one (shape.addQuadratic(…) calling a nested proc): it hides the module's
+    proc localRoutine(): seq[NxSym] =
+      for i in countdown(locals.high, 0):
+        let s = locals[i]
+        if s.kind in NxRoutineKinds and nxNorm(s.name) == nxNorm(w) and s.line <= line: return @[s]
     if v.typ.len > 0:
       for fr in nxFields(sc, v.typ):
         if nxNorm(fr.sym.name) == nxNorm(w) and nxVisible(f, fr): return (@[fr], @[], "")
+      let lr = localRoutine()
+      if lr.len > 0: return (@[], lr, "")
       var best: seq[NxRef]
       var bestScore = 0
       for r in nxLookup(sc, w):
@@ -245,6 +252,8 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
         elif c == bestScore and c > 0: best.add r
       if best.len > 0: return (best, @[], "")
     # unknown receiver: any routine of that name
+    let lr = localRoutine()
+    if lr.len > 0: return (@[], lr, "")
     for r in nxLookup(sc, w):
       if r.sym.kind in NxRoutineKinds or r.sym.kind == nxField: result[0].add r
     if result[0].len == 0:

@@ -3764,9 +3764,7 @@ def t_61_semantic():
         'proc show(p: P, count: int) =\n  echo p.name, p.size(count), twice(count)\n'
         '  echo sequtils.toSeq(1..2), P(name: "x")\n')
     start('s.nim', w=110, h=20); time.sleep(2.5)
-    a = screen_ansi()
-    row = [l for l in a.split('\n') if 'echo p.' in l][0]
-    row2 = [l for l in a.split('\n') if 'sequtils.toSeq' in l][0]
+    row, row2 = ansi_row('echo p.'), ansi_row('sequtils.toSeq')
     field, call, param, tpl = fg_at(row, 'name'), fg_at(row, 'size'), fg_at(row, 'count'), fg_at(row, 'twice')
     check('61 after a dot: a field and a call in different colours (p.name · p.size(count))',
           field and call and field != call, str((field, call)) + row)
