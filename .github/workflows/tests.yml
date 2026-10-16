@@ -1,5 +1,5 @@
 # ned's tests, on every push and pull request:
-#   unit  — the Nim index, the formatters and the regular expressions, on Linux and macOS
+#   unit  — the Nim index, the C index, the formatters and the regular expressions, on Linux and macOS
 #   ui    — the whole editor driven through tmux, its screen read back (tests/ui), in four parts side by side,
 #           with the tools the tests use installed (language servers, clangd, gdb, shells, an SSH server)
 # Started by hand (Actions › tests › Run workflow) it can also fuzz ned and compare its Nim engine with nimsuggest.

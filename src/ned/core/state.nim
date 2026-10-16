@@ -46,6 +46,7 @@ var
   cfgHoverDelay = 700
   cfgSticky = true             # sticky scroll: keep enclosing proc/type headers visible
   cfgRainbow = true            # rainbow brackets
+  cfgLigatures = "off"         # editor.fontLigatures: off | font (operators in one colour, for a ligature font) | symbols
   cfgLiveCheck = true          # diagnostics while typing (nimsuggest), not only on save
   cfgFormatOnSave = false
   cfgNimIde = "builtin"        # builtin (ned's index + nimsuggest) | nimlangserver | off

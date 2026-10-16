@@ -56,6 +56,32 @@ var
 
 proc drawMergeView(b: Buffer, x0, y0, w, h: int, active: bool)
 
+# ── editor.fontLigatures ──
+
+const
+  LigOpChars = {'-', '>', '<', '=', '!', ':', '|', '&', '+', '*', '/', '%', '^', '~', '?', '.', '@', '$'}
+  LigSyms = [("->", [0x2500'u32, 0x2192]), ("=>", [0x2550'u32, 0x21D2]), ("!=", [0x2260'u32, 32]),
+             ("<=", [0x2264'u32, 32]), (">=", [0x2265'u32, 32]), (":=", [0x2254'u32, 32])]
+    ## what `symbols` draws, cell by cell: arrows as long arrows over both cells (─→ ═⇒), the others with a blank
+
+proc ligatureRuns(s: string, toks: seq[TokKind]): seq[(int, int)] =
+  ## the operators of a line of code — runs of two or more operator characters, not in strings, characters or
+  ## comments: (start, end)
+  var i = 0
+  while i < s.len:
+    if s[i] in LigOpChars and i < toks.len and toks[i] in {tkOperator, tkPunct, tkText}:
+      var e = i + 1
+      while e < s.len and s[e] in LigOpChars and e < toks.len and toks[e] in {tkOperator, tkPunct, tkText}: inc e
+      if e - i >= 2: result.add (i, e)
+      i = e
+    else: inc i
+
+proc ligatureSymbol(op, langId: string): array[2, uint32] =
+  ## the two cells `symbols` draws for an operator (only a whole one: not the >= of >>=), [0, 0] for none
+  for (k, v) in LigSyms:
+    if op == k: return v
+  if op == "<-" and langId == "go": return [0x2190'u32, 0x2500]       # (a channel; in C, a<-b is a < -b)
+
 proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   if b.id in mergeViews and not mergeInner and h >= 14 and w >= 40:
     drawMergeView(b, x0, y0, w, h, active)
@@ -190,6 +216,14 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       while agB < b.lines.high and agB - ph.line < 3000 and (isBlank(b.lines[agB + 1]) or indOf(agB + 1) > agCol): inc agB
       while agB > agA and isBlank(b.lines[agB]): dec agB
   let guideOn = blend(theme.guide, theme.fg, 0.32)
+  # editor.fontLigatures: operators in code kept in one colour (font), or drawn as symbols — but not on a line with a
+  # cursor, where the text itself is shown (symbols)
+  let ligOn = cfgLigatures in ["font", "symbols"] and b.lang != nil and
+              b.lang.mode in {lmGeneric, lmNim, lmC, lmJs, lmRust, lmPython} and b.lang.id notin ["csv", "tsv"] and
+              b.id notin graphBufs and not isMb
+  var curLines: HashSet[int]
+  if ligOn and cfgLigatures == "symbols":
+    for c in b.cursors: curLines.incl c.head.line
   var toks: seq[TokKind]
   var tagCols: seq[Rgb]
   for ti in 0 ..< todoTags.len: tagCols.add todoColor(ti, theme.bg)
@@ -361,6 +395,22 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         hints = keep
         swBg = sw
       if hints.len > 0: inlayShown.incl line
+    var ligRuns: seq[(int, int)]
+    var ligCh: seq[uint32]
+    var lr = 0
+    var ligFrom = -1
+    var ligFg: Rgb
+    var ligAttr: set[Attr]
+    if ligOn and s.len <= 4000:
+      ligRuns = ligatureRuns(s, toks)
+      if cfgLigatures == "symbols" and ligRuns.len > 0 and line notin curLines:
+        for (a, e) in ligRuns:
+          if e - a != 2: continue
+          let sym = ligatureSymbol(s[a ..< e], b.lang.id)
+          if sym[0] != 0:
+            if ligCh.len == 0: ligCh = newSeq[uint32](s.len)
+            ligCh[a] = sym[0]
+            ligCh[a + 1] = sym[1]
     var hk = 0
     var shift = 0
     # indentation guides
@@ -512,6 +562,17 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
             if tk == tkText: fg = sevColor(sv)
           elif i >= a and i < e and sv == 9:
             at.incl aUnder
+        if ligRuns.len > 0:
+          # an operator: one colour and style over all of it (from its first cell drawn)
+          while lr < ligRuns.len and ligRuns[lr][1] <= i: inc lr
+          if lr < ligRuns.len and i >= ligRuns[lr][0]:
+            if ligFrom != ligRuns[lr][0] or i == ligRuns[lr][0]:
+              ligFrom = ligRuns[lr][0]
+              ligFg = fg
+              ligAttr = at
+            else:
+              fg = ligFg
+              at = ligAttr
         let c = s[i]
         if c == '\t':
           for k in 0 ..< cw:
@@ -524,6 +585,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                                           else: theme.guide), bg: bg))
         elif cw > 0 and x >= tx0:
           var (cp, _) = runeAt(s, i)
+          if ligCh.len > 0 and i < ligCh.len and ligCh[i] != 0: cp = ligCh[i].int     # (editor.fontLigatures: symbols)
           if cp < 32: cp = 0x2400 + cp
           elif cp == 127: cp = 0x2421
           if x + cw <= limX:

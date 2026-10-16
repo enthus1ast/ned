@@ -2,6 +2,7 @@
 
 type RenamePv = object
   bufId: int
+  fromBuf: int                            # the file the rename started in: back to it after
   oldName, newName: string
   hits: seq[(string, int, int)]           # from the Nim engine / nimsuggest: file, line, col
   lsp: LspServer                          # from a language server: its edits, one by one
@@ -69,8 +70,17 @@ proc renderRenamePv() =
   b.readOnly = true
   b.setSingle(b.clampPos(keep))
 
+proc closeRenamePv(ci: int) =
+  ## the preview's tab closed — and back to the file the rename started in (not the tab beside the preview)
+  if ci >= 0: closeBufferAt(ci)
+  for i, x in bufs:
+    if x.id == renamePv.fromBuf:
+      curBuf = i
+      break
+
 proc openRenamePv() =
   let n = max(renamePv.hits.len, renamePv.edits.len)
+  renamePv.fromBuf = buf().id
   renamePv.on = newSeq[bool](n)
   for x in renamePv.on.mitems: x = true
   let pv = openScratch("Rename preview", "", langByName("Diff"))
@@ -135,7 +145,7 @@ proc renamePvKey(k: Key): bool =
       var hs: seq[(string, int, int)]
       for i, h in renamePv.hits:
         if renamePv.on[i]: hs.add h
-      if ci >= 0: closeBufferAt(ci)
+      closeRenamePv(ci)
       if hs.len > 0: applyRenameHits(hs, renamePv.oldName, renamePv.newName)
       else: info("Nothing ticked — nothing renamed")
     else:
@@ -146,14 +156,13 @@ proc renamePvKey(k: Key): bool =
         if not ch.hasKey(uri): ch[uri] = newJArray()
         ch[uri].add e
         inc n
-      if ci >= 0: closeBufferAt(ci)
+      closeRenamePv(ci)
       if n > 0: applyWorkspaceEdit(renamePv.lsp, %*{"changes": ch})
       else: info("Nothing ticked — nothing renamed")
     renamePv.bufId = -1
     return true
   if k.kind == kEsc:
-    let ci = bufs.find(b)
-    if ci >= 0: closeBufferAt(ci)
+    closeRenamePv(bufs.find(b))
     renamePv.bufId = -1
     info("Rename cancelled")
     return true

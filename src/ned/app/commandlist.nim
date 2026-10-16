@@ -147,6 +147,17 @@ proc initCommands() =
     info("Line numbers: " & nx)))
   add("Toggle whitespace", "", toggleSetting("editor.showWhitespace", "Whitespace"))
   add("Toggle indent guides", "", toggleSetting("editor.indentGuides", "Indent guides"))
+  add("View: ligatures (off › font › symbols)", "", (block:
+    # editor.fontLigatures, the next one: a ligature font's · ned's own symbols · off
+    let nx = case cfgLigatures
+             of "off": "font"
+             of "font": "symbols"
+             else: "off"
+    setSetting("editor.fontLigatures", %nx)
+    info("Ligatures: " & (case nx
+      of "font": "font — each operator kept whole for a terminal with a ligature font"
+      of "symbols": "symbols — drawn by ned (─→ ═⇒ ≠ ≤ ≥), the cursor's line as written"
+      else: "off"))))
   add("View: toggle rulers", "", toggleRulers())
   add("View: set ruler columns…", "", askText("Ruler columns (e.g. 80 or 80, 120 — empty: none)",
       (if cfgRulers.len > 0: rulerList() else: "80"), proc(t: string) =

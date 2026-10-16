@@ -7,7 +7,9 @@ proc cEngineOn(b: Buffer): bool =
   b != nil and b.lang != nil and b.lang.id == "c" and b.path.len > 0 and not b.largeOn and b.lines.len < 200_000 and
     (cfgCEngine in ["builtin", "both"] or (cfgCEngine == "auto" and not haveExe("clangd")))
 
-var cxDirsKey = ""
+var
+  cxDirsKey = ""
+  cxCompileDefs: seq[string]          # compile_commands.json's -D and -U: the compiler's check of the unsaved text
 
 proc cxSetDirs(b: Buffer) =
   ## where #include looks: the file's folder, the project's include folders (and compile_commands.json's -I),
@@ -16,6 +18,7 @@ proc cxSetDirs(b: Buffer) =
   if key == cxDirsKey and cxDirs.len > 0: return
   cxDirsKey = key
   var ds: seq[string]
+  var defs: seq[string]
   proc add(d: string) =
     if d.len > 0 and dirExists(d) and d notin ds: ds.add d
   add parentDir(b.path)
@@ -38,6 +41,12 @@ proc cxSetDirs(b: Buffer) =
               add(if args[k + 1].isAbsolute: args[k + 1] else: dir / args[k + 1])
               inc k
             elif a.startsWith("-I") and a.len > 2: add(if a[2 .. ^1].isAbsolute: a[2 .. ^1] else: dir / a[2 .. ^1])
+            elif (a.startsWith("-D") or a.startsWith("-U")) and a.len > 2 and defs.len < 200:
+              let nm = a[2 .. ^1].split('=')[0]
+              var dup = false
+              for x in defs:
+                if x[2 .. ^1].split('=')[0] == nm: dup = true
+              if not dup: defs.add a               # (the first file's, when files differ)
             inc k
           if ds.len > 40: break
       except CatchableError: discard
@@ -45,6 +54,18 @@ proc cxSetDirs(b: Buffer) =
     for d in v.split(':'): add d
   for d in cSystemIncludeDirs(): add d
   cxDirs = ds
+  cxCompileDefs = defs
+  if not cxPredefSet:
+    # the compiler's predefined macros: the #if branches its target decides (__x86_64__, __linux__, _WIN32 …)
+    cxPredefSet = true
+    for cc in ["cc", "clang", "gcc"]:
+      if not haveExe(cc): continue
+      let (ok, o, _) = runFilter(cc & " -dM -E -x c -", "", getCurrentDir(), 5000)
+      if not ok: continue
+      for l in o.splitLines:
+        let p = l.splitWhitespace(2)
+        if p.len >= 2 and p[0] == "#define": cxPredef[p[1]] = (if p.len > 2: p[2] else: "")
+      break
 
 proc cxFileOf(b: Buffer): CxFile =
   ## this buffer's index (its unsaved text)
@@ -62,6 +83,7 @@ proc cxKindIcon(k: CxKind): int =
   of cxEnumConst: 20
   of cxTypedef: 7
   of cxMacro: 15
+  of cxLabel: 18
 
 proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool =
   if not cEngineOn(b): return false
@@ -100,27 +122,37 @@ proc cEngDefinition(b: Buffer, p: Pos): bool =
   ## F12: the declaration (a function's body first), through the #includes
   if not cEngineOn(b): return false
   var ts: seq[(CxFile, CxSym)]
-  try: ts = cxTargets(cxFileOf(b), p.line, p.col)
+  try: ts = cxTargets(cxFileOf(b), p.line, p.col, jump = true)
   except CatchableError as e:
     internalError("C engine", e)
     return false
+  proc projectC(): seq[string] =
+    if rootDir.len > 0:
+      for f in projectFiles():
+        if f.endsWith(".c") and f != b.path: result.add(if f.isAbsolute: f else: rootDir / f)
   if ts.len == 0:
-    # a function declared in a header and defined in another .c file of the project
-    return false
+    # declared in no header this file includes: a function or global defined in the project's other .c files
+    let (a, e) = cxWordAt(b.lines[p.line], p.col)
+    if a >= e: return false
+    let w = b.lines[p.line][a ..< e]
+    if w in CxKeywords: return false
+    let cs = projectC()
+    for kind in [cxFunc, cxVar, cxStruct]:
+      let (h, k) = cxBodyIn(cs, w, kind)
+      if h != nil:
+        ts.add (h, h.syms[k])
+        break
+    if ts.len == 0: return false
   var (g, s) = ts[0]
-  if s.kind == cxFunc and not s.isDef and rootDir.len > 0:
-    for f in projectFiles():
-      if not f.endsWith(".c"): continue
-      let full = if f.isAbsolute: f else: rootDir / f
-      let h = cxLoad(full)
-      if h == nil: continue
-      var found = false
-      for x in h.syms:
-        if x.name == s.name and x.kind == cxFunc and x.isDef:
-          (g, s) = (h, x)
-          found = true
-          break
-      if found: break
+  # on a definition's own name: its prototype (and from there back); a prototype: the body, in another .c file of
+  # the project when it is not in this one's
+  let onDef = ts[^1][1].isDef and ts[^1][0].path == b.path and ts[^1][1].line == p.line
+  # (a system header's declaration stays: a body the project has for it is a fallback, compiled out where the
+  # system has its own)
+  if s.kind in {cxFunc, cxStruct, cxUnion, cxVar} and not s.isDef and not onDef and rootDir.len > 0 and
+     (g.path == b.path or g.path.startsWith(rootDir & "/")):
+    let (h, k) = cxBodyIn(projectC(), s.name, s.kind)
+    if h != nil: (g, s) = (h, h.syms[k])
   pushJump()
   let path = if g.path == b.path: b.path else: g.path
   let nb = if path == b.path: b else: openFile(path)
@@ -140,7 +172,7 @@ proc cEngReferenceHits(b: Buffer, p: Pos): (seq[(string, int, int)], string) =
   if a >= e: return (@[], "No symbol under cursor")
   let w = b.lines[p.line][a ..< e]
   if w in CxKeywords: return (@[], w & " is a C keyword")
-  if ts.len > 0 and ts[0][1].kind in {cxLocal, cxParam}:
+  if ts.len > 0 and ts[0][1].kind in {cxLocal, cxParam, cxLabel}:
     let s = ts[0][1]
     var lo = s.scopeA
     if s.kind == cxParam:
@@ -195,7 +227,7 @@ proc cEngRename(b: Buffer, p: Pos, newName: string): bool =
   try:
     let f = cxFileOf(b)
     let ts = cxTargets(f, p.line, p.col)
-    if ts.len > 0 and ts[0][1].kind notin {cxLocal, cxParam} and
+    if ts.len > 0 and ts[0][1].kind notin {cxLocal, cxParam, cxLabel} and
        not (ts[0][0].path == b.path or (rootDir.len > 0 and ts[0][0].path.startsWith(rootDir & "/"))):
       warn("'" & b.wordAt(p) & "' is declared in " & ts[0][0].path & " — outside this project, so it is not renamed")
       return true
@@ -271,7 +303,9 @@ proc cTypingCheck(b: Buffer) =
   var inc = " -iquote " & quoteShell(parentDir(path))
   for d in cxDirs:
     if d != parentDir(path) and not cSystemIncludeDirs().contains(d): inc.add " -I" & quoteShell(d)
-  discard startJob(jkCheck, "cc -fsyntax-only -Wall -fdiagnostics-color=never" & inc & " -x c - < " & quoteShell(copy),
+  for d in cxCompileDefs: inc.add " " & quoteShell(d)
+  discard startJob(jkCheck, "LC_ALL=C cc -fsyntax-only -Wall -fdiagnostics-color=never" & inc & " -x c - < " &
+                   quoteShell(copy),
                    parentDir(path), proc(j: Job) =
     cTypingChecks.del path
     try: removeFile(copy)
@@ -340,11 +374,15 @@ proc cIncludeFix(b: Buffer, d: Diag): (string, string, Action) =
   if not ("implicit declaration of function" in m or "call to undeclared function" in m or
           "unknown type name" in m or "undeclared" in m or "use of undeclared identifier" in m):
     return
-  let a = m.find({'\'', '`'})
+  var a = -1
+  var ql = 1
+  for q in ["'", "`", "\"", "‘"]:                        # (‘’: the compiler's quotes in a UTF-8 locale)
+    let k = m.find(q)
+    if k >= 0 and (a < 0 or k < a): (a, ql) = (k, q.len)
   if a < 0: return
-  var e = a + 1
-  while e < m.len and m[e] notin {'\'', '`'}: inc e
-  let name = m[a + 1 ..< e]
+  var e = a + ql
+  while e < m.len and m[e] notin {'\'', '`', '"'} and not m.continuesWith("’", e): inc e
+  let name = m[a + ql ..< e]
   if name.len == 0: return
   let h = cxHeaderOf(name)
   if h.len == 0: return

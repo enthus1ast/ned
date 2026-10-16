@@ -6,6 +6,7 @@ exec(compile(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'harn
 # ── tests ──
 def t_edit_save_undo():
     setup(); start('src/demo/utils.nim')
+    mode0 = os.stat(os.path.join(W, 'src/demo/utils.nim')).st_mode & 0o777
     keys('C-End'); keys('Enter'); text('proc thrice*(x: int): int = x * 3'); keys('C-s'); time.sleep(0.5)
     check('save writes the file', 'thrice' in ftext('src/demo/utils.nim'), ftext('src/demo/utils.nim'))
     for _ in range(25): keys('C-z')
@@ -15,7 +16,7 @@ def t_edit_save_undo():
     keys('C-s'); time.sleep(0.5)
     check('redo restores', 'thrice' in ftext('src/demo/utils.nim'))
     st = os.stat(os.path.join(W, 'src/demo/utils.nim'))
-    check('mode kept 644', oct(st.st_mode & 0o777) == '0o644', oct(st.st_mode))
+    check('mode kept (%s)' % oct(mode0), st.st_mode & 0o777 == mode0, oct(st.st_mode))
 
 def t_find_replace():
     setup(); start('src/demo.nim')
@@ -3953,16 +3954,20 @@ def t_64_engine():
     # Box[string](…) and Box(val: "x") typed, organize imports, an import from the project's own modules
     setup({"nim.nimsuggest": None})
     open(W + '/src/p64.nim', 'w').write(
-        'proc draw(x, y: int, filled: bool) = discard\n'
+        'proc draw(width, height: int, filled: bool) = discard\n'
         'proc biggest[T](a, b: T): T = (if a > b: a else: b)\n'
         'type Box[T] = object\n  val: T\n\n'
         'draw(10, 20, true)\n'
         'let z = biggest(3, 4)\n'
         'let one = 1; let word = "x"\n'
         'let bx = Box(val: "x")\n'
-        'echo max(1, 2), z, one, word, bx\n')
+        'echo max(1, 2), z, one, word, bx.val\n')
+    # (the files quick open finds: made before ned starts)
+    open(W + '/src/o64.nim', 'w').write('import std/tables\nimport std/strutils, std/os\n\necho "a".toUpperAscii\n')
+    open(W + '/src/extra64.nim', 'w').write('proc helperSixtyFour*(): int = 64\n')
+    open(W + '/src/u64.nim', 'w').write('echo helperSixtyFour()\n')
     start('src/p64.nim', w=130, h=30)
-    ok = wait_for(r'draw\(x: 10, y: 20, filled: true\)', 8)
+    ok = wait_for(r'draw\(width: 10, height: 20, filled: true\)', 8)
     check('64 parameter names before literal arguments', ok, screen())
     check('64 … not for one-letter names (max(1, 2))', 'max(1, 2)' in screen() and 'max(x:' not in screen(), screen())
     check('64 a `;` statement has its type hint too', re.search(r'word: string = "x"', screen()), screen())
@@ -3972,17 +3977,14 @@ def t_64_engine():
     check('64 hover on a generic call: what it is here', 'Here:' in screen() and 'T = int' in screen(), screen())
     keys('Escape')
     # organize imports: the unused ones go (the compiler says which, on save), the rest sorted
-    open(W + '/src/o64.nim', 'w').write('import std/tables\nimport std/strutils, std/os\n\necho "a".toUpperAscii\n')
     keys('C-p'); time.sleep(0.4); text('o64.nim'); time.sleep(0.5); keys('Enter'); time.sleep(0.8)
-    keys('C-s'); ok = wait_for('▲ 2', 20)
+    keys('C-s'); ok = wait_for(r'imported and not used', 20)
     palette('Nim: organize imports'); time.sleep(1)
     keys('C-s'); time.sleep(0.6)
     t = ftext('src/o64.nim')
     check('64 organize imports: the unused ones removed, the rest sorted', ok and t.startswith('import std/strutils\n\necho'),
           repr(t) + screen()[-300:])
     # a name one of the project's own modules exports: Alt+Enter imports it
-    open(W + '/src/extra64.nim', 'w').write('proc helperSixtyFour*(): int = 64\n')
-    open(W + '/src/u64.nim', 'w').write('echo helperSixtyFour()\n')
     keys('C-p'); time.sleep(0.4); text('u64.nim'); time.sleep(0.5); keys('Enter'); time.sleep(0.8)
     keys('C-s'); wait_for('undeclared identifier', 20)
     keys('C-Home'); keys('End'); keys('Left'); keys('Left'); keys('Left'); keys('M-Enter'); time.sleep(1.2)
@@ -3990,6 +3992,112 @@ def t_64_engine():
     keys('C-u'); text('extra64'); time.sleep(0.3); keys('Enter'); time.sleep(0.6); keys('C-s'); time.sleep(0.5)
     t = ftext('src/u64.nim')
     check('64 … the import is added', t.startswith('import ./extra64\n'), repr(t))
+
+def t_65_cengine():
+    # 6.5: ned's own C engine (c.engine: builtin) — no clangd started; members after ->, hover with the header's
+    # comment, F12 through #include and to the body in another .c file, goto labels, rename, signature help, the
+    # C compiler's errors on the unsaved text, a missing #include added
+    setup({"c.engine": "builtin"})
+    os.makedirs(W + '/c65', exist_ok=True)
+    open(W + '/c65/pt.h', 'w').write(PT_H)
+    open(W + '/c65/geometry_util.h', 'w').write('int gu_area(int w, int h);\n')
+    open(W + '/c65/pt.c', 'w').write('#include "pt.h"\n\nPoint pt_move(Point p, int dx, int dy)\n{\n'
+                                     '    p.x += dx;\n    p.y += dy;\n    return p;\n}\n')
+    open(W + '/c65/main.c', 'w').write(
+        '#include "pt.h"\n\nint walk(struct node *head)\n{\n    int steps = 0;\n    while (head) {\n'
+        '        steps++;\n        head = head->next;\n    }\n    if (steps > 100)\n        goto done;\n'
+        '    return steps;\ndone:\n    return -1;\n}\n\nint main(void)\n{\n    struct node n = {0};\n'
+        '    Point q = pt_move(n.at, 1, 2);\n    return walk(&n) + q.x;\n}\n')
+    start('c65/main.c', w=130, h=34); time.sleep(1)
+    keys('C-g'); text('20:17'); keys('Enter'); keys('M-h'); time.sleep(1)
+    sc = screen()
+    check("65 C engine: hover — the header's declaration and its comment",
+          'Point pt_move(Point p, int dx, int dy)' in sc and 'Moves a point by dx, dy.' in sc, sc)
+    keys('Escape')
+    keys('C-g'); text('21:25'); keys('Enter'); keys('M-h'); time.sleep(1)
+    sc = screen()
+    check('65 C engine: hover on a member of a typedef\'d anonymous struct — its comment', 'int x' in sc and 'across' in sc, sc)
+    keys('Escape')
+    keys('C-g'); text('20:17'); keys('Enter'); keys('F12'); time.sleep(1.2)
+    check('65 C engine: F12 on a function declared in a header — its body in the other .c file',
+          wait_for(r'pt\.c', 3) and status_pos() and status_pos()[0] == 3, screen()[:600])
+    keys('M-,'); time.sleep(0.5)
+    keys('C-g'); text('3:18'); keys('Enter'); keys('F12'); time.sleep(1.2)
+    check('65 C engine: F12 on struct node — through the #include', wait_for(r'pt\.h', 3) and status_pos() and
+          status_pos()[0] == 10, screen()[:600])
+    keys('M-,'); time.sleep(0.5)
+    keys('C-g'); text('11:15'); keys('Enter'); keys('F12'); time.sleep(0.8)
+    check('65 C engine: F12 on a goto — its label', status_pos() and status_pos()[0] == 13, screen()[-300:])
+    keys('C-g'); text('5:10'); keys('Enter'); keys('F2'); time.sleep(0.3)
+    keys('C-u'); text('count'); keys('Enter'); time.sleep(0.6)
+    check('65 C engine: rename a local — a preview first', 'Rename steps → count' in screen(), screen()[:800])
+    keys('Enter'); time.sleep(0.6); keys('C-s'); time.sleep(0.5)
+    t = ftext('c65/main.c')
+    check('65 C engine: … renamed in its function only', t.count('count') == 4 and 'steps' not in t, t)
+    keys('C-g'); text('8'); keys('Enter'); keys('End'); keys('Enter'); text('head->')
+    check('65 C engine: members after -> (a struct from the header)', wait_for(r'next\s+struct node \*', 4) and
+          re.search(r'at\s+Point', screen()), screen())
+    keys('Escape'); text('at.')
+    check('65 C engine: … and after . through the typedef', wait_for(r'x\s+int', 4) and re.search(r'y\s+int', screen()),
+          screen())
+    keys('Escape'); keys('C-k'); time.sleep(0.3)
+    keys('C-g'); text('19'); keys('Enter'); keys('End'); keys('Enter'); text('pt_move(')
+    check('65 C engine: signature help on (', wait_for(r'Point pt_move\(Point p, int dx, int dy\)', 4), screen())
+    keys('Escape'); text('n.at, 1, 2); '); keys('Enter'); text('int z = ; ')   # (a ; last is tmux's separator)
+    ok = wait_for(r'expected expression', 15)
+    check("65 C engine: the C compiler's error while typing (the unsaved text)", ok, screen())
+    check('65 C engine: … the file is not saved for it', 'int z' not in ftext('c65/main.c'), ftext('c65/main.c'))
+    for _ in range(10): keys('BSpace')
+    text('printf("hi\\n"); ')
+    ok = wait_for(r"implicit declaration of function .printf", 15)
+    check('65 C engine: a function used without its #include', ok, screen())
+    if ok:
+        keys('M-Enter'); time.sleep(0.6)
+        ok = wait_for(r'#include <stdio\.h>', 4)
+        check('65 C engine: … Alt+Enter offers the #include', ok, screen())
+        if ok:
+            keys('Enter'); time.sleep(0.5); keys('C-s'); time.sleep(0.5)
+            check('65 C engine: … added', '#include <stdio.h>' in ftext('c65/main.c'), ftext('c65/main.c'))
+    keys('C-End'); text('struct node gn = { .')
+    check('65 C engine: members in a designated initializer ({ .)', wait_for(r'next\s+struct node \*', 4), screen())
+    keys('Escape'); keys('C-k')
+    keys('C-Home'); keys('End'); keys('Enter'); text('#include "')
+    check('65 C engine: #include "… offers the headers beside the file', wait_for(r'geometry_util\.h', 4), screen())
+    keys('Escape'); keys('C-k')
+    keys('C-t'); text('wal'); time.sleep(0.5)
+    check('65 C engine: symbols in the file', 'walk' in screen(), screen())
+    keys('Escape')
+    mine = [pid for pid in sh('pgrep -x clangd').stdout.split() if
+            os.path.realpath('/proc/%s/cwd' % pid).startswith(os.path.realpath(W))]
+    check('65 C engine: no clangd started (c.engine: builtin)', not mine, str(mine))
+
+def t_65_ligatures():
+    # editor.fontLigatures: symbols — ned draws ≠ ≤ ═⇒ ─→ itself, in the same columns; not in strings or comments, not on
+    # the cursor's line; font — nothing replaced (the terminal's font joins them)
+    setup({"editor.fontLigatures": "symbols"})
+    open(W + '/lig.nim', 'w').write('import std/sugar\nproc f(a, b: int): bool =\n  result = a != b and a <= b\n'
+                                    'let g = (x: int) => x\necho "a != b"  # a >= b\n')
+    open(W + '/lig.c', 'w').write('struct n { struct n *next; };\nint f(struct n *p) {\n    return p->next != 0;\n}\n')
+    start('lig.nim', w=100, h=24); time.sleep(1)
+    sc = screen()
+    check('65 ligatures: ≠ and ≤ drawn, same columns', re.search(r'result = a ≠  b and a ≤  b', sc) is not None, sc)
+    check('65 ligatures: => as a long double arrow', '(x: int) ═⇒ x' in sc, sc)
+    check('65 ligatures: not inside strings or comments', 'echo "a != b"  # a >= b' in sc, sc)
+    keys('C-g'); text('3'); keys('Enter'); time.sleep(0.4)
+    sc = screen()
+    check("65 ligatures: the cursor's line shows the text itself", 'result = a != b and a <= b' in sc and
+          '(x: int) ═⇒ x' in sc, sc)
+    keys('C-o'); time.sleep(0.4); keys('C-u'); text(W + '/lig.c'); keys('Enter'); time.sleep(1)
+    sc = screen()
+    check('65 ligatures: -> as a long arrow in C', 'return p─→next ≠  0;' in sc, sc)
+    tm('kill-server'); time.sleep(0.3)
+    setup({"editor.fontLigatures": "font"})
+    open(W + '/lig.nim', 'w').write('proc f(a, b: int): bool =\n  result = a != b\n')
+    start('lig.nim', w=100, h=24); time.sleep(1)
+    check('65 ligatures: font — the text as it is (the terminal joins it)', 'result = a != b' in screen(), screen())
+    palette('View: ligatures (off › font › symbols)'); time.sleep(0.5)
+    check('65 ligatures: View › Ligatures goes on to symbols (and saves it)', 'result = a ≠  b' in screen() and
+          '"symbols"' in open(CFG + '/ned/config.json').read(), screen())
 
 def t_63_git():
     # git for new folders: initialize here (asked first inside another repository), git asks your name once;
@@ -4050,4 +4158,4 @@ def t_63_git():
           os.path.isdir(dest + '/.git'), screen())
     check('63 … and a Nim project offers to install what it needs', wait_for('install the packages it needs', 5), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine]
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures]

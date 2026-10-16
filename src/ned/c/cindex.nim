@@ -10,9 +10,10 @@ import std/[os, strutils, tables, sets, times, algorithm]
 
 type
   CxKind* = enum
-    cxFunc, cxStruct, cxUnion, cxEnum, cxTypedef, cxMacro, cxVar, cxEnumConst, cxField, cxParam, cxLocal
+    cxFunc, cxStruct, cxUnion, cxEnum, cxTypedef, cxMacro, cxVar, cxEnumConst, cxField, cxParam, cxLocal, cxLabel
   CxParam* = object
     name*, typ*: string
+    line*, col*: int            # where its name is written (-1: nowhere — unnamed)
   CxSym* = object
     name*: string
     kind*: CxKind
@@ -26,13 +27,16 @@ type
     text*: string               # the declaration, on one line
     doc*: string                # the comment above it (or after it on its line)
     isDef*: bool                # a function with its body; a struct with its members
-    scopeA*, scopeB*: int       # locals and parameters: the lines they are seen on
+    weak*: bool                 # a system header's inline wrapper over the real declaration (fortify, optimizing)
+    scopeA*, scopeB*: int       # locals, parameters and labels: the lines they are seen on
   CxFile* = ref object
     path*: string
     stamp*: string
     syms*: seq[CxSym]
     includes*: seq[(string, int)]     # as written (<x.h> or "y.h"), and the line
     lines*: seq[string]
+    byName, byOwner: Table[string, seq[int32]]   # the syms by name, the fields by owner (made when first asked)
+    indexed: bool
   CxTokKind = enum ctWord, ctNum, ctStr, ctChar, ctPunct
   CxTok = object
     kind: CxTokKind
@@ -58,9 +62,20 @@ const
     "__restrict__", "__inline", "__inline__", "__extension__", "_Atomic", "_Noreturn", "_Thread_local", "__const",
     "__volatile__", "__volatile"]
 
+  CxTargetMacros = ["__x86_64__", "__amd64__", "__i386__", "__aarch64__", "__arm__", "__powerpc__", "__powerpc64__",
+    "__ppc64__", "__riscv", "__s390x__", "__mips__", "__sparc__", "__loongarch__", "__wasm__", "__linux__",
+    "__gnu_linux__", "__ANDROID__", "__APPLE__", "__MACH__", "__FreeBSD__", "__OpenBSD__", "__NetBSD__",
+    "__DragonFly__", "__sun", "__CYGWIN__", "__MINGW32__", "__MINGW64__", "_WIN32", "_WIN64", "_MSC_VER",
+    "__clang__", "__GNUC__", "__unix__", "__unix", "__LP64__", "_LP64", "__ILP32__", "__ELF__", "__EMSCRIPTEN__",
+    "__HAIKU__", "__STDC_VERSION__", "__SIZEOF_POINTER__", "__CHAR_UNSIGNED__"]
+    ## macros the compiler defines (or not) for its target, never a header: their #if branches are known
+
 var
   cxCache: Table[string, CxFile]               # path → its index (by modification time and size, or a text stamp)
+  cxCheckedAt: Table[string, float]            # path → when its stamp was last looked at (once a second is enough)
   cxDirs*: seq[string]                         # where #include <…> and "…" look (set by the editor)
+  cxPredef*: Table[string, string]             # the C compiler's predefined macros (cc -dM -E), set by the editor
+  cxPredefSet*: bool
 
 # ── lexing ──
 
@@ -189,7 +204,8 @@ proc cxNoise(w: string): bool =
     "__attr_dealloc", "__attr_dealloc_free", "__THROWNL", "__NTH", "__LEAF", "__BEGIN_DECLS", "__END_DECLS",
     "__attribute_pure__", "__attribute_malloc__", "__attribute_warn_unused_result__", "__attribute_deprecated__",
     "__dead2", "__pure2", "__printflike", "__scanflike", "_GLIBCXX_NOTHROW", "__MINGW_NOTHROW", "WINAPI",
-    "APIENTRY", "CALLBACK", "__cdecl", "__stdcall", "__fastcall", "__inline_always"]
+    "APIENTRY", "CALLBACK", "__cdecl", "__stdcall", "__fastcall", "__inline_always", "__extern_always_inline",
+    "__extern_inline", "__fortify_function", "__always_inline", "__attribute_artificial__"]
 
 proc cxTypeText(toks: seq[CxTok], a, b: int): string =
   ## tokens as a type, spaced the way C is written: "const char *", "struct point"
@@ -234,6 +250,9 @@ proc cxTypeEnd(toks: seq[CxTok], a, b: int): int =
     inc j
   if j < b and toks[j].text == "*": return j
   if j < b and toks[j].text == "(" and j + 1 < b and toks[j + 1].text == "*": return j
+  if j < b and toks[j].text == "(" and j + 1 < b and toks[j + 1].text == "(" and lastWord == j - 1 and
+     lastWord - 1 > a and toks[lastWord - 1].kind == ctWord:
+    return lastWord - 1                         # void name _((int a)): a prototype through a portability macro
   if lastWord > a:
     # struct list; — a tag, no declarator
     if words == 2 and toks[a].text in ["struct", "union", "enum"] and (j >= b or toks[j].text == ";"): return b
@@ -313,7 +332,208 @@ proc cxParams(toks: seq[CxTok], a, b: int): (seq[CxParam], bool) =
       typ = cxTypeText(toks, x, nameAt)
       if e < y: typ.add "*"
     else: typ = cxTypeText(toks, x, y)
-    result[0].add CxParam(name: (if nameAt >= 0: toks[nameAt].text else: ""), typ: typ.strip)
+    result[0].add CxParam(name: (if nameAt >= 0: toks[nameAt].text else: ""), typ: typ.strip,
+                          line: (if nameAt >= 0: toks[nameAt].line else: -1),
+                          col: (if nameAt >= 0: toks[nameAt].col else: -1))
+
+proc cxDefinedKnown(name: string): int =
+  ## is `name` defined — 1, 0, or -1 when only the preprocessor would know. Known: __cplusplus (not: this reads C),
+  ## __STDC_HOSTED__, and the compiler's own target macros (__x86_64__, __linux__, _WIN32 …) once cxPredef is set
+  case name
+  of "__cplusplus": 0
+  of "__STDC_HOSTED__", "__STDC__": 1
+  else:
+    if cxPredefSet and name in CxTargetMacros: (if name in cxPredef: 1 else: 0) else: -1
+
+proc cxValueKnown(name: string): int =
+  ## `#if name`: 1 when known nonzero, 0 when known zero (or not defined), -1 not known
+  let d = cxDefinedKnown(name)
+  if d <= 0: return d
+  if name in cxPredef:
+    try: return (if parseInt(cxPredef[name].strip(chars = {'L', 'U', 'l', 'u', ' '})) != 0: 1 else: 0)
+    except ValueError: return 1
+  1
+
+proc cxTopSplit(t, op: string): seq[string] =
+  ## t split at `op` outside parentheses
+  var d = 0
+  var st = 0
+  var i = 0
+  while i < t.len:
+    if t[i] == '(': inc d
+    elif t[i] == ')': dec d
+    elif d == 0 and t.continuesWith(op, i):
+      result.add t[st ..< i]
+      i += op.len
+      st = i
+      continue
+    inc i
+  result.add t[st .. ^1]
+
+proc cxCond(c: string): int =
+  ## a #if condition known without running the preprocessor — 0 false, 1 true, -1 not known: `0`, `1`,
+  ## `defined X` and `X` for the macros cxDefinedKnown knows, with !, &&, || and parentheses
+  var t = c.strip
+  # (a comment left on the line)
+  let cm = t.find("/*")
+  if cm >= 0: t = t[0 ..< cm].strip
+  if t.len == 0: return -1
+  proc unwrap(x: string): string =
+    ## (a) → a, but not (a) && (b)
+    result = x.strip
+    while result.len >= 2 and result[0] == '(' and result[^1] == ')':
+      var d = 0
+      var closesAtEnd = true
+      for i, ch in result:
+        if ch == '(': inc d
+        elif ch == ')':
+          dec d
+          if d == 0 and i < result.high:
+            closesAtEnd = false
+            break
+      if not closesAtEnd: break
+      result = result[1 .. ^2].strip
+  t = unwrap(t)
+  let ors = cxTopSplit(t, "||")
+  if ors.len > 1:
+    result = 0
+    for o in ors:
+      let v = cxCond(o)
+      if v == 1: return 1
+      if v < 0: result = -1
+    return
+  let ands = cxTopSplit(t, "&&")
+  if ands.len > 1:
+    result = 1
+    for a in ands:
+      let v = cxCond(a)
+      if v == 0: return 0
+      if v < 0: result = -1
+    return
+  var neg = false
+  if t.startsWith("!") and not t.startsWith("!="):
+    neg = true
+    t = unwrap(t[1 .. ^1])
+  var v = -1
+  if t.startsWith("defined") and t.len > 7 and t[7] in {' ', '(', '\t'}:
+    v = cxDefinedKnown(t[7 .. ^1].strip(chars = {' ', '(', ')', '\t'}))
+  elif t == "0": v = 0
+  elif t == "1": v = 1
+  elif t.len > 0 and t.allCharsInSet(IdentChars): v = cxValueKnown(t)
+  elif t.startsWith("__cplusplus") and t[11 .. ^1].strip.len > 0 and t[11 .. ^1].strip[0] in {'>', '='}: v = 0
+  if v >= 0 and neg: v = 1 - v
+  v
+
+proc cxInactive(pp: seq[(int, string)]): seq[(int, int)] =
+  ## the parts that #if 0, #ifdef __cplusplus and their #else leave out: (a, b), the lines after a and before b.
+  ## Every other #if is read whole, all its branches
+  type Frame = object
+    known, taken, skip, outer: bool
+    start: int
+  var st: seq[Frame]
+  for (l, d) in pp:
+    var t = d[1 .. ^1].strip
+    var w = 0
+    while w < t.len and t[w] in IdentChars: inc w
+    let word = t[0 ..< w]
+    let rest = t[w .. ^1].strip
+    case word
+    of "if", "ifdef", "ifndef":
+      if st.len > 0 and (st[^1].skip or st[^1].outer):
+        st.add Frame(outer: true)
+        continue
+      let c = case word
+        of "ifdef": cxDefinedKnown(rest)
+        of "ifndef": (let d = cxDefinedKnown(rest); if d < 0: -1 else: 1 - d)
+        else: cxCond(rest)
+      st.add Frame(known: c >= 0, taken: c == 1, skip: c == 0, start: l)
+    of "elif", "else":
+      if st.len == 0 or st[^1].outer: continue
+      var fr = st[^1]
+      if fr.skip: result.add (fr.start, l)
+      let c = if word == "else": 1 else: cxCond(rest)
+      if fr.known and fr.taken: fr.skip = true
+      elif c == 0: fr.skip = true
+      else:
+        fr.skip = false
+        if c == 1 and fr.known: fr.taken = true
+        else: fr.known = false
+      fr.start = l
+      st[^1] = fr
+    of "endif":
+      if st.len == 0: continue
+      let fr = st.pop()
+      if not fr.outer and fr.skip: result.add (fr.start, l)
+    else: discard
+  for fr in st:
+    if not fr.outer and fr.skip: result.add (fr.start, high(int))
+  result.sort(proc(x, y: (int, int)): int = cmp(x[0], y[0]))
+
+proc cxUnbalanced(pp: seq[(int, string)], toks: seq[CxTok], gone: var seq[(int, int)]) =
+  ## #if branches that open or close braces — `#ifdef X  if (a) {  #else  if (b) {  #endif` —: only the first is
+  ## read (as ctags does), or the function's body would never close. Inner #ifs first
+  type Chain = object
+    marks: seq[int]                     # the lines of its #if, #elif …, #else and #endif
+    depth: int
+    closed: bool
+  var chains: seq[Chain]
+  var open: seq[int]
+  for (l, d) in pp:
+    let t = d[1 .. ^1].strip
+    var w = 0
+    while w < t.len and t[w] in IdentChars: inc w
+    case t[0 ..< w]
+    of "if", "ifdef", "ifndef":
+      chains.add Chain(marks: @[l], depth: open.len)
+      open.add chains.high
+    of "elif", "else":
+      if open.len > 0: chains[open[^1]].marks.add l
+    of "endif":
+      if open.len > 0:
+        let c = open.pop()
+        chains[c].marks.add l
+        chains[c].closed = true
+    else: discard
+  var order: seq[int]
+  for i, c in chains:
+    if c.closed and c.marks.len >= 3: order.add i         # (two branches or more)
+  if order.len == 0: return
+  order.sort(proc(x, y: int): int = cmp(chains[y].depth, chains[x].depth))
+  template isGone(l: int): bool =
+    var r = false
+    for (ga, gb) in gone:
+      if l > ga and l < gb: r = true
+    r
+  template covered(a, b: int): bool =
+    var r = false
+    for (ga, gb) in gone:
+      if ga <= a and gb >= b: r = true
+    r
+  for ci in order:
+    let m = chains[ci].marks
+    var branches: seq[(int, int, int)]       # (from, to, what its braces add)
+    for k in 0 ..< m.len - 1:
+      let (a, b) = (m[k], m[k + 1])
+      if covered(a, b): continue
+      var lo = 0
+      var hi = toks.len
+      while lo < hi:                         # the first token after line a
+        let mid = (lo + hi) div 2
+        if toks[mid].line <= a: lo = mid + 1 else: hi = mid
+      var dl = 0
+      var i = lo
+      while i < toks.len and toks[i].line < b:
+        if toks[i].kind == ctPunct and toks[i].text in ["{", "}"] and not isGone(toks[i].line):
+          dl += (if toks[i].text == "{": 1 else: -1)
+        inc i
+      branches.add (a, b, dl)
+    if branches.len < 2: continue
+    # (read together, alternatives that each open or close a brace add up: one too many)
+    var opens = false
+    for x in branches:
+      if x[2] != 0: opens = true
+    if opens:
+      for x in branches[1 .. ^1]: gone.add (x[0], x[1])
 
 proc cxDocFor(comments: seq[CxComment], line: int, endLine = -1): string =
   ## the comment that documents what starts on `line`: the block right above it (ending on the line before), or
@@ -340,8 +560,9 @@ proc cxDocFor(comments: seq[CxComment], line: int, endLine = -1): string =
   for k in max(0, best) .. min(comments.high, best + 3):
     if k >= 0 and comments[k].a == el and not comments[k].lone: return cxCleanComment(comments[k].text)
 
-proc cxParse*(text, path: string): CxFile =
-  ## one C file's declarations (not the ones of the files it includes)
+proc cxParse*(text, path: string, full = true): CxFile =
+  ## one C file's declarations (not the ones of the files it includes); full: a prototype's parameters too (the
+  ## file being edited: they are answered for; a header read for it: they are not needed)
   result = CxFile(path: path)
   let f = result
   var toks: seq[CxTok]
@@ -349,15 +570,40 @@ proc cxParse*(text, path: string): CxFile =
   var pp: seq[(int, string)]
   cxLex(text, toks, comments, pp)
   f.lines = text.splitLines
+  var gone = cxInactive(pp)
+  cxUnbalanced(pp, toks, gone)
+  if gone.len > 1:
+    gone.sort(proc(x, y: (int, int)): int = cmp(x[0], y[0]))
+    var merged = @[gone[0]]
+    for g in gone[1 .. ^1]:
+      if g[0] < merged[^1][1]: merged[^1][1] = max(merged[^1][1], g[1])     # (one inside another)
+      else: merged.add g
+    gone = merged
+  if gone.len > 0:
+    # (tokens, comments and directives are in line order; the parts left out too)
+    proc keep[T](xs: var seq[T], lineOf: proc(x: T): int) =
+      var r = 0
+      var o = 0
+      for i in 0 ..< xs.len:
+        let l = lineOf(xs[i])
+        while r < gone.len and l >= gone[r][1]: inc r
+        if r < gone.len and l > gone[r][0] and l < gone[r][1]: continue
+        if o != i: xs[o] = xs[i]
+        inc o
+      xs.setLen(o)
+    keep(toks, proc(x: CxTok): int = x.line)
+    keep(comments, proc(x: CxComment): int = x.a)
+    keep(pp, proc(x: (int, string)): int = x[0])
   var typedefs: HashSet[string]
   # preprocessor: #define, #include
   for (l, d) in pp:
     let t = d[1 .. ^1].strip
     if t.startsWith("include"):
-      let r = t[7 .. ^1].strip
+      let next = t.startsWith("include_next")             # (GCC's: the same name, from the folders after this one's)
+      let r = t[(if next: 12 else: 7) .. ^1].strip
       if r.len >= 3 and r[0] in {'<', '"'}:
         let close = r.find((if r[0] == '<': '>' else: '"'), 1)
-        if close > 0: f.includes.add (r[0 .. close], l)
+        if close > 0: f.includes.add ((if next: "next" else: "") & r[0 .. close], l)
     elif t.startsWith("define"):
       let r = t[6 .. ^1].strip
       var j = 0
@@ -376,7 +622,10 @@ proc cxParse*(text, path: string): CxFile =
       s.doc = cxDocFor(comments, l)
       f.syms.add s
   # declarations, at file level (and inside extern "C" { … })
-  var anonN = 0
+  let base = extractFilename(path)
+  proc anonName(word: string, line: int): string =
+    ## an anonymous struct's name, unique across the files read together
+    "(anonymous " & word & " at " & base & ":" & $(line + 1) & ")"
   proc addSym(s0: CxSym) =
     var s = s0
     if s.doc.len == 0: s.doc = cxDocFor(comments, s.line, s.endLine)
@@ -423,9 +672,8 @@ proc cxParse*(text, path: string): CxFile =
             if decls.len == 0:
               parseMembers(nestedAt + 1, tEnd - 1, owner, nk)    # an anonymous member: its fields are ours
             else:
-              inc anonN
               let nm = if st + 1 < k and toks[st + 1].kind == ctWord and toks[st + 1].text != "{": toks[st + 1].text
-                       else: "(anonymous " & toks[st].text & " " & $anonN & ")"
+                       else: anonName(toks[st].text, toks[st].line)
               addSym(CxSym(name: nm, kind: nk, line: toks[st].line, col: toks[st].col,
                            endLine: toks[tEnd - 1].line, isDef: true, text: toks[st].text & " " & nm & " { … }"))
               parseMembers(nestedAt + 1, tEnd - 1, nm, nk)
@@ -450,6 +698,9 @@ proc cxParse*(text, path: string): CxFile =
     if k >= b: return
     let isTypedef = toks[k].text == "typedef"
     if isTypedef: inc k
+    let k0 = k
+    while k < b and toks[k].text in CxQualifiers: inc k        # static const struct { … } table[] = …
+    if k >= b or toks[k].text notin ["struct", "union", "enum"]: k = k0
     # struct / union / enum with a body
     var tagKind = cxVar
     var tag = ""
@@ -470,16 +721,16 @@ proc cxParse*(text, path: string): CxFile =
       if j < b and toks[j].text == "{":
         bodyEnd = cxSkipGroup(toks, j)
         var nm = tag
-        if nm.len == 0:
-          inc anonN
-          nm = "(anonymous " & toks[k].text & " " & $anonN & ")"
+        if nm.len == 0: nm = anonName(toks[k].text, toks[k].line)
         let word = toks[k].text
+        let firstSym = f.syms.len
         addSym(CxSym(name: nm, kind: tagKind, line: toks[tagAt].line, col: toks[tagAt].col,
                      endLine: toks[bodyEnd - 1].line, isDef: true,
                      text: word & " " & (if tag.len > 0: tag & " " else: "") & "{ … }"))
         parseMembers(j + 1, bodyEnd - 1, nm, tagKind)
         # declarators after the body: typedef names, or variables of this type
         let decls = cxDeclarators(toks, bodyEnd, b)
+        var named = ""
         for (ni, stars, _) in decls:
           let typ = word & " " & nm & (if stars.len > 0: " " & stars else: "")
           if isTypedef:
@@ -488,31 +739,48 @@ proc cxParse*(text, path: string): CxFile =
                          endLine: toks[ni].line, typ: typ, text: "typedef " & word & " " &
                          (if tag.len > 0: tag & " " else: "") & "{ … } " & stars & toks[ni].text,
                          doc: cxDocFor(comments, toks[k].line)))
-            # an anonymous struct named only by its typedef: the struct takes its name too (fields' owner)
-            if tag.len == 0 and stars.len == 0:
-              for x in f.syms.mitems:
-                if x.owner == nm: x.owner = toks[ni].text
-                if x.name == nm and x.kind == tagKind: x.name = toks[ni].text
+            if tag.len == 0 and stars.len == 0 and named.len == 0: named = toks[ni].text
           else:
             addSym(CxSym(name: toks[ni].text, kind: cxVar, line: toks[ni].line, col: toks[ni].col,
-                         endLine: toks[ni].line, typ: typ, text: typ & " " & toks[ni].text))
+                         endLine: toks[ni].line, typ: typ, text: typ & " " & toks[ni].text, isDef: true))
+        if named.len > 0:
+          # an anonymous struct named only by its typedef is filed under the typedef's name (as its fields' owner,
+          # and in the types that name it: `typedef struct { … } Options, *OptionsP;`)
+          let old = word & " " & nm
+          for q in firstSym ..< f.syms.len:
+            if f.syms[q].owner == nm: f.syms[q].owner = named
+            if f.syms[q].name == nm and f.syms[q].kind == tagKind: f.syms[q].name = named
+            if f.syms[q].typ.startsWith(old): f.syms[q].typ = word & " " & named & f.syms[q].typ[old.len .. ^1]
         return
     # the type: up to the first declarator
     let ts = k
     let typeEnd = cxTypeEnd(toks, ts, b)
-    if typeEnd >= b: return
+    if typeEnd >= b:
+      if tag.len > 0 and not isTypedef and b - k == 2:
+        # struct list; — declared here, its members elsewhere (or nowhere: an opaque type)
+        addSym(CxSym(name: tag, kind: tagKind, line: toks[k + 1].line, col: toks[k + 1].col, endLine: toks[k + 1].line,
+                     text: toks[k].text & " " & tag & ";"))
+      return
     var base = cxTypeText(toks, ts, typeEnd).strip
     for w in ["extern ", "static ", "inline ", "__inline ", "__inline__ ", "__extension__ ", "register ", "_Noreturn "]:
       base = base.replace(w, "")
     base = base.strip
     if base.len == 0: return
+    var isExtern = false
+    for q in a ..< typeEnd:
+      if toks[q].text == "extern": isExtern = true
     for (ni, stars, after) in cxDeclarators(toks, typeEnd, b):
       let nm = toks[ni].text
-      # a function: name( params )
+      # a function: name( params ) — or name _(( params )), through a portability macro (zsh's _, __P, PROTO, OF)
       var p = ni + 1
+      var viaMacro = false
+      if p + 2 < after and toks[p].kind == ctWord and toks[p + 1].text == "(" and toks[p + 2].text == "(":
+        inc p
+        viaMacro = true
       if p < after and toks[p].text == "(" and "(*)" notin stars:
         let pe = cxSkipGroup(toks, p)
-        let (ps, va) = cxParams(toks, p + 1, pe - 1)
+        let (ps, va) = if viaMacro: cxParams(toks, p + 2, cxSkipGroup(toks, p + 1) - 1)
+                       else: cxParams(toks, p + 1, pe - 1)
         let ret = (base & (if stars.len > 0: " " & stars else: "")).strip
         if isTypedef:
           typedefs.incl nm
@@ -526,6 +794,12 @@ proc cxParse*(text, path: string): CxFile =
           txt.add pl.join(", ") & ")"
           addSym(CxSym(name: nm, kind: cxFunc, line: toks[ni].line, col: toks[ni].col, endLine: toks[ni].line,
                        typ: ret, params: ps, varargs: va, text: txt, doc: cxDocFor(comments, toks[ts].line)))
+          if full:
+            for q in ps:
+              if q.name.len > 0 and q.line >= 0:
+                f.syms.add CxSym(name: q.name, kind: cxParam, line: q.line, col: q.col, typ: q.typ,
+                                 scopeA: toks[ni].line, scopeB: toks[pe - 1].line, owner: nm,
+                                 text: q.typ & " " & q.name)
         continue
       let typ = (base & (if stars.len > 0: " " & stars else: "")).strip
       if isTypedef:
@@ -534,7 +808,7 @@ proc cxParse*(text, path: string): CxFile =
                      typ: typ, text: "typedef " & typ & " " & nm, doc: cxDocFor(comments, toks[ts].line)))
       elif base notin ["return", "goto", "case"]:
         addSym(CxSym(name: nm, kind: cxVar, line: toks[ni].line, col: toks[ni].col, endLine: toks[ni].line,
-                     typ: typ, text: typ & " " & nm, doc: cxDocFor(comments, toks[ts].line)))
+                     typ: typ, text: typ & " " & nm, doc: cxDocFor(comments, toks[ts].line), isDef: not isExtern))
   var k = 0
   var st = 0
   var transparent = 0                       # extern "C" { … }: its braces are not a body
@@ -553,6 +827,10 @@ proc cxParse*(text, path: string): CxFile =
     if t.kind == ctPunct and t.text == "{":
       # extern "C" {
       if k - st == 2 and toks[st].text == "extern" and toks[st + 1].kind == ctStr:
+        if toks[st + 1].text == "\"C++\"":         # extern "C++" { … }: C++'s declarations, left out
+          k = cxSkipGroup(toks, k)
+          st = k
+          continue
         inc transparent
         st = k + 1
         inc k
@@ -560,6 +838,11 @@ proc cxParse*(text, path: string): CxFile =
       # a function's body: name(…) {
       var p = k - 1
       while p > st and (cxNoise(toks[p].text) or toks[p].text in ["const", "__attribute__"]): dec p
+      # f(…) VA_DCL {, f(…) NOEXCEPT {: macro words between the parameters and the body
+      var p2 = p
+      while p2 > st and toks[p2].kind == ctWord and toks[p2].text.len > 1 and
+            toks[p2].text.allCharsInSet({'A'..'Z', '0'..'9', '_'}): dec p2
+      if p2 < p and p2 > st and toks[p2].text == ")": p = p2
       if p > st and toks[p].text == ")":
         # find its (
         var d = 0
@@ -598,14 +881,18 @@ proc cxParse*(text, path: string): CxFile =
           for x in ps: pl.add (x.typ & (if x.name.len > 0: " " & x.name else: "")).replace("* ", "*")
           if va: pl.add "..."
           let endL = toks[bodyEnd - 1].line
+          var weak = false
+          for q in st ..< ni:
+            if toks[q].text in ["__extern_always_inline", "__extern_inline", "__fortify_function"]: weak = true
           addSym(CxSym(name: toks[ni].text, kind: cxFunc, line: toks[ni].line, col: toks[ni].col, endLine: endL,
-                       typ: (if ret.len > 0: ret else: "int"), params: ps, varargs: va, isDef: true,
+                       typ: (if ret.len > 0: ret else: "int"), params: ps, varargs: va, isDef: not weak, weak: weak,
                        text: (if ret.len > 0: ret else: "int") & " " & toks[ni].text & "(" & pl.join(", ") & ")",
                        doc: cxDocFor(comments, toks[ts].line)))
           for x in ps:
             if x.name.len > 0:
-              f.syms.add CxSym(name: x.name, kind: cxParam, line: toks[ni].line, col: 0, typ: x.typ,
-                               scopeA: toks[k].line, scopeB: endL, owner: toks[ni].text, text: x.typ & " " & x.name)
+              f.syms.add CxSym(name: x.name, kind: cxParam, line: (if x.line >= 0: x.line else: toks[ni].line),
+                               col: max(0, x.col), typ: x.typ, scopeA: toks[ni].line, scopeB: endL,
+                               owner: toks[ni].text, text: x.typ & " " & x.name)
           # its locals: declarations inside, seen from their line to the end of their block
           var blockEnds: seq[int]
           var bst = k + 1
@@ -633,13 +920,28 @@ proc cxParse*(text, path: string): CxFile =
               inc i
               inc i
               continue
+            elif i == bst and x.kind == ctWord and i + 1 < bodyEnd - 1 and toks[i + 1].text == ":" and
+                 x.text notin ["default", "case"]:
+              # a label — `goto` it from anywhere in the function
+              f.syms.add CxSym(name: x.text, kind: cxLabel, line: x.line, col: x.col, scopeA: toks[ni].line,
+                               scopeB: endL, owner: toks[ni].text, text: x.text & ":")
+              bst = i + 2
+              i += 2
+              continue
             elif i == bst and toks[i].kind == ctWord and
                  toks[i].text notin ["return", "goto", "case", "else", "do", "sizeof", "break", "continue", "default",
                                      "if", "while", "switch", "for"] and
                  (cxIsTypeStart(toks, i, typedefs) or
                   (i + 2 < bodyEnd and toks[i + 1].kind == ctWord and toks[i + 2].text in [";", "=", ",", "["]) or
-                  (i + 3 < bodyEnd and toks[i + 1].text == "*" and toks[i + 2].kind == ctWord and
-                   toks[i + 3].text in [";", "=", ",", "["])) and
+                  (block:
+                    # a type named in a header (not known here): `T *p;`, `T **pp = 0;`
+                    var j = i + 1
+                    var stars = 0
+                    while j < bodyEnd and toks[j].text in ["*", "const", "volatile", "restrict", "__restrict"]:
+                      if toks[j].text == "*": inc stars
+                      inc j
+                    stars > 0 and j + 1 < bodyEnd and toks[j].kind == ctWord and
+                      toks[j + 1].text in [";", "=", ",", "["])) and
                  not (i + 1 < bodyEnd and toks[i + 1].kind == ctPunct and toks[i + 1].text in ["(", "=", "[", ".", "->"]):
               # a declaration statement: type declarators ;
               var e = i
@@ -652,6 +954,30 @@ proc cxParse*(text, path: string): CxFile =
                   dec dd
                 elif y.text == ";" and dd == 0: break
                 inc e
+              # struct { … } x; — a type of its own, declared here (its members known too)
+              var r0 = i
+              while r0 < e and toks[r0].text in CxQualifiers: inc r0
+              if r0 + 1 < e and toks[r0].text in ["struct", "union", "enum"] and
+                 (toks[r0 + 1].text == "{" or (toks[r0 + 1].kind == ctWord and r0 + 2 < e and toks[r0 + 2].text == "{")):
+                let word = toks[r0].text
+                let tag2 = if toks[r0 + 1].kind == ctWord: toks[r0 + 1].text else: ""
+                let ob = if tag2.len > 0: r0 + 2 else: r0 + 1
+                let be = cxSkipGroup(toks, ob)
+                let nk = (case word
+                          of "struct": cxStruct
+                          of "union": cxUnion
+                          else: cxEnum)
+                let nm = if tag2.len > 0: tag2 else: anonName(word, toks[r0].line)
+                addSym(CxSym(name: nm, kind: nk, line: toks[r0].line, col: toks[r0].col, endLine: toks[be - 1].line,
+                             isDef: true, text: word & " " & (if tag2.len > 0: tag2 & " " else: "") & "{ … }"))
+                parseMembers(ob + 1, be - 1, nm, nk)
+                for (ni2, stars2, _) in cxDeclarators(toks, be, e):
+                  let typ = word & " " & nm & (if stars2.len > 0: " " & stars2 else: "")
+                  f.syms.add CxSym(name: toks[ni2].text, kind: cxLocal, line: toks[ni2].line, col: toks[ni2].col,
+                                   typ: typ, scopeA: toks[ni2].line, scopeB: blockEnds[^1], owner: toks[ni].text,
+                                   text: typ & " " & toks[ni2].text)
+                i = e
+                continue
               let typeEnd = cxTypeEnd(toks, i, e)
               if typeEnd > i and typeEnd < e:
                 let baseT = cxTypeText(toks, i, typeEnd).strip
@@ -681,6 +1007,10 @@ proc cxStampOf(path: string): string =
 proc cxLoad*(path: string, text = "", stamp = ""): CxFile =
   ## a file's index: from `text` (an open buffer, with its own stamp) or from disk; cached until it changes (a file
   ## read from disk does not keep its lines: headers are many)
+  if text.len == 0 and stamp.len == 0 and path in cxCache:
+    let now = epochTime()
+    if now - cxCheckedAt.getOrDefault(path, 0.0) < 1.0: return cxCache[path]
+    cxCheckedAt[path] = now
   let st = if stamp.len > 0: stamp else: cxStampOf(path)
   if st.len == 0 and text.len == 0: return nil
   if path in cxCache and cxCache[path].stamp == st: return cxCache[path]
@@ -690,14 +1020,26 @@ proc cxLoad*(path: string, text = "", stamp = ""): CxFile =
       t = readFile(path)
       if t.len > 6_000_000: t.setLen(6_000_000)
     except CatchableError: return nil
-  result = cxParse(t, path)
+  result = cxParse(t, path, full = text.len > 0)
   result.stamp = st
   if text.len == 0: result.lines = @[]
-  if cxCache.len > 3000: cxCache.clear()
+  if cxCache.len > 3000:
+    cxCache.clear()
+    cxCheckedAt.clear()
   cxCache[path] = result
+  if text.len == 0: cxCheckedAt[path] = epochTime()
 
 proc cxFindInclude*(name, fromDir: string): string =
-  ## the file an #include names: "x.h" next to the including file first, then the include folders
+  ## the file an #include names: "x.h" next to the including file first, then the include folders (#include_next,
+  ## written "next<x.h>": the folders after the including file's)
+  if name.startsWith("next"):
+    let n = name[4 .. ^1].strip(chars = {'<', '>', '"'})
+    var after = -1
+    for i, d in cxDirs:
+      if d.strip(leading = false, chars = {'/'}) == fromDir.strip(leading = false, chars = {'/'}): after = i
+    for i in after + 1 .. cxDirs.high:
+      if cxDirs[i] != fromDir and fileExists(cxDirs[i] / n): return cxDirs[i] / n
+    return ""
   let angle = name.startsWith("<")
   let n = name.strip(chars = {'<', '>', '"'})
   if n.isAbsolute: return (if fileExists(n): n else: "")
@@ -741,24 +1083,56 @@ proc cxStrip*(t: string): (string, int) =
     else: words.add w
   (words.join(" "), stars)
 
+proc cxIndexed(g: CxFile) =
+  if g.indexed: return
+  g.indexed = true
+  for k, s in g.syms:
+    if s.kind in {cxParam, cxLocal, cxLabel}: continue
+    g.byName.mgetOrPut(s.name, @[]).add k.int32
+    if s.kind == cxField: g.byOwner.mgetOrPut(s.owner, @[]).add k.int32
+
+iterator cxNamed*(g: CxFile, name: string): int =
+  ## the indexes of g's declarations called `name` (not parameters, locals or labels)
+  cxIndexed(g)
+  g.byName.withValue(name, ks):
+    for k in ks[]: yield k.int
+
 proc cxFindSym*(files: seq[CxFile], name: string, kinds: set[CxKind]): (CxFile, int) =
   for g in files:
-    for k, s in g.syms:
-      if s.name == name and s.kind in kinds: return (g, k)
+    for k in cxNamed(g, name):
+      if g.syms[k].kind in kinds: return (g, k)
   (nil, -1)
+
+proc cxDropMarkers(files: seq[CxFile], base: string): string =
+  ## a type without the words that are macros meaning nothing to it: export markers (`mod_export struct job`,
+  ## `API Foo`) — macros defined empty, or as attributes only
+  let ws = base.splitWhitespace
+  if ws.len < 2: return base
+  var keep: seq[string]
+  for w in ws:
+    if w notin CxTypeWords and w notin ["struct", "union", "enum"]:
+      let (g, k) = cxFindSym(files, w, {cxMacro})
+      if g != nil and g.syms[k].params.len == 0 and not g.syms[k].varargs:
+        let body = g.syms[k].text["#define ".len + w.len .. ^1].strip
+        if body.len == 0 or body.startsWith("__attribute") or body.startsWith("__declspec"): continue
+    keep.add w
+  keep.join(" ")
 
 proc cxRecord*(files: seq[CxFile], typ: string): (string, int) =
   ## the struct or union a type is (through typedefs): its name as fields know it as their owner, and the
   ## pointer depth left — ("", 0) when it is not one
   var (base, stars) = cxStrip(typ)
+  base = cxDropMarkers(files, base)
   for _ in 0 .. 8:
+    for kw in ["struct ", "union "]:
+      if base.startsWith(kw): return (base[kw.len .. ^1].strip, stars)     # (an anonymous one's name has spaces)
     let w = base.splitWhitespace
-    if w.len == 2 and w[0] in ["struct", "union"]: return (w[1], stars)
     if w.len == 1:
       # a typedef: what it names (a struct named by the typedef only is filed under the typedef's name)
       let (g, k) = cxFindSym(files, w[0], {cxTypedef})
       if g != nil:
-        let (b2, s2) = cxStrip(g.syms[k].typ)
+        var (b2, s2) = cxStrip(g.syms[k].typ)
+        b2 = cxDropMarkers(files, b2)
         let ww = b2.splitWhitespace
         if ww.len == 2 and ww[0] in ["struct", "union"] and ww[1] == w[0]: return (w[0], stars + s2)
         base = b2
@@ -771,26 +1145,28 @@ proc cxRecord*(files: seq[CxFile], typ: string): (string, int) =
 
 proc cxFields*(files: seq[CxFile], owner: string): seq[(CxFile, int)] =
   for g in files:
-    for k, s in g.syms:
-      if s.kind == cxField and s.owner == owner: result.add (g, k)
+    cxIndexed(g)
+    g.byOwner.withValue(owner, ks):
+      for k in ks[]: result.add (g, k.int)
 
 proc cxLocalsAt*(f: CxFile, line: int): seq[CxSym] =
-  ## the parameters and locals seen on `line` (the innermost last)
+  ## the parameters, locals and labels seen on `line` (the innermost last)
   for s in f.syms:
-    if s.kind in {cxParam, cxLocal} and line >= s.scopeA and line <= s.scopeB and
-       (s.kind == cxParam or s.line <= line): result.add s
+    if s.kind in {cxParam, cxLocal, cxLabel} and line >= s.scopeA and line <= s.scopeB and
+       (s.kind != cxLocal or s.line <= line): result.add s
 
 proc cxTypeOfName*(files: seq[CxFile], f: CxFile, name: string, line: int): string =
   let ls = cxLocalsAt(f, line)
   for i in countdown(ls.high, 0):
-    if ls[i].name == name: return ls[i].typ
+    if ls[i].name == name and ls[i].kind != cxLabel: return ls[i].typ
   let (g, k) = cxFindSym(files, name, {cxVar, cxFunc, cxEnumConst})
   if g != nil:
     let s = g.syms[k]
     return (if s.kind == cxFunc: "fn:" & s.typ else: s.typ)
 
-proc cxTypeOfExpr*(files: seq[CxFile], f: CxFile, expr: string, line: int): string =
-  ## the type of `a.b->c[i]`, `p->next`, `get(x).y`, `*pp`, `(struct q *)v` — "" when not known
+proc cxTypeOfExpr*(files: seq[CxFile], f: CxFile, expr: string, line: int, depth = 0): string =
+  ## the type of `a.b->c[i]`, `p->next`, `get(x).y`, `*pp`, `(struct q *)v` — "" when not known; a name that is
+  ## a macro (`#define atime tv[0]`) has its expansion's type
   var s = expr.strip
   var derefs = 0
   while s.startsWith("*"):
@@ -821,14 +1197,64 @@ proc cxTypeOfExpr*(files: seq[CxFile], f: CxFile, expr: string, line: int): stri
       typ = inner                            # (struct q *)v
       i = s.len
     else:
-      typ = cxTypeOfExpr(files, f, inner, line)
+      typ = cxTypeOfExpr(files, f, inner, line, depth + 1)
       i = e + 1
   else:
     var e = 0
     while e < s.len and s[e] in IdentChars: inc e
     if e == 0: return ""
-    typ = cxTypeOfName(files, f, s[0 ..< e], line)
+    let name = s[0 ..< e]
+    typ = cxTypeOfName(files, f, name, line)
     i = e
+    if typ.len == 0 and depth < 4:
+      # a macro: its expansion's type — `#define atime tv[0]`, `#define P_OPERAND(p) ((Upat)(p) + 1)` with the
+      # arguments put in
+      let (g, k) = cxFindSym(files, name, {cxMacro})
+      if g != nil and not g.syms[k].text.endsWith("…"):
+        let m = g.syms[k]
+        var body = m.text["#define ".len + name.len .. ^1]
+        if m.params.len == 0 and not m.varargs and not body.startsWith("("):
+          if body.strip.len > 0: typ = cxTypeOfExpr(files, f, body.strip, line, depth + 1)
+        elif body.startsWith("("):
+          var pe = body.find(')')
+          var j = i
+          while j < s.len and s[j] == ' ': inc j
+          if pe > 0 and j < s.len and s[j] == '(':
+            body = body[pe + 1 .. ^1].strip
+            # the arguments, at the call's top-level commas
+            var d = 0
+            var a = j + 1
+            var args: seq[string]
+            var q = j
+            while q < s.len:
+              if s[q] in {'(', '['}: inc d
+              elif s[q] in {')', ']'}:
+                dec d
+                if d == 0:
+                  args.add s[a ..< q].strip
+                  break
+              elif s[q] == ',' and d == 1:
+                args.add s[a ..< q].strip
+                a = q + 1
+              inc q
+            if q < s.len and args.len == m.params.len:
+              var ex = ""
+              var r = 0
+              while r < body.len:                       # each parameter, as a whole word, by its argument
+                if body[r] in IdentStartChars and (r == 0 or body[r - 1] notin IdentChars):
+                  var t = r
+                  while t < body.len and body[t] in IdentChars: inc t
+                  let w = body[r ..< t]
+                  var hit = -1
+                  for pi, prm in m.params:
+                    if prm.name == w: hit = pi
+                  ex.add(if hit >= 0: "(" & args[hit] & ")" else: w)
+                  r = t
+                else:
+                  ex.add body[r]
+                  inc r
+              typ = cxTypeOfExpr(files, f, ex, line, depth + 1)
+              i = q + 1
   while i < s.len:
     while i < s.len and s[i] == ' ': inc i
     if i >= s.len: break
@@ -887,12 +1313,20 @@ type
     rank*: int                  # 0 locals · 1 this file · 2 its headers · 3 system headers · 4 keywords
     insert*: string
 
+proc cxAfterWord(t: string, at: int, words: openArray[string]): bool =
+  ## is the text before `at` one of `words` (as a whole word, spaces between)
+  var e = at
+  while e > 0 and t[e - 1] in {' ', '\t'}: dec e
+  for w in words:
+    if e >= w.len and t[e - w.len ..< e] == w and (e == w.len or t[e - w.len - 1] notin IdentChars): return true
+
 proc cxReceiver*(line: string, endAt: int): string =
   ## the expression before `.` or `->` that ends at endAt (exclusive): `a.b[i]->` → "a.b[i]", `get(x)` → "get(x)"
   var k = endAt - 1
   var d = 0
   while k >= 0:
     let c = line[k]
+    if c in {')', ']'} and d == 0 and k + 1 < endAt and line[k + 1] in IdentChars: break   # (T)x.y: x.y, cast
     if c in {')', ']'}: inc d
     elif c in {'(', '['}:
       if d == 0: break
@@ -904,6 +1338,102 @@ proc cxReceiver*(line: string, endAt: int): string =
     dec k
   line[k + 1 ..< endAt].strip
 
+proc cxInitType*(files: seq[CxFile], f: CxFile, line, col: int, depth = 0): string =
+  ## the type a brace initializer initializes at line:col (inside its braces) — for `.member =` designators:
+  ## `struct p v = { .x = 1, .` → "struct p"; `{ .at = { .` → at's type; `arr[] = { { .` → arr's element type
+  if depth > 6: return ""
+  var d = 0
+  var l = min(line, f.lines.high)
+  while l >= max(0, line - 60):
+    let t = f.lines[l]
+    var k = (if l == line: min(col, t.len) else: t.len) - 1
+    while k >= 0:
+      let ch = t[k]
+      if ch == '}': inc d
+      elif ch == ';' and d == 0: return ""
+      elif ch == '{':
+        if d > 0:
+          dec d
+          dec k
+          continue
+        # what comes before the {: `name =`, `.member =`, or `{` / `,` (an element of an array)
+        var bl = l
+        var bk = k - 1
+        while true:
+          while bk >= 0 and f.lines[bl][bk] in {' ', '\t'}: dec bk
+          if bk >= 0 or bl == 0 or bl <= line - 60: break
+          dec bl
+          bk = f.lines[bl].len - 1
+        if bk < 0: return ""
+        let bt = f.lines[bl]
+        if bt[bk] in {'{', ','}:
+          # an element: the outer initializer's type, one level less
+          let outer = cxInitType(files, f, bl, (if bt[bk] == '{': bk + 1 else: bk), depth + 1)
+          let (b, st) = cxStrip(outer)
+          return (if st > 0: b & (if st > 1: " " & "*".repeat(st - 1) else: "") else: "")
+        if bt[bk] != '=': return ""
+        dec bk
+        while bk >= 0 and bt[bk] in {' ', '\t'}: dec bk
+        while bk >= 0 and bt[bk] == ']':                 # name[] = { … }, name[N] = { … }: the array's type
+          while bk >= 0 and bt[bk] != '[': dec bk
+          dec bk
+          while bk >= 0 and bt[bk] in {' ', '\t'}: dec bk
+        var a = bk
+        while a >= 0 and bt[a] in IdentChars: dec a
+        let name = bt[a + 1 .. bk]
+        if name.len == 0: return ""
+        var p = a
+        while p >= 0 and bt[p] in {' ', '\t'}: dec p
+        if p >= 0 and bt[p] == '.':
+          # a nested designator: the member's type in the outer initializer's
+          let outer = cxInitType(files, f, bl, p, depth + 1)
+          let (rec, _) = cxRecord(files, outer)
+          if rec.len == 0: return ""
+          for (g, q) in cxFields(files, rec):
+            if g.syms[q].name == name: return g.syms[q].typ
+          return ""
+        let typ = cxTypeOfName(files, f, name, bl)
+        return (if typ.startsWith("fn:"): "" else: typ)
+      dec k
+    dec l
+  ""
+
+proc cxIncludeItems(f: CxFile, t: string, col: int, systemDirs: seq[string]): (bool, seq[CxItem]) =
+  ## on an #include line: the headers the folders have, after what is typed (`<sys/ty` → sys/'s headers) — the
+  ## file's own folder first, then the project's, then the system's
+  let s = t.strip(trailing = false)
+  if not (s.startsWith("#include") or s.startsWith("# include")): return
+  var q = -1
+  for k in 0 ..< min(col, t.len):
+    if t[k] in {'<', '"'}: q = k
+  if q < 0: return
+  result[0] = true
+  let typed = t[q + 1 ..< min(col, t.len)]
+  let slash = typed.rfind('/')
+  let sub = if slash >= 0: typed[0 .. slash] else: ""
+  let pre = if slash >= 0: typed[slash + 1 .. ^1] else: typed
+  var dirs: seq[string]
+  if t[q] == '"' and f.path.len > 0: dirs.add parentDir(f.path)
+  dirs.add cxDirs
+  var seen: HashSet[string]
+  for di, d in dirs:
+    let dd = d / sub
+    if not dirExists(dd): continue
+    var rank = 2
+    if di == 0 and t[q] == '"': rank = 1
+    else:
+      for sd in systemDirs:
+        if d.startsWith(sd): rank = 3
+    for kind, p in walkDir(dd, relative = true):
+      if not p.startsWith(pre) or p in seen or p.startsWith("."): continue
+      if kind in {pcDir, pcLinkToDir}:
+        seen.incl p
+        result[1].add CxItem(label: p & "/", detail: "folder", kind: cxMacro, rank: rank)
+      elif p.endsWith(".h") or p.endsWith(".hpp") or p.endsWith(".hh") or ('.' notin p and sub.len > 0):
+        seen.incl p
+        result[1].add CxItem(label: p, detail: d / sub, kind: cxMacro, rank: rank)
+      if result[1].len > 400: return
+
 proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq[CxItem], bool, string) =
   ## completion at line:col: (items, after a member access, the type there)
   if f == nil or line >= f.lines.len: return
@@ -911,6 +1441,10 @@ proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq
   var c = min(col, t.len)
   var w = c
   while w > 0 and t[w - 1] in IdentChars: dec w
+  let (onInclude, headers) = cxIncludeItems(f, t, c, systemDirs)
+  if onInclude:
+    result[0] = headers
+    return
   let files = cxClosure(f)
   # after . or ->: the members
   var mEnd = -1
@@ -918,7 +1452,9 @@ proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq
   elif w > 1 and t[w - 1] == '>' and t[w - 2] == '-': mEnd = w - 2
   if mEnd >= 0:
     let recv = cxReceiver(t, mEnd)
-    let typ = cxTypeOfExpr(files, f, recv, line)
+    # (`{ .x = 1, .` — a designated initializer: the members of what it initializes)
+    let typ = if recv.len == 0 and t[mEnd] == '.': cxInitType(files, f, line, mEnd)
+              else: cxTypeOfExpr(files, f, recv, line)
     result[1] = true
     result[2] = typ
     let (rec, _) = cxRecord(files, typ)
@@ -929,11 +1465,13 @@ proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq
     return
   var seen: HashSet[string]
   let ls = cxLocalsAt(f, line)
+  let afterGoto = cxAfterWord(t, w, ["goto"])
   for i in countdown(ls.high, 0):
     let s = ls[i]
-    if s.name in seen: continue
+    if s.name in seen or (s.kind == cxLabel) != afterGoto: continue
     seen.incl s.name
-    result[0].add CxItem(label: s.name, detail: s.typ, kind: s.kind, rank: 0)
+    result[0].add CxItem(label: s.name, detail: (if s.kind == cxLabel: "label" else: s.typ), kind: s.kind, rank: 0)
+  if afterGoto: return
   for gi, g in files:
     let sys = gi > 0 and systemDirs.len > 0 and (block:
       var y = false
@@ -941,7 +1479,7 @@ proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq
         if g.path.startsWith(d): y = true
       y)
     for s in g.syms:
-      if s.kind in {cxParam, cxLocal, cxField} or s.name in seen: continue
+      if s.kind in {cxParam, cxLocal, cxField, cxLabel} or s.name in seen: continue
       if s.name.startsWith("__") or (s.name.startsWith("_") and (sys or (gi > 0 and s.name.len > 1 and s.name[1] in {'A'..'Z'}))):
         continue
       if s.name.startsWith("(anonymous"): continue
@@ -958,9 +1496,10 @@ proc cxWordAt*(t: string, col: int): (int, int) =
   while e < t.len and t[e] in IdentChars: inc e
   (a, e)
 
-proc cxTargets*(f: CxFile, line, col: int): seq[(CxFile, CxSym)] =
-  ## what the word at line:col names: a member, a local or parameter, or declarations in the file and its headers
-  ## (a function's definition before its prototype)
+proc cxTargets*(f: CxFile, line, col: int, jump = false): seq[(CxFile, CxSym)] =
+  ## what the word at line:col names: a member, a local, parameter or label, or declarations in the file and its
+  ## headers (a function's definition before its prototype; a typedef before the struct it names). jump: on a
+  ## function definition's own name, its declarations first (the header's prototype), as clangd's go to definition
   if f == nil or line >= f.lines.len: return
   let t = f.lines[line]
   let (a, e) = cxWordAt(t, col)
@@ -972,7 +1511,9 @@ proc cxTargets*(f: CxFile, line, col: int): seq[(CxFile, CxSym)] =
   if a > 0 and t[a - 1] == '.': mEnd = a - 1
   elif a > 1 and t[a - 1] == '>' and t[a - 2] == '-': mEnd = a - 2
   if mEnd >= 0:
-    let typ = cxTypeOfExpr(files, f, cxReceiver(t, mEnd), line)
+    let recv = cxReceiver(t, mEnd)
+    let typ = if recv.len == 0 and t[mEnd] == '.': cxInitType(files, f, line, mEnd)
+              else: cxTypeOfExpr(files, f, recv, line)
     let (rec, _) = cxRecord(files, typ)
     if rec.len > 0:
       for (g, k) in cxFields(files, rec):
@@ -980,34 +1521,59 @@ proc cxTargets*(f: CxFile, line, col: int): seq[(CxFile, CxSym)] =
     return
   # the declaration itself
   for s in f.syms:
-    if s.name == w and s.line == line and s.col == a and s.kind notin {cxParam}: return @[(f, s)]
-  let ls = cxLocalsAt(f, line)
-  for i in countdown(ls.high, 0):
-    if ls[i].name == w:
-      var s = ls[i]
-      if s.kind == cxParam:
-        # where the parameter is written: on the function's line(s)
-        for l in max(0, s.line) .. min(f.lines.high, s.line + 8):
-          let k = f.lines[l].find(w)
-          if k >= 0 and (k == 0 or f.lines[l][k - 1] notin IdentChars) and
-             (k + w.len >= f.lines[l].len or f.lines[l][k + w.len] notin IdentChars):
-            s.line = l
-            s.col = k
-            break
+    if s.name == w and s.line == line and s.col == a:
+      if jump and s.kind in {cxFunc, cxVar}:
+        # a definition's name: its prototype (extern declaration); a prototype's: the body
+        var others: seq[(CxFile, CxSym)]
+        for g in files:
+          for k in cxNamed(g, w):
+            let x = g.syms[k]
+            if x.kind == s.kind and x.isDef != s.isDef and not x.weak: others.add (g, x)
+        if others.len > 0: return others & @[(f, s)]
       return @[(f, s)]
-  var defs, decls, macros: seq[(CxFile, CxSym)]
+  let afterGoto = cxAfterWord(t, a, ["goto"])
+  let tagged = cxAfterWord(t, a, ["struct", "union", "enum"])     # (a tag: not a variable of the same name)
+  if not tagged:
+    let ls = cxLocalsAt(f, line)
+    for i in countdown(ls.high, 0):
+      if ls[i].name == w and (ls[i].kind == cxLabel) == afterGoto: return @[(f, ls[i])]
+  if afterGoto: return
+  var types, defs, decls, macros: seq[(CxFile, CxSym)]
   for g in files:
-    for s in g.syms:
-      if s.name == w and s.kind notin {cxParam, cxLocal, cxField}:
-        if s.kind == cxMacro: macros.add (g, s)        # (a macro of a function's name — fortify, 64-bit names — last)
-        elif s.isDef or s.kind notin {cxFunc, cxStruct, cxUnion, cxEnum}: defs.add (g, s)
+    for k in cxNamed(g, w):
+      let s = g.syms[k]
+      if s.kind notin {cxField}:
+        # (a macro of a function's name — fortify, 64-bit names — and inline wrappers last)
+        if s.kind == cxMacro or s.weak: macros.add (g, s)
+        elif s.kind == cxTypedef and not tagged: types.add (g, s)
+        elif s.isDef or s.kind notin {cxFunc, cxStruct, cxUnion, cxEnum, cxVar}: defs.add (g, s)
         else: decls.add (g, s)
-  result = defs & decls & macros
+  result = types & defs & decls & macros
+
+proc cxBodyIn*(paths: openArray[string], name: string, kind = cxFunc): (CxFile, int) =
+  ## a function's body (or a struct's members — an opaque type's) in one of these .c files (each read once, then
+  ## kept while it is unchanged)
+  for p in paths:
+    let h = cxLoad(p)
+    if h == nil: continue
+    for k in cxNamed(h, name):
+      if h.syms[k].kind == kind and h.syms[k].isDef: return (h, k)
+  (nil, -1)
 
 proc cxHover*(f: CxFile, line, col: int): string =
   let ts = cxTargets(f, line, col)
   if ts.len == 0: return ""
   let (g, s) = ts[0]
+  var doc = s.doc
+  if doc.len == 0 and s.kind in {cxFunc, cxVar, cxStruct, cxUnion, cxEnum, cxTypedef}:
+    # (a definition in a .c file, its comment on the prototype in the header)
+    block find:
+      for g2 in cxClosure(f):
+        for k in cxNamed(g2, s.name):
+          let x = g2.syms[k]
+          if x.kind == s.kind and x.doc.len > 0:
+            doc = x.doc
+            break find
   let kindWord = case s.kind
     of cxFunc: "function"
     of cxStruct: "struct"
@@ -1020,8 +1586,9 @@ proc cxHover*(f: CxFile, line, col: int): string =
     of cxField: "field of " & s.owner
     of cxParam: "parameter of " & s.owner
     of cxLocal: "local of " & s.owner
+    of cxLabel: "label in " & s.owner
   result = "```c\n" & s.text & "\n```\n" & kindWord & " · " & extractFilename(g.path) & ":" & $(s.line + 1)
-  if s.doc.len > 0: result.add "\n\n" & s.doc
+  if doc.len > 0: result.add "\n\n" & doc
   if s.kind in {cxStruct, cxUnion}:
     var fl: seq[string]
     for (g2, k) in cxFields(cxClosure(f), s.name):
@@ -1059,8 +1626,9 @@ proc cxSignature*(f: CxFile, line, col: int): (CxSym, int) =
   var best = -1
   var bf: CxFile
   for g in files:
-    for i, s in g.syms:
-      if s.name == name and s.kind in {cxFunc, cxMacro} and (best < 0 or s.isDef):
+    for i in cxNamed(g, name):
+      let s = g.syms[i]
+      if s.kind in {cxFunc, cxMacro} and (best < 0 or s.isDef):
         best = i
         bf = g
   if best < 0: return
@@ -1069,7 +1637,8 @@ proc cxSignature*(f: CxFile, line, col: int): (CxSym, int) =
 proc cxOutline*(f: CxFile): seq[CxSym] =
   if f == nil: return
   for s in f.syms:
-    if s.kind in {cxFunc, cxStruct, cxUnion, cxEnum, cxTypedef, cxMacro, cxVar} and not s.name.startsWith("(anonymous"):
+    if s.kind in {cxFunc, cxStruct, cxUnion, cxEnum, cxTypedef, cxMacro, cxVar} and not s.name.startsWith("(anonymous") and
+       not (s.kind in {cxStruct, cxUnion, cxEnum} and not s.isDef):
       result.add s
   result.sort(proc(a, b: CxSym): int = cmp(a.line, b.line))
 

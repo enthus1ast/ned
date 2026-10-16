@@ -10,6 +10,10 @@ nimcache/
 *.swp
 .DS_Store
 tests/engine/ned-engine
+tests/engine/ned-cengine
+# unit tests built by nim c -r
+tests/unit/t*
+!tests/unit/t*.nim
 # tests/build/cross.sh
 /build/
 # python
