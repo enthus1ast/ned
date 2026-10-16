@@ -94,7 +94,7 @@ proc nextWordStart(b: Buffer, p: Pos, big: bool): Pos =
 
 proc prevWordStart(b: Buffer, p: Pos, big: bool): Pos =
   var l = p.line
-  var c = p.col - 1
+  var c = min(p.col, b.lines[l].len) - 1
   while true:
     let s = b.lines[l]
     while c >= 0 and s[c] in {' ', '\t'}: dec c
@@ -131,13 +131,14 @@ proc paragraphMove(b: Buffer, p: Pos, d: int): Pos =
 
 proc findChar(b: Buffer, p: Pos, cmd, ch: char): (bool, Pos) =
   let s = b.lines[p.line]
+  let col = min(p.col, s.len)          # (a cursor past the end of a line that got shorter)
   case cmd
   of 'f', 't':
-    let i = s.find(ch, p.col + 1 + (if cmd == 't' and p.col + 1 < s.len and s[p.col + 1] == ch: 1 else: 0))
+    let i = s.find(ch, col + 1 + (if cmd == 't' and col + 1 < s.len and s[col + 1] == ch: 1 else: 0))
     if i < 0: return (false, p)
     (true, Pos(line: p.line, col: (if cmd == 't': i - 1 else: i)))
   else:
-    let start = p.col - 1 - (if cmd == 'T' and p.col - 1 >= 0 and s[p.col - 1] == ch: 1 else: 0)
+    let start = col - 1 - (if cmd == 'T' and col - 1 >= 0 and s[col - 1] == ch: 1 else: 0)
     if start < 0: return (false, p)
     let i = s.rfind(ch, last = start)
     if i < 0: return (false, p)
@@ -148,9 +149,11 @@ type MotionRes = object
   p: Pos
   linewise, inclusive: bool
 
-proc vimMotion(b: Buffer, key: string, count: int, p: Pos): MotionRes =
+proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
   ## position after a motion; `key` is one or two characters
   result.ok = true
+  # (a cursor left past the end of a line that got shorter counts from the line's end)
+  let p = Pos(line: clamp(p0.line, 0, b.lines.high), col: clamp(p0.col, 0, b.lines[clamp(p0.line, 0, b.lines.high)].len))
   var q = p
   case key
   of "h":

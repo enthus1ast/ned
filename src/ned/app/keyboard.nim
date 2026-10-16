@@ -220,6 +220,11 @@ proc globalKey(k: Key): bool =
 
 proc editorKey(k: Key) =
   let b = buf()
+  # (cursors left past the end by a change that came from elsewhere — a reload, the assistant's undo — are put
+  # back on the text before a key moves them)
+  for c in b.cursors.mitems:
+    c.head = b.clampPos(c.head)
+    c.anchor = b.clampPos(c.anchor)
   let ctrl = mCtrl in k.mods
   let alt = mAlt in k.mods
   let shift = mShift in k.mods
