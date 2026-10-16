@@ -3801,6 +3801,83 @@ def t_63_marks():
     time.sleep(0.6)
     check('63 … and stays there once the file is scanned again', mark_rows() == after, str((after, mark_rows())))
 
+def no_clang_format_dir():
+    """a PATH folder with everything in /usr/bin but clang-format (ned's own C formatter then)"""
+    d = TMP + '/noclang'
+    if not os.path.isdir(d):
+        os.makedirs(d)
+        for x in os.listdir('/usr/bin'):
+            if not x.startswith('clang-format'):
+                try: os.symlink('/usr/bin/' + x, d + '/' + x)
+                except OSError: pass
+    return d
+
+FMT63 = ('import std/strutils\nimport std/os\n\ntype P = object\n  a: int\n  longer: string\n\n'
+         'proc f(a: int, b: string): int = a\nlet xs = [100000, 200000, 300000, 400000]\n'
+         '{.emit: """\nint add(int a,int b){\nreturn a+b;\n}\n""".}\n')
+
+def t_63_format():
+    # the formatter's settings: parameters one per line always, long literals one per line, 40 columns, imports
+    # merged, fields lined up — and the C in an emit formatted too (clang-format, or ned's own without it)
+    setup({"nim.nimsuggest": None, "nim.format.params": "always", "nim.format.collections": "onePerLine",
+           "nim.format.lineLength": 40, "nim.format.imports": "merge", "nim.format.align": True})
+    open(W + '/src/f63.nim', 'w').write(FMT63)
+    start('src/f63.nim', w=120, h=34)
+    keys('M-f'); seen = wait_for(r'Formatted', 5)
+    keys('C-s'); time.sleep(0.6)
+    t = ftext('src/f63.nim')
+    check('63 format: says it formatted', seen, screen()[-300:])
+    check('63 format: imports merged', t.startswith('import std/[os, strutils]\n'), repr(t[:80]))
+    check('63 format: fields lined up', '  a:      int\n  longer: string\n' in t, repr(t))
+    check('63 format: parameters one per line (always)', 'proc f(\n    a: int,\n    b: string,\n): int =\n  a\n' in t,
+          repr(t))
+    check('63 format: a long literal one element per line (onePerLine at 40 columns)',
+          'let xs = [\n  100000,\n  200000,\n  300000,\n  400000,\n]\n' in t, repr(t))
+    if which('clang-format'):
+        check('63 format: the C in the emit went through clang-format',
+              'int add(int a, int b)' in t and 'return a + b;' in t and 'a+b' not in t, repr(t))
+    # without clang-format: ned's own C formatter, for the emit and for a .c file
+    open(W + '/src/f63.nim', 'w').write(FMT63)
+    open(W + '/src/c63.c', 'w').write('int main( void ){\nint x=1 ,y = 2;\nif(x==1)\ny=-x;\nreturn x+y;\n}\n')
+    tm('kill-server'); time.sleep(0.3)
+    start('src/f63.nim', w=120, h=34, path=NIMBIN + ':' + no_clang_format_dir())     # (no clangd either)
+    keys('M-f'); wait_for(r'Formatted', 5); keys('C-s'); time.sleep(0.6)
+    t = ftext('src/f63.nim')
+    check('63 format: without clang-format the emit is formatted by ned (indentation, spaces)',
+          '{.emit: """\nint add(int a, int b) {\n  return a + b;\n}\n""".}' in t, repr(t))
+    keys('C-p'); text('c63.c'); time.sleep(0.5); keys('Enter'); time.sleep(0.6)
+    keys('M-f'); seen = wait_for('C formatter', 4); keys('C-s'); time.sleep(0.6)
+    c = ftext('src/c63.c')
+    check('63 format: a C file without clang-format: ned\'s C formatter', seen and
+          c == 'int main(void) {\n    int x = 1, y = 2;\n    if (x == 1)\n        y = -x;\n    return x + y;\n}\n',
+          repr(c))     # (at the file's indentation: 4 for C unless it says otherwise)
+
+def t_63_paste():
+    # pasted code takes the indentation of where it goes; at column 0, or with editor.formatOnPaste off, as copied
+    setup({"nim.nimsuggest": None})
+    open(W + '/src/p63.nim', 'w').write('proc main() =\n  if true:\n    echo 1\n')
+    start('src/p63.nim', w=100, h=30)
+    keys('C-Home'); keys('Down'); keys('Down'); keys('End'); keys('Enter'); time.sleep(0.2)
+    paste('for i in 0..2:\n  echo i\n'); time.sleep(0.5)
+    keys('C-s'); time.sleep(0.5)
+    t = ftext('src/p63.nim')
+    check('63 paste: the pasted block takes the indentation where it goes',
+          t.startswith('proc main() =\n  if true:\n    echo 1\n    for i in 0..2:\n      echo i\n'), repr(t))
+    keys('C-End'); keys('Home'); time.sleep(0.1)
+    paste('  x = 1\n    y = 2\n'); time.sleep(0.4)
+    keys('C-s'); time.sleep(0.5)
+    t = ftext('src/p63.nim')
+    check('63 paste: at column 0 it stays as copied', '      echo i\n  x = 1\n    y = 2\n' in t, repr(t))
+    setup({"nim.nimsuggest": None, "editor.formatOnPaste": "off"})
+    open(W + '/src/p63.nim', 'w').write('proc main() =\n  if true:\n    echo 1\n')
+    start('src/p63.nim', w=100, h=30)
+    keys('C-Home'); keys('Down'); keys('Down'); keys('End'); keys('Enter'); time.sleep(0.2)
+    paste('for i in 0..2:\n  echo i\n'); time.sleep(0.5)
+    keys('C-s'); time.sleep(0.5)
+    t = ftext('src/p63.nim')
+    check('63 paste: editor.formatOnPaste off pastes exactly as copied',
+          '    for i in 0..2:\n  echo i\n' in t, repr(t))
+
 def t_63_git():
     # git for new folders: initialize here (asked first inside another repository), git asks your name once;
     # a new Nim project gets its first commit; clone from a link (a branch in the link, a login in it refused)
@@ -3860,4 +3937,4 @@ def t_63_git():
           os.path.isdir(dest + '/.git'), screen())
     check('63 … and a Nim project offers to install what it needs', wait_for('install the packages it needs', 5), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git]
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste]
