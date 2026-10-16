@@ -1,5 +1,19 @@
 # ── types: what an expression is, and what a type offers ──
 
+proc nxStripValMods*(t: string): string =
+  ## "var Foo" / "sink Foo" / "lent Foo" → "Foo", but a ref or ptr stays: what a routine's result really is
+  result = t.strip
+  var changed = true
+  while changed:
+    changed = false
+    for m in ["var ", "sink ", "lent ", "out ", "owned "]:
+      if result.startsWith(m):
+        result = result[m.len .. ^1].strip
+        changed = true
+    if result.startsWith("owned(") and result.endsWith(")"):
+      result = result[6 ..< result.high].strip
+      changed = true
+
 proc nxStripMods*(t: string): string =
   ## "var seq[int]" → "seq[int]", "sink Foo" → "Foo", "ref Foo" → "Foo", "static[int]" → "int"
   result = t.strip
@@ -296,8 +310,10 @@ proc nxCompatP*(sc: NxScope, prm: NxParam, generics, recv: string): int =
 
 proc nxBindings*(s: NxSym, recv: string, genArgs: seq[string] = @[]): Table[string, string] =
   ## generic parameters of routine `s` bound from explicit [args] or from its first argument's type
-  if recv.startsWith("typedesc[") and s.params.len > 0 and nxStripMods(s.params[0].typ) == "typedesc":
-    result[s.params[0].name] = recv[9 ..< ^1]          # proc none(T: typedesc): Option[T]
+  if recv.startsWith("typedesc[") and s.params.len > 0 and nxStripMods(s.params[0].typ).startsWith("typedesc") and
+     s.params[0].name.len > 0 and s.params[0].name[0] in {'A'..'Z'}:
+    # proc none(T: typedesc): Option[T] · proc high(T: typedesc[SomeFloat]): T — the parameter is the type
+    result[s.params[0].name] = recv[9 ..< ^1]
   let names = nxGenericNames(s.generics)
   if names.len == 0: return
   if genArgs.len > 0:
@@ -497,7 +513,7 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
       if needs:
         let at = nxTypeOfExpr(f, sc, locals, e, line, depth + 1).typ
         if at.len > 0: nxUnify(pt, at, names, b)
-  var rt = nxStripMods(nxSubst(s.ret, b))
+  var rt = nxStripValMods(nxSubst(s.ret, b))
   if rt == "auto":
     rt = nxStripMods(nxSubst(nxInferAuto(best.file, s, depth + 1), b))
     if rt.len == 0: return ""
@@ -739,8 +755,14 @@ proc nxTemplateCall*(f: NxFile, sc: NxScope, locals: seq[NxSym], name, recvType,
   ## the standard library's templates and higher-order procs whose result depends on code passed to them:
   ## s.mapIt(it.len) is a seq[int], s.map(w => w.len) too
   const Known = ["mapIt", "filterIt", "anyIt", "allIt", "countIt", "sortedByIt", "newSeqWith", "map", "filter",
-                 "zip", "concat", "deduplicate", "foldl", "foldr", "applyIt", "keepItIf"]
+                 "zip", "concat", "deduplicate", "foldl", "foldr", "applyIt", "keepItIf", "newException"]
   if name notin Known: return (false, "")
+  if name == "newException":
+    # newException(ValueError, "…") makes a ref ValueError (a template whose result says untyped)
+    let a = nxSplitTop(argText, {','})
+    return (true, (if recvType.startsWith("typedesc["): "ref " & recvType[9 ..< ^1]
+                   elif a.len > 0 and a[0].strip.len > 0 and nxIsIdent(a[0].strip[0]): "ref " & a[0].strip
+                   else: ""))
   var args = nxSplitTop(argText, {','})
   var recvT = recvType
   if recvT.len == 0:
@@ -929,18 +951,35 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
         if t in ["Natural", "Positive"] or nxResolveAlias(sc, t) == "range": t = "int"     # (a range's sums are its base type's)
         elif lr == "char" and op in ["+", "-"]: t = "char"
         return NxVal(typ: t)
-  if s[0] notin {'[', '(', '{', '@'}:
+  # (a bracket around all of it is a literal or a group, not the left side of a / or ..: (a + b) / 2 is one)
+  let wrapped = s[0] in {'[', '(', '{', '@'} and (s.len < 2 or nxMatchClose(s, (if s[0] == '@': 1 else: 0)) == s.high)
+  if not wrapped:
     let rk = nxFindRange(s)
     if rk > 0:
       # a .. b, a ..< b: a slice of the ends' type
-      let lt = nxTypeOfExpr(f, sc, locals, s[0 ..< rk], line, depth + 1).typ
+      var lt = nxTypeOfExpr(f, sc, locals, s[0 ..< rk], line, depth + 1).typ
+      if s[0 ..< rk].strip.allCharsInSet(Digits + {'_'}):
+        # 0 ..< n: a bare number takes the other end's type (n: int32 → HSlice[int32, int32])
+        var e0 = rk
+        while e0 < s.len and s[e0] in {'.', '<', ' '}: inc e0
+        let et = nxStripMods(nxTypeOfExpr(f, sc, locals, s[e0 .. ^1], line, depth + 1).typ)
+        if nxResolveAlias(sc, et) in NxInts: lt = et
       return NxVal(typ: (if lt.len > 0: "HSlice[" & lt & ", " & lt & "]" else: ""))
     let dk = fl.find(" / ")
     if dk > 0:
       # integers divided with / give a float (div keeps them integers); a path joined with / stays a string
       let lt = nxTypeOfExpr(f, sc, locals, s[0 ..< dk], line, depth + 1).typ
       let rt = nxResolveAlias(sc, lt)
-      if rt in NxInts: return NxVal(typ: "float")
+      let leftLit = s[0 ..< dk].strip.allCharsInSet(Digits + {'_', '.'})
+      if lt.len > 0 and not leftLit and rt notin NxInts and rt notin NxFloats and rt != "string":
+        # a / of another type: its operator says (Vec2 / 2 is a Vec2)
+        let ct = nxCallType(f, sc, locals, "/", lt, line, depth, @[], 2, @[s[dk + 3 .. ^1].strip])
+        if ct.len > 0: return NxVal(typ: ct)
+      if leftLit or rt in NxInts:
+        # 1 / x.float32 is a float32: a bare number takes the other side's float type
+        let r2 = nxTypeOfExpr(f, sc, locals, s[dk + 3 .. ^1], line, depth + 1).typ
+        if nxResolveAlias(sc, nxStripMods(r2)) in NxFloats: return NxVal(typ: nxStripMods(r2))
+        if rt in NxInts: return NxVal(typ: "float")
       if rt in NxFloats or rt == "string": return NxVal(typ: lt)
   if s.startsWith("cast["):
     let ce = nxMatchClose(s, 4)
@@ -1007,6 +1046,10 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
       if t.len > 0: return NxVal(typ: t)
   if s in ["true", "false"]: return NxVal(typ: "bool")
   if s == "nil": return
+  if s.startsWith("@(") and nxMatchClose(s, 1) == s.high:
+    # @(array): a seq of its elements — @({"Content-Type": "text/html"}) is a seq[(string, string)]
+    let et = nxElemType(nxTypeOfExpr(f, sc, locals, s[2 ..< s.high], line, depth + 1).typ)
+    if et.len > 0: return NxVal(typ: "seq[" & et & "]")
   if s.startsWith("@["):
     let ce = nxMatchClose(s, 1)
     if ce == s.high:
@@ -1121,7 +1164,9 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
           # the first argument picks the overload and binds generic parameters:  some(5) → Option[int]
           let ps = nxSplitTop(argText, {','})
           if ps.len > 0 and ps[0].strip.len > 0 and nxFindTop(ps[0], '=') < 0:
-            recv = nxTypeOfExpr(f, sc, locals, ps[0], line, depth + 1).typ
+            let a0 = nxTypeOfExpr(f, sc, locals, ps[0], line, depth + 1)
+            recv = if a0.typ.len == 0 and a0.typeName.len > 0: "typedesc[" & a0.typeName & "]"   # high(int8)
+                   else: a0.typ
         let (known, kt) = nxTemplateCall(f, sc, locals, v.routine, recvForCall, argText, line, depth)
         if known:
           v = NxVal(typ: kt)

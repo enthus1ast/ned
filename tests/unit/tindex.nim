@@ -138,6 +138,18 @@ suite "definitions and types":
     check "doubles it" in h
     check "overloads" notin h
 
+  test "typedesc receivers, numbers next to other types, newException, @(…)":
+    let (f, ls) = fixture("type Color = enum red, green\nlet q: int32 = 3\nlet z = 0\n")
+    let sc = nxScope(f)
+    template ty(e: string): string = nxTypeOfExpr(f, sc, @[], e, 2, 0).typ
+    check ty("float32.high") == "float32"
+    check ty("Color.low") == "Color"
+    check ty("high(int8)") == "int8"
+    check ty("1 / q.float32") == "float32"
+    check ty("0 ..< q") == "HSlice[int32, int32]"
+    check ty("newException(ValueError, \"x\")") == "ref ValueError"
+    check ty("@({\"a\": \"b\"})") == "seq[(string, string)]"
+
 suite "expansion and misspelled names":
   test "a template call, written out":
     let (f, ls) = fixture("template sq(x: untyped): untyped = x * x\necho sq(3 + 1)\n")
