@@ -514,7 +514,7 @@ proc createNimProject(name0: string) =
   except CatchableError as e:
     error("Cannot create project: " & e.msg)
     return
-  if haveExe("git"): discard startJob(jkAux, "git init -q", dir)
+  if haveExe("git"): gitInitNewProject(dir)       # (with its first commit)
   discard openFile(dir)
   discard openFile(dir / "src" / name & ".nim")
   treeOpen = scrW >= 70

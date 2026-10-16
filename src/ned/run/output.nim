@@ -133,7 +133,8 @@ proc expandCmd(cmd: string, b: Buffer): string =
       .replace("$name", splitFile(b.path).name)
   result = result.replace("$tmp", tmpDir()).replace("$root", rootDir)
 
-proc runCommand(cmd0, cwd: string) =
+proc runCommand(cmd0, cwd: string, after: proc(code: int) {.closure.} = nil) =
+  ## run a command with its output in the Output panel (`after`: told the exit code when it ends)
   if cmd0.strip.len == 0: return
   let ri = if remotes.len > 0: remoteOf(cwd) else: -1
   # a remote folder: on the server, once the saves are there
@@ -167,7 +168,8 @@ proc runCommand(cmd0, cwd: string) =
       addPanelLine(PanelLine(text: "✗ Exit code " & $j.code & " after " & formatFloat(dt, ffDecimal, 1) & "s" &
         (if errs > 0: " · " & $errs & " error(s) — Alt+N jumps to the next" else: ""), sev: 1, line: -1))
     if ri >= 0 and ri < remotes.len: remoteSync(ri)       # what it changed on the server comes back
-    needRender = true)
+    needRender = true
+    if after != nil: after(j.code))
   if j == nil: return
   info("Running: " & cmd0 & onHost)
 

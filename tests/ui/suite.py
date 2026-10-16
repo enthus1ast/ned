@@ -3801,4 +3801,63 @@ def t_63_marks():
     time.sleep(0.6)
     check('63 … and stays there once the file is scanned again', mark_rows() == after, str((after, mark_rows())))
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks]
+def t_63_git():
+    # git for new folders: initialize here (asked first inside another repository), git asks your name once;
+    # a new Nim project gets its first commit; clone from a link (a branch in the link, a login in it refused)
+    setup({"nim.nimsuggest": None})
+    home = TMP + '/home63'
+    shutil.rmtree(home, ignore_errors=True); os.makedirs(home)
+    env = 'HOME=%s GIT_CONFIG_NOSYSTEM=1' % home
+    os.makedirs(W + '/fresh'); open(W + '/fresh/a.nim', 'w').write('echo 1\n')
+    start('fresh', w=120, h=34, env_extra=env); time.sleep(1.0)
+    palette('Git: initialize a repository here'); time.sleep(0.6)
+    check('63 git init inside another repository asks first', 'inside the git repository' in screen(), screen())
+    keys('y'); time.sleep(1.5)
+    ok = os.path.isdir(W + '/fresh/.git')
+    check('63 … and makes the repository', ok, str(os.listdir(W + '/fresh')))
+    check('63 git asks your name for commits (once, kept in your git settings)', wait_for('Your name, for git commits', 5),
+          screen())
+    keys('C-u'); text('Test Person'); keys('Enter'); time.sleep(0.4)
+    text('test@example.com'); keys('Enter'); time.sleep(0.6)
+    cfg = open(home + '/.gitconfig').read() if os.path.exists(home + '/.gitconfig') else ''
+    check('63 … and git config --global has it', 'Test Person' in cfg and 'test@example.com' in cfg, cfg)
+    # a new Nim project: its repository with a first commit
+    palette('Nim: new project…'); time.sleep(0.4); text('proj63'); keys('Enter')
+    end = time.time() + 15
+    log = ''
+    while time.time() < end:
+        log = sh('git -C %s/fresh/proj63 log --oneline 2>&1' % W).stdout
+        if 'First commit' in log: break
+        time.sleep(0.4)
+    check('63 a new Nim project is a git repository with its first commit', 'First commit' in log, log)
+    tm('kill-server'); time.sleep(0.3)
+    # clone from a link
+    src = TMP + '/origin63'
+    shutil.rmtree(src, ignore_errors=True); os.makedirs(src)
+    open(src + '/README.md', 'w').write('# Hello from the clone\n')
+    open(src + '/thing.nimble', 'w').write('version = "0.1.0"\nrequires "nim >= 2.0.0"\n')
+    G = 'git -C %s -c user.name=t -c user.email=t@t ' % src
+    sh('git init -q -b main ' + src); sh(G + 'add -A'); sh(G + 'commit -qm one')
+    dest = TMP + '/cloned63'
+    shutil.rmtree(dest, ignore_errors=True)
+    start('', w=120, h=34, env_extra=env); time.sleep(0.8)
+    keys('g'); time.sleep(0.5)                       # (the Welcome page: g)
+    check('63 the Welcome page: g clones from a link', 'Link to clone' in screen(), screen())
+    keys('C-u'); text('https://ann:secret@github.com/x/y'); keys('Enter'); time.sleep(0.5)
+    check('63 a link with a login in it is refused', wait_for('password or token', 3), screen())
+    palette('File: clone from a link…'); time.sleep(0.4)
+    keys('C-u'); text('https://github.com/x/y/tree/dev/src'); keys('Enter'); time.sleep(0.4)
+    keys('C-u'); text(TMP + '/never63'); keys('Enter'); time.sleep(0.5)
+    s = screen()
+    check('63 a branch named in the link is cloned (github.com/x/y/tree/dev → branch dev)',
+          'https://github.com/x/y' in s and 'branch dev' in s and '/tree/' not in s, s)
+    keys('Escape'); time.sleep(0.3)
+    palette('File: clone from a link…'); time.sleep(0.4)
+    keys('C-u'); text('file://' + src); keys('Enter'); time.sleep(0.4)
+    keys('C-u'); text(dest); keys('Enter'); time.sleep(0.5)
+    keys('Enter'); time.sleep(0.3)                   # Clone
+    check('63 cloned: the folder opens with its README', wait_for('Hello from the clone', 15) and
+          os.path.isdir(dest + '/.git'), screen())
+    check('63 … and a Nim project offers to install what it needs', wait_for('install the packages it needs', 5), screen())
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git]

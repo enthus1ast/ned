@@ -154,12 +154,17 @@ proc submitPrompt() =
   of pGitCommit:
     if t.strip.len > 0:
       let m = t.strip
-      if gitStaged() == 0:
-        closePrompt()
-        askConfirm("Nothing is staged — commit all changed files? (new files are left out) (y/n)", proc(c: char) =
-          if c in {'y', 'Y'}: gitRun(@["commit", "-a", "-m", m], "Committed"))
-        return
-      gitRun(@["commit", "-m", m], "Committed")
+      proc commitNow() =
+        if gitStaged() == 0:
+          askConfirm("Nothing is staged — commit all changed files? (new files are left out) (y/n)", proc(c: char) =
+            if c in {'y', 'Y'}: gitRun(@["commit", "-a", "-m", m], "Committed"))
+        else: gitRun(@["commit", "-m", m], "Committed")
+      closePrompt()
+      let home = gitHome()
+      if home.len > 0 and (remotes.len == 0 or remoteOf(home) < 0) and gitIdentityMissing(home):
+        gitAskIdentity(home, commitNow)        # (git has to know who you are first: asked once)
+      else: commitNow()
+      return
   of pGitInput, pPathInput:
     closePrompt()
     let cb = gitPromptCb

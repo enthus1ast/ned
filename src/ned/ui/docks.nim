@@ -191,7 +191,10 @@ proc buildGitItems(): seq[SideItem] =
             saveRemotes()
           refreshGitStatus()))
     elif haveExe("git"):
-      result.add sideItem("git init", 7, "+", "", proc() = gitRun(@["init"], "Initialised repository"))
+      result.add sideItem("Initialize a repository here (git init)", 7, "+", "", proc() = gitInitHere())
+      result.add sideItem("Clone from a link…", 7, ic("branch"), "", proc() = gitCloneFromLink())
+    else:
+      result.add sideItem("git is not installed — Termux: pkg install git", 2)
     return
   # every repository of the workspace's folders: pick the one the dock (and git commands) act on
   let roots = gitRepoRoots()

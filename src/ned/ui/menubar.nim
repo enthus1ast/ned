@@ -44,7 +44,8 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("File: open recent project…", "Open recent project…"),
       msub("Workspace", @[mc("Workspace: add a folder…", "Add a folder…"), mc("Workspace: remove a folder…", "Remove a folder…"),
         mc("Workspace: save as…", "Save as…"), mc("Workspace: open a workspace file…", "Open a workspace file…")]),
-      mc("Remote: open a folder over SSH…", "Open a folder over SSH…"), msep(),
+      mc("Remote: open a folder over SSH…", "Open a folder over SSH…"),
+      mc("File: clone from a link…", "Clone from a link (git)…"), msep(),
       mc("Save"), mc("Save as…"), mc("Save all"), msep(), mc("File: local history…", "Local history…"),
       mc("File: compare with saved", "Compare with saved"), mc("File: compare with another file…", "Compare with another file…"),
       mc("File: rename or move this file…", "Rename or move…"), mc("File: recover unsaved edits…", "Recover unsaved edits…"), msep(),
@@ -191,7 +192,8 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("Git: GitHub…", "GitHub (pull requests, issues, CI)…"),
       msub("More", @[mc("Git: create a tag…", "Create a tag…"), mc("Git: push tags", "Push tags"),
         mc("Git: copy link to this line", "Copy link to this line"), mc("Git: create a pull request (gh)", "Pull request (gh)"),
-        mc("Git: clone a repository…", "Clone a repository…")])]
+        mc("Git: clone a repository…", "Clone a repository…"),
+        mc("Git: initialize a repository here", "Initialize a repository here (git init)")])]
   of "Nim":
     # (short enough for a 10-inch tablet: the rest in submenus)
     @[mc("Nim: expand macro/template at cursor", "Expand macro"), mc("Nim: expand macro one level", "Expand one level"),

@@ -176,13 +176,21 @@ proc doCommitFromBuffer(b: Buffer): bool =
       if i >= 0: closeBufferAt(i)
     gitShell("git commit" & (if amend: " --amend" else: "") & (if all: " -a" else: "") & " -F " & quoteShell(tmp),
              (if amend: "Amended the last commit" else: "Committed"), nil, croot)
-  var stagedN = 0
-  for l in (if croot.len > 0 and croot != gitHome(): gitRepoInfo(croot).lines else: gitStatusLines):
-    if l.len > 3 and not l.startsWith("## ") and l[0] notin {' ', '?'}: inc stagedN
-  if stagedN == 0 and not amend:
-    askConfirm("Nothing is staged — commit all changed files? (new files are left out) (y/n)", proc(c: char) =
-      if c in {'y', 'Y'}: go(true))
-  else: go(false)
+  proc decide() =
+    var stagedN = 0
+    for l in (if croot.len > 0 and croot != gitHome(): gitRepoInfo(croot).lines else: gitStatusLines):
+      if l.len > 3 and not l.startsWith("## ") and l[0] notin {' ', '?'}: inc stagedN
+    if stagedN == 0 and not amend:
+      askConfirm("Nothing is staged — commit all changed files? (new files are left out) (y/n)", proc(c: char) =
+        if c in {'y', 'Y'}: go(true))
+    else: go(false)
+  # (git has to know who you are first — asked once, kept in your git settings)
+  let home = if croot.len > 0: croot else: gitHome()
+  if remotes.len == 0 or remoteOf(home) < 0:
+    if home.len > 0 and gitIdentityMissing(home):
+      gitAskIdentity(home, decide)
+      return true
+  decide()
   true
 
 # changes in the diff view
@@ -425,22 +433,6 @@ proc gitIgnore(path: string) =
     info("Added " & rel & " to .gitignore")
     refreshGitStatus()
   except CatchableError as e: error(e.msg)
-
-proc gitClone() =
-  gitAsk("Repository to clone (https://… or git@…)", "", proc(url: string) =
-    var name = url.strip(chars = {'/'}).split({'/', ':'})[^1]
-    if name.endsWith(".git"): name = name[0 ..< name.len - 4]
-    let base = if rootDir.len > 1: parentDir(rootDir) else: getHomeDir()
-    gitAsk("Clone into", base / name, proc(dest: string) =
-      let d = expandTilde(dest)
-      info("Cloning " & url & "…")
-      discard startJob(jkGit, gitBatchEnv(parentDir(d)) & "git clone " &
-                       quoteShell(url) & " " & quoteShell(d), parentDir(d), proc(j: Job) =
-        if j.code == 0: openFolder(d)
-        elif "terminal prompts disabled" in j.output or "Permission denied" in j.output or "could not read" in j.output:
-          runInTerm("git clone " & quoteShell(url) & " " & quoteShell(d))
-          info("git needs your login — finish in the terminal, then File › Open folder")
-        else: error("git clone failed:\n" & j.output.strip.splitLines[^1]))))
 
 proc remoteWebUrl(remote: string): string =
   ## the https address of a git remote, with any user name or token taken out

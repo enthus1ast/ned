@@ -41,6 +41,10 @@ proc treeMenu(n: TreeNode): seq[MenuItem] =
     if n.isDir:
       result.add mi("Open as the project", "", proc() = openFolder(node.path))
       result.add mi("Format the files in this folder…", "", proc() = cmdFormatAll(node.path))
+  if haveExe("git") and findGitRoot(dir).len == 0:
+    let d = dir
+    result.add msep()
+    result.add mi("Initialize a git repository here", "", proc() = gitInitHere(d))
   result.add msep()
   result.add mi((if showHidden: "Hide" else: "Show") & " hidden files", ".", proc() =
     showHidden = not showHidden

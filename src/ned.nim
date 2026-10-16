@@ -254,6 +254,7 @@ include ned/git/marks
 include ned/app/keyboard
 include ned/app/setupcheck
 include ned/git/commands
+include ned/git/setup
 include ned/git/advanced
 include ned/git/history
 include ned/git/github

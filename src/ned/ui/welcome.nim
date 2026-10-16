@@ -41,6 +41,7 @@ proc drawWelcome(x0, y0, w, h: int) =
       needRender = true)),
     ("o", "Open file…", "Ctrl+P", Action(proc() = cmdFindFile())),
     ("d", "Open folder…", "", Action(proc() = cmdOpenFolder())),
+    ("g", "Clone from a link…", "", Action(proc() = gitCloneFromLink())),
     ("f", "Browse files", "Ctrl+B", Action(proc() = showSide(svFiles))),
     ("r", "Recent projects…", "", Action(proc() = runCmd("File: open recent project…"))),
     ("j", "New Nim project…", "", Action(proc() = openPrompt(pNewProject, "New Nim project name", ""))),
@@ -147,6 +148,7 @@ proc welcomeKey(k: Key): bool =
   of 'o', 'p': cmdFindFile()
   of 'f': showSide(svFiles)
   of 'd': cmdOpenFolder()
+  of 'g': gitCloneFromLink()
   of 'r': runCmd("File: open recent project…")
   of 'j': openPrompt(pNewProject, "New Nim project name", "")
   of 'e': cmdPalette()

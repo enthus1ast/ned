@@ -12,6 +12,11 @@ var
 
 proc browseFolder(dir: string)
 proc openFolder(d: string)
+proc gitInitHere(dir = "")
+proc gitInitNewProject(dir: string)
+proc gitCloneFromLink(link = "")
+proc gitIdentityMissing(dir: string): bool
+proc gitAskIdentity(dir: string, then: proc() {.closure.} = nil)
 
 proc openActions(title: string, items: seq[(string, string, proc() {.closure.})], search: seq[string] = @[]) =
   ## a picker of arbitrary actions (label, detail, action); `search`: extra text per item the query may match
