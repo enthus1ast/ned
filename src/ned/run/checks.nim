@@ -130,7 +130,7 @@ proc runCheckPath(path, langId: string, keepExamples: bool) =
   ## (keepExamples: a file that did not change keeps its failed runnableExamples marks)
   let (cmd, cwd) = checkCmdForPath(path, langId)
   if cmd.len == 0: return
-  let exe = cmd.splitWhitespace()[0]
+  let exe = cmd.firstWord
   if path in checkPending:
     pendingRecheck.incl path
     return

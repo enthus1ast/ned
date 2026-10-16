@@ -70,7 +70,7 @@ proc parseTestamentOutput(root, output: string) =
     let l = stripAnsi(raw).strip
     for (w, v) in [("PASS: ", 1), ("FAIL: ", 2), ("SKIP: ", 4)]:
       if l.startsWith(w):
-        let rel = l[w.len .. ^1].splitWhitespace()[0].strip(chars = {'[', ']'})
+        let rel = l[w.len .. ^1].firstWord.strip(chars = {'[', ']'})
         let full = (if rel.isAbsolute: rel else: root / rel).normalizedPath
         let k = testKey(full, TestamentName)
         if v == 2 or testStatus.getOrDefault(k) != 2 or testStatus.getOrDefault(k) == 3: testStatus[k] = v

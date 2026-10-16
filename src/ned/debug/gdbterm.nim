@@ -41,7 +41,7 @@ proc cmdDebugGdb() =
   let t = shellTermObj()
   if t != nil:
     if t.gotOutput: t.termWrite(cmd) else: t.pending = cmd
-  info("Building with --debugger:native and starting " & dbg.splitWhitespace[0] & " in the terminal")
+  info("Building with --debugger:native and starting " & dbg.firstWord & " in the terminal")
 
 proc restoreBreakpoints() =
   ## the folder's breakpoints (and their conditions), kept with its session

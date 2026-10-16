@@ -61,7 +61,7 @@ proc gitNet(args, okMsg: string, then: proc() = nil) =
          "Authentication failed" in o or "Host key verification" in o or "passphrase" in o:
       runInTerm("git " & args)
       info("git needs your login — finish it in the terminal")
-    else: error("git " & args.splitWhitespace()[0] & " failed:\n" & o.splitLines[max(0, o.splitLines.len - 4) .. ^1].join("\n"))
+    else: error("git " & args.firstWord & " failed:\n" & o.splitLines[max(0, o.splitLines.len - 4) .. ^1].join("\n"))
     refreshGitStatus()
     checkDiskChanges()
     for b in bufs: refreshGit(b)

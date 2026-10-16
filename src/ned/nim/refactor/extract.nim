@@ -258,7 +258,7 @@ proc nimbleAddDep(pkg: string) =
     return
   try:
     var lines = readFile(nimble.file).splitLines
-    let name = p.splitWhitespace()[0].strip(chars = {'"'})
+    let name = p.firstWord.strip(chars = {'"'})
     for l in lines:
       if l.strip.startsWith("requires") and ("\"" & name) in l:
         info(name & " is already required")

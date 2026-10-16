@@ -12,6 +12,11 @@ proc cur(p: Pos): Cursor {.inline.} = Cursor(anchor: p, head: p, goalX: -1)
 
 proc msSince(t: MonoTime): int64 = (getMonoTime() - t).inMilliseconds
 
+proc firstWord(s: string): string =
+  ## the first word of a command (or "" when there is none — a setting left empty)
+  let w = s.splitWhitespace()
+  if w.len > 0: w[0] else: ""
+
 proc wsLabel(p: string): string =
   ## a file of a workspace's other folder: "folder/rel" (for display only)
   for r in wsRoots:

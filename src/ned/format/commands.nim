@@ -114,7 +114,7 @@ proc formatBuffer(b: Buffer) =
         return
       formatBuiltin(b)
       return
-    let exe = cmds[0].splitWhitespace()[0]
+    let exe = cmds[0].firstWord
     if findExe(exe).len == 0:
       error(exe & " is not installed (" & (if exe == "nph": "nimble install nph" else: "it comes with Nim") &
             ") — or use ned's own: \"nim.formatter\": \"builtin\"")
@@ -123,7 +123,7 @@ proc formatBuffer(b: Buffer) =
     if b.lang.id in cfgUserFmt: cmds.add cfgUserFmt[b.lang.id]
     for c in b.lang.fmt: cmds.add c
   for c in cmds:
-    let exe = c.splitWhitespace()[0]
+    let exe = c.firstWord
     if findExe(exe).len == 0: continue
     let text = b.allText & "\n"
     let cwd = if b.path.len > 0: parentDir(b.path) else: rootDir
@@ -175,7 +175,7 @@ proc formatBuffer(b: Buffer) =
   if bk in ["markdown", "css", "scss"]:
     builtin(b)
     return
-  let hint = if b.lang.fmt.len > 0: " (install " & b.lang.fmt[0].splitWhitespace()[0] & ")" else: ""
+  let hint = if b.lang.fmt.len > 0: " (install " & b.lang.fmt[0].firstWord & ")" else: ""
   info("No formatter for " & b.lang.name & hint)
 
 proc embeddedStringAt(b: Buffer, p: Pos): (int, int, seq[string], Lang) =
@@ -243,14 +243,14 @@ proc formatEmbedded(b: Buffer): bool =
     let fake = parentDir(if b.path.len > 0: b.path else: rootDir / "x") / ("embedded." & (if lg.id == "javascript": "js" elif lg.id == "cpp": "cpp" else: lg.id))
     let (ok, o, e) = runFilter(cmd.replace("$file", fake).replace("$dir", parentDir(fake)).replace("$name", "embedded"),
                                text, (if b.path.len > 0: parentDir(b.path) else: rootDir))
-    by = cmd.splitWhitespace()[0]
+    by = cmd.firstWord
     if ok and o.strip.len > 0: res = o
     else:
       let first = (e & o).strip.splitLines
       err = by & ": " & (if first.len > 0: first[0] else: "failed")
   elif bk.len > 0: (res, err) = builtinFormatText(bk, text, b.indentW())
   else:
-    let hint = if lg.fmt.len > 0: " (install " & lg.fmt[0].splitWhitespace()[0] & ")" else: ""
+    let hint = if lg.fmt.len > 0: " (install " & lg.fmt[0].firstWord & ")" else: ""
     info("No formatter for the " & lg.name & " in this string" & hint)
     return true
   if err.len > 0:

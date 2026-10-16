@@ -129,7 +129,7 @@ proc loadSpellDict() =
         let sl = line.find('/')
         if sl > 0:
           stem = line[0 ..< sl]
-          fl = line[sl + 1 .. ^1].splitWhitespace()[0]
+          fl = line[sl + 1 .. ^1].firstWord
         else:
           let sp = line.find(' ')
           if sp > 0: stem = line[0 ..< sp]

@@ -311,7 +311,7 @@ proc otherTestAt(b: Buffer, l: int): (string, bool) =
 proc runOtherTests(path, filter: string) =
   let (cmd, cwd) = otherTestCmd(path, filter)
   if cmd.len == 0: return
-  let tool = cmd.splitWhitespace()[0]
+  let tool = cmd.firstWord
   if tool notin ["pytest"] and not tool.contains('/') and not haveExe(tool.strip(chars = {'\''})):
     error(tool & " is not installed")
     return

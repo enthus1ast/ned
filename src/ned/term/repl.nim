@@ -8,7 +8,7 @@ proc replCommandFor(lang: Lang): (string, string) =
   let user = settingNode("repl.commands")
   if user != nil and user.kind == JObject and user{lang.id}.getStr.strip.len > 0:
     let c = user[lang.id].getStr.strip
-    return (c, extractFilename(c.splitWhitespace()[0]))
+    return (c, extractFilename(c.firstWord))
   case lang.id
   of "nim":
     if haveExe("inim"): ("inim --noAutoIndent", "inim")   # (ned sends the indentation itself)

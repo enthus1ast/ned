@@ -111,6 +111,7 @@ proc fmtAllPump(budgetMs: int) =
         continue
     if text.len == 0 or '\0' in text[0 ..< min(text.len, 4000)]: continue
     let (how, what) = fmtHowFor(p)
+    if how.len == 0 or what.strip.len == 0: continue     # (nothing formats it now: a setting changed meanwhile)
     var res = ""
     var err = ""
     var by = ""
@@ -121,7 +122,7 @@ proc fmtAllPump(budgetMs: int) =
     else:
       let cmd = what.replace("$file", p).replace("$dir", parentDir(p)).replace("$name", splitFile(p).name)
       let (ok, o, e) = runFilter(cmd, text, parentDir(p))
-      by = what.splitWhitespace()[0]
+      by = what.firstWord
       if ok and o.strip.len > 0: res = o
       else:
         let first = (e & o).strip.splitLines
