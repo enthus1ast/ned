@@ -50,11 +50,11 @@ A run that fails keeps its scratch folder and says where it is.
 
 ```sh
 nim c -d:release --stackTrace:on --lineTrace:on -o:ned_debug src/ned.nim
-NEDBIN=./ned_debug tests/fuzz/batch.sh 120 mixed vim helix emacs palette refactor ai git fixes
+NEDBIN=./ned_debug tests/fuzz/batch.sh 120 mixed vim helix emacs palette refactor ai git fixes c
 ```
 
 Each mode is a two-minute round with a different mix of input (`ai` drives the assistant, `git` a repository with
-history, `fixes` code full of compiler errors, `refactor` procs to change). The fuzzer works in a scratch home of
+history, `fixes` code full of compiler errors, `c` C files with ned's own engine and its ligatures, `refactor` procs to change). The fuzzer works in a scratch home of
 its own, with a copy of the Nim toolchain (random keys can go to a definition in the standard library and save
 it), but random palette commands can run tasks and shell commands in its test project, and random keys can
 "save as" anywhere ned may write: give it a throwaway user (`NED_FUZZ_USER=fuzz`, run as root — as root it does

@@ -36,7 +36,7 @@ what was included before it — when a file needs something defined later, it is
 | `core/` | types, global state, themes, the cell grid and terminal output, keys, languages, highlighting |
 | `editor/` | buffers, editing, cursors, search, clipboard, completion, navigation |
 | `nim/` | the Nim IDE: the built-in engine (`nim/index`, also usable as a library), checks, quick fixes, refactors |
-| `c/` | C interop: headers, importc wrappers, `{.emit.}` C, clangd |
+| `c/` | ned's own C engine (`cindex.nim`: text in, answers out), C interop: headers, importc wrappers, `{.emit.}` C, clangd |
 | `format/` | the built-in formatters (Nim in nph's style, C, JSON, Markdown, CSS) — text in, text out |
 | `lsp/` `ai/` `git/` `debug/` `term/` `run/` `testing/` | what their names say |
 | `ui/` `app/` | drawing, docks, dialogs, menus, the palette, the main loop |
@@ -46,15 +46,15 @@ what was included before it — when a file needs something defined later, it is
 Every release passes all of them; please run the ones near your change (and add one for it):
 
 ```sh
-nimble test                                        # unit tests: the Nim engine, the formatters, the regexes
+nimble test                                        # unit tests: the Nim and C engines, the formatters, the regexes
 python3 tests/ui/run.py ./ned t_63_format          # UI tests by name (--list shows them); all: nimble uitest
 python3 tests/themes/contrast.py                   # a theme's colours, checked for contrast
 ```
 
 The UI tests drive ned through tmux exactly like a person would — keys in, the screen read back
-([tests/README.md](tests/README.md) explains them, the fuzzer, the engine comparison with nimsuggest and the
-cross builds). A change to something you can see wants a UI test; a change to the engine or a formatter wants a
-unit test.
+([tests/README.md](tests/README.md) explains them, the fuzzer, the engines' comparisons with nimsuggest and
+clangd, and the cross builds). A change to something you can see wants a UI test; a change to an engine or a
+formatter wants a unit test.
 
 ## A few rules ned keeps
 
