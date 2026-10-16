@@ -91,6 +91,9 @@ proc initSettingDefs() =
        "\"statusbar\" (one line, cut to fit). Palette › Show recent messages lists the last 100",
        @["popup", "statusbar"])
   defS("Appearance", "ui.hoverEffects", %true, "Highlight buttons and rows under the mouse pointer (mouse motion tracking)")
+  defS("Appearance", "ui.pointerShapes", %true, "The mouse pointer changes like in a desktop app: a hand over what " &
+       "can be clicked, an I-beam over text (terminals that support OSC 22: kitty, foot, WezTerm, Ghostty, xterm; " &
+       "others ignore it)")
   defS("Appearance", "ui.tooltips", %true, "Tooltips when the pointer rests on a button")
   defS("Appearance", "ui.mouse", %true, "Mouse and touch support (Alt+U toggles it so Termux text selection works)")
   defS("Appearance", "ui.cursorStyle", %"bar", "Text cursor shape", @["bar", "block", "underline"])
@@ -532,6 +535,7 @@ proc applySettings() =
   cfgRenamePreview = sBool("editor.renamePreview")
   cfgPersistentUndo = sBool("editor.persistentUndo")
   cfgHoverFx = sBool("ui.hoverEffects")
+  cfgPointer = sBool("ui.pointerShapes")
   cfgTooltips = sBool("ui.tooltips")
   cfgMouse = sBool("ui.mouse")
   cfgCursorStyle = sStr("ui.cursorStyle")

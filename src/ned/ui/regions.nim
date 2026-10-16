@@ -44,7 +44,12 @@ proc dropShadow(x, y, w, h: int) =
     if xx < 0 or yy < 0 or xx >= scrW or yy >= scrH: return
     let i = yy * scrW + xx
     let under = grid[i].bg
-    if grid[i].ch in [32'u32, 0x2502, 0x2503, 0x258C, 0x2580, 0x2598, 0x2590] or grid[i].ch == 0:
+    proc glyph(j: int): bool =
+      ## a letter or sign of some text (a space next to one belongs to the text: "Ln 4, Col 2" stays whole)
+      j >= yy * scrW and j < (yy + 1) * scrW and grid[j].ch notin [0'u32, 32, 0x2502, 0x2503, 0x258C, 0x2580, 0x2598, 0x2590]
+    let blank = grid[i].ch in [0'u32, 0x2502, 0x2503, 0x258C, 0x2580, 0x2598, 0x2590] or
+                (grid[i].ch == 32 and not glyph(i - 1) and not glyph(i + 1))
+    if blank:
       # a blank (or a line, or an earlier shadow): the half block
       setCell(xx, yy, Cell(ch: ch, fg: blend(under, 0x000000'u32, k), bg: under))
     else:

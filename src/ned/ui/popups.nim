@@ -77,7 +77,7 @@ proc drawCompletion() =
     return
   let dbg = blend(theme.popupBg, theme.fg, 0.04)
   let rightRoom = scrW - (px + pw)
-  let leftRoom = px
+  let leftRoom = px - lay.edX            # (on the left only over the editor, not over a dock)
   var docX, docY, docW, docH: int
   if rightRoom >= 34 or leftRoom >= 34:
     docW = min(64, max(rightRoom, leftRoom) - 1)

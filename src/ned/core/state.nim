@@ -113,6 +113,8 @@ var
   cfgPersistentUndo = true
   msgLog: seq[(string, int, string)]     # recent messages: time, severity, text
   cfgHoverFx = true
+  cfgPointer = true            # ui.pointerShapes: a hand over buttons, an I-beam over text (OSC 22)
+  pointerShape = ""            # what the mouse pointer was last set to
   cfgTooltips = true
   cfgCursorStyle = "bar"
   cfgLeftW = 0

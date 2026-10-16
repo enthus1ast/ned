@@ -87,7 +87,7 @@ proc drawDock(side: DockSide, x0, y0, w, h: int) =
   let focused = focus == (if isRight: fRight else: fTree)
   fillRect(x0, y0, w, h, theme.fg, theme.dockBg)
   # header: view icons · title · actions — tinted with the accent while the dock has the keyboard
-  let hb = if focused: blend(theme.dockHeadBg, theme.accent, 0.09) else: theme.dockHeadBg
+  let hb = if focused: blend(theme.dockHeadBg, theme.accent, 0.14) else: theme.dockHeadBg
   fillRect(x0, y0, w, 1, theme.dim, hb)
   var x = x0 + 1
   let views = if isRight: @RightViews else: @LeftViews

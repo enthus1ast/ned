@@ -81,8 +81,8 @@ proc setPanel(k: PanelKind) =
 proc drawBottomPanel(x0, y0, w, h: int) =
   let bg0 = theme.dockBg
   fillRect(x0, y0, w, h, theme.fg, bg0)
-  # header bar with the panel tabs
-  let hb = theme.tabBarBg
+  # header bar with the panel tabs — tinted with the accent while the panel has the keyboard
+  let hb = if focus == fPanel: blend(theme.tabBarBg, theme.accent, 0.14) else: theme.tabBarBg
   fillRect(x0, y0, w, 1, theme.dim, hb)
   var x = x0 + 1
   let (ne, nw) = problemCounts()

@@ -3,7 +3,8 @@
    1. it opens a file and draws it;
    2. the built-in terminal starts a shell (the pseudo-terminal code) and runs a command;
    3. piped input (`printf … | ned`) is shown and keys still work;
-   4. Ctrl+Q quits cleanly.
+   4. Ctrl+Q quits cleanly;
+   5. the mouse pointer changes over text and buttons (OSC 22), and is the arrow again when ned quits.
 Usage: pty_smoke.py path/to/ned"""
 import os, pty, re, select, signal, sys, time
 
@@ -109,5 +110,11 @@ check("built-in terminal runs a shell", seen("pty-42", out), out.decode("utf-8",
 out, st, left = run([], stdin_text="hello from a pipe\nsecond line\n", actions=[("hello from a pipe", b"\x11")])
 check("piped input is shown", seen("hello from a pipe", out), out.decode("utf-8", "replace"))
 check("keys work after piped input", st is not None and not left)
+
+# 5: the mouse pointer (OSC 22): an I-beam over the text, a hand over a button, the arrow again when ned quits
+out, st, left = run([readme], actions=[("A fast, safe", b"\x1b[<35;40;14M"), (1.0, b"\x1b[<35;2;1M"), (1.0, b"\x11")])
+check("the mouse pointer: an I-beam over the text, a hand over a button",
+      b"\x1b]22;text\x07" in out and b"\x1b]22;pointer\x07" in out, repr(out[-400:]))
+check("… and the arrow again when ned quits", out.rfind(b"\x1b]22;default\x07") > out.rfind(b"\x1b]22;pointer\x07") > 0)
 
 sys.exit(1 if FAILS else 0)

@@ -2,6 +2,20 @@ proc showLoading(msg: string) =
   popupMsg(msg, 0)
   render()
 
+proc updatePointer() =
+  ## the mouse pointer's shape, where the terminal can change it: a hand over a button, a tab, a menu item or a
+  ## row that can be clicked, an I-beam over the text you edit, the arrow elsewhere — sent only when it changes
+  if not cfgPointer or not cfgHoverFx or not cfgMouse or mouseX < 0 or mouseY < 0: return
+  var want = "default"
+  let i = hitRegion(mouseX, mouseY)
+  if i >= 0 and regions[i].h == 1 and regions[i].act != nil: want = "pointer"
+  elif i < 0 and not dialogOpen() and not menuOpen() and pickKind == pickNone and not helpOpen and
+       mouseX >= lay.edX + 4 and mouseX < lay.edX + lay.edW and mouseY >= lay.textY and mouseY < lay.textY + lay.textH:
+    want = "text"
+  if want != pointerShape:
+    pointerShape = want
+    writeAll("\e]22;" & want & "\a")
+
 proc render() =
   if bufs.len > 0:
     tabW = buf().tabOf
@@ -79,3 +93,4 @@ proc render() =
        not (focus == fPanel and panelKind == pkTerminal):
     cursorX = -1
   flushScreen()
+  updatePointer()

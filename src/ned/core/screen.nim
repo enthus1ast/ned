@@ -52,6 +52,8 @@ proc enterRaw() =
 
 proc leaveRaw() =
   if not gRaw: return
+  if pointerShape.len > 0 and pointerShape != "default": writeAll("\e]22;default\a")   # (the arrow back)
+  pointerShape = ""
   writeAll(MouseOffSeq & "\e[?1004l\e[?2004l\e[0m\e[0 q\e[?7h\e[?25h\e[?1049l")
   discard tcSetAttr(0, TCSAFLUSH, addr gOrigTerm)
   gRaw = false
