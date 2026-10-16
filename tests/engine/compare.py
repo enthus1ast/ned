@@ -4,6 +4,8 @@ usage: compare.py FILE [--n N] [--seed S] [--no-hints] [--show K] [--json OUT]
 
   NED_DRIVER  the engine driver (build.sh makes it; default: ./ned-engine next to this script)
   NED_PKGS    the nimble packages folder (default: ~/.nimble/pkgs2), given to both
+  NED_NS_CACHE  a folder for nimsuggest's answers: a file asked again (unchanged, same nimsuggest) needs no
+              nimsuggest at all — comparing a new build of the engine takes seconds instead of minutes
   nimsuggest comes from PATH (the one installed with Nim).
 
 What it measures, over the file:
@@ -94,9 +96,40 @@ def ns_start():
     ns = subprocess.Popen(['nimsuggest', '--stdin', '--v4', '--maxresults:3000', '--nimblePath:' + PKGS, path],
                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env,
                           cwd=os.path.dirname(path), bufsize=1)
-ns_start()
+
+# nimsuggest's answers, kept by file (its text and the nimsuggest that answered)
+CACHE_DIR = os.environ.get('NED_NS_CACHE', '')
+cache, cache_file, cache_dirty = {}, '', False
+if CACHE_DIR:
+    import hashlib
+    ver = subprocess.run(['nimsuggest', '--version'], capture_output=True, text=True).stdout.strip()
+    key = hashlib.sha1((path + '\0' + open(path, 'rb').read().decode('utf-8', 'replace') + '\0' + ver + '\0' + PKGS)
+                       .encode()).hexdigest()
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_file = os.path.join(CACHE_DIR, key + '.json')
+    try: cache = json.load(open(cache_file))
+    except Exception: cache = {}
+
+NS_T = 0.0          # seconds nimsuggest took for the answers (as it took them, when they come from the cache)
 def ask(cmd):
-    """one nimsuggest answer; when it has crashed: started again, and this question has no answer"""
+    """one nimsuggest answer (or the one kept for it); when it has crashed: started again, and this question
+    has no answer"""
+    global ns_crashes, cache_dirty, NS_T
+    if cmd in cache:
+        out, secs = cache[cmd]
+        NS_T += secs
+        return out
+    if ns is None: ns_start()
+    t0 = time.time()
+    out = ask_ns(cmd)
+    secs = time.time() - t0
+    NS_T += secs
+    if CACHE_DIR:
+        cache[cmd] = [out, secs]
+        cache_dirty = True
+    return out
+
+def ask_ns(cmd):
     global ns_crashes
     try:
         ns.stdin.write(cmd + '\n'); ns.stdin.flush()
@@ -162,7 +195,7 @@ def normT(t):
     return t.lower().replace('_', '')
 
 report = {'file': os.path.basename(path)}
-t0 = time.time(); ask('def %s:1:0' % path); t_first = time.time() - t0
+t0 = NS_T; ask('def %s:1:0' % path); t_first = NS_T - t0
 
 # 1. type hints over the whole file
 if not a.no_hints:
@@ -170,9 +203,9 @@ if not a.no_hints:
     eh = {}
     for l, c, lab in e.get('hints', []): eh[(l, c)] = lab
     nh = {}
-    t0 = time.time()
+    t0 = NS_T
     rows = ask('inlayHints %s:1:0:%d:0' % (path, len(lines) + 1))
-    t_hint = time.time() - t0
+    t_hint = NS_T - t0
     for r in rows:
         f = r.split('\t')
         if len(f) >= 4 and f[0] == 'Type':
@@ -201,7 +234,7 @@ tt = dict(agree=0, differ=0, ned_none=0)
 bad = []; tbad = []
 t_ns = t_ned = 0.0
 for (l, c, w, m) in sample:
-    t0 = time.time(); rows = [x.split('\t') for x in ask('def %s:%d:%d' % (path, l, c)) if x.startswith('def\t')]; t_ns += time.time() - t0
+    t0 = NS_T; rows = [x.split('\t') for x in ask('def %s:%d:%d' % (path, l, c)) if x.startswith('def\t')]; t_ns += NS_T - t0
     t0 = time.time(); ed = eng('def', l - 1, len(lines[l-1].encode()[:c].decode('utf-8', 'replace'))).get('defs', []); t_ned += time.time() - t0
     nsd = [(f[4], int(f[5])) for f in rows]
     ids = [(d[0], d[1] + 1) for d in ed]
@@ -238,6 +271,10 @@ for (l, c, w, m) in msample:
 report['sug'] = dict(n=len(msample), ned=found_ned, nimsuggest=found_ns)
 report['sug_bad'] = mbad
 report['ns_first_s'] = round(t_first, 1)
+if CACHE_DIR:
+    if ns is None: ns_crashes = cache.get('__crashes__', [0, 0])[0]     # (every answer came from the cache)
+    else: cache['__crashes__'] = [ns_crashes, 0]
+    if cache_dirty or ns is not None: json.dump(cache, open(cache_file, 'w'))
 report['ns_crashes'] = ns_crashes
 try:
     ns.stdin.write('quit\n'); ns.stdin.flush()
