@@ -144,7 +144,7 @@ proc qClosest(name: string, cands: seq[string], maxN = 3): seq[string] =
   var scored: seq[(int, string)]
   for c in cands:
     if c == name: continue
-    let d = editDistance(c.toLowerAscii, low)
+    let d = textDistance(c.toLowerAscii, low)
     if d <= (if name.len <= 3: 1 else: max(2, min(3, name.len div 3))): scored.add (d, c)   # nmae → name: 2
   scored.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
   for (d, c) in scored:
@@ -391,7 +391,7 @@ proc nimDiagFixes(b: Buffer, d: Diag): seq[(string, string, Action)] =
       if here.len > 20000: break
     var sugg = qClosest(name, here, 3)
     for c in cands:
-      if c notin sugg and editDistance(c.toLowerAscii, name.toLowerAscii) <=
+      if c notin sugg and textDistance(c.toLowerAscii, name.toLowerAscii) <=
          (if name.len <= 3: 1 else: max(2, min(3, name.len div 3))): sugg.add c
     let at = qFindOnLine(s, name, d.col)
     if at >= 0:

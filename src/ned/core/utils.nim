@@ -147,3 +147,20 @@ proc pathFromUri(u: string): string =
       except ValueError: discard
     result.add s[i]
     inc i
+
+proc textDistance(a, b: string): int =
+  ## edit distance in characters — by bytes when either is not valid UTF-8 (std's own would read past its end)
+  var okA, okB = true
+  for (s, ok) in [(a, addr okA), (b, addr okB)]:
+    var i = 0
+    while i < s.len:
+      let c = ord(s[i])
+      let n = if c < 0x80: 1 elif c shr 5 == 6: 2 elif c shr 4 == 14: 3 elif c shr 3 == 30: 4 else: 0
+      if n == 0 or i + n > s.len:
+        ok[] = false
+        break
+      for k in 1 ..< n:
+        if (ord(s[i + k]) and 0xC0) != 0x80: ok[] = false
+      if not ok[]: break
+      i += n
+  if okA and okB: editDistance(a, b) else: editDistanceAscii(a, b)

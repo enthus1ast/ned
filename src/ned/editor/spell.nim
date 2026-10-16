@@ -275,7 +275,7 @@ proc spellSuggest(w: string, n = 6): seq[string] =
     if abs(d.len - low.len) > lim: continue
     if d.len > 0 and low.len > 0 and d[0] != low[0] and (low.len < 2 or d.len < 2 or d[0] != low[1] or d[1] != low[0]):
       continue                           # the first letter is rarely the mistake (except two swapped)
-    let dist = editDistance(d, low)
+    let dist = textDistance(d, low)
     if dist <= lim: best.add (dist, d)
   best.sort(proc(a, b: (int, string)): int = (if a[0] != b[0]: cmp(a[0], b[0]) else: cmp(a[1], b[1])))
   for (_, d) in best:
