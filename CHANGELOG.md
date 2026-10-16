@@ -1,6 +1,55 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-61). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-62). Older releases:
+
+## What's new in 6.1
+
+![Semantic colours: parameters in a colour of their own, fields and calls after a dot told apart, a template in the macro colour](screenshots/semantic-61.png)
+
+**Smarter colours.** Names were coloured by what the engine knows they are; now also by where they stand:
+- a routine's **parameters** (and `result`) have a colour of their own inside it, so what comes from outside
+  stands out from what the routine makes;
+- after a dot, a **field** and a **call** look different (`p.name` · `p.size(n)`); a name that is both somewhere
+  and written without a call (`x.len`) keeps the colour its shape gives it rather than a guess;
+- **templates and macros** are in the macro colour, not a proc's (`twice(x)`, `check`);
+- a **module name** before a dot is in the type colour (`strutils.join`).
+
+**Faster colours.** What the imported modules declare is worked out once and kept while they stay the same;
+after an edit only the file's own names are gone through again. *Nim: language server status* shows how long the
+last update took.
+
+**The engine knows more.** The same questions to ned's engine and to nimsuggest on the 23 files of the
+comparison ([tests/engine](tests/engine)), 6.0 → 6.1:
+
+| | 6.0 | 6.1 | nimsuggest |
+|---|---|---|---|
+| member completion: the member written there is offered | 88.9% | 90.5% | 73.8% |
+| type hints: the same as nimsuggest's | 91.1% | 93.0% | — |
+| go to definition: the same place | 94.0% | 94.6% | — |
+| a variable's type: the same | 90.0% | 90.7% | — |
+
+What it learned:
+- **types declared inside a routine** — `type Date = tuple[year, month: int]` in a proc — their fields after a
+  dot, hover and go to definition (member completion in `times.nim`: 99 → 114 of 120);
+- **routines declared inside a routine**, called with a dot (`shape.addQuadratic(…)`);
+- a receiver that **starts on an earlier line** (`{"a": 1,⏎ "b": 2}.toTable`);
+- **arithmetic on two number types** gives the wider one (`uint8 * uint32` is a `uint32`), a bare number takes
+  the other side's type (`1 / x.float32` is a `float32`, `0 ..< n` with `n: int32` a slice of `int32`), and an
+  operator on another type asks that type (`(prev + next) / 2` on vectors is a vector);
+- **types as receivers**: `float32.high`, `Color.low`, `high(int8)` are of that type;
+- `newException(ValueError, "…")` is a `ref ValueError`; `@({"a": "b"})` a `seq[(string, string)]`; a routine
+  that returns a `ref` says so;
+- an integer converts to an enum with a dot (`i.Color`, offered after `i.`).
+
+**Light and quick.** On the Nim compiler's own `sem.nim` (123 files with what it imports), measured with
+`tests/engine/bench.nim`: ned's engine reads everything in 0.16 s, answers again after an edit in 5 ms and lists
+completions in 7 ms, holding 17 MB. nimsuggest (which nimlangserver runs underneath) takes 8.5 s for its first
+answer and then 0.5 s, holding 460 MB.
+
+**For working on the engine:** `NED_NS_CACHE=/tmp/ns tests/engine/corpus.sh /tmp/out` keeps nimsuggest's answers,
+so comparing a new build of the engine over the whole corpus takes 15 seconds instead of an hour, and
+`tests/engine/bench.nim` times the engine on your own code (cold, after an edit, completion) with the memory it
+holds.
 
 ## What's new in 6.0
 
