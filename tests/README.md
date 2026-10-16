@@ -1,0 +1,62 @@
+# ned's tests
+
+Every release of ned passes all of these. They need nothing that is not on GitHub's runners (see
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml), which runs them on every push).
+
+| folder | what | how long | run |
+|---|---|---|---|
+| [`unit/`](unit) | the Nim index, the formatters, the regular expressions — as libraries, without the editor | seconds | `nimble test` |
+| [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 730 checks | ~1 hour | `nimble uitest` |
+| [`fuzz/`](fuzz) | random keys, mouse events, pastes, palette commands and resizes; crashes, hangs and internal errors reported | as long as you like | `tests/fuzz/batch.sh 120 mixed vim palette` |
+| [`engine/`](engine) | ned's Nim engine against nimsuggest on the standard library, nimble packages and the compiler | ~1 hour | `tests/engine/build.sh && tests/engine/corpus.sh /tmp/out` |
+| [`build/`](build) | ned built for every target: gcc, clang, and with zig macOS (arm64, x86_64) and Android/Linux arm64 | minutes | `tests/build/cross.sh` |
+
+Speed and memory are checked by [`.github/ci/bench.py`](../.github/ci/bench.py) (`nimble perf`) against the
+limits in `bench-budget.json`, and [`.github/ci/pty_smoke.py`](../.github/ci/pty_smoke.py) runs ned in a real
+pseudo-terminal.
+
+## The UI tests
+
+```sh
+nimble release                                   # ./ned
+python3 tests/ui/run.py ./ned                    # all of them
+python3 tests/ui/run.py ./ned t_528_refs t_57_ai # some of them (--list shows the names)
+```
+
+They need **tmux**, **git**, **python3** and **nim** on PATH. Each test starts ned in a private tmux server, in a
+scratch copy of [`ui/fixtures/demo`](ui/fixtures/demo) (made a git repository on the fly), with settings of its own,
+and talks to it the way a person would. A mock AI server ([`ui/mocks/mockai.py`](ui/mocks/mockai.py)) answers the
+assistant like the real APIs do — including their refusals — so the AI features are tested without a key.
+
+Some tests use optional tools; when one is missing, the test is skipped and says what it needs:
+
+| tool | tests |
+|---|---|
+| nimlangserver | the language-server mode of the Nim features |
+| clangd | C in `{.emit.}`, C interop, clangd's fixes |
+| node, vscode-langservers-extracted, sql-language-server | HTML, CSS, SQL and JSON inside Nim strings |
+| gdb, lldb, debugpy | debugging |
+| pytest, go | the test explorer for Python and Go |
+| zsh, fish | the terminal's shell integration (bash is always tested) |
+| an en_US hunspell dictionary (`hunspell-en-us`) | spell checking |
+| an SSH server | remote folders over SSH: run [`ui/ssh-setup.sh`](ui/ssh-setup.sh) on a throwaway machine (it adds hosts to `~/.ssh/config`), then `NED_TEST_SSH=1` |
+
+`NED_TEST_PATH` puts more folders on the tests' PATH (where your language servers are, say).
+`NED_TEST_DICT` names a dictionary. `--shard 2/4` runs a quarter of the tests (CI runs four parts at once).
+A run that fails keeps its scratch folder and says where it is.
+
+## The fuzzer
+
+```sh
+nim c -d:release --stackTrace:on --lineTrace:on -o:ned_debug src/ned.nim
+NEDBIN=./ned_debug tests/fuzz/batch.sh 120 mixed vim helix emacs palette refactor ai git fixes
+```
+
+Each mode is a two-minute round with a different mix of input (`ai` drives the assistant, `git` a repository with
+history, `fixes` code full of compiler errors, `refactor` procs to change). The fuzzer works in a scratch home of
+its own, but random palette commands can run tasks and shell commands in its test project: give it a throwaway
+user if you can (`NED_FUZZ_USER=fuzz`, run as root). Logs go to `/tmp/ned-fuzz-UID-logs`.
+
+## The engine comparison
+
+See [`engine/README.md`](engine/README.md): the numbers in the main README's *How good it is* come from there.

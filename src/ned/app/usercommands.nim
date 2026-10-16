@@ -1,0 +1,147 @@
+# ── your own commands (the "commands" setting): shell commands in the palette, with placeholders ──
+
+const UserCmdMark = "your command"
+
+proc runUserCommand(name: string, spec: JsonNode) =
+  let b = buf()
+  let run = if spec.kind == JString: spec.getStr else: spec{"run"}.getStr
+  if run.strip.len == 0:
+    warn("The command \"" & name & "\" has no \"run\"")
+    return
+  let output = if spec.kind == JObject and spec{"output"}.getStr.len > 0: spec{"output"}.getStr else: "panel"
+  var input = if spec.kind == JObject: spec{"input"}.getStr else: ""
+  let (a, e) = b.primary.range
+  let sel = if a != e: b.getText(a, e) else: ""
+  if input.len == 0 and output == "replace": input = (if sel.len > 0: "selection" else: "file")
+  if "$file" in run and b.dirty and b.path.len > 0: discard b.saveBuffer()
+  let dir = if b.path.len > 0: parentDir(b.path) else: rootDir
+  let sf = splitFile(b.path)
+  var cmd = run.multiReplace(("$file", quoteShell(b.path)), ("$dir", quoteShell(dir)), ("$root", quoteShell(rootDir)),
+                             ("$name", quoteShell(sf.name)), ("$ext", sf.ext), ("$line", $(b.primary.head.line + 1)),
+                             ("$col", $(b.primary.head.col + 1)), ("$word", quoteShell(b.wordAt(b.primary.head))),
+                             ("$selection", quoteShell(sel)))
+  if input in ["selection", "file"]:
+    let tmp = privTmp("cmd-input") & ".txt"
+    try: writeFile(tmp, (if input == "selection": sel else: b.lines.join("\n") & "\n"))
+    except IOError, OSError:
+      error("Could not write " & tmp)
+      return
+    cmd = "(" & cmd & ") < " & quoteShell(tmp)
+  case output
+  of "terminal":
+    runInTerm(cmd)
+  of "panel":
+    runCommand(cmd, dir)
+  else:
+    let id = b.id
+    let wholeDoc = output == "replace" and sel.len == 0
+    discard startJob(jkTool, cmd, dir, proc(j: Job) =
+      var o = j.output
+      if j.code != 0:
+        error(name & " failed (exit " & $j.code & ")" & (if o.strip.len > 0: ":\n" & o.strip else: ""))
+        return
+      let tb = bufById(id)
+      case output
+      of "replace", "insert":
+        if tb == nil or not tb.canEdit(): return
+        if not (if output == "replace" and not wholeDoc: sel else: "").endsWith("\n") and o.endsWith("\n"):
+          o.setLen(o.len - 1)
+        if wholeDoc: tb.setTextMinimal(o)
+        else:
+          tb.beginEdit()
+          if output == "replace" and a != e: discard tb.replaceText(a, e, o)
+          else: discard tb.replaceText(tb.primary.head, tb.primary.head, o)
+          tb.endEdit()
+        info(name & ": done")
+      of "popup": showHover("**" & name & "**\n```\n" & (if o.strip.len > 0: o.strip(leading = false) else: "(no output)") & "\n```")
+      else: info(if o.strip.len > 0: o.strip else: name & ": done"))
+
+proc userCmdExists(name: string): bool =
+  let cs = sval("commands")
+  cs != nil and cs.kind == JObject and cs.hasKey(name)
+
+proc setUserCmdField(name, field, value: string) =
+  ## change one part of a command in the "commands" setting (a plain string becomes {"run": …})
+  initSettingDefs()
+  var cs = newJObject()
+  let cur = sval("commands")
+  if cur != nil and cur.kind == JObject:
+    for k, v in cur.pairs: cs[k] = v
+  var spec = if cs.hasKey(name): cs[name] else: newJObject()
+  if spec.kind == JString: spec = %*{"run": spec.getStr}
+  if spec.kind != JObject: spec = newJObject()
+  if field == "delete":
+    cs.delete(name)
+  else:
+    if value.len == 0: spec.delete(field) else: spec[field] = %value
+    cs[name] = spec
+  setSetting("commands", cs)
+
+proc userCmdOutputMenu(name: string) =
+  var items: seq[(string, string, Action)]
+  for (o, d) in [("panel", "the Output panel (the default)"), ("replace", "replaces the selection — or the whole file"),
+                 ("insert", "inserted at the cursor"), ("popup", "a popup"), ("message", "a short message"),
+                 ("terminal", "runs in the terminal (interactive)")]:
+    let oo = o
+    let dd = d
+    capture oo, dd:
+      items.add act(oo, dd, proc() =
+        setUserCmdField(name, "output", oo)
+        info("“" & name & "”: output → " & oo & " · it is in the palette now"))
+  openActions("Where does the output of “" & name & "” go?", items)
+
+proc userCmdInputMenu(name: string) =
+  var items: seq[(string, string, Action)]
+  for (o, d) in [("", "nothing (replace: the selection or the file)"), ("selection", "the selected text"),
+                 ("file", "the whole file"), ("none", "nothing at all")]:
+    let oo = o
+    let dd = d
+    capture oo, dd:
+      items.add act((if oo.len > 0: oo else: "default"), dd, proc() =
+        setUserCmdField(name, "input", oo)
+        info("“" & name & "”: input → " & (if oo.len > 0: oo else: "default")))
+  openActions("What does “" & name & "” read on its input?", items)
+
+proc cmdEditUserCommands() =
+  ## the "commands" setting as a list: add one, or pick one to run, change or delete it
+  initSettingDefs()
+  var items: seq[(string, string, Action)]
+  items.add act("+ Add a command…", "a shell command of yours, in the palette", proc() =
+    openPrompt(pUserCmdName, "Name of the new command (as the palette shows it)", ""))
+  let cs = sval("commands")
+  if cs != nil and cs.kind == JObject:
+    for name, spec in cs.pairs:
+      let n = name
+      let run = if spec.kind == JString: spec.getStr else: spec{"run"}.getStr
+      let outp = if spec.kind == JObject and spec{"output"}.getStr.len > 0: spec{"output"}.getStr else: "panel"
+      let inp = if spec.kind == JObject: spec{"input"}.getStr else: ""
+      capture n, run, outp, inp:
+        items.add act(n, run & "  → " & outp, proc() =
+          openActions(n, @[
+            act("Run it", "", proc() = runCmd(n)),
+            act("Change the shell command…", run, proc() =
+              userCmdEditing = n
+              openPrompt(pUserCmdRun, "Shell command for “" & n & "” ($file $dir $line $word $selection …)", run)),
+            act("Where the output goes…", outp, proc() = userCmdOutputMenu(n)),
+            act("What it reads…", (if inp.len > 0: inp else: "default"), proc() = userCmdInputMenu(n)),
+            act("Delete", "", proc() =
+              askConfirm("Delete the command “" & n & "”? (y/n)", proc(c: char) =
+                if c in {'y', 'Y'}:
+                  setUserCmdField(n, "delete", "")
+                  info("Deleted “" & n & "”")))]))
+  openActions("Your commands (settings › commands)", items)
+
+proc refreshUserCommands() =
+  ## the "commands" setting → palette commands (they can have keys through "keys")
+  var keep: seq[Command]
+  for c in commands:
+    if c.keys != UserCmdMark: keep.add c
+  commands = keep
+  initSettingDefs()
+  let cs = sval("commands")
+  if cs == nil or cs.kind != JObject: return
+  for name, spec in cs.pairs:
+    let n = name
+    let sp = spec
+    capture n, sp:
+      commands.add Command(name: n, keys: UserCmdMark, action: proc() = runUserCommand(n, sp))

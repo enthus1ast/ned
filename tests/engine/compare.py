@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Compare ned's built-in Nim engine with nimsuggest on one file.
+usage: compare.py FILE [--n N] [--seed S] [--no-hints] [--show K] [--json OUT]
+
+  NED_DRIVER  the engine driver (build.sh makes it; default: ./ned-engine next to this script)
+  NED_PKGS    the nimble packages folder (default: ~/.nimble/pkgs2), given to both
+  nimsuggest comes from PATH (the one installed with Nim).
+
+What it measures, over the file:
+  1. type hints: every `let`/`var`/`const` without a type, ned's hint against nimsuggest's `inlayHints`
+  2. go to definition at --n random identifiers, against nimsuggest's `def`
+  3. the types of the variables among them, against the type `def` reports
+  4. member completion at --n random `x.member` places: is the member written there offered right after the dot?
+"""
+import sys, re, random, subprocess, json, os, time, argparse
+ap = argparse.ArgumentParser()
+ap.add_argument('file'); ap.add_argument('--n', type=int, default=150); ap.add_argument('--seed', type=int, default=1)
+ap.add_argument('--show', type=int, default=8); ap.add_argument('--no-hints', action='store_true')
+ap.add_argument('--json', default='')
+a = ap.parse_args()
+path = os.path.abspath(a.file)
+PKGS = os.environ.get('NED_PKGS', os.path.expanduser('~/.nimble/pkgs2'))
+env = dict(os.environ)
+KW = set("""addr and as asm bind block break case cast concept const continue converter defer discard distinct div do
+elif else end enum except export finally for from func if import in include interface is isnot iterator let macro
+method mixin mod nil not notin object of or out proc ptr raise ref return shl shr static template try tuple type
+using var when while xor yield true false""".split())
+lines = open(path, encoding='utf-8', errors='replace').read().split('\n')
+
+def scan():
+    """identifier positions outside strings and comments: (line1, bytecol, word, is_member)"""
+    pos = []; in_triple = False; block = 0
+    for li, s in enumerate(lines):
+        i = 0; n = len(s)
+        while i < n:
+            if in_triple:
+                e = s.find('"""', i)
+                if e < 0: i = n; break
+                i = e + 3; in_triple = False; continue
+            if block:
+                if s.startswith('#[', i): block += 1; i += 2
+                elif s.startswith(']#', i): block -= 1; i += 2
+                else: i += 1
+                continue
+            c = s[i]
+            if c == '#':
+                if s.startswith('#[', i) or s.startswith('##[', i): block = 1; i += 2; continue
+                break
+            if s.startswith('"""', i):
+                e = s.find('"""', i + 3)
+                if e < 0: in_triple = True; break
+                i = e + 3; continue
+            if c == '"':
+                j = i + 1
+                while j < n and s[j] != '"':
+                    if s[j] == '\\': j += 1
+                    j += 1
+                i = j + 1; continue
+            if c == "'" and not (i > 0 and (s[i-1].isalnum() or s[i-1] == '_')):
+                j = i + 1
+                if j < n and s[j] == '\\': j += 2
+                else: j += 1
+                while j < n and s[j] != "'" and j - i < 12: j += 1
+                i = j + 1; continue
+            if c.isalpha() or c == '_':
+                j = i
+                while j < n and (s[j].isalnum() or s[j] == '_'): j += 1
+                w = s[i:j]
+                member = i > 0 and s[i-1] == '.' and not (i > 1 and s[i-2] == '.')
+                if w not in KW and len(w) > 1: pos.append((li + 1, len(s[:i].encode()), w, member))
+                i = j; continue
+            if c.isdigit():
+                while i < n and (s[i].isalnum() or s[i] in '._'): i += 1
+                continue
+            i += 1
+    return pos
+
+pos = scan()
+random.seed(a.seed)
+sample = random.sample(pos, min(a.n, len(pos)))
+members = [p for p in pos if p[3]]
+msample = random.sample(members, min(a.n, len(members)))
+
+drv = subprocess.Popen([os.environ.get('NED_DRIVER', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ned-engine')), PKGS], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, text=True, env=env, bufsize=1)
+def eng(cmd, line=0, col=0):
+    drv.stdin.write(json.dumps({'cmd': cmd, 'path': path, 'line': line, 'col': col}) + '\n'); drv.stdin.flush()
+    return json.loads(drv.stdout.readline())
+
+ns = None
+ns_crashes = 0
+def ns_start():
+    global ns
+    ns = subprocess.Popen(['nimsuggest', '--stdin', '--v4', '--maxresults:3000', '--nimblePath:' + PKGS, path],
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env,
+                          cwd=os.path.dirname(path), bufsize=1)
+ns_start()
+def ask(cmd):
+    """one nimsuggest answer; when it has crashed: started again, and this question has no answer"""
+    global ns_crashes
+    try:
+        ns.stdin.write(cmd + '\n'); ns.stdin.flush()
+        out = []
+        while True:
+            l = ns.stdout.readline()
+            if l == '':
+                raise BrokenPipeError()
+            if l.rstrip('\n') == '': break
+            out.append(l.rstrip('\n'))
+        return out
+    except (BrokenPipeError, OSError):
+        ns_crashes += 1
+        try: ns.kill()
+        except Exception: pass
+        ns_start()
+        return []
+
+def normT(t):
+    t = t.strip().lstrip(':').strip()
+    if t == 'Error Type': return ''
+    t = re.sub(r'\bint literal\(\d+\)', 'int', t)
+    t = re.sub(r'\b(float|string|bool|char) literal\([^)]*\)', r'\1', t)
+    t = re.sub(r'(\b[A-Z]\w*): \w+$', r'\1', t)                # T: SomeFloat, var T: distinct
+    t = t.replace(' or ', '|')
+    t = re.sub(r'^owned[ (]', '', t).rstrip(')') if t.startswith('owned') else t
+    if t.startswith('proc') or t.startswith('iterator'):
+        t = re.sub(r'\{.*\}', '', t)                          # (pragmas: closure, gcsafe, raises …)
+        t = t.replace('proc(', 'proc (')
+        # proc (a, b: T) → proc (a: T, b: T)
+        m = re.match(r'^(proc|iterator) \((.*)\)(.*)$', t)
+        if m:
+            out = []; names = []
+            for part in m.group(2).split(','):
+                part = part.strip()
+                if ':' in part:
+                    n, ty = part.split(':', 1)
+                    for x in names + [n]: out.append(x.strip() + ':' + ty.strip())
+                    names = []
+                elif part: names.append(part)
+            t = '%s (%s)%s' % (m.group(1), ','.join(out + names), m.group(3))
+    t = re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\.', '', t)          # module qualifiers: system.int → int
+    t = re.sub(r'^(lent|var|sink) ', '', t)                     # lent string is a string to read
+    t = re.sub(r'\bfloat64\b', 'float', t)
+    t = t.replace(' ', '')
+    # array[0..1, T] → array[2,T]
+    t = re.sub(r'array\[0\.\.(\d+),', lambda m: 'array[%d,' % (int(m.group(1)) + 1), t)
+    # tuple[a,b:T] → tuple[a:T,b:T]
+    def tup(m):
+        out = []; names = []
+        for part in m.group(1).split(','):
+            if ':' in part:
+                n, ty = part.split(':', 1)
+                for x in names + [n]: out.append(x + ':' + ty)
+                names = []
+            else: names.append(part)
+        return 'tuple[' + ','.join(out + names) + ']'
+    t = re.sub(r'tuple\[([^\[\]]*)\]', tup, t)
+    for a, b in (('cint', 'int32'), ('cuint', 'uint32'), ('clong', 'int'), ('culong', 'uint'), ('csize_t', 'uint'),
+                 ('cchar', 'char'), ('cfloat', 'float32'), ('cdouble', 'float'), ('clonglong', 'int64'), ('cshort', 'int16')):
+        t = re.sub(r'\b%s\b' % a, b, t)
+    t = re.sub(r'^owned\((.*)\)$', r'\1', t)
+    return t.lower().replace('_', '')
+
+report = {'file': os.path.basename(path)}
+t0 = time.time(); ask('def %s:1:0' % path); t_first = time.time() - t0
+
+# 1. type hints over the whole file
+if not a.no_hints:
+    e = eng('hints')
+    eh = {}
+    for l, c, lab in e.get('hints', []): eh[(l, c)] = lab
+    nh = {}
+    t0 = time.time()
+    rows = ask('inlayHints %s:1:0:%d:0' % (path, len(lines) + 1))
+    t_hint = time.time() - t0
+    for r in rows:
+        f = r.split('\t')
+        if len(f) >= 4 and f[0] == 'Type':
+            try: nh[(int(f[1]) - 1, int(f[2]))] = f[3]
+            except ValueError: pass
+    # match by line + column (the column nimsuggest gives is after the name, as ned's)
+    agree = diff = ns_only = ned_only = 0
+    bad = []
+    keys = set(eh) | set(nh)
+    for k in sorted(keys):
+        x, y = eh.get(k), nh.get(k)
+        if y is not None and normT(y) == '': y = None      # (nimsuggest without an answer: ':')
+        if x is None and y is None: continue
+        if x is not None and y is not None:
+            if normT(x) == normT(y): agree += 1
+            else: diff += 1; bad.append(('DIFF', k[0] + 1, k[1], x.strip(), y.strip(), lines[k[0]].strip()[:70]))
+        elif y is not None:
+            ns_only += 1; bad.append(('MISS', k[0] + 1, k[1], '', y.strip(), lines[k[0]].strip()[:70]))
+        else: ned_only += 1
+    report['hints'] = dict(agree=agree, differ=diff, nimsuggest_only=ns_only, ned_only=ned_only, ns_ms=int(t_hint * 1000))
+    report['hint_bad'] = bad
+
+# 2. go to definition and 3. the types of variables
+st = dict(agree=0, ns_only=0, ned_only=0, disagree=0, neither=0)
+tt = dict(agree=0, differ=0, ned_none=0)
+bad = []; tbad = []
+t_ns = t_ned = 0.0
+for (l, c, w, m) in sample:
+    t0 = time.time(); rows = [x.split('\t') for x in ask('def %s:%d:%d' % (path, l, c)) if x.startswith('def\t')]; t_ns += time.time() - t0
+    t0 = time.time(); ed = eng('def', l - 1, len(lines[l-1].encode()[:c].decode('utf-8', 'replace'))).get('defs', []); t_ned += time.time() - t0
+    nsd = [(f[4], int(f[5])) for f in rows]
+    ids = [(d[0], d[1] + 1) for d in ed]
+    if not nsd and not ids: st['neither'] += 1
+    elif nsd and not ids: st['ns_only'] += 1; bad.append(('MISS', l, c, w, nsd[:1], []))
+    elif ids and not nsd: st['ned_only'] += 1
+    elif any(x in ids for x in nsd): st['agree'] += 1
+    else: st['disagree'] += 1; bad.append(('DIFF', l, c, w, nsd[:1], ids[:2]))
+    if rows and rows[0][1] in ('skLet', 'skVar', 'skForVar', 'skParam', 'skResult', 'skConst', 'skField') and \
+            not (rows[0][1] == 'skResult' and w != 'result'):    # (nimsuggest answers `result` at a routine's name)
+        nt = rows[0][3]
+        if not normT(nt): continue
+        et = eng('type', l - 1, len(lines[l-1].encode()[:c].decode('utf-8', 'replace'))).get('type', '')
+        if not et: tt['ned_none'] += 1; tbad.append(('NONE', l, w, '', nt))
+        elif normT(et) == normT(nt): tt['agree'] += 1
+        else: tt['differ'] += 1; tbad.append(('DIFF', l, w, et, nt))
+report['def'] = st
+report['def_ms'] = dict(nimsuggest=int(t_ns * 1000 / max(1, len(sample))), ned=round(t_ned * 1000 / max(1, len(sample)), 2))
+report['def_bad'] = bad
+report['types'] = tt
+report['type_bad'] = tbad
+
+# 4. member completion: is the member written there offered right after the dot?
+found_ned = found_ns = 0
+mbad = []
+for (l, c, w, m) in msample:
+    col_chars = len(lines[l-1].encode()[:c].decode('utf-8', 'replace'))
+    items = eng('sug', l - 1, col_chars).get('items', [])
+    norm = lambda s: (s[0] + s[1:].replace('_', '').lower()) if s else s
+    if norm(w) in set(norm(x) for x in items): found_ned += 1
+    else: mbad.append((l, w, lines[l-1].strip()[:80]))
+    rows = [x.split('\t') for x in ask('sug %s:%d:%d' % (path, l, c)) if x.startswith('sug\t')]
+    if norm(w) in set(norm(r[2].split('.')[-1]) for r in rows): found_ns += 1
+report['sug'] = dict(n=len(msample), ned=found_ned, nimsuggest=found_ns)
+report['sug_bad'] = mbad
+report['ns_first_s'] = round(t_first, 1)
+report['ns_crashes'] = ns_crashes
+try:
+    ns.stdin.write('quit\n'); ns.stdin.flush()
+except Exception: pass
+drv.stdin.close()
+if a.json: json.dump(report, open(a.json, 'w'), indent=1)
+print('== %s  (nimsuggest first answer %.1f s, crashed %d times)' % (report['file'], t_first, ns_crashes))
+if 'hints' in report:
+    h = report['hints']; tot = h['agree'] + h['differ'] + h['nimsuggest_only']
+    print('  type hints: same %d · different %d · only nimsuggest %d · only ned %d  → %.1f%% of nimsuggest\'s' %
+          (h['agree'], h['differ'], h['nimsuggest_only'], h['ned_only'], 100.0 * h['agree'] / max(1, tot)))
+    for b in report['hint_bad'][:a.show]: print('    ', b)
+d = report['def']; tot = d['agree'] + d['ns_only'] + d['disagree']
+print('  definition: %.1f%% agree where nimsuggest answers (%s) · ned %s ms, nimsuggest %s ms per query' %
+      (100.0 * d['agree'] / max(1, tot), d, report['def_ms']['ned'], report['def_ms']['nimsuggest']))
+for b in report['def_bad'][:a.show]: print('    ', b)
+t = report['types']; tot = t['agree'] + t['differ'] + t['ned_none']
+print('  variable types: %.1f%% same as nimsuggest (%s)' % (100.0 * t['agree'] / max(1, tot), t))
+for b in report['type_bad'][:a.show]: print('    ', b)
+s = report['sug']
+print('  member completion: ned %d/%d · nimsuggest %d/%d' % (s['ned'], s['n'], s['nimsuggest'], s['n']))
+for b in report['sug_bad'][:a.show]: print('    ', b)

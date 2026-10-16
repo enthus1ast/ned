@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+# stand-in for `gradle test --tests '*Cls.name'`: writes build/test-results/test/TEST-Cls.xml
+import sys, re, os, glob
+a = sys.argv[1:]
+flt = a[a.index('--tests') + 1] if '--tests' in a else '*'
+cls = flt.lstrip('*').split('.')[0]
+one = flt.split('.')[1] if '.' in flt else None
+os.makedirs('build/test-results/test', exist_ok=True)
+cases = []; bad = 0
+for f in glob.glob('**/%s.kt' % cls, recursive=True) + glob.glob('**/%s.java' % cls, recursive=True):
+    src = open(f).read()
+    for m in re.finditer(r'@Test\s*(?:fun\s+`([^`]+)`|fun\s+(\w+)|(?:public\s+)?void\s+(\w+))\s*\(', src):
+        n = m.group(1) or m.group(2) or m.group(3)
+        if one and one != n: continue
+        if 'fail' in n.lower():
+            bad += 1; cases.append('<testcase name="%s()" classname="%s"><failure message="x">x</failure></testcase>' % (n, cls))
+        else: cases.append('<testcase name="%s()" classname="%s" time="0.01"/>' % (n, cls))
+open('build/test-results/test/TEST-%s.xml' % cls, 'w').write('<testsuite name="%s">%s</testsuite>' % (cls, ''.join(cases)))
+print('BUILD %s' % ('FAILED' if bad else 'SUCCESSFUL'))
+sys.exit(1 if bad else 0)

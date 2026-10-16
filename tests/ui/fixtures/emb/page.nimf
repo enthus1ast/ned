@@ -1,0 +1,9 @@
+#? stdtmpl | standard
+#proc renderList(items: seq[string], title: string): string =
+#  result = ""
+<h1>$title</h1>
+<ul class="list">
+#  for i, it in items:
+  <li id="item-$i">${it.toUpperAscii}</li>
+#  end for
+</ul>

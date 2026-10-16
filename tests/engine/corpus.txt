@@ -1,0 +1,25 @@
+# the files compare.py is run on: the standard library, popular nimble packages, the compiler
+# ($NIMLIB: the Nim library; $NED_PKGS: the nimble packages; a package missing there is skipped)
+$NIMLIB/pure/json.nim
+$NIMLIB/pure/strutils.nim
+$NIMLIB/pure/collections/tables.nim
+$NIMLIB/pure/collections/sequtils.nim
+$NIMLIB/pure/os.nim
+$NIMLIB/pure/times.nim
+$NIMLIB/pure/httpclient.nim
+$NIMLIB/pure/asyncdispatch.nim
+$NIMLIB/pure/osproc.nim
+$NIMLIB/pure/parsecfg.nim
+$NIMLIB/pure/uri.nim
+$NIMLIB/pure/streams.nim
+$NED_PKGS/chronos-4.0.3-*/chronos/asyncsync.nim
+$NED_PKGS/chronos-4.0.3-*/chronos/streams/asyncstream.nim
+$NED_PKGS/jsony-1.1.5-*/jsony.nim
+$NED_PKGS/pixie-5.0.7-*/pixie/images.nim
+$NED_PKGS/pixie-5.0.7-*/pixie/paths.nim
+$NED_PKGS/jester-0.6.0-*/jester.nim
+$NED_PKGS/cligen-1.7.8-*/cligen.nim
+$NED_PKGS/karax-1.3.3-*/karax/vdom.nim
+$NED_PKGS/vmath-2.0.0-*/vmath.nim
+$NIMLIB/../compiler/semexprs.nim
+$NIMLIB/../compiler/lookups.nim

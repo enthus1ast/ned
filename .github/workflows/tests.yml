@@ -1,0 +1,114 @@
+# ned's tests, on every push and pull request:
+#   unit  — the Nim index, the formatters and the regular expressions, on Linux and macOS
+#   ui    — the whole editor driven through tmux, its screen read back (tests/ui), in four parts side by side,
+#           with the tools the tests use installed (language servers, clangd, gdb, shells, an SSH server)
+# Started by hand (Actions › tests › Run workflow) it can also fuzz ned and compare its Nim engine with nimsuggest.
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "seconds of fuzzing for each mode (0: no fuzzing)"
+        default: "0"
+      engine:
+        description: "compare the Nim engine with nimsuggest (about an hour)"
+        type: boolean
+        default: false
+
+jobs:
+  unit:
+    name: unit (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Unit tests
+        run: for t in tests/unit/t*.nim; do nim r -d:release --hints:off "$t" || exit 1; done
+
+  ui:
+    name: ui (part ${{ matrix.shard }} of 4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The tools the tests use
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux clangd gdb lldb zsh fish hunspell-en-us openssh-server
+          npm install -g vscode-langservers-extracted sql-language-server
+          pip install --break-system-packages debugpy pytest || pip install debugpy pytest
+          nimble install -y nimlangserver || true
+          tests/ui/ssh-setup.sh
+      - name: Build
+        run: nim c -d:release --hints:off -o:ned src/ned.nim
+      - name: UI tests
+        env:
+          NED_TEST_SSH: "1"
+        run: python3 tests/ui/run.py ./ned --shard ${{ matrix.shard }}/4
+
+  fuzz:
+    if: github.event_name == 'workflow_dispatch' && inputs.fuzz_seconds != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Build with stack traces
+        run: nim c -d:release --stackTrace:on --lineTrace:on --hints:off -o:ned_debug src/ned.nim
+      - name: Fuzz
+        env:
+          NEDBIN: ./ned_debug
+        run: tests/fuzz/batch.sh ${{ inputs.fuzz_seconds }} mixed vim palette refactor git fixes
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzz-logs
+          path: /tmp/ned-fuzz-*-logs
+
+  engine:
+    if: github.event_name == 'workflow_dispatch' && inputs.engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: The corpus's packages
+        run: nimble install -y chronos jsony pixie jester cligen karax vmath || true
+      - name: Compare with nimsuggest
+        run: |
+          tests/engine/build.sh
+          NED_PKGS=$HOME/.nimble/pkgs2 tests/engine/corpus.sh /tmp/engine-out 60 | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: engine-comparison
+          path: /tmp/engine-out

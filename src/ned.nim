@@ -1,0 +1,266 @@
+## ned — a fast, safe code editor and Nim IDE for Termux, Linux and macOS (Windows: WSL), in Nim (standard library only).
+## It looks and behaves like a desktop editor inside the terminal.
+##
+##   Termux: pkg install nim git ripgrep curl
+##   Build : nim c -d:release --opt:speed -o:$PREFIX/bin/ned src/ned.nim     (Linux: -o:ned)   — or: nimble install
+##   Run   : ned [file|folder ...]          (file:line:col and +line work too)
+##   Keys  : F10 menus · Ctrl+E command palette · Ctrl+P find file · F1 key bindings
+##
+##   Nim intelligence is built in: ned's own Nim index (completion with docs, hover, definition, signatures,
+##   references, rename, outline) plus nimsuggest from your Nim install (types it cannot infer, live errors,
+##   inlay hints). nimlangserver is optional ("nim.ide": "nimlangserver"). Nim formatting is built in too
+##   (nph's style, checked); nph or nimpretty can be chosen instead ("nim.formatter").
+##
+##   Optional: nimble install inim            → Nim REPL in the terminal
+##             pkg install gdb                → Nim: debug with gdb
+##             pkg install termux-api (+ the Termux:API app) → system clipboard
+##             export ANTHROPIC_API_KEY=…     → AI assistant (or OpenAI, OpenRouter, Ollama … see settings)
+##
+## Title bar with menus, docks (files, search & replace, git, Nim, tests · assistant, outline, timeline),
+## tabs, split editor, breadcrumbs, minimap, bottom panel (problems, output, terminal), toasts, dialogs and
+## context menus; integrated terminal (pty); AI chat + agent with diff approvals, saved chats, slash
+## commands and inline suggestions; Vim mode; 42 themes; one commented settings file (plus per-project
+## settings) with every option, including all nimlangserver settings; a built-in Nim engine and formatter;
+## multi-cursor editing, regex find/replace, project-wide replace, folding, inlay hints, quick fixes
+## (std imports, unused imports), test explorer, git changes/blame, bookmarks; crash-safe saves, recovery
+## files and local history.
+
+{.warning[BareExcept]: off.}
+when defined(windows):
+  {.error: "ned is a Unix terminal program (pseudo-terminals, termios, poll) and does not build natively on " &
+           "Windows. Use WSL: run `wsl --install` in PowerShell, open Ubuntu, install Nim there and build ned " &
+           "inside it — see README › Installing › Windows.".}
+
+import std/[os, strutils, tables, sets, algorithm, json, posix, termios,
+            times, monotimes, base64, sugar, editdistance]
+from std/math import pow
+
+# the parts that stand on their own (modules: compiled separately, in parallel)
+import ned/core/text, ned/editor/regex, ned/format/formatters, ned/nim/index
+
+const
+  Version = "6.0.0"
+  AppName = "ned"
+
+# ── ned --startup-time: how long each step of starting takes, and the memory it uses ──
+
+var
+  startT0 = getMonoTime()          # when the program started
+  startTrace = false               # --startup-time: the steps are timed, and ned quits once it has settled
+  startMarks: seq[(string, float)] # (step, ms since start)
+  startRss: seq[(string, float)]   # (when, resident memory in MB)
+
+proc smark(name: string) =
+  if startTrace: startMarks.add (name, float((getMonoTime() - startT0).inMicroseconds) / 1000.0)
+
+proc rssMB(): float =
+  ## the resident memory of this process, in MB (Linux and Android from /proc; elsewhere the peak so far)
+  try:
+    for l in lines("/proc/self/status"):
+      if l.startsWith("VmRSS:"):
+        return parseFloat(l[6 .. ^1].strip.splitWhitespace()[0]) / 1024.0
+  except CatchableError: discard
+  var ru: Rusage
+  if getrusage(RUSAGE_SELF, addr ru) == 0:
+    when defined(macosx): return float(ru.ru_maxrss) / 1048576.0
+    else: return float(ru.ru_maxrss) / 1024.0
+  0.0
+
+# ── the parts of ned, in the order they build on each other: one program, so each part sees the ones
+#    included before it (and what forward declarations announce) ──
+
+include ned/core/types
+include ned/core/state
+include ned/core/utils
+include ned/core/themes
+include ned/core/screen
+include ned/core/keys
+include ned/core/languages
+include ned/core/highlight
+include ned/core/lexgeneric
+include ned/core/lexers
+include ned/core/todos
+include ned/core/messages
+include ned/editor/buffer
+include ned/editor/loadsave
+include ned/editor/softwrap
+include ned/editor/motion
+include ned/editor/editing
+include ned/editor/find
+include ned/app/forward
+include ned/config/settings
+include ned/config/session
+include ned/project/files
+include ned/editor/safewrite
+include ned/editor/swap
+include ned/editor/localhistory
+include ned/editor/linediff
+include ned/editor/buffers
+include ned/project/remote
+include ned/editor/save
+include ned/run/process
+include ned/run/cerrors
+include ned/run/output
+include ned/run/configs
+include ned/run/checks
+include ned/nim/typingcheck
+include ned/git/repos
+include ned/format/apply
+include ned/lsp/client
+include ned/lsp/renamepreview
+include ned/lsp/handlers
+include ned/format/commands
+include ned/nim/project
+include ned/nim/nimsuggest
+include ned/editor/multibuffer
+include ned/nim/nimsuggestread
+include ned/editor/clipboard
+include ned/editor/snippets
+include ned/editor/html
+include ned/editor/emmetcss
+include ned/nim/engine
+include ned/git/conflictmarks
+include ned/nim/semantic
+include ned/nim/answers
+include ned/nim/reflens
+include ned/nim/outline
+include ned/editor/completion
+include ned/nim/messages
+include ned/editor/diagnostics
+include ned/editor/findreplace
+include ned/editor/navigation
+include ned/editor/search
+include ned/editor/projectreplace
+include ned/ui/actions
+include ned/format/folder
+include ned/nim/commands
+include ned/git/status
+include ned/ui/outline
+include ned/ui/pickers
+include ned/ui/prompts
+include ned/ui/themefiles
+include ned/config/sync
+include ned/ui/promptkeys
+include ned/ui/render
+include ned/ui/icons
+include ned/ui/regions
+include ned/ui/dialogs
+include ned/ui/menus
+include ned/ui/popupdraw
+include ned/ui/layout
+include ned/ui/menubar
+include ned/ui/titlebar
+include ned/ui/tabbar
+include ned/ui/breadcrumbs
+include ned/ui/docks
+include ned/ui/todosdock
+include ned/ui/lists
+include ned/ui/filetree
+include ned/ui/dockframe
+include ned/ui/panel
+include ned/ui/statusbar
+include ned/ui/quickinput
+include ned/ui/minimap
+include ned/ui/settingsui
+include ned/term/pty
+include ned/term/shell
+include ned/term/vt
+include ned/term/repltabs
+include ned/term/panel
+include ned/ai/assistant
+include ned/ai/mcp
+include ned/ai/agenttools
+include ned/ai/requests
+include ned/ai/endpoints
+include ned/ai/inlineedit
+include ned/ai/chats
+include ned/ai/context
+include ned/ai/oneshot
+include ned/ai/suggestions
+include ned/ai/chatview
+include ned/ui/welcome
+include ned/editor/spell
+include ned/ui/codeline
+include ned/editor/rainbow
+include ned/ui/doclines
+include ned/ui/diffview
+include ned/editor/swatches
+include ned/ui/editorview
+include ned/ui/popups
+include ned/ui/zen
+include ned/ui/split
+include ned/git/mergeeditor
+include ned/ui/frame
+include ned/app/commands
+include ned/app/input
+include ned/keymaps/vim
+include ned/editor/macros
+include ned/keymaps/vimkeys
+include ned/keymaps/emacs
+include ned/keymaps/helix
+include ned/editor/folding
+include ned/lsp/inlays
+include ned/testing/runners
+include ned/testing/testament
+include ned/testing/aitests
+include ned/testing/explorer
+include ned/editor/projectsymbols
+include ned/lsp/codeactions
+include ned/editor/selection
+include ned/ui/gutter
+include ned/debug/gdb
+include ned/debug/dap
+include ned/debug/gdbterm
+include ned/project/workspaces
+include ned/project/remotesync
+include ned/ui/editormenu
+include ned/ui/mouse
+include ned/nim/aifix
+include ned/nim/stdindex
+include ned/nim/codegen
+include ned/nim/refactors
+include ned/editor/spelldicts
+include ned/c/headers
+include ned/c/nimside
+include ned/c/types
+include ned/c/navigation
+include ned/c/completion
+include ned/c/emit
+include ned/c/emitclangd
+include ned/lsp/embedded
+include ned/c/c2nim
+include ned/c/compiledb
+include ned/nim/fixes
+include ned/nim/refactor/core
+include ned/nim/refactor/signature
+include ned/nim/refactor/inline
+include ned/nim/refactor/move
+include ned/nim/quickfixes
+include ned/testing/coverage
+include ned/nim/profile
+include ned/nim/misc
+include ned/nim/nimbletree
+include ned/editor/csv
+include ned/term/repl
+include ned/git/conflicts
+include ned/ai/review
+include ned/ui/compare
+include ned/nim/refactor/extract
+include ned/nim/nimbleupdates
+include ned/editor/bookmarks
+include ned/editor/localhistoryview
+include ned/editor/recovery
+include ned/git/marks
+include ned/app/keyboard
+include ned/app/setupcheck
+include ned/git/commands
+include ned/git/advanced
+include ned/git/history
+include ned/git/github
+include ned/run/configsui
+include ned/nim/extras
+include ned/nim/examples
+include ned/run/tasks
+include ned/app/usercommands
+include ned/app/commandlist
+include ned/app/main

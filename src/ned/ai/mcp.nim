@@ -1,0 +1,392 @@
+# ── MCP: Model Context Protocol servers give the agent more tools ("ai.mcpServers") ──
+
+type
+  McpTool = object
+    name, desc: string
+    schema: JsonNode
+  McpRes = object                  # a resource the server offers (resources/list)
+    uri, name, desc, mime: string
+  McpPrompt = object               # a prompt template (prompts/list): a /server:name command in the chat
+    name, desc: string
+    args: seq[(string, string, bool)]   # name, description, required
+  McpCb = proc(res: JsonNode, err: string) {.closure.}
+  McpServer = ref object
+    name: string
+    cmd: seq[string]
+    pr: Proc
+    inFd, outFd, errFd: cint
+    rbuf, wbuf, errPart: string
+    errTail: seq[string]
+    nextId: int
+    pending: Table[int, (McpCb, MonoTime)]
+    tools: seq[McpTool]
+    resources: seq[McpRes]
+    prompts: seq[McpPrompt]
+    hasResources, hasPrompts: bool
+    state: string                  # starting · ready · failed: … · stopped
+    dead, reaped: bool
+    startedAt: MonoTime
+
+var
+  mcpServers: seq[McpServer]
+  mcpStarted = false
+  mcpSpecSeen = ""                 # the setting they were started from
+  mcpWaitReq = false               # a request waits for the servers to list their tools
+
+proc mcpFlush(s: McpServer) =
+  var off = 0
+  while off < s.wbuf.len:
+    let n = posix.write(s.inFd, addr s.wbuf[off], s.wbuf.len - off)
+    if n > 0: off += n
+    elif n < 0 and (errno == EAGAIN or errno == EINTR): break
+    else:
+      s.dead = true
+      break
+  if off > 0: s.wbuf = s.wbuf[off .. ^1]
+
+proc mcpSend(s: McpServer, j: JsonNode) =
+  if s.dead: return
+  s.wbuf.add $j & "\n"                      # MCP over stdio: one JSON message per line
+  s.mcpFlush()
+
+proc mcpRequest(s: McpServer, meth: string, params: JsonNode, cb: McpCb) =
+  inc s.nextId
+  s.pending[s.nextId] = (cb, getMonoTime())
+  s.mcpSend(%*{"jsonrpc": "2.0", "id": s.nextId, "method": meth, "params": params})
+
+proc mcpNotify(s: McpServer, meth: string, params: JsonNode) =
+  s.mcpSend(%*{"jsonrpc": "2.0", "method": meth, "params": params})
+
+proc mcpListTools(s: McpServer, cursor = "") =
+  if cursor.len == 0: s.tools.setLen(0)
+  let params = if cursor.len > 0: %*{"cursor": cursor} else: newJObject()
+  s.mcpRequest("tools/list", params, proc(res: JsonNode, err: string) =
+    if err.len > 0:
+      s.state = "failed: " & err
+      return
+    for t in jitems(res{"tools"}):
+      let n = t{"name"}.getStr
+      if n.len == 0: continue
+      var sc = t{"inputSchema"}
+      if sc == nil or sc.kind != JObject: sc = %*{"type": "object", "properties": {}}
+      s.tools.add McpTool(name: n, desc: t{"description"}.getStr, schema: sc)
+    let nc = res{"nextCursor"}.getStr
+    if nc.len > 0: s.mcpListTools(nc)
+    else:
+      s.state = "ready"
+      needRender = true)
+
+proc mcpListResources(s: McpServer, cursor = "") =
+  if cursor.len == 0: s.resources.setLen(0)
+  let params = if cursor.len > 0: %*{"cursor": cursor} else: newJObject()
+  s.mcpRequest("resources/list", params, proc(res: JsonNode, err: string) =
+    if err.len > 0: return
+    for r in jitems(res{"resources"}):
+      if r{"uri"}.getStr.len == 0: continue
+      s.resources.add McpRes(uri: r{"uri"}.getStr, name: r{"name"}.getStr, desc: r{"description"}.getStr,
+                             mime: r{"mimeType"}.getStr)
+    let nc = res{"nextCursor"}.getStr
+    if nc.len > 0: s.mcpListResources(nc)
+    needRender = true)
+
+proc mcpListPrompts(s: McpServer, cursor = "") =
+  if cursor.len == 0: s.prompts.setLen(0)
+  let params = if cursor.len > 0: %*{"cursor": cursor} else: newJObject()
+  s.mcpRequest("prompts/list", params, proc(res: JsonNode, err: string) =
+    if err.len > 0: return
+    for p in jitems(res{"prompts"}):
+      if p{"name"}.getStr.len == 0: continue
+      var pr = McpPrompt(name: p{"name"}.getStr, desc: p{"description"}.getStr)
+      for a in jitems(p{"arguments"}):
+        pr.args.add (a{"name"}.getStr, a{"description"}.getStr, a{"required"}.getBool(false))
+      s.prompts.add pr
+    let nc = res{"nextCursor"}.getStr
+    if nc.len > 0: s.mcpListPrompts(nc)
+    needRender = true)
+
+proc mcpHandle(s: McpServer, j: JsonNode) =
+  if j.kind != JObject: return
+  if j.hasKey("id") and (j.hasKey("result") or j.hasKey("error")) and not j.hasKey("method"):
+    let id = j["id"].getInt
+    if id in s.pending:
+      let (cb, _) = s.pending[id]
+      s.pending.del id
+      let e = j{"error"}
+      cb(j{"result"}, (if e != nil and e.kind == JObject: (let m = e{"message"}.getStr; if m.len > 0: m else: "error") else: ""))
+    return
+  let meth = j{"method"}.getStr
+  if j.hasKey("id"):                         # the server asks something of ned
+    case meth
+    of "ping": s.mcpSend(%*{"jsonrpc": "2.0", "id": j["id"], "result": {}})
+    of "roots/list":
+      s.mcpSend(%*{"jsonrpc": "2.0", "id": j["id"], "result": {"roots": [{"uri": uriFromPath(rootDir),
+                                                                           "name": extractFilename(rootDir)}]}})
+    else: s.mcpSend(%*{"jsonrpc": "2.0", "id": j["id"], "error": {"code": -32601, "message": "not supported by ned"}})
+  elif meth == "notifications/tools/list_changed": s.mcpListTools()
+  elif meth == "notifications/resources/list_changed": s.mcpListResources()
+  elif meth == "notifications/prompts/list_changed": s.mcpListPrompts()
+
+proc mcpRead(s: McpServer) =
+  var tmp: array[65536, char]
+  while true:
+    let n = posix.read(s.outFd, addr tmp[0], tmp.len)
+    if n > 0:
+      let old = s.rbuf.len
+      s.rbuf.setLen(old + n)
+      copyMem(addr s.rbuf[old], addr tmp[0], n)
+    elif n == 0:
+      s.dead = true
+      break
+    else: break
+  while true:
+    let nl = s.rbuf.find('\n')
+    if nl < 0: break
+    let line = s.rbuf[0 ..< nl].strip
+    s.rbuf = s.rbuf[nl + 1 .. ^1]
+    if line.len == 0 or line[0] != '{': continue
+    try: mcpHandle(s, parseJson(line))
+    except CatchableError: discard
+
+proc mcpReadErr(s: McpServer) =
+  var tmp: array[16384, char]
+  while true:
+    let n = posix.read(s.errFd, addr tmp[0], tmp.len)
+    if n <= 0: break
+    var chunk = newString(n)
+    copyMem(addr chunk[0], addr tmp[0], n)
+    let parts = (s.errPart & chunk).split('\n')
+    for k in 0 ..< parts.high:
+      let l = stripAnsi(parts[k]).strip
+      if l.len > 0: s.errTail.add (if l.len > 300: l[0 ..< 300] else: l)
+    s.errPart = parts[^1]
+    if s.errTail.len > 60: s.errTail = s.errTail[^40 .. ^1]
+
+proc mcpStart(name: string, spec: JsonNode) =
+  ## {"command": ["npx", "-y", "pkg"]} or {"command": "npx", "args": [...]} (Claude Desktop's form), "env": {…}
+  var cmd: seq[string]
+  let c = spec{"command"}
+  if c != nil and c.kind == JString:
+    cmd = @[c.getStr]
+    for a in jitems(spec{"args"}): cmd.add a.getStr
+  else:
+    for a in jitems(c): cmd.add a.getStr
+  let s = McpServer(name: name, cmd: cmd, state: "starting", startedAt: getMonoTime(), inFd: -1, outFd: -1, errFd: -1)
+  mcpServers.add s
+  if cmd.len == 0 or findExe(cmd[0]).len == 0:
+    s.state = "failed: " & (if cmd.len == 0: "no command" else: cmd[0] & " not found")
+    s.dead = true
+    return
+  # its environment (API tokens …) goes to the child only — never on a command line
+  var saved: seq[(string, string, bool)]
+  let env = spec{"env"}
+  if env != nil and env.kind == JObject:
+    for k, v in env:
+      saved.add (k, getEnv(k), existsEnv(k))
+      putEnv(k, v.getStr)
+  try:
+    var p = spawnProc(cmd, rootDir, siPipe, erPipe)
+    s.pr = p
+    s.inFd = p.inFd
+    s.outFd = p.outFd
+    s.errFd = p.errFd
+    s.pr.inFd = -1
+    s.pr.outFd = -1
+    s.pr.errFd = -1
+    setNonBlock(s.inFd); setNonBlock(s.outFd); setNonBlock(s.errFd)
+  except CatchableError as e:
+    s.state = "failed: " & e.msg
+    s.dead = true
+  for (k, v, had) in saved:
+    if had: putEnv(k, v) else: delEnv(k)
+  if s.dead: return
+  s.mcpRequest("initialize", %*{"protocolVersion": "2025-06-18", "capabilities": {"roots": {"listChanged": false}},
+                                "clientInfo": {"name": AppName, "version": Version}}, proc(res: JsonNode, err: string) =
+    if err.len > 0:
+      s.state = "failed: " & err
+      return
+    s.mcpNotify("notifications/initialized", newJObject())
+    let caps = res{"capabilities"}
+    s.hasResources = caps != nil and caps{"resources"} != nil
+    s.hasPrompts = caps != nil and caps{"prompts"} != nil
+    if s.hasResources: s.mcpListResources()
+    if s.hasPrompts: s.mcpListPrompts()
+    if caps != nil and caps.kind == JObject and caps{"tools"} == nil and (s.hasResources or s.hasPrompts):
+      s.state = "ready"                        # resources or prompts only: no tools to list
+      needRender = true
+    else: s.mcpListTools())
+
+proc mcpStopAll() =
+  for s in mcpServers:
+    s.state = "stopped"
+    if s.pr.pid > 0:
+      discard posix.kill(Pid(-s.pr.pid), SIGTERM)
+      discard waitProc(s.pr, 150)
+    closeFd(s.inFd)
+    closeFd(s.outFd)
+    closeFd(s.errFd)
+  mcpServers.setLen(0)
+  mcpStarted = false
+
+proc mcpStartAll() =
+  ## the servers in ai.mcpServers, once (again after the setting changed)
+  let spec = settingNode("ai.mcpServers")
+  let key = if spec == nil: "" else: $spec
+  if mcpStarted and key == mcpSpecSeen: return
+  if mcpStarted: mcpStopAll()
+  mcpStarted = true
+  mcpSpecSeen = key
+  if spec == nil or spec.kind != JObject: return
+  for name, sp in spec:
+    if sp.kind == JObject and not sp{"disabled"}.getBool(false): mcpStart(name, sp)
+
+proc mcpStarting(): bool =
+  for s in mcpServers:
+    if s.state == "starting" and not s.dead and msSince(s.startedAt) < 20_000: return true
+
+proc mcpSafe(s: string): string =
+  for c in s:
+    result.add (if c.isAlphaNumeric or c in {'_', '-'}: c else: '_')
+
+proc mcpToolName(server, tool: string): string =
+  result = "mcp__" & mcpSafe(server) & "__" & mcpSafe(tool)
+  if result.len > 64: result = result[0 ..< 64]
+
+const McpReadRes = "\x01read_resource"     # (ned's own tool for a server's resources)
+
+proc mcpHasTool(s: McpServer, name: string): bool =
+  for t in s.tools:
+    if t.name == name: return true
+  false
+
+proc mcpTools(): seq[(string, string, JsonNode)] =
+  ## the tools of the ready servers, for the model: (name, description, input schema); a server with
+  ## resources also gets read_resource, its resources listed in the description
+  for s in mcpServers:
+    if s.state != "ready" or s.dead: continue
+    for t in s.tools:
+      result.add (mcpToolName(s.name, t.name), "[" & s.name & " MCP server] " & t.desc, t.schema)
+    if s.resources.len > 0 and not s.mcpHasTool("read_resource"):
+      var d = "[" & s.name & " MCP server] Read one of this server's resources by its URI. Resources:"
+      for i, r in s.resources:
+        if i >= 60:
+          d.add "\n… " & $(s.resources.len - 60) & " more"
+          break
+        d.add "\n- " & r.uri & (if r.name.len > 0: " — " & r.name else: "") &
+              (if r.desc.len > 0: ": " & truncTo(r.desc.splitLines()[0], 80) else: "")
+      result.add (mcpToolName(s.name, "read_resource"), d,
+                  %*{"type": "object", "properties": {"uri": {"type": "string", "description": "the resource's URI"}},
+                     "required": ["uri"]})
+
+proc mcpFind(full: string): (McpServer, string) =
+  for s in mcpServers:
+    for t in s.tools:
+      if mcpToolName(s.name, t.name) == full: return (s, t.name)
+    if s.resources.len > 0 and mcpToolName(s.name, "read_resource") == full: return (s, McpReadRes)
+  (nil, "")
+
+proc mcpResourceText(res: JsonNode): string =
+  ## resources/read: the text of each part (binary parts summarised)
+  for c in jitems(res{"contents"}):
+    if c{"text"} != nil: result.add c{"text"}.getStr & "\n"
+    elif c{"blob"} != nil:
+      result.add "[" & (if c{"mimeType"}.getStr.len > 0: c{"mimeType"}.getStr else: "binary") & ", " &
+                 $(c{"blob"}.getStr.len * 3 div 4) & " bytes]\n"
+  result.strip(leading = false)
+
+proc mcpServerNamed(name: string): McpServer =
+  for s in mcpServers:
+    if s.name == name and not s.dead: return s
+  nil
+
+proc mcpResultText(res: JsonNode): string =
+  for c in jitems(res{"content"}):
+    case c{"type"}.getStr
+    of "text": result.add c{"text"}.getStr & "\n"
+    of "image", "audio": result.add "[" & c{"type"}.getStr & " " & c{"mimeType"}.getStr & ", " & $c{"data"}.getStr.len & " bytes]\n"
+    of "resource":
+      let r = c{"resource"}
+      result.add (if r{"text"}.getStr.len > 0: r{"text"}.getStr else: r{"uri"}.getStr) & "\n"
+    of "resource_link": result.add c{"uri"}.getStr & "\n"
+    else: discard
+  if result.len == 0 and res{"structuredContent"} != nil: result = res["structuredContent"].pretty
+  result = result.strip(leading = false)
+
+proc mcpPump(ready: HashSet[cint]) =
+  ## read and write the MCP servers; ones that ended say why; calls that never came back time out
+  var keep: seq[McpServer]
+  for s in mcpServers:
+    if not s.dead:
+      if s.errFd in ready: mcpReadErr(s)
+      if s.outFd in ready: mcpRead(s)
+      if s.wbuf.len > 0: s.mcpFlush()
+      var late: seq[int]
+      for id, (_, at) in s.pending:
+        if msSince(at) > 120_000: late.add id
+      for id in late:
+        let (cb, _) = s.pending[id]
+        s.pending.del id
+        cb(nil, "no answer from " & s.name & " in 2 minutes")
+    if s.dead and not s.reaped and s.state != "stopped":
+      s.reaped = true
+      if s.errFd >= 0: mcpReadErr(s)
+      if not s.state.startsWith("failed"):
+        s.state = "failed: " & (if s.errTail.len > 0: s.errTail[^1] else: "it exited")
+      for id, (cb, _) in s.pending: cb(nil, s.name & " stopped")
+      s.pending.clear()
+      if s.pr.pid > 0: discard waitProc(s.pr, 50)
+      closeFd(s.inFd)
+      closeFd(s.outFd)
+      closeFd(s.errFd)
+      s.inFd = -1
+      s.outFd = -1
+      s.errFd = -1
+      needRender = true
+    keep.add s
+  mcpServers = keep
+
+proc mcpFds(fds: var seq[TPollfd]) =
+  for s in mcpServers:
+    if s.dead or s.outFd < 0: continue
+    fds.add TPollfd(fd: s.outFd, events: POLLIN)
+    fds.add TPollfd(fd: s.errFd, events: POLLIN)
+    if s.wbuf.len > 0: fds.add TPollfd(fd: s.inFd, events: POLLOUT)
+
+proc cmdMcpServers() =
+  mcpStartAll()
+  let spec = settingNode("ai.mcpServers")
+  if mcpServers.len == 0:
+    info("No MCP servers yet — settings › ai.mcpServers: {\"github\": {\"command\": \"npx\", \"args\": " &
+         "[\"-y\", \"@modelcontextprotocol/server-github\"], \"env\": {\"GITHUB_TOKEN\": \"…\"}}}")
+    return
+  discard spec
+  var items: seq[(string, string, Action)]
+  for s in mcpServers:
+    let st = s.state.strip
+    let label = (if st == "ready": "● " elif st == "starting": "◌ " else: "✗ ") & s.name
+    let detail = if st == "ready": $s.tools.len & " tool(s)" &
+                                  (if s.resources.len > 0: " · " & $s.resources.len & " resource(s)" else: "") &
+                                  (if s.prompts.len > 0: " · " & $s.prompts.len & " prompt(s)" else: "") else: st
+    let srv = s
+    capture srv:
+      items.add act(label, detail, proc() =
+        var body = srv.cmd.join(" ") & "\n\n"
+        if srv.tools.len > 0:
+          for t in srv.tools: body.add "• " & t.name & (if t.desc.len > 0: " — " & truncTo(t.desc.splitLines()[0], 70) else: "") & "\n"
+        else: body.add srv.state.strip & "\n"
+        if srv.resources.len > 0:
+          body.add "\nResources (@" & srv.name & ":<uri> in the chat attaches one):\n"
+          for r in srv.resources: body.add "• " & r.uri & (if r.name.len > 0: " — " & r.name else: "") & "\n"
+        if srv.prompts.len > 0:
+          body.add "\nPrompts (/" & srv.name & ":<name> in the chat):\n"
+          for p in srv.prompts:
+            var a: seq[string]
+            for (n, _, req) in p.args: a.add (if req: n else: "[" & n & "]")
+            body.add "• /" & srv.name & ":" & p.name & (if a.len > 0: " " & a.join(" ") else: "") &
+                     (if p.desc.len > 0: " — " & truncTo(p.desc.splitLines()[0], 60) else: "") & "\n"
+        if srv.errTail.len > 0: body.add "\n" & srv.errTail[max(0, srv.errTail.len - 4) .. ^1].join("\n")
+        openDialog("MCP server " & srv.name, body, @[("OK", 'y')], proc(c: char) = discard))
+  items.add act("↻ Restart the MCP servers", "", proc() =
+    mcpStopAll()
+    mcpStartAll()
+    info("Restarting the MCP servers…"))
+  openActions("MCP servers (" & $mcpServers.len & ")", items)

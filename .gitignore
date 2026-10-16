@@ -1,0 +1,14 @@
+# build output
+/ned
+/ned_debug
+/ned-*
+*.exe
+nimcache/
+# release archives made from this folder
+*.tar.gz
+# editors and the OS
+*.swp
+.DS_Store
+tests/engine/ned-engine
+# tests/build/cross.sh
+/build/
