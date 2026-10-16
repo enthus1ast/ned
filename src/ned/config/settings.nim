@@ -253,6 +253,12 @@ proc initSettingDefs() =
   defS("Nim", "nim.format.reflowDocComments", %false, "Built-in formatter: a ## doc comment paragraph with a line " &
        "longer than nim.format.lineLength is re-wrapped to fit (lists, code and tables stay as they are)")
   defS("Nim", "nim.format.maxBlankLines", %1, "Built-in formatter: empty lines kept in a row (1–3)")
+  defS("C", "c.engine", %"auto",
+       "What answers in C files: builtin = ned's own engine (completion with struct members, hover with the " &
+       "comment above a declaration, F12 through #includes, references, rename, outline, signature help, the C " &
+       "compiler's errors while you type — instant, nothing to install) · clangd (more precise with macros and " &
+       "C++) · both = ned's answers at once and clangd's errors and fixes · auto = clangd when it is installed, " &
+       "else ned's own", @["auto", "builtin", "clangd", "both"])
   defS("Nim", "nim.parameterHints", %"literals", "Parameter names shown before the arguments of a call " &
        "(built-in engine, with the inlay hints): literals = before numbers, strings, true/false/nil — draw(x: 10, " &
        "y: 20) · all = before every argument · off", @["literals", "all", "off"])
@@ -690,6 +696,7 @@ proc applySettings() =
   cfgFormatEmitC = sBool("nim.formatEmitC")
   cfgCSigHints = sBool("nim.cSignatureHints")
   cfgParamHints = sStr("nim.parameterHints")
+  cfgCEngine = sStr("c.engine")
   if not cfgCSigHints: cSigHints.clear()
   cSigHintsAt.clear()
   cfgPasteFmt = sStr("editor.formatOnPaste")

@@ -11,6 +11,11 @@ proc heuristicOutline(b: Buffer): seq[SideItem] =
 proc ensureOutline(b: Buffer) =
   ## cheap heuristic outline right away; nimsuggest/LSP refine it in the background
   if b.outlineAt == b.changeId and b.outline.len > 0: return
+  if cEngineOn(b):
+    b.outline = cEngOutline(b)
+    b.outlineAt = b.changeId
+    b.outlineReqAt = b.changeId
+    return
   if nimEngineOn(b):
     b.outline = engineOutline(b)
     b.outlineAt = b.changeId

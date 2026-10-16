@@ -101,6 +101,7 @@ proc startCompletion(manual: bool) =
   if b.lang.mode == lmNim and cWrapperComplete(b, p, manual): return  # proc ⟨C function⟩: the whole wrapper
   if b.lang.mode == lmNim and emitComplete(b, p, manual): return      # C in an emit
   if b.lang.mode == lmNim and embComplete(b, p, manual): return       # HTML, CSS, SQL … in a string
+  if cEngineOn(b) and cEngComplete(b, p, manual): return              # C: ned's own engine
   if nimEngineOn(b) and engineComplete(b, manual): return
   let s = lspReady(b)
   var asked = false
@@ -123,7 +124,8 @@ proc afterType(ch: int) =
   let p = b.primary.head
   if ch == ord(')') or p.line != sigLine: sigOpen = false
   if ch == ord('>') and b.lang.mode == lmHtml: htmlAutoClose(b)
-  if ch < 128 and char(ch) in {'(', ','} and
+  if ch < 128 and char(ch) in {'(', ','} and cEngineOn(b) and cEngSignature(b, p): discard
+  elif ch < 128 and char(ch) in {'(', ','} and
      not (b.lang.mode == lmNim and b.lines[p.line].len <= 2000 and emitSignature(b, p)):   # C in an emit: clangd's
     let s = lspReady(b)
     if nimEngineOn(b):
@@ -152,6 +154,21 @@ proc afterType(ch: int) =
   let s = if s0 != nil and s0.ready and not s0.dead: s0 else: nil
   let c = if ch < 128: char(ch) else: 'a'
   let ws = b.wordStart(p)
+  if cEngineOn(b):
+    # ned's C engine: after `.` and `->` the members, else names once a word starts
+    if compLine == p.line and ws == compStartCol and isWordByte(c) and compFromLsp and compItems.len > 0:
+      refilterComp()
+      return
+    if (c == '.' and not (p.col >= 2 and b.lines[p.line][p.col - 2] in Digits)) or
+       (c == '>' and p.col >= 2 and b.lines[p.line][p.col - 2] == '-'):
+      closeComp()
+      discard cEngComplete(b, p, false)
+      return
+    if not isWordByte(c) or ws >= p.col or b.lines[p.line][ws] in Digits:
+      closeComp()
+      return
+    if p.col - ws == 2: discard cEngComplete(b, p, false)
+    return
   if nimEngineOn(b):
     # the index answers at once: after `.` the receiver's members, else names once a word starts
     if compLine == p.line and ws == compStartCol and isWordByte(c) and compFromLsp and compItems.len > 0:

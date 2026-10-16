@@ -451,6 +451,7 @@ proc cmdPeekReferences() =
 
 proc cmdReferences() =
   let b = buf()
+  if cEngineOn(b) and cEngReferences(b, b.primary.head): return       # C: ned's own engine
   var w = b.wordAt(b.primary.head)
   if w.len == 0 and nimEngineOn(b): w = opAtCursor(b)
   if w.len == 0:

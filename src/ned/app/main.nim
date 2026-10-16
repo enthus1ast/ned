@@ -307,6 +307,9 @@ proc mainLoop() =
           cb.chkAt = cb.changeId
           discard nsRequest(cb, nsChk, Pos())
         else: cb.chkAt = cb.changeId                        # (nothing to check it with: on save, then)
+      if cfgLiveCheck and cEngineOn(cb) and cb.dirty and cb.chkAt != cb.changeId and msSince(cb.lspChangeAt) > 1000 and
+         not lspActiveFor(cb):
+        cTypingCheck(cb)                                    # C: the compiler on the unsaved text
       if cfgLiveCheck and cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
          typoAt.getOrDefault(cb.id, -1) != cb.changeId and msSince(cb.lspChangeAt) > 500:
         engineTypos(cb)                                     # a misspelled name: at once

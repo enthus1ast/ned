@@ -111,6 +111,7 @@ proc lspFor(b: Buffer, start = true): LspServer =
   if b.path.len == 0 or b.lines.len > 40000 or b.largeOn: return nil   # huge files: keep typing instant
   let id = b.lang.id
   if id == "nim" and not nimUsesLsp(): return nil
+  if id == "c" and cfgCEngine == "builtin": return nil        # (ned's own C engine answers)
   for s in servers:
     if s.langId == id and not s.dead: return s
   if not start or id in lspFailed: return nil

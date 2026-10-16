@@ -36,6 +36,14 @@ proc pragmaStringGoto(b: Buffer, p: Pos): bool
 proc cDocForNx(it: NxItem): string
 proc cSigHintsUpdate(b: Buffer)
 proc cWrapperComplete(b: Buffer, p: Pos, manual: bool): bool
+proc cEngineOn(b: Buffer): bool
+proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool
+proc cEngHover(b: Buffer, p: Pos): string
+proc cEngDefinition(b: Buffer, p: Pos): bool
+proc cEngReferences(b: Buffer, p: Pos): bool
+proc cEngRename(b: Buffer, p: Pos, newName: string): bool
+proc cEngSignature(b: Buffer, p: Pos): bool
+proc cEngOutline(b: Buffer): seq[SideItem]
 proc lspAttach(b: Buffer)
 proc lspDidSave(b: Buffer)
 proc lspDidClose(b: Buffer)

@@ -62,6 +62,7 @@ var
   cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
   cfgCSigHints = true          # nim.cSignatureHints: the C declaration dimmed after an importc wrapper
   cfgParamHints = "literals"   # nim.parameterHints: names before call arguments — literals | all | off
+  cfgCEngine = "auto"          # c.engine: auto (ned's own when clangd is not installed) | builtin | clangd | both
   cSigHints: Table[int, Table[int, (int, string)]]   # buffer id → line → (column, the C signature shown there)
   cSigHintsAt: Table[int, (int, int, int)]           # buffer id → (changeId, first, last line) they were made for
   cfgPasteFmt = "indent"       # editor.formatOnPaste: indent | format | off

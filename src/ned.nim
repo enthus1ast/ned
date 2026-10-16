@@ -36,7 +36,7 @@ import std/[os, strutils, tables, sets, algorithm, json, posix, termios,
 from std/math import pow
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
-import ned/core/text, ned/editor/regex, ned/format/formatters, ned/nim/index
+import ned/core/text, ned/editor/regex, ned/format/formatters, ned/nim/index, ned/c/cindex
 
 const
   Version = "6.4.0"
@@ -232,6 +232,7 @@ include ned/lsp/embedded
 include ned/c/c2nim
 include ned/c/compiledb
 include ned/c/cdocs
+include ned/c/cengine
 include ned/nim/fixes
 include ned/nim/refactor/core
 include ned/nim/refactor/signature

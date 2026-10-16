@@ -107,6 +107,8 @@ proc submitPrompt() =
       discard s.lspRequest("textDocument/rename", %*{"textDocument": b.docId,
         "position": s.lspPos(b, b.primary.head), "newName": t},
         LspReq(kind: lrRename, bufId: b.id, extra: b.wordAt(b.primary.head), extra2: t))
+    elif t.len > 0 and cEngineOn(b):
+      discard cEngRename(b, b.primary.head, t)
     elif t.len > 0 and nimEngineOn(b):
       let old = b.wordAt(b.primary.head)
       let nn = t.strip

@@ -416,6 +416,7 @@ proc lspExtras(b: Buffer) =
 proc cmdDefinition() =
   let b = buf()
   if b.lang.mode == lmNim and pragmaStringGoto(b, b.primary.head): return  # header: "…" opens it, importc: "…" its C
+  if cEngineOn(b) and cEngDefinition(b, b.primary.head): return          # C: ned's own engine
   if b.lang.mode == lmNim and emitGoto(b, b.primary.head): return          # in an emit: the C (or Nim) side
   if b.lang.mode == lmNim and cGotoFromDecl(b, b.primary.head): return     # an importc declaration: C's
   if nimEngineOn(b) and b.wordAt(b.primary.head).len > 0:
@@ -558,6 +559,11 @@ proc cmdHover(auto = false) =
     if h.len > 0:
       showHoverAuto(hoverPrefix & h, auto)
       return
+  if onSymbol and cEngineOn(b):
+    let ch = cEngHover(b, p)                     # C: ned's own engine
+    if ch.len > 0:
+      showHoverAuto(hoverPrefix & ch, auto)
+      return
   let s = lspReady(b)
   let cInfo = if onSymbol and b.lang.mode == lmNim: cHoverInfo(b, p) else: ""
   if onSymbol and nimEngineOn(b):
@@ -598,7 +604,7 @@ proc cmdRename() =
     return
   if s != nil and s.caps != nil and s.caps{"renameProvider"} != nil:
     openPrompt(pLspRename, "Rename '" & w & "' to", w)
-  elif nimEngineOn(b) or (s == nil and nsUsable(b)):
+  elif nimEngineOn(b) or (s == nil and nsUsable(b)) or cEngineOn(b):
     openPrompt(pLspRename, "Rename '" & w & "' to", w)
   else:
     b.cursors = @[cur(b.primary.head)]

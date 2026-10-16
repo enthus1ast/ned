@@ -8,6 +8,13 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
         result.add act("Format the " & lg.name & " in this string", "as " & lg.name & ", at the string's indentation",
                        proc() = cmdFormatEmbedded())
   let ds = diagsAtCursor(b)
+  if b.lang != nil and b.lang.id in ["c", "cpp"]:
+    var seenInc: HashSet[string]
+    for d in ds:
+      let (t, dsc, a) = cIncludeFix(b, d)
+      if t.len > 0 and t notin seenInc:
+        seenInc.incl t
+        result.add act(t, dsc, a)
   for d in ds:
     if d.src != "C header": continue
     let u = d.msg.find(" — use ")
