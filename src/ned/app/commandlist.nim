@@ -34,6 +34,7 @@ proc initCommands() =
   add("Format document", "Alt+F", buf().formatBuffer())
   add("Format selection (Nim built in, or the language server)", "Alt+F with lines selected", buf().formatSelection())
   add("Format: the code in this string", "JSON, CSS, C in an emit …", cmdFormatEmbedded())
+  add("Format: preview the change", "side by side, then apply it or not", cmdFormatPreview())
   add("Format: only the lines I changed", "since git last saw the file", (block:
     let b = buf()
     if b.canEdit():
