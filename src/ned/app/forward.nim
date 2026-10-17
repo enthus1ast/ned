@@ -19,6 +19,7 @@ proc precommitChecks(root: string, all: bool, commit: proc())
 proc reviewNoteAt(path: string, line: int): string
 proc reviewHoverAt(path: string, line: int): string
 proc reviewsAfterPush(root: string)
+proc cxFileOf(b: Buffer): CxFile
 proc inactiveRanges(b: Buffer): seq[(int, int)]
 proc lineInactive(rs: seq[(int, int)], line: int): bool
 proc testNoteAt(b: Buffer, line: int): (string, int)

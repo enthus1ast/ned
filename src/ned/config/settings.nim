@@ -375,6 +375,9 @@ proc initSettingDefs() =
   defS("AI", "ai.promptCaching", %true, "Anthropic prompt caching: repeated context costs ~10% and answers start sooner")
   defS("AI", "ai.inlineCompletion", %false, "Grey inline suggestions while you type (Tab accepts) — sends code on every pause")
   defS("AI", "ai.inlineCompletionDelay", %700, "Pause in ms before an inline suggestion is requested")
+  defS("AI", "ai.checkSuggestions", %true,
+       "Nim: an inline suggestion that uses a name that does not exist here (a proc, a field the type does not " &
+       "have) is not shown — ned's engine checks it first")
   defS("AI", "ai.inlineCompletionModel", %"", "Model for inline suggestions (empty = a fast default for the provider)")
   defS("AI", "ai.mcpServers", newJObject(), "MCP servers whose tools the agent may use (each call asks first, " &
        "unless ai.autoApprove is all): {\"github\": {\"command\": \"npx\", \"args\": [\"-y\", " &
