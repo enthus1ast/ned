@@ -90,7 +90,10 @@ proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraP
   for p in searchPaths:
     if p.len > 0 and dirExists(p) and p notin nxSearchPaths: nxSearchPaths.add p
   for p in [libDir / "std", libDir, libDir / "pure", libDir / "core", libDir / "pure" / "collections",
-            libDir / "impure", libDir / "pure" / "concurrency", libDir / "posix", libDir / "system"]:
+            libDir / "impure", libDir / "pure" / "concurrency", libDir / "posix", libDir / "system",
+            # (and the rest of the compiler's own config: winlean for Windows code, jsffi for js code …)
+            libDir / "wrappers", libDir / "windows", libDir / "js", libDir / "deprecated" / "pure",
+            libDir / "deprecated" / "core"]:
     if dirExists(p) and p notin nxSearchPaths: nxSearchPaths.add p
   # nimble packages: the newest version of each
   var best = initTable[string, (seq[int], string)]()

@@ -33,6 +33,7 @@ proc fSimpleTail*(toks: openArray[FTok], a: int): bool =
     case t.kind
     of fkIdent, fkNum, fkStr, fkChar:
       if prevOperand and d == 0: return false      # echo x — a command, not a value
+      if t.kind == fkStr and t.text.len > 0 and t.text[0] in IdentStartChars: return false   # bindSym"x": a call
       prevOperand = true
     of fkDot: prevOperand = false
     of fkOp:
@@ -97,6 +98,7 @@ proc fSplitIdx*(toks: openArray[FTok], a, b: int): (int, int) =
   let t0 = toks[a]
   var hdrEnd = -1
   var valueIf = false
+  var valueTry = false
   if t0.kind == fkKw and t0.text in FRoutineKw and toks[a + 1].kind in {fkIdent, fkKw}:
     hdrEnd = fTopEq(toks, a, b)
   elif t0.kind == fkKw and t0.text in FBlockKw:
@@ -106,7 +108,9 @@ proc fSplitIdx*(toks: openArray[FTok], a, b: int): (int, int) =
     hdrEnd = fCallColon(toks, a, b)          # doAssertRaises(E): body  →  its body on the next line
   else:
     # a lambda as a value:  let f = proc(x: int): int = x + 1  → its body on the next line
-    let eq1 = fTopEq(toks, a, b)
+    let eq1 = if t0.kind == fkKw and t0.text in ["return", "yield"] and a + 1 < b and toks[a + 1].kind == fkKw and
+                 toks[a + 1].text in ["if", "when"]: a          # return if a: b else: c
+              else: fTopEq(toks, a, b)
     if eq1 >= 0 and eq1 + 2 < b and toks[eq1 + 1].kind == fkKw and toks[eq1 + 1].text in ["proc", "func"] and
        toks[eq1 + 2].kind == fkOpen:
       hdrEnd = fTopEq(toks, eq1 + 1, b)
@@ -114,12 +118,17 @@ proc fSplitIdx*(toks: openArray[FTok], a, b: int): (int, int) =
     elif eq1 >= 0 and eq1 + 2 < b and toks[eq1 + 1].kind == fkKw and toks[eq1 + 1].text in ["if", "when"]:
       hdrEnd = fTopColon(toks, eq1 + 2, b)
       valueIf = true
+    # a try-expression as a value:  x = try: f() except E: y
+    elif eq1 >= 0 and eq1 + 2 < b and toks[eq1 + 1].kind == fkKw and toks[eq1 + 1].text == "try" and
+         toks[eq1 + 2].kind == fkColon:
+      hdrEnd = eq1 + 2
+      valueTry = true
   if hdrEnd < 0 or hdrEnd >= b - 1 or toks[hdrEnd + 1].kind == fkComment: return (-1, -1)
   # the body runs to an elif/else (or except/finally) of this statement, not of an if-expression inside it
   var stop = b
   var nested = 0
   var d = 0
-  let tryLike = t0.text in ["try", "except"]
+  let tryLike = valueTry or t0.text in ["try", "except"]
   let ifLike = valueIf or t0.text in ["if", "elif", "when"]
   for k in hdrEnd + 1 ..< b:
     let t = toks[k]
@@ -170,19 +179,25 @@ proc fValueEq*(toks: openArray[FTok]): bool =
     elif d == 0 and t.kind == fkKw and t.text in FRoutineKw: return false     # a lambda's body follows
   true
 
-proc fValueIf*(toks: openArray[FTok]): int =
-  ## `x = if a: f() else: g()` whose branches are not plain values: the index of its `=`, or -1
+proc fValueIf*(toks: openArray[FTok], depth = -1): int =
+  ## `x = if a: f() else: g()` whose branches are not plain values (or that is too long on one line at `depth`),
+  ## `return if …`, `x = try: f() except E: y`: the index of its `=` (or `return`), or -1
   if toks.len < 4 or (toks[0].kind == fkKw and (toks[0].text in FRoutineKw or toks[0].text in FBlockKw)):
     return -1
-  let eq = fTopEq(toks, 0, toks.len)
-  if eq < 0 or eq + 2 >= toks.len or toks[eq + 1].kind != fkKw or toks[eq + 1].text notin ["if", "when"]: return -1
+  let eq = if toks[0].kind == fkKw and toks[0].text in ["return", "yield"]: 0 else: fTopEq(toks, 0, toks.len)
+  if eq < 0 or eq + 2 >= toks.len or toks[eq + 1].kind != fkKw or toks[eq + 1].text notin ["if", "when", "try"]:
+    return -1
   let (h, _) = fSplitIdx(toks, 0, toks.len)
-  if h < 0 or fInlineIf(toks, eq + 1, toks.len): return -1
+  if h < 0: return -1
+  if toks[eq + 1].text != "try" and fInlineIf(toks, eq + 1, toks.len) and
+     (depth < 0 or depth * 2 + fRender(toks).len <= FmtMax):
+    return -1
   eq
 
-proc fKeepInline*(toks: openArray[FTok]): bool =
-  ## `if a: x else: y` and `v = if a: x else: y` with plain values stay on one line (like nph)
+proc fKeepInline*(toks: openArray[FTok], depth = -1): bool =
+  ## `if a: x else: y` and `v = if a: x else: y` with plain values stay on one line (like nph) — when it fits
   if toks.len == 0: return false
+  if depth >= 0 and depth * 2 + fRender(toks).len > FmtMax: return false
   let t0 = toks[0]
   if t0.kind == fkKw and t0.text in ["if", "when"]: return fInlineIf(toks, 0, toks.len)
   if t0.kind == fkKw and (t0.text in FBlockKw or t0.text in FRoutineKw): return false
@@ -607,7 +622,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     # if-expression value gets one branch per line
     let ifExpr = o.exprLine and t0.kind == fkKw and t0.text in ["if", "when"]
     var splitHere = not inType and (not o.exprLine or ifExpr)
-    if splitHere and (fKeepInline(l.toks) or inlineBranch[i]): splitHere = false
+    if splitHere and (fKeepInline(l.toks, l.depth) or inlineBranch[i]): splitHere = false
     if inType:
       let (_, body0, _) = fSplitStatement(l)
       splitHere = body0.len > 0 and body0[0].kind == fkKw and body0[0].text in ["discard", "nil"]
@@ -617,7 +632,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       while pending.len > 0:
         let (toks, dep, blnk) = pending[0]
         pending.delete(0)
-        let veq = fValueIf(toks)
+        let veq = fValueIf(toks, dep)
         if veq >= 0:
           # x = if a: f() else: g()  →  x = ⏎ if a: ⏎ f() ⏎ else: ⏎ g()
           result.add FOut(depth: dep, toks: toks[0 .. veq], blank: blnk and first,
@@ -625,7 +640,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
           first = false
           pending.insert((toks[veq + 1 .. ^1], dep + 1, false), 0)
           continue
-        if not first and fKeepInline(toks):
+        if not first and fKeepInline(toks, dep):
           result.add FOut(depth: dep, toks: toks, importish: o.importish)
           continue
         let (hdr, body, rest) = fSplitStatement(FLine(toks: toks, depth: dep))
@@ -639,7 +654,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
         first = false
         if body.len > 0:
           let (h2, b2, r2) = fSplitStatement(FLine(toks: body, depth: dep + 1))
-          if (b2.len > 0 and not fKeepInline(body)) or fValueIf(body) >= 0:
+          if (b2.len > 0 and not fKeepInline(body, dep + 1)) or fValueIf(body, dep + 1) >= 0:
             pending.insert((body, dep + 1, false), 0)
           else: result.add FOut(depth: dep + 1, toks: body)
           discard h2
@@ -1728,6 +1743,7 @@ proc fStructureOf*(lines: seq[FLine]): seq[int] =
       delta = result[^1] - base             # `else: static:` — the block opened last holds the children
     elif t0.kind == fkKw and t0.text in FSectionKw and fCodeToks(l.toks) > 1: inc delta    # (`const ## doc`: not one)
     if fValueEq(l.toks): dec delta
+    if l.toks.len == 1 and t0.kind == fkKw and t0.text in ["return", "yield"]: dec delta   # return ⏎ if a: …
     if t0.kind == fkKw and t0.text == "case": dec delta          # its branches, if indented
     # `import` on its own line: the modules under it are part of that one statement
     if l.toks.len == 1 and t0.kind == fkKw and t0.text in ["import", "export", "include"]: dec delta
