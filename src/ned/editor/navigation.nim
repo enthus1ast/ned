@@ -530,6 +530,8 @@ proc cmdHover(auto = false) =
       let pm = if b.lang.mode == lmNim: prettyNimError(d.msg) else: d.msg
       if pm != d.msg: lines.add "**error**\n```text\n" & pm.strip(leading = false) & "\n```"     # keep its layout
       else: lines.add (if d.sev == 1: "error: " elif d.sev == 2: "warning: " else: "info: ") & d.msg
+  let rh = reviewHoverAt(b.path, p.line)              # a review comment of the pull request
+  if rh.len > 0: lines.add rh
   if cfgShowCopies and b.id in copyMarks and p.line in copyMarks[b.id]:
     for m in copyMarks[b.id][p.line]:
       if m.text == b.lines[p.line] and p.col >= m.startCol and p.col <= m.col: lines.add m.what

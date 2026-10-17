@@ -650,6 +650,9 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                 bb.setSingle(bb.clampPos(Pos(line: dl, col: dc)))
                 if fixable: cmdCodeActions() else: cmdHover(),
                 (if fixable: "Fix it (Alt+Enter)" else: "The whole message (Alt+H)"))
+        elif b.path.len > 0 and (let rn = reviewNoteAt(b.path, line); rn.len > 0) and ex + 6 < limX:
+          # a review comment of the branch's pull request (GitHub)
+          discard putStr(ex + 3, y, rn, blend(theme.info, theme.inlay, 0.3), rowBg, {aItalic}, limX)
         elif b.lang.mode == lmNim and (let (tnote, tst) = b.testNoteAt(line); tst > 0) and ex + 6 < limX:
           # a test's last result (run on save, or by ▶)
           let tc = case tst
