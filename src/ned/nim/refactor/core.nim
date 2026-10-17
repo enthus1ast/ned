@@ -182,7 +182,7 @@ proc rfDeclOf(b: Buffer): (NxRef, bool) =
   if a0.col >= e0.col: return
   let at = nxSymAt(f, p.line, a0.col)
   if at >= 0:
-    if f.syms[at].kind in NxRoutineKinds + {nxType, nxConst}: return (NxRef(file: f, idx: at), true)
+    if f.syms[at].kind in NxRoutineKinds + {nxType, nxConst}: return (NxRef(file: f, idx: int32(at)), true)
     return
   let (rs, _, mp) = nxTargets(f, b.lines, p.line, a0.col)
   if mp.len > 0: return

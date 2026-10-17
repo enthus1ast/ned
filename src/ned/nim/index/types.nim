@@ -74,7 +74,7 @@ proc nxFields*(sc: NxScope, typ: string, depth = 0): seq[NxRef] =
   if r.file == nil: return
   let owner = r.sym.name
   for i, s in r.file.syms:
-    if s.kind == nxField and s.owner == owner: result.add NxRef(file: r.file, idx: i)
+    if s.kind == nxField and s.owner == owner: result.add NxRef(file: r.file, idx: int32(i))
   let k = def.find(" of ")
   if k >= 0:
     let base = def[k + 4 .. ^1].strip

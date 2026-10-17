@@ -275,7 +275,7 @@ proc nxOpUses(t: NxRef, lines: seq[string], g: NxFile, path: string, hits: var s
       if e - s != op.len or lines[l][s ..< e] != op: continue
       let d = nxSymAt(g, l, s)
       if d >= 0:
-        if nxSameDecl(t, NxRef(file: g, idx: d)): hits.add (path, l, s)
+        if nxSameDecl(t, NxRef(file: g, idx: int32(d))): hits.add (path, l, s)
         continue
       inc checked
       if (limit >= 0 and checked > limit) or msSince(t0) > budgetMs: return false
@@ -338,7 +338,7 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
   var locals: seq[NxSym]
   var modPath = ""
   let at = nxSymAt(f, p.line, a0.col)
-  if at >= 0: targets = @[NxRef(file: f, idx: at)]
+  if at >= 0: targets = @[NxRef(file: f, idx: int32(at))]
   else: (targets, locals, modPath) = nxTargets(f, b.lines, p.line, a0.col)
   if modPath.len > 0 or (targets.len == 0 and locals.len == 0): return false
   let t0 = getMonoTime()
@@ -390,7 +390,7 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
         let d = nxSymAt(g, l, s)
         var ok = false
         if d >= 0:
-          let r = NxRef(file: g, idx: d)
+          let r = NxRef(file: g, idx: int32(d))
           for t in targets:
             if nxSameDecl(t, r): ok = true
         elif slow: ok = true

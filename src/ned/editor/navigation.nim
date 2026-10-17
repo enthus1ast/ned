@@ -261,7 +261,7 @@ proc nimSubtypes(sc: NxScope, name: string): seq[(NxRef, int)] =
         if parent in frontier and nxNorm(sy.name) notin seen:
           seen.incl nxNorm(sy.name)
           next.add nxNorm(sy.name)
-          result.add (NxRef(file: g, idx: i), depth)
+          result.add (NxRef(file: g, idx: int32(i)), depth)
           # (and the ref type made for it: CircleRef = ref CircleObj)
           for h in files:
             for j, sz in h.syms:

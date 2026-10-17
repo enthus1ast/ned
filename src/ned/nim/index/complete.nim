@@ -369,7 +369,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       for r in nxLookup(sc, v.typeName):
         if r.sym.kind == nxType:
           for i, s in r.file.syms:
-            if s.kind == nxEnumVal and s.owner == v.typeName: vals.add NxRef(file: r.file, idx: i)
+            if s.kind == nxEnumVal and s.owner == v.typeName: vals.add NxRef(file: r.file, idx: int32(i))
       nxAddRefs(result.items, f, vals)
       var tprocs: seq[NxRef]
       for r in sc.refs:
@@ -575,7 +575,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
         if s2.kind == nxEnumVal and s2.owner == r.sym.name:
           let used = nxNorm(s2.name) in taken
           result.items.add NxItem(label: s2.name, detail: r.sym.name & (if used: " · has a branch" else: ""),
-                                  kind: nxEnumVal, rank: (if used: 3 else: 0), refs: @[NxRef(file: r.file, idx: i)])
+                                  kind: nxEnumVal, rank: (if used: 3 else: 0), refs: @[NxRef(file: r.file, idx: int32(i))])
       break
 
 proc nxRstToMd*(doc0: string): string =

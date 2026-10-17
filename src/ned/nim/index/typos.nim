@@ -135,7 +135,9 @@ proc nxTypos*(f: NxFile, lines: seq[string], lo, hi: int, cur: (int, int)): seq[
               best = cand
               bestShown = asWritten
         if bestD > 1:
-          for cand, _ in sc.byName:
+          var names: HashSet[string]
+          for r in sc.refs: names.incl nxNorm(r.file.syms[r.idx].name)
+          for cand in names:
             if cand.len > 2 and abs(cand.len - nw.len) <= maxD and cand[0].toLowerAscii == nw[0].toLowerAscii:
               let dd = nxTypoDist(cand.toLowerAscii, nw.toLowerAscii)
               if dd <= maxD and dd < bestD:
