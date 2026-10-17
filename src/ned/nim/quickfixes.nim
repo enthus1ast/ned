@@ -1,3 +1,44 @@
+proc nimProblemFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
+  ## the fixes for the compiler's problems `ds` (on one line of a Nim file): each one's own fixes, "all of this kind
+  ## in the file", the imports that declare an undeclared name, the removal of an unused import (also used by nedls)
+  var titles: HashSet[string]
+  var kinds: HashSet[string]
+  for d in ds:
+    for fx in nimDiagFixes(b, d):
+      if fx[0] notin titles:
+        titles.incl fx[0]
+        result.add fx
+    let k = nimFixKind(d)
+    if k.len > 0 and k notin kinds:
+      kinds.incl k
+      let (n, a) = nimFixAll(b, k)
+      if n > 1: result.add act("Fix all " & $n & " like this in the file", (case k
+        of "discard": "discard every unused result"
+        of "bareExcept": "except CatchableError: everywhere"
+        of "unusedImport": "remove every unused import"
+        else: "the new name everywhere it is used"), a)
+  for d in ds:
+    let m = d.msg
+    let name = quotedName(m)
+    if name.len == 0: continue
+    if "undeclared identifier" in m or "undeclared routine" in m or "undeclared field" in m:
+      loadNimIndex()
+      var mods = nimIndex.getOrDefault(name)
+      mods.sort(proc(x, y: string): int = cmp(x.len, y.len))
+      for k, md in mods:
+        if k >= 6: break
+        if ("Import " & md) in titles: continue
+        titles.incl "Import " & md
+        result.add act("Import " & md, "exports " & name, importAct(b.id, md))
+      # the project's own modules that export it
+      if "undeclared field" notin m:
+        for md in projectModulesExporting(b, name):
+          if ("Import " & md) in titles: continue
+          titles.incl "Import " & md
+          result.add act("Import " & md, "this project's module exports " & name, importAct(b.id, md))
+    elif "imported and not used" in m:
+      result.add act("Remove unused import " & name, "", removeImportAct(b.id, name))
+
 proc localFixes(b: Buffer): seq[(string, string, Action)] =
   ## quick fixes ned offers itself, next to the language server's
   result = spellFixes(b)
@@ -87,45 +128,7 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
     if rok and rd.file.path == b.path and rd.sym.kind in NxRoutineKinds + {nxType} and rd.sym.line == b.primary.head.line:
       result.add act("Move " & rd.sym.name & " to another module…", "imports follow", proc() = cmdMoveToModule())
   let diagStart = result.len
-  if b.lang.mode == lmNim:
-    # the compiler's problems on this line: their fixes, then "all of this kind in the file"
-    var titles: HashSet[string]
-    var kinds: HashSet[string]
-    for d in ds:
-      for fx in nimDiagFixes(b, d):
-        if fx[0] notin titles:
-          titles.incl fx[0]
-          result.add fx
-      let k = nimFixKind(d)
-      if k.len > 0 and k notin kinds:
-        kinds.incl k
-        let (n, a) = nimFixAll(b, k)
-        if n > 1: result.add act("Fix all " & $n & " like this in the file", (case k
-          of "discard": "discard every unused result"
-          of "bareExcept": "except CatchableError: everywhere"
-          of "unusedImport": "remove every unused import"
-          else: "the new name everywhere it is used"), a)
-    for d in ds:
-      let m = d.msg
-      let name = quotedName(m)
-      if name.len == 0: continue
-      if "undeclared identifier" in m or "undeclared routine" in m or "undeclared field" in m:
-        loadNimIndex()
-        var mods = nimIndex.getOrDefault(name)
-        mods.sort(proc(x, y: string): int = cmp(x.len, y.len))
-        for k, md in mods:
-          if k >= 6: break
-          if ("Import " & md) in titles: continue
-          titles.incl "Import " & md
-          result.add act("Import " & md, "exports " & name, importAct(b.id, md))
-        # the project's own modules that export it
-        if "undeclared field" notin m:
-          for md in projectModulesExporting(b, name):
-            if ("Import " & md) in titles: continue
-            titles.incl "Import " & md
-            result.add act("Import " & md, "this project's module exports " & name, importAct(b.id, md))
-      elif "imported and not used" in m:
-        result.add act("Remove unused import " & name, "", removeImportAct(b.id, name))
+  if b.lang.mode == lmNim: result.add nimProblemFixes(b, ds)
   if result.len > diagStart and diagStart > refStart:
     # (the fixes for the problem on this line before the refactorings the cursor's word allows)
     result = result[0 ..< refStart] & result[diagStart .. ^1] & result[refStart ..< diagStart]

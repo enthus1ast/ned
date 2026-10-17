@@ -14,6 +14,7 @@ type FOut* = object
   exprLine*: bool       # a value on its own line after `x =`
   declLike*: bool       # a declaration (a section's member, a field, a routine): a `##` may go under it
   children*: int        # deeper lines right after it
+  lambdaCmd*: bool      # a command whose last argument is a lambda opening a block: one argument a line
 
 proc fTop*(toks: openArray[FTok], what: proc(t: FTok, depth: int): bool): int =
   var d = 0
@@ -163,6 +164,30 @@ proc fKeepInline*(toks: openArray[FTok]): bool =
   eq >= 0 and eq + 1 < toks.len and toks[eq + 1].kind == fkKw and toks[eq + 1].text in ["if", "when"] and
     fInlineIf(toks, eq + 1, toks.len)
 
+proc fLambdaAt*(e: openArray[FTok], a: int): int
+
+proc fLambdaCmd*(toks: openArray[FTok]): bool =
+  ## `cmd a, b, proc(x: T) =` — a command (no parentheses) of two or more arguments whose last one is a lambda
+  ## opening a block: nph writes its arguments one a line, the lambda's body under the lambda
+  if toks.len < 6 or toks[0].kind != fkIdent or toks[^1].kind != fkOp or toks[^1].text != "=": return false
+  var k = 0
+  while k + 2 < toks.len and toks[k + 1].kind == fkDot and toks[k + 2].kind == fkIdent: k += 2
+  if k + 1 >= toks.len: return false
+  let a = toks[k + 1]
+  if not (a.sp or a.nl) or a.kind notin {fkIdent, fkNum, fkStr, fkChar, fkOpen} or (a.kind == fkOpen and a.text == "("):
+    return false
+  var d = 0
+  var lastComma = -1
+  for j in k + 1 ..< toks.len:
+    let t = toks[j]
+    if t.kind in {fkOpen, fkPragOpen}: inc d
+    elif t.kind in {fkClose, fkPragClose}: dec d
+    elif t.kind in {fkComment, fkSemi}: return false
+    elif d == 0 and t.kind == fkComma: lastComma = j
+    elif d == 0 and t.kind == fkOp and t.text == "=" and j < toks.high and lastComma < 0: return false
+    elif d == 0 and t.kind == fkKw and t.text in FBlockKw: return false
+  lastComma > k + 1 and fLambdaAt(toks, lastComma + 1) == toks.high
+
 proc fTypeMemberComplex*(l: FLine): bool =
   for t in l.toks:
     if t.kind == fkKw and t.text in ["object", "enum"]: return true
@@ -273,6 +298,28 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
         inc q
       continue
     res.add move(work[k])
+  work = move(res)
+  # a lambda on the line after `x =`: up on that line, its body one less deep (like nph)
+  res = @[]
+  var ak = 0
+  while ak < work.len:
+    let l = work[ak]
+    if not l.comment and not l.verbatim and l.toks.len >= 2 and l.toks[^1].kind == fkOp and l.toks[^1].text == "=" and
+       fValueEq(l.toks) and ak + 1 < work.len:
+      let m = work[ak + 1]
+      if not m.comment and not m.verbatim and not m.blank and m.depth == l.depth + 1 and m.toks.len >= 3 and
+         fLambdaAt(m.toks, 0) == m.toks.high:
+        var merged = l
+        merged.toks = l.toks & m.toks
+        res.add merged
+        var q = ak + 2
+        while q < work.len and work[q].depth > m.depth:
+          work[q].depth -= 1             # (in place: a lambda in its body is looked at next)
+          inc q
+        ak += 2
+        continue
+    res.add l
+    inc ak
   work = move(res)
   # a value that is an if/case/try over several lines: `x =` ⏎ the expression under it, its branches lined up
   # (like nph)
@@ -461,6 +508,16 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       continue
     let t0 = l.toks[0]
     let inType = typeDepth >= 0 and l.depth > typeDepth
+    if not inType and fLambdaCmd(l.toks):
+      # `cmd a, b, proc(…) =`: the arguments one a line (fRenderLine), the lambda's body under the lambda
+      o.lambdaCmd = true
+      var j = i + 1
+      while j < work.len and work[j].depth > l.depth:
+        work[j].depth += 1
+        inc j
+      result.add o
+      inc i
+      continue
     # a value on its own line after `x =` (not a routine body): an expression, never split
     var pc = i - 1
     while pc >= 0 and work[pc].comment: dec pc
@@ -684,6 +741,135 @@ proc fPragmaWrap(toks: seq[FTok], ind, pind: int): seq[string] =
       return
   fWrapGroup(toks[0 .. open], toks[open + 1 ..< close], toks[close .. ^1], ind, pind, false, noTrailing = true)
 
+proc fLambdaAt*(e: openArray[FTok], a: int): int =
+  ## e[a] starts a lambda (`proc(x: int): int =` …): the index of the `=` its body follows, else -1
+  if a + 1 >= e.len or e[a].kind != fkKw or e[a].text notin ["proc", "func", "iterator"] or
+     e[a + 1].kind != fkOpen or e[a + 1].text != "(":
+    return -1
+  var d = 0
+  for k in a ..< e.len:
+    let t = e[k]
+    if t.kind in {fkOpen, fkPragOpen}: inc d
+    elif t.kind in {fkClose, fkPragClose}: dec d
+    elif d == 0 and t.kind == fkOp and t.text == "=": return k
+    elif d == 0 and t.kind in {fkComma, fkSemi, fkComment}: return -1
+  -1
+
+proc fBlockElem*(e: openArray[FTok]): (int, int) =
+  ## a list element nph writes as a block: a lambda with its body on the line (`proc(x: int): int = x + 1`, also
+  ## as `name = …` or `name: …`) or an if-expression whose branches are not plain values — (0 a lambda, 1 an if;
+  ## where it starts), or (-1, -1)
+  result = (-1, -1)
+  var last = e.high
+  while last >= 0 and e[last].kind == fkComma: dec last
+  if last < 3: return
+  for k in 0 .. last:
+    if e[k].kind == fkComment: return
+  var a = 0
+  if e[0].kind == fkIdent and ((e[1].kind == fkOp and e[1].text == "=") or e[1].kind == fkColon): a = 2
+  let eq = fLambdaAt(e, a)
+  if eq > a and eq < last:
+    for k in eq + 1 .. last:
+      if e[k].kind == fkSemi or (e[k].kind == fkKw and e[k].text in FBlockKw): return    # (one plain body only)
+    return (0, a)
+  if a == 0 and e[0].kind == fkKw and e[0].text in ["if", "when"]:
+    let (h, _) = fSplitIdx(e, 0, last + 1)
+    if h <= 0 or fInlineIf(e, 0, last + 1): return
+    var d = 0
+    var hasElse = false
+    for k in h + 1 .. last:
+      let t = e[k]
+      if t.kind in {fkOpen, fkPragOpen}: inc d
+      elif t.kind in {fkClose, fkPragClose}: dec d
+      elif d == 0 and t.kind == fkKw and t.text == "else": hasElse = true
+      elif d == 0 and t.kind == fkSemi: return
+    if hasElse: return (1, 0)
+
+proc fCommandLike*(toks: openArray[FTok]): bool =
+  ## a statement or a command call (`echo x`, `s.add item`, `discard f()`): a comma after it would be read as more
+  ## of its arguments
+  if toks.len == 0: return false
+  if toks[0].kind == fkKw and toks[0].text in ["discard", "return", "raise", "yield", "break", "continue", "echo"]:
+    return true
+  var d = 0
+  for k, t in toks:
+    if t.kind in {fkOpen, fkPragOpen}:
+      if d == 0 and k > 0 and (t.sp or t.nl) and fOperand(toks[k - 1]): return true     # `f (a, b)`, `f [x]`
+      inc d
+    elif t.kind in {fkClose, fkPragClose}: dec d
+    elif d == 0 and k > 0 and (t.sp or t.nl) and t.kind in {fkIdent, fkNum, fkStr, fkChar} and fOperand(toks[k - 1]):
+      return true
+    elif d == 0 and k > 0 and t.kind == fkOp and (t.sp or t.nl) and k + 1 < toks.len and
+         not (toks[k + 1].sp or toks[k + 1].nl) and fOperand(toks[k - 1]):
+      return true                                            # `f -1`: a prefix operator, an argument
+  false
+
+proc fBlockElemLines*(e: seq[FTok], kind, a, ind: int): seq[string] =
+  ## a list element (fBlockElem) as nph writes it: `proc(x: int): int =` ⏎ its body, or `if a:` ⏎ value ⏎
+  ## `else:` ⏎ value — a comma after its last line when it has one; @[] when it cannot be split so
+  var last = e.high
+  var tail = ""
+  if last >= 0 and e[last].kind == fkComma:
+    tail = ","
+    dec last
+  let pad = spaces(ind)
+  let bpad = spaces(ind + 2)
+  var lastPart: seq[FTok]
+  if kind == 0:
+    let eq = fLambdaAt(e, a)
+    if eq < 0: return @[]
+    lastPart = e[eq + 1 .. last]
+    result = @[pad & fRender(e[0 .. eq]), bpad & fRender(lastPart)]
+  else:
+    var rest = e[0 .. last]
+    while rest.len > 0:
+      let (h, stop) = fSplitIdx(rest, 0, rest.len)
+      if h < 0 or h + 1 >= stop: return @[]
+      result.add pad & fRender(rest[0 .. h])
+      lastPart = rest[h + 1 ..< stop]
+      result.add bpad & fRender(lastPart)
+      rest = rest[stop .. ^1]
+    if result.len < 4: return @[]
+  # (after a command the comma goes on a line of its own: `s.add x,` would give it one more argument — like nph)
+  if tail.len > 0:
+    if fCommandLike(lastPart): result.add pad & tail
+    else: result[^1].add tail
+
+proc fBlockElemGroup*(toks: seq[FTok]): (int, int) =
+  ## the call (or object construction) of a line whose arguments hold a block element (fBlockElem): nph writes
+  ## them one a line however short the line is — (its `(`, its `)`), or (-1, -1) (none, or more than one such call)
+  result = (-1, -1)
+  var d = 0
+  var k = 0
+  while k < toks.len:
+    let t = toks[k]
+    if t.kind == fkOpen and d == 0 and t.text == "(" and fCallParen(toks, k):
+      var dd = 0
+      var close = -1
+      var elemStart = k + 1
+      var found = false
+      for j in k ..< toks.len:
+        let u = toks[j]
+        if u.kind in {fkOpen, fkPragOpen}: inc dd
+        elif u.kind in {fkClose, fkPragClose}:
+          dec dd
+          if dd == 0:
+            close = j
+            if fBlockElem(toks.toOpenArray(elemStart, j - 1))[0] >= 0: found = true
+            break
+        elif dd == 1 and u.kind == fkComma:
+          if fBlockElem(toks.toOpenArray(elemStart, j))[0] >= 0: found = true
+          elemStart = j + 1
+      if close < 0: return (-1, -1)
+      if found:
+        if result[0] >= 0: return (-1, -1)
+        result = (k, close)
+      k = close + 1
+      continue
+    if t.kind in {fkOpen, fkPragOpen}: inc d
+    elif t.kind in {fkClose, fkPragClose}: dec d
+    inc k
+
 proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: int, innerInd: int,
                 onePerLine: bool, params = false, importish = false, noTrailing = false): seq[string] =
   ## prefix( ⏎ inner ⏎ )suffix   — inner packed on lines (or one element per line, with a trailing comma)
@@ -761,10 +947,21 @@ proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: in
       if k == elems.high and ee.len > 0 and ee[^1].kind == fkComma: ee.setLen(ee.len - 1)
       s.add (if k > 0: " " else: "") & fRender(ee, importish = importish)
     s
-  if not hasComment and not forced and single.len <= FmtMax:
+  var blockElems = false
+  if not params:
+    for e in elems:
+      if fBlockElem(e)[0] >= 0: blockElems = true
+  if not hasComment and not forced and not blockElems and single.len <= FmtMax:
     lines.add single
   elif onePerLine or hasComment:
     for e in elems:
+      if not params:
+        let (bk, ba) = fBlockElem(e)
+        if bk >= 0:
+          let bl = fBlockElemLines(e, bk, ba, innerInd)
+          if bl.len > 0:
+            lines.add bl
+            continue
       let r = pad & fRender(e, importish = importish)
       let colon = fTop(e, proc(t: FTok, d: int): bool = t.kind == fkColon)
       if r.len > FmtMax and not params:
@@ -1006,7 +1203,7 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
     o.toks = fParamSemis(o.toks)
   else:
     o = FOut(depth: o0.depth, comment: o0.comment, importish: o0.importish, exprLine: o0.exprLine,
-             complexKind: o0.complexKind, declLike: o0.declLike)
+             complexKind: o0.complexKind, declLike: o0.declLike, lambdaCmd: o0.lambdaCmd)
     o.toks = o0.toks            # shares the tokens (refs): no copy of the line
   # (trailing commas go, and come back wherever a list is laid out one per line: the next run decides alike)
   if hasTrailing and not o.comment: o.toks = fDropTrailing(o.toks)
@@ -1024,6 +1221,29 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
   if FmtParams != fwFit or FmtArgs != fwFit or FmtColl != fwFit:
     let r = fListLayout(o, one.len <= FmtMax and not hasInnerComment)
     if r.len > 0: return r
+  if not hasInnerComment and FmtArgs != fwKeep:
+    # a call with a lambda or an if-expression among its arguments: one argument a line, those as blocks (nph)
+    let (bo, bc) = fBlockElemGroup(o.toks)
+    if bo > 0:
+      let r = fWrapGroup(o.toks[0 .. bo], o.toks[bo + 1 ..< bc], o.toks[bc .. ^1], ind, ind + 2, true)
+      if r.len > 0: return r
+    if o.lambdaCmd:
+      # a command whose last argument is a lambda with a block: `cmd a,` ⏎ each other argument ⏎ `proc(…) =`
+      var elems: seq[seq[FTok]]
+      var cur: seq[FTok]
+      var d = 0
+      for t in o.toks:
+        if t.kind in {fkOpen, fkPragOpen}: inc d
+        elif t.kind in {fkClose, fkPragClose}: dec d
+        cur.add t
+        if d == 0 and t.kind == fkComma:
+          elems.add cur
+          cur = @[]
+      if cur.len > 0: elems.add cur
+      if elems.len >= 2:
+        result = @[pad & fRender(elems[0])]
+        for e in elems[1 .. ^1]: result.add pad & "  " & fRender(e)
+        return
   if one.len <= FmtMax and not hasInnerComment:
     # a trailing comma before the closing bracket goes away on one line
     if not hasTrailing: return @[one]
