@@ -4918,4 +4918,93 @@ def t_63_git():
           os.path.isdir(dest + '/.git'), screen())
     check('63 … and a Nim project offers to install what it needs', wait_for('install the packages it needs', 5), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline]
+def t_68_nedfmt():
+    # ned --format (and nedfmt): --diff, stdin, --outDir, .nph.toml filters, the pre-commit hook; then the Nim
+    # parser as the formatter's second check (nim.format.verify) — in the editor too
+    setup()
+    messy = 'proc  g(a:int,b:int):int=\n    a+b\n'
+    open(W + '/m.nim', 'w').write(messy)
+    r = subprocess.run([BIN, '--format', '--diff', W + '/m.nim'], capture_output=True, text=True)
+    check('68 --diff shows the change and changes nothing', r.returncode == 0 and '-proc  g(a:int,b:int):int=' in r.stdout and
+          '+proc g(a: int, b: int): int =' in r.stdout and ftext('m.nim') == messy, r.stdout + r.stderr)
+    r = subprocess.run([BIN, '--format', '--stdin-name=x.nim', '-'], input='let  x=1\n', capture_output=True, text=True)
+    check('68 stdin to stdout', r.returncode == 0 and r.stdout == 'let x = 1\n', repr((r.returncode, r.stdout, r.stderr)))
+    os.makedirs(W + '/fmtdir/vendor', exist_ok=True)
+    open(W + '/fmtdir/a.nim', 'w').write(messy)
+    open(W + '/fmtdir/vendor/b.nim', 'w').write(messy)
+    open(W + '/fmtdir/.nph.toml', 'w').write('extend-exclude = [\n  "vendor",\n]\n')
+    r = subprocess.run([BIN, '--format', '--check', '.'], capture_output=True, text=True, cwd=W + '/fmtdir')
+    check('68 .nph.toml: vendor/ left out', r.returncode == 1 and 'a.nim: would change' in r.stdout and 'vendor' not in r.stdout,
+          r.stdout + r.stderr)
+    r = subprocess.run([BIN, '--format', '--quiet', '--outDir:out', 'a.nim'], capture_output=True, text=True, cwd=W + '/fmtdir')
+    check('68 --outDir writes beside, the original stays', r.returncode == 0 and ftext('fmtdir/out/a.nim').startswith('proc g(a: int') and
+          ftext('fmtdir/a.nim') == messy, r.stdout + r.stderr)
+    # the hook: an unformatted staged file stops the commit, a formatted one goes through
+    env = dict(os.environ, PATH=os.path.dirname(BIN) + ':' + os.environ.get('PATH', ''))
+    r = subprocess.run([BIN, '--format', '--install-hook'], capture_output=True, text=True, cwd=W, env=env)
+    hook = open(W + '/.git/hooks/pre-commit').read() if os.path.exists(W + '/.git/hooks/pre-commit') else ''
+    sh('cd %s && git add m.nim' % W)
+    c1 = sh('cd %s && git -c user.name=t -c user.email=t@t commit -qm messy' % W)
+    subprocess.run([BIN, '--format', '--quiet', W + '/m.nim'])
+    sh('cd %s && git add m.nim' % W)
+    c2 = sh('cd %s && git -c user.name=t -c user.email=t@t commit -qm tidy' % W)
+    check('68 pre-commit hook: unformatted refused, formatted committed', r.returncode == 0 and '--format --check' in hook and
+          c1.returncode != 0 and 'm.nim' in c1.stderr and c2.returncode == 0, repr((r.stdout, r.stderr, c1.stderr, c2.stderr)))
+    sh('rm -f %s/.git/hooks/pre-commit' % W)
+    # Nim's parser as a second check: needs the compiler's sources (a source build here)
+    if not os.path.exists(NIMROOT + '/compiler/parser.nim'):
+        check('68 parser check (skipped: no compiler sources)', True); return
+    open(W + '/v.nim', 'w').write(messy)
+    r = subprocess.run([BIN, '--format', '--verify', W + '/v.nim'], capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, PATH=NIMBIN + ':' + os.environ.get('PATH', '')))
+    check('68 --verify builds the checker once and formats', r.returncode == 0 and ftext('v.nim').startswith('proc g(a: int'),
+          repr((r.returncode, r.stdout, r.stderr)))
+    setup({"nim.format.verify": True})
+    open(W + '/v2.nim', 'w').write(messy)
+    start('v2.nim')
+    keys('M-f'); ok = wait_for(r'Formatted', 20); keys('C-s'); time.sleep(0.5)
+    check('68 the editor formats with the parser check on', ok and ftext('v2.nim').startswith('proc g(a: int'), screen()[-600:])
+
+def t_68_engine_checks():
+    # the engine's own checks, at once while typing (the compiler's check left to nimsuggest, which is off): a
+    # field typo, a wrong number of arguments, code after a return, an unused local
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest"})
+    open(W + '/ec.nim', 'w').write('type\n  Point = object\n    x, y: int\n    label: string\n\n'
+                                   'proc dist(a, b: Point): int =\n  abs(a.x - b.x) + abs(a.y - b.y)\n\n'
+                                   'proc main() =\n  var p = Point(x: 1, y: 2, label: "a")\n  let q = Point(x: 3, y: 4)\n'
+                                   '  echo p.label\n  echo dist(p, q)\n\nmain()\n')
+    start('ec.nim', w=130, h=34); time.sleep(1.5)
+    keys('C-g'); text('12:16'); keys('Enter'); keys('BSpace', 'BSpace'); text('le')         # label → lable
+    keys('C-g'); text('13:16'); keys('Enter'); text(', 3')                                  # dist(p, q, 3)
+    keys('C-g'); text('13'); keys('Enter', 'End', 'Enter'); text('return'); keys('Enter'); text('echo "never"')
+    keys('Enter'); text('let spare = 1')
+    ok = wait_for(r"did you mean 'label'", 8)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check('68 engine: a field typo, with the field meant', ok, s)
+    check('68 engine: a call with one argument too many', 'dist takes 2 arguments, here 3' in s, s)
+    check('68 engine: code after a return', 'never runs' in s, s)
+    keys('Escape')
+    # off: nothing from the engine but its typo marks
+    tm('kill-server'); time.sleep(0.3)
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest", "nim.engineChecks": False})
+    start('ec.nim', w=130, h=34); time.sleep(1.5)
+    keys('C-g'); text('13:16'); keys('Enter'); text(', 3'); time.sleep(2)
+    check('68 engine checks off: no argument count', 'takes 2 arguments' not in screen(), screen())
+
+def t_68_compiler_answers():
+    # nimsuggest off (the default): a name the engine cannot know (a macro makes it) — hover and Go to definition
+    # ask the compiler once
+    setup({"nim.nimsuggest": False})
+    open(W + '/mac.nim', 'w').write('import std/macros\n\nmacro makeProcs(names: varargs[untyped]): untyped =\n'
+                                    '  result = newStmtList()\n  for n in names:\n    let nm = ident("get" & $n)\n'
+                                    '    result.add quote do:\n      proc `nm`*(): string = "x"\n\nmakeProcs(Foo, Bar)\n\n'
+                                    'echo getFoo()\n')
+    start('mac.nim', w=130, h=34); time.sleep(1.5)
+    keys('C-g'); text('12:7'); keys('Enter'); time.sleep(0.3)
+    keys('M-h')
+    ok = wait_for(r'getFoo\(\): string', 40)
+    check('68 hover on a name a macro makes: the compiler answers', ok, screen())
+    keys('Escape')
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers]

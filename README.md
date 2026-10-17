@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.7](#whats-new-in-67) · [6.6](CHANGELOG.md#whats-new-in-66) · [older releases](CHANGELOG.md)
+- [What's new in 6.8](#whats-new-in-68) · [6.7](CHANGELOG.md#whats-new-in-67) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,89 +40,11 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.7
+## What's new in 6.8
 
-![Theme editor: every colour with a swatch and its contrast, the hard-to-read ones marked](screenshots/theme-editor-67.png)
+TODO68
 
-- **Sign in to GitHub without a password.** A push or pull that GitHub refuses for a login (it stopped taking
-  passwords in 2021) offers two ways in: the GitHub CLI — installed if it is missing, you sign in in the browser,
-  and it becomes git's credential helper — or an SSH key, made in the terminal (you type its passphrase there) and
-  added for you by `gh`, or copied with GitHub's page opened; the remote switches to SSH. ned never asks for,
-  sees or stores a token. The Git dock says who you push as. *Git: sign in to GitHub*.
-- **Undo the last commit, pull or merge.** *Git: undo…* lists the branch's last steps from the reflog — a commit,
-  an amend, a pull, a merge, a whole rebase, a reset, a switch — and undoes one in one step: a commit softly (its
-  changes stay staged), anything else keeping your uncommitted work. A commit you already pushed is reverted with a
-  new commit, unless you say otherwise. Also in the Git dock (*Undo…*).
-- **Checks before a commit** (`git.checksBeforeCommit`: `both`, `format`, `tests` or `off`). The files the commit
-  takes are formatted — what is staged, by ned's own formatters (*format and stage them*, or commit anyway) — and
-  the tests that cover them pass. When one stops the commit, the message stays open.
-- **Pull request review comments on their lines.** The branch's pull request's review threads, from GitHub:
-  a note at the end of the line each is about, the whole thread on hover, a list with the open ones first; reply
-  and resolve from ned. They are fetched again after a push. *Git: GitHub review comments…*
-- **AI that knows your code.** Inline edits and inline suggestions get the declarations the code uses (Nim from
-  the built-in engine, C from ned's C engine: prototypes, structs and their comments), and a suggestion that names
-  what does not exist here — a proc, a field the type lacks — is not shown (`ai.checkSuggestions`).
-- **AI: make a failing test pass.** Alt+Enter on a failed check: the test, how it failed and the code it tests go
-  to the model; its change is applied and the test run again — kept only when it passes, else put back and asked
-  once more with the new failure.
-- **AI: plan first, then do it.** *AI: plan a change, then do it step by step…* (or `/plan …` in the chat): the
-  assistant reads the code — it may not change anything yet — and answers with numbered steps. Do them all, one
-  at a time, or change the plan; each step is a run of its own with a restore point, so *Back to before step 3*
-  puts the files back as they were.
-- **AI on your phone, offline.** *AI: on this device, offline…* finds Ollama (or llama.cpp's server), installs and
-  starts it when needed, downloads a model that fits the device's memory (progress in the status bar), points
-  ned at it and times a first answer. Chat, inline edits and suggestions then work without the internet.
-- **Two language servers at once.** A linter's server runs next to the main one — `ruff` for Python,
-  `golangci-lint-langserver` for Go, `harper-ls` for Markdown, when installed (`lsp.linters`), or any you name
-  (`lsp.alsoRun`) — and their problems and quick fixes are merged: *pylsp + ruff* in the status bar, one Problems
-  list, one Alt+Enter menu.
-- **Links, problems on request, formatting as you type.** Language servers' links are underlined and opened with
-  F12 or Ctrl+click (`#include "x.h"`, `@import`, a JSON `$schema`), and so are URLs in comments; servers that send
-  problems only when asked (pull diagnostics: the newer CSS, HTML and JSON servers) are asked after each change;
-  `editor.formatOnType` lets the server tidy a line as you type `}` or `;`.
-- **Format only what you changed, and look first.** `editor.formatOnSaveScope: changed` keeps the formatter's
-  changes only where they touch lines you changed since git last saw the file (*Format: only the lines I
-  changed*); *Format: preview the change* shows it side by side, then applies all of it, only your lines, or
-  nothing.
-- **The Nim formatter closer to nph.** 98% of the lines of Nim's compiler and standard library now come out as nph
-  writes them (95.3% before): long arguments and literals wrapped in turn, conditions and values filled with
-  whole operands, multi-line `if`/`case` values under their `=`, long `of` lists and pragmas wrapped, imports
-  packed, trailing comments that go on moved under their line. Every result is still checked, and a second run
-  changes nothing.
-- **YAML and TOML formatters** built in: the layout only — one indentation width, text blocks moved as one; spaces
-  around `=`, tables and arrays — each checking that the data is the same (checked on 6 000 files against PyYAML
-  and tomllib).
-- **A theme editor.** *Theme: edit colours…* lists every colour of the theme with a swatch and its contrast, marks
-  the ones that are hard to read, and makes one readable in a step (or lighter, darker, as it was, any colour you
-  type); the changes go into your own copy of the theme and show at once. The theme picker shows each theme's
-  colours too.
-- **Termux in ned's colours.** *Theme: use these colours in all of Termux* writes `~/.termux/colors.properties`
-  from the theme, so the shell after ned looks the same; your own colours are kept and *put back* in one step, and
-  `theme.termuxColors` keeps Termux following every theme change.
-- **Richer Nim colours.** A `var` is tinted (a `let` stays plain), the module's own variables are bold, deprecated
-  procs and types are struck through, and `cast`, `addr`, `unsafeAddr` and `ptr` stand out in the warning colour
-  (`nim.richColors`).
-- **Light by day, dark at night.** *Theme: light by day, dark at night* switches between `theme.light` and
-  `theme.dark` at `theme.dayStarts` and `theme.nightStarts` — useful where the terminal does not say its
-  background, like Termux.
-
-![Richer Nim colours: a var tinted, the module's variables bold, a deprecated proc struck through, cast and addr in the warning colour](screenshots/colors-67.png)
-
-![AI: plan first — numbered steps, then all of them or one at a time, each with a restore point](screenshots/plan-67.png)
-
-Also: editing ned's own source in ned — files that are `include`d into another — no longer shows every name as
-undeclared: they are checked through the file that includes them. The Nim formatter no longer joins an enum's
-values with the next type after a trailing comma, nor takes `SomeNumber | enum | ptr` for an enum, and keeps a
-`##` comment on a statement's line where Nim would not take it under: every file of Nim's compiler and standard
-library, and of ned, now reads the same to Nim's parser after formatting.
-
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies,
-ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one
-parameter a line, [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures,
-[6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's instance, organize
-imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your settings,
-[6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours,
-[6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
+---
 
 ## Features
 
@@ -491,6 +413,20 @@ body), code inside macros' `quote do`, and identifiers nimsuggest has no answer 
 stdin in the file's folder: same imports, same config); a misspelled name is marked at once by the engine. On
 save, `nim check` runs on the file. See [What's new in 5.26](CHANGELOG.md#whats-new-in-526).
 
+**The engine's own checks, at once** (`nim.engineChecks`, on by default), half a second after you stop typing and
+before the compiler's check: a field name that is a typo of one the object has (`p.lable` — *did you mean
+'label'?*), a call with the wrong number of arguments for every routine of that name in scope, code after a
+`return`, `raise`, `break` or `continue` in the same block, and a local `let`/`var` nothing uses. Only what the
+engine can be sure of: not inside templates and macros or what they are given, not where an overload the engine
+cannot see could be the one called, not in `when` branches left out. On Nim's own compiler and standard library
+(463 files, all of which compile) they report nothing but the unused locals the compiler reports too; the
+compiler's word wins on any line where both say something.
+
+**The compiler's answer, once** (`nim.compilerAnswers`, on by default). With nimsuggest off (the default), a
+hover or *Go to definition* the engine has no answer for — a name a macro makes, say — asks the compiler once: one
+nimsuggest run for that question, which then quits, so its memory goes with it. The answer is kept until the file
+changes; your unsaved text goes to it as a private copy, deleted after.
+
 **Expansion.** Alt+M on a template call writes it out with the arguments in place (the engine, at once); on a
 macro call, the compiler expands it (`nim check --expandMacro`). Hover on a template call shows the same.
 
@@ -526,6 +462,55 @@ default).
   Ctrl+↑/↓ scrolls it.
 - *Nim: language server status* shows what the engine has indexed and which search paths and packages it
   uses.
+
+### nedls: ned's engine in other editors
+
+**`nedls`** is ned's Nim engine as a language server (LSP over stdin/stdout), for VS Code, Neovim, Helix, Zed,
+Emacs, Kate, Sublime — instead of nimlangserver or nimsuggest. Its answers are ned's own: the same code the editor
+runs, without its screen. `nimble install` builds it next to ned (or `nimble nedls`, or `nim c -d:release -o:nedls
+src/nedls.nim`).
+
+What it does: completion (with documentation, ned's snippets and postfix templates, the import it adds), hover,
+signature help with every overload, definition, declaration, type definition, references, highlights, rename,
+document and workspace symbols, semantic colours, inlay hints (types and parameter names), folding, formatting
+(ned's formatter; a file it is not sure of gets no edits and a message), the quick fixes for the compiler's
+problems (a missing std import, an unused one), and problems: ned's own checks at once, the compiler on the
+unsaved text after a pause, `nim check` on save. Positions are UTF-8 when the editor offers it, else UTF-16.
+It starts at about 6 MB, holds a big file with its imports in about 16 MB, and answers a hover in a few
+milliseconds and a completion in about 20.
+
+Settings (in the editor's `initializationOptions`, or under `nedls` in its settings): `inlayHints` (true),
+`parameterHints` (`literals`, `all`, `off`), `checkOnSave` (true), `liveDiagnostics` (true),
+`formatLineLength` (88), `nedSettings` (true: your ned settings apply too).
+
+```lua
+-- Neovim 0.11+
+vim.lsp.config('nedls', { cmd = { 'nedls' }, filetypes = { 'nim', 'nims', 'nimble' },
+  root_markers = { 'nim.cfg', 'config.nims', '.git' } })
+vim.lsp.enable('nedls')
+```
+
+```toml
+# Helix: languages.toml
+[language-server.nedls]
+command = "nedls"
+[[language]]
+name = "nim"
+language-servers = ["nedls"]
+```
+
+- **Emacs (eglot):** `(add-to-list 'eglot-server-programs '(nim-mode . ("nedls")))`
+- **Kate** (LSP Client › User Server Settings): `{"servers": {"nim": {"command": ["nedls"], "highlightingModeRegex": "^Nim$"}}}`
+- **Sublime** (LSP settings): `"clients": {"nedls": {"enabled": true, "command": ["nedls"], "selector": "source.nim"}}`
+- **Zed** (with the Nim extension): `"lsp": {"nimlangserver": {"binary": {"path": "/path/to/nedls"}}}`
+- **VS Code:** a generic LSP client extension pointed at `nedls` for the `nim` language (turn off the Nim
+  extension's own server).
+- **ned itself:** `{"nim.ide": "nimlangserver", "lsp": {"nim": ["nedls"]}}` — mostly for testing nedls; the
+  editor has the engine built in anyway.
+
+nedls trusts the folder it is given (it runs `nim dump` and `nim check`, which run the project's `config.nims`):
+editors ask about trusting a workspace themselves. `nimble lsptest` drives it with a test client (every feature,
+and 2000 random edits that must not put it out of step).
 
 ### Using nimlangserver instead
 
@@ -597,9 +582,33 @@ braces in LLVM's layout and evens out spaces — after commas and keywords, arou
 none inside brackets — and keeps your line breaks; like the Nim one, it checks that the code is the same token for
 token, or changes nothing.
 
-From the shell: `ned --format file.nim src/ …` formats files (and the files in folders) in place; `ned --format
---check …` lists the ones that would change (exit 1), for CI or a pre-commit hook. *Format: every file in the
-project…* does it from the editor, with a review first (see the 5.24 notes).
+From the shell: **`nedfmt`** — the same formatters as a small program of their own (`nimble install` builds it
+next to ned; `ned --format` is the same command) — with nph's options:
+
+```sh
+nedfmt src/ tests/                 # format in place (in a git repository: the files git knows, not ignored ones)
+nedfmt --check .                   # CI: exit 1 when a file would change, nothing written
+nedfmt --diff x.nim                # a unified diff of what would change
+cat x.nim | nedfmt -               # stdin to stdout (--stdin-name=path/x.nim: its kind and its project's settings)
+nedfmt --outDir:out src/           # write beside, the originals untouched (--out:FILE for one file)
+nedfmt --install-hook              # a git pre-commit hook: the staged Nim files must be formatted
+nedfmt --verify src/               # check every Nim result with Nim's own parser too (below)
+```
+
+`--exclude`, `--extend-exclude` and `--include` take regular expressions, and nph's `.nph.toml` (exclude,
+extend-exclude, include) is read too, so a project set up for nph needs nothing new; files named on the command
+line are always taken. The layout settings (`nim.format.*`) come from your settings and the project's
+`.ned/settings.json`. Exit status: 0 done, 1 `--check` found files to change, 2 a file was left alone (the
+formatter was not sure of it) or could not be read, 3 wrong arguments. The hook checks what is staged, not your
+working copy; a file the formatter is not sure of does not stop the commit, and `git commit --no-verify` skips it.
+*Format: every file in the project…* does it from the editor, with a review first (see the 5.24 notes).
+
+**Nim's own parser as a second check** (`nim.format.verify`, `nedfmt --verify`). Where the compiler's sources are
+installed — choosenim and source builds have them, or `nimble install compiler` — ned builds a small checker from
+them once (in the background, about half a minute) and asks it whether each formatted file parses to the same
+syntax tree as before, comments and layout aside. A file it reads differently is left alone. The formatter's own
+token and block check runs anyway; this one is for when you want the compiler's word on it. `nimble parsecheck`
+runs it over 463 files of Nim's compiler and standard library.
 
 JSON, Markdown (tables) and CSS have built-in formatters too, used when prettier is not installed.
 

@@ -250,6 +250,10 @@ proc lsTextLines(text: string): seq[string] =
   result = text.split('\n')
   if result.len > 1 and result[^1].len == 0: result.setLen(result.len - 1)
 
+proc lsCopy[T](x: T): T =
+  ## a real copy — a `let` of a field may be read as the field itself (cursor inference), which an action changes
+  result = x
+
 proc lsDryRun(act: Action): seq[(string, seq[string], seq[string])] =
   ## what an editor action would change, without changing it: (file, its lines before, after) for every file it
   ## edits. The action runs on ned's buffers as in the editor; then each edit is undone and every table it moved
@@ -257,20 +261,20 @@ proc lsDryRun(act: Action): seq[(string, seq[string], seq[string])] =
   var saved: seq[(Buffer, int, int, int, seq[Cursor])]
   for b in bufs: saved.add (b, b.undoStack.len, b.redoStack.len, b.changeId, b.cursors)
   let nb = bufs.len
-  let snapLines = if lsActive != nil: lsActive.b.lines else: @[]
+  let snapLines = if lsActive != nil: lsCopy(lsActive.b.lines) else: @[]
   let snapFor = if lsActive != nil: lsActive.b else: nil
-  let dB = diagsBuild
-  let dL = diagsLsp
-  let dF = diagsFfi
-  let dE = diagsEmit
-  let uH = unusedHints
+  let dB = lsCopy(diagsBuild)
+  let dL = lsCopy(diagsLsp)
+  let dF = lsCopy(diagsFfi)
+  let dE = lsCopy(diagsEmit)
+  let uH = lsCopy(unusedHints)
   let logLen = msgLog.len
   let cb = curBuf
   try: act()
   except Exception as e: lsLog("quick fix failed: " & e.msg)
   for (b, ul, rl, cid, cs) in saved:
     if b.changeId == cid: continue
-    let after = b.lines
+    let after = lsCopy(b.lines)
     while b.undoStack.len > ul:
       let before = b.undoStack.len
       b.undo()
