@@ -665,42 +665,42 @@ proc lsInlayHints(params: JsonNode): JsonNode =
 
 # ── formatting ──
 
-proc lsFormatText(text, path: string): (string, string) =
-  ## ned's formatter (nimFormatAll) on a whole text, in a child process of its own: the memory a big file takes
-  ## goes with it, and a formatter that fails on a strange file — or never ends — takes nothing else down
-  const Failed = "the built-in formatter failed on this file (please report it)"
+proc lsInChild(work: proc(): string, timeoutMs = 30_000): (bool, string) =
+  ## `work` run in a child process of its own (fork), its answer back through a pipe: what it allocates goes with
+  ## it, and work that fails on a strange file — or never ends — takes nothing else down. (false, "") when it
+  ## could not run, crashed or took too long
   var fds: array[2, cint]
-  if posix.pipe(fds) != 0: return nimFormatAll(text, path)
+  if posix.pipe(fds) != 0: return (false, "")
   let pid = posix.fork()
   if pid < 0:
     discard posix.close(fds[0])
     discard posix.close(fds[1])
-    return nimFormatAll(text, path)
+    return (false, "")
   if pid == 0:
+    lsOutBroken = true                  # (the child never speaks the protocol)
     discard posix.close(fds[0])
     var msg = ""
-    try:
-      let (res, err) = nimFormatAll(text, path)
-      msg = if err.len > 0: "E" & err else: "R" & res
-    except CatchableError, Defect: msg = "E" & Failed
+    try: msg = work()
+    except CatchableError, Defect: msg = ""
     var off = 0
     while off < msg.len:
       let n = posix.write(fds[1], unsafeAddr msg[off], msg.len - off)
       if n > 0: off += n
       elif n < 0 and errno == EINTR: continue
       else: break
-    exitnow(0)
+    exitnow(if msg.len > 0: 0 else: 1)
   discard posix.close(fds[1])
   var got = ""
   var buf: array[65536, char]
+  var timedOut = false
   let t0 = getMonoTime()
   while true:
-    var pfd = TPollfd(fd: fds[0], events: POLLIN)
-    let left = 30_000 - int(msSince(t0))
+    let left = timeoutMs - int(msSince(t0))
     if left <= 0:
       discard posix.kill(pid, SIGKILL)
-      got = ""
+      timedOut = true
       break
+    var pfd = TPollfd(fd: fds[0], events: POLLIN)
     let r = poll(addr pfd, 1, cint(min(left, 1000)))
     if r < 0 and errno == EINTR: continue
     if r <= 0: continue
@@ -713,26 +713,39 @@ proc lsFormatText(text, path: string): (string, string) =
   discard posix.close(fds[0])
   var st: cint
   discard posix.waitpid(pid, st, 0)
-  if got.len == 0: return (text, Failed)
-  if got[0] == 'E': (text, got[1 .. ^1]) else: (got[1 .. ^1], "")
+  if timedOut or not WIFEXITED(st) or WEXITSTATUS(st) != 0: return (false, "")
+  (true, got)
+
+const LsFmtFailed = "the built-in formatter failed on this file (please report it)"
+
+proc lsFormatAnswer(d: LsDoc, ok: bool, outp, what: string): JsonNode =
+  ## a formatting answer from the child: "R" and the edits, or "E" and why the text was left alone
+  result = newJArray()
+  var err = ""
+  if not ok or outp.len == 0: err = LsFmtFailed
+  elif outp[0] == 'E': err = outp[1 .. ^1]
+  else:
+    try: return parseJson(outp[1 .. ^1])
+    except CatchableError: err = LsFmtFailed
+  # (said once for a text: a client that formats on every save would repeat it)
+  if lsFmtSaid != d.uri & "#" & $d.version & err:
+    lsFmtSaid = d.uri & "#" & $d.version & err
+    lsShowMessage(2, what & ": " & err)
 
 proc lsFormatting(params: JsonNode): JsonNode =
+  ## ned's formatter on the whole file (nimFormatAll: checked, and left alone when it is not sure), in a child
+  ## process: a big file's formatting and diff cost the server no memory
   let d = lsDocOf(params)
   result = newJArray()
   if d == nil or d.b.lang == nil or d.b.lang.mode != lmNim or d.b.largeOn: return
   let b = d.b
-  let text = b.allText & "\n"
-  var res, err: string
-  try: (res, err) = lsFormatText(text, b.path)
-  except CatchableError, Defect: err = "the built-in formatter failed on this file (please report it)"
-  if err.len > 0:
-    # (said once for a text: a client that formats on every save would repeat it)
-    if lsFmtSaid != d.uri & "#" & $d.version & err:
-      lsFmtSaid = d.uri & "#" & $d.version & err
-      lsShowMessage(2, "format: " & err)
-    return
-  if res == text: return
-  result = lsLineEdits(b.lines, lsTextLines(res), lsEol(b))
+  let (ok, outp) = lsInChild(proc(): string =
+    let text = b.allText & "\n"
+    let (res, err) = nimFormatAll(text, b.path)
+    if err.len > 0: "E" & err
+    elif res == text: "R[]"
+    else: "R" & $lsLineEdits(b.lines, lsTextLines(res), lsEol(b)))
+  lsFormatAnswer(d, ok, outp, "format")
 
 proc lsRangeFormatting(params: JsonNode): JsonNode =
   ## the lines of the range, formatted as a block at their own indentation (ned's Format selection)
@@ -746,14 +759,13 @@ proc lsRangeFormatting(params: JsonNode): JsonNode =
   var l1 = e.line
   if e.col == 0 and l1 > a.line: dec l1
   lsFocus(d, a)
-  let id = b.id
-  var ok = false
-  let ch = lsDryRun(proc() =
-    let x = bufById(id)
-    if x != nil: ok = x.formatLineRange(a.line, l1, quiet = false))
-  for (path, before, after) in ch:
-    if path == b.path: return lsLineEdits(before, after, lsEol(b))
-  if not ok: lsShowMessage(2, "format selection: the built-in formatter left these lines alone (it is not sure of them)")
+  let (ok, outp) = lsInChild(proc(): string =
+    # (in the child the buffer may change: it ends with it)
+    let before = b.lines
+    if not b.formatLineRange(a.line, l1, quiet = true):
+      return "Ethe built-in formatter left these lines alone (it is not sure of them)"
+    "R" & $lsLineEdits(before, b.lines, lsEol(b)))
+  lsFormatAnswer(d, ok, outp, "format selection")
 
 # ── folding ──
 
