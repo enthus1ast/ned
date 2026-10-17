@@ -527,6 +527,9 @@ proc cmdHover(auto = false) =
       let pm = if b.lang.mode == lmNim: prettyNimError(d.msg) else: d.msg
       if pm != d.msg: lines.add "**error**\n```text\n" & pm.strip(leading = false) & "\n```"     # keep its layout
       else: lines.add (if d.sev == 1: "error: " elif d.sev == 2: "warning: " else: "info: ") & d.msg
+  if cfgShowCopies and b.id in copyMarks and p.line in copyMarks[b.id]:
+    for m in copyMarks[b.id][p.line]:
+      if m.text == b.lines[p.line] and p.col >= m.startCol and p.col <= m.col: lines.add m.what
   hoverPrefix = if lines.len > 0: lines.join("\n") & "\n\n" else: ""
   if b.lang.mode == lmNim:
     let ph = pragmaStringHover(b, p)             # header: "…" / importc: "…": the header, the C declaration

@@ -211,6 +211,14 @@ proc lineDecor(b: Buffer, line: int, toks: seq[TokKind], sw: seq[(int, int, Rgb)
         if target > eq: result.add (padStart, spaces(target - eq))
         if own.len > 0: decorOverlay.add (padStart, own)
         result.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
+  if cfgShowCopies and b.id in copyMarks and line in copyMarks[b.id] and line < b.lines.len:
+    # where ARC/ORC copies (from the last save; while the line is as it was)
+    var any = false
+    for m in copyMarks[b.id][line]:
+      if m.text == b.lines[line] and m.col <= b.lines[line].len:
+        result.add (m.col, (if cfgAccessible: " (copy)" else: " ⧉copy"))
+        any = true
+    if any: result.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
   if cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]:
     let (c, lb) = cSigHints[b.id][line]
     if line < b.lines.len and c == b.lines[line].len: result.add (c, lb)     # (at the end of the line it was made for)
