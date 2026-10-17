@@ -332,7 +332,9 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
       let last = cur.toks[^1]
       var cont = depth > 0
       if not cont and not cur.comment:
-        if last.kind == fkComma or last.kind == fkDot or (last.kind == fkOp and last.text != "=" and last.text != "*") or
+        if last.kind == fkComma and t.col < cur.indent:
+          cont = false         # `a,` ⏎ (less indented): a trailing comma ends an enum's values, not the next type
+        elif last.kind == fkComma or last.kind == fkDot or (last.kind == fkOp and last.text != "=" and last.text != "*") or
            (fWordOp(last) and last.text notin ["of", "as"]):
           cont = true
         elif t.col > cur.indent and (t.kind == fkDot or (t.kind == fkKw and t.text in ["else", "elif"] and
