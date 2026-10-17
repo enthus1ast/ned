@@ -340,6 +340,12 @@ proc initSettingDefs() =
   defS("Nim", "nim.liveDiagnosticsFrom", %"auto", "What checks the text while you type: the compiler (nim check " &
        "on the unsaved text, after a pause), nimsuggest, or auto: the compiler, unless its check of the file takes " &
        "over 10 s and nimsuggest runs", @["auto", "compiler", "nimsuggest"])
+  defS("Nim", "nim.compilerAnswers", %true, "With nim.nimsuggest off: where ned's engine has no answer (a hover, Go to " &
+       "definition — names a macro makes, say), ask the compiler once — one nimsuggest run for that question, which " &
+       "then quits. Kept until the file changes")
+  defS("Nim", "nim.engineChecks", %true, "While you type, ned's own engine checks what it can be sure of, at once " &
+       "(before the compiler's check): a field name that is a typo of one the object has, a call with the wrong number " &
+       "of arguments, code after a return, a local never used. The compiler's word wins on a line where both speak")
   defS("Nim", "nim.extraFlags", %"", "Extra flags for nim c/cpp/js when running or building, e.g. \"--mm:orc -d:ssl\"")
   defS("Nim", "nim.testFlags", %"--hints:off", "Flags used by the test explorer when compiling tests")
   # ── nimlangserver (sent to the server as its \"nim\" configuration section) ──
@@ -765,6 +771,8 @@ proc applySettings() =
   cfgEmitClangd = sBool("nim.emitClangd")
   cfgFormatEmitC = sBool("nim.formatEmitC")
   cfgFormatVerify = sBool("nim.format.verify")
+  cfgEngineChecks = sBool("nim.engineChecks")
+  cfgCompilerAnswers = sBool("nim.compilerAnswers")
   cfgCSigHints = sBool("nim.cSignatureHints")
   cfgParamHints = sStr("nim.parameterHints")
   cfgCEngine = sStr("c.engine")

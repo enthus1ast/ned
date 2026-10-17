@@ -270,7 +270,7 @@ proc lsReferences(params: JsonNode): JsonNode =
 
 proc lsFileUses(d: LsDoc, p: Pos): seq[(int, int, int)] =
   ## the places in this file that name what the name at p names: (line, column, end column) — each one resolved
-  ## as Find references does; after 150 ms the rest by name only
+  ## as Find references does; after 60 ms the rest by name only (it is asked at every move of the cursor)
   let b = d.b
   let f = nxFileFor(b)
   if f == nil: return
@@ -300,7 +300,7 @@ proc lsFileUses(d: LsDoc, p: Pos): seq[(int, int, int)] =
     for (c, e) in ids:
       if nxNorm(s[c ..< e]) != nw: continue
       var ok = false
-      if byName or msSince(t0) > 150: ok = s[c ..< e] == w or not byName
+      if byName or msSince(t0) > 60: ok = s[c ..< e] == w or not byName
       elif locals.len > 0:
         if l == locals[0].line and c == locals[0].col: ok = true
         else:
@@ -739,13 +739,14 @@ proc lsFormatting(params: JsonNode): JsonNode =
   result = newJArray()
   if d == nil or d.b.lang == nil or d.b.lang.mode != lmNim or d.b.largeOn: return
   let b = d.b
+  discard fmtCheckerExe()               # (nim.format.verify: its checker is built here, once — not in each child)
   let (ok, outp) = lsInChild(proc(): string =
     let text = b.allText & "\n"
     let (res, err) = nimFormatAll(text, b.path)
     if err.len > 0: "E" & err
     elif res == text: "R[]"
     else: "R" & $lsLineEdits(b.lines, lsTextLines(res), lsEol(b)))
-  lsFormatAnswer(d, ok, outp, "format")
+  result = lsFormatAnswer(d, ok, outp, "format")
 
 proc lsRangeFormatting(params: JsonNode): JsonNode =
   ## the lines of the range, formatted as a block at their own indentation (ned's Format selection)
@@ -759,13 +760,14 @@ proc lsRangeFormatting(params: JsonNode): JsonNode =
   var l1 = e.line
   if e.col == 0 and l1 > a.line: dec l1
   lsFocus(d, a)
+  discard fmtCheckerExe()
   let (ok, outp) = lsInChild(proc(): string =
     # (in the child the buffer may change: it ends with it)
-    let before = b.lines
+    let before = lsCopy(b.lines)
     if not b.formatLineRange(a.line, l1, quiet = true):
       return "Ethe built-in formatter left these lines alone (it is not sure of them)"
     "R" & $lsLineEdits(before, b.lines, lsEol(b)))
-  lsFormatAnswer(d, ok, outp, "format selection")
+  result = lsFormatAnswer(d, ok, outp, "format selection")
 
 # ── folding ──
 

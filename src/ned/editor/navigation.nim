@@ -423,6 +423,7 @@ proc cmdDefinition() =
   if nimEngineOn(b) and b.wordAt(b.primary.head).len > 0:
     if engineDefinition(b, b.primary.head): return
     if nsUsable(b) and nsRequest(b, nsDef, b.primary.head): return
+    if compilerAnswer(b, nsDef, b.primary.head): return        # (nimsuggest off: the compiler, once)
   elif nimEngineOn(b) and opAtCursor(b).len > 0:
     if engineDefinition(b, b.primary.head): return
   let s = lspReady(b)
@@ -583,6 +584,8 @@ proc cmdHover(auto = false) =
       discard nsRequest(b, (if auto: nsAutoHover else: nsHover), p)
       if lines.len > 0: showHoverAuto(hoverPrefix, auto)
     elif nimDocFor(w).len > 0: showHoverAuto(hoverPrefix & nimDocFor(w), auto)
+    elif compilerAnswer(b, (if auto: nsAutoHover else: nsHover), p):          # (nimsuggest off: the compiler, once)
+      if lines.len > 0: showHoverAuto(hoverPrefix, auto)
     elif lines.len > 0: showHoverAuto(lines.join("\n"), auto)
     elif not auto: info("Nothing known about " & w)
   elif onSymbol and cInfo.len > 0 and (s == nil or s.caps == nil or s.caps{"hoverProvider"} == nil) and

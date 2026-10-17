@@ -165,8 +165,12 @@ proc nxFileFor(b: Buffer): NxFile =
 
 var typoAt: Table[int, int]          # buffer id → the change its misspelled names were looked for at
 
+proc engineChecksFor(b: Buffer): seq[Diag]
+
 proc engineTypos(b: Buffer) =
-  ## a misspelled name marked at once (the compiler's check, a moment later, has the last word)
+  ## a misspelled name marked at once, and what the engine's own checks find (nim.engineChecks: a field that is
+  ## not there, a wrong number of arguments, code that never runs, an unused local) — the compiler's check, a
+  ## moment later, has the last word
   typoAt[b.id] = b.changeId
   if b.path.len == 0 or b.lines.len > 15_000 or not nimEngineOn(b): return
   let f = nxFileFor(b)
@@ -188,6 +192,18 @@ proc engineTypos(b: Buffer) =
     ds.add Diag(line: l, col: c, eline: l, ecol: -1, sev: 1, src: "ned",
                 msg: "undeclared identifier: '" & w & "'\ncandidates (edit distance, scope distance); see " &
                      "'--spellSuggest': \n (1, 0): '" & meant & "'")
-  if ds.len != before or found.len > 0:
+  var checked = 0
+  if cfgEngineChecks:
+    var mine: seq[Diag]
+    try: mine = engineChecksFor(b)
+    except CatchableError, Defect: discard
+    for d in mine:
+      var taken = false
+      for e in ds:
+        if e.line == d.line and e.src != "ned": taken = true     # (the compiler said something there: its word)
+      if not taken:
+        ds.add d
+        inc checked
+  if ds.len != before or found.len > 0 or checked > 0:
     diagsBuild[b.path] = ds
     needRender = true

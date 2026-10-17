@@ -109,15 +109,60 @@ proc lsKillStaleCheck(d: LsDoc) =
   for j in jobs:
     if j.kind == jkCheck and not j.done and copy.len > 0 and copy in j.cmd: killProc(j.pr, SIGKILL)
 
+proc lsCheckBusy(): bool =
+  ## is the compiler checking something now? (one check at a time: each is a whole `nim check`)
+  for j in jobs:
+    if j.kind == jkCheck and not j.done: return true
+
+var lsCheckQueue: seq[(string, bool)]   # files to `nim check` once the running check is done (path, the saved one)
+
+proc lsSaved(b: Buffer) =
+  ## ned's checks after a save, one at a time: the file (runCheck), then the other files of its language that show
+  ## a compiler error, which the fix may have taken away (as recheckBuildErrors picks them)
+  if b.path.len == 0 or not cfgCheckOnSave: return
+  var k = 0
+  while k < lsCheckQueue.len:
+    if lsCheckQueue[k][0] == b.path: lsCheckQueue.delete(k) else: inc k
+  lsCheckQueue.add (b.path, true)
+  var n = 0
+  for p, ds in diagsBuild:
+    if n >= 4: break
+    if p == b.path or not (p.endsWith(".nim") or p.endsWith(".nims")) or not fileExists(p): continue
+    var bad = false
+    for d in ds:
+      if d.sev == 1 and d.src != "examples": bad = true
+    if not bad: continue
+    let od = lsDocByPath(p)
+    if od != nil and od.b.dirty: continue        # (its own save checks it; the disk copy is old)
+    var queued = false
+    for (q, _) in lsCheckQueue:
+      if q == p: queued = true
+    if not queued:
+      lsCheckQueue.add (p, false)
+      inc n
+
+proc lsPumpCheckQueue() =
+  if lsCheckQueue.len == 0 or lsCheckBusy(): return
+  let (p, saved) = lsCheckQueue[0]
+  lsCheckQueue.delete(0)
+  try:
+    let d = lsDocByPath(p)
+    if saved and d != nil: runCheck(d.b)
+    else: runCheckPath(p, "nim", keepExamples = not saved)
+  except Exception as e: lsLog("check of " & p & ": " & e.msg)
+
 proc lsPumpChecks() =
   ## the editor's main-loop rules, for the document typed into last
+  lsPumpCheckQueue()
   if not cfgLiveCheck: return
   let d = lsActive
   if d == nil or d.b.lang == nil or d.b.lang.mode != lmNim or d.b.path.len == 0: return
   let cb = d.b
   let quiet = msSince(d.changedAt)
+  let busy = lsCheckBusy() or lsCheckQueue.len > 0
   try:
-    if cb.chkAt == 0 and not cb.dirty and quiet > LsTypingPauseMs and cb.path notin typingChecks:
+    if busy: discard                   # (the compiler is checking: the text waits for it)
+    elif cb.chkAt == 0 and not cb.dirty and quiet > LsTypingPauseMs and cb.path notin typingChecks:
       # a project file just opened: its errors, without waiting for an edit or a save
       if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb): typingCheck(cb)
       else: cb.chkAt = -1
@@ -141,6 +186,7 @@ proc lsPumpChecks() =
 proc lsTimeToNextCheck(): int =
   ## ms until lsPumpChecks has something to do (for poll's timeout)
   result = 1000
+  if lsCheckQueue.len > 0: result = 100
   if not cfgLiveCheck: return
   let d = lsActive
   if d == nil or d.b.path.len == 0: return

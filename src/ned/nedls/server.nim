@@ -308,8 +308,7 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
     b.savedSeq = b.topSeq()
     if b.path.len > 0:
       if b.path == configFile() or b.path.endsWith("/.ned/settings.json"): lsApplySettings()
-      runCheck(b)
-      recheckBuildErrors(b)
+      lsSaved(b)
     lsDiagsDirty = true
   of "textDocument/didClose":
     lsCloseDoc(p{"textDocument"}{"uri"}.getStr)
@@ -322,7 +321,9 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
     else: lsAskConfig()
   of "workspace/didChangeWatchedFiles": lsFilesChanged(p)
   of "workspace/didChangeWorkspaceFolders": lsWorkspaceFolders(p)
-  of "$/cancelRequest": lsCancelled.incl lsIdKey(p{"id"})
+  of "$/cancelRequest":
+    if lsCancelled.len > 1000: lsCancelled.clear()       # (cancels of requests already answered pile up)
+    lsCancelled.incl lsIdKey(p{"id"})
   else: discard                                # ($/setTrace, $/progress … and unknown ones: nothing to do)
 
 proc lsHandle(msg: JsonNode) =
@@ -376,14 +377,16 @@ proc lsHandle(msg: JsonNode) =
 
 proc lsTakeQueue() =
   ## handle the queued messages in order; a request cancelled later in the queue is answered as cancelled
-  while lsQueue.len > 0 and not lsExit:
-    for m in lsQueue:
-      if m != nil and m.kind == JObject and m{"method"}.getStr == "$/cancelRequest":
-        lsCancelled.incl lsIdKey(m{"params"}{"id"})
-    let m = lsQueue[0]
-    lsQueue.delete(0)
+  for m in lsQueue:
+    if m != nil and m.kind == JObject and m{"method"}.getStr == "$/cancelRequest":
+      lsCancelled.incl lsIdKey(m{"params"}{"id"})
+  var i = 0
+  while i < lsQueue.len and not lsExit and not lsOutBroken:
+    let m = lsQueue[i]
+    inc i
     lsHandle(m)
-    if lsOutBroken: break
+  if i >= lsQueue.len: lsQueue.setLen(0)
+  else: lsQueue = lsQueue[i .. ^1]
 
 # ── idle work ──
 

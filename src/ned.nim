@@ -116,6 +116,7 @@ include ned/nim/project
 include ned/nim/nimsuggest
 include ned/editor/multibuffer
 include ned/nim/nimsuggestread
+include ned/nim/compileranswers
 include ned/editor/clipboard
 include ned/editor/snippets
 include ned/editor/html
@@ -129,6 +130,7 @@ include ned/nim/copies
 include ned/nim/outline
 include ned/editor/completion
 include ned/nim/messages
+include ned/nim/enginechecks
 include ned/editor/diagnostics
 include ned/editor/findreplace
 include ned/editor/navigation

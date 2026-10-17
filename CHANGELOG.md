@@ -1,6 +1,90 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-67). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-68). Older releases:
+
+## What's new in 6.7
+
+![Theme editor: every colour with a swatch and its contrast, the hard-to-read ones marked](screenshots/theme-editor-67.png)
+
+- **Sign in to GitHub without a password.** A push or pull that GitHub refuses for a login (it stopped taking
+  passwords in 2021) offers two ways in: the GitHub CLI — installed if it is missing, you sign in in the browser,
+  and it becomes git's credential helper — or an SSH key, made in the terminal (you type its passphrase there) and
+  added for you by `gh`, or copied with GitHub's page opened; the remote switches to SSH. ned never asks for,
+  sees or stores a token. The Git dock says who you push as. *Git: sign in to GitHub*.
+- **Undo the last commit, pull or merge.** *Git: undo…* lists the branch's last steps from the reflog — a commit,
+  an amend, a pull, a merge, a whole rebase, a reset, a switch — and undoes one in one step: a commit softly (its
+  changes stay staged), anything else keeping your uncommitted work. A commit you already pushed is reverted with a
+  new commit, unless you say otherwise. Also in the Git dock (*Undo…*).
+- **Checks before a commit** (`git.checksBeforeCommit`: `both`, `format`, `tests` or `off`). The files the commit
+  takes are formatted — what is staged, by ned's own formatters (*format and stage them*, or commit anyway) — and
+  the tests that cover them pass. When one stops the commit, the message stays open.
+- **Pull request review comments on their lines.** The branch's pull request's review threads, from GitHub:
+  a note at the end of the line each is about, the whole thread on hover, a list with the open ones first; reply
+  and resolve from ned. They are fetched again after a push. *Git: GitHub review comments…*
+- **AI that knows your code.** Inline edits and inline suggestions get the declarations the code uses (Nim from
+  the built-in engine, C from ned's C engine: prototypes, structs and their comments), and a suggestion that names
+  what does not exist here — a proc, a field the type lacks — is not shown (`ai.checkSuggestions`).
+- **AI: make a failing test pass.** Alt+Enter on a failed check: the test, how it failed and the code it tests go
+  to the model; its change is applied and the test run again — kept only when it passes, else put back and asked
+  once more with the new failure.
+- **AI: plan first, then do it.** *AI: plan a change, then do it step by step…* (or `/plan …` in the chat): the
+  assistant reads the code — it may not change anything yet — and answers with numbered steps. Do them all, one
+  at a time, or change the plan; each step is a run of its own with a restore point, so *Back to before step 3*
+  puts the files back as they were.
+- **AI on your phone, offline.** *AI: on this device, offline…* finds Ollama (or llama.cpp's server), installs and
+  starts it when needed, downloads a model that fits the device's memory (progress in the status bar), points
+  ned at it and times a first answer. Chat, inline edits and suggestions then work without the internet.
+- **Two language servers at once.** A linter's server runs next to the main one — `ruff` for Python,
+  `golangci-lint-langserver` for Go, `harper-ls` for Markdown, when installed (`lsp.linters`), or any you name
+  (`lsp.alsoRun`) — and their problems and quick fixes are merged: *pylsp + ruff* in the status bar, one Problems
+  list, one Alt+Enter menu.
+- **Links, problems on request, formatting as you type.** Language servers' links are underlined and opened with
+  F12 or Ctrl+click (`#include "x.h"`, `@import`, a JSON `$schema`), and so are URLs in comments; servers that send
+  problems only when asked (pull diagnostics: the newer CSS, HTML and JSON servers) are asked after each change;
+  `editor.formatOnType` lets the server tidy a line as you type `}` or `;`.
+- **Format only what you changed, and look first.** `editor.formatOnSaveScope: changed` keeps the formatter's
+  changes only where they touch lines you changed since git last saw the file (*Format: only the lines I
+  changed*); *Format: preview the change* shows it side by side, then applies all of it, only your lines, or
+  nothing.
+- **The Nim formatter closer to nph.** 98% of the lines of Nim's compiler and standard library now come out as nph
+  writes them (95.3% before): long arguments and literals wrapped in turn, conditions and values filled with
+  whole operands, multi-line `if`/`case` values under their `=`, long `of` lists and pragmas wrapped, imports
+  packed, trailing comments that go on moved under their line. Every result is still checked, and a second run
+  changes nothing.
+- **YAML and TOML formatters** built in: the layout only — one indentation width, text blocks moved as one; spaces
+  around `=`, tables and arrays — each checking that the data is the same (checked on 6 000 files against PyYAML
+  and tomllib).
+- **A theme editor.** *Theme: edit colours…* lists every colour of the theme with a swatch and its contrast, marks
+  the ones that are hard to read, and makes one readable in a step (or lighter, darker, as it was, any colour you
+  type); the changes go into your own copy of the theme and show at once. The theme picker shows each theme's
+  colours too.
+- **Termux in ned's colours.** *Theme: use these colours in all of Termux* writes `~/.termux/colors.properties`
+  from the theme, so the shell after ned looks the same; your own colours are kept and *put back* in one step, and
+  `theme.termuxColors` keeps Termux following every theme change.
+- **Richer Nim colours.** A `var` is tinted (a `let` stays plain), the module's own variables are bold, deprecated
+  procs and types are struck through, and `cast`, `addr`, `unsafeAddr` and `ptr` stand out in the warning colour
+  (`nim.richColors`).
+- **Light by day, dark at night.** *Theme: light by day, dark at night* switches between `theme.light` and
+  `theme.dark` at `theme.dayStarts` and `theme.nightStarts` — useful where the terminal does not say its
+  background, like Termux.
+
+![Richer Nim colours: a var tinted, the module's variables bold, a deprecated proc struck through, cast and addr in the warning colour](screenshots/colors-67.png)
+
+![AI: plan first — numbered steps, then all of them or one at a time, each with a restore point](screenshots/plan-67.png)
+
+Also: editing ned's own source in ned — files that are `include`d into another — no longer shows every name as
+undeclared: they are checked through the file that includes them. The Nim formatter no longer joins an enum's
+values with the next type after a trailing comma, nor takes `SomeNumber | enum | ptr` for an enum, and keeps a
+`##` comment on a statement's line where Nim would not take it under: every file of Nim's compiler and standard
+library, and of ned, now reads the same to Nim's parser after formatting.
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies,
+ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one
+parameter a line, [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures,
+[6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's instance, organize
+imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your settings,
+[6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours,
+[6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
 
 ## What's new in 6.6
 
