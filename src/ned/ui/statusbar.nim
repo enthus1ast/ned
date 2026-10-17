@@ -108,6 +108,11 @@ proc drawStatusBar() =
     let rh = remotes[remoteOf(rootDir)].host
     x = button(x, y, " " & (if remotePushing > 0: "⇡ " else: "⇅ ") & rh & " ", proc() = runCmd("Remote: SSH menu…"),
                "A remote folder: saves go to " & rh & ", the terminal and Run work there", theme.accent, bg)
+  if cfgFolderTrust == "ask" and rootDir.len > 0 and trustKey(rootDir) in trustAsked and not codeTrusted(rootDir):
+    # (something of this folder's was held back: why, and the way out)
+    x = button(x, y, " " & (if cfgAccessible: "[!]" else: "⛉") & " Not trusted ",
+               proc() = runCmd("Workspace: trust this folder"),
+               "ned runs none of this folder's code until you trust it — click to trust it", theme.warn, bg)
   if b.libLocked and scrW >= 60:
     x = button(x, y, " Read-only ", proc() = runCmd("File: allow editing this file"),
                "Part of the Nim toolchain or an installed package — click to edit it anyway", theme.warn, bg)

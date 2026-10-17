@@ -118,7 +118,11 @@ proc lspFor(b: Buffer, start = true): LspServer =
   var cands: seq[seq[string]]
   if id in cfgUserLsp: cands.add cfgUserLsp[id]
   for c in b.lang.lsp: cands.add c
-  if id == "nim": prepareNimMapping(b)
+  if id == "nim":
+    if not codeTrusted(rootDir):
+      askTrust(rootDir, quiet = true)              # (nimlangserver runs nimsuggest: the folder's config.nims)
+      return nil
+    prepareNimMapping(b)
   for c in cands:
     if c.len == 0 or findExe(c[0]).len == 0: continue
     try:

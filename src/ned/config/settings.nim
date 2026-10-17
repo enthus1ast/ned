@@ -199,6 +199,11 @@ proc initSettingDefs() =
   defS("Vim", "vim.relativeNumbers", %false, "Relative line numbers while vim mode is on")
   # ── Files ──
   defS("Files", "files.showHidden", %false, "Show dot-files in the file tree and file finder")
+  defS("Files", "security.folderTrust", %"ask",
+       "Before ned runs a folder's code — the Nim compiler (its config.nims, .nims files and macros can run " &
+       "commands), nimble, nimsuggest, the folder's tests — you trust the folder, once (palette › Workspace: trust " &
+       "this folder). Until then the built-in engine still completes, explains and checks the code. off = trust " &
+       "every folder", @["ask", "off"])
   defS("Files", "files.exclude", %*["node_modules", "nimcache", "__pycache__", "target", "dist", ".git", ".venv",
        "venv", ".nimble", "zig-cache", "zig-out", ".gradle", ".idea", ".cache", "htmldocs", "testresults"],
        "Folders skipped by the file tree, file finder and built-in search")
@@ -704,6 +709,7 @@ proc applySettings() =
         if b.lang != nil and b.lang.mode in {lmNim, lmMarkdown, lmNimf}: b.hlValid = 0
   cfgLiveCheck = sBool("nim.liveDiagnostics")
   cfgCheckOnSave = sBool("nim.checkOnSave")
+  cfgFolderTrust = sStr("security.folderTrust")
   cfgCheckWrappers = sBool("nim.checkWrappers")
   cfgEmitClangd = sBool("nim.emitClangd")
   cfgFormatEmitC = sBool("nim.formatEmitC")
@@ -780,7 +786,42 @@ proc applySettings() =
 proc projectSettingsFile(): string = rootDir / ".ned" / "settings.json"
 
 var
-  trustedDirs: seq[string]          # folders whose project settings may run programs (state.json)
+  trustedDirs: seq[string]          # folders you trusted: their settings may run programs, ned may run their code
+  trustAsked: HashSet[string]       # folders this session already said are not trusted
+
+proc trustKey(d: string): string =
+  ## a folder as trust compares it: absolute, normalised, no trailing /
+  result = d
+  try: result = absolutePath(d)
+  except CatchableError: discard
+  result = normalizedPath(result)
+  while result.len > 1 and result.endsWith("/"): result.setLen(result.len - 1)
+
+proc nimLibDir(): string
+
+proc folderTrusted(dir: string): bool =
+  ## did you trust this folder (or one around it)?
+  if dir.len == 0: return false
+  let d = trustKey(dir)
+  for t in trustedDirs:
+    let k = trustKey(t)
+    if d == k or d.startsWith(k & "/") or k == "/": return true
+
+proc codeTrusted(dir: string): bool =
+  ## may ned run this folder's code — the Nim compiler (config.nims, .nims files and macros run commands), nimble
+  ## (a .nimble file is a script), nimsuggest, its tests? Yes with security.folderTrust off, in a folder you trusted
+  ## (or one inside it), in the Nim toolchain's library and in installed nimble packages
+  if cfgFolderTrust != "ask" or dir.len == 0: return true
+  if folderTrusted(dir): return true
+  let d = trustKey(dir)
+  let lib = nimLibDir()
+  if lib.len > 0:
+    let k = trustKey(lib)
+    if d == k or d.startsWith(k & "/"): return true
+  let nb = trustKey(getHomeDir() / ".nimble")
+  d.startsWith(nb & "/")
+
+var
   projectSettingKeys: seq[string]   # keys the project file set (settings UI marks them)
   projectSettingsBlocked: seq[string]
 
@@ -860,7 +901,7 @@ proc mergeProjectSettings(j: JsonNode) =
     if k in SettingSections and v.kind == JObject:
       for k2, v2 in v: flat[k & "." & k2] = v2
     else: flat[k] = v
-  let trusted = rootDir in trustedDirs
+  let trusted = folderTrusted(rootDir)
   var notes: seq[string]
   for k, v in flat:
     let i = setIndex.getOrDefault(k, -1)

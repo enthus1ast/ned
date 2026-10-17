@@ -12,7 +12,7 @@ proc nsUsable(b: Buffer): bool =
   ## may the built-in engine ask nimsuggest about this buffer?
   b.lang != nil and b.lang.mode == lmNim and b.path.len > 0 and b.path.endsWith(".nim") and
     b.lines.len < 60000 and not b.largeOn and cfgNimIde != "off" and cfgNimSuggest and not nimUsesLsp() and
-    haveExe("nimsuggest")
+    haveExe("nimsuggest") and codeTrusted(parentDir(b.path))
 
 proc procRssMB(pid: int): int =
   ## resident memory of a process in MB (Linux/Android /proc), 0 when unknown

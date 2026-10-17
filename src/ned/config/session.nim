@@ -100,3 +100,43 @@ proc addRecent(path: string) =
   if i >= 0: recentFiles.delete(i)
   recentFiles.insert(path, 0)
   if recentFiles.len > 60: recentFiles.setLen(60)
+
+# ── folder trust (security.folderTrust): a folder's code runs once you trust it ──
+
+proc dropToasts(prefix: string)
+
+proc trustFolder(root: string) =
+  ## trust a folder: its project settings may start programs, and ned may run its code — and the checks it held
+  ## back run now
+  let k = trustKey(root)
+  if k notin trustedDirs: trustedDirs.add k
+  trustAsked.excl k
+  saveState()
+  reloadSettings(true)
+  for b in bufs:
+    if b.path.len > 0 and codeTrusted(parentDir(b.path)): b.chkAt = 0       # (checked by the compiler, now)
+  dropToasts("Not trusted yet: " & k)
+  needRender = true
+  info("Trusted " & k & " — ned may run its code now (the Nim compiler, nimble, nimsuggest, its tests)")
+
+var trustToldAt: MonoTime
+
+proc askTrust(dir: string, quiet = false) =
+  ## ned held back running a folder's code: once a session per folder, say so with a Trust button (and then — for
+  ## what you asked for, not quiet — a short message at most every few seconds)
+  var root = trustKey(dir)
+  if rootDir.len > 0:
+    let r = trustKey(rootDir)
+    if root == r or root.startsWith(r & "/"): root = r
+  if root in trustAsked:
+    if not quiet and msSince(trustToldAt) > 8000:
+      trustToldAt = getMonoTime()
+      info("Not run: " & root & " is not trusted — palette › Workspace: trust this folder")
+    return
+  trustAsked.incl root
+  trustToldAt = getMonoTime()
+  let r2 = root
+  toast("Not trusted yet: " & root & " — ned reads and checks its code with its own engine, but runs none of " &
+        "it: not the Nim compiler (config.nims and macros can run commands), nimble, nimsuggest or its tests",
+        2, "Trust", proc() = trustFolder(r2), 30000)
+  needRender = true

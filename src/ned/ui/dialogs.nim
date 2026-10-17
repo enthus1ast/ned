@@ -24,6 +24,12 @@ proc toast(text: string, sev = 3, actLabel = "", act: Action = nil, ttl = 0) =
   if toasts.len > 4: toasts.delete(0)
   needRender = true
 
+proc dropToasts(prefix: string) =
+  ## the notifications that are no longer true (a folder's "not trusted yet", once it is)
+  for i in countdown(toasts.high, 0):
+    if toasts[i].text.startsWith(prefix): toasts.delete(i)
+  needRender = true
+
 proc popupMsg(s: string, sev: int) =
   ## a message as a popup: info replaces the previous info (no pile of them); warnings and errors stay a while
   let ts = case sev

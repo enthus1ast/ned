@@ -147,6 +147,7 @@ def setup(cfg=None):
     c = {"ai.provider": "openai", "ai.baseUrl": "http://127.0.0.1:%d/v1" % AI_PORT, "ai.apiKey": "sk-test",
          "ai.model": "gpt-6"}
     c["nim.nimsuggest"] = True        # (most tests were written with it on; t_528_hierarchy checks the default)
+    c["security.folderTrust"] = "off"  # (the scratch project is the tests' own; t_66_trust asks)
     c.update(cfg or {})
     c = {k: v for k, v in c.items() if v is not None}
     json.dump(c, open(CFG + '/ned/config.json', 'w'))

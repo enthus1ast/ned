@@ -20,10 +20,98 @@ proc closeFd(fd: var cint) =
     discard posix.close(fd)
     fd = -1
 
+const
+  CodeTools = ["nim", "nimble", "nimsuggest", "nimlangserver", "testament", "nimony", "atlas"]
+    ## programs that run a folder's code: config.nims, .nims and .nimble files are scripts, macros run at compile time
+  TrustRefusal = "not run — this folder is not trusted:"
+
+proc shellCommands(cmd: string): seq[seq[string]] =
+  ## the commands a shell line starts, each as its words (quotes taken off): `cd x && nim check a.nim | head`
+  var cur: seq[string]
+  var w = ""
+  var inWord = false
+  var i = 0
+  template endWord() =
+    if inWord:
+      cur.add w
+      w = ""
+      inWord = false
+  template endCmd() =
+    endWord()
+    if cur.len > 0: result.add cur
+    cur = @[]
+  while i < cmd.len:
+    let c = cmd[i]
+    case c
+    of ' ', '\t': endWord()
+    of '\n', ';', '&', '|', '(', ')', '`': endCmd()
+    of '$':
+      if i + 1 < cmd.len and cmd[i + 1] == '(':
+        endCmd()
+        inc i
+      else:
+        w.add c
+        inWord = true
+    of '\'', '"':
+      let q = c
+      inc i
+      while i < cmd.len and cmd[i] != q:
+        if q == '"' and cmd[i] == '\\' and i + 1 < cmd.len: inc i
+        w.add cmd[i]
+        inc i
+      inWord = true
+    of '\\':
+      if i + 1 < cmd.len:
+        inc i
+        w.add cmd[i]
+        inWord = true
+    else:
+      w.add c
+      inWord = true
+    inc i
+  endCmd()
+
+proc runsProjectCode(argv: seq[string], depth = 0): bool =
+  ## does this command run a folder's code — the Nim compiler, nimble, nimsuggest … (not just `nim --version`)?
+  if argv.len == 0 or depth > 3: return false
+  var cmds: seq[seq[string]]
+  if extractFilename(argv[0]) in ["sh", "bash", "dash", "zsh", "ash"] and argv.len >= 3 and argv[1] == "-c":
+    cmds = shellCommands(argv[2])
+  else: cmds = @[argv]
+  for ws0 in cmds:
+    var ws = ws0
+    # past variable settings and wrappers: LC_ALL=C nim …, env X=1 nim …, timeout 5 nim …, nice -n 5 nim …
+    while ws.len > 0:
+      let a = ws[0]
+      let eq = a.find('=')
+      if eq > 0 and a[0 ..< eq].allCharsInSet(IdentChars): ws.delete(0)
+      elif a in ["env", "exec", "nohup", "command", "time", "stdbuf", "nice", "ionice", "timeout", "cd"]:
+        ws.delete(0)
+        while ws.len > 0 and (ws[0].startsWith("-") or ws[0].allCharsInSet(Digits + {'.', 's'})): ws.delete(0)
+        if a == "cd" and ws.len > 0: ws.delete(0)          # (cd's folder)
+      else: break
+    if ws.len == 0: continue
+    let prog = extractFilename(ws[0])
+    if prog in CodeTools:
+      if ws.len >= 2 and ws[1] in ["--version", "-v", "--help", "-h", "--fullhelp"]: continue
+      return true
+    if prog in ["sh", "bash", "dash", "zsh", "ash"] and ws.len >= 3 and ws[1] == "-c" and
+       runsProjectCode(@[prog, "-c", ws[2]], depth + 1):
+      return true
+  false
+
 proc spawnProc(argv: seq[string], cwd: string, sin = siNull, serr = erMerge): Proc =
-  ## starts `argv` (PATH lookup) in its own session and process group; raises OSError on failure
+  ## starts `argv` (PATH lookup) in its own session and process group; raises OSError on failure — and when it would
+  ## run the code of a folder you have not trusted (security.folderTrust)
   result = Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1)
   if argv.len == 0: raise newException(OSError, "empty command")
+  if cfgFolderTrust == "ask" and runsProjectCode(argv):
+    var where = if cwd.len > 0: cwd else: getCurrentDir()
+    if where.startsWith(privDir()) or where.startsWith(getTempDir()):
+      where = if rootDir.len > 0: rootDir else: where        # (a private copy of the text: the project's)
+    if not codeTrusted(where):
+      askTrust(where)
+      raise newException(OSError, TrustRefusal & " " & where)
   var pin, pout, perr: array[0..1, cint]
   pin = [-1.cint, -1]
   perr = [-1.cint, -1]
@@ -114,6 +202,8 @@ proc closeProc(p: var Proc) =
   closeFd(p.outFd)
   closeFd(p.errFd)
 
+proc jobChunk(j: Job, chunk: string)
+
 proc startJob(kind: JobKind, cmd, cwd: string, onDone: proc(j: Job) {.closure.} = nil): Job =
   # git for a remote folder runs on the server (its repository is the real one)
   let run = if remotes.len > 0 and (kind == jkGit or cmd.startsWith("git ")): gitWrap(cmd, cwd) else: cmd
@@ -126,8 +216,15 @@ proc startJob(kind: JobKind, cmd, cwd: string, onDone: proc(j: Job) {.closure.} 
     setNonBlock(result.outFd)
     jobs.add result
   except CatchableError as e:
-    error("Cannot start: " & e.msg)
-    result = nil
+    if e.msg.startsWith(TrustRefusal):
+      # an untrusted folder (askTrust said so): a job that ended at once, so whoever waits for it hears why
+      result = Job(kind: kind, pr: Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1, exited: true, code: 126),
+                   outFd: -1, errFd: -1, eof: true, started: getMonoTime(), cmd: cmd, cwd: cwd, onDone: onDone)
+      jobs.add result
+      jobChunk(result, "ned " & e.msg & " — palette › Workspace: trust this folder\n")
+    else:
+      error("Cannot start: " & e.msg)
+      result = nil
 
 proc stripAnsi(s: string): string =
   var i = 0

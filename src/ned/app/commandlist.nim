@@ -314,14 +314,17 @@ proc initCommands() =
         error(e.msg)
     discard openFile(p)))
   add("Workspace: trust this folder", "", (block:
-    if rootDir notin trustedDirs: trustedDirs.add rootDir
-    reloadSettings(true)
-    info("Trusted " & rootDir & " — its project settings may now set commands and AI options")))
+    if rootDir.len == 0: info("Open a folder first")
+    else: trustFolder(rootDir)))
   add("Workspace: stop trusting this folder", "", (block:
-    let i = trustedDirs.find(rootDir)
+    let k = trustKey(rootDir)
+    var i = trustedDirs.find(k)
+    if i < 0: i = trustedDirs.find(rootDir)
     if i >= 0: trustedDirs.delete(i)
+    saveState()
     reloadSettings(true)
-    info("This folder's project settings can no longer set commands or AI options")))
+    info("Not trusted any more: ned runs none of this folder's code, and its project settings cannot start " &
+         "programs" & (if codeTrusted(rootDir): " (a folder around it is still trusted)" else: ""))))
   add("Nim panel (project, tools, toolchain)", "Alt+E", showSide(svProject))
   add("Nimble: tasks…", "Alt+Y", cmdNimbleTasks())
   add("Nimble: build", "", runNimble("build"))

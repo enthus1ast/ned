@@ -502,6 +502,7 @@ proc createNimProject(name0: string) =
   try:
     createDir(dir / "src")
     createDir(dir / "tests")
+    if trustKey(dir) notin trustedDirs: trustedDirs.add trustKey(dir)    # (you made it: its code may run)
     writeFile(dir / name & ".nimble", "# Package\n\nversion       = \"0.1.0\"\nauthor        = \"" & author &
       "\"\ndescription   = \"A new Nim project\"\nlicense       = \"MIT\"\nsrcDir        = \"src\"\nbin           = @[\"" &
       name & "\"]\n\n# Dependencies\n\nrequires \"nim >= 2.0.0\"\n\ntask docs, \"Generate HTML documentation\":\n" &
