@@ -34,6 +34,8 @@ proc fRender*(toks: openArray[FTok], params = false, importish = false): string 
     elif t.kind == fkComment: space = true
     elif p.kind in {fkOpen, fkPragOpen}: space = false
     elif t.kind in {fkClose, fkPragClose, fkComma, fkSemi, fkColon}: space = false
+    elif p.kind == fkColon and k >= 2 and toks[k - 2].kind == fkOpen and toks[k - 2].text == "[":
+      space = false                                  # fromBin[:int16] — explicit generic arguments
     elif p.kind in {fkComma, fkSemi, fkColon}: space = true
     elif t.kind == fkDot or p.kind == fkDot: space = false
     elif t.kind == fkPragOpen: space = true
@@ -49,6 +51,7 @@ proc fRender*(toks: openArray[FTok], params = false, importish = false): string 
           space = false
         if k >= 2 and fOperand(toks[k - 2]) and not (psp and not tsp): space = true
         if p.kind == fkOp and p.text == "=" : space = true
+      elif p.kind == fkKw and p.text in ["proc", "func", "iterator"]: space = false   # proc(x: int) — a type
       else: space = tsp                             # foo(a) is a call, foo (a) a command
     elif t.kind == fkOp:
       # binary after an operand — or after a keyword when spaced on both sides (object | tuple)
