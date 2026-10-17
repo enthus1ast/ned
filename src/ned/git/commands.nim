@@ -169,13 +169,15 @@ proc doCommitFromBuffer(b: Buffer): bool =
   b.savedSeq = b.topSeq()
   let id = b.id
   proc go(all: bool) =
-    let cb = bufById(id)
-    if cb != nil:
-      commitBufs.del cb.id
-      let i = bufs.find(cb)
-      if i >= 0: closeBufferAt(i)
-    gitShell("git commit" & (if amend: " --amend" else: "") & (if all: " -a" else: "") & " -F " & quoteShell(tmp),
-             (if amend: "Amended the last commit" else: "Committed"), nil, croot)
+    # (the checks first — git.checksBeforeCommit: the message stays open when they stop the commit)
+    precommitChecks((if croot.len > 0: croot else: gitHome()), all, proc() =
+      let cb = bufById(id)
+      if cb != nil:
+        commitBufs.del cb.id
+        let i = bufs.find(cb)
+        if i >= 0: closeBufferAt(i)
+      gitShell("git commit" & (if amend: " --amend" else: "") & (if all: " -a" else: "") & " -F " & quoteShell(tmp),
+               (if amend: "Amended the last commit" else: "Committed"), nil, croot))
   proc decide() =
     var stagedN = 0
     for l in (if croot.len > 0 and croot != gitHome(): gitRepoInfo(croot).lines else: gitStatusLines):
