@@ -207,6 +207,7 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("Nim: run all examples in this file", "Run all examples in the file"),
         mc("Nim: benchmark a call…", "Benchmark a call…"), mc("Nim: REPL (inim / nim secret)", "REPL")]),
       msub("Inspect", @[mc("Nim: ARC/ORC view of current proc (expandArc)", "ARC/ORC view"),
+        mc("Nim: show where ARC/ORC copies (⧉copy)", "Where ARC/ORC copies (⧉copy)"),
         mc("Nim: show generated C", "Show generated C"), mc("Nim: what can this proc raise?", "What can this proc raise?"),
         mc("Call hierarchy (callers and calls)", "Call hierarchy"),
         mc("Type hierarchy (supertypes and subtypes)", "Type hierarchy")]),
