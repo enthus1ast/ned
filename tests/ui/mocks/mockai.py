@@ -154,6 +154,10 @@ class H(BaseHTTPRequestHandler):
                 text = ('Here:\n\n```nim\nimport std/unittest\nimport ' + imp + '\n\nsuite "utils":\n  test "twice doubles":\n'
                         '    check twicee(2) == 4\n```\n')
             finish = 'stop'
+        elif '<CURSOR>' in user and 'GHOSTGOOD' in user:
+            text, finish = 'name.toUpperAscii', 'stop'          # (an inline suggestion that compiles)
+        elif '<CURSOR>' in user and 'GHOSTBAD' in user:
+            text, finish = 'name.toUpperFirst', 'stop'          # (one that names what does not exist)
         elif 'PELICAN' in user:
             text, finish = 'The attached resource says PELICAN.', 'stop'
         elif 'Write a proc' in user:

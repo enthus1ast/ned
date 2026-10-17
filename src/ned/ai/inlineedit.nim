@@ -58,11 +58,13 @@ proc aiInlineEdit(instruction: string) =
   var after = ""
   for i in e.line + 1 .. min(b.lines.high, e.line + 20): after.add b.lines[i] & "\n"
   let saved = aiMsgs
+  let defs = codeDefinitionsFor(b, ctxLo, min(b.lines.high, e.line + 20))   # (so it uses the real APIs)
   aiMsgs = @[AiMsg(role: 0, text: "Rewrite the code in <code> according to the instruction. Reply with ONLY the " &
-    "replacement code (no explanation, no Markdown fences), keeping the surrounding indentation.\n" &
+    "replacement code (no explanation, no Markdown fences), keeping the surrounding indentation. Use only the " &
+    "names that exist: the code and <definitions> show them.\n" &
     "Language: " & b.lang.name & "\nFile: " & (if b.path.len > 0: relPath(b.path) else: b.name) & "\n" &
     "<before>\n" & before & "</before>\n<code>\n" & code & "\n</code>\n<after>\n" & after & "</after>\n" &
-    "Instruction: " & instruction)]
+    (if defs.len > 0: defs & "\n" else: "") & "Instruction: " & instruction)]
   aiRequest()
   aiMsgs = saved
   info("Asking the AI to edit the selection…")

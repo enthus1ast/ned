@@ -15,7 +15,7 @@ proc aiSystemPrompt(): string =
   if cfgAiSystem.len > 0: result.add "\n" & cfgAiSystem
   result.add projectInstructions()
 
-proc nimDefinitionsFor(b: Buffer, l0, l1: int): string =
+proc nimDefinitionsFor(b: Buffer, l0, l1: int, budget = 6000): string =
   ## Nim: the declarations the code in lines l0..l1 uses but does not contain — signatures, doc comments
   ## and small type bodies, found by the built-in engine — so the model knows what the names are
   if not cfgAiNimContext or b.lang.mode != lmNim or b.path.len == 0: return ""
@@ -68,10 +68,63 @@ proc nimDefinitionsFor(b: Buffer, l0, l1: int): string =
       if s.strip.len == 0: break
       if leadingWs(s).len <= ind and not s.strip.startsWith("##"): break
       snip.add s & "\n"
-    if total + snip.len > 6000: break
+    if total + snip.len > budget: break
     total += snip.len
     result.add "# " & relPath(p) & ":" & $(dl + 1) & "\n" & snip
   result.add "</definitions>"
+
+proc cDefinitionsFor(b: Buffer, l0, l1: int, budget = 6000): string =
+  ## C: the declarations the code in lines l0..l1 uses from headers and other files (prototypes, structs, macros —
+  ## with the comment that documents them), from ned's C engine
+  if not cfgAiNimContext or b.lang == nil or b.lang.id != "c" or b.path.len == 0: return ""
+  var f: CxFile
+  try: f = cxFileOf(b)
+  except CatchableError: return ""
+  if f == nil: return ""
+  var seen: HashSet[string]
+  var parts: seq[string]
+  var total = 0
+  let t0 = getMonoTime()
+  for l in max(0, l0) .. min(b.lines.high, l1):
+    if parts.len >= 20 or (getMonoTime() - t0).inMilliseconds > 250: break
+    let s = b.lines[l]
+    var i = 0
+    while i < s.len and parts.len < 20:
+      if s[i] == '"':
+        inc i
+        while i < s.len and s[i] != '"': inc i
+        inc i
+        continue
+      if s[i] == '/' and i + 1 < s.len and s[i + 1] == '/': break
+      if s[i] in IdentStartChars:
+        var e = i
+        while e < s.len and s[e] in IdentChars: inc e
+        let w = s[i ..< e]
+        if w.len > 1 and w notin seen and w notin CxKeywords:
+          seen.incl w
+          var ts: seq[(CxFile, CxSym)]
+          try: ts = cxTargets(f, l, i)
+          except CatchableError: discard
+          if ts.len > 0:
+            let (g, sy) = ts[0]
+            if not (g.path == f.path and sy.line >= l0 and sy.line <= l1) and sy.text.len > 0:
+              var snip = (if sy.doc.len > 0: "/* " & sy.doc.strip & " */\n" else: "") & sy.text & "\n"
+              if sy.isDef and sy.kind in {cxStruct} and sy.endLine > sy.line and g.lines.len > sy.endLine:
+                snip = (if sy.doc.len > 0: "/* " & sy.doc.strip & " */\n" else: "")
+                for k in sy.line .. min(sy.endLine, sy.line + 15): snip.add g.lines[k] & "\n"
+              if total + snip.len <= budget:
+                total += snip.len
+                parts.add "// " & relPath(g.path) & ":" & $(sy.line + 1) & "\n" & snip
+        i = e
+      else: inc i
+  if parts.len == 0: return ""
+  "<definitions note=\"declarations the code above uses, from its headers\">\n" & parts.join("") & "</definitions>"
+
+proc codeDefinitionsFor(b: Buffer, l0, l1: int, budget = 6000): string =
+  ## what the code in lines l0..l1 uses but does not declare: Nim from the built-in engine, C from ned's C engine
+  if b.lang != nil and b.lang.mode == lmNim: nimDefinitionsFor(b, l0, l1, budget)
+  elif b.lang != nil and b.lang.id == "c": cDefinitionsFor(b, l0, l1, budget)
+  else: ""
 
 proc fileContext(): string =
   ## the current file or selection, sent along with the user's message
@@ -81,7 +134,7 @@ proc fileContext(): string =
   let (a, e) = b.primary.range
   if a != e:
     let t = b.getText(a, e)
-    let defs = nimDefinitionsFor(b, a.line, e.line)
+    let defs = codeDefinitionsFor(b, a.line, e.line)
     return "<selection file=\"" & name & "\" lines=\"" & $(a.line + 1) & "-" & $(e.line + 1) & "\">\n" & t &
            "\n</selection>" & (if defs.len > 0: "\n" & defs else: "")
   let cl = b.primary.head.line
@@ -89,7 +142,7 @@ proc fileContext(): string =
   let hi = min(b.lines.high, lo + 599)
   var t = ""
   for i in lo .. hi: t.add b.lines[i] & "\n"
-  let defs = nimDefinitionsFor(b, max(0, cl - 25), cl + 25)        # what the code around the cursor uses
+  let defs = codeDefinitionsFor(b, max(0, cl - 25), cl + 25)       # what the code around the cursor uses
   "<file path=\"" & name & "\" cursor_line=\"" & $(cl + 1) & "\"" &
     (if lo > 0 or hi < b.lines.high: " showing=\"" & $(lo + 1) & "-" & $(hi + 1) & " of " & $b.lines.len & "\"" else: "") &
     ">\n" & t & "</file>" & (if defs.len > 0: "\n" & defs else: "")

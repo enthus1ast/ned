@@ -1,6 +1,7 @@
 # ── inline AI suggestions (opt-in: ai.inlineCompletion) — grey text after the cursor, Tab accepts ──
 
 var
+  ghostDropped = ""        # the last suggestion's name that does not exist (it was not shown)
   ghostText = ""
   ghostBuf = -1
   ghostPos: Pos
@@ -39,6 +40,117 @@ proc ghostAccept(): bool =
   b.setSingle(p)
   true
 
+var ghostWords: (int, int, HashSet[string])   # (buffer id, changeId, the names written in it)
+
+proc ghostUnknownName(b: Buffer, at: Pos, t: string): string =
+  ## a name the suggestion uses that does not exist here — Nim, checked by the built-in engine: not declared in
+  ## scope, not one of the receiver's fields or procs (`s.toUpperFirst`), not declared by the suggestion itself and
+  ## not already written in the file. "" when it uses only names that exist (or the engine cannot tell)
+  if not sBool("ai.checkSuggestions") or b.lang == nil or b.lang.mode != lmNim or not nimEngineOn(b): return ""
+  var f: NxFile
+  try: f = nxFileFor(b)
+  except CatchableError: return ""
+  if f == nil: return ""
+  # the names the file already has (a name the engine does not know but the file uses is fine)
+  if ghostWords[0] != b.id or ghostWords[1] != b.changeId:
+    var ws: HashSet[string]
+    for i, l in b.lines:
+      if i > 30_000: break
+      var k = 0
+      while k < l.len:
+        if l[k] in IdentStartChars and (k == 0 or l[k - 1] notin IdentChars):
+          var e = k
+          while e < l.len and l[e] in IdentChars: inc e
+          ws.incl nxNorm(l[k ..< e])
+          k = e
+        else: inc k
+    ghostWords = (b.id, b.changeId, ws)
+  # the suggestion's words: (name, start, after a dot)
+  var words: seq[(string, int, bool)]
+  var declared: HashSet[string]
+  var i = 0
+  var prevWord = ""
+  var inFor = false
+  while i < t.len:
+    let c = t[i]
+    if c == '#':
+      while i < t.len and t[i] != '\n': inc i
+      continue
+    if c == '"':
+      inc i
+      while i < t.len and t[i] != '"' and t[i] != '\n':
+        if t[i] == '\\': inc i
+        inc i
+      inc i
+      continue
+    if c == '\'' and i + 2 < t.len and (t[i + 2] == '\'' or t[i + 1] == '\\'):
+      i += (if t[i + 1] == '\\': 4 else: 3)
+      continue
+    if c == '`':
+      let e = t.find('`', i + 1)
+      i = if e < 0: t.len else: e + 1
+      continue
+    if c in IdentStartChars and (i == 0 or t[i - 1] notin IdentChars):
+      var e = i
+      while e < t.len and t[e] in IdentChars: inc e
+      let w = t[i ..< e]
+      var k = e
+      while k < t.len and t[k] == ' ': inc k
+      let nextC = if k < t.len: t[k] else: '\0'
+      let next2 = if k + 1 < t.len: t[k + 1] else: '\0'
+      var dotBefore = i > 0 and t[i - 1] == '.'
+      if prevWord in ["let", "var", "const", "proc", "func", "iterator", "template", "macro", "method", "converter",
+                      "type"] or inFor or (nextC == ':' and next2 != ':') or (nextC == '=' and next2 != '='):
+        declared.incl nxNorm(w)
+      if w == "for": inFor = true
+      elif w == "in": inFor = false
+      if w notin NxKeywords: words.add (w, i, dotBefore)
+      prevWord = w
+      i = e
+      continue
+    if c == '\n': inFor = false
+    if c notin {' ', '*', ','}: prevWord = ""
+    inc i
+  let sc = nxScope(f)
+  var localNames: HashSet[string]
+  for s in nxLocals(f, b.lines, at.line, at.col): localNames.incl nxNorm(s.name)
+  # the text with the suggestion in it (a member is looked up the way completion after its dot would)
+  var newLines: seq[string]
+  var tLines = t.split('\n')
+  for (w, start, dot) in words:
+    let n = nxNorm(w)
+    if w.len <= 1 or n in declared or n in ghostWords[2] or w in ["it", "result", "_", "true", "false", "nil"]: continue
+    if not dot:
+      if nxLookup(sc, w).len == 0 and n notin localNames: return w
+      continue
+    # a member: the receiver's fields and procs, when its type is known
+    if newLines.len == 0:
+      newLines = b.lines[0 ..< at.line]
+      let pre = b.lines[at.line][0 ..< at.col]
+      let post = b.lines[at.line][at.col .. ^1]
+      for k, tl in tLines:
+        newLines.add (if k == 0: pre else: "") & tl & (if k == tLines.high: post else: "")
+      if at.line + 1 <= b.lines.high: newLines.add b.lines[at.line + 1 .. ^1]
+    # where this word stands in newLines
+    var ln = at.line
+    var col = at.col
+    for q in 0 ..< start:
+      if t[q] == '\n':
+        inc ln
+        col = 0
+      else: inc col
+    try:
+      let comp = nxComplete(f, newLines, ln, col)
+      if comp.member and comp.known:
+        var ok = false
+        for it in comp.items:
+          if nxNorm(it.label) == n:
+            ok = true
+            break
+        if not ok: return t[max(0, start - 1) ..< start + w.len]
+    except CatchableError: discard
+  ""
+
 proc ghostRequest(b: Buffer) =
   ## ask for a short continuation at the cursor (one request in flight; stale answers are dropped)
   if not haveExe("curl"): return
@@ -59,7 +171,9 @@ proc ghostRequest(b: Buffer) =
               "the text to insert there — no explanation, no Markdown fences, nothing that is already after the " &
               "cursor. At most a few lines; stop at the end of the statement or block. If nothing fits, reply with " &
               "an empty message."
-  let user = "File: " & (if b.path.len > 0: relPath(b.path) else: b.name) & "\n<code>\n" & pre & "<CURSOR>" & suf & "\n</code>"
+  let defs = codeDefinitionsFor(b, max(0, p.line - 12), p.line + 3, 1500)   # (the names that exist, as they are)
+  let user = "File: " & (if b.path.len > 0: relPath(b.path) else: b.name) & "\n<code>\n" & pre & "<CURSOR>" & suf &
+             "\n</code>" & (if defs.len > 0: "\n" & defs else: "")
   let anth = cfgAiProvider == "anthropic"
   let gm = ghostModel()
   let reasoning = cfgAiProvider == "openai" and isReasoningModel(gm)
@@ -143,6 +257,13 @@ proc ghostRequest(b: Buffer) =
     let linePre = bb.lines[at.line][0 ..< at.col]
     let lp = linePre.strip(trailing = false)
     if lp.len > 0 and t.startsWith(lp) and t.len > lp.len: t = t[lp.len .. ^1]
+    # a name that does not exist here: the suggestion is not shown (it would not compile)
+    var bad = ""
+    try: bad = ghostUnknownName(bb, at, t)
+    except CatchableError: discard
+    if bad.len > 0:
+      ghostDropped = bad
+      return
     ghostText = t
     ghostBuf = id
     ghostPos = at
