@@ -852,7 +852,7 @@ nim c -d:release --opt:speed -d:strip -o:ned src/ned.nim      # what you need
 | `nimble debug` | debug build with stack traces |
 | `nimble typecheck` | `nim check` only |
 | `nimble android` | verify it compiles for Android/arm64 (C generation only) |
-| `nimble test` | the unit tests: the Nim index, the formatters, the regular expressions |
+| `nimble test` | the unit tests: the Nim and C indexes, the formatters, the regular expressions, ARC/ORC copies |
 | `nimble uitest` | the whole editor driven through tmux (needs tmux; see [tests/README.md](tests/README.md)) |
 | `nimble bench` | render a 200 000-line file off-screen and print frame timings |
 | `nimble perf` | startup time, memory and frame times, checked against the CI budget (needs python3) |

@@ -65,8 +65,9 @@ task android, "Check that ned compiles for Android (arm64) — generates C only"
   exec "nim c --os:android --cpu:arm64 -d:release --compileOnly --hints:off --nimcache:" &
        tmpDir() & "ned_android " & main
 
-task test, "Unit tests: the Nim index, the C index, the formatters, the regular expressions":
-  for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim"]:
+task test, "Unit tests: the Nim index, the C index, the formatters, the regular expressions, ARC/ORC copies":
+  for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim",
+            "tests/unit/tcopies.nim"]:
     exec "nim r -d:release --hints:off " & t
 
 task uitest, "The editor driven through tmux, every feature (tests/ui; needs tmux and python3)":
