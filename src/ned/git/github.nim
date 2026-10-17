@@ -125,4 +125,6 @@ proc ghMenu() =
     act("Pull requests", "check out, see changes and checks, open", proc() = ghPullRequests()),
     act("Issues", "read, open", proc() = ghIssues()),
     act("Actions (CI)", "the latest runs", proc() = ghRuns()),
+    act("Review comments", "of this branch's pull request, on their lines — reply, resolve",
+        proc() = runCmd("Git: GitHub review comments…")),
     act("Create a pull request", "gh pr create --fill, in the terminal", proc() = runCmd("Git: create a pull request (gh)"))])

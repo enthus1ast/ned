@@ -47,6 +47,7 @@ proc gitNet(args, okMsg: string, then: proc() = nil) =
       if args.startsWith("push") and haveExe("gh"):
         ciDue = true                     # the run the push starts shows up after a few seconds
         ciDueAt = getMonoTime() + initDuration(seconds = 8)
+        reviewsAfterPush(root)
       if then != nil: then()
     elif "git push --set-upstream" in o and "--set-upstream" notin args:
       # git suggests `git push --set-upstream <remote> <branch>`: never run its text (a branch name can hold

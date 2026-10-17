@@ -462,6 +462,7 @@ proc initCommands() =
   add("Git: GitHub pull requests…", "", ghPullRequests())
   add("Git: GitHub issues…", "", ghIssues())
   add("Git: GitHub Actions (CI)…", "", ghRuns())
+  add("Git: GitHub review comments…", "the pull request's, on their lines", cmdReviewComments())
   add("File: open folder by path…", "", openPrompt(pOpenFolder, "Open folder", rootDir & "/"))
   add("Cut", "Ctrl+X", copySel(true))
   add("Copy", "Ctrl+C", copySel(false))

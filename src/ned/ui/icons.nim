@@ -50,6 +50,7 @@ proc ic(name: string): string =
     of "tool": ""
     of "history": "\u{F02DA}"
     of "bookmark": "\uF02E"
+    of "comment": "\uF075"
     else: "•"
   of "ascii":
     case name
@@ -96,6 +97,7 @@ proc ic(name: string): string =
     of "tool": "%"
     of "history": "h"
     of "bookmark": "#"
+    of "comment": ">"
     else: "-"
   else:
     case name
@@ -142,6 +144,7 @@ proc ic(name: string): string =
     of "tool": "⚒"
     of "history": "◷"
     of "bookmark": "◆"
+    of "comment": "❝"
     else: "•"
 
 proc langColor(path: string): Rgb =
