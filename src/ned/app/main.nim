@@ -316,6 +316,9 @@ proc mainLoop() =
       if cfgLiveCheck and cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
          typoAt.getOrDefault(cb.id, -1) != cb.changeId and msSince(cb.lspChangeAt) > 500:
         engineTypos(cb)                                     # a misspelled name: at once
+      if cfgMacroNames and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
+         msSince(cb.lspChangeAt) > 1500:
+        macroNamesFor(cb)                                   # names its macro calls make: from the compiler, once
       if cfgGitAutoRefresh and (treeOpen and sideView in {svGit, svFiles}) and msSince(gitStatusAt) > 5000:
         refreshGitStatus()
       if wsRoots.len > 0 and cb.path.len > 0 and cb.path != gitFollowPath:

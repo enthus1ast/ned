@@ -131,6 +131,7 @@ include ned/nim/outline
 include ned/editor/completion
 include ned/nim/messages
 include ned/nim/enginechecks
+include ned/nim/macronames
 include ned/editor/diagnostics
 include ned/editor/findreplace
 include ned/editor/navigation

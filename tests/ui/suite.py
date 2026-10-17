@@ -4991,6 +4991,25 @@ def t_68_engine_checks():
     start('ec.nim', w=130, h=34); time.sleep(1.5)
     keys('C-g'); text('13:16'); keys('Enter'); text(', 3'); time.sleep(2)
     check('68 engine checks off: no argument count', 'takes 2 arguments' not in screen(), screen())
+    # a value neither used nor discarded, a literal of the wrong type, an import nothing uses — the compiler's
+    # words, so its quick fixes apply
+    tm('kill-server'); time.sleep(0.3)
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest"})
+    open(W + '/ec2.nim', 'w').write('import std/[strutils, os]\n\nproc area(w, h: int): int = w * h\n\n'
+                                    'proc main() =\n  let n: int = "three"\n  area(2, 3)\n  echo n, getCurrentDir()\n\nmain()\n')
+    start('ec2.nim', w=130, h=34); time.sleep(1.5)
+    keys('C-g'); text('10'); keys('Enter', 'End', 'Enter')
+    ok = wait_for(r'has to be used', 8)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check('68 engine: a value not used or discarded', ok, s)
+    check('68 engine: a literal of the wrong type', "got 'string' for" in s, s)
+    check('68 engine: an import nothing uses', "imported and not used: 'strutils'" in s and "'os'" not in s, s)
+    keys('Escape')
+    keys('C-g'); text('7:3'); keys('Enter', 'M-Enter'); time.sleep(0.8)
+    ok = wait_for(r'Discard the result', 4)
+    keys('Enter'); time.sleep(0.5)
+    check('68 engine: its quick fix (discard) applies', ok and 'discard area(2, 3)' in screen(), screen())
 
 def t_68_compiler_answers():
     # nimsuggest off (the default): a name the engine cannot know (a macro makes it) — hover and Go to definition
@@ -5007,4 +5026,33 @@ def t_68_compiler_answers():
     check('68 hover on a name a macro makes: the compiler answers', ok, screen())
     keys('Escape')
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers]
+def t_68_macro_names():
+    # names a macro makes, known without nimsuggest: the compiler expands the top-level macro calls once (the file
+    # and the project files it imports) and completion, hover and Go to definition know what they declare
+    setup({"nim.nimsuggest": False, "nim.compilerAnswers": False})
+    open(W + '/gen.nim', 'w').write('import std/macros\n\nmacro makeProcs*(names: varargs[untyped]): untyped =\n'
+                                    '  result = newStmtList()\n  for n in names:\n    let nm = ident("get" & $n)\n'
+                                    '    result.add quote do:\n      proc `nm`*(): string = "x"\n\n'
+                                    'macro makeType*(name: untyped): untyped =\n  result = quote do:\n'
+                                    '    type `name`* = object\n      width*: int\n\n'
+                                    'makeProcs(Foo, Bar)\nmakeType(Thing)\n')
+    open(W + '/mm.nim', 'w').write('import gen\n\necho getBar()\nvar t: Thing\necho t.wi\necho getF\n')
+    start('mm.nim', w=130, h=34); time.sleep(5)
+    keys('C-g'); text('6'); keys('Enter', 'End', 'C-space')
+    ok = wait_for(r'getFoo', 10)
+    check('68 macro names: completion offers what an imported module\'s macro call makes', ok, screen())
+    keys('Escape'); keys('C-g'); text('5'); keys('Enter', 'End', 'C-space')
+    check('68 macro names: a field of a type a macro makes', wait_for(r'width', 6), screen())
+    keys('Escape'); keys('C-g'); text('3:7'); keys('Enter', 'M-h')
+    ok = wait_for(r'getBar\(\): string', 6)
+    check('68 macro names: hover on the made proc, with the call that made it', ok and 'makeProcs(Foo, Bar)' in screen(), screen())
+    keys('Escape'); keys('F12'); time.sleep(1.0)
+    s = screen()
+    check('68 macro names: Go to definition goes to the macro call', 'gen.nim' in s and re.search(r'Ln 15, Col 1\b', s) is not None, s)
+    tm('kill-server'); time.sleep(0.3)
+    setup({"nim.nimsuggest": False, "nim.compilerAnswers": False, "nim.macroNames": False})
+    start('mm.nim', w=130, h=34); time.sleep(4)
+    keys('C-g'); text('6'); keys('Enter', 'End', 'C-space'); time.sleep(2)
+    check('68 macro names off: not offered', 'getFoo' not in screen(), screen())
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names]
