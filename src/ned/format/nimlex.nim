@@ -350,9 +350,13 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
         elif t.col > cur.indent and last.kind == fkColon and secInd >= 0 and cur.indent > secInd and
              fNamesHead(cur.toks, cur.toks.high):
           cont = true          # in a var/let/const/type section:  a, b*, c:   ⏎   seq[string] = @[]
-        elif t.col > cur.indent and t.kind == fkPragOpen and cur.toks[0].kind == fkKw and
-             cur.toks[0].text in FRoutineKw and not (last.kind == fkOp and last.text == "="):
-          cont = true          # proc f(): T   ⏎   {.raises: [].} =
+        elif t.col > cur.indent and t.kind == fkPragOpen and not (last.kind == fkOp and last.text == "=") and
+             last.kind != fkColon and (block:
+               var r = false
+               for u in cur.toks:
+                 if u.kind == fkKw and u.text in FRoutineKw: r = true
+               r):
+          cont = true          # proc f(): T   ⏎   {.raises: [].} =   ·   cb: proc(x: int)   ⏎   {.nimcall.}
       if t.kind == fkComment and not cont and depth == 0:
         discard
       if cont:
@@ -397,7 +401,10 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
         if t.text == "do" and stmtAt < 0:
           stmtAt = d
           stmtIf = false
-        elif d > 0 and t.text in FRoutineKw and lambdaAt < 0: lambdaAt = d
+        elif d > 0 and t.text in FRoutineKw and lambdaAt < 0 and
+             not (d == 1 and prev != nil and prev.kind == fkColon and l.toks[0].kind == fkKw and
+                  l.toks[0].text in FRoutineKw):
+          lambdaAt = d       # (not `cb: proc(x: int) = nil` in a routine's parameters: a type, and its default)
         elif d > 0 and t.text in ["block", "case", "try", "for", "while", "if", "when"] and stmtAt < 0:
           stmtAt = d
           stmtIf = t.text in ["if", "when"]

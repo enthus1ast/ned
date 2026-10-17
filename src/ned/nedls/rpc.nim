@@ -26,6 +26,8 @@ var
   lsLogPath = ""                          # --log:FILE: the log goes there too
   lsQueue: seq[JsonNode]                  # messages read and not handled yet
   lsNextOutId = 0                         # ids of requests nedls sends to the client
+  lsInFd: cint = 0                        # the protocol's own descriptors: stdin and stdout are moved here at
+  lsOutFd: cint = 1                       # start (lsTakeStdio), so nothing else can read or write them
 
 proc lsRaise(code: int, msg: string) {.noreturn.} =
   var e = newException(LsError, msg)
@@ -50,11 +52,11 @@ proc lsWriteAll(data: string) =
   ## the whole of `data` on stdout (it blocks while the client is not reading)
   var off = 0
   while off < data.len and not lsOutBroken:
-    let n = posix.write(1, unsafeAddr data[off], data.len - off)
+    let n = posix.write(lsOutFd, unsafeAddr data[off], data.len - off)
     if n > 0: off += n
     elif n < 0 and errno == EINTR: continue
     elif n < 0 and errno == EAGAIN:
-      var pfd = TPollfd(fd: 1, events: POLLOUT)
+      var pfd = TPollfd(fd: lsOutFd, events: POLLOUT)
       discard poll(addr pfd, 1, 1000)
     else:
       lsOutBroken = true
@@ -90,11 +92,27 @@ proc lsShowMessage(typ: int, msg: string) =
 proc lsLogMessage(typ: int, msg: string) =
   lsNotify("window/logMessage", %*{"type": typ, "message": msg})
 
+proc lsTakeStdio() =
+  ## the protocol keeps stdin and stdout to itself: they move to descriptors of their own (closed in children),
+  ## stdin becomes /dev/null and stdout stderr — a stray echo or a program ned starts cannot touch the protocol
+  let i = posix.dup(0)
+  let o = posix.dup(1)
+  if i < 0 or o < 0: return
+  discard fcntl(i, F_SETFD, FD_CLOEXEC)
+  discard fcntl(o, F_SETFD, FD_CLOEXEC)
+  lsInFd = i
+  lsOutFd = o
+  let dn = posix.open("/dev/null", O_RDWR)
+  if dn >= 0:
+    discard posix.dup2(dn, 0)
+    discard posix.close(dn)
+  discard posix.dup2(2, 1)
+
 proc lsReadInput(): bool =
   ## what stdin has now (poll said it is readable); false at its end
   var tmp: array[65536, char]
   while true:
-    let n = posix.read(0, addr tmp[0], tmp.len)
+    let n = posix.read(lsInFd, addr tmp[0], tmp.len)
     if n > 0:
       let old = lsIn.len
       lsIn.setLen(old + n)
