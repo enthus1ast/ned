@@ -242,6 +242,10 @@ proc initSettingDefs() =
        "Mark where ARC/ORC copies a value (a string, a seq, an object): after a save the compiler shows ned its " &
        "=copy and =dup calls (nim c --expandArc, in a trusted folder) and ⧉copy appears beside each — hover it " &
        "for why, and how to move instead")
+  defS("Git", "git.checksBeforeCommit", %"both",
+       "Before a commit: format = the files it takes are formatted (ned's own formatters, on what is staged), " &
+       "tests = the tests that cover them pass (in a trusted folder) · both · off. One that fails stops the commit " &
+       "and says why, with a way to fix it or to commit anyway", @["both", "format", "tests", "off"])
   defS("Editor", "editor.dimInactiveCode", %true,
        "Dim code a compile leaves out here: a Nim `when` branch that is false on this platform (when defined(windows) " &
        "on Linux — hover the `when` for its value), C's #if 0 and #ifdef __cplusplus")
@@ -590,6 +594,7 @@ proc applySettings() =
   cfgShowCopies = sBool("nim.showCopies")
   cfgTestOnSave = sStr("nim.testOnSave")
   cfgDimInactive = sBool("editor.dimInactiveCode")
+  cfgCommitChecks = sStr("git.checksBeforeCommit")
   cfgSemColors = sBool("nim.semanticColors")
   cfgMinimap = sStr("ui.minimap")
   cfgScrollbar = sBool("ui.scrollbar")

@@ -41,14 +41,14 @@ proc importsModule(lines: openArray[string], m: string): bool =
       if n == m: return true
   false
 
-proc testsForSave(b: Buffer): seq[string] =
-  ## the test files a save of b runs
-  if cfgTestOnSave == "off" or b.lang == nil or b.lang.mode != lmNim or not b.path.endsWith(".nim"): return
-  if isNimTestFile(b.lines): return @[b.path]
-  if cfgTestOnSave != "related" or b.path.len == 0: return
-  let m = splitFile(b.path).name
+proc testsOfFile(path: string, lines: seq[string], related = true, most = 3): seq[string] =
+  ## the test files for a Nim file: itself when it is one, else (related) the test files that import it
+  if not path.endsWith(".nim"): return
+  if isNimTestFile(lines): return @[path]
+  if not related or path.len == 0: return
+  let m = splitFile(path).name
   var cands: seq[string]
-  if b.path.startsWith(rootDir & "/"):
+  if path.startsWith(rootDir & "/"):
     for rel in projectFiles():
       if not rel.endsWith(".nim"): continue
       let base = extractFilename(rel)
@@ -57,14 +57,14 @@ proc testsForSave(b: Buffer): seq[string] =
         cands.add rootDir / rel
       if cands.len >= 300: break
   else:
-    for d in [parentDir(b.path), parentDir(b.path) / "tests", parentDir(parentDir(b.path)) / "tests"]:
+    for d in [parentDir(path), parentDir(path) / "tests", parentDir(parentDir(path)) / "tests"]:
       try:
         for kind, f in walkDir(d):
-          if kind == pcFile and f.endsWith(".nim") and f != b.path: cands.add f
+          if kind == pcFile and f.endsWith(".nim") and f != path: cands.add f
       except OSError: discard
   for f in cands:
-    if result.len >= 3: break
-    if f == b.path: continue
+    if result.len >= most: break
+    if f == path: continue
     try:
       let bi = bufIndexByPath(f)
       let lines = if bi >= 0: bufs[bi].lines
@@ -72,6 +72,11 @@ proc testsForSave(b: Buffer): seq[string] =
                   else: @[]
       if importsModule(lines, m) and isNimTestFile(lines): result.add f
     except CatchableError: discard
+
+proc testsForSave(b: Buffer): seq[string] =
+  ## the test files a save of b runs
+  if cfgTestOnSave == "off" or b.lang == nil or b.lang.mode != lmNim or not b.path.endsWith(".nim"): return
+  testsOfFile(b.path, b.lines, cfgTestOnSave == "related")
 
 proc parseSaveTestRun(path, output: string): seq[Diag] =
   ## [OK] / [FAILED] / [SKIPPED] each test; a failed check, or an exception, as an error on its line
@@ -133,14 +138,27 @@ proc parseSaveTestRun(path, output: string): seq[Diag] =
     for d in result.mitems:
       if d.line < bufs[bi].lines.len: d.col = leadWs(bufs[bi].lines[d.line])
 
-proc runTestOnSave(path: string) =
+type TestRunDone = proc(state: int, failed: seq[string], passed: int) {.closure.}
+  ## a test file's run, done: state 0 all passed · 1 some failed · 2 did not compile or was stopped · 3 not run
+  ## (the folder is not trusted, no nim)
+
+var saveTestWaiters: Table[string, seq[TestRunDone]]   # test file → who waits for its run (checks before a commit)
+
+proc runTestOnSave(path: string, after: TestRunDone = nil) =
+  if after != nil: saveTestWaiters.mgetOrPut(path, @[]).add after
+  proc notRun() =
+    for w in saveTestWaiters.getOrDefault(path): w(3, @[], 0)
+    saveTestWaiters.del path
   if path in saveTestRuns:
     saveTestAgain.incl path
     return
   if not codeTrusted(parentDir(path)):
     askTrust(parentDir(path), quiet = true)              # (tests run the project's code)
+    notRun()
     return
-  if not haveExe("nim"): return
+  if not haveExe("nim"):
+    notRun()
+    return
   # the test file's tests: listed, so their marks show while it runs
   var known = false
   for e in testEntries:
@@ -212,10 +230,16 @@ proc runTestOnSave(path: string) =
       if saveTestFailed.getOrDefault(p).len > 0: toast("All " & $ok & " tests pass in " & name, 4)
       else: info("Tests: " & $ok & " ✓ — " & name)
     saveTestFailed[p] = failed
+    let state = if jj.code == 137 or not compiled: 2 elif bad > 0: 1 else: 0
+    var fl: seq[string]
+    for n in failed: fl.add n
+    for w in saveTestWaiters.getOrDefault(p): w(state, fl, ok)
+    saveTestWaiters.del p
     needRender = true)
   if j != nil:
     j.deadlineMs = SaveTestTimeoutMs
     saveTestRuns[path] = j
+  else: notRun()
   needRender = true
 
 proc testsOnSave(b: Buffer) =
