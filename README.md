@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.6](#whats-new-in-66) · [6.5.1](CHANGELOG.md#whats-new-in-651) · [older releases](CHANGELOG.md)
+- [What's new in 6.7](#whats-new-in-67) · [6.6](CHANGELOG.md#whats-new-in-66) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,57 +40,86 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.6
+## What's new in 6.7
 
-![Where ARC/ORC copies: ⧉copy beside each value the compiler copies, and hovering one says why](screenshots/copies-66.png)
+![Theme editor: every colour with a swatch and its contrast, the hard-to-read ones marked](screenshots/theme-editor-67.png)
 
-- **Where ARC/ORC copies.** After a save, ned asks the compiler where it inserted `=copy` and `=dup`
-  (`nim c --expandArc` on a private copy, every routine of the file generated) and marks each with **⧉copy**
-  beside what is copied: a value kept in a variable, one handed to a `sink` parameter while it is still used, a
-  borrowed parameter kept, each value an iterator yields (`for k, v in pairs(t)` copies them), what a closure
-  captures. Hover one for why, and how to move instead. Refs, closures and numbers — cheap to copy — are not
-  marked. *Nim › Inspect › Where ARC/ORC copies*; `nim.showCopies`.
-- **Tests on save.** Save a `std/unittest` file — or a module: the test files that import it run too — and they
-  compile and run in the background (a private binary and cache, stopped after 2 minutes): **✓ passed** or
-  **✗ failed — line 8** beside each `test`, and the failed check on its line with what each side was
-  (`Check failed: slug("Hello, World!") == "hello-world" — slug("Hello, World!") was "hello--world"`). A toast
-  when something newly fails, another when all pass again. `nim.testOnSave`: `related` (the default), `file`, `off`.
-- **Postfix completion.** After a `.`, templates that wrap what is in front of it: `xs.for` → `for x in xs:` (the
-  name from the plural: `items` → `item`), `n.for` → `for i in 0 ..< n:`, `t.for` → `for k, v in t:`, `c.case` →
-  a `case` with **every value of its enum**, `v.if` / `v.ifnot` by its type (`o.isSome`, `p != nil`,
-  `s.len > 0`), `x.echo`, `.let`, `.var`, `.return`, `.discard`, `.not`, `.par`, `.str`. They come after the
-  receiver's fields and procs (`xs.le` is still `len` first). `nim.postfixCompletion`.
-- **Compile-time values.** The engine works constants out as the compiler would: bit operations
-  (`0xFF and not 0x0F` = 240), integers that keep their type (`255'u8 + 1` wraps to 0; `high(int8) + 1` is
-  *a compile error: over- or underflow*), strings and chars, enum values, `high`/`low`/`sizeof`/`ord`/`chr`/`len`,
-  `defined()` and `declared()`. Hover a constant, a selection or a `when` (*= false here (linux, amd64) — this
-  branch is left out*), and **the `when` branches left out on this platform are dimmed**, as is C's `#if 0`
-  (`editor.dimInactiveCode`).
-- **Folder trust.** A folder you open is not trusted until you say so: ned's own engines read and check its code,
-  but nothing in it runs — not the compiler (its `config.nims` and macros can run commands), nimble, nimsuggest,
-  tests or the program. A notice says so once, with **Trust**; *⛉ Not trusted* in the status bar does the same.
-  Projects you create with ned, the Nim toolchain and nimble packages are trusted; `security.folderTrust: off`
-  trusts every folder.
-- **Less memory.** The Nim engine keeps one sorted index of names per scope instead of a table, and at most 12
-  scopes (the least recently used go). With 25 of the Nim compiler's modules open, ned takes 46 MB instead of
-  82 MB; the engine alone, over 60 of them, 15 MB instead of 42 MB — at the same speed.
+- **Sign in to GitHub without a password.** A push or pull that GitHub refuses for a login (it stopped taking
+  passwords in 2021) offers two ways in: the GitHub CLI — installed if it is missing, you sign in in the browser,
+  and it becomes git's credential helper — or an SSH key, made in the terminal (you type its passphrase there) and
+  added for you by `gh`, or copied with GitHub's page opened; the remote switches to SSH. ned never asks for,
+  sees or stores a token. The Git dock says who you push as. *Git: sign in to GitHub*.
+- **Undo the last commit, pull or merge.** *Git: undo…* lists the branch's last steps from the reflog — a commit,
+  an amend, a pull, a merge, a whole rebase, a reset, a switch — and undoes one in one step: a commit softly (its
+  changes stay staged), anything else keeping your uncommitted work. A commit you already pushed is reverted with a
+  new commit, unless you say otherwise. Also in the Git dock (*Undo…*).
+- **Checks before a commit** (`git.checksBeforeCommit`: `both`, `format`, `tests` or `off`). The files the commit
+  takes are formatted — what is staged, by ned's own formatters (*format and stage them*, or commit anyway) — and
+  the tests that cover them pass. When one stops the commit, the message stays open.
+- **Pull request review comments on their lines.** The branch's pull request's review threads, from GitHub:
+  a note at the end of the line each is about, the whole thread on hover, a list with the open ones first; reply
+  and resolve from ned. They are fetched again after a push. *Git: GitHub review comments…*
+- **AI that knows your code.** Inline edits and inline suggestions get the declarations the code uses (Nim from
+  the built-in engine, C from ned's C engine: prototypes, structs and their comments), and a suggestion that names
+  what does not exist here — a proc, a field the type lacks — is not shown (`ai.checkSuggestions`).
+- **AI: make a failing test pass.** Alt+Enter on a failed check: the test, how it failed and the code it tests go
+  to the model; its change is applied and the test run again — kept only when it passes, else put back and asked
+  once more with the new failure.
+- **AI: plan first, then do it.** *AI: plan a change, then do it step by step…* (or `/plan …` in the chat): the
+  assistant reads the code — it may not change anything yet — and answers with numbered steps. Do them all, one
+  at a time, or change the plan; each step is a run of its own with a restore point, so *Back to before step 3*
+  puts the files back as they were.
+- **AI on your phone, offline.** *AI: on this device, offline…* finds Ollama (or llama.cpp's server), installs and
+  starts it when needed, downloads a model that fits the device's memory (progress in the status bar), points
+  ned at it and times a first answer. Chat, inline edits and suggestions then work without the internet.
+- **Two language servers at once.** A linter's server runs next to the main one — `ruff` for Python,
+  `golangci-lint-langserver` for Go, `harper-ls` for Markdown, when installed (`lsp.linters`), or any you name
+  (`lsp.alsoRun`) — and their problems and quick fixes are merged: *pylsp + ruff* in the status bar, one Problems
+  list, one Alt+Enter menu.
+- **Links, problems on request, formatting as you type.** Language servers' links are underlined and opened with
+  F12 or Ctrl+click (`#include "x.h"`, `@import`, a JSON `$schema`), and so are URLs in comments; servers that send
+  problems only when asked (pull diagnostics: the newer CSS, HTML and JSON servers) are asked after each change;
+  `editor.formatOnType` lets the server tidy a line as you type `}` or `;`.
+- **Format only what you changed, and look first.** `editor.formatOnSaveScope: changed` keeps the formatter's
+  changes only where they touch lines you changed since git last saw the file (*Format: only the lines I
+  changed*); *Format: preview the change* shows it side by side, then applies all of it, only your lines, or
+  nothing.
+- **The Nim formatter closer to nph.** 98% of the lines of Nim's compiler and standard library now come out as nph
+  writes them (95.3% before): long arguments and literals wrapped in turn, conditions and values filled with
+  whole operands, multi-line `if`/`case` values under their `=`, long `of` lists and pragmas wrapped, imports
+  packed, trailing comments that go on moved under their line. Every result is still checked, and a second run
+  changes nothing.
+- **YAML and TOML formatters** built in: the layout only — one indentation width, text blocks moved as one; spaces
+  around `=`, tables and arrays — each checking that the data is the same (checked on 6 000 files against PyYAML
+  and tomllib).
+- **A theme editor.** *Theme: edit colours…* lists every colour of the theme with a swatch and its contrast, marks
+  the ones that are hard to read, and makes one readable in a step (or lighter, darker, as it was, any colour you
+  type); the changes go into your own copy of the theme and show at once. The theme picker shows each theme's
+  colours too.
+- **Termux in ned's colours.** *Theme: use these colours in all of Termux* writes `~/.termux/colors.properties`
+  from the theme, so the shell after ned looks the same; your own colours are kept and *put back* in one step, and
+  `theme.termuxColors` keeps Termux following every theme change.
+- **Richer Nim colours.** A `var` is tinted (a `let` stays plain), the module's own variables are bold, deprecated
+  procs and types are struck through, and `cast`, `addr`, `unsafeAddr` and `ptr` stand out in the warning colour
+  (`nim.richColors`).
+- **Light by day, dark at night.** *Theme: light by day, dark at night* switches between `theme.light` and
+  `theme.dark` at `theme.dayStarts` and `theme.nightStarts` — useful where the terminal does not say its
+  background, like Termux.
 
-![Tests on save: ✓ or ✗ beside each test, the failed check on its line](screenshots/tests-66.png)
+![Richer Nim colours: a var tinted, the module's variables bold, a deprecated proc struck through, cast and addr in the warning colour](screenshots/colors-67.png)
 
-![Postfix completion: c.case writes a case with every value of the enum](screenshots/postfix-66.png)
+![AI: plan first — numbered steps, then all of them or one at a time, each with a restore point](screenshots/plan-67.png)
 
-![A when hovered: its condition's value here; the branch left out is dimmed](screenshots/when-66.png)
+Also: editing ned's own source in ned — files that are `include`d into another — no longer shows every name as
+undeclared: they are checked through the file that includes them.
 
-Also: the engine answers `defined(…)` for the system it runs on (on macOS `defined(macosx)` is true, not
-`defined(linux)`), and `mask and not 0x0F` is typed as an integer, not a bool.
-
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers
-written one parameter a line and lined-up declarations with type hints, [6.5](CHANGELOG.md#whats-new-in-65) brought
-ned's own C engine and ligatures, [6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a
-generic's instance, organize imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the
-formatter your settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look,
-[6.1](CHANGELOG.md#whats-new-in-61) smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project
-with its tests.
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies,
+ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one
+parameter a line, [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures,
+[6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's instance, organize
+imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your settings,
+[6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours,
+[6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
 
 ## Features
 
@@ -102,7 +131,8 @@ hover effects, 50 themes (VS Code dark/light, One Dark, Tokyo Night, Catppuccin,
 Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Slate, Monochrome, Everforest, Night Owl, from
 vim Molokai, Jellybeans, Iceberg, Sonokai and PaperColor, and ned's own: Nim Crown, Frankincense, Desert Dusk,
 Lagoon, Sea Glass, Paper Ink, Rose Quartz, Amber CRT and Green Phosphor …)
-— or `auto`, following the terminal's background, your own colours, and VS Code or base16 themes imported —
+— or `auto`, following the terminal's background or the time of day, your own colours (a theme editor that
+checks contrast), VS Code or base16 themes imported, and Termux's own colours set to match —
 three icon sets (unicode, Nerd Font, ASCII), phone layout below 70 columns, an accessibility mode (ASCII, letters
 beside colours, high contrast), multi-root workspaces (git for each folder), remote folders over SSH (git, Run
 and the assistant's commands on the server; its changes come back by themselves), settings sync.
@@ -110,8 +140,8 @@ and the assistant's commands on the server; its changes come back by themselves)
 **Editing** — multi-cursor (Ctrl+D, Alt+A, Alt+J/K), expand/shrink selection, move/duplicate lines, toggle
 comment, folding, snippets for Nim, Python, C, C++, JS/TS, Rust, Go, HTML and shell (plus your own),
 completion, auto-pairs, smart indentation, soft wrap, split editor, bookmarks, regex find/replace, sort/join/
-case transforms, line-ending and indentation conversion, format on save (built in for Nim, JSON, Markdown and
-CSS; a whole project at once),
+case transforms, line-ending and indentation conversion, format on save (built in for Nim, JSON, Markdown, CSS,
+YAML and TOML; a whole project at once; or only the lines you changed, and a preview first),
 rulers at the columns you choose (long lines tinted), colour swatches, `.editorconfig` support, spell check,
 CSV and TSV files as tables (columns lined up, sort by a column, a column's sum and mean), large-file mode, a 3-pane merge editor, keyboard macros, vim, Emacs and Helix key bindings, operator ligatures
 (`editor.fontLigatures`: drawn by ned in any terminal — `─→ ═⇒ ≠ ≤ ≥` — or kept whole for a ligature font).
@@ -119,8 +149,9 @@ CSV and TSV files as tables (columns lined up, sort by a column, a column's sum 
 **Languages** — syntax highlighting for Nim, C, C++, JS/TS, Rust, Go, Python, Kotlin, C#, PHP, SQL, Java, Lua,
 Ruby, shell, Markdown, JSON, YAML, TOML, HTML, CSS, Makefiles, diffs, Nim templates (`.nimf`) and more — and your
 own (`languages`); code inside strings and Markdown code blocks in its own colours (C in `{.emit}`, SQL, HTML,
-regular expressions); any language server (configure in `lsp`) with type definition, implementation and type hierarchy; formatters per
-language; debugging through the Debug Adapter Protocol (Python, C, C++, Rust, Go, JS/TS …) with logpoints and
+regular expressions); any language server (configure in `lsp`) with type definition, implementation and type
+hierarchy, document links, pull diagnostics and formatting as you type — and a second one beside it (a linter such
+as ruff), their problems and fixes merged; formatters per language; debugging through the Debug Adapter Protocol (Python, C, C++, Rust, Go, JS/TS …) with logpoints and
 stops when a value changes; tests for pytest, go
 test, cargo test, PHPUnit, dotnet test and Gradle/Maven; coverage for Python, Go, Rust, JS/TS and any lcov file;
 Send to REPL with `# %%` cells; Emmet for HTML and CSS.
@@ -149,12 +180,16 @@ is marked — Ctrl+↑/↓ go through them, failed ones show red, a command's ou
 **Git** — source-control dock (stage, unstage, discard, diff, commit, push, pull, log), gutter marks that
 follow your typing, change navigation and revert, inline blame, file timeline, AI-written commit messages,
 interactive rebase, cherry-pick, branch compare and graph, the history of some lines, bisect (by hand or with a
-command), worktrees, submodules, GitHub pull requests, issues and CI status (`gh`).
+command), worktrees, submodules, GitHub pull requests, issues and CI status (`gh`), review comments on their
+lines; signing in to GitHub (the GitHub CLI or an SSH key — no passwords), undo of the last commit, pull or
+merge, and checks before a commit (formatted, tests passing).
 
 **AI** — chat and agent (read, search, edit files, run commands — you approve edits and commands; its edits are
-checked with `nim check` and the like, and it is told what is wrong), tests it writes kept only when they pass, inline
-edit of a selection (Alt+Shift+C), undo of the agent's changes, token and cost counter, AI review of staged
-changes, MCP servers for more tools, their prompts (/server:prompt) and resources (@server:uri); Anthropic, OpenAI, OpenRouter, Ollama, Groq, DeepSeek, Gemini, Mistral or any
+checked with `nim check` and the like, and it is told what is wrong), a plan first and then each step with a
+restore point, tests it writes kept only when they pass, a failing test made to pass (kept only when it does),
+answers grounded in the declarations your code uses, inline edit of a selection (Alt+Shift+C), undo of the agent's
+changes, token and cost counter, AI review of staged changes, a local model on the device (Ollama or llama.cpp,
+set up for you: offline on a phone too), MCP servers for more tools, their prompts (/server:prompt) and resources (@server:uri); Anthropic, OpenAI, OpenRouter, Ollama, Groq, DeepSeek, Gemini, Mistral or any
 OpenAI-compatible endpoint.
 
 ![Colour swatches, and a ruler at column 80 with the rest of the long line tinted](screenshots/rulers-swatches.png)
@@ -528,7 +563,8 @@ Your own `nim.projectMapping` always wins.
 Alt+F (*Format document*) and `"editor.formatOnSave": true` use ned's own formatter. It formats the way nph does:
 - 2-space indentation, and spaces around operators and after commas;
 - one statement per line, with a blank line after multi-line routines and types;
-- `proc f()` with an empty parameter list, and one import per line in long import lists;
+- `proc f()` with an empty parameter list, and long import lists packed (one module a line when they are paths
+  such as `std/os`);
 - `if` and `case` written out on several lines unless every branch is a plain value;
 - calls, parameter lists and collections wrapped at 88 columns, with a trailing comma when they take
   several lines;
@@ -572,8 +608,8 @@ How it compares with nph, on Nim's compiler and standard library:
 
 | | built-in | nph |
 |---|---|---|
-| lines identical to nph's output | 95.6% of 195 000 | — |
-| same code for Nim's parser (368 files) | all | all |
+| lines identical to nph's output | 98.0% of 198 000 | — |
+| same code for Nim's parser (463 files) | all | all |
 | semexprs.nim, 3 678 lines | 12 ms | 22 ms |
 | strutils.nim, 3 069 lines | 6.5 ms | 9.5 ms |
 | json.nim, 1 397 lines | 3.5 ms | 6 ms |

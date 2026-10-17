@@ -12,6 +12,7 @@ type FOut* = object
   lineCount*: int       # output lines it took (after wrapping)
   importish*: bool      # a line in an `import` block: module paths
   exprLine*: bool       # a value on its own line after `x =`
+  declLike*: bool       # a declaration (a section's member, a field, a routine): a `##` may go under it
   children*: int        # deeper lines right after it
 
 proc fTop*(toks: openArray[FTok], what: proc(t: FTok, depth: int): bool): int =
@@ -172,6 +173,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   var i = 0
   var typeDepth = -1            # inside a type section: its depth (+1 for members)
   var enumDepth = -1
+  var secDepth = -1             # inside a var/let/const/type section: its depth
   var work = lines
   # a statement followed by a single `## doc` line under it: the comment joins the statement (like
   # nph; it moves back under the statement when the line gets too long)
@@ -235,10 +237,21 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   work = move(res)
   # a trailing comment that goes on in comment lines under it: all of them under the code, 2 deeper (like nph)
   res = @[]
+  proc inEnum(done: seq[FLine], depth: int): bool =
+    ## an enum's value (its comma goes: the values end up one a line) — `done`: the lines before it
+    var j = done.high
+    while j >= 0 and (done[j].comment or done[j].depth >= depth): dec j
+    if j < 0 or done[j].toks.len == 0: return false
+    var q = done[j].toks.high
+    while q > 0 and done[j].toks[q].kind == fkComment: dec q
+    done[j].toks[q].kind == fkKw and done[j].toks[q].text == "enum"
   for k in 0 ..< work.len:
     template l: untyped = work[k]
     if not l.comment and not l.verbatim and l.toks.len > 1 and l.toks[^1].kind == fkComment and
        not l.toks[^1].text.startsWith("#[") and not l.toks[^1].text.startsWith("##[") and
+       # (not when the statement goes on: `a, ## doc` in a list of names — the comment must stay on its line)
+       not (l.toks[^1].text.startsWith("##") and (l.toks[^2].kind in {fkComma, fkOp} or fWordOp(l.toks[^2])) and
+            not (l.toks[^2].kind == fkComma and inEnum(res, l.depth))) and
        k + 1 < work.len and work[k + 1].comment and not work[k + 1].blank and work[k + 1].depth > l.depth and
        (not fOpensBlock(l) or (block:
          # (a block's line: only a comment that goes on further right than the block's code — the block's own
@@ -433,8 +446,15 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     if not l.comment:
       if typeDepth >= 0 and l.depth <= typeDepth: typeDepth = -1
       if enumDepth >= 0 and l.depth <= enumDepth: enumDepth = -1
+      if secDepth >= 0 and l.depth <= secDepth: secDepth = -1
     var o = FOut(depth: l.depth, toks: l.toks, blank: l.blank, comment: l.comment, verbatim: l.verbatim,
                  origText: l.origText, importish: l.origText == "import")
+    if not l.comment:
+      let k0 = l.toks[0]
+      o.declLike = (secDepth >= 0 and l.depth == secDepth + 1) or typeDepth >= 0 or
+                   (k0.kind == fkKw and (k0.text in FSectionKw or k0.text in FRoutineKw))
+      if k0.kind == fkKw and k0.text in FSectionKw and (l.toks.len == 1 or l.toks[1].kind == fkComment):
+        secDepth = l.depth
     if l.comment or l.verbatim:
       result.add o
       inc i
@@ -456,7 +476,10 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     let isEnumLine = enumDepth >= 0 and l.depth == enumDepth + 1
     var enumAt = -1
     for k2, t in l.toks:
-      if t.kind == fkKw and t.text == "enum": enumAt = k2
+      # (an enum's definition: `= enum` — not `SomeNumber | enum | ptr`, a type class)
+      if t.kind == fkKw and t.text == "enum" and k2 > 0 and l.toks[k2 - 1].kind == fkOp and
+         l.toks[k2 - 1].text == "=" and not (k2 < l.toks.high and l.toks[k2 + 1].kind == fkOp):
+        enumAt = k2
     if enumAt >= 0 and (inType or t0.text == "type"):
       enumDepth = l.depth
       if enumAt < l.toks.high and l.toks[enumAt + 1].kind != fkComment:
@@ -524,6 +547,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
           continue
         let (hdr, body, rest) = fSplitStatement(FLine(toks: toks, depth: dep))
         var oo = FOut(depth: dep, toks: hdr, blank: blnk and first, complexKind: (if first: o.complexKind else: 0),
+                      declLike: first and o.declLike,
                       importish: o.importish, exprLine: o.exprLine and not ifExpr)
         if hdr[0].kind == fkKw and hdr[0].text in FRoutineKw and hdr[0].text notin ["func"]:
           oo.complexKind = 1           # (a blank line after it when it takes more than one line — a forward
@@ -982,7 +1006,7 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
     o.toks = fParamSemis(o.toks)
   else:
     o = FOut(depth: o0.depth, comment: o0.comment, importish: o0.importish, exprLine: o0.exprLine,
-             complexKind: o0.complexKind)
+             complexKind: o0.complexKind, declLike: o0.declLike)
     o.toks = o0.toks            # shares the tokens (refs): no copy of the line
   # (trailing commas go, and come back wherever a list is laid out one per line: the next run decides alike)
   if hasTrailing and not o.comment: o.toks = fDropTrailing(o.toks)
@@ -1016,9 +1040,11 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
       let head = pad & fRender(o.toks[0 .. cpos], importish = o.importish)
       let rest = pad & "  " & fRender(o.toks[cpos + 1 .. ^1], importish = o.importish)
       if head.len <= FmtMax and rest.len <= FmtMax: return @[head, rest]
-  # a trailing comment that does not fit: on the next line, under the statement (like nph)
+  # a trailing comment that does not fit: on the next line, under the statement (like nph) — not a `##` doc
+  # comment: on a line of its own under a statement it would be a statement of its own, and not always allowed there
   if o.toks.len > 1 and o.toks[^1].kind == fkComment and not hasInnerComment and
-     not o.toks[^1].text.startsWith("#["):
+     not o.toks[^1].text.startsWith("#[") and (o.declLike or not o.toks[^1].text.startsWith("##")) and
+     not (o.toks[^1].text.startsWith("##") and (o.toks[^2].kind in {fkComma, fkOp} or fWordOp(o.toks[^2]))):
     var o2 = o
     o2.toks = o.toks[0 ..< o.toks.high]
     let code = fRenderLine(o2, @[pad & fRender(o2.toks, importish = o.importish)])
@@ -1360,7 +1386,9 @@ proc fStructToks*(toks: openArray[FTok], a, b: int, base: int, res: var seq[int]
     if isSection and k > a: lvl += 1
     if afterEnum: lvl += 1
     res.add lvl
-    if t.kind == fkKw and t.text == "enum": afterEnum = true
+    if t.kind == fkKw and t.text == "enum" and k > a and toks[k - 1].kind == fkOp and toks[k - 1].text == "=" and
+       not (k + 1 < b and toks[k + 1].kind == fkOp):
+      afterEnum = true
 
 proc fCodeToks*(toks: seq[FTok]): int =
   ## how many tokens are code (not comments)

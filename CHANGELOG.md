@@ -1,6 +1,50 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-66). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-67). Older releases:
+
+## What's new in 6.6
+
+![Where ARC/ORC copies: ⧉copy beside each value the compiler copies, and hovering one says why](screenshots/copies-66.png)
+
+- **Where ARC/ORC copies.** After a save, ned asks the compiler where it inserted `=copy` and `=dup`
+  (`nim c --expandArc` on a private copy, every routine of the file generated) and marks each with **⧉copy**
+  beside what is copied: a value kept in a variable, one handed to a `sink` parameter while it is still used, a
+  borrowed parameter kept, each value an iterator yields (`for k, v in pairs(t)` copies them), what a closure
+  captures. Hover one for why, and how to move instead. Refs, closures and numbers — cheap to copy — are not
+  marked. *Nim › Inspect › Where ARC/ORC copies*; `nim.showCopies`.
+- **Tests on save.** Save a `std/unittest` file — or a module: the test files that import it run too — and they
+  compile and run in the background (a private binary and cache, stopped after 2 minutes): **✓ passed** or
+  **✗ failed — line 8** beside each `test`, and the failed check on its line with what each side was
+  (`Check failed: slug("Hello, World!") == "hello-world" — slug("Hello, World!") was "hello--world"`). A toast
+  when something newly fails, another when all pass again. `nim.testOnSave`: `related` (the default), `file`, `off`.
+- **Postfix completion.** After a `.`, templates that wrap what is in front of it: `xs.for` → `for x in xs:` (the
+  name from the plural: `items` → `item`), `n.for` → `for i in 0 ..< n:`, `t.for` → `for k, v in t:`, `c.case` →
+  a `case` with **every value of its enum**, `v.if` / `v.ifnot` by its type (`o.isSome`, `p != nil`,
+  `s.len > 0`), `x.echo`, `.let`, `.var`, `.return`, `.discard`, `.not`, `.par`, `.str`. They come after the
+  receiver's fields and procs (`xs.le` is still `len` first). `nim.postfixCompletion`.
+- **Compile-time values.** The engine works constants out as the compiler would: bit operations
+  (`0xFF and not 0x0F` = 240), integers that keep their type (`255'u8 + 1` wraps to 0; `high(int8) + 1` is
+  *a compile error: over- or underflow*), strings and chars, enum values, `high`/`low`/`sizeof`/`ord`/`chr`/`len`,
+  `defined()` and `declared()`. Hover a constant, a selection or a `when` (*= false here (linux, amd64) — this
+  branch is left out*), and **the `when` branches left out on this platform are dimmed**, as is C's `#if 0`
+  (`editor.dimInactiveCode`).
+- **Folder trust.** A folder you open is not trusted until you say so: ned's own engines read and check its code,
+  but nothing in it runs — not the compiler (its `config.nims` and macros can run commands), nimble, nimsuggest,
+  tests or the program. A notice says so once, with **Trust**; *⛉ Not trusted* in the status bar does the same.
+  Projects you create with ned, the Nim toolchain and nimble packages are trusted; `security.folderTrust: off`
+  trusts every folder.
+- **Less memory.** The Nim engine keeps one sorted index of names per scope instead of a table, and at most 12
+  scopes (the least recently used go). With 25 of the Nim compiler's modules open, ned takes 46 MB instead of
+  82 MB; the engine alone, over 60 of them, 15 MB instead of 42 MB — at the same speed.
+
+![Tests on save: ✓ or ✗ beside each test, the failed check on its line](screenshots/tests-66.png)
+
+![Postfix completion: c.case writes a case with every value of the enum](screenshots/postfix-66.png)
+
+![A when hovered: its condition's value here; the branch left out is dimmed](screenshots/when-66.png)
+
+Also: the engine answers `defined(…)` for the system it runs on (on macOS `defined(macosx)` is true, not
+`defined(linux)`), and `mask and not 0x0F` is typed as an integer, not a bool.
 
 ## What's new in 6.5.1
 
