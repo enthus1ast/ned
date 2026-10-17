@@ -50,6 +50,10 @@ library, and builds to one binary of about 9 MB.
   arguments. The wrapper wants C's own parameters and `{.varargs.}` —
   `proc cprintf(format: cstring): cint {.importc: "printf", varargs, header: "stdio.h", discardable.}` — and
   Alt+Enter writes it.
+- **Lined-up declarations stay lined up with type hints** (`nim.format.align`): a hint goes over the spaces before
+  the `=`, and every line of the run moves its `=` by the same amount — with a hint on every line, on some or on
+  none (`opcodes = toLookupTable(data)` under `data: string = "mov;…"`); with the hints off, the lines look as
+  the formatter wrote them.
 - **Zen mode without git's change marks** in the gutter (`zen.gitChanges` brings them back).
 - **A shorter File menu**: SSH, clone and the workspace under *Open more*, a file's history and comparisons under
   *This file*, settings, theme, keys and settings sync under *Preferences*.
