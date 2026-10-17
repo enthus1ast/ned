@@ -160,7 +160,7 @@ proc doSignatureFromBuffer(b: Buffer): bool =
   if si < 0:
     error("Cannot find " & plan.name & " at line " & $(plan.line + 1) & " any more — open Change signature again")
     return false
-  let (full, hits) = rfRefs(NxRef(file: f, idx: si))
+  let (full, hits) = rfRefs(NxRef(file: f, idx: int32(si)))
   if hits.len == 0:
     error("The engine found no references to " & plan.name)
     return false

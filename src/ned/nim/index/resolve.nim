@@ -92,7 +92,7 @@ proc nxOpTargets*(f: NxFile, lines: seq[string], line, col: int): seq[NxRef] =
   if a >= e: return
   let op = text[a ..< e]
   let own = nxSymAt(f, line, a)
-  if own >= 0 and f.syms[own].name == op: return @[NxRef(file: f, idx: own)]
+  if own >= 0 and f.syms[own].name == op: return @[NxRef(file: f, idx: int32(own))]
   let sc = nxScope(f)
   var cands: seq[NxRef]
   for r in nxLookup(sc, op):
@@ -219,7 +219,7 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
           if p.len > 0: return (@[], @[], p)
   let own = nxSymAt(f, line, a)
   if own >= 0 and nxNorm(f.syms[own].name) == nxNorm(w):
-    return (@[NxRef(file: f, idx: own)], @[], "")       # a declaration's own name: itself (this overload, this field)
+    return (@[NxRef(file: f, idx: int32(own))], @[], "")       # a declaration's own name: itself (this overload, this field)
   if e < text.len and (text[e] == ':' or text[e] == ' '):
     let cf = nxCtorField(sc, lines, line, a, e)
     if cf.len > 0: return (cf, @[], "")

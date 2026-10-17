@@ -86,7 +86,7 @@ proc refCountOf(path: string, f: NxFile, si: int, limit = 300): int =
 proc refCountDirect(path: string, f: NxFile, si: int, limit = 300): int =
   let sym = f.syms[si]
   let nw = nxNorm(sym.name)
-  let target = NxRef(file: f, idx: si)
+  let target = NxRef(file: f, idx: int32(si))
   if nxIsOpName(sym.name):
     # an operator: the files that have it written, each use resolved by its operands' types
     var hits: seq[(string, int, int)]

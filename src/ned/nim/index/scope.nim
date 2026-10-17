@@ -3,11 +3,12 @@
 type
   NxRef* = object
     file*: NxFile
-    idx*: int
+    idx*: int32                # (16 bytes a reference: a scope holds thousands)
     origin*: int8              # 1 this module · 2 an import · 3 system
   NxScope* = ref object
     refs*: seq[NxRef]
-    byName*: Table[string, seq[int]]       # normalized name → indexes into refs
+    byHash*: seq[(uint32, int32)]          # (hash of the normalized name, index into refs), sorted: one block of
+                                           # memory where a table of names would be thousands of strings
     modules*: Table[string, string]        # module name or alias → path
     stamp*: string
     own*: NxFile                           # the parsed file this scope was built for
@@ -202,7 +203,7 @@ proc nxExports*(path: string, depth: int, seen: var HashSet[string], res: var se
   parts.add nxIncluded(f)
   for g in parts:
     for i, s in g.syms:
-      if s.exported: res.add NxRef(file: g, idx: i)
+      if s.exported: res.add NxRef(file: g, idx: int32(i))
   if f.exports.len == 0: return
   var mods = initTable[string, string]()
   for g in parts:
@@ -218,7 +219,7 @@ proc nxExports*(path: string, depth: int, seen: var HashSet[string], res: var se
         let g = nxLoad(p)
         if g == nil: continue
         for i, s in g.syms:
-          if s.exported and s.name == e: res.add NxRef(file: g, idx: i)
+          if s.exported and s.name == e: res.add NxRef(file: g, idx: int32(i))
 
 var
   nxIncFiles*: Table[string, (string, seq[string])]          # a file → (its stamp, the files it `include`s)
@@ -274,6 +275,34 @@ proc nxIncluderOf*(path: string): string =
 
 proc nxScope*(f: NxFile): NxScope
 
+proc nxIndexNames(sc: NxScope) =
+  ## the scope's names, by hash, sorted (nxLookup)
+  sc.byHash.setLen(sc.refs.len)
+  for i, r in sc.refs: sc.byHash[i] = (uint32(hash(nxNorm(r.file.syms[r.idx].name)) and 0xFFFF_FFFF), int32(i))
+  sc.byHash.sort(proc(x, y: (uint32, int32)): int = cmp(x[0], y[0]))
+
+var
+  nxScopeMax* = 12                     # scopes kept: the files asked about most recently (each holds thousands of refs)
+  nxScopeTick = 0
+  nxScopeUsed: Table[string, int]
+
+proc nxKeepScope(path: string, sc: NxScope) =
+  ## remember a scope — and forget the one asked about least recently when there are too many
+  inc nxScopeTick
+  nxScopeUsed[path] = nxScopeTick
+  nxScopes[path] = sc
+  while nxScopes.len > nxScopeMax:
+    var oldest = ""
+    var t = high(int)
+    for p, _ in nxScopes:
+      let u = nxScopeUsed.getOrDefault(p, 0)
+      if p != path and u < t:
+        t = u
+        oldest = p
+    if oldest.len == 0: break
+    nxScopes.del oldest
+    nxScopeUsed.del oldest
+
 proc nxIncludedScope*(f, host: NxFile): NxScope =
   ## what a file that another one includes can see: everything its includer sees (the includer's own
   ## declarations, its imports, its other include files), with this file's current declarations
@@ -286,9 +315,12 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
       if nxCurStamp(p) != ps:
         fresh = false
         break
-    if fresh: return old
+    if fresh:
+      inc nxScopeTick
+      nxScopeUsed[f.path] = nxScopeTick
+      return old
   result = NxScope(stamp: st, own: f, modules: hs.modules)
-  for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: i, origin: 1)
+  for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
   for r in hs.refs:
     if r.file.path != f.path: result.refs.add r
   # (its own imports, if it has any)
@@ -304,14 +336,14 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
       var r2 = r
       r2.origin = 2
       result.refs.add r2
-  for i, r in result.refs: result.byName.mgetOrPut(nxNorm(r.file.syms[r.idx].name), @[]).add i
+  nxIndexNames(result)
   var seenP: HashSet[string]
   for r in result.refs:
     if r.file != f and r.file.path notin seenP:
       seenP.incl r.file.path
       result.deps.add (r.file.path, r.file.stamp)
   if host.path notin seenP: result.deps.add (host.path, host.stamp)
-  nxScopes[f.path] = result
+  nxKeepScope(f.path, result)
 
 proc nxScope*(f: NxFile): NxScope =
   ## what `f` can see: its own declarations, system, and its imports (a file another one `include`s: what that
@@ -335,20 +367,23 @@ proc nxScope*(f: NxFile): NxScope =
       if nxCurStamp(p) != st:
         old = nil
         break
-  if old != nil and old.stamp == stamp and old.own == f: return old
+  if old != nil and old.stamp == stamp and old.own == f:
+    inc nxScopeTick
+    nxScopeUsed[f.path] = nxScopeTick
+    return old
   if old != nil and old.stamp == stamp:
     # own symbols change with every edit; imports rarely do
     var sc = NxScope(refs: @[], stamp: stamp, modules: old.modules, own: f, deps: old.deps)
-    for i in 0 ..< f.syms.len: sc.refs.add NxRef(file: f, idx: i, origin: 1)
+    for i in 0 ..< f.syms.len: sc.refs.add NxRef(file: f, idx: int32(i), origin: 1)
     for r in old.refs:
       if r.file != f and r.file.path != f.path: sc.refs.add r
-    for i, r in sc.refs: sc.byName.mgetOrPut(nxNorm(r.file.syms[r.idx].name), @[]).add i
-    nxScopes[f.path] = sc
+    nxIndexNames(sc)
+    nxKeepScope(f.path, sc)
     return sc
   result = NxScope(stamp: stamp, own: f)
-  for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: i, origin: 1)
+  for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
   for g in nxIncluded(f):
-    for i in 0 ..< g.syms.len: result.refs.add NxRef(file: g, idx: i, origin: 1)
+    for i in 0 ..< g.syms.len: result.refs.add NxRef(file: g, idx: int32(i), origin: 1)
   var seen: HashSet[string]
   seen.incl f.path
   let sys = if nxLibDir.len > 0: nxLibDir / "system.nim" else: ""
@@ -371,15 +406,25 @@ proc nxScope*(f: NxFile): NxScope =
       var r2 = r
       r2.origin = 2
       result.refs.add r2
-  for i, r in result.refs: result.byName.mgetOrPut(nxNorm(r.file.syms[r.idx].name), @[]).add i
+  nxIndexNames(result)
   var seenP: HashSet[string]
   for r in result.refs:
     if r.file != f and r.file.path notin seenP:
       seenP.incl r.file.path
       result.deps.add (r.file.path, r.file.stamp)
-  nxScopes[f.path] = result
+  nxKeepScope(f.path, result)
 
 proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
-  for i in sc.byName.getOrDefault(nxNorm(name)): result.add sc.refs[i]
+  let n = nxNorm(name)
+  let h = uint32(hash(n) and 0xFFFF_FFFF)
+  var lo = 0
+  var hi = sc.byHash.len
+  while lo < hi:                               # the first entry with this hash
+    let mid = (lo + hi) div 2
+    if sc.byHash[mid][0] < h: lo = mid + 1 else: hi = mid
+  while lo < sc.byHash.len and sc.byHash[lo][0] == h:
+    let r = sc.refs[sc.byHash[lo][1]]
+    if nxNorm(r.file.syms[r.idx].name) == n: result.add r
+    inc lo
 
 proc sym*(r: NxRef): NxSym {.inline.} = r.file.syms[r.idx]
