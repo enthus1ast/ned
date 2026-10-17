@@ -177,6 +177,7 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("Git: commit (message box)…", "Commit…"), mc("Git: amend the last commit…", "Amend the last commit…"),
       mc("Git: undo the last commit", "Undo the last commit"), msep(),
       mc("Git: sync (pull, then push)", "Sync"), mc("Git: pull", "Pull"), mc("Git: push", "Push"),
+      mc("Git: sign in to GitHub", "Sign in to GitHub…"),
       msub("Pull and fetch", @[mc("Git: pull (rebase)", "Pull (rebase)"), mc("Git: fetch", "Fetch")]), msep(),
       msub("Stage", @[mc("Git: stage this change", "Stage this change"), mc("Git: stage selected lines", "Stage selected lines"),
         mc("Git: stage all", "Stage all"), mc("Git: unstage this file", "Unstage this file")]),
