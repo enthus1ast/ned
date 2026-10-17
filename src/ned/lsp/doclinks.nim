@@ -17,7 +17,11 @@ proc handlePullDiags(s: LspServer, req: LspReq, res: JsonNode) =
   if res == nil or res.kind != JObject: return
   let rid = res{"resultId"}.getStr
   if rid.len > 0: s.pullIds[req.extra] = rid
-  if res{"kind"}.getStr == "full": lspSetDiags(s, req.extra, res{"items"})
+  if res{"kind"}.getStr == "full":
+    if req.extra in shadowNim:
+      # (the hidden document of code in a Nim string or emit: its problems go on the Nim file's lines)
+      emitShadowDiags(s, req.extra, %*{"uri": uriFromPath(req.extra), "diagnostics": res{"items"}})
+    else: lspSetDiags(s, req.extra, res{"items"})
   # ("unchanged": what it said the last time still holds)
 
 # ── links ──
