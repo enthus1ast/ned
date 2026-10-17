@@ -34,6 +34,69 @@ proc fmtHowFor(path: string): (string, string) =
   if bk.len > 0: return ("builtin", bk)
   ("", "")
 
+proc formatTextOf(b: Buffer): (string, string, string) =
+  ## (what the formatter would make of the buffer, why it cannot, by what) — without changing the buffer
+  let text = b.allText & "\n"
+  let (how, what) = fmtHowFor(b.path)
+  if how.len == 0 or what.strip.len == 0: return (text, "nothing formats " & b.lang.name & " here", "")
+  if how == "builtin":
+    let (res, err) = builtinFormatText(what, text, b.indentW(), b.path)
+    return (res, err, "built-in")
+  let cmd = what.replace("$file", b.path).replace("$dir", parentDir(b.path)).replace("$name", splitFile(b.path).name)
+  let (ok, o, e) = runFilter(cmd, text, (if b.path.len > 0: parentDir(b.path) else: rootDir))
+  if ok and o.strip.len > 0:
+    return ((if b.lang.mode == lmNim: formatEmitBlocks(o, b.path)[0] else: o), "", what.firstWord)
+  let first = (e & o).strip.splitLines
+  (text, what.firstWord & ": " & (if first.len > 0: first[0] else: "failed"), what.firstWord)
+
+proc cmdFormatPreview() =
+  ## what formatting would change, side by side — then apply it (all, or where you changed lines) or leave it
+  let b = buf()
+  if b.path.len == 0 and b.title.len > 0:
+    info("Nothing to format here")
+    return
+  let (res, err, by) = formatTextOf(b)
+  if err.len > 0:
+    error("Format: " & err)
+    return
+  let now = b.lines
+  let after = res.strip(leading = false, chars = {'\n'}).split('\n')
+  if after == now:
+    info("Already formatted")
+    return
+  let (adds, dels) = diffStats(lineDiff(now, after))
+  let id = b.id
+  let ch = b.changeId
+  openDiffView(relPath(b.path), now, "now", nil, after, "formatted (" & by & ")", b.lang)
+  let dvId = buf().id
+  proc back() =
+    # the side-by-side view closed, the file in front again
+    let dv = bufById(dvId)
+    if dv != nil and dv.id != id:
+      let k = bufs.find(dv)
+      if k >= 0: closeBufferAt(k)
+    let x = bufById(id)
+    if x != nil and x.path.len > 0: discard openFile(x.path)
+  proc apply(onlyChanged: bool) =
+    let x = bufById(id)
+    back()
+    if x == nil or not x.canEdit(): return
+    if x.changeId != ch:
+      info("The file changed since — preview it again")
+      return
+    var target = after
+    if onlyChanged:
+      let (known, changed) = changedLineSet(x)
+      if known: target = keepFormatOf(now, after, changed)
+    x.setTextMinimal(target.join("\n"))
+    info("Formatted" & (if onlyChanged: " where you changed lines" else: ""))
+  openActions("Format " & extractFilename(b.path) & ": +" & $adds & " −" & $dels & " lines (" & by & ")", @[
+    act("Apply it", "the whole file", proc() = apply(false)),
+    act("Apply only where I changed lines", "since git last saw the file", proc() = apply(true)),
+    act("Leave it", "nothing changes", proc() =
+      back()
+      info("Left as it is"))])
+
 proc fmtAllFiles(dir: string): seq[string] =
   ## the files under `dir` worth formatting: git's list when it is a repository (what .gitignore leaves out
   ## stays out), else a walk that skips node_modules, nimcache, build folders and hidden ones
