@@ -112,38 +112,13 @@ proc submitPrompt() =
     elif t.len > 0 and nimEngineOn(b):
       let old = b.wordAt(b.primary.head)
       let nn = t.strip
-      if nn.len == 0 or not (nn[0] in {'a'..'z', 'A'..'Z', '_'} or nn[0] >= '\x80') or not nn.allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}):
-        warn("'" & nn & "' is not a Nim identifier")
-      elif nn in NxKeywords: warn("'" & nn & "' is a Nim keyword")
-      else:
-        var hits: seq[(string, int, int)]
-        var decl = ""
-        var known = false
-        var madeBy = ""
-        try:
-          let f = nxFileFor(b)
-          if f != nil:
-            let (a0, _) = b.wordRangeAt(b.primary.head)
-            let (rs, _, _) = nxTargets(f, b.lines, a0.line, a0.col)
-            for r in rs:
-              if r.sym.made: madeBy = r.file.path & ":" & $(r.sym.line + 1)
-        except Exception as e: internalError("Nim index", e)
-        if madeBy.len == 0:
-          try: known = engineReferences(b, b.primary.head, hits, decl)
-          except Exception as e: internalError("Nim index", e)
-        if madeBy.len > 0:
-          warn("'" & old & "' is declared by a template call (" & relPath(madeBy) & ") — rename it there, not here")
-        elif known and nxRefsCut:
-          warn("'" & old & "' is used too often in this project to find every use in time (10 s) — not renamed")
-        elif known:
-          if decl.len > 0 and not decl.startsWith(rootDir & "/") and bufIndexByPath(decl) < 0:
-            warn("'" & old & "' is declared in " & decl & " — outside this project, so it is not renamed")
-          elif hits.len == 0: info("Nothing to rename")
-          else: previewRenameHits(hits, old, nn)
-        elif nsUsable(b):
-          let (a, _) = b.wordRangeAt(b.primary.head)
-          discard nsRequest(b, nsRename, a, old & "\t" & nn)
-        else: info("ned cannot tell what '" & old & "' refers to here")
+      let (hits, why, sev) = engineRename(b, b.primary.head, nn)
+      if sev == -1 and nsUsable(b):
+        let (a, _) = b.wordRangeAt(b.primary.head)
+        discard nsRequest(b, nsRename, a, old & "\t" & nn)
+      elif why.len > 0:
+        if sev == 2: warn(why) else: info(why)
+      else: previewRenameHits(hits, old, nn)
     elif t.len > 0 and nsUsable(b):
       let (a, _) = b.wordRangeAt(b.primary.head)
       discard nsRequest(b, nsRename, a, b.wordAt(b.primary.head) & "\t" & t)

@@ -377,20 +377,35 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
     # block, case or try written over several lines), where the line breaks are part of the code
     var d = 0
     var stmtAt = -1          # bracket depth where a statement-like construct started
+    var stmtIf = false       # (it is an if/when: maybe an if-expression, `if a: x` ⏎ `else: y`)
     var lambdaAt = -1        # bracket depth of a `proc` that may be a lambda (until its `=`)
+    var prev: FTok = nil
     for t in l.toks:
       if t.multi: l.verbatim = true
-      if t.nl and stmtAt >= 0: l.verbatim = true
+      # (an if-expression's `elif`/`else` on the next line after an inline branch: not a block — a line break
+      # anywhere else after a statement started inside brackets is part of the code)
+      if t.nl and stmtAt >= 0 and not (stmtIf and d == stmtAt and t.kind == fkKw and t.text in ["elif", "else"] and
+                                       prev != nil and prev.kind != fkColon):
+        l.verbatim = true
       if t.kind in {fkOpen, fkPragOpen}: inc d
       elif t.kind in {fkClose, fkPragClose}:
         dec d
         if stmtAt > d: stmtAt = -1
         if lambdaAt > d: lambdaAt = -1
       elif t.kind == fkKw:
-        if t.text == "do" and stmtAt < 0: stmtAt = d
+        if t.text == "do" and stmtAt < 0:
+          stmtAt = d
+          stmtIf = false
         elif d > 0 and t.text in FRoutineKw and lambdaAt < 0: lambdaAt = d
-        elif d > 0 and t.text in ["block", "case", "try", "for", "while", "if", "when"] and stmtAt < 0: stmtAt = d
-      elif t.kind == fkOp and t.text == "=" and lambdaAt == d and stmtAt < 0: stmtAt = d
+        elif d > 0 and t.text in ["block", "case", "try", "for", "while", "if", "when"] and stmtAt < 0:
+          stmtAt = d
+          stmtIf = t.text in ["if", "when"]
+      elif t.kind == fkOp and t.text == "=" and lambdaAt == d and stmtAt < 0:
+        stmtAt = d
+        stmtIf = false
+      elif t.kind == fkComma and d > 0 and d == stmtAt and stmtIf:
+        stmtAt = -1          # (the if-expression ended: it was one argument)
+      if t.kind != fkComment: prev = t
 
 proc fOpensBlock*(l: FLine): bool =
   ## does the next deeper line belong to this one as a block?

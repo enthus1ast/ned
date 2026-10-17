@@ -483,3 +483,36 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
                 if nxSameDecl(t, r): ok = true
         if ok: hits.add (path, l, s)
   true
+
+proc engineRename(b: Buffer, p: Pos, newName: string): (seq[(string, int, int)], string, int) =
+  ## rename with ned's own index: (every place that names what the word at `p` names, why it is not renamed — ""
+  ## when it can be, how serious that is: 2 a warning, 0 a note, -1 the index cannot tell what the word is)
+  let old = b.wordAt(p)
+  let nn = newName.strip
+  if nn.len == 0 or not (nn[0] in {'a'..'z', 'A'..'Z', '_'} or nn[0] >= '\x80') or not nn.allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}):
+    return (@[], "'" & nn & "' is not a Nim identifier", 2)
+  if nn in NxKeywords: return (@[], "'" & nn & "' is a Nim keyword", 2)
+  var hits: seq[(string, int, int)]
+  var decl = ""
+  var known = false
+  var madeBy = ""
+  try:
+    let f = nxFileFor(b)
+    if f != nil:
+      let (a0, _) = b.wordRangeAt(p)
+      let (rs, _, _) = nxTargets(f, b.lines, a0.line, a0.col)
+      for r in rs:
+        if r.sym.made: madeBy = r.file.path & ":" & $(r.sym.line + 1)
+  except Exception as e: internalError("Nim index", e)
+  if madeBy.len == 0:
+    try: known = engineReferences(b, p, hits, decl)
+    except Exception as e: internalError("Nim index", e)
+  if madeBy.len > 0:
+    return (@[], "'" & old & "' is declared by a template call (" & relPath(madeBy) & ") — rename it there, not here", 2)
+  if not known: return (@[], "ned cannot tell what '" & old & "' refers to here", -1)
+  if nxRefsCut:
+    return (@[], "'" & old & "' is used too often in this project to find every use in time (10 s) — not renamed", 2)
+  if decl.len > 0 and not decl.startsWith(rootDir & "/") and bufIndexByPath(decl) < 0:
+    return (@[], "'" & old & "' is declared in " & decl & " — outside this project, so it is not renamed", 2)
+  if hits.len == 0: return (@[], "Nothing to rename", 0)
+  (hits, "", 0)
