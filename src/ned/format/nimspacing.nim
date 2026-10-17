@@ -12,7 +12,8 @@ proc fExportMark*(toks: openArray[FTok], k: int): bool =
   if not fDeclSite(toks, k): return false
   if k + 1 >= toks.len: return false          # (a line broken after it: a product — `delta *` ⏎ `x`)
   let nx = toks[k + 1]
-  nx.kind in {fkOpen, fkColon, fkComma, fkPragOpen, fkComment} or (nx.kind == fkOp and nx.text == "=")
+  (nx.kind in {fkOpen, fkColon, fkComma, fkPragOpen, fkComment} and not (nx.kind == fkOpen and nx.text == "{")) or
+    (nx.kind == fkOp and nx.text == "=")                          # (flags*{a, b}: a product with a set)
 
 proc fRender*(toks: openArray[FTok], params = false, importish = false): string =
   ## one line of tokens with nph's spacing
@@ -44,7 +45,7 @@ proc fRender*(toks: openArray[FTok], params = false, importish = false): string 
     elif t.kind == fkPragOpen: space = true
     elif t.kind == fkOpen:
       if p.kind == fkKw and p.text notin ["addr", "cast", "static", "tuple", "proc", "func", "iterator", "ptr", "ref",
-                                           "distinct", "enum", "object", "concept", "type", "var", "out", "nil"]:
+                                           "distinct", "enum", "object", "concept", "type", "var", "out", "nil", "do"]:
         space = true                                 # not (a), if (a)
       elif p.kind == fkOp:
         space = psp or not (k >= 2 and fOperand(toks[k - 2]))      # a + (b)  ·  -(b)  ·  @[
@@ -53,8 +54,14 @@ proc fRender*(toks: openArray[FTok], params = false, importish = false): string 
         if p.text in ["@", "$", "-", "+", "!", "~", "&", "^", "*"] and not (k >= 2 and fOperand(toks[k - 2]) and psp):
           space = false
         if k >= 2 and fOperand(toks[k - 2]) and not (psp and not tsp): space = true
+        let pp = if k >= 2: toks[k - 2] else: FTok(kind: fkComma)
+        let opBinary = (fOperand(pp) or (pp.kind == fkKw and not fWordOp(pp) and psp == tsp)) and not (psp and not tsp)
+        if not opBinary: space = false      # %(x), %*{…}, ?(a, b): a prefix operator (not distinct|(…): a typeclass)
         if p.kind == fkOp and p.text == "=" : space = true
-      elif p.kind == fkKw and p.text in ["proc", "func", "iterator"]: space = false   # proc(x: int) — a type
+      elif p.kind == fkKw and p.text in ["proc", "func", "iterator", "do"]: space = false   # proc(x: int), do(x):
+      elif t.text == "(" and toks[0].kind == fkKw and toks[0].text in FRoutineKw and
+           (k == 2 or k == 3 and toks[2].kind == fkOp and toks[2].text == "*"):
+        space = false                               # proc `&` (a, b) → proc `&`(a, b): the parameters
       else: space = tsp                             # foo(a) is a call, foo (a) a command
     elif t.kind == fkOp:
       # binary after an operand — or after a keyword when spaced on both sides (object | tuple)

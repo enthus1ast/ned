@@ -52,6 +52,32 @@ suite "Nim: nph's layouts (6.8)":
     check nimFmt("registerCallback c, \"name\", proc(a: VmArgs) =\n  setResult(a, 1)\n") ==
           "registerCallback c,\n  \"name\",\n  proc(a: VmArgs) =\n    setResult(a, 1)\n"
 
+  test "a keyword statement ends at a comma itself; a command does not":
+    check nimFmt("let a = map(xs, proc(c: string): string = return c.replace(\"CC\", \"Link\"))\n") ==
+          "let a = map(\n  xs,\n  proc(c: string): string =\n    return c.replace(\"CC\", \"Link\"),\n)\n"
+
+  test "`f():` with a block loses its empty parentheses; a condition keeps them":
+    check nimFmt("s.withLock():\n  echo 1\n") == "s.withLock:\n  echo 1\n"
+    check nimFmt("if ready():\n  echo 1\n") == "if ready():\n  echo 1\n"
+
+  test "a prefix operator stays on its bracket; a typeclass's | stays an operator":
+    check nimFmt("x = % (a in b)\n") == "x = %(a in b)\n"
+    check nimFmt("let j = %* {\"a\": 1}\n") == "let j = %*{\"a\": 1}\n"
+    check nimFmt("let arr = %[0,1]\n") == "let arr = %[0, 1]\n"
+    check nimFmt("template r*[T: distinct|(range and not enum)](x: T): string = $x\n") ==
+          "template r*[T: distinct | (range and not enum)](x: T): string =\n  $x\n"
+    check nimFmt("n = f(flags*{a, b})\n") == "n = f(flags * {a, b})\n"
+
+  test "a routine's name and its parameters, do and its parameters: no space":
+    check nimFmt("proc `&` (a, b: int): int = a\n") == "proc `&`(a, b: int): int =\n  a\n"
+    check nimFmt("f.addCallback do ():\n  echo 1\n") == "f.addCallback do():\n  echo 1\n"
+
+  test "a long call indexed by a tiny one: the call is opened, not the [0]":
+    let src = "proc f() =\n  regs[ra].node.strVal = opGorge(regs[rb].node.strVal, regs[rc].node.strVal, " &
+              "regs[rd].node.strVal, c.debug[pc], c.config)[0]\n"
+    check nimFmt(src) == "proc f() =\n  regs[ra].node.strVal = opGorge(\n    regs[rb].node.strVal,\n" &
+          "    regs[rc].node.strVal,\n    regs[rd].node.strVal,\n    c.debug[pc],\n    c.config,\n  )[0]\n"
+
   test "a lambda on the line after `=` goes up":
     check nimFmt("f.callback =\n  proc() =\n    echo 1\n") == "f.callback = proc() =\n  echo 1\n"
 

@@ -78,14 +78,6 @@ values with the next type after a trailing comma, nor takes `SomeNumber | enum |
 `##` comment on a statement's line where Nim would not take it under: every file of Nim's compiler and standard
 library, and of ned, now reads the same to Nim's parser after formatting.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies,
-ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one
-parameter a line, [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures,
-[6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's instance, organize
-imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your settings,
-[6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours,
-[6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
-
 ## What's new in 6.6
 
 ![Where ARC/ORC copies: ⧉copy beside each value the compiler copies, and hovering one says why](screenshots/copies-66.png)

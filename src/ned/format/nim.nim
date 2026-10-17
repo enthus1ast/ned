@@ -1013,8 +1013,10 @@ proc fCommandLike*(toks: openArray[FTok]): bool =
   ## a statement or a command call (`echo x`, `s.add item`, `discard f()`): a comma after it would be read as more
   ## of its arguments
   if toks.len == 0: return false
-  if toks[0].kind == fkKw and toks[0].text in ["discard", "return", "raise", "yield", "break", "continue", "echo"]:
-    return true
+  if toks[0].kind == fkKw and toks[0].text == "echo": return true
+  if toks[0].kind == fkKw and toks[0].text in ["discard", "return", "raise", "yield", "break", "continue"]:
+    # (these end at a comma themselves — `return x,` — unless what they are given is a command: `return f x`)
+    return toks.len > 1 and fCommandLike(toks[1 .. ^1])
   var d = 0
   for k, t in toks:
     if t.kind in {fkOpen, fkPragOpen}:
@@ -1774,7 +1776,10 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
       if close > k + 1:
         var tail = 0
         for j in close + 1 ..< o.toks.len: tail += o.toks[j].text.len + 1
-        if tail <= 30: open = k
+        var inner = 0
+        for j in k + 1 ..< close: inner += o.toks[j].text.len + 1
+        # (a tiny group after a big one — `opGorge(…)[0]` — is not the one to open: the call is)
+        if tail <= 30 and not (open > 0 and inner <= 12): open = k
     if t.kind in {fkOpen, fkPragOpen}: inc d
     elif t.kind in {fkClose, fkPragClose}: dec d
   if open > 0:
@@ -1958,7 +1963,8 @@ proc fPrefixLike*(toks: seq[FTok], k: int): bool =
   if k == 0 or k + 1 >= toks.len or toks[k].nl: return false        # first on its line: a statement's start
   var p = k - 1
   while p > 0 and toks[p].kind == fkComment: dec p
-  if not fOperand(toks[p]): return false
+  # (after a keyword too: `distinct|(a)` is a typeclass, `distinct |(a)` does not parse)
+  if not (fOperand(toks[p]) or toks[p].kind == fkKw and not fWordOp(toks[p])): return false
   let before = toks[k].sp or toks[k].nl
   let after = toks[k + 1].sp or toks[k + 1].nl
   before and not after
@@ -2133,6 +2139,18 @@ proc fNormalize*(lines: var seq[FLine]) =
             plain = q == k - 1
           else: plain = false
         if plain: l.toks.delete(k - 1)
+    # `f():` ⏎ body → `f:` — a call whose only argument is its block needs no parentheses (like nph): the whole
+    # statement `name(.name)*():`, nothing else on it
+    block:
+      var k = l.toks.high
+      while k > 0 and l.toks[k].kind == fkComment: dec k
+      if k >= 3 and l.toks[k].kind == fkColon and l.toks[k - 1].kind == fkClose and l.toks[k - 1].text == ")" and
+         l.toks[k - 2].kind == fkOpen and l.toks[k - 2].text == "(" and t0.kind == fkIdent:
+        var q = 1
+        while q + 1 < k - 2 and l.toks[q].kind == fkDot and l.toks[q + 1].kind == fkIdent: q += 2
+        if q == k - 2 and l.toks[k - 3].kind == fkIdent:
+          l.toks.delete(k - 1)
+          l.toks.delete(k - 2)
     # statements separated by `;` go on lines of their own
     var semis: seq[int]
     var d = 0
