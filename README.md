@@ -638,7 +638,7 @@ How it compares with nph, on Nim's compiler and standard library:
 
 | | built-in | nph |
 |---|---|---|
-| lines identical to nph's output | 98.0% of 198 000 | — |
+| lines identical to nph's output | 99.0% of 198 000 | — |
 | same code for Nim's parser (463 files) | all | all |
 | semexprs.nim, 3 598 lines | 23 ms | 33 ms |
 | strutils.nim, 3 069 lines | 12.5 ms | 16 ms |
@@ -646,8 +646,8 @@ How it compares with nph, on Nim's compiler and standard library:
 | json.nim, already formatted | 4 ms | 9.5 ms |
 
 Both measured on the same (slow) machine; nph's times include starting the program, which ned also has to do when
-it runs nph. Where the two still differ, it is mostly in lambdas and `if` expressions passed as arguments, which
-nph lays out over several lines.
+it runs nph. Where the two still differ — one line in a hundred — it is mostly a comment nph joins to the line
+above, a long condition broken at another operator, or arguments packed differently.
 
 To use nph or nimpretty instead, set `"nim.formatter": "nph"` (or `"nimpretty"`), or pick *Nim: format with nph*
 in the palette. Your own `formatters` entry for `nim` always wins.
