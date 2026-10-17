@@ -4301,7 +4301,7 @@ def t_66_ctvalues():
     check('66 compile-time: strings joined with $ of a constant', wait_for(r'= "v1024"', 4), screen())
     keys('Escape'); keys('C-g'); text('5:2'); keys('Enter'); keys('M-h')
     check('66 compile-time: hover a `when`, its condition here', wait_for(r'= false here', 4) and 'this branch is' in screen(), screen())
-    keys('Escape'); time.sleep(0.3)
+    keys('Escape'); time.sleep(0.3); keys('C-Home'); time.sleep(0.8)
     rw, rp, rc = ansi_row('proc winOnly'), ansi_row('proc posixOnly'), ansi_row('# a comment')
     check('66 compile-time: the branch left out here is dimmed like a comment; the other is not',
           fg_at(rw, 'winOnly') is not None and fg_at(rw, 'winOnly') == fg_at(rc, 'comment') and
@@ -4317,11 +4317,11 @@ def t_66_ctvalues():
     # C: what #if 0 leaves out, dimmed too
     open(W + '/dim66.c', 'w').write('/* a comment */\n#if 0\nint dead_code(void) { return 1; }\n#endif\n'
                                     'int live_code(void) { return 2; }\n')
-    tm('kill-server'); start('dim66.c', w=110, h=20); time.sleep(1.5)
+    tm('kill-server'); time.sleep(0.3); start('dim66.c', w=110, h=20); wait_for('live_code', 8); time.sleep(1)
     rd, rl, rc = ansi_row('dead_code'), ansi_row('live_code'), ansi_row('a comment')
     check('66 C: #if 0 dimmed like a comment, the code after #endif not',
           fg_at(rd, 'dead_code') == fg_at(rc, 'comment') and fg_at(rl, 'live_code') != fg_at(rc, 'comment'),
-          str((fg_at(rd, 'dead_code'), fg_at(rl, 'live_code'), fg_at(rc, 'comment'))))
+          str((fg_at(rd, 'dead_code'), fg_at(rl, 'live_code'), fg_at(rc, 'comment'))) + '\n' + screen())
 
 def t_66_trust():
     # a folder's code runs only once you trust it: its config.nims (run by the compiler) does nothing on open or
