@@ -246,7 +246,8 @@ proc initSettingDefs() =
        "=copy and =dup calls (nim c --expandArc, in a trusted folder) and ⧉copy appears beside each — hover it " &
        "for why, and how to move instead")
   defS("Git", "git.checksBeforeCommit", %"both",
-       "Before a commit: format = the files it takes are formatted (ned's own formatters, on what is staged), " &
+       "Before a commit: format = the files it takes are formatted (ned's own formatters, on what is staged; the " &
+       "languages editor.formatOnSave formats), " &
        "tests = the tests that cover them pass (in a trusted folder) · both · off. One that fails stops the commit " &
        "and says why, with a way to fix it or to commit anyway", @["both", "format", "tests", "off"])
   defS("Editor", "editor.dimInactiveCode", %true,

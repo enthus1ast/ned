@@ -137,3 +137,23 @@ suite "JSON, CSS, Markdown":
     let (m, err) = fmtMarkdown("| a | bb |\n|---|---|\n| ccc | d |\n")
     check err.len == 0
     check m == "| a   | bb  |\n| --- | --- |\n| ccc | d   |\n"
+
+suite "YAML and TOML":
+  test "YAML: one indentation width, a sequence at its key's column kept, text blocks moved as one":
+    let (r, err) = fmtYaml("a:\n    b:   1\n    c:\n    - x\n    - y\n    d: |\n        line one\n          two\n\n\n\ne: 2   \n")
+    check err == ""
+    check r == "a:\n  b: 1\n  c:\n  - x\n  - y\n  d: |\n    line one\n      two\n\ne: 2\n"
+  test "YAML: formatted stays as it is; tabs and indentation indicators are left alone":
+    let ok = "a:\n  b: 1\n  c:\n    - x\n"
+    check fmtYaml(ok)[0] == ok
+    check fmtYaml("a:\n\tb: 1\n")[0] == "a:\n\tb: 1\n"
+    check fmtYaml("a: |2\n   x\n")[0] == "a: |2\n   x\n"
+  test "TOML: spaces around =, headers, arrays, blank lines; strings untouched":
+    let (r, err) = fmtToml("title=\"a  =  b\"\n[ server ]\nports=[1,2 ,3]\n\n\n[[ items ]]\nname = 'x'   # note\n" &
+                           "text = \"\"\"\nkeep   this = as is\n\"\"\"\n")
+    check err == ""
+    check r == "title = \"a  =  b\"\n\n[server]\nports = [1, 2, 3]\n\n[[items]]\nname = 'x' # note\n" &
+               "text = \"\"\"\nkeep   this = as is\n\"\"\"\n"
+  test "TOML: an array over several lines keeps its layout":
+    let src = "deps = [\n  \"a\",\n  \"b\",\n]\n"
+    check fmtToml(src)[0] == src

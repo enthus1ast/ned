@@ -7,6 +7,8 @@ proc builtinFmtKind(path, langId: string): string =
   if ext in [".scss", ".less"]: return "scss"
   if ext == ".css" or langId == "css": return "css"
   if ext in [".c", ".h"] or langId == "c": return "c"
+  if ext in [".yaml", ".yml"]: return "yaml"
+  if ext == ".toml": return "toml"                  # (not .ini, .cfg …: TOML's colours, not its rules)
   ""
 
 proc looksCpp(text: string): bool =
@@ -89,6 +91,8 @@ proc builtinFormatText(kind, text: string, indentW = 2, path = ""): (string, str
     of "markdown": fmtMarkdown(text)
     of "css": fmtCss(text, max(1, indentW))
     of "scss": fmtCss(text, max(1, indentW), lineComments = true)
+    of "yaml": fmtYaml(text, max(1, indentW))
+    of "toml": fmtToml(text)
     else: (text, "no built-in formatter")
   except CatchableError, Defect: (text, "the built-in formatter failed on this file (please report it)")
 
@@ -238,7 +242,7 @@ proc formatBuffer(b: Buffer) =
       info("Already formatted")
       return
     b.setTextMinimal(res)
-    info("Formatted (built-in" & (if bk == "markdown": ": tables lined up" elif bk == "c": " C formatter: " &
+    info("Formatted (built-in" & (if bk == "markdown": ": tables lined up" elif bk == "yaml": " YAML: indentation and spacing" elif bk == "toml": " TOML: spacing" elif bk == "c": " C formatter: " &
          "indentation and spaces — clang-format does more" else: "") & ") in " & $msSince(t0) & " ms")
   if bk == "json":
     builtin(b)
@@ -249,7 +253,7 @@ proc formatBuffer(b: Buffer) =
       "options": {"tabSize": b.indentW(), "insertSpaces": b.indent != "\t"}},
       LspReq(kind: lrFormat, bufId: b.id))
     return
-  if bk in ["markdown", "css", "scss", "c"]:
+  if bk in ["markdown", "css", "scss", "c", "yaml", "toml"]:
     builtin(b)
     return
   let hint = if b.lang.fmt.len > 0: " (install " & b.lang.fmt[0].firstWord & ")" else: ""
@@ -445,7 +449,7 @@ proc formatOnSave0(b: Buffer) =
       return
   # ned's own JSON, Markdown and CSS formatters (quietly: a file it is not sure about stays as it is)
   let bk = builtinFmtKind(b.path, b.lang.id)
-  if bk in ["json", "markdown", "css", "scss", "c"]:
+  if bk in ["json", "markdown", "css", "scss", "c", "yaml", "toml"]:
     let text = b.allText & "\n"
     let (res, err) = builtinFormatText(bk, text, b.indentW(), b.path)
     if err.len == 0 and res != text: b.setTextMinimal(res)
