@@ -466,7 +466,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                          rowBg, (if line == ph.line: {aBold} else: {}))
           if covKnown and cfgAccessible:                     # ran / never ran: a sign, not only the colour
             setCell(x0 + 1, y, Cell(ch: uint32(ord(if cov: '+' else: '-')), fg: (if cov: theme.gitAdd else: theme.err), bg: rowBg))
-        if cfgGitGutter and line < b.git.len:
+        if cfgGitGutter and (not zenMode or cfgZenGit) and line < b.git.len:     # (zen: zen.gitChanges)
           let gx = x0 + 1 + numW
           case b.git[line]
           of 1: setCell(gx, y, Cell(ch: (if cfgAccessible: uint32(ord('+')) else: 0x258E'u32), fg: theme.gitAdd, bg: rowBg))

@@ -4119,6 +4119,60 @@ def t_65_ligatures():
     check('65 ligatures: View › Ligatures goes on to symbols (and saves it)', 'result = a ≠  b' in screen() and
           '"symbols"' in open(CFG + '/ned/config.json').read(), screen())
 
+def t_66_cwrap():
+    # a wrapper of a system header laid out the way the formatter does (one parameter a line, `):` under proc): the C
+    # signature beside it, printf's documentation on hover — on the wrapper's name, a call and "printf" —, varargs[T]
+    # flagged, and the wrapper rewritten from C
+    setup({"nim.nimsuggest": None})
+    open(W + '/cw66.nim', 'w').write('proc cprintf(\n  str: varargs[cstring],\n): cint {.importc: "printf", varargs, '
+                                     'header: "stdio.h", discardable, nodecl.}\n\ncprintf("%d\\n", 3)\n')
+    start('cw66.nim', w=170, h=32)
+    check("66 the C signature beside a wrapper written one parameter a line",
+          wait_for(r'⟵ int printf\(const char \*', 8), screen())
+    keys('C-g'); text('1:7'); keys('Enter'); keys('M-h'); time.sleep(1.2)
+    sc = screen()
+    check("66 hover on the wrapper's name: printf's declaration and documentation", 'printf(const char' in sc and
+          re.search(r'(?i)formatted output', sc) is not None, sc)
+    keys('Escape')
+    keys('C-g'); text('5:3'); keys('Enter'); keys('M-h'); time.sleep(1.2)
+    sc = screen()
+    check('66 … and on a call', 'printf(const char' in sc, sc)
+    keys('Escape')
+    keys('C-g'); text('3:23'); keys('Enter'); keys('M-h'); time.sleep(1.2)
+    sc = screen()
+    check('66 … and on "printf"', 'printf(const char' in sc and 'stdio.h' in sc, sc)
+    keys('Escape')
+    keys('C-s'); ok = wait_for(r'varargs\[cstring\] is a Nim array', 10)
+    check('66 varargs[cstring] for C\'s … flagged', ok, screen())
+    keys('C-g'); text('2:3'); keys('Enter'); keys('M-Enter'); time.sleep(0.8)
+    ok = wait_for('Rewrite this wrapper from its C declaration', 5)
+    check('66 Alt+Enter offers the wrapper written from C', ok, screen())
+    if ok:
+        keys('C-u'); text('Rewrite'); time.sleep(0.4); keys('Enter'); time.sleep(1); keys('C-s'); time.sleep(0.6)
+        t = ftext('cw66.nim')
+        check('66 … the signature corrected (format: cstring, its pragmas kept)',
+              'cprintf(format: cstring): cint {.importc: "printf", varargs, header: "stdio.h", discardable, nodecl.}'
+              in t.replace('\n', ' ').replace('  ', ' ').replace('( ', '(').replace(', )', ')') or
+              ('format: cstring' in t and 'varargs[' not in t), repr(t))
+
+def t_66_zen_menu():
+    # zen mode: no git change marks in the gutter unless zen.gitChanges; the File menu, short
+    setup()
+    open(W + '/src/demo/utils.nim', 'a').write('proc added*(): int = 1\n')
+    start('src/demo/utils.nim', w=150, h=34); time.sleep(1.5)
+    rows = [l for l in screen().split('\n') if 'proc added' in l]
+    check('66 a change mark beside a changed line (outside zen)', rows and '▎' in rows[0], screen())
+    keys('M-z'); time.sleep(0.8)
+    rows = [l for l in screen().split('\n') if 'proc added' in l]
+    check('66 zen: no change marks', rows and '▎' not in rows[0], screen())
+    keys('M-z'); time.sleep(0.5)
+    keys('F10'); time.sleep(0.6)
+    sc = screen()
+    items = [l for l in sc.split('\n')[1:30] if '│' in l]
+    check('66 the File menu is short (submenus for the rest)', 'Open recent' in sc and 'Preferences' in sc and
+          'Settings sync' not in sc and len(items) <= 22, sc)
+    keys('Escape')
+
 def t_63_git():
     # git for new folders: initialize here (asked first inside another repository), git asks your name once;
     # a new Nim project gets its first commit; clone from a link (a branch in the link, a login in it refused)
@@ -4178,4 +4232,4 @@ def t_63_git():
           os.path.isdir(dest + '/.git'), screen())
     check('63 … and a Nim project offers to install what it needs', wait_for('install the packages it needs', 5), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures]
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu]

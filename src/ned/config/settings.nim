@@ -183,6 +183,8 @@ proc initSettingDefs() =
   defS("Zen mode", "zen.hideLineNumbers", %true, "Hide line numbers and the gutter in zen mode")
   defS("Zen mode", "zen.dimOthers", %true, "Dim everything except the block or paragraph you are in")
   defS("Zen mode", "zen.typewriter", %false, "Typewriter scrolling: keep the cursor line in the middle of the screen")
+  defS("Zen mode", "zen.gitChanges", %false, "Show git's change marks (added, changed, deleted lines) in the gutter in " &
+       "zen mode too")
   defS("Zen mode", "zen.showInfo", %true, "Show a quiet line/word count in the corner")
   defS("TODO comments", "todo.highlight", %true,
        "Colour TODO, FIXME, BUG, HACK and NOTE where a comment starts with them, and mark them on the scrollbar")
@@ -655,6 +657,7 @@ proc applySettings() =
   cfgZenHideNums = sBool("zen.hideLineNumbers")
   cfgZenDim = sBool("zen.dimOthers")
   cfgZenTypewriter = sBool("zen.typewriter")
+  cfgZenGit = sBool("zen.gitChanges")
   cfgZenInfo = sBool("zen.showInfo")
   cfgVimEscape = sStr("vim.escapeSequence")
   cfgVimClipboard = sBool("vim.useSystemClipboard")

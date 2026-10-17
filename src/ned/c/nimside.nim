@@ -81,7 +81,12 @@ proc nimFfiDecls(lines: seq[string]): seq[NimFfi] =
       var said = false
       var k = l
       while k < lines.len and k - l <= 12 and not said:
-        if k > l and leadWs(lines[k]) <= ind and lines[k].strip.len > 0: break
+        let ks = lines[k].strip
+        # (a line back at the declaration's indentation ends it — but `): cint {.importc.}` closes its parameters,
+        # one a line, as the formatter lays them out)
+        if k > l and leadWs(lines[k]) <= ind and ks.len > 0 and ks[0] notin {')', ']'} and
+           not (ks.startsWith("{.") and not ks.startsWith("{.push") and not ks.startsWith("{.pop")):
+          break
         if "importc" in lines[k]: said = true
         inc k
       if not said:
@@ -196,7 +201,7 @@ proc nimFfiDecls(lines: seq[string]): seq[NimFfi] =
             var te = se
             let eq = part.find('=', colon)
             if eq > 0: te = sa + eq
-            while te > ta and text[te - 1] == ' ': dec te
+            while te > ta and text[te - 1] in {' ', ','}: dec te      # (`x: cint,` — a trailing comma, one a line)
             let typ = text[ta ..< te]
             for nm in names:
               if ta < map.len and te - 1 < map.len:
