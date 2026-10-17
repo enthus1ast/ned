@@ -54,8 +54,18 @@ proc aiFixVerify(bid: int, text: string, attempt: int, firstMsg: string) =
   for x in newLines: cand.add x
   for i in e.line + 1 ..< b.lines.len: cand.add b.lines[i]
   inc aiFixN
-  let tmp = parentDir(b.path) / ("ned_fixcheck_" & $getCurrentProcessId() & "_" & $aiFixN & ".nim")
-  try: writeFile(tmp, cand.join("\n") & "\n")
+  # (a private copy, checked from the file's folder on stdin — or, a file another one includes, inside that one)
+  let tmp = privTmp("fixcheck") & ".nim"
+  var main, mainText = ""
+  if nxIncluderOf(b.path).len > 0:
+    let saved = b.lines
+    b.lines = cand
+    (main, mainText) = includerCopy(b, tmp)
+    b.lines = saved
+  let mainCopy = if main.len > 0: privTmp("fixcheckmain") & ".nim" else: ""
+  try:
+    writeFile(tmp, cand.join("\n") & "\n")
+    if main.len > 0: writeFile(mainCopy, mainText)
   except CatchableError:
     aiInlineText = text
     applyInlineEdit()
@@ -67,18 +77,26 @@ proc aiFixVerify(bid: int, text: string, attempt: int, firstMsg: string) =
   let regionLo = a.line
   let regionHi = a.line + newLines.len - 1
   info("Checking the AI's fix with nim check…")
-  discard startJob(jkCheck, "nim check --hint:all:off --colors:off --listFullPaths:on " & quoteShell(tmp),
-                   parentDir(b.path), proc(j: Job) =
+  let mainOf = if main.len > 0: main else: b.path
+  discard startJob(jkCheck, "nim check --hint:all:off --colors:off --listFullPaths:on - < " &
+                   quoteShell(if main.len > 0: mainCopy else: tmp), parentDir(mainOf), proc(j: Job) =
     var bad: seq[string]
+    let tn = extractFilename(tmp)
     for raw in j.output.splitLines:              # (read while the file is there: its path is checked)
-      let (ok, p, l, c, sev, m) = parseErrLine(stripAnsi(raw), j.cwd)
-      if not ok or sev != 1 or p != tmp: continue
+      var t = stripAnsi(raw)
+      if t.startsWith("stdinfile.nim("): t = mainOf & t["stdinfile.nim".len .. ^1]
+      var (ok, p, l, c, sev, m) = parseErrLine(t, j.cwd)
+      if ok and extractFilename(p) == tn: p = b.path
+      if main.len > 0 and p == main: continue     # (the module that includes it: not this file)
+      if not ok or sev != 1 or p != b.path: continue
       let f = m.splitLines()[0]
       if (l >= regionLo and l <= regionHi) or f == firstMsg or f notin before:
         bad.add "line " & $(l + 1) & ": " & f
-    if j.code != 0 and bad.len == 0 and "Error:" in j.output and tmp notin j.output:
+    if j.code != 0 and bad.len == 0 and "Error:" in j.output and tn notin j.output and "stdinfile" notin j.output:
       bad.add "nim check failed: " & j.output.strip.splitLines()[^1]
-    try: removeFile(tmp)
+    try:
+      removeFile(tmp)
+      if mainCopy.len > 0: removeFile(mainCopy)
     except CatchableError: discard
     let b2 = bufById(bid)
     if b2 == nil: return

@@ -291,6 +291,7 @@ proc initCommandsV4() =
   add("AI: MCP servers…", "", cmdMcpServers())
   add("AI: review the assistant's changes…", "", cmdAiReview())
   add("AI: fix problem at cursor", "", aiFixProblem())
+  add("AI: make the failing test pass", "the change kept only when the test then passes", cmdAiFixTest())
   add("Search: replace in files…", "", (block:
     let b = buf()
     if dockQuery.len == 0:

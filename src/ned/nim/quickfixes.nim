@@ -129,6 +129,11 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
   if result.len > diagStart and diagStart > refStart:
     # (the fixes for the problem on this line before the refactorings the cursor's word allows)
     result = result[0 ..< refStart] & result[diagStart .. ^1] & result[refStart ..< diagStart]
-  if ds.len > 0 and (cfgAiProvider in ["ollama", "custom"] or aiKey().len > 0):
+  let failedTest = failingTestAt(b, b.primary.head.line)
+  if failedTest.len > 0 and (cfgAiProvider in ["ollama", "custom"] or aiKey().len > 0):
+    # a failed check of a test: the code it tests is what to fix — kept only when the test passes then
+    let (tp, tn) = (b.path, failedTest)
+    result.add act(ic("ai") & " Make this test pass with AI", "kept only when it passes: " & tn, proc() = aiFixTest(tp, tn))
+  elif ds.len > 0 and (cfgAiProvider in ["ollama", "custom"] or aiKey().len > 0):
     result.add act(ic("ai") & " Fix with AI", truncTo(ds[0].msg.splitLines()[0], 50), proc() = aiFixProblem())
     result.add act(ic("ai") & " Explain this problem", "", proc() = aiExplainProblem())
