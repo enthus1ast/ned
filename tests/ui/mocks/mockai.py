@@ -122,6 +122,7 @@ class H(BaseHTTPRequestHandler):
         want_edit = 'doc comment to shout' in user and 'tools' in b and not has_tool_result(msgs)
         want_cube = 'add a cube proc' in user and 'tools' in b
         want_gen = 'run the generator' in user and 'tools' in b and not has_tool_result(msgs)
+        want_plan = ('PLANTASK' in user or 'of the plan now' in user) and 'tools' in b
         mcp_name = None
         if 'use the echo tool' in user and not has_tool_result(msgs):
             for t in b.get('tools') or []:
@@ -211,6 +212,31 @@ class H(BaseHTTPRequestHandler):
             self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': say}}]})
             if args:
                 self.ev({'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'id': 'call_c%d' % len(msgs), 'type': 'function', 'function': {'name': 'edit_file', 'arguments': json.dumps(args)}}]}}]})
+                self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})
+            else:
+                self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})
+            self.ev('[DONE]'); return
+        if want_plan:
+            # plan first (an edit tried while planning is refused), then each step its own run
+            args = None
+            if 'Plan this change before making it' in user or 'Change the plan' in user:
+                if not has_tool_result(msgs) and 'Change the plan' not in user:
+                    args, say = {'path': 'src/demo/utils.nim', 'old_text': '', 'new_text': '# sneaky\n'}, 'Let me just start.'
+                else:
+                    say = ('Here is the plan:\n\n1. Add `twice2` to src/demo/utils.nim\n   - a proc that doubles\n'
+                           '2. Add `thrice2` to src/demo/utils.nim\n\nRisks: none.')
+            elif 'Do step 1 of the plan' in user:
+                if not has_tool_result(msgs):
+                    args, say = {'path': 'src/demo/utils.nim', 'old_text': '', 'new_text': 'proc twice2*(x: int): int = x * 2\n'}, 'Step 1.'
+                else: say = 'Added twice2.'
+            elif 'Do step 2 of the plan' in user:
+                if not has_tool_result(msgs):
+                    args, say = {'path': 'src/demo/utils.nim', 'old_text': '', 'new_text': 'proc thrice2*(x: int): int = x * 3\n'}, 'Step 2.'
+                else: say = 'Added thrice2.'
+            else: say = 'Done.'
+            self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': say}}]})
+            if args:
+                self.ev({'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'id': 'call_p%d' % len(msgs), 'type': 'function', 'function': {'name': 'edit_file', 'arguments': json.dumps(args)}}]}}]})
                 self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})
             else:
                 self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})

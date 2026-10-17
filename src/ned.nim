@@ -109,6 +109,7 @@ include ned/format/apply
 include ned/lsp/client
 include ned/lsp/renamepreview
 include ned/lsp/handlers
+include ned/lsp/doclinks
 include ned/format/commands
 include ned/nim/project
 include ned/nim/nimsuggest
@@ -177,6 +178,8 @@ include ned/ai/inlineedit
 include ned/ai/chats
 include ned/ai/context
 include ned/ai/oneshot
+include ned/ai/plan
+include ned/ai/offline
 include ned/ai/suggestions
 include ned/ai/chatview
 include ned/ui/welcome

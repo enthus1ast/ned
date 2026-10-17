@@ -158,7 +158,13 @@ proc aiCleanup() =
     except CatchableError: discard
   aiTmp.setLen(0)
 
+proc aiPlanRunDone(): bool
+proc aiPlanInterrupted() =
+  ## a plan's run failed or was stopped: the plan waits (palette › AI: the plan…)
+  if aiPlanState in {apPlanning, apDoing}: aiPlanState = (if aiPlanSteps.len > 0: apReady else: apNone)
+
 proc aiFail(msg: string) =
+  aiPlanInterrupted()
   aiMsgs.add AiMsg(role: 3, text: msg)
   aiBusy = false
   aiPhase = ""
@@ -402,7 +408,8 @@ proc aiRequest() =
       aiBusy = false
       aiPhase = ""
       saveChat()
-      if aiRunCp >= 0 and aiRunCp <= aiCheckpoints.high and aiCheckpoints[aiRunCp].files.len > 0:
+      if aiPlanRunDone(): discard                   # (a plan: its next step, or its menu)
+      elif aiRunCp >= 0 and aiRunCp <= aiCheckpoints.high and aiCheckpoints[aiRunCp].files.len > 0:
         let id = aiCheckpoints[aiRunCp].id
         let n = aiCheckpoints[aiRunCp].files.len
         aiRunCp = -1
@@ -641,6 +648,7 @@ proc aiSend(text: string, withContext = true, shownAs = "") =
   aiRequest()
 
 proc aiStop() =
+  aiPlanInterrupted()
   mcpWaitReq = false
   inc aiCheckGen
   if aiJob != nil:

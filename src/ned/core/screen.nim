@@ -214,6 +214,7 @@ proc flushScreen() =
         if aItalic in at: o.add ";3"
         if aUnder in at: o.add ";4"
         if aRev in at: o.add ";7"
+        if aStrike in at: o.add ";9"
         sgrColorFast(o, c.fg, true)
         sgrColorFast(o, c.bg, false)
         o.add 'm'

@@ -108,6 +108,11 @@ proc mkTheme(name: string, dark: bool, bg, fg, accent, sel, comment, keyword, ty
   result.syn[tkProperty] = prop
   result.syn[tkVariable] = prop
   result.syn[tkParam] = blend(fg, prop, 0.6)   # (quieter than a field: there are many of them)
+  result.syn[tkMutable] = blend(fg, warn, 0.38)   # (a warm tint: this one can change)
+  result.syn[tkGlobal] = fg
+  result.syn[tkGlobalVar] = result.syn[tkMutable]
+  result.syn[tkDeprecated] = blend(bg, fg, 0.5)
+  result.syn[tkUnsafe] = warn
   result.syn[tkTag] = keyword
   result.syn[tkAttr] = typ
   result.syn[tkHeading] = fn
@@ -470,11 +475,42 @@ proc themeNamed(name: string): (bool, Theme) =
   for t in allThemes():
     if t.name == name: return (true, t)
 
+proc clockMinutes(s: string, def: int): int =
+  ## "07:30", "7", "19:05" → minutes after midnight (`def` when it is not a time)
+  let p = s.strip.split(':')
+  try:
+    let h = parseInt(p[0].strip)
+    let m = if p.len > 1: parseInt(p[1].strip) else: 0
+    if h in 0 .. 24 and m in 0 .. 59: return (h * 60 + m) mod 1440
+  except ValueError: discard
+  def
+
+proc isDaytime(): bool =
+  ## by the clock: between theme.dayStarts and theme.nightStarts
+  let dn = settingNode("theme.dayStarts")
+  let nn = settingNode("theme.nightStarts")
+  let day = clockMinutes(if dn != nil and dn.kind == JString: dn.getStr else: "", 7 * 60)
+  let night = clockMinutes(if nn != nil and nn.kind == JString: nn.getStr else: "", 19 * 60)
+  let t = times.now()
+  let m = t.hour * 60 + t.minute
+  if day == night: return true
+  if day < night: m >= day and m < night
+  else: m >= day or m < night
+
+proc autoByClock(): bool =
+  let n = settingNode("theme.autoBy")
+  n != nil and n.kind == JString and n.getStr == "clock"
+
+proc autoWantsLight(): bool =
+  ## "theme": "auto" — light by the clock (theme.autoBy: "clock") or by the terminal's background
+  if autoByClock(): isDaytime() else: termBgKnown and termBgLight
+
 proc applyTheme(name: string) =
-  ## a theme by name ("auto": the light or dark one that matches the terminal), with your colour overrides
+  ## a theme by name ("auto": the light or dark one that matches the terminal, or the time of day), with your
+  ## colour overrides
   var want = name
   if name == "auto":
-    let light = termBgKnown and termBgLight
+    let light = autoWantsLight()
     let pick = settingNode(if light: "theme.light" else: "theme.dark")
     want = if pick != nil and pick.kind == JString: pick.getStr else: (if light: "github-light" else: "nim-crown")
   let (ok, t) = themeNamed(want)

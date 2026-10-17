@@ -113,6 +113,7 @@ const SlashCmds = [
   ("/review", "review the uncommitted changes (git diff)"),
   ("/optimize", "make this code faster"),
   ("/commit", "write a commit message for the staged changes"),
+  ("/plan", "plan a change first (reading only), then do it step by step"),
   ("/regen", "regenerate the last reply"),
   ("/new", "start a new chat"),
   ("/history", "open a saved chat"),
@@ -209,6 +210,9 @@ proc isSlashCommand(t: string): bool =
     if c == "/" & cmd: return true
   false
 
+proc cmdAiPlan()
+proc aiPlanStart(task: string)
+
 proc slashCommand(t: string): (bool, string) =
   ## (handled, prompt to send instead — empty when nothing is sent)
   let sp = t.find(' ')
@@ -242,6 +246,10 @@ proc slashCommand(t: string): (bool, string) =
     (true, "")
   of "commit":
     aiCommitMessage()
+    (true, "")
+  of "plan":
+    if rest.len == 0: cmdAiPlan()
+    else: aiPlanStart(rest)
     (true, "")
   of "explain": (true, "Explain what this code does — the big picture first, then anything subtle." & more)
   of "fix": (true, "Fix the compiler errors and warnings in this file. @problems" & more)

@@ -3,6 +3,10 @@
 var pendingLocalFixes: seq[(string, string, Action)]
 var pendingInlineFixes: seq[JsonNode]   # fixes the server sent with the diagnostics at the cursor (clangd)
 var pendingFixBuf = -1                  # the buffer Quick fixes was asked in
+var fixRound = 0                        # the quick-fix question in progress (its answers carry it)
+var fixWanted = 0                       # … how many servers were asked (0: none waited for)
+var fixGot: seq[(LspServer, JsonNode)]  # … the answers so far
+var fixDeadline: MonoTime               # … shown with what came by then
 proc localFixes(b: Buffer): seq[(string, string, Action)]
 
 proc fixTouches(fixes: JsonNode, a, e: int): bool =
@@ -53,15 +57,24 @@ proc cmdCodeActions() =
           diags.add dj
           if da < a: a = da
           if e < de: e = de
+      inc fixRound
+      fixWanted = 1
+      fixGot.setLen(0)
+      fixDeadline = getMonoTime() + initDuration(milliseconds = 2500)
       discard es.lspRequest("textDocument/codeAction", %*{"textDocument": {"uri": uriFromPath(sh.path)},
         "range": {"start": es.lspPos(b, a), "end": es.lspPos(b, e)}, "context": {"diagnostics": diags}},
-        LspReq(kind: lrCodeAction, bufId: b.id))
+        LspReq(kind: lrCodeAction, bufId: b.id, extra: $fixRound))
       return
   pendingLocalFixes = localFixes(b)
   pendingInlineFixes.setLen(0)
   pendingFixBuf = b.id
+  # the main server and the linters next to it (lsp.alsoRun): each asked about its own problems, the answers merged
+  var asked: seq[LspServer]
   let s = lspReady(b)
-  if s == nil or s.caps == nil or s.caps{"codeActionProvider"} == nil:
+  if s != nil and s.caps != nil and s.caps{"codeActionProvider"} != nil: asked.add s
+  for m in lspMoreFor(b, false):
+    if m.ready and not m.dead and m.caps != nil and m.caps{"codeActionProvider"} != nil and b.id in m.docVer: asked.add m
+  if asked.len == 0:
     if pendingLocalFixes.len > 0: openActions("Quick fixes", pendingLocalFixes)
     else: info("No quick fixes here")
     return
@@ -72,49 +85,69 @@ proc cmdCodeActions() =
   # where the next statement begins
   let atEnd = e.col >= b.lines[e.line].len and e.line < b.lines.high
   let nextFirst = if atEnd: leadingWs(b.lines[e.line + 1]).len else: -1
-  var diags = newJArray()
+  var here: seq[Diag]
   for d in diagsLsp.getOrDefault(b.path):
     if (d.line <= e0.line and max(d.line, d.eline) >= a0.line) or fixTouches(d.fixes, a0.line, e0.line) or
        (atEnd and d.line == e0.line + 1 and d.col == nextFirst):
-      var dj = %*{"range": {"start": s.lspPos(b, Pos(line: d.line, col: d.col)),
-                            "end": s.lspPos(b, Pos(line: max(d.line, d.eline), col: max(0, d.ecol)))},
-                  "severity": d.sev, "message": (if d.raw.len > 0: d.raw else: d.msg)}
-      if d.code != nil: dj["code"] = d.code            # servers find their fixes by it (CSS, ESLint …)
-      diags.add dj
+      here.add d
       for ca in jitems(d.fixes): pendingInlineFixes.add ca
       let da = Pos(line: d.line, col: d.col)
       let de = Pos(line: max(d.line, d.eline), col: max(0, d.ecol))
       if da < a: a = da
       if e < de: e = de
-  discard s.lspRequest("textDocument/codeAction", %*{"textDocument": b.docId,
-    "range": {"start": s.lspPos(b, a), "end": s.lspPos(b, e)}, "context": {"diagnostics": diags}},
-    LspReq(kind: lrCodeAction, bufId: b.id))
+  inc fixRound
+  fixWanted = asked.len
+  fixGot.setLen(0)
+  fixDeadline = getMonoTime() + initDuration(milliseconds = 2500)
+  for srv in asked:
+    var diags = newJArray()
+    for d in here:
+      if d.srv != srv.uid and not (d.srv == 0 and not srv.secondary): continue
+      var dj = %*{"range": {"start": srv.lspPos(b, Pos(line: d.line, col: d.col)),
+                            "end": srv.lspPos(b, Pos(line: max(d.line, d.eline), col: max(0, d.ecol)))},
+                  "severity": d.sev, "message": (if d.raw.len > 0: d.raw else: d.msg)}
+      if d.code != nil: dj["code"] = d.code            # servers find their fixes by it (CSS, ESLint …)
+      diags.add dj
+    discard srv.lspRequest("textDocument/codeAction", %*{"textDocument": b.docId,
+      "range": {"start": srv.lspPos(b, a), "end": srv.lspPos(b, e)}, "context": {"diagnostics": diags}},
+      LspReq(kind: lrCodeAction, bufId: b.id, extra: $fixRound))
 
-proc handleCodeActions(s: LspServer, res: JsonNode) =
+proc showCodeActions() =
+  ## every server's answer (and ned's own fixes) in one list
+  let got = fixGot
+  fixGot.setLen(0)
+  fixWanted = 0
   var items: seq[(string, string, Action)]
   let local = pendingLocalFixes
   pendingLocalFixes.setLen(0)
   let inline = pendingInlineFixes
   pendingInlineFixes.setLen(0)
-  var all: seq[JsonNode]
-  if res != nil and res.kind == JArray:
-    for ca in res: all.add ca
-  for ca in inline: all.add ca          # (what the server already listed is left out below)
+  var all: seq[(LspServer, JsonNode)]
+  var main: LspServer = nil
+  for (s, res) in got:
+    if not s.secondary and main == nil: main = s
+    if res != nil and res.kind == JArray:
+      for ca in res: all.add (s, ca)
+  if main == nil and got.len > 0: main = got[0][0]
+  if main != nil:
+    for ca in inline: all.add (main, ca)          # (what the server already listed is left out below)
   if all.len == 0:
     if local.len > 0: openActions("Quick fixes", local)
     else: info("No quick fixes here")
     return
   var seen: HashSet[string]
   var preferred: seq[(string, string, Action)]
-  for ca in all:
+  for (srv, ca) in all:
     let ed = ca{"edit"}
     let cm = ca{"command"}
     let key = ca{"title"}.getStr & "|" & (if ed != nil: $ed else: "") & "|" & (if cm != nil: $cm else: "")
     if key in seen: continue
     seen.incl key
-    let (title, what) = fixLabel(s, ca)
+    var (title, what) = fixLabel(srv, ca)
+    if srv.secondary and what.len == 0: what = srv.name
     let node = ca
-    capture node:
+    let s = srv
+    capture node, s:
       let it = act(title, (if what.len > 0: what else: node{"kind"}.getStr), proc() =
         if node{"edit"} != nil: applyWorkspaceEdit(s, node["edit"])
         let cmd = if node{"command"} != nil and node["command"].kind == JObject: node["command"]
@@ -133,3 +166,12 @@ proc handleCodeActions(s: LspServer, res: JsonNode) =
   items = preferred & items             # (the fix the server prefers first: Enter applies it)
   for it in local: items.add it
   openActions("Quick fixes", items)
+
+proc handleCodeActions(s: LspServer, req: LspReq, res: JsonNode) =
+  if req.extra != $fixRound or fixWanted == 0: return     # (an answer to an older question)
+  fixGot.add (s, res)
+  if fixGot.len >= fixWanted: showCodeActions()
+
+proc codeActionsOverdue() =
+  ## a server that does not answer: the list with the answers that came
+  if fixWanted > 0 and getMonoTime() > fixDeadline: showCodeActions()

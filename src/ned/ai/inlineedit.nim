@@ -163,8 +163,11 @@ proc aiChooseModel() =
           info("AI model: " & mm))
     openActions("AI model — " & cfgAiProvider, items))
 
+proc cmdAiOffline()
+
 proc aiChooseProvider() =
   var items: seq[(string, string, Action)]
+  items.add act("On this device, offline…", "Ollama or llama.cpp: set up, download a model that fits", proc() = cmdAiOffline())
   for p in ["anthropic", "openai", "openrouter", "ollama", "groq", "deepseek", "gemini", "mistral", "custom"]:
     let pp = p
     let env = block:

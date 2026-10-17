@@ -134,7 +134,7 @@ proc mainLoop() =
     for j in jobs:
       if j.eof: timeout = min(timeout, 30)
     for b in bufs:
-      if b.lspDirty and b.lspOpen: timeout = min(timeout, 150)
+      if b.lspDirty and (b.lspOpen or b.lspMore): timeout = min(timeout, 150)
     if msg.len > 0 and msSince(msgTime) < 6000: timeout = min(timeout, int(6001 - msSince(msgTime)))
     if toasts.len > 0: timeout = min(timeout, 500)
     let semStale = cfgSemColors and cb0.id in semMaps and semMaps[cb0.id].at != cb0.changeId
@@ -146,6 +146,7 @@ proc mainLoop() =
     if flashBuf >= 0: timeout = min(timeout, 120)
     if aiBusy or aiInlineMode: timeout = min(timeout, 120)
     if mcpWaitReq: timeout = min(timeout, 200)
+    if fixWanted > 0: timeout = min(timeout, 200)
     for t in terms:
       if t.replQ.len > 0: timeout = min(timeout, 250)
     if reapPids.len > 0: timeout = min(timeout, 500)
@@ -335,6 +336,20 @@ proc mainLoop() =
           closeFd(s.inFd)
           closeFd(s.outFd)
           closeFd(s.errFd)
+          if s.secondary:
+            # a second server (a linter): its problems go; it is not started again this session
+            for p, ds in diagsLsp.mpairs:
+              var keep: seq[Diag]
+              for d in ds:
+                if d.srv != s.uid: keep.add d
+              ds = keep
+            if not s.stopped:
+              lspMoreFailed.incl s.cmd.join(" ")
+              let why = lspDeathReason(s)
+              warn(s.name & " exited" & (if why.len > 0: ": " & truncTo(why, 100) else: "") &
+                   " — not started again (palette: Restart language server)")
+            needRender = true
+            continue
           for b in bufs:
             if b.lang.id == s.langId: b.lspOpen = false
           if not s.stopped:
@@ -374,14 +389,17 @@ proc mainLoop() =
                 lspAttach(b)          # starts the server again; it opens every file of that language
                 break
       for b in bufs:
-        if b.lspDirty and b.lspOpen and msSince(b.lspChangeAt) > 120: lspSync(b)
+        if b.lspDirty and (b.lspOpen or b.lspMore) and msSince(b.lspChangeAt) > 120: lspSync(b)
       if msSince(lastSwapCheck) > 900:
         lastSwapCheck = getMonoTime()
         for b in bufs:
           if b.changeId != b.swapAt and msSince(b.lspChangeAt) > 600: writeSwap(b)
+      codeActionsOverdue()
       if msSince(lastFileCheck) > 2000:
         lastFileCheck = getMonoTime()
         checkDiskChanges()
+        themeClockCheck()
+        ollamaPullTick()
         if cfgAutoSave:
           for b in bufs:
             if b.dirty and b.path.len > 0 and b.group.time.ticks > 0 and msSince(b.lspChangeAt) > 1500:
@@ -662,6 +680,7 @@ proc main() =
   loadConfig()
   smark("settings")
   applyTheme(cfgThemeName)
+  themeFollowers()
   smark("theme")
   trueColor = detectTrueColor()
   case sStr("ui.trueColor")

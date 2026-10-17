@@ -175,6 +175,8 @@ proc sgr(t: Term, ps: seq[int]) =
     of 3: t.at.incl aItalic
     of 4: t.at.incl aUnder
     of 7: t.at.incl aRev
+    of 9: t.at.incl aStrike
+    of 29: t.at.excl aStrike
     of 22: t.at = t.at - {aBold, aDim}
     of 23: t.at.excl aItalic
     of 24: t.at.excl aUnder
