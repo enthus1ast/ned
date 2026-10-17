@@ -35,6 +35,7 @@ type
     syms*: seq[CxSym]
     includes*: seq[(string, int)]     # as written (<x.h> or "y.h"), and the line
     lines*: seq[string]
+    inactive*: seq[(int, int)]        # what #if 0, #ifdef __cplusplus … leave out: (first line, last line)
     byName, byOwner: Table[string, seq[int32]]   # the syms by name, the fields by owner (made when first asked)
     indexed: bool
   CxTokKind = enum ctWord, ctNum, ctStr, ctChar, ctPunct
@@ -571,6 +572,10 @@ proc cxParse*(text, path: string, full = true): CxFile =
   cxLex(text, toks, comments, pp)
   f.lines = text.splitLines
   var gone = cxInactive(pp)
+  # (what the preprocessor leaves out, for the editor to dim — not the branches cxUnbalanced sets aside to read one)
+  for (a, b) in gone:
+    if b - 1 >= a + 1: f.inactive.add (a + 1, b - 1)
+  f.inactive.sort(proc(x, y: (int, int)): int = cmp(x[0], y[0]))
   cxUnbalanced(pp, toks, gone)
   if gone.len > 1:
     gone.sort(proc(x, y: (int, int)): int = cmp(x[0], y[0]))

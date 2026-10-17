@@ -4287,6 +4287,42 @@ def t_66_test_on_save():
     check('66 tests on save: the fixed test file run again: all pass, the error gone', ok and 'Check failed' not in sc and
           re.search(r'test "adds wrong":.*✓ passed', sc) is not None, sc)
 
+def t_66_ctvalues():
+    # compile-time values: hover a constant, a `when`, a selection — worked out as the compiler would; the `when`
+    # branch that is false here dimmed like a comment, the true one not
+    setup({"nim.nimsuggest": None})
+    open(W + '/ct66.nim', 'w').write('const K = 1 shl 10\nconst Mask = 0xFF and not 0x0F\nconst Tag = "v" & $K\n'
+        '# a comment\nwhen defined(windows):\n  proc winOnly(): int = 1\nelse:\n  proc posixOnly(): int = 2\n'
+        'echo K, Mask, Tag, high(int16) + 1\nwhen defined(windows):\n  echo winOnly()\nelse:\n  echo posixOnly()\n')
+    start('ct66.nim', w=110, h=26); time.sleep(1.2)
+    keys('C-g'); text('9:6'); keys('Enter'); keys('M-h')
+    check('66 compile-time: hover a constant, its value (1 shl 10)', wait_for(r'= 1024', 4), screen())
+    keys('Escape'); keys('C-g'); text('9:15'); keys('Enter'); keys('M-h')
+    check('66 compile-time: strings joined with $ of a constant', wait_for(r'= "v1024"', 4), screen())
+    keys('Escape'); keys('C-g'); text('5:2'); keys('Enter'); keys('M-h')
+    check('66 compile-time: hover a `when`, its condition here', wait_for(r'= false here', 4) and 'this branch is' in screen(), screen())
+    keys('Escape'); time.sleep(0.3)
+    rw, rp, rc = ansi_row('proc winOnly'), ansi_row('proc posixOnly'), ansi_row('# a comment')
+    check('66 compile-time: the branch left out here is dimmed like a comment; the other is not',
+          fg_at(rw, 'winOnly') is not None and fg_at(rw, 'winOnly') == fg_at(rc, 'comment') and
+          fg_at(rp, 'posixOnly') != fg_at(rc, 'comment'), str((fg_at(rw, 'winOnly'), fg_at(rp, 'posixOnly'), fg_at(rc, 'comment'))))
+    keys('C-g'); text('9:20'); keys('Enter')
+    for _ in range(15): keys('S-Right')
+    keys('M-h')
+    check('66 compile-time: a selection that overflows its type: the compile error it is',
+          wait_for(r'a compile error: over- or underflow: int16', 4), screen())
+    keys('Escape'); keys('C-g'); text('2:7'); keys('Enter'); keys('M-h')
+    check('66 compile-time: bits of an int (0xFF and not 0x0F): an int, 240', wait_for(r'= 240', 4) and
+          'Mask: bool' not in screen(), screen())
+    # C: what #if 0 leaves out, dimmed too
+    open(W + '/dim66.c', 'w').write('/* a comment */\n#if 0\nint dead_code(void) { return 1; }\n#endif\n'
+                                    'int live_code(void) { return 2; }\n')
+    tm('kill-server'); start('dim66.c', w=110, h=20); time.sleep(1.5)
+    rd, rl, rc = ansi_row('dead_code'), ansi_row('live_code'), ansi_row('a comment')
+    check('66 C: #if 0 dimmed like a comment, the code after #endif not',
+          fg_at(rd, 'dead_code') == fg_at(rc, 'comment') and fg_at(rl, 'live_code') != fg_at(rc, 'comment'),
+          str((fg_at(rd, 'dead_code'), fg_at(rl, 'live_code'), fg_at(rc, 'comment'))))
+
 def t_66_trust():
     # a folder's code runs only once you trust it: its config.nims (run by the compiler) does nothing on open or
     # while typing, the built-in engine still answers, and Trust runs what was held back
@@ -4371,4 +4407,4 @@ def t_63_git():
           os.path.isdir(dest + '/.git'), screen())
     check('63 … and a Nim project offers to install what it needs', wait_for('install the packages it needs', 5), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save]
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues]

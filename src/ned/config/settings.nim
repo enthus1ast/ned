@@ -242,6 +242,9 @@ proc initSettingDefs() =
        "Mark where ARC/ORC copies a value (a string, a seq, an object): after a save the compiler shows ned its " &
        "=copy and =dup calls (nim c --expandArc, in a trusted folder) and ⧉copy appears beside each — hover it " &
        "for why, and how to move instead")
+  defS("Editor", "editor.dimInactiveCode", %true,
+       "Dim code a compile leaves out here: a Nim `when` branch that is false on this platform (when defined(windows) " &
+       "on Linux — hover the `when` for its value), C's #if 0 and #ifdef __cplusplus")
   defS("Nim", "nim.testOnSave", %"related",
        "Run std/unittest tests in the background when you save (in a trusted folder): related = the test file you " &
        "save, or the test files that import the module you save · file = only a test file you save · off. ✓ or ✗ " &
@@ -586,6 +589,7 @@ proc applySettings() =
   cfgPostfix = sBool("nim.postfixCompletion")
   cfgShowCopies = sBool("nim.showCopies")
   cfgTestOnSave = sStr("nim.testOnSave")
+  cfgDimInactive = sBool("editor.dimInactiveCode")
   cfgSemColors = sBool("nim.semanticColors")
   cfgMinimap = sStr("ui.minimap")
   cfgScrollbar = sBool("ui.scrollbar")

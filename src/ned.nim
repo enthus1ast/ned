@@ -235,6 +235,7 @@ include ned/c/c2nim
 include ned/c/compiledb
 include ned/c/cdocs
 include ned/c/cengine
+include ned/editor/inactive
 include ned/nim/fixes
 include ned/nim/refactor/core
 include ned/nim/refactor/signature

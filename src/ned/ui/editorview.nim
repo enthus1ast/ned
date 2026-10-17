@@ -116,6 +116,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       if (d.sev >= 3 and "declared but not used" in d.msg) or "imported and not used" in d.msg:
         let n = quotedNameOf(d.msg)
         if n.len > 0: unusedAt.mgetOrPut(d.line, @[]).add (d.col, n)
+  let inactive = if cfgDimInactive and b.id notin diffViews and b.id notin multiBufs: inactiveRanges(b) else: @[]
   let conflicts = if b.path.len > 0 or b.title.len == 0: b.conflictsOf() else: @[]
   let bpLines = if b.path.len > 0: breakpoints.getOrDefault(b.path) else: initHashSet[int]()
   let spellOnHere = b.spellOn() and b.id notin diffViews and b.id notin multiBufs
@@ -310,6 +311,11 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
             for q in at ..< min(at + short.len, toks.len): toks[q] = tkComment
       for (a, e) in foreign:
         for q in a ..< min(e, toks.len): toks[q] = lexed[q]
+      if inactive.len > 0 and lineInactive(inactive, line):
+        # left out of the compile here (a false `when` branch, #if 0): dimmed
+        if toksUnfaded.len == 0: toksUnfaded = toks
+        for q in 0 ..< toks.len:
+          if toks[q] notin {tkComment, tkDoc}: toks[q] = tkComment
     let th = if cfgTodoHl and s.len <= 20000 and todoWordIn(s): todoHits(s, toks) else: @[]
     let gcol = if b.id in graphBufs: graphLineColors(s) else: @[]
     var bdep: seq[int16]
