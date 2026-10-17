@@ -1,6 +1,27 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-651). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-66). Older releases:
+
+## What's new in 6.5.1
+
+- **C wrappers written one parameter a line** — the way ned's formatter (and nph) lays them out, `):` under
+  `proc` — are understood: the C signature beside them, the C documentation on hover (on the wrapper's name, its
+  calls and `importc: "printf"`), the check against the header, and Alt+Enter › *Rewrite this wrapper from its C
+  declaration*, which keeps the layout. A comma after the last parameter is no longer read as part of its type.
+- **`varargs[T]` for C's `...` is flagged**: it is a Nim array (a pointer and a length), not C's variable
+  arguments. The wrapper wants C's own parameters and `{.varargs.}` —
+  `proc cprintf(format: cstring): cint {.importc: "printf", varargs, header: "stdio.h", discardable.}` — and
+  Alt+Enter writes it.
+- **Lined-up declarations stay lined up with type hints** (`nim.format.align`): a hint goes over the spaces before
+  the `=`, and every line of the run moves its `=` by the same amount — with a hint on every line, on some or on
+  none (`opcodes = toLookupTable(data)` under `data: string = "mov;…"`); with the hints off, the lines look as
+  the formatter wrote them.
+- **Zen mode without git's change marks** in the gutter (`zen.gitChanges` brings them back).
+- **A shorter File menu**: SSH, clone and the workspace under *Open more*, a file's history and comparisons under
+  *This file*, settings, theme, keys and settings sync under *Preferences*.
+
+The C engine and ligatures came in [6.5](#whats-new-in-65); [C: ned's own engine](README.md#c-neds-own-engine)
+describes it.
 
 ## What's new in 6.5
 

@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.5.1](#whats-new-in-651) · [6.5](CHANGELOG.md#whats-new-in-65) · [older releases](CHANGELOG.md)
+- [What's new in 6.6](#whats-new-in-66) · [6.5.1](CHANGELOG.md#whats-new-in-651) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,32 +40,57 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.5.1
+## What's new in 6.6
 
-- **C wrappers written one parameter a line** — the way ned's formatter (and nph) lays them out, `):` under
-  `proc` — are understood: the C signature beside them, the C documentation on hover (on the wrapper's name, its
-  calls and `importc: "printf"`), the check against the header, and Alt+Enter › *Rewrite this wrapper from its C
-  declaration*, which keeps the layout. A comma after the last parameter is no longer read as part of its type.
-- **`varargs[T]` for C's `...` is flagged**: it is a Nim array (a pointer and a length), not C's variable
-  arguments. The wrapper wants C's own parameters and `{.varargs.}` —
-  `proc cprintf(format: cstring): cint {.importc: "printf", varargs, header: "stdio.h", discardable.}` — and
-  Alt+Enter writes it.
-- **Lined-up declarations stay lined up with type hints** (`nim.format.align`): a hint goes over the spaces before
-  the `=`, and every line of the run moves its `=` by the same amount — with a hint on every line, on some or on
-  none (`opcodes = toLookupTable(data)` under `data: string = "mov;…"`); with the hints off, the lines look as
-  the formatter wrote them.
-- **Zen mode without git's change marks** in the gutter (`zen.gitChanges` brings them back).
-- **A shorter File menu**: SSH, clone and the workspace under *Open more*, a file's history and comparisons under
-  *This file*, settings, theme, keys and settings sync under *Preferences*.
+![Where ARC/ORC copies: ⧉copy beside each value the compiler copies, and hovering one says why](screenshots/copies-66.png)
 
-The C engine and ligatures came in [6.5](CHANGELOG.md#whats-new-in-65); [C: ned's own engine](#c-neds-own-engine)
-describes it.
+- **Where ARC/ORC copies.** After a save, ned asks the compiler where it inserted `=copy` and `=dup`
+  (`nim c --expandArc` on a private copy, every routine of the file generated) and marks each with **⧉copy**
+  beside what is copied: a value kept in a variable, one handed to a `sink` parameter while it is still used, a
+  borrowed parameter kept, each value an iterator yields (`for k, v in pairs(t)` copies them), what a closure
+  captures. Hover one for why, and how to move instead. Refs, closures and numbers — cheap to copy — are not
+  marked. *Nim › Inspect › Where ARC/ORC copies*; `nim.showCopies`.
+- **Tests on save.** Save a `std/unittest` file — or a module: the test files that import it run too — and they
+  compile and run in the background (a private binary and cache, stopped after 2 minutes): **✓ passed** or
+  **✗ failed — line 8** beside each `test`, and the failed check on its line with what each side was
+  (`Check failed: slug("Hello, World!") == "hello-world" — slug("Hello, World!") was "hello--world"`). A toast
+  when something newly fails, another when all pass again. `nim.testOnSave`: `related` (the default), `file`, `off`.
+- **Postfix completion.** After a `.`, templates that wrap what is in front of it: `xs.for` → `for x in xs:` (the
+  name from the plural: `items` → `item`), `n.for` → `for i in 0 ..< n:`, `t.for` → `for k, v in t:`, `c.case` →
+  a `case` with **every value of its enum**, `v.if` / `v.ifnot` by its type (`o.isSome`, `p != nil`,
+  `s.len > 0`), `x.echo`, `.let`, `.var`, `.return`, `.discard`, `.not`, `.par`, `.str`. They come after the
+  receiver's fields and procs (`xs.le` is still `len` first). `nim.postfixCompletion`.
+- **Compile-time values.** The engine works constants out as the compiler would: bit operations
+  (`0xFF and not 0x0F` = 240), integers that keep their type (`255'u8 + 1` wraps to 0; `high(int8) + 1` is
+  *a compile error: over- or underflow*), strings and chars, enum values, `high`/`low`/`sizeof`/`ord`/`chr`/`len`,
+  `defined()` and `declared()`. Hover a constant, a selection or a `when` (*= false here (linux, amd64) — this
+  branch is left out*), and **the `when` branches left out on this platform are dimmed**, as is C's `#if 0`
+  (`editor.dimInactiveCode`).
+- **Folder trust.** A folder you open is not trusted until you say so: ned's own engines read and check its code,
+  but nothing in it runs — not the compiler (its `config.nims` and macros can run commands), nimble, nimsuggest,
+  tests or the program. A notice says so once, with **Trust**; *⛉ Not trusted* in the status bar does the same.
+  Projects you create with ned, the Nim toolchain and nimble packages are trusted; `security.folderTrust: off`
+  trusts every folder.
+- **Less memory.** The Nim engine keeps one sorted index of names per scope instead of a table, and at most 12
+  scopes (the least recently used go). With 25 of the Nim compiler's modules open, ned takes 46 MB instead of
+  82 MB; the engine alone, over 60 of them, 15 MB instead of 42 MB — at the same speed.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C
-engine and ligatures, [6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's
-instance, organize imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your
-settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61)
-smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
+![Tests on save: ✓ or ✗ beside each test, the failed check on its line](screenshots/tests-66.png)
+
+![Postfix completion: c.case writes a case with every value of the enum](screenshots/postfix-66.png)
+
+![A when hovered: its condition's value here; the branch left out is dimmed](screenshots/when-66.png)
+
+Also: the engine answers `defined(…)` for the system it runs on (on macOS `defined(macosx)` is true, not
+`defined(linux)`), and `mask and not 0x0F` is typed as an integer, not a bool.
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers
+written one parameter a line and lined-up declarations with type hints, [6.5](CHANGELOG.md#whats-new-in-65) brought
+ned's own C engine and ligatures, [6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a
+generic's instance, organize imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the
+formatter your settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look,
+[6.1](CHANGELOG.md#whats-new-in-61) smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project
+with its tests.
 
 ## Features
 
@@ -585,12 +610,18 @@ in the palette. Your own `formatters` entry for `nim` always wins.
 - *Nim: extract selection into a proc*, *change signature…*, *inline this proc*, *move to another module…* (see the
   5.19 notes), *Nim: sort imports*, *Nim: toggle proc ⇄ func*.
 - Reference counts after each proc and type (`nim.referenceCounts`); *Nim: exports nothing uses…*.
-- Completion offers names from standard modules not imported yet, and adds the import (`nim.autoImport`).
+- Completion offers names from standard modules not imported yet, and adds the import (`nim.autoImport`), and
+  postfix templates after a `.`: `xs.for`, `c.case` with every value of its enum, `v.if` by its type
+  (`nim.postfixCompletion`).
+- Where ARC/ORC copies, after each save: ⧉copy beside what is copied, hover for why (`nim.showCopies`).
+- Constants worked out on hover — a `when` too, with its branch left out on this platform dimmed
+  (`editor.dimInactiveCode`).
 - Debugger panel with gdb: F9 breakpoints, F5 start/continue, F10/F11 stepping (see the 5.2 notes); conditional
   breakpoints, logpoints and stops when a value changes (5.24).
 - *Nimble: add dependency…* (adds `requires` and offers `nimble install -d`), *dependency tree*, *search packages*, tasks,
   build modes (debug / release / danger), backends (C, C++, JS, ObjC), Nimony.
-- Test explorer (Tests dock) for `std/unittest` suites, with ▶ buttons in the gutter.
+- Test explorer (Tests dock) for `std/unittest` suites, with ▶ buttons in the gutter; tests run on save, ✓ or ✗
+  beside each (`nim.testOnSave`).
 
 ## C: ned's own engine
 
@@ -702,10 +733,15 @@ Regex syntax: `.` `[abc]` `[^a-z]` `[[:digit:]]` `\d \w \s \b` (and negations) `
   nimble packages — where go to definition often lands — cannot be changed by a stray key; *Read-only* in the
   status bar (or *File: allow editing this file*) unlocks one. The project you have open is never locked.
   `files.protectLibraries: false` turns it off.
-- **Project settings that run programs** (`lsp`, `run`, `run.configs`, `formatters`, `languages`, `debug.adapters`,
-  `repl.commands`, `terminal.shell`, `keys`, `editor.keymap`, `commands`, `ai.*` including MCP servers,
-  `nim.nimsuggestPath`, `sync.repository`) are ignored until you run *Workspace: trust this folder*, so opening a cloned
-  repository cannot start programs or redirect your code (or your settings) somewhere else.
+- **Folder trust**: a folder you open is not trusted until you run *Workspace: trust this folder* (or press
+  *Trust* on the notice, or *⛉ Not trusted* in the status bar). Until then ned's own Nim and C engines read and
+  check its code, but nothing in it runs — not the Nim compiler (its `config.nims` and macros can run commands),
+  nimble, nimsuggest, its tests or the program — and its project settings that run programs (`lsp`, `run`,
+  `run.configs`, `formatters`, `languages`, `debug.adapters`, `repl.commands`, `terminal.shell`, `keys`,
+  `editor.keymap`, `commands`, `ai.*` including MCP servers, `nim.nimsuggestPath`, `sync.repository`) are ignored, so
+  opening a cloned repository cannot start programs or redirect your code (or your settings) somewhere else. A
+  project ned creates for you, the Nim toolchain's own files and nimble packages are trusted;
+  `security.folderTrust: off` trusts every folder.
 - **Secrets stay put**: API keys and MCP server tokens are never put on a command line; *Settings sync* leaves
   them out of what it exports; a remote folder's ssh password or passphrase is asked by ssh itself, in the
   terminal; a settings repository URL with a token in it is refused.
