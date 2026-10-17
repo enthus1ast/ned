@@ -163,4 +163,61 @@ suite "expansion and misspelled names":
     let ts = nxTypos(f, ls, 0, ls.high, (-1, -1))
     check ts.len == 1 and ts[0][2] == "toal" and "total" in ts[0][3]
 
+suite "compile-time values":
+  let (f, ls) = fixture("type Level = enum low, mid = 5, high\nconst K = 1 shl 10\nconst Mask = 0xFF and not 0x0F\n" &
+                        "const Name = \"ned\"\nconst Big = K * K * 4 + 3 div 2\nconst Hi = high(int8)\n" &
+                        "const Up = Name.toUpperAscii & $K\nconst IsWin = defined(windows)\nconst Top = high(Level)\n" &
+                        "when defined(linux) and K > 1000:\n  discard\n")
+  proc ev(e: string): string = nxCtRender(nxCtEval(f, e))
+  test "numbers: shl, and, not, div, constants in constants":
+    check ev("K") == "1024"
+    check ev("Mask") == "240"
+    check ev("Big") == "4194305"
+    check ev("0b1010 + 0o17 + 0x10") == "41"
+    check ev("7 / 2") == "3.5"
+    check ev("-3 * 2 + 1") == "-5"
+  test "strings, chars, len, $, toUpperAscii":
+    check ev("Up") == "\"NED1024\""
+    check ev("Name.len") == "3"
+    check ev("ord('a') + 1") == "98"
+    check ev("chr(66)") == "'B'"
+    check ev("Name[0]") == "'n'"
+  test "high, low, sizeof; enum values and their ordinals":
+    check ev("Hi") == "127"
+    check ev("low(int16)") == "-32768"
+    check ev("high(uint64)") == "18446744073709551615"
+    check ev("sizeof(int32)") == "4"
+    check ev("Top") == "high"
+    check ev("ord(high)") == "6"
+    check ev("mid < high") == "true"
+  test "defined() for this platform, comparisons, and / or / not":
+    check ev("IsWin") == "false"
+    check ev("defined(linux) and not defined(windows)") == (when defined(linux): "true" else: "false")
+    check ev("K >= 1024 and Name == \"ned\"") == "true"
+  test "what it cannot tell, it does not guess":
+    check ev("someVar + 1") == ""
+    check ev("f(3)") == ""
+  test "an integer keeps its type: unsigned ones wrap, a signed overflow is the compile error it is":
+    check ev("255'u8 + 1") == "0"
+    check ev("not 0'u8") == "255"
+    check ev("high(int8) - 1") == "126"
+    check ev("1'i8 shl 7") == "-128"
+    check nxCtEval(f, "high(int8) + 1").err.startsWith("over- or underflow: int8 holds -128 .. 127")
+    check nxCtEval(f, "high(int) + 1").err.startsWith("over- or underflow: int")
+    check nxCtEval(f, "1 div 0").err == "division by zero"
+    check nxCtEval(f, "uint8(300)").err == "300 does not fit uint8 (0 .. 255)"
+    check ev("int16(high(int8)) + 1") == "128"
+  test "hover on a when line: the condition's value here":
+    let h = nxHover(f, ls, 9, 1)
+    check ("= **" & (when defined(linux): "true" else: "false") & "** here") in h
+
+  test "the when branches left out here: dimmed; a chain followed only as far as it can be told":
+    let (g, ls2) = fixture("when defined(windows):\n  proc a() = discard\n  proc b() = discard\n" &
+                           "elif defined(linux) or defined(macosx) or defined(android):\n  proc c() = discard\n" &
+                           "else:\n  proc d() = discard\n\nwhen isMainModule:\n  echo 1\nelse:\n  echo 2\n" &
+                           "when defined(someFlag):\n  echo 3\nelif defined(windows):\n  echo 4\n")
+    let r = nxInactiveWhen(g, ls2)
+    check (1, 2) in r and (6, 6) in r
+    check r.len == 2          # (isMainModule and someFlag: not known here, nothing dimmed)
+
 removeDir(dir)

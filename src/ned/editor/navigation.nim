@@ -516,8 +516,11 @@ proc cmdHover(auto = false) =
       let f = nxFileFor(b)
       if f != nil and ex.len > 0:
         let t = nxTypeOfExpr(f, nxScope(f), nxLocals(f, b.lines, sa.line, sa.col), ex, sa.line, 0).typ
-        if t.len > 0:
-          showHover("```nim\n" & ex & ": " & t & "\n```")
+        var v = nxCtHover(f, ex)                     # (worked out at compile time, when it can be)
+        if v == "= " & ex: v = ""
+        if t.len > 0 or v.len > 0:
+          showHover("```nim\n" & ex & (if t.len > 0: ": " & t else: "") & (if v.len > 0: " " & v else: "") &
+                    "\n```")
           return
     except Exception as e: internalError("Nim index", e)
   var lines: seq[string]

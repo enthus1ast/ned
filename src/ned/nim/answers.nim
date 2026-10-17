@@ -287,7 +287,11 @@ proc engineHover(b: Buffer, p: Pos): string =
       let ex = b.lines[sa.line][sa.col ..< se.col].strip
       if ex.len > 0:
         let t = nxTypeOfExpr(f, nxScope(f), nxLocals(f, b.lines, sa.line, sa.col), ex, sa.line, 0).typ
-        if t.len > 0: return "```nim\n" & ex & ": " & t & "\n```\nthe type of the selection"
+        var v = nxCtHover(f, ex)                     # (worked out at compile time, when it can be)
+        if v == "= " & ex: v = ""
+        if t.len > 0 or v.len > 0:
+          return "```nim\n" & ex & (if t.len > 0: ": " & t else: "") & (if v.len > 0: " " & v else: "") &
+                 "\n```\nthe " & (if t.len > 0: "type" else: "value") & " of the selection"
     result = nxHover(f, b.lines, p.line, p.col)
   except Exception as e: internalError("Nim index", e)
 

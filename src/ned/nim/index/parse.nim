@@ -73,10 +73,23 @@ var nxDefinesComplete* = false        # nxDefines came from `nim dump`: a name n
 
 proc nxInitDefines*() =
   # (not nimPreviewSlimSystem: without it, system brings syncio's readFile, stdin, open … as the compiler does)
-  for d in ["posix", "unix", "linux", "nimV2", "gcDestructors", "gcOrc", "nimSeqsV2", "nimHasAlignOf",
+  for d in ["nimV2", "gcDestructors", "gcOrc", "nimSeqsV2", "nimHasAlignOf",
             "nimHasNoReturnError", "nimHasCursor", "nimHasSinkInference", "nimHasEffectsOf", "nimHasTopDownInference",
             "nimHasDefault", "nimHasStyleChecks", "nimHasWarningAsError", "ssl", "threads", "nimAllowNonVarDestructor"]:
     nxDefines.incl d
+  # the system ned runs on (the one `defined` answers for)
+  when defined(posix):
+    nxDefines.incl "posix"
+    nxDefines.incl "unix"
+  when defined(linux): nxDefines.incl "linux"
+  when defined(macosx):
+    nxDefines.incl "macosx"
+    nxDefines.incl "osx"
+  when defined(bsd): nxDefines.incl "bsd"
+  when defined(freebsd): nxDefines.incl "freebsd"
+  when defined(openbsd): nxDefines.incl "openbsd"
+  when defined(netbsd): nxDefines.incl "netbsd"
+  when defined(windows): nxDefines.incl "windows"
   when defined(android): nxDefines.incl "android"
   when defined(amd64): nxDefines.incl "amd64"
   when defined(arm64): nxDefines.incl "arm64"
@@ -102,7 +115,7 @@ proc nxWhen*(cond: string): int =
         if w == "declared": toks.add "?"
         elif nxDefines.len == 0 and false: toks.add "?"
         else:
-          let known = ["windows", "macosx", "osx", "ios", "js", "nimscript", "emscripten", "wasm", "hotcodereloading",
+          let known = ["windows", "macosx", "osx", "ios", "linux", "posix", "unix", "bsd", "js", "nimscript", "emscripten", "wasm", "hotcodereloading",
                        "freebsd", "openbsd", "netbsd", "dragonfly", "solaris", "haiku", "genode", "nintendoswitch",
                        "zephyr", "freertos", "standalone", "useNimRtl", "nimdoc", "gcRefc", "gcMarkAndSweep", "gcBoehm",
                        "gcGo", "gcRegions", "nogc", "nimHasCompiles", "nimNoLibc", "lwip", "nimdoc", "vcc", "msvc",

@@ -874,15 +874,19 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
   if s.startsWith("%*"): return NxVal(typ: "JsonNode")
   # top-level operators decide the type before anything else
   let fl = nxFlat(s)
-  for op in [" == ", " != ", " <= ", " >= ", " < ", " > ", " not ", " in ", " notin ", " is ", " isnot ", " of "]:
+  for op in [" == ", " != ", " <= ", " >= ", " < ", " > ", " in ", " notin ", " is ", " isnot ", " of "]:
     if op in fl: return NxVal(typ: "bool")
-  if fl.startsWith("not ") or fl.startsWith("not("): return NxVal(typ: "bool")
   for op in [" and ", " or ", " xor "]:
     let k = fl.find(op)
     if k > 0:
-      # bool, or bits of an integer: flags and 0xFF
+      # bool, or bits of an integer: flags and 0xFF, mask and not 0x0F
       let lt = nxTypeOfExpr(f, sc, locals, s[0 ..< k], line, depth + 1).typ
       return NxVal(typ: (if nxResolveAlias(sc, lt) in NxInts: lt else: "bool"))
+  if fl.startsWith("not ") or fl.startsWith("not("):
+    # not of an integer flips its bits
+    let ot = nxTypeOfExpr(f, sc, locals, s[3 .. ^1].strip, line, depth + 1).typ
+    return NxVal(typ: (if ot.len > 0 and nxResolveAlias(sc, ot) in NxInts: ot else: "bool"))
+  if " not " in fl: return NxVal(typ: "bool")
   if s[0] == '$' or " & " in fl:
     if s[0] == '$': return NxVal(typ: "string")
     let ak = fl.find(" & ")

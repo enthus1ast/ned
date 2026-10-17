@@ -113,6 +113,7 @@ var
   cfgAutoImport = true         # Nim completion also offers standard-library names that need an import
   cfgPostfix = true            # Nim completion after a `.` offers postfix templates: xs.for, c.case, v.if …
   cfgShowCopies = true         # mark where ARC/ORC copies (nim c --expandArc on save, a trusted folder)
+  cfgDimInactive = true        # dim `when` branches false on this platform, C's #if 0 …
   cfgTestOnSave = "related"    # run std/unittest files on save: related (the file, or the tests importing it) · file · off
   cfgSemColors = true          # Nim: colour names by what the index knows they are
   cfgMinimap = "auto"

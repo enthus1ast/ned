@@ -1,110 +1,57 @@
 proc nxConstValue*(f: NxFile, e: string, depth: int): string =
-  ## a constant expression worked out when it is plain arithmetic on numbers and other constants (or strings
-  ## joined with &); "" when it is more than that
-  if depth > 6: return ""
-  var toks: seq[string]
-  var i = 0
-  let s = e.strip
-  while i < s.len:
-    let c = s[i]
-    if c == ' ': inc i
-    elif c in Digits:
-      var j = i
-      while j < s.len and (s[j] in Digits + {'_', '.', 'x', 'X', 'a'..'f', 'A'..'F'}): inc j
-      if j < s.len and s[j] == '\'':           # 10'i64
-        inc j
-        while j < s.len and s[j] in IdentChars: inc j
-      toks.add s[i ..< j]
-      i = j
-    elif c == '"':
-      var j = i + 1
-      while j < s.len and s[j] != '"':
-        if s[j] == '\\': inc j
-        inc j
-      if j >= s.len: return ""
-      toks.add s[i .. j]
-      i = j + 1
-    elif c in {'+', '-', '*', '/', '(', ')', '&'}:
-      toks.add $c
-      inc i
-    elif c in IdentStartChars:
-      var j = i
-      while j < s.len and s[j] in IdentChars: inc j
-      toks.add s[i ..< j]
-      i = j
-    else: return ""
-  var p = 0
-  var sawFloat = "/" in toks
-  for t in toks:
-    if t.len > 0 and t[0] in Digits and not t.startsWith("0x") and not t.startsWith("0X") and
-       ('.' in t or 'e' in t or 'E' in t or "'f" in t): sawFloat = true
-  proc expr(): (bool, float, string, bool)        # (ok, number, string, it is a string)
-  proc atom(): (bool, float, string, bool) =
-    if p >= toks.len: return (false, 0.0, "", false)
-    let t = toks[p]
-    inc p
-    if t == "(":
-      result = expr()
-      if p < toks.len and toks[p] == ")": inc p
-      else: return (false, 0.0, "", false)
-    elif t == "-":
-      let a = atom()
-      return (a[0] and not a[3], -a[1], "", false)
-    elif t[0] == '"': return (true, 0.0, t[1 ..< ^1], true)
-    elif t[0] in Digits:
-      var n = t.replace("_", "")
-      let q = n.find('\'')
-      if q >= 0: n = n[0 ..< q]
-      try:
-        if n.startsWith("0x") or n.startsWith("0X"): return (true, float(parseHexInt(n)), "", false)
-        return (true, parseFloat(n), "", false)
-      except ValueError: return (false, 0.0, "", false)
-    elif t == "true": return (true, 1.0, "true", false)
-    elif t == "false": return (true, 0.0, "false", false)
+  ## a constant expression's value as the compiler would work it out (nxCtEval), "" when the index cannot tell
+  nxCtRender(nxCtEval(f, e, depth))
+
+proc nxPlatformWords(): string =
+  ## what `defined(…)` answers for: the system and CPU ned runs on (and the project's -d: once `nim dump` told)
+  var ws: seq[string]
+  for w in ["linux", "android", "macosx", "windows", "freebsd", "openbsd", "netbsd", "amd64", "arm64", "i386", "arm",
+            "riscv64"]:
+    if w in nxDefines: ws.add w
+  ws.join(", ")
+
+proc nxWhenHover*(f: NxFile, lines: seq[string], line, col: int): string =
+  ## on a `when` / `elif` line's keyword, or on defined / declared anywhere: the condition's value, here
+  if line >= lines.len: return
+  let raw = lines[line]
+  let t = raw.strip(trailing = false)
+  let ind = raw.len - t.len
+  var a = min(col, raw.len)
+  while a > 0 and nxIsIdent(raw[a - 1]): dec a
+  var e = a
+  while e < raw.len and nxIsIdent(raw[e]): inc e
+  let w = raw[a ..< e]
+  var cond = ""
+  var shown = ""
+  if (t.startsWith("when ") or t.startsWith("elif ")) and (a == ind or w in ["defined", "declared", "not", "and", "or"]):
+    var c = t[5 .. ^1]
+    let h = c.find(" #")
+    if h >= 0: c = c[0 ..< h]
+    c = c.strip
+    if c.endsWith(":"): c = c[0 ..< ^1].strip
     else:
-      for r in nxLookup(nxScope(f), t):
-        if r.sym.kind == nxConst and r.sym.value.len > 0:
-          let v = nxConstValue(r.file, r.sym.value, depth + 1)
-          if v.len == 0: return (false, 0.0, "", false)
-          if v[0] == '"': return (true, 0.0, v[1 ..< ^1], true)
-          if '.' in v or 'e' in v: sawFloat = true
-          try: return (true, parseFloat(v), "", false)
-          except ValueError: return (false, 0.0, "", false)
-      return (false, 0.0, "", false)
-  proc term(): (bool, float, string, bool) =
-    result = atom()
-    while result[0] and p < toks.len and toks[p] in ["*", "/", "div", "mod", "shl", "shr"]:
-      let op = toks[p]
-      inc p
-      let r = atom()
-      if not r[0] or r[3] or result[3]: return (false, 0.0, "", false)
-      case op
-      of "*": result[1] = result[1] * r[1]
-      of "/": result[1] = (if r[1] == 0: NaN else: result[1] / r[1])
-      of "div": result[1] = (if r[1] == 0: NaN else: float(int(result[1]) div int(r[1])))
-      of "mod": result[1] = (if r[1] == 0: NaN else: float(int(result[1]) mod int(r[1])))
-      of "shl": result[1] = float(int(result[1]) shl int(r[1]))
-      of "shr": result[1] = float(int(result[1]) shr int(r[1]))
-      else: discard
-  proc expr(): (bool, float, string, bool) =
-    result = term()
-    while result[0] and p < toks.len and toks[p] in ["+", "-", "&"]:
-      let op = toks[p]
-      inc p
-      let r = term()
-      if not r[0]: return (false, 0.0, "", false)
-      if op == "&":
-        if not (result[3] and r[3]): return (false, 0.0, "", false)
-        result[2].add r[2]
-      elif result[3] or r[3]: return (false, 0.0, "", false)
-      elif op == "+": result[1] = result[1] + r[1]
-      else: result[1] = result[1] - r[1]
-  let v = expr()
-  if not v[0] or p < toks.len: return ""
-  if v[3]: return "\"" & v[2] & "\""
-  if v[1] != v[1]: return ""                          # (NaN: a division by zero)
-  if not sawFloat and abs(v[1]) < 9.0e15 and v[1] == float(int64(v[1])): $int64(v[1])
-  else: $v[1]
+      let k = c.rfind(':')            # when x: stmt  (on one line)
+      if k > 0: c = c[0 ..< k].strip
+    cond = c
+    shown = t[0 ..< 5] & c
+  elif w in ["defined", "declared"] and e < raw.len and raw[e] == '(':
+    let close = raw.find(')', e)
+    if close < 0: return
+    cond = raw[a .. close]
+    shown = cond
+  else: return
+  let v = nxCtEval(f, cond)
+  if v.kind != ctBool:
+    if v.kind != ctNone: return "```nim\n" & shown & "\n```\n= `" & nxCtRender(v) & "`"
+    if v.err.len > 0: return "```nim\n" & shown & "\n```\n**a compile error:** " & v.err
+    return
+  let here = nxPlatformWords()
+  result = "```nim\n" & shown & "\n```\n= **" & (if v.i != 0: "true" else: "false") & "** here" &
+           (if here.len > 0: " (" & here & (if nxDefinesComplete: ", and the project's -d: defines" else: "") & ")"
+            else: "") &
+           (if t.startsWith("when ") or t.startsWith("elif "):
+              (if v.i != 0: " — this branch is compiled" else: " — this branch is left out")
+            else: "")
 
 proc nxExpandTemplate*(f: NxFile, lines: seq[string], line, col: int): (string, string)
 
@@ -161,6 +108,8 @@ proc nxCallInstance*(f: NxFile, lines: seq[string], line, col: int, s: NxSym): s
   result.add "   (" & bs.join(", ") & ")"
 
 proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
+  let wv = nxWhenHover(f, lines, line, col)
+  if wv.len > 0: return wv
   let (refs, locals, modPath) = nxTargets(f, lines, line, col)
   if modPath.len > 0:
     let g = nxLoad(modPath)
@@ -195,9 +144,11 @@ proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
     let here = nxCallInstance(f, lines, line, col, s0)
     if here.len > 0: result.add "\n\n**Here:** `" & here & "`"
   if s0.kind == nxConst and s0.value.len > 0:
-    # a constant's value, worked out: const KiB = 4 * 1024  → 4096
-    let v = nxConstValue(refs[0].file, s0.value, 0)
+    # a constant's value, worked out: const KiB = 4 * 1024  → 4096 (or the compile error it is: high(int8) + 1)
+    let cv = nxCtEval(refs[0].file, s0.value, 0)
+    let v = nxCtRender(cv)
     if v.len > 0 and v != s0.value.strip: result = "```nim\n= " & v & "\n```\n" & result
+    elif cv.err.len > 0: result = "**a compile error:** " & cv.err & "\n\n" & result
   elif s0.kind == nxTemplate and not (refs[0].file == f and s0.line == line):
     # what this call becomes
     let (_, ex) = nxExpandTemplate(f, lines, line, col)

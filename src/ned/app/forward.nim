@@ -9,6 +9,8 @@ proc recheckBuildErrors(saved: Buffer)
 proc ffiCheck(b: Buffer)
 proc copiesCheck(b: Buffer, everyRoutine = true)
 proc testsOnSave(b: Buffer)
+proc inactiveRanges(b: Buffer): seq[(int, int)]
+proc lineInactive(rs: seq[(int, int)], line: int): bool
 proc testNoteAt(b: Buffer, line: int): (string, int)
 var ffiQueue: seq[int]           # buffers whose C wrappers get checked once ned is idle (not before a file shows)
 proc cGotoFromDecl(b: Buffer, p: Pos, anyUse = false): bool
