@@ -1289,7 +1289,11 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
             case r.sym.kind
             of nxType: nv = NxVal(typeName: r.sym.name)
             of NxRoutineKinds: nv = NxVal(routine: r.sym.name)
-            of nxConst, nxLet, nxVar: nv = NxVal(typ: r.sym.typ)
+            of nxConst, nxLet, nxVar:
+              nv = NxVal(typ: r.sym.typ)
+              if nv.typ.len == 0 and r.sym.value.len > 0 and r.sym.slots == 0:
+                # posix.INVALID_SOCKET (= SocketHandle(-1)): its value's type, in its own module
+                nv = NxVal(typ: nxTypeOfExpr(r.file, nxScope(r.file), @[], r.sym.value, r.sym.line, depth + 1).typ)
             of nxEnumVal: nv = NxVal(typ: r.sym.owner)
             else: discard
             break

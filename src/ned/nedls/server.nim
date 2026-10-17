@@ -12,7 +12,8 @@ var
   lsParentPid = 0                      # the client's process (initialize's processId): nedls ends with it
   lsParentAt: MonoTime
   lsUseNedSettings = true              # read ned's own settings (~/.config/ned/config.json, .ned/settings.json)
-  lsOptions = newJObject()             # the client's settings (initializationOptions, didChangeConfiguration)
+  lsOptions = newJObject()             # the client's settings (didChangeConfiguration, workspace/configuration)
+  lsInitOptions = newJObject()         # … and initializationOptions (the settings win)
   lsWarmed: HashSet[int]               # documents whose imports were read while idle
   lsSemRefresh = false                 # the client can be asked to colour again
   lsInlayRefresh = false
@@ -54,12 +55,16 @@ proc onLsSignal(sig: cint) {.noconv.} = lsSignal = sig.int
 
 # ── settings ──
 
-proc lsOpt(key: string): JsonNode =
-  ## a setting from the client: {"nedls": {key: …}} or {key: …}
-  if lsOptions == nil or lsOptions.kind != JObject: return nil
-  let sub = lsOptions{"nedls"}
+proc lsOptIn(o: JsonNode, key: string): JsonNode =
+  if o == nil or o.kind != JObject: return nil
+  let sub = o{"nedls"}
   if sub != nil and sub.kind == JObject and sub.hasKey(key): return sub[key]
-  lsOptions{key}
+  o{key}
+
+proc lsOpt(key: string): JsonNode =
+  ## a setting from the client: {"nedls": {key: …}} or {key: …} — its settings, else initializationOptions
+  result = lsOptIn(lsOptions, key)
+  if result == nil or result.kind == JNull: result = lsOptIn(lsInitOptions, key)
 
 proc lsApplySettings() =
   ## ned's settings (yours and the project's, as the editor reads them), then nedls's own needs, then the client's
@@ -123,7 +128,7 @@ proc lsInitialize(params: JsonNode): JsonNode =
   lsParentPid = params{"processId"}.getInt(0)
   lsParentAt = getMonoTime()
   if params{"initializationOptions"} != nil and params["initializationOptions"].kind == JObject:
-    lsOptions = params["initializationOptions"]
+    lsInitOptions = params["initializationOptions"]
     let ns = lsOpt("nedSettings")
     if ns != nil and ns.kind == JBool: lsUseNedSettings = ns.getBool
   # the project folder: the first workspace folder, else rootUri / rootPath
