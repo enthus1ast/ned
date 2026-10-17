@@ -115,6 +115,14 @@ suite "expandArc → the source":
     for c in got:
       if c.line == 42: check c.kind == akCapture and c.src == "o" and c.param
 
+  test "a name is not taken for the start of another value (s in s.title, s[0])":
+    let o = "--expandArc: f\nadd(r):\n  :tmpD = `=dup`(s.title)\n  :tmpD_1 = `=dup`(s)\n" &
+            "-- end of expandArc ------------------------\n"
+    let ls = @["proc f(s: Song) =", "  r.add (s.title, s)"]
+    let c = arcCopies(o, ls, [ArcRoutine(name: "f", line: 0, endLine: 1, params: @["s"])])
+    check c.len == 2
+    check ls[1][c[0].col ..< c[0].ecol] == "s.title" and c[1].col == ls[1].rfind("s)")
+
   test "the output parsed without the compiler":
     let o = "--expandArc: f\n\nvar y\n`=copy`(y, x_cursor)\nadd(names):\n  :tmpD = `=dup_1`(n[])\n  :tmpD\n" &
             "-- end of expandArc ------------------------\n"
