@@ -114,6 +114,7 @@ var
   cfgAutoImport = true         # Nim completion also offers standard-library names that need an import
   cfgPostfix = true            # Nim completion after a `.` offers postfix templates: xs.for, c.case, v.if …
   cfgShowCopies = true         # mark where ARC/ORC copies (nim c --expandArc on save, a trusted folder)
+  cfgFormatScope = "file"      # format on save: the whole file, or only where lines changed (git)
   cfgCommitChecks = "both"     # before a commit: format (the staged files formatted) and tests (theirs pass) · both · off
   cfgDimInactive = true        # dim `when` branches false on this platform, C's #if 0 …
   cfgTestOnSave = "related"    # run std/unittest files on save: related (the file, or the tests importing it) · file · off
