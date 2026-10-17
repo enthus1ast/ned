@@ -26,6 +26,7 @@ type
     doc*: string
     owner*: string             # fields and enum values: the type they belong to
     slot*, slots*: int16        # loop variables: which one of how many (for k, v in …)
+    sub*: int16                # loop variables unpacked from one of them (for i, (a, b) in …): which part, from 1
     made*: bool                # declared by a template call on its line (genVecConstructor(vec, …))
     local*: bool               # declared in a routine's body (a local type, its fields): not the module's own
   NxImport* = object
@@ -47,8 +48,12 @@ type
     byLine*: Table[int, seq[int]]   # line → the declarations on it (built on first use, for nxSymAt)
     byLineN*: int                   # syms.len when byLine was built
     inactive*: seq[(int32, int32)]  # the bodies of `when` branches left out here: (first line, last line)
-    symBranch*: seq[int32]          # (nxParse keepInactive) each declaration's left-out branch: its first line, or -1
+    symBranch*: seq[int32]          # (nxParse keepInactive) the left-out branches each declaration is in (index into
+    inactiveChain*: seq[int32]      #   chains, -1: none), those of each range in `inactive`, and the branches'
+    chains*: seq[string]            #   conditions, outermost first, separated by \x01
     scopeKey*: string               # (the file as code in a left-out branch sees it: its scope's own key)
+    unionTypes*: Table[string, int] # its types that are unions (`A | B`), private ones too: name → index (made on use)
+    unionsMade*: bool
 
 const
   NxOpChars* = {'+', '-', '*', '/', '\\', '<', '>', '!', '?', '^', '.', '|', '=', '%', '&', '$', '@', '~', ':'}

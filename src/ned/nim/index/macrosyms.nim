@@ -34,7 +34,4 @@ proc nxAddMacroSyms*(f: NxFile, lines: openArray[string]) =
       s.col = col
       s.endLine = at
       s.made = true
-      # (the expansion as the compiler prints it loses a routine's export marker: a name a macro makes at the
-      #  top of a module is taken as public)
-      if s.kind notin {nxField, nxEnumVal}: s.exported = true
       f.syms.add s

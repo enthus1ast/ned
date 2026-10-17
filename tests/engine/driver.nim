@@ -14,6 +14,7 @@ when isMainModule:
   nxLibGuessed = true
   nxSetToolchain(lib, @[], lazy)
   cfgInlayHints = true
+  when declared(cfgParamHints): cfgParamHints = "off"     # (type hints only: nimsuggest's are what they are compared with)
   var cache: Table[string, (NxFile, seq[string])]
   var dumped = false
   proc load(path: string): (NxFile, seq[string]) =

@@ -61,12 +61,31 @@ proc nxIntTypeRange(t: string): (bool, BiggestInt, BiggestInt, int, string) =
   of "bool": (true, 0'i64, 1'i64, 1, "")
   else: (false, 0'i64, 0'i64, 0, "")
 
+proc nxWhenValue(v: string): string =
+  ## `when c: a elif d: b else: e` written as a value: the branch compiled here ("" when that cannot be told)
+  var rest = v.strip
+  while rest.startsWith("when ") or rest.startsWith("elif "):
+    let colon = nxFindTop(rest, ':', 5)
+    if colon < 0: return ""
+    let w = nxWhen(rest[5 ..< colon])
+    var e = rest.len
+    for stop in [" elif ", " else:"]:
+      let q = rest.find(stop, colon)
+      if q > 0 and q < e: e = q
+    if w == 1: return rest[colon + 1 ..< e].strip
+    if w != 0 or e >= rest.len: return ""
+    rest = rest[e .. ^1].strip
+    if rest.startsWith("else:"): return rest[5 .. ^1].strip
+  ""
+
 proc nxEnumOrdinals(r: NxRef): seq[(string, BiggestInt)] =
-  ## an enum type's values and their ordinals (an explicit `= n` sets it; the next count on from it)
+  ## an enum type's values and their ordinals (an explicit `= n` sets it — `= when defined(macosx): 30 else: 10`
+  ## too —; the next count on from it)
   var n: BiggestInt = 0
   for s in r.file.syms:
     if s.kind != nxEnumVal or s.owner != r.sym.name: continue
     var v = s.value.strip
+    if v.startsWith("when "): v = nxWhenValue(v)
     if v.startsWith("(") and ',' in v: v = v[1 ..< v.find(',')].strip
     if v.len > 0 and v[0] in Digits + {'-'}:
       try: n = parseBiggestInt(v.replace("_", ""))
@@ -657,6 +676,31 @@ proc nxInactiveWhen*(f: NxFile, lines: openArray[string]): seq[(int, int)] =
       else: break
       kwLine = nx
     inc i
+
+proc nxRangeText*(f: NxFile, t: string): string =
+  ## a range written as its bounds (an array's index: mJan..mDec, low(Domain).ord..high(Domain).ord, 0 ..< 4, or a
+  ## count: 10) as the compiler shows the type — range 1..12(Month), range 0..10(int), range 0..9(int) — or t itself
+  ## when its bounds cannot be worked out
+  result = t
+  var x = t.strip
+  if x.startsWith("range[") and x.endsWith("]"): x = x[6 ..< ^1].strip
+  let rg = nxFindRange(x)
+  if rg < 0:
+    if x.len > 0 and (x[0] in Digits or nxIsIdent(x[0])):
+      let v = nxCtEval(f, x)                 # (array[4, T], array[N, T] with N a constant)
+      if v.kind == ctInt and v.big.len == 0 and v.i > 0: return "range 0.." & $(v.i - 1) & "(int)"
+    return
+  let excl = x.continuesWith("..<", rg)
+  let lo = nxCtEval(f, x[0 ..< rg].strip)
+  let hi = nxCtEval(f, x[rg + (if excl: 3 else: 2) .. ^1].strip)
+  if lo.kind != hi.kind or lo.big.len > 0 or hi.big.len > 0: return
+  let h = hi.i - (if excl: 1 else: 0)
+  case lo.kind
+  of ctInt: result = "range " & $lo.i & ".." & $h & "(" & (if lo.typ.len > 0: lo.typ else: "int") & ")"
+  of ctEnum:
+    for r in nxLookup(nxScope(f), lo.s):
+      if r.sym.kind == nxEnumVal: return "range " & $lo.i & ".." & $h & "(" & r.sym.owner & ")"
+  else: discard
 
 proc nxCtHover*(f: NxFile, e: string): string =
   ## for a hover: "= value", "— a compile error: …", or "" when the index cannot tell

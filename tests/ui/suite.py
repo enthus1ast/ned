@@ -5034,21 +5034,24 @@ def t_68_macro_names():
                                     '  result = newStmtList()\n  for n in names:\n    let nm = ident("get" & $n)\n'
                                     '    result.add quote do:\n      proc `nm`*(): string = "x"\n\n'
                                     'macro makeType*(name: untyped): untyped =\n  result = quote do:\n'
-                                    '    type `name`* = object\n      width*: int\n\n'
+                                    '    type `name`* = object\n      width*: int\n    proc helperThing(): int = 1\n\n'
                                     'makeProcs(Foo, Bar)\nmakeType(Thing)\n')
-    open(W + '/mm.nim', 'w').write('import gen\n\necho getBar()\nvar t: Thing\necho t.wi\necho getF\n')
+    open(W + '/mm.nim', 'w').write('import gen\n\necho getBar()\nvar t: Thing\necho t.wi\necho getF\necho helperT\n')
     start('mm.nim', w=130, h=34); time.sleep(5)
     keys('C-g'); text('6'); keys('Enter', 'End', 'C-space')
     ok = wait_for(r'getFoo', 10)
     check('68 macro names: completion offers what an imported module\'s macro call makes', ok, screen())
     keys('Escape'); keys('C-g'); text('5'); keys('Enter', 'End', 'C-space')
     check('68 macro names: a field of a type a macro makes', wait_for(r'width', 6), screen())
+    keys('Escape'); keys('C-g'); text('7'); keys('Enter', 'End', 'C-space'); time.sleep(1.5)
+    check('68 macro names: a proc the macro writes without * is not offered in another module',
+          'helperThing' not in screen(), screen())
     keys('Escape'); keys('C-g'); text('3:7'); keys('Enter', 'M-h')
     ok = wait_for(r'getBar\(\): string', 6)
     check('68 macro names: hover on the made proc, with the call that made it', ok and 'makeProcs(Foo, Bar)' in screen(), screen())
     keys('Escape'); keys('F12'); time.sleep(1.0)
     s = screen()
-    check('68 macro names: Go to definition goes to the macro call', 'gen.nim' in s and re.search(r'Ln 15, Col 1\b', s) is not None, s)
+    check('68 macro names: Go to definition goes to the macro call', 'gen.nim' in s and re.search(r'Ln 16, Col 1\b', s) is not None, s)
     tm('kill-server'); time.sleep(0.3)
     setup({"nim.nimsuggest": False, "nim.compilerAnswers": False, "nim.macroNames": False})
     start('mm.nim', w=130, h=34); time.sleep(4)

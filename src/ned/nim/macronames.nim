@@ -46,6 +46,14 @@ proc mnCalls(f: NxFile, lines: openArray[string]): seq[(int, string)] =
         result.add (i, w)
         break
 
+proc mnHasWord(text, w: string): bool =
+  ## is `w` written in `text` as a word of its own?
+  var k = text.find(w)
+  while k >= 0:
+    let e = k + w.len
+    if (k == 0 or text[k - 1] notin IdentChars) and (e >= text.len or text[e] notin IdentChars): return true
+    k = text.find(w, k + 1)
+
 proc mnParse(output: string): seq[(int, string)] =
   ## the expansions of the copy's macro calls in nim check's output: (line, the code it expands to)
   var cur = -1
@@ -105,6 +113,16 @@ proc mnExpand(path: string) =
   mnRunning = path
   var texts: seq[(int, string, string)]          # (line, macro, the line as it is now)
   for (l, w) in calls: texts.add (l, w, lines[l])
+  var bodies: Table[string, string]              # macro → its source (what it writes with a `*`)
+  let sc = nxScope(f)
+  for w in names:
+    for r in nxLookup(sc, w):
+      let sy = r.file.syms[r.idx]
+      if sy.kind != nxMacro: continue
+      let src = mnLinesOf(r.file.path)
+      var t = ""
+      for k in sy.line .. min(sy.endLine, src.high): t.add src[k] & "\n"
+      bodies[w] = bodies.getOrDefault(w) & t
   let job = startJob(jkAux, cmd, parentDir(path), proc(j: Job) =
     mnRunning = ""
     mnSeen.clear()                             # (the buffers looked at again: typed while this ran?)
@@ -114,7 +132,17 @@ proc mnExpand(path: string) =
     for (l, code) in mnParse(j.output):
       for (cl, w, t) in texts:
         if cl != l: continue
-        var syms = nxParse(code.splitLines, path).syms
+        let body = bodies.getOrDefault(w)
+        var syms: seq[NxSym]
+        for s0 in nxParse(code.splitLines, path).syms:
+          var s = s0
+          if (s.name & "`gensym") in code: continue        # (a name the macro hides: not reachable)
+          # (the expansion as the compiler prints it drops a routine's `*`: public when the macro writes the name
+          # with one, or makes names (`nm`*) and does not write this one plainly)
+          if not s.exported and s.kind notin {nxField, nxEnumVal}:
+            s.exported = (s.name & "*") in body or ("`" & s.name & "`*") in body or
+                         (not mnHasWord(body, s.name) and ("`*" in body or "postfix(" in body))
+          syms.add s
         if syms.len == 0: break
         let callText = t.strip
         for s in syms.mitems:

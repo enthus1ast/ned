@@ -6,6 +6,7 @@ proc nxWordAt*(text: string, col: int): (int, int) =
   (a, e)
 
 proc nxSymAt*(f: NxFile, line, col: int): int
+proc nxFileLines*(path: string): seq[string]
 proc nxLexRuns*(line: string, st: var NxLexState, ops: bool): seq[(int, int)]
 
 proc nxIsOpName*(n: string): bool =
@@ -36,7 +37,7 @@ proc nxOperandBack*(line: string, i: int): int =
       if j < 0: return k
       k = j
     elif c == '"':
-      let q = if k >= 2: line.rfind('"', k - 2) else: -1
+      let q = if k >= 2: line.rfind('"', last = k - 2) else: -1
       if q < 0: return k
       k = q
     elif nxIsIdent(c) or (c == '.' and k >= 2 and line[k - 2] != '.'): dec k
@@ -193,6 +194,137 @@ proc nxCtorField*(sc: NxScope, lines: seq[string], line, a, e: int): seq[NxRef] 
   for r in nxFields(sc, tn):
     if nxNorm(r.sym.name) == w: result.add r
 
+proc nxTypeExprMember*(lines: seq[string], line, a, e: int): NxSym =
+  ## the word at a..e as a name declared inside a type written out: a parameter of a proc type (`cb: proc (s:
+  ## Stream, bufLen: int)`, `MatchProc = proc (request: Request)`) or a field of a tuple type (`var res: tuple[
+  ## consumed: int, done: bool]`) — itself, with the type written for it; else a symbol without a name
+  let text = lines[line]
+  var k = e
+  while k < text.len and text[k] == ' ': inc k
+  if k >= text.len or text[k] notin {':', ',', '='} or (k + 1 < text.len and text[k + 1] in {':', '='}): return
+  # back to the bracket that is still open (this line, then a few above)
+  var l = line
+  var c = a - 1
+  var depth = 0
+  var opener = '\0'
+  while l >= 0 and line - l <= 12 and opener == '\0':
+    let t = lines[l]
+    if c >= t.len: c = t.high
+    while c >= 0:
+      let ch = t[c]
+      if ch in {')', ']'}: inc depth
+      elif ch in {'(', '['}:
+        if depth == 0:
+          opener = ch
+          break
+        dec depth
+      elif ch == '"':
+        dec c
+        while c >= 0 and t[c] != '"': dec c
+      dec c
+    if opener != '\0': break
+    dec l
+    if l >= 0: c = lines[l].high
+  if opener == '\0' or l < 0: return
+  # what is in front of it: proc / iterator for parameters, tuple for fields
+  var b = c
+  while b > 0 and lines[l][b - 1] == ' ': dec b
+  var w0 = b
+  while w0 > 0 and nxIsIdent(lines[l][w0 - 1]): dec w0
+  let kw = lines[l][w0 ..< b]
+  let isParam = opener == '(' and kw in ["proc", "iterator", "func"]
+  if not (isParam or (opener == '[' and kw == "tuple")): return
+  # its text up to the closing bracket, and the type of the name there
+  var whole = lines[l][c .. ^1]
+  var l2 = l
+  while nxMatchClose(whole, 0) < 0 and l2 + 1 < lines.len and l2 - l < 20:
+    inc l2
+    whole.add " " & lines[l2].strip
+  let ce = nxMatchClose(whole, 0)
+  if ce < 0: return
+  let w = lines[line][a ..< e]
+  for p in nxParseParams(whole[1 ..< ce]):
+    if p.name.strip(chars = {'*', '`'}) == w:
+      return NxSym(name: w, kind: (if isParam: nxParam else: nxField), typ: (if p.typ.len > 0: p.typ
+                   else: nxLiteralType(p.default)), value: p.default, line: line, col: a)
+
+proc nxTupleFieldOf*(f: NxFile, sc: NxScope, typ, w: string): seq[NxRef] =
+  ## a field of an anonymous tuple a routine returns (splitFile(p).name: `tuple[dir, name, ext: string]`):
+  ## where that routine writes it
+  for r in sc.refs:
+    let s = r.sym
+    if s.kind notin NxRoutineKinds or s.ret.len == 0 or nxStripMods(s.ret) != typ: continue
+    let ls = nxFileLines(r.file.path)
+    for p in nxParseParams(typ[6 ..< ^1]):
+      if nxNorm(p.name) != nxNorm(w): continue
+      var fl = s.line
+      var fc = 0
+      if ls.len > 0:
+        let (pl, pc) = nxLocate(ls, p.name, s.line, min(s.line + 12, ls.high), (s.line, max(0, ls[s.line].find("tuple"))))
+        fl = pl
+        fc = pc
+      let g = NxFile(path: r.file.path, module: r.file.module,
+                     syms: @[NxSym(name: p.name, kind: nxField, typ: p.typ, line: fl, col: fc, owner: s.name)])
+      return @[NxRef(file: g, idx: 0)]
+    return
+
+proc nxHeaderLast*(lines: openArray[string], s: NxSym): (string, int) =
+  ## a routine's header as one line (up to its `=` or where it ends) and its last line
+  var t = ""
+  var bal = 0
+  var l = s.line
+  while l < lines.len and l - s.line < 16:
+    let c = nxCodeOf(lines[l])
+    t.add (if t.len > 0: " " else: "") & c
+    bal += nxBalance(c)
+    if c.endsWith("=") or (bal <= 0 and not (c.endsWith(",") or c.endsWith(":") or c.endsWith("(") or
+                                               c.endsWith("{.") or c.len == 0)):
+      break
+    inc l
+  (t, min(l, lines.high))
+
+proc nxIsForward*(lines: openArray[string], s: NxSym): bool =
+  ## a routine declared without a body (a forward declaration: its body comes later)
+  if s.kind notin NxRoutineKinds or s.made or s.endLine > s.line or s.line >= lines.len: return false
+  let (h, _) = nxHeaderLast(lines, s)
+  let po = h.find('(')
+  let pc = if po >= 0: nxMatchClose(h, po) else: -1
+  pc > 0 and nxFindTop(h, '=', pc + 1) < 0
+
+proc nxSameSig(a, b: NxSym): bool =
+  ## a forward declaration and its routine: the same parameters and result (owned(X) and owned X alike)
+  if a.kind != b.kind or a.name != b.name or a.params.len != b.params.len or
+     a.generics.replace(" ", "") != b.generics.replace(" ", "") or
+     nxStripValMods(a.ret).replace(" ", "") != nxStripValMods(b.ret).replace(" ", ""): return false
+  for k in 0 ..< a.params.len:
+    if a.params[k].name != b.params[k].name or a.params[k].typ.replace(" ", "") != b.params[k].typ.replace(" ", ""):
+      return false
+  true
+
+proc nxForwardOf*(f: NxFile, lines: openArray[string], r: NxSym): int =
+  ## the forward declaration of a routine with a body: same name, kind and signature, earlier, without one (or -1)
+  result = -1
+  if r.kind notin NxRoutineKinds or r.made: return
+  for j, s in f.syms:
+    if s.line < r.line and s.name == r.name and not s.made and nxSameSig(s, r) and nxIsForward(lines, s): return j
+
+proc nxBodyOf*(f: NxFile, lines: openArray[string], fw: NxSym): int =
+  ## the routine a forward declaration declares: the later one with the same name, kind and signature (or -1)
+  result = -1
+  for j, s in f.syms:
+    if s.line > fw.line and s.name == fw.name and not s.made and nxSameSig(s, fw) and not nxIsForward(lines, s):
+      return j
+
+proc nxParamAt(lines: openArray[string], r: NxSym, name: string): NxSym =
+  ## a routine's parameter where its header writes it
+  var at = (r.line, max(0, lines[r.line].find('(')))
+  for p in r.params:
+    let nm = p.name.strip(chars = {'`'})
+    let (pl, pc) = nxLocate(lines, nm, r.line, min(lines.high, r.line + 15), at)
+    at = (pl, pc + nm.len)
+    if nxNorm(nm) == nxNorm(name):
+      return NxSym(name: nm, kind: nxParam, typ: p.typ, value: p.default, line: pl, col: pc)
+
 proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq[NxSym], string) =
   ## the declarations the word at line:col refers to: (index symbols, locals, module path)
   let f = nxAt(f, lines, line)
@@ -212,18 +344,45 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
       if result[0].len > 0: return
   # on an import line: the module
   let tl = text.strip
-  if tl.startsWith("import ") or tl.startsWith("from ") or tl.startsWith("include "):
+  var prevOpen = false              # (the line goes on an import from the line above: `std/[a,⏎ b]`)
+  if line > 0:
+    let pl = lines[line - 1].strip
+    prevOpen = pl.endsWith(",") or pl.endsWith("[") or pl.endsWith("import")
+  if tl.startsWith("import ") or tl.startsWith("from ") or tl.startsWith("include ") or prevOpen:
     for im in f.imports:
       if im.line == line or (im.line < line and line - im.line < 20):
-        if nxModuleName(im.spec) == w or im.spec.endsWith(w):
+        if nxModuleName(im.spec) == w or im.spec.endsWith("/" & w):
           let p = nxResolve(f.path, im.spec)
           if p.len > 0: return (@[], @[], p)
   let own = nxSymAt(f, line, a)
   if own >= 0 and nxNorm(f.syms[own].name) == nxNorm(w):
+    if nxIsForward(lines, f.syms[own]):
+      let b = nxBodyOf(f, lines, f.syms[own])                    # a forward declaration's name: the routine it declares
+      if b >= 0: return (@[NxRef(file: f, idx: int32(b))], @[], "")
     return (@[NxRef(file: f, idx: int32(own))], @[], "")       # a declaration's own name: itself (this overload, this field)
+  block made:
+    # a parameter of a routine a template call on this line makes (zipImpl(s1, s2, …) makes zip(s1, s2)): itself
+    if own < 0 and line in f.byLine:
+      for i in f.byLine[line]:
+        let s = f.syms[i]
+        if not s.made or s.kind notin NxRoutineKinds: continue
+        for p in s.params:
+          if nxNorm(p.name) == nxNorm(w):
+            return (@[], @[NxSym(name: w, kind: nxParam, typ: p.typ, value: p.default, line: line, col: a)], "")
+  block fwdHeader:
+    # a parameter on a later line of a forward declaration's header: itself
+    for s in f.syms:
+      if s.line < line and line <= s.line + 15 and s.endLine == s.line and s.kind in NxRoutineKinds and not s.made:
+        if nxHeaderLast(lines, s)[1] >= line:
+          let p = nxParamAt(lines, s, w)
+          if p.name.len > 0 and p.line == line and p.col == a: return (@[], @[p], "")
   if e < text.len and (text[e] == ':' or text[e] == ' '):
     let cf = nxCtorField(sc, lines, line, a, e)
     if cf.len > 0: return (cf, @[], "")
+  block typeExpr:
+    # a parameter of a proc type, a field of a tuple type: itself
+    let m = nxTypeExprMember(lines, line, a, e)
+    if m.name.len > 0: return (@[], @[m], "")
   let locals = nxLocals(f, lines, line, e)
   if a > 0 and text[a - 1] == '.':
     let recv = nxReceiver(text, a - 1)
@@ -245,15 +404,19 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
         let s = locals[i]
         if s.kind in NxRoutineKinds and nxNorm(s.name) == nxNorm(w) and s.line <= line: return @[s]
     if v.typ.len > 0:
-      for fr in nxFields(sc, v.typ):
+      let vt = nxConstrained(f, line, v.typ)
+      for fr in nxFields(sc, vt):
         if nxNorm(fr.sym.name) == nxNorm(w) and nxVisible(f, fr): return (@[fr], @[], "")
+      if nxStripMods(vt).startsWith("tuple["):
+        let tf = nxTupleFieldOf(f, sc, nxStripMods(vt), w)
+        if tf.len > 0: return (tf, @[], "")
       let lr = localRoutine()
       if lr.len > 0: return (@[], lr, "")
       var best: seq[NxRef]
       var bestScore = 0
       for r in nxLookup(sc, w):
         if r.sym.kind notin NxRoutineKinds or r.sym.params.len == 0: continue
-        let c = nxCompatP(sc, r.sym.params[0], r.sym.generics, v.typ)
+        let c = nxCompatP(sc, r.sym.params[0], r.sym.generics, vt)
         if c > bestScore:
           best = @[r]
           bestScore = c
@@ -268,13 +431,31 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
       for r in nxLookup(sc, w):
         if r.sym.kind == nxType: result[0].add r          # x.float: a conversion
     return
+  # `x` in quote do: the macro's own x (the NimNode), not one the quoted code declares
+  let quoted = a > 0 and text[a - 1] == '`' and e < text.len and text[e] == '`' and nxQuoteStart(lines, line) >= 0
   for i in countdown(locals.high, 0):
     let s = locals[i]
+    if quoted and nxQuoteStart(lines, s.line) >= 0 and
+       not (s.line == line and s.col == a and s.kind notin NxRoutineKinds): continue   # (its own declaration: itself)
     # `var node = node`: a local is only visible after its own declaration (its name counts as itself)
     if nxNorm(s.name) == nxNorm(w) and (s.line < line or (s.line == line and a <= s.col + s.name.len) or
                                         (s.kind in {nxParam, nxResult} and s.line == line) or
                                         (s.kind == nxForVar and s.endLine > 0 and a > s.endLine)):
-      return (@[], @[locals[i]], "")
+      var s2 = locals[i]
+      if s2.kind == nxParam and s2.ret.len > 0 and s2.line == line and s2.col == a:
+        s2.typ = s2.ret                  # (a macro's parameter where it is declared: the type written there)
+      if s2.kind == nxParam and not (s2.line == line and s2.col == a):
+        # a parameter of a routine declared before (forward), used in its body: the one its forward declaration
+        # writes (as the compiler binds it; where it is written in this header, itself)
+        let ri = nxEnclosing(f, line)
+        if ri >= 0 and s2.line >= f.syms[ri].line and s2.line <= nxHeaderLast(lines, f.syms[ri])[1]:
+          let fw = nxForwardOf(f, lines, f.syms[ri])
+          if fw >= 0:
+            let p = nxParamAt(lines, f.syms[fw], s2.name)
+            if p.name.len > 0:
+              s2.line = p.line
+              s2.col = p.col
+      return (@[], @[s2], "")
   # a module name, unless a declaration has the same name (std/private/since and its `since` template)
   let qualified = e < text.len and text[e] == '.'
   if w in sc.modules and qualified: return (@[], @[], sc.modules[w])
@@ -285,6 +466,13 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
     if r.sym.kind != nxField: nonField.add r
   if nonField.len > 0: result[0] = nonField
   if result[0].len == 0 and w in sc.modules: return (@[], @[], sc.modules[w])
+  if result[0].len == 0:
+    # in a template: a name its body does not declare is the one where it is called (not a named argument)
+    var k = e
+    while k < text.len and text[k] == ' ': inc k
+    if not (k + 1 < text.len and text[k] == '=' and text[k + 1] != '='):
+      let s = nxTemplateFree(f, lines, w, line)
+      if s.name.len > 0: return (@[], @[s], "")
   if result[0].len > 1:
     # a call: its first argument picks among overloads  parseJson("{}") → the string one
     var k = e

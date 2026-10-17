@@ -148,22 +148,36 @@ def ask_ns(cmd):
         ns_start()
         return []
 
+def split_top(s, sep=','):
+    # s split at `sep` outside () [] {}
+    out = []; depth = 0; cur = ''
+    for ch in s:
+        if ch in '([{': depth += 1
+        elif ch in ')]}': depth -= 1
+        if ch == sep and depth == 0: out.append(cur); cur = ''
+        else: cur += ch
+    out.append(cur)
+    return out
+
 def normT(t):
     t = t.strip().lstrip(':').strip()
     if t == 'Error Type': return ''
+    if t == 'iterator': t = 'proc'                             # (a parameter typed `iterator`: nimsuggest says proc)
+    t = re.sub(r'\bvarargs\[([^,\[\]]+),[^\[\]]*\]', r'varargs[\1]', t)   # varargs[string, `$`]: its converter aside
     t = re.sub(r'\bint literal\(\d+\)', 'int', t)
     t = re.sub(r'\b(float|string|bool|char) literal\([^)]*\)', r'\1', t)
     t = re.sub(r'(\b[A-Z]\w*): \w+$', r'\1', t)                # T: SomeFloat, var T: distinct
     t = t.replace(' or ', '|')
     t = re.sub(r'^owned[ (]', '', t).rstrip(')') if t.startswith('owned') else t
+    if 'proc' in t or 'iterator' in t:
+        t = re.sub(r'\s*\{\.[^{}]*\}', '', t)                 # (pragmas, also of a proc type inside another: closure, gcsafe …)
     if t.startswith('proc') or t.startswith('iterator'):
-        t = re.sub(r'\{.*\}', '', t)                          # (pragmas: closure, gcsafe, raises …)
         t = t.replace('proc(', 'proc (')
-        # proc (a, b: T) → proc (a: T, b: T)
+        # proc (a, b: T) → proc (a: T, b: T)   (a comma inside brackets — (A, B) — is not between parameters)
         m = re.match(r'^(proc|iterator) \((.*)\)(.*)$', t)
         if m:
             out = []; names = []
-            for part in m.group(2).split(','):
+            for part in split_top(m.group(2)):
                 part = part.strip()
                 if ':' in part:
                     n, ty = part.split(':', 1)
@@ -220,7 +234,7 @@ if not a.no_hints:
         if y is not None and normT(y) == '': y = None      # (nimsuggest without an answer: ':')
         if x is None and y is None: continue
         if x is not None and y is not None:
-            if normT(x) == normT(y): agree += 1
+            if normT(x) == normT(y) or (x.endswith('…') and normT(y).startswith(normT(x[:-1]))): agree += 1
             else: diff += 1; bad.append(('DIFF', k[0] + 1, k[1], x.strip(), y.strip(), lines[k[0]].strip()[:70]))
         elif y is not None:
             ns_only += 1; bad.append(('MISS', k[0] + 1, k[1], '', y.strip(), lines[k[0]].strip()[:70]))
@@ -235,6 +249,7 @@ bad = []; tbad = []
 t_ns = t_ned = 0.0
 for (l, c, w, m) in sample:
     t0 = NS_T; rows = [x.split('\t') for x in ask('def %s:%d:%d' % (path, l, c)) if x.startswith('def\t')]; t_ns += NS_T - t0
+    if rows and (rows[0][1] == 'skUnknown' or '`gensym' in rows[0][2] or ':anonymous' in rows[0][2]): rows = []
     t0 = time.time(); ed = eng('def', l - 1, len(lines[l-1].encode()[:c].decode('utf-8', 'replace'))).get('defs', []); t_ned += time.time() - t0
     nsd = [(f[4], int(f[5])) for f in rows]
     ids = [(d[0], d[1] + 1) for d in ed]
