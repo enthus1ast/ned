@@ -665,8 +665,7 @@ proc fLiteralGroup(sg: seq[FTok]): (int, int) =
   ## after it: (its open, its close), else (-1, -1)
   var last = sg.high
   if last > 0 and (sg[last].kind in {fkOp, fkColon} or fWordOp(sg[last])): dec last
-  var open = 0
-  if sg.len > 1 and sg[0].kind == fkOp and sg[0].text == "@": open = 1
+  let open = 0                 # (not `@[…]`: nph leaves that on a line of its own)
   if last <= open + 1 or sg[open].kind != fkOpen or sg[last].kind != fkClose: return (-1, -1)
   var d = 0
   for k in open .. last:
@@ -678,42 +677,73 @@ proc fLiteralGroup(sg: seq[FTok]): (int, int) =
 
 proc fBreakOps(e: seq[FTok], pad, contPad: string): seq[string]
 
+proc fLastGroup(a: seq[FTok]): (int, int) =
+  ## the last bracket group at the top of a piece (a call's or a `(…)`'s), before a trailing operator or `:` —
+  ## (its open, its close), else (-1, -1)
+  var last = a.high
+  while last > 0 and (a[last].kind in {fkOp, fkColon} or fWordOp(a[last])): dec last
+  if last < 1 or a[last].kind != fkClose: return (-1, -1)
+  var d = 0
+  for k in countdown(last, 0):
+    if a[k].kind in {fkClose, fkPragClose}: inc d
+    elif a[k].kind in {fkOpen, fkPragOpen}:
+      dec d
+      if d == 0:
+        if a[k].kind != fkOpen or last - k < 2: return (-1, -1)
+        return (k, last)
+  (-1, -1)
+
 proc fPackSegs(segs: seq[seq[FTok]], pad, contPad: string): seq[string] =
-  ## an expression's pieces (split after operators of one class) packed: as many whole pieces a line as fit; a piece
-  ## still too long alone is broken at its own operators — or, when it is a literal (`[…]`, `@[…]`), kept up on
-  ## the line before it and wrapped there (`fmt % [` ⏎ items ⏎ `]`, like nph)
-  var parts: seq[(string, seq[FTok])]
+  ## an expression's pieces (split after operators of one class) packed: as many whole pieces a line as fit. A
+  ## piece too long by itself that ends in a call or `(…)` is wrapped there, the rest after its `)` (`if f(` ⏎
+  ## args ⏎ `) == 0:`); a literal last piece that does not fit on its own line goes back up and is wrapped
+  ## there (`fmt % [` ⏎ items ⏎ `]`); else a piece too long is broken at its own operators — like nph
+  var parts: seq[(string, seq[FTok], int)]
   var lead = pad
   var acc: seq[FTok]
+  var n = 0
   for sg in segs:
     if acc.len > 0 and fFitLen(lead & fRender(acc & sg)) > FmtMax:
-      parts.add (lead, acc)
+      parts.add (lead, acc, n)
       lead = contPad
       acc = @[]
+      n = 0
     acc.add sg
-  if acc.len > 0: parts.add (lead, acc)
-  # the last piece a literal that does not fit on its own line: back up, wrapped
-  if parts.len >= 2:
-    let (ll, la) = parts[^1]
-    let (go, gc) = fLiteralGroup(la)
-    if go >= 0 and fFitLen(ll & fRender(la)) > FmtMax:
-      let (pl, pa) = parts[^2]
-      let joined = pa & la
-      let o = pa.len + go
-      let c = pa.len + gc
-      let w = fWrapGroup(joined[0 .. o], joined[o + 1 ..< c], joined[c .. ^1], pl.len, pl.len + 2, false)
-      if w.len > 0 and fFitLen(w[0]) <= FmtMax:
-        parts.setLen(parts.len - 2)
-        for (l, a) in parts:
-          let r = l & fRender(a)
-          let sub = if fFitLen(r) > FmtMax: fBreakOps(a, l, contPad) else: @[]
-          if sub.len > 1: result.add sub else: result.add r
-        result.add w
-        return
-  for (l, a) in parts:
+    inc n
+  if acc.len > 0: parts.add (lead, acc, n)
+  proc plain(res: var seq[string], l: string, a: seq[FTok]) =
     let r = l & fRender(a)
     let sub = if fFitLen(r) > FmtMax: fBreakOps(a, l, contPad) else: @[]
-    if sub.len > 1: result.add sub else: result.add r
+    if sub.len > 1: res.add sub else: res.add r
+  # the first piece too long by itself: a literal or `(…)` goes back up onto the line before and is wrapped there
+  # (`x in {` ⏎ items ⏎ `}:`), one ending in a call or (…) is wrapped in place — what follows after its close
+  for pi in 0 ..< parts.len:
+    let (l, a, cnt) = parts[pi]
+    if cnt != 1 or fFitLen(l & fRender(a)) <= FmtMax: continue
+    var rest: seq[FTok]
+    for pj in pi + 1 ..< parts.len: rest.add parts[pj][1]
+    let (lo, lc) = fLiteralGroup(a)
+    var w: seq[string]
+    var first = pi
+    if lo >= 0 and pi > 0:
+      let (pl, pa, _) = parts[pi - 1]
+      let joined = pa & a
+      let o = pa.len + lo
+      let c = pa.len + lc
+      w = fWrapGroup(joined[0 .. o], joined[o + 1 ..< c], joined[c .. ^1] & rest, pl.len, pl.len + 2, false)
+      first = pi - 1
+    if not (w.len >= 3 and fFitLen(w[0]) <= FmtMax and fFitLen(w[^1]) <= FmtMax):
+      first = pi
+      w = @[]
+      let (go, gc) = fLastGroup(a)
+      if go >= 0:
+        w = fWrapGroup(a[0 .. go], a[go + 1 ..< gc], a[gc .. ^1] & rest, l.len, l.len + 2, false)
+    if w.len >= 3 and fFitLen(w[0]) <= FmtMax and fFitLen(w[^1]) <= FmtMax:
+      for pj in 0 ..< first: plain(result, parts[pj][0], parts[pj][1])
+      result.add w
+      return
+    break
+  for (l, a, _) in parts: plain(result, l, a)
 
 proc fOpSegs(e: seq[FTok], cls: openArray[string], isCond = false): seq[seq[FTok]] =
   ## e split after each operator of the class (at the top, binary ones)
