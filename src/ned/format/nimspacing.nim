@@ -1,13 +1,16 @@
 # ── spacing ──
 
+proc fDeclSite(toks: openArray[FTok], k: int): bool =
+  ## is the name before toks[k] being declared (first on the line, after a comma, after proc/var/type …)?
+  let before = if k >= 2: toks[k - 2] else: FTok(kind: fkComma)
+  k == 1 or before.kind in {fkComma, fkColon, fkSemi, fkPragClose} or
+    (before.kind == fkKw and (before.text in FRoutineKw or before.text in FSectionKw or before.text == "case"))
+
 proc fExportMark*(toks: openArray[FTok], k: int): bool =
   ## is toks[k] the `*` that exports the name before it?
   if k < 1 or toks[k].kind != fkOp or toks[k].text != "*" or toks[k].sp or toks[k - 1].kind != fkIdent: return false
-  let before = if k >= 2: toks[k - 2] else: FTok(kind: fkComma)
-  let declSite = k == 1 or before.kind == fkComma or
-    (before.kind == fkKw and (before.text in FRoutineKw or before.text in FSectionKw))
-  if not declSite: return false
-  if k + 1 >= toks.len: return true
+  if not fDeclSite(toks, k): return false
+  if k + 1 >= toks.len: return false          # (a line broken after it: a product — `delta *` ⏎ `x`)
   let nx = toks[k + 1]
   nx.kind in {fkOpen, fkColon, fkComma, fkPragOpen, fkComment} or (nx.kind == fkOp and nx.text == "=")
 
@@ -57,10 +60,12 @@ proc fRender*(toks: openArray[FTok], params = false, importish = false): string 
       # binary after an operand — or after a keyword when spaced on both sides (object | tuple)
       let binary = (fOperand(p) or (p.kind == fkKw and not fWordOp(p) and tsp == nsp)) and
                    not (tsp and not nsp and nx.kind != fkComment and t.text != "=")
-      if t.text == "*" and p.kind == fkIdent and not tsp and
-         (nx.kind in {fkColon, fkComma, fkPragOpen, fkComment} or (nx.kind == fkOpen and nx.text != "{")):
+      if t.text == "*" and p.kind == fkIdent and not tsp and fDeclSite(toks, k) and
+         (nx.kind in {fkColon, fkComma, fkPragOpen} or (nx.kind == fkComment and nx.text.len > 0) or
+          (nx.kind == fkOpen and nx.text != "{")):
         space = false                                # name* export marker
-      elif t.text == "*" and p.kind == fkIdent and (nx.kind == fkOp and nx.text == "=") and not tsp:
+      elif t.text == "*" and p.kind == fkIdent and (nx.kind == fkOp and nx.text == "=") and not tsp and
+           fDeclSite(toks, k):
         space = false
       elif binary or t.text == "=": space = true
       else: space = p.kind notin {fkOpen, fkPragOpen} and (p.kind in {fkComma, fkSemi, fkColon} or tsp or
@@ -70,7 +75,7 @@ proc fRender*(toks: openArray[FTok], params = false, importish = false): string 
       let pp = if k >= 2: toks[k - 2] else: FTok(kind: fkComma)
       let wasBinary = (fOperand(pp) or (pp.kind == fkKw and not fWordOp(pp) and psp == tsp)) and
                       not (psp and not tsp)
-      if p.text == "*" and pp.kind == fkIdent and not psp and
+      if p.text == "*" and pp.kind == fkIdent and not psp and fDeclSite(toks, k - 1) and
          (t.kind in {fkColon, fkComma, fkPragOpen} or (t.kind == fkOpen and t.text != "{")):
         space = false
       elif wasBinary or p.text == "=": space = true

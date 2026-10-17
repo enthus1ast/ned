@@ -631,11 +631,19 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     result.add o
     inc i
 
-proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: int, innerInd: int,
-                onePerLine: bool, params = false, importish = false, noTrailing = false): seq[string]
-
 const FOpClasses = [@["or", "xor"], @["and"], @["==", "!=", "<", "<=", ">", ">=", "in", "notin", "is", "isnot", "of"],
-                    @["&"], @["+", "-", "|"]]
+                    @["&"], @["+", "-", "|"], @["*", "/", "%", "div", "mod", "shl", "shr"]]
+
+proc fUnaryAt*(toks: openArray[FTok], k: int): bool =
+  ## the operator at k applies to what follows it: spaced before and not after (`f %x`, `echo -1`) — never a
+  ## place to break a line
+  k + 1 < toks.len and (toks[k].sp or toks[k].nl) and not (toks[k + 1].sp or toks[k + 1].nl)
+
+proc fExportStar*(toks: openArray[FTok], k: int): bool =
+  ## the `*` at k marks a name exported (`x*: int`, `x* = 1`, `x* {.used.}`), not a product
+  toks[k].kind == fkOp and toks[k].text == "*" and
+    (k + 1 >= toks.len or toks[k + 1].kind in {fkColon, fkPragOpen, fkComma, fkClose, fkSemi} or
+     (toks[k + 1].kind == fkOp and toks[k + 1].text == "="))
 
 proc fFitLen(s: string): int =
   ## a line's length as nph counts it: a trailing `,` `:` or operator does not count
@@ -649,33 +657,86 @@ proc fFitLen(s: string): int =
     if e > w.len and s[e - w.len - 1] == ' ' and s[e - w.len ..< e] == w: return e - w.len - 1
   e
 
+proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: int, innerInd: int,
+                onePerLine: bool, params = false, importish = false, noTrailing = false): seq[string]
+
+proc fLiteralGroup(sg: seq[FTok]): (int, int) =
+  ## a piece of an expression that is one literal — `[a, b]`, `@[…]`, `{…}`, `(a, b)` — maybe with the operator
+  ## after it: (its open, its close), else (-1, -1)
+  var last = sg.high
+  if last > 0 and (sg[last].kind == fkOp or fWordOp(sg[last])): dec last
+  var open = 0
+  if sg.len > 1 and sg[0].kind == fkOp and sg[0].text == "@": open = 1
+  if last <= open + 1 or sg[open].kind != fkOpen or sg[last].kind != fkClose: return (-1, -1)
+  var d = 0
+  for k in open .. last:
+    if sg[k].kind in {fkOpen, fkPragOpen}: inc d
+    elif sg[k].kind in {fkClose, fkPragClose}:
+      dec d
+      if d == 0 and k < last: return (-1, -1)
+  (open, last)
+
+proc fBreakOps(e: seq[FTok], pad, contPad: string): seq[string]
+
+proc fPackSegs(segs: seq[seq[FTok]], pad, contPad: string): seq[string] =
+  ## an expression's pieces (split after operators of one class) packed: as many whole pieces a line as fit; a piece
+  ## still too long alone is broken at its own operators — or, when it is a literal (`[…]`, `@[…]`), kept up on
+  ## the line before it and wrapped there (`fmt % [` ⏎ items ⏎ `]`, like nph)
+  var parts: seq[(string, seq[FTok])]
+  var lead = pad
+  var acc: seq[FTok]
+  for sg in segs:
+    if acc.len > 0 and fFitLen(lead & fRender(acc & sg)) > FmtMax:
+      parts.add (lead, acc)
+      lead = contPad
+      acc = @[]
+    acc.add sg
+  if acc.len > 0: parts.add (lead, acc)
+  # the last piece a literal that does not fit on its own line: back up, wrapped
+  if parts.len >= 2:
+    let (ll, la) = parts[^1]
+    let (go, gc) = fLiteralGroup(la)
+    if go >= 0 and fFitLen(ll & fRender(la)) > FmtMax:
+      let (pl, pa) = parts[^2]
+      let joined = pa & la
+      let o = pa.len + go
+      let c = pa.len + gc
+      let w = fWrapGroup(joined[0 .. o], joined[o + 1 ..< c], joined[c .. ^1], pl.len, pl.len + 2, false)
+      if w.len > 0 and fFitLen(w[0]) <= FmtMax:
+        parts.setLen(parts.len - 2)
+        for (l, a) in parts:
+          let r = l & fRender(a)
+          let sub = if fFitLen(r) > FmtMax: fBreakOps(a, l, contPad) else: @[]
+          if sub.len > 1: result.add sub else: result.add r
+        result.add w
+        return
+  for (l, a) in parts:
+    let r = l & fRender(a)
+    let sub = if fFitLen(r) > FmtMax: fBreakOps(a, l, contPad) else: @[]
+    if sub.len > 1: result.add sub else: result.add r
+
+proc fOpSegs(e: seq[FTok], cls: openArray[string], isCond = false): seq[seq[FTok]] =
+  ## e split after each operator of the class (at the top, binary ones)
+  var cur: seq[FTok]
+  var d = 0
+  for k, t in e:
+    cur.add t
+    if t.kind in {fkOpen, fkPragOpen}: inc d
+    elif t.kind in {fkClose, fkPragClose}: dec d
+    elif d == 0 and t.text in cls and (t.kind == fkKw or t.kind == fkOp) and k > 0 and k < e.high and
+         fOperand(e[k - 1]) and e[k + 1].kind notin {fkComma, fkComment} and not fExportStar(e, k) and
+         not (t.kind == fkOp and fUnaryAt(e, k)) and not (isCond and k == e.high - 1):
+      result.add cur
+      cur = @[]
+  if cur.len > 0: result.add cur
+
 proc fBreakOps(e: seq[FTok], pad, contPad: string): seq[string] =
   ## a long expression broken after its loosest operator, as many whole operands a line as fit (like nph) —
   ## @[] when it has no operator to break at
   for cls in FOpClasses:
-    var segs: seq[seq[FTok]]
-    var cur: seq[FTok]
-    var d = 0
-    for k, t in e:
-      cur.add t
-      if t.kind in {fkOpen, fkPragOpen}: inc d
-      elif t.kind in {fkClose, fkPragClose}: dec d
-      elif d == 0 and t.text in cls and (t.kind == fkKw or t.kind == fkOp) and k > 0 and k < e.high and
-           fOperand(e[k - 1]) and e[k + 1].kind notin {fkComma, fkComment}:
-        segs.add cur
-        cur = @[]
-    if cur.len > 0: segs.add cur
+    let segs = fOpSegs(e, cls)
     if segs.len < 2: continue
-    var line = pad
-    for sg in segs:
-      let r = fRender(sg)
-      let atStart = (result.len == 0 and line.len == pad.len) or (result.len > 0 and line.len == contPad.len)
-      if not atStart and fFitLen(line & " " & r) > FmtMax:
-        result.add line
-        line = contPad & r
-      else: line.add (if atStart: "" else: " ") & r
-    result.add line
-    return
+    return fPackSegs(segs, pad, contPad)
 
 proc fSimpleElem(e: openArray[FTok]): bool =
   ## nph's "simple" list element: a name, a literal, a.b, -1 (lists of them are packed; anything else gets a line)
@@ -1446,55 +1507,13 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
     let isCond = t0.kind == fkKw and t0.text in ["if", "elif", "while", "when"]
     let cind = ind + (if isCond: 4 elif o.exprLine: 0 else: 2)
     const classes = [@["or", "xor"], @["and"], @["==", "!=", "<", "<=", ">", ">=", "in", "notin", "is", "isnot"],
-                     @["&"], @["+", "-"]]
+                     @["&"], @["+", "-"], @["*", "/", "%", "div", "mod", "shl", "shr"]]
     var segs: seq[seq[FTok]]
     for cls in classes:
-      segs.setLen(0)
-      var cur: seq[FTok]
-      var d = 0
-      for k, t in o.toks:
-        cur.add t
-        if t.kind in {fkOpen, fkPragOpen}: inc d
-        elif t.kind in {fkClose, fkPragClose}: dec d
-        elif d == 0 and t.text in cls and (t.kind == fkKw or t.kind == fkOp) and k > 0 and k < o.toks.high and
-             fOperand(o.toks[k - 1]) and not (isCond and k == o.toks.high - 1):
-          segs.add cur
-          cur = @[]
-      if cur.len > 0: segs.add cur
+      segs = fOpSegs(o.toks, cls, isCond)
       if segs.len > 1: break
     if segs.len > 1:
-      proc firstPart(sg: seq[FTok]): seq[FTok] =
-        ## an operand up to its own first operator: what must fit for it to start on this line
-        var dd = 0
-        for k, t in sg:
-          if dd == 0 and k > 0 and (t.kind == fkOp or fWordOp(t)) and k == sg.high: return
-          result.add t
-          if t.kind in {fkOpen, fkPragOpen}: inc dd
-          elif t.kind in {fkClose, fkPragClose}: dec dd
-          elif dd == 0 and k > 0 and k < sg.high and (t.kind == fkOp or fWordOp(t)):
-            return
-      var outp: seq[string]
-      var acc: seq[FTok]
-      var lead = pad
-      # (a piece still too long on its line: broken in turn at its own loosest operator, at the same
-      # indentation — like nph)
-      proc emit(outp: var seq[string], lead: string, acc: seq[FTok]) =
-        let r = lead & fRender(acc)
-        if fFitLen(r) > FmtMax:
-          let sub = fBreakOps(acc, lead, spaces(cind))
-          if sub.len > 1:
-            outp.add sub
-            return
-        outp.add r
-      for sg in segs:
-        if acc.len > 0:
-          let trial = lead & fRender(acc & sg)
-          if fFitLen(trial) > FmtMax:
-            emit(outp, lead, acc)
-            lead = spaces(cind)
-            acc = @[]
-        acc.add sg
-      if acc.len > 0: emit(outp, lead, acc)
+      let outp = fPackSegs(segs, pad, spaces(cind))
       if outp.len > 1: return outp
   # a command with a long argument list:  echo a, ⏎ b, c …  (nph keeps the first argument up top)
   if t0.kind == fkIdent and o.toks.len > 2 and o.toks[1].sp and o.toks[1].kind in {fkIdent, fkNum, fkStr, fkChar} and
