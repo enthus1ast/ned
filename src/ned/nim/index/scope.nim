@@ -312,12 +312,16 @@ proc nxKeepScope(path: string, sc: NxScope) =
     nxScopes.del oldest
     nxScopeUsed.del oldest
 
+proc skey(f: NxFile): string {.inline.} =
+  ## the key a file's scope is kept under (its path; the file as a left-out `when` branch sees it: its own)
+  if f.scopeKey.len > 0: f.scopeKey else: f.path
+
 proc nxIncludedScope*(f, host: NxFile): NxScope =
   ## what a file that another one includes can see: everything its includer sees (the includer's own
   ## declarations, its imports, its other include files), with this file's current declarations
   let hs = nxScope(host)
   let st = "inc|" & f.stamp & "|" & host.path & "|" & hs.stamp & "/" & $nxGen
-  var old = nxScopes.getOrDefault(f.path)
+  var old = nxScopes.getOrDefault(f.skey)
   if old != nil and old.stamp == st and old.own == f:
     var fresh = true
     for (p, ps) in old.deps:
@@ -326,7 +330,7 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
         break
     if fresh:
       inc nxScopeTick
-      nxScopeUsed[f.path] = nxScopeTick
+      nxScopeUsed[f.skey] = nxScopeTick
       return old
   result = NxScope(stamp: st, own: f, modules: hs.modules)
   for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
@@ -352,7 +356,7 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
       seenP.incl r.file.path
       result.deps.add (r.file.path, r.file.stamp)
   if host.path notin seenP: result.deps.add (host.path, host.stamp)
-  nxKeepScope(f.path, result)
+  nxKeepScope(f.skey, result)
 
 proc nxScope*(f: NxFile): NxScope =
   ## what `f` can see: its own declarations, system, and its imports (a file another one `include`s: what that
@@ -369,7 +373,7 @@ proc nxScope*(f: NxFile): NxScope =
         return
   var stamp = f.stamp & "/" & $nxGen
   for im in f.imports: stamp.add "|" & im.spec & ":" & $im.only.len & ":" & $im.excepts.len
-  var old = nxScopes.getOrDefault(f.path)
+  var old = nxScopes.getOrDefault(f.skey)
   if old != nil:
     # another file it sees was edited (or saved): start over
     for (p, st) in old.deps:
@@ -378,7 +382,7 @@ proc nxScope*(f: NxFile): NxScope =
         break
   if old != nil and old.stamp == stamp and old.own == f:
     inc nxScopeTick
-    nxScopeUsed[f.path] = nxScopeTick
+    nxScopeUsed[f.skey] = nxScopeTick
     return old
   if old != nil and old.stamp == stamp:
     # own symbols change with every edit; imports rarely do
@@ -387,7 +391,7 @@ proc nxScope*(f: NxFile): NxScope =
     for r in old.refs:
       if r.file != f and r.file.path != f.path: sc.refs.add r
     nxIndexNames(sc)
-    nxKeepScope(f.path, sc)
+    nxKeepScope(f.skey, sc)
     return sc
   result = NxScope(stamp: stamp, own: f)
   for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
@@ -421,7 +425,7 @@ proc nxScope*(f: NxFile): NxScope =
     if r.file != f and r.file.path notin seenP:
       seenP.incl r.file.path
       result.deps.add (r.file.path, r.file.stamp)
-  nxKeepScope(f.path, result)
+  nxKeepScope(f.skey, result)
 
 proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
   let n = nxNorm(name)
@@ -437,3 +441,46 @@ proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
     inc lo
 
 proc sym*(r: NxRef): NxSym {.inline.} = r.file.syms[r.idx]
+
+var
+  nxOverlays: seq[(string, NxFile)]       # (file and branch, the file as that branch sees it), the latest last
+  nxFullParse: (string, NxFile)           # (path and stamp, the file read with its left-out branches)
+
+proc nxAt*(f: NxFile, lines: openArray[string], line: int): NxFile =
+  ## the file as code at `line` sees it: when the line is inside a `when` branch left out on this platform (Windows
+  ## code, `when defined(js)`, `when false`), the branch's own declarations and imports come first — the types it
+  ## declares are not those of the branch taken here — then the file's, then those of the other left-out branches
+  if f == nil or f.inactive.len == 0 or lines.len == 0: return f
+  var inside = false
+  for (a, b) in f.inactive:
+    if a <= line and line <= b:
+      inside = true
+      break
+  if not inside: return f
+  let fkey = f.path & "\t" & f.stamp
+  if nxFullParse[0] != fkey: nxFullParse = (fkey, nxParse(lines, f.path, keepInactive = true))
+  let full = nxFullParse[1]
+  # the innermost left-out branch around the line
+  var lo, hi = -1'i32
+  for (a, b) in full.inactive:
+    if a <= line and line <= b and (lo < 0 or b - a < hi - lo):
+      lo = a
+      hi = b
+  let key = fkey & "\t" & $lo
+  for (k, g) in nxOverlays:
+    if k == key: return g
+  var ends: Table[int32, int32]
+  for (a, b) in full.inactive: ends[a - 1] = b              # (symBranch holds the `when` line: the body starts below)
+  let g = NxFile(path: f.path, module: f.module, stamp: f.stamp & "#" & $lo, doc: f.doc, imports: full.imports,
+                 exports: full.exports, pragmas: full.pragmas,
+                 scopeKey: f.path & "#when" & $lo)
+  var mine, others: seq[NxSym]
+  for k, s in full.syms:
+    let b = if k < full.symBranch.len: full.symBranch[k] else: -1
+    if b < 0: g.syms.add s
+    elif b < line and line <= ends.getOrDefault(b, -1): mine.add s
+    else: others.add s
+  g.syms = mine & g.syms & others
+  if nxOverlays.len >= 4: nxOverlays.delete(0)
+  nxOverlays.add (key, g)
+  g

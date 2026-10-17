@@ -195,6 +195,7 @@ proc nxCtorField*(sc: NxScope, lines: seq[string], line, a, e: int): seq[NxRef] 
 
 proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq[NxSym], string) =
   ## the declarations the word at line:col refers to: (index symbols, locals, module path)
+  let f = nxAt(f, lines, line)
   let sc = nxScope(f)
   let text = lines[line]
   let (a, e) = nxWordAt(text, col)

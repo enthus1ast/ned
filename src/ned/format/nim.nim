@@ -66,6 +66,30 @@ proc fTopColon*(toks: openArray[FTok], a, b: int): int =
     elif d == 0 and t.kind == fkColon: return k
   -1
 
+proc fCallColon*(toks: openArray[FTok], a, b: int): int =
+  ## `withLock(l): body`, `p.nested: body` — a call (with parentheses, or a dotted name) given a block on the
+  ## same line: the index of its `:`, else -1 (a plain `name:` could be a field or a section's member)
+  if b - a < 3 or toks[a].kind != fkIdent: return -1
+  var k = a + 1
+  var dotted = false
+  while k + 1 < b and toks[k].kind == fkDot and toks[k + 1].kind == fkIdent:
+    k += 2
+    dotted = true
+  var call = false
+  if k < b and toks[k].kind == fkOpen and toks[k].text == "(" and fCallParen(toks, k):
+    var d = 0
+    while k < b:
+      if toks[k].kind in {fkOpen, fkPragOpen}: inc d
+      elif toks[k].kind in {fkClose, fkPragClose}:
+        dec d
+        if d == 0: break
+      inc k
+    if k >= b: return -1
+    inc k
+    call = true
+  if not (call or dotted) or k >= b - 1 or toks[k].kind != fkColon or toks[k + 1].kind == fkComment: return -1
+  k
+
 proc fSplitIdx*(toks: openArray[FTok], a, b: int): (int, int) =
   ## an inline block in toks[a ..< b]:  `if a: b else: c` → (index of the header's last token, where
   ## the body ends); (-1, -1) when there is none
@@ -78,6 +102,8 @@ proc fSplitIdx*(toks: openArray[FTok], a, b: int): (int, int) =
   elif t0.kind == fkKw and t0.text in FBlockKw:
     if t0.text == "static" and toks[a + 1].kind != fkColon: return (-1, -1)
     hdrEnd = fTopColon(toks, a, b)
+  elif fCallColon(toks, a, b) > 0:
+    hdrEnd = fCallColon(toks, a, b)          # doAssertRaises(E): body  →  its body on the next line
   else:
     # a lambda as a value:  let f = proc(x: int): int = x + 1  → its body on the next line
     let eq1 = fTopEq(toks, a, b)
@@ -1063,7 +1089,9 @@ proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: in
         if w.len > 0:
           lines.add w
           continue
-      if r.len > FmtMax and colon == 1 and e[0].kind == fkIdent and colon < e.high - 1:
+      var vEnd = e.high
+      while vEnd > 0 and e[vEnd].kind in {fkComma, fkComment}: dec vEnd
+      if r.len > FmtMax and colon == 1 and e[0].kind == fkIdent and colon < vEnd:
         # key: a long value  →  key: ⏎ value (and a long `&` chain one piece per line)
         lines.add pad & fRender(e[0 .. colon], importish = importish)
         let vpad = spaces(innerInd + 2)

@@ -109,6 +109,7 @@ proc nxCallInstance*(f: NxFile, lines: seq[string], line, col: int, s: NxSym): s
 
 proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
   let wv = nxWhenHover(f, lines, line, col)
+  let f = nxAt(f, lines, line)
   if wv.len > 0: return wv
   let (refs, locals, modPath) = nxTargets(f, lines, line, col)
   if modPath.len > 0:
@@ -204,6 +205,7 @@ proc nxSignatureHelp*(f: NxFile, lines: seq[string], line, col: int): NxSigHelp 
   if a == e: return
   let name = s[a ..< e]
   if name in NxKeywords: return
+  let f = nxAt(f, lines, line)
   let sc = nxScope(f)
   let locals = nxLocals(f, lines, line, col)
   result.active = commas

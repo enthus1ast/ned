@@ -19,6 +19,8 @@ var
   lsWatchFiles = false                 # the client watches files for nedls (dynamic registration)
   lsSignal = 0                         # SIGTERM / SIGINT arrived
   lsRootGuess = false                  # no project folder from the client: the first file's project is it
+  lsPullConfig = false                 # the client answers workspace/configuration
+  lsConfigReq = ""                     # the id of that request, while its answer is awaited
 
 const LsHelp = """nedls — ned's built-in Nim engine as a language server (LSP over stdio)
 
@@ -117,6 +119,7 @@ proc lsInitialize(params: JsonNode): JsonNode =
   lsSemRefresh = caps{"workspace"}{"semanticTokens"}{"refreshSupport"}.getBool(false)
   lsInlayRefresh = caps{"workspace"}{"inlayHint"}{"refreshSupport"}.getBool(false)
   lsWatchFiles = caps{"workspace"}{"didChangeWatchedFiles"}{"dynamicRegistration"}.getBool(false)
+  lsPullConfig = caps{"workspace"}{"configuration"}.getBool(false)
   lsParentPid = params{"processId"}.getInt(0)
   lsParentAt = getMonoTime()
   if params{"initializationOptions"} != nil and params["initializationOptions"].kind == JObject:
@@ -173,7 +176,12 @@ proc lsInitialize(params: JsonNode): JsonNode =
   lsLog("ned " & NedVersion & " · project " & rootDir & " · positions " & (if lsUtf8: "UTF-8" else: "UTF-16") &
         " · Nim library " & (if nxLibFound.len > 0: nxLibFound else: "not found (is nim on PATH?)"))
 
+proc lsAskConfig() =
+  ## the client's "nedls" settings, asked for (clients that keep settings send none on their own)
+  if lsPullConfig: lsConfigReq = lsRequestOut("workspace/configuration", %*{"items": [{"section": "nedls"}]})
+
 proc lsOnInitialized() =
+  lsAskConfig()
   if lsWatchFiles:
     lsRequestOut("client/registerCapability", %*{"registrations": [{
       "id": "nedls-watch", "method": "workspace/didChangeWatchedFiles",
@@ -303,9 +311,10 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
     lsDiagsDirty = true
   of "workspace/didChangeConfiguration":
     let s = p{"settings"}
-    if s != nil and s.kind == JObject:
+    if s != nil and s.kind == JObject and s.len > 0:
       lsOptions = s
       lsApplySettings()
+    else: lsAskConfig()
   of "workspace/didChangeWatchedFiles": lsFilesChanged(p)
   of "workspace/didChangeWorkspaceFolders": lsWorkspaceFolders(p)
   of "$/cancelRequest": lsCancelled.incl lsIdKey(p{"id"})
@@ -318,7 +327,15 @@ proc lsHandle(msg: JsonNode) =
   let id = msg{"id"}
   let methNode = msg{"method"}
   if methNode == nil:
-    return                                     # (an answer to one of nedls's requests: nothing waits for it)
+    # an answer to one of nedls's requests: the settings it asked for (the others need nothing)
+    if id != nil and id.kind == JString and id.getStr == lsConfigReq and lsConfigReq.len > 0:
+      lsConfigReq = ""
+      let r = msg{"result"}
+      if r != nil and r.kind == JArray and r.len > 0 and r[0].kind == JObject:
+        lsOptions = %*{"nedls": r[0]}
+        try: lsApplySettings()
+        except Exception as e: lsLog("settings: " & e.msg)
+    return
   if methNode.kind != JString:
     if id != nil: lsReplyError(id, ErrInvalidRequest, "method must be a string")
     return
