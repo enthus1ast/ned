@@ -113,6 +113,7 @@ var
   cfgAutoImport = true         # Nim completion also offers standard-library names that need an import
   cfgPostfix = true            # Nim completion after a `.` offers postfix templates: xs.for, c.case, v.if …
   cfgShowCopies = true         # mark where ARC/ORC copies (nim c --expandArc on save, a trusted folder)
+  cfgTestOnSave = "related"    # run std/unittest files on save: related (the file, or the tests importing it) · file · off
   cfgSemColors = true          # Nim: colour names by what the index knows they are
   cfgMinimap = "auto"
   cfgScrollbar = true
@@ -285,6 +286,7 @@ var
   fileCacheValid = false
   diagsLsp = initTable[string, seq[Diag]]()
   diagsBuild = initTable[string, seq[Diag]]()
+  diagsTest = initTable[string, seq[Diag]]()    # failed checks of tests run on save
   diagsFfi = initTable[string, seq[Diag]]()     # importc wrappers that do not fit their C header
   diagsEmit = initTable[string, seq[Diag]]()    # clangd's problems in the C a Nim file emits
   shadowNim = initTable[string, string]()       # the hidden C document of a Nim file's emits → the Nim file

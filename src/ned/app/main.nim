@@ -46,6 +46,8 @@ proc pumpJobs(ready: HashSet[cint]) =
     if j.kind == jkAux and not j.done and msSince(j.started) > 4000:
       killProc(j.pr, SIGKILL)
       j.eof = true
+    if j.deadlineMs > 0 and not j.done and not j.eof and msSince(j.started) > j.deadlineMs:
+      killProc(j.pr, SIGKILL)
     if j.eof and j.outFd >= 0: closeFd(j.outFd)
     if j.eof and not j.done:
       if j.pr.reap():

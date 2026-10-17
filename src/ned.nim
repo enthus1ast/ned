@@ -205,6 +205,7 @@ include ned/testing/runners
 include ned/testing/testament
 include ned/testing/aitests
 include ned/testing/explorer
+include ned/testing/onsave
 include ned/editor/projectsymbols
 include ned/lsp/codeactions
 include ned/editor/selection

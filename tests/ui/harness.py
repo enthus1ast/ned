@@ -148,6 +148,8 @@ def setup(cfg=None):
          "ai.model": "gpt-6"}
     c["nim.nimsuggest"] = True        # (most tests were written with it on; t_528_hierarchy checks the default)
     c["security.folderTrust"] = "off"  # (the scratch project is the tests' own; t_66_trust asks)
+    c["nim.showCopies"] = False        # (no compiler run on every save; t_66_copies turns it on)
+    c["nim.testOnSave"] = "off"        # (nor tests; t_66_test_on_save turns them on)
     c.update(cfg or {})
     c = {k: v for k, v in c.items() if v is not None}
     json.dump(c, open(CFG + '/ned/config.json', 'w'))
