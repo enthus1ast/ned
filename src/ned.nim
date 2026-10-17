@@ -218,6 +218,7 @@ include ned/project/remotesync
 include ned/ui/editormenu
 include ned/ui/mouse
 include ned/nim/aifix
+include ned/testing/aifixtest
 include ned/nim/stdindex
 include ned/nim/codegen
 include ned/nim/refactors

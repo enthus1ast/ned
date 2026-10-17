@@ -154,6 +154,11 @@ class H(BaseHTTPRequestHandler):
                 text = ('Here:\n\n```nim\nimport std/unittest\nimport ' + imp + '\n\nsuite "utils":\n  test "twice doubles":\n'
                         '    check twicee(2) == 4\n```\n')
             finish = 'stop'
+        elif 'This unit test fails:' in user and 'x * 3' in user:
+            # (the first answer wrong when the test asks for a second try; right with the failure fed back)
+            fix = 'x * 5' if ('second try' in user and 'Your previous answer was' not in user) else 'x * 2'
+            text, finish = ('FILE: calc.nim\n<<<<<<< SEARCH\nproc twice*(x: int): int = x * 3\n=======\n'
+                            'proc twice*(x: int): int = ' + fix + '\n>>>>>>> REPLACE\n'), 'stop'
         elif '<CURSOR>' in user and 'GHOSTGOOD' in user:
             text, finish = 'name.toUpperAscii', 'stop'          # (an inline suggestion that compiles)
         elif '<CURSOR>' in user and 'GHOSTBAD' in user:
