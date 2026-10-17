@@ -395,6 +395,7 @@ var
   cfgZenHideNums = true
   cfgZenDim = true
   cfgZenTypewriter = false
+  cfgZenGit = false            # zen.gitChanges: git's change marks in the gutter in zen mode
   cfgZenInfo = true
 var vimMode = vmNormal
 

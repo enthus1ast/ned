@@ -107,8 +107,16 @@ proc ffiCheckDecls(path: string, lines: seq[string], decls: seq[NimFfi]): seq[Di
       continue
     if cp.kind != "function": continue
     var nimCount = 0
-    for p in d.params:
+    var vaParam = -1
+    for i, p in d.params:
       nimCount += (if p[1].strip.startsWith("openArray") or p[1].strip.startsWith("varargs"): 2 else: 1)
+      if p[1].strip.startsWith("varargs") and cp.varargs: vaParam = i
+    if vaParam >= 0:
+      # varargs[T] is a Nim array (a pointer and a length), not C's `...`: the {.varargs.} pragma is
+      let p = d.params[vaParam]
+      warn(p[2], p[3], p[1].strip & " is a Nim array, not C's … — " & cPrettyProto(cp, d.cname) &
+           " wants its parameters, then {.varargs.} (Alt+Enter rewrites the wrapper from C)", "")
+      continue
     if cp.varargs and not d.varargs:
       warn(nameAt, nameEnd, "C's " & d.cname & " takes more arguments after these (…): add {.varargs.}", "")
     if nimCount != cp.params.len:

@@ -282,6 +282,8 @@ proc ffiRewriteFix(b: Buffer): (string, string, Action) =
     discard bb.replaceText(Pos(line: l0, col: 0), Pos(line: l1, col: bb.lines[l1].len), newText)
     bb.endEdit()
     bb.normalize()
+    if l1 > l0 and newText.len > FmtWidth and cfgNimFormatter == "builtin":
+      discard bb.formatLineRange(l0, l0, quiet = true)     # (written one parameter a line: laid out as before)
     ffiCheck(bb)
     info("Wrapper written from C: " & newText.strip))
 

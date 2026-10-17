@@ -23,7 +23,8 @@ proc gutterClick(x, y: int, p: Pos): bool =
       b.foldLine(p.line)
       return true
   # a change mark (git): its menu
-  if x == ex + gutterW - 2 and p.line < b.git.len and b.git[p.line] != 0:
+  if x == ex + gutterW - 2 and p.line < b.git.len and b.git[p.line] != 0 and cfgGitGutter and
+     (not zenMode or cfgZenGit):
     b.setSingle(Pos(line: p.line, col: 0))
     hunkActions()
     return true

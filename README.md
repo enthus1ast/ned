@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.5](#whats-new-in-65) · [6.4](CHANGELOG.md#whats-new-in-64) · [older releases](CHANGELOG.md)
+- [What's new in 6.5.1](#whats-new-in-651) · [6.5](CHANGELOG.md#whats-new-in-65) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,45 +40,28 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.5
+## What's new in 6.5.1
 
-![ned's own C engine: the members after `.` with each field's comment from the header](screenshots/c-engine-65.png)
+- **C wrappers written one parameter a line** — the way ned's formatter (and nph) lays them out, `):` under
+  `proc` — are understood: the C signature beside them, the C documentation on hover (on the wrapper's name, its
+  calls and `importc: "printf"`), the check against the header, and Alt+Enter › *Rewrite this wrapper from its C
+  declaration*, which keeps the layout. A comma after the last parameter is no longer read as part of its type.
+- **`varargs[T]` for C's `...` is flagged**: it is a Nim array (a pointer and a length), not C's variable
+  arguments. The wrapper wants C's own parameters and `{.varargs.}` —
+  `proc cprintf(format: cstring): cint {.importc: "printf", varargs, header: "stdio.h", discardable.}` — and
+  Alt+Enter writes it.
+- **Zen mode without git's change marks** in the gutter (`zen.gitChanges` brings them back).
+- **A shorter File menu**: SSH, clone and the workspace under *Open more*, a file's history and comparisons under
+  *This file*, settings, theme, keys and settings sync under *Preferences*.
 
-**C without clangd.** ned has its own C engine now — nothing to install (`c.engine`: `auto` uses it when clangd is
-not installed; `builtin`, `clangd` or `both`):
-- **Members after `.` and `->`** through typedefs, pointers, arrays, casts, calls and macros (`#define atime tv[0]`,
-  `P_OPERAND(p)->`), and in designated initializers (`{ .x = 1, .`) — each with its type and comment.
-- **Hover** with the comment that documents a declaration — above it, or after it on its line; a definition
-  without one shows its prototype's from the header.
-- **F12 through `#include`s**: a function declared in a header goes to its body, in the project's other `.c` files
-  too; a definition's name to its prototype and back; `goto x` to the label. `#include "` and `<` complete the
-  headers there.
-- **References and rename** (with a preview — a local in its function, the rest across the project's C files),
-  **signature help**, the **outline**, symbols in the file.
-- **The C compiler's errors while you type**, on the unsaved text (a private copy, removed after), and **Alt+Enter
-  adds a missing `#include`** for a standard function, type or macro (`printf` → `<stdio.h>`).
+The C engine and ligatures came in [6.5](CHANGELOG.md#whats-new-in-65); [C: ned's own engine](#c-neds-own-engine)
+describes it.
 
-Measured against clangd 22 — with a `compile_commands.json` and its background index, at its best — on OpenSSH and
-zsh ([tests/engine](tests/engine/README.md#c-ned-against-clangd)): go to definition gives the same answer 97.8% and
-97.3% of the time; member completion offers the member written there 100% and 99.4% of the time (clangd: 95.1% and
-97.4%); ned reads a file and every header it includes in 13 ms where clangd takes 0.2 s, and uses 31–37 MB of memory
-to clangd's 160–270 MB. clangd stays the more precise where only the build's configuration decides
-(`#ifdef HAVE_…`), for declarations made by macros, and for C++: with clangd installed, `auto` uses it.
-
-![editor.fontLigatures: symbols — ≥ ≤ ≠ and the arrows drawn by ned, the cursor's line as written](screenshots/ligatures-65.png)
-
-**Ligatures** (`editor.fontLigatures`, *View › Editor › Ligatures*): `font` keeps each operator in one colour and
-style, so a terminal with a ligature font (Kitty, WezTerm, iTerm2, Ghostty, Windows Terminal) joins it; `symbols`
-has ned draw them itself, in any terminal — Termux too: `─→ ═⇒ ≠ ≤ ≥ ≔` in the same columns, never in strings or
-comments, and the line with the cursor shows what is really there.
-
-Also: after a rename's preview, ned goes back to the file the rename started in (not the tab beside the preview).
-
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine
-further (parameter names, a generic's instance, organize imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C
-from Nim and gave the formatter your settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look,
-[6.1](CHANGELOG.md#whats-new-in-61) smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project
-with its tests.
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C
+engine and ligatures, [6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's
+instance, organize imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your
+settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61)
+smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
 
 ## Features
 
@@ -790,7 +773,8 @@ file :s/a/b/g :%s/a/b/g :set wrap :term :zen`; `zz zt zb za zc zo zM zR`; option
 (`vim.escapeSequence`).
 
 **Zen mode** (Alt+Z): no chrome, a centred column (`zen.width`), the block or paragraph you are in stays bright
-(`zen.dimOthers`), optional typewriter scrolling and a quiet word count. Esc Esc leaves. In vim mode Esc
+(`zen.dimOthers`), optional typewriter scrolling and a quiet word count; git's change marks stay out of the gutter
+unless you want them (`zen.gitChanges`). Esc Esc leaves. In vim mode Esc
 belongs to vim: leave with Alt+Z or `:zen`; the corner shows the vim mode.
 
 ## Files ned uses

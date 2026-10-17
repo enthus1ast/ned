@@ -39,7 +39,7 @@ from std/math import pow
 import ned/core/text, ned/editor/regex, ned/format/formatters, ned/nim/index, ned/c/cindex
 
 const
-  Version = "6.5.0"
+  Version = "6.5.1"
   AppName = "ned"
 
 # ── ned --startup-time: how long each step of starting takes, and the memory it uses ──

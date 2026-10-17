@@ -1,6 +1,40 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-65). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-651). Older releases:
+
+## What's new in 6.5
+
+![ned's own C engine: the members after `.` with each field's comment from the header](screenshots/c-engine-65.png)
+
+**C without clangd.** ned has its own C engine now — nothing to install (`c.engine`: `auto` uses it when clangd is
+not installed; `builtin`, `clangd` or `both`):
+- **Members after `.` and `->`** through typedefs, pointers, arrays, casts, calls and macros (`#define atime tv[0]`,
+  `P_OPERAND(p)->`), and in designated initializers (`{ .x = 1, .`) — each with its type and comment.
+- **Hover** with the comment that documents a declaration — above it, or after it on its line; a definition
+  without one shows its prototype's from the header.
+- **F12 through `#include`s**: a function declared in a header goes to its body, in the project's other `.c` files
+  too; a definition's name to its prototype and back; `goto x` to the label. `#include "` and `<` complete the
+  headers there.
+- **References and rename** (with a preview — a local in its function, the rest across the project's C files),
+  **signature help**, the **outline**, symbols in the file.
+- **The C compiler's errors while you type**, on the unsaved text (a private copy, removed after), and **Alt+Enter
+  adds a missing `#include`** for a standard function, type or macro (`printf` → `<stdio.h>`).
+
+Measured against clangd 22 — with a `compile_commands.json` and its background index, at its best — on OpenSSH and
+zsh ([tests/engine](tests/engine/README.md#c-ned-against-clangd)): go to definition gives the same answer 97.8% and
+97.3% of the time; member completion offers the member written there 100% and 99.4% of the time (clangd: 95.1% and
+97.4%); ned reads a file and every header it includes in 13 ms where clangd takes 0.2 s, and uses 31–37 MB of memory
+to clangd's 160–270 MB. clangd stays the more precise where only the build's configuration decides
+(`#ifdef HAVE_…`), for declarations made by macros, and for C++: with clangd installed, `auto` uses it.
+
+![editor.fontLigatures: symbols — ≥ ≤ ≠ and the arrows drawn by ned, the cursor's line as written](screenshots/ligatures-65.png)
+
+**Ligatures** (`editor.fontLigatures`, *View › Editor › Ligatures*): `font` keeps each operator in one colour and
+style, so a terminal with a ligature font (Kitty, WezTerm, iTerm2, Ghostty, Windows Terminal) joins it; `symbols`
+has ned draw them itself, in any terminal — Termux too: `─→ ═⇒ ≠ ≤ ≥ ≔` in the same columns, never in strings or
+comments, and the line with the cursor shows what is really there.
+
+Also: after a rename's preview, ned goes back to the file the rename started in (not the tab beside the preview).
 
 ## What's new in 6.4
 
