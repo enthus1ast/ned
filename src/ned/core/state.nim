@@ -110,6 +110,7 @@ var
   cfgTouchBar = "off"          # on-screen keys for touch: off | on | auto (phones)
   cfgTouchKeys: seq[string] = @[]
   cfgAutoImport = true         # Nim completion also offers standard-library names that need an import
+  cfgPostfix = true            # Nim completion after a `.` offers postfix templates: xs.for, c.case, v.if …
   cfgSemColors = true          # Nim: colour names by what the index knows they are
   cfgMinimap = "auto"
   cfgScrollbar = true

@@ -31,6 +31,78 @@ proc addImport(b: Buffer, module: string)
 proc importedModules(b: Buffer): HashSet[string]
 proc stdNamesStarting(lp: string): seq[(string, seq[string])]
 
+proc postfixVarName(recv, shape: string): string =
+  ## the loop variable for `recv.for`: items → item, entries → entry, a string's c, else x
+  if shape == "string": return "c"
+  var e = recv.len
+  if e == 0 or recv[^1] in {')', ']', '"', '\''}: return "x"
+  var a = e
+  while a > 0 and nxIsIdent(recv[a - 1]): dec a
+  let w = recv[a ..< e]
+  var n = ""
+  if w.len > 3 and w.endsWith("ies"): n = w[0 ..< ^3] & "y"
+  elif w.len > 4 and (w.endsWith("ches") or w.endsWith("shes") or w.endsWith("sses") or w.endsWith("xes")): n = w[0 ..< ^2]
+  elif w.len > 3 and w.endsWith("ren"): n = w[0 ..< ^3]                   # children → child
+  elif w.len > 1 and w.endsWith("s") and not w.endsWith("ss"): n = w[0 ..< ^1]
+  if n.len == 0 or n in NxKeywords or n == w: return "x"
+  n
+
+proc postfixItems(b: Buffer, c: NxCompletion, line, dot: int): seq[CompItem] =
+  ## postfix templates for what is in front of the `.` at `dot`: xs.for → for x in xs:, c.case → a case with every
+  ## value of c's enum, v.if → if v: (or v.isSome, v != nil, v.len > 0, by its type), x.echo, x.let, x.not …
+  if not cfgPostfix or dot <= 0 or line >= b.lines.len: return
+  let text = b.lines[line]
+  if dot >= text.len or text[dot] != '.': return
+  let recv = nxReceiver(text, dot)
+  if recv.len == 0 or recv.len > 200 or recv[0] in Digits and '.' in recv: return
+  var rs = dot - recv.len
+  while rs > 0 and text[rs ..< dot].strip != recv: dec rs
+  if rs < 0 or text[rs ..< dot].strip != recv: return
+  while rs < dot and text[rs] == ' ': inc rs
+  if c.recvIsType: return                       # Color. and strutils. → their values and procs, not templates
+  let stmt = text[0 ..< rs].strip.len == 0      # it starts a statement: for, if, case … can take its place
+  let sh = c.recvShape
+  let r = recv.replace("$", "\\$")
+  proc add(res: var seq[CompItem], label, detail, body: string) =
+    # (after the receiver's fields and procs: `xs.le` is len before let)
+    res.add CompItem(label: label, insert: label, filter: label, sortText: "9" & label, kind: 15,
+                     detail: "postfix · " & detail, snippet: body, rank: 5, postfix: rs + 1)
+  if stmt:
+    let v = postfixVarName(recv, sh)
+    case sh
+    of "int":
+      result.add("for", "for i in 0 ..< " & recv & ":", "for ${1:i} in 0 ..< " & r & ":\n\t$0")
+    of "table":
+      result.add("for", "for k, v in " & recv & ":", "for ${1:k}, ${2:v} in " & r & ":\n\t$0")
+    else:
+      result.add("for", "for " & v & " in " & recv & ":", "for ${1:" & v & "} in " & r & ":\n\t$0")
+      result.add("fori", "for i, " & v & " in " & recv & ":", "for ${1:i}, ${2:" & v & "} in " & r & ":\n\t$0")
+    let (cond, ncond) = case sh
+      of "option": (recv & ".isSome", recv & ".isNone")
+      of "ref": (recv & " != nil", recv & " == nil")
+      of "string", "seq", "table": (recv & ".len > 0", recv & ".len == 0")
+      of "int", "float": (recv & " != 0", recv & " == 0")
+      else: (recv, "not " & recv)
+    result.add("if", "if " & cond & ":", "if " & cond.replace("$", "\\$") & ":\n\t$0")
+    result.add("ifnot", "if " & ncond & ":", "if " & ncond.replace("$", "\\$") & ":\n\t$0")
+    if sh in ["", "bool"]: result.add("while", "while " & recv & ":", "while " & r & ":\n\t$0")
+    if sh == "enum" and c.enumVals.len > 0:
+      var body = "case " & r
+      for i, ev in c.enumVals:
+        body.add "\nof " & ev & ":\n\t" & (if i == 0: "${1:discard}" else: "discard")
+      result.add("case", "case " & recv & " — all " & $c.enumVals.len & " values", body)
+    else:
+      result.add("case", "case " & recv & " · of … · else", "case " & r & "\nof ${1}:\n\t$0\nelse:\n\tdiscard")
+    result.add("echo", "echo " & recv, "echo " & r & "$0")
+    result.add("discard", "discard " & recv, "discard " & r & "$0")
+    result.add("return", "return " & recv, "return " & r & "$0")
+    result.add("let", "let x = " & recv, "let ${1:x} = " & r & "$0")
+    result.add("var", "var x = " & recv, "var ${1:x} = " & r & "$0")
+    if sh in ["", "bool"]: result.add("assert", "doAssert " & recv, "doAssert " & r & "$0")
+  if sh in ["", "bool"]: result.add("not", "not " & recv, "not " & r & "$0")
+  result.add("par", "(" & recv & ")", "(" & r & ")$0")
+  if sh != "string": result.add("str", "$" & recv, "\\$" & r & "$0")
+
 proc engineComplete(b: Buffer, manual: bool): bool =
   ## completion from the index — after a `.` the receiver's fields and the routines that take it;
   ## nimsuggest is asked as well when the index cannot tell the receiver's type
@@ -53,6 +125,8 @@ proc engineComplete(b: Buffer, manual: bool): bool =
     items.add CompItem(label: it.label, insert: (if it.insert.len > 0: it.insert else: it.label), detail: (if kw: "" else: it.detail),
                        kind: (if kw: 14 else: nxKindIcon(it.kind)), filter: it.label,
                        sortText: $it.rank & it.label.toLowerAscii, rank: it.rank, nx: i + 1)
+  if c.member and compStartCol > 0:
+    items.add postfixItems(b, c, p.line, compStartCol - 1)
   if not c.member:
     for s in snippetItems(b, b.lines[p.line][compStartCol ..< p.col]):
       var s2 = s
@@ -96,6 +170,9 @@ proc compDocOf(i: int): string =
       d = nxDocItem(compNx[nx - 1])
       d.add cDocForNx(compNx[nx - 1])          # an importc proc: its C declaration and documentation
     except Exception as e: internalError("Nim index", e)
+  elif d.len == 0 and compItems[i].postfix > 0:
+    d = "```nim\n" & stripSnippet(compItems[i].snippet).replace("\t", "  ") & "\n```\npostfix — Tab or Enter writes this " &
+        "in place of what is in front of the `.`"
   elif d.len == 0 and compItems[i].snippet.len > 0:
     d = "```" & buf().lang.name.toLowerAscii & "\n" & stripSnippet(compItems[i].snippet) & "\n```\nsnippet — Tab or Enter expands it"
   compItems[i].doc = d

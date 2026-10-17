@@ -75,6 +75,9 @@ type
     known*: bool               # the receiver's type was understood
     items*: seq[NxItem]
     receiverType*: string
+    recvShape*: string         # what the receiver is, for postfix completion (nxPostfixShape)
+    enumVals*: seq[string]     # its values, when it is an enum
+    recvIsType*: bool          # the receiver is a type or a module (Color., strutils.)
 
 const NxKeywords* = ["addr", "and", "as", "asm", "bind", "block", "break", "case", "cast", "concept", "const",
   "continue", "converter", "defer", "discard", "distinct", "div", "do", "elif", "else", "end", "enum", "except",
@@ -310,6 +313,46 @@ proc nxConceptNeeds*(f: NxFile, sc: NxScope, lines: seq[string], line: int, typ:
       inc l
     return
 
+proc nxPostfixShape*(sc: NxScope, typ: string, depth = 0): (string, seq[string]) =
+  ## what the receiver is, for postfix completion (`xs.for`, `c.case`, `v.if`): "bool", "int", "float", "char",
+  ## "string", "seq" (seq, array, openArray, set, HashSet …), "table", "option", "ref" (ref, ptr, pointer, cstring,
+  ## a proc), "enum" with its values, "object" — "" when it cannot be told
+  let raw = typ.strip
+  if raw.len == 0 or depth > 4: return
+  if raw.startsWith("ref ") or raw.startsWith("ptr ") or raw in ["pointer", "cstring"] or raw.startsWith("proc"):
+    return ("ref", @[])
+  let t = nxStripMods(raw)
+  let base = nxBaseName(t)
+  if base in ["seq", "array", "openArray", "varargs", "set", "HashSet", "OrderedSet", "Deque", "HeapQueue",
+              "SinglyLinkedList", "DoublyLinkedList", "PackedSet", "IntSet", "UncheckedArray"]:
+    return ("seq", @[])
+  if base in ["Table", "TableRef", "OrderedTable", "OrderedTableRef", "CountTable", "CountTableRef",
+              "StringTableRef"]:
+    return ("table", @[])
+  if base == "Option": return ("option", @[])
+  let ra = nxResolveAlias(sc, base)
+  if ra == "bool": return ("bool", @[])
+  if ra in NxInts: return ("int", @[])
+  if ra in NxFloats: return ("float", @[])
+  if ra in ["char", "string"]: return (ra, @[])
+  if ra != base: return nxPostfixShape(sc, ra, depth + 1)
+  for r in nxTypeSyms(sc, ra):
+    let def = r.sym.typ.strip
+    if def == "enum" or def.startsWith("enum ") or def.startsWith("enum{") or def.startsWith("enum\n"):
+      var vals: seq[string]
+      for s in r.file.syms:
+        if s.kind == nxEnumVal and s.owner == r.sym.name and s.name notin vals:
+          vals.add s.name
+          if vals.len >= 500: break
+      return ("enum", vals)
+    if def.startsWith("ref ") or def.startsWith("ptr "): return ("ref", @[])
+    if def.startsWith("distinct "): return
+    if "object" in def or def.startsWith("tuple"): return ("object", @[])
+    let inner = nxBaseName(def)
+    if inner.len > 0 and inner != ra:
+      return nxPostfixShape(sc, def, depth + 1)
+    return
+
 proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
   let sc = nxScope(f)
   let text = lines[line]
@@ -357,6 +400,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     let v = nxTypeOfExpr(f, sc, locals, recv, line, 0)
     if v.module.len > 0:
       result.known = true
+      result.recvIsType = true
       var got: seq[NxRef]
       var seen: HashSet[string]
       nxExports(v.module, 0, seen, got)
@@ -364,6 +408,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       return
     if v.typeName.len > 0:
       result.known = true
+      result.recvIsType = true
       result.receiverType = v.typeName
       var vals: seq[NxRef]
       for r in nxLookup(sc, v.typeName):
@@ -388,6 +433,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     result.receiverType = typ
     result.known = typ.len > 0
     if result.known:
+      (result.recvShape, result.enumVals) = nxPostfixShape(sc, typ)
       var flds: seq[NxRef]
       for r in nxFields(sc, typ):
         if nxVisible(f, r): flds.add r

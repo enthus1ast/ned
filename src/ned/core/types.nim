@@ -205,6 +205,7 @@ type
     docMade, resolveAsked: bool
     data: JsonNode            # the language server's item, for completionItem/resolve
     addImport: string         # accepting it also adds this import (a standard-library name not imported yet)
+    postfix: int              # a postfix template (xs.for): 1 + the column its receiver starts at, 0 = not one
 
   PickItem = object
     label, detail, path, icon: string

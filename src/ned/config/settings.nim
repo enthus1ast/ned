@@ -235,6 +235,9 @@ proc initSettingDefs() =
        "whether they start with a capital letter. Other languages get them from their language server")
   defS("Nim", "nim.autoImport", %true,
        "Completion also offers standard-library names whose module is not imported yet; choosing one adds the import")
+  defS("Nim", "nim.postfixCompletion", %true,
+       "After a `.`, completion also offers postfix templates that wrap what is in front of it: xs.for → " &
+       "for x in xs:, c.case → a case with every value of its enum, v.if, x.echo, x.let, x.not …")
   defS("Nim", "nim.nimsuggest", %false,
        "builtin engine: also run nimsuggest (if installed) as a second opinion when ned's own index cannot tell what " &
        "a name is. Off by default: the index answers completion, hover, definitions, references and rename itself, " &
@@ -572,6 +575,7 @@ proc applySettings() =
   cfgTouchKeys.setLen(0)
   for x in jitems(sval("ui.touchBarKeys")): cfgTouchKeys.add x.getStr
   cfgAutoImport = sBool("nim.autoImport")
+  cfgPostfix = sBool("nim.postfixCompletion")
   cfgSemColors = sBool("nim.semanticColors")
   cfgMinimap = sStr("ui.minimap")
   cfgScrollbar = sBool("ui.scrollbar")
