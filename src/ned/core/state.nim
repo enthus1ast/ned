@@ -119,6 +119,7 @@ var
   cfgDimInactive = true        # dim `when` branches false on this platform, C's #if 0 …
   cfgTestOnSave = "related"    # run std/unittest files on save: related (the file, or the tests importing it) · file · off
   cfgSemColors = true          # Nim: colour names by what the index knows they are
+  cfgRichColors = true         # … var/let, globals, deprecated, unsafe (nim.richColors)
   cfgMinimap = "auto"
   cfgScrollbar = true
   cfgLongPress = true          # touch: press and hold opens the context menu
@@ -330,6 +331,11 @@ var
   gutterW = 6
   undoSeq = 0
   lspFailed: HashSet[string]
+  lspMoreFailed: HashSet[string]     # second servers (lsp.alsoRun) that could not start or died: their command
+  lspUidNext = 1
+  cfgLspAlso: Table[string, seq[seq[string]]]   # lsp.alsoRun: language id ("*": every one) → more servers
+  cfgLspLinters = true               # lsp.linters: known linters' servers too, when installed
+  cfgFormatOnType = false            # editor.formatOnType: the server's on-type formatting
   lspHinted: HashSet[string]          # languages already told how to install a language server
   cfgLspHints = true                  # editor.languageServerHints
   lspDeaths = initTable[string, int]()

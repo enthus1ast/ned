@@ -10,7 +10,11 @@ type
     tkComment, tkDoc, tkPragma, tkOperator, tkFunc, tkPunct, tkPreproc,
     tkProperty, tkVariable, tkTag, tkAttr, tkHeading, tkLink, tkBold, tkCode,
     tkAdded, tkRemoved,
-    tkParam                     # a routine's parameter, where it is used (semantic colours)
+    tkParam,                    # a routine's parameter, where it is used (semantic colours)
+    tkMutable,                  # Nim: a `var` (it can change) — a `let` stays plain
+    tkGlobal, tkGlobalVar,      # Nim: the module's own let / var, used anywhere (in bold)
+    tkDeprecated,               # Nim: a {.deprecated.} name (faded, struck through)
+    tkUnsafe                    # Nim: cast, addr, unsafeAddr, ptr — where memory safety is up to you
 
   LexMode = enum
     lmPlain, lmGeneric, lmNim, lmC, lmJs, lmRust, lmShell, lmPython, lmMarkdown,
@@ -67,7 +71,7 @@ type
     chromeCols: array[3, Rgb]   # title bar, docks, status bar — when the theme sets them
     hasChrome: bool
 
-  Attr = enum aBold, aDim, aItalic, aUnder, aRev
+  Attr = enum aBold, aDim, aItalic, aUnder, aRev, aStrike
   DragTarget = enum dtNone, dtSplit, dtLeftDock, dtRightDock, dtPanel, dtScroll, dtMinimap, dtTab
   Cell = object
     ch: uint32
@@ -108,6 +112,7 @@ type
     code: JsonNode      # the server's code for it (sent back when asking for its fixes)
     raw: string         # the server's own words, when msg was tidied (sent back when asking for its fixes)
     fixes: JsonNode     # the fixes the server sent with it (clangd: codeActionsInline), nil when none
+    srv: int            # the language server that reported it (its uid; 0: not a language server)
 
   Buffer = ref object
     id: int
@@ -128,6 +133,7 @@ type
     mtime, fsize: int64
     lspVersion: int
     lspDirty, lspOpen: bool
+    lspMore: bool                 # a second language server (a linter: lsp.alsoRun) has it open too
     lspChangeAt: MonoTime
     git: seq[uint8]     # per line: 0 none, 1 added, 2 modified, 3 deleted-below
     readOnly: bool
@@ -248,7 +254,8 @@ type
   LspReqKind = enum lrInit, lrCompletion, lrHover, lrDefinition, lrRename, lrFormat, lrSymbols, lrShutdown,
                     lrSignature, lrReferences, lrExpand, lrInlay, lrCodeAction, lrResolve, lrOther,
                     lrWsSymbols, lrSemTokens, lrCallPrep, lrCallIn, lrCallOut,
-                    lrTypeDef, lrImpl, lrHighlight, lrFolding, lrTypePrep, lrTypeSuper, lrTypeSub
+                    lrTypeDef, lrImpl, lrHighlight, lrFolding, lrTypePrep, lrTypeSuper, lrTypeSub,
+                    lrPullDiag, lrLinks, lrOnType
   LspReq = object
     kind: LspReqKind
     bufId, version: int
@@ -272,6 +279,10 @@ type
     errPart: string
     stopped: bool             # shut down on purpose (restart, folder change): not a crash
     startedAt: MonoTime
+    uid: int                  # (its problems carry it: Diag.srv)
+    secondary: bool           # a second server for the language (a linter): problems and fixes only
+    docVer: Table[int, int]   # a second server: buffer id → the version it has
+    pullIds: Table[string, string]   # pull diagnostics: file → the result id of its last answer
 
   Action = proc() {.closure.}
   Command = object

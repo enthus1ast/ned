@@ -17,10 +17,23 @@ def send(msg):
     sys.stdout.buffer.flush()
 uri = None
 def rng(l1, c1, l2, c2): return {"start": {"line": l1, "character": c1}, "end": {"line": l2, "character": c2}}
+published = set()
+def publish(u, text):
+    # (only for files that say PRIMARY_ERR: the other tests see no problems from this server)
+    ds = []
+    for i, l in enumerate(text.split('\n')):
+        k = l.find('PRIMARY_ERR')
+        if k >= 0: ds.append({"range": rng(i, k, i, k + 11), "severity": 1, "source": "mocklsp", "message": "PRIMARY_ERR here"})
+    if ds or u in published:
+        published.add(u)
+        send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": {"uri": u, "diagnostics": ds}})
 while True:
     m = read()
     meth, mid, p = m.get('method'), m.get('id'), m.get('params') or {}
-    if meth == 'textDocument/didOpen': uri = p['textDocument']['uri']
+    if meth == 'textDocument/didOpen':
+        uri = p['textDocument']['uri']
+        publish(uri, p['textDocument']['text'])
+    if meth == 'textDocument/didChange': publish(p['textDocument']['uri'], p['contentChanges'][-1]['text'])
     if mid is None: continue
     r = None
     if meth == 'initialize':

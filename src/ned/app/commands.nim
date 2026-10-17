@@ -160,9 +160,13 @@ proc restartLsp() =
       killProc(s.pr)
   lspFailed.excl b.lang.id
   lspDeaths.del b.lang.id
+  lspMoreFailed.clear()
   diagsLsp.del b.path
   for x in bufs:
-    if x.lang.id == b.lang.id: x.lspOpen = false
+    if x.lang.id == b.lang.id:
+      x.lspOpen = false
+      x.lspMore = false
+  lspMoreSync(b, start = true)
   let s = lspFor(b)
   if s == nil: info("No language server found for " & b.lang.name &
                     (if b.lang.lsp.len > 0: " (install " & b.lang.lsp[0][0] & ")" else: ""))
@@ -178,10 +182,12 @@ proc restartLangServer(langId: string) =
       s.dead = true          # the main loop reaps it and kills the group
   lspFailed.excl langId
   lspDeaths.del langId
+  lspMoreFailed.clear()
   if langId == "nim": nlsStatus = nil
   for b in bufs:
     if b.lang.id == langId:
       b.lspOpen = false
+      b.lspMore = false
       diagsLsp.del b.path
   for b in bufs:
     if b.lang.id == langId and b.path.len > 0 and b.title.len == 0:

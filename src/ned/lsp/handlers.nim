@@ -40,7 +40,41 @@ proc showHoverAuto(text: string, auto: bool) =
 proc showHover(text: string) = showHoverAuto(text, false)
 
 proc handleInlays(s: LspServer, req: LspReq, res: JsonNode)
-proc handleCodeActions(s: LspServer, res: JsonNode)
+proc handleCodeActions(s: LspServer, req: LspReq, res: JsonNode)
+proc handlePullDiags(s: LspServer, req: LspReq, res: JsonNode)
+proc handleLinks(s: LspServer, req: LspReq, res: JsonNode)
+proc handleOnType(s: LspServer, req: LspReq, res: JsonNode)
+
+proc lspAlive(uid: int): bool =
+  for s in servers:
+    if s.uid == uid and not s.dead: return true
+  false
+
+proc lspSetDiags(s: LspServer, path: string, items: JsonNode) =
+  ## a server's problems in a file (pushed, or pulled): the other servers' there stay
+  let i = bufIndexByPath(path)
+  var ds: seq[Diag]
+  for d in jitems(items):
+    var a = Pos(line: d{"range", "start", "line"}.getInt, col: d{"range", "start", "character"}.getInt)
+    var e = Pos(line: d{"range", "end", "line"}.getInt, col: d{"range", "end", "character"}.getInt)
+    if i >= 0:
+      a = fromLspPos(s, bufs[i], d{"range", "start"})
+      e = fromLspPos(s, bufs[i], d{"range", "end"})
+    let (m, fx) = lspDiagMsg(d)
+    ds.add Diag(line: a.line, col: a.col, eline: e.line, ecol: e.col,
+                sev: (let v = d{"severity"}.getInt(1); if v == 0: 1 else: v),
+                msg: m, raw: d{"message"}.getStr, fixes: fx, src: d{"source"}.getStr(s.name), code: d{"code"},
+                srv: s.uid)
+  # the other servers' problems in this file stay (a linter next to the main server): only this one's are new
+  var merged: seq[Diag]
+  for d in diagsLsp.getOrDefault(path):
+    if d.srv != s.uid and d.srv != 0 and lspAlive(d.srv): merged.add d
+  if merged.len == 0: diagsLsp[path] = ds
+  else:
+    for d in ds: merged.add d
+    merged.sort(proc(x, y: Diag): int = cmp((x.line, x.col), (y.line, y.col)))
+    diagsLsp[path] = merged
+  needRender = true
 
 proc lspConfigChanged() =
   for s in servers:
@@ -70,6 +104,10 @@ proc lspHandle(s: LspServer, m: JsonNode) =
       for b in bufs:
         if b.lang.id == s.langId: b.inlayAt = -1
       s.lspReply(m["id"], newJNull())
+    of "workspace/diagnostic/refresh":
+      s.lspReply(m["id"], newJNull())
+      for b in bufs:
+        if b.lang.id == s.langId and b.path.len > 0 and (b.lspOpen or b.id in s.docVer): lspPullDiags(s, b)
     of "workspace/applyEdit":
       applyWorkspaceEdit(s, m{"params", "edit"})
       s.lspReply(m["id"], %*{"applied": true})
@@ -82,7 +120,7 @@ proc lspHandle(s: LspServer, m: JsonNode) =
     let req = s.pending[id]
     s.pending.del id
     if m.hasKey("error"):
-      if req.kind notin {lrCompletion, lrHover}:
+      if req.kind notin {lrCompletion, lrHover, lrPullDiag, lrLinks, lrOnType}:
         warn(s.name & ": " & m["error"]{"message"}.getStr)
       if req.kind == lrInit: s.dead = true
       return
@@ -111,7 +149,7 @@ proc lspHandle(s: LspServer, m: JsonNode) =
       s.lspNotify("initialized", newJObject())
       for b in bufs:
         if b.lang.id == s.langId: lspAttach(b)
-      info(s.name & " ready")
+      info(s.name & " ready" & (if s.secondary: " — its problems and quick fixes next to the main server's" else: ""))
     of lrCompletion: handleCompletion(s, req, res)
     of lrResolve:
       # completionItem/resolve: the documentation of the item selected in the list
@@ -247,7 +285,10 @@ proc lspHandle(s: LspServer, m: JsonNode) =
           else: callItems.add callItemOf(s, c{"to"}, "→")
       callDone()
     of lrInlay: handleInlays(s, req, res)
-    of lrCodeAction: handleCodeActions(s, res)
+    of lrCodeAction: handleCodeActions(s, req, res)
+    of lrPullDiag: handlePullDiags(s, req, res)
+    of lrLinks: handleLinks(s, req, res)
+    of lrOnType: handleOnType(s, req, res)
     of lrRename: previewWorkspaceEdit(s, res, req.extra, req.extra2)
     of lrFormat:
       let b = bufById(req.bufId)
@@ -300,20 +341,7 @@ proc lspHandle(s: LspServer, m: JsonNode) =
     if path in shadowNim:                       # the C a Nim file emits: its problems on the .nim's lines
       emitShadowDiags(s, path, params)
       return
-    let i = bufIndexByPath(path)
-    var ds: seq[Diag]
-    for d in jitems(params{"diagnostics"}):
-      var a = Pos(line: d{"range", "start", "line"}.getInt, col: d{"range", "start", "character"}.getInt)
-      var e = Pos(line: d{"range", "end", "line"}.getInt, col: d{"range", "end", "character"}.getInt)
-      if i >= 0:
-        a = fromLspPos(s, bufs[i], d{"range", "start"})
-        e = fromLspPos(s, bufs[i], d{"range", "end"})
-      let (m, fx) = lspDiagMsg(d)
-      ds.add Diag(line: a.line, col: a.col, eline: e.line, ecol: e.col,
-                  sev: (let v = d{"severity"}.getInt(1); if v == 0: 1 else: v),
-                  msg: m, raw: d{"message"}.getStr, fixes: fx, src: d{"source"}.getStr(s.name), code: d{"code"})
-    diagsLsp[path] = ds
-    needRender = true
+    lspSetDiags(s, path, params{"diagnostics"})
   of "window/showMessage":
     let t = params{"type"}.getInt(3)
     let text = s.name & ": " & params{"message"}.getStr

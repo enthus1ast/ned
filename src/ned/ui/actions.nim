@@ -3,6 +3,7 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 var pickActions: seq[Action]
+var pickSwatches: seq[int]       # a colour shown before each action's label (the theme editor), -1: none
 
 proc act(label, detail: string, a: Action): (string, string, Action) = (label, detail, a)
 
@@ -21,6 +22,7 @@ proc gitAskIdentity(dir: string, then: proc() {.closure.} = nil)
 proc openActions(title: string, items: seq[(string, string, proc() {.closure.})], search: seq[string] = @[]) =
   ## a picker of arbitrary actions (label, detail, action); `search`: extra text per item the query may match
   pickActions.setLen(0)
+  pickSwatches.setLen(0)
   var its: seq[PickItem]
   for i, (l, d, a) in items:
     its.add PickItem(label: l, detail: d, idx: i, line: -1,

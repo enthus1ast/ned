@@ -20,6 +20,7 @@ proc outsideProject(c: AiCall): bool =
   false
 
 proc needsApproval(c: AiCall): bool =
+  if aiPlanState == apPlanning and toolKind(c.name) != 0: return false   # (refused at once: see runCall)
   if outsideProject(c): return true            # never silently, whatever ai.autoApprove says
   if c.name in aiAlwaysAllow: return false
   case toolKind(c.name)
@@ -294,6 +295,10 @@ proc runCall(mi, ci: int) =
   try: j = parseJson(if c.args.strip.len == 0: "{}" else: c.args)
   except CatchableError:
     finishCall(mi, ci, "invalid JSON arguments: " & c.args, true)
+    return
+  if aiPlanState == apPlanning and toolKind(c.name) != 0:
+    finishCall(mi, ci, "Not now: this is the planning step — reply with the numbered plan. Files are changed and " &
+               "commands run only after the user approves the plan.", true)
     return
   aiMsgs[mi].calls[ci].state = 1
   if c.name in ["edit_file", "write_file"]:

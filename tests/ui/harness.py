@@ -151,6 +151,7 @@ def setup(cfg=None):
     c["nim.showCopies"] = False        # (no compiler run on every save; t_66_copies turns it on)
     c["nim.testOnSave"] = "off"        # (nor tests; t_66_test_on_save turns them on)
     c["git.checksBeforeCommit"] = "off"  # (commits as they were; t_67_commit_checks turns the checks on)
+    c["lsp.linters"] = False           # (no ruff next to the test servers; t_67_two_servers turns it on)
     c.update(cfg or {})
     c = {k: v for k, v in c.items() if v is not None}
     json.dump(c, open(CFG + '/ned/config.json', 'w'))

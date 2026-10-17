@@ -19,6 +19,8 @@ type
     checked: bool         # its edits were checked (ai.checkEdits)
     shown: string         # what the chat shows for a user message (attachments hidden)
 
+  AiPlanState = enum apNone, apPlanning, apReady, apDoing
+
 type ChatSpan = object
   t: string
   fg, bg: Rgb
@@ -61,6 +63,13 @@ var
   aiOneShotCb: proc(t: string) {.closure.}
   aiCheckGen = 0          # bumped when the assistant stops: a check of its edits still running is then dropped
   aiRespApi = false       # the running request uses OpenAI's Responses API
+  # plan first, then do it (plan.nim)
+  aiPlanState = apNone
+  aiPlanTask = ""
+  aiPlanSteps: seq[string]
+  aiPlanAt = 0            # the next step to do
+  aiPlanAuto = false      # all the steps without asking in between
+  aiPlanCps: seq[int]     # each step's restore point (a checkpoint id; -1: the step changed no files)
 
 proc aiProviderBase(): string =
   if cfgAiBase.len > 0:

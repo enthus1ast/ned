@@ -26,6 +26,7 @@ proc initCommands() =
   add("Go to line…", "Ctrl+G", openPrompt(pGoto, "Go to line[:col]"))
   add("Go to symbol…", "Ctrl+T", cmdSymbols())
   add("Go to definition", "Alt+. / F12", cmdDefinition())
+  add("Open the link at the cursor", "", cmdOpenLink())
   add("Jump back", "Alt+,", jumpBack())
   add("Go forward", "Alt+Shift+, (Alt+<)", jumpForward())
   add("Reopen closed tab", "Alt+Shift+T", reopenClosedTab())
@@ -437,7 +438,15 @@ proc initCommands() =
   add("Theme: import a VS Code or base16 theme…", "", askPath("Theme file (.json, .yaml)", getHomeDir() & "/",
                                                             proc(t: string) = importTheme(t)))
   add("Theme: make my own copy of this theme", "", cmdEditThemeColours())
+  add("Theme: edit colours (contrast checked)…", "", cmdThemeEditor())
   add("Theme: reload theme files", "", reloadThemes())
+  add("Theme: use these colours in all of Termux", "", cmdTermuxColors())
+  add("Theme: put Termux's own colours back", "", cmdTermuxRestore())
+  add("Theme: light by day, dark at night", "", (block:
+    if sStr("theme.autoBy") != "clock": setSetting("theme.autoBy", %"clock")
+    if cfgThemeName != "auto": setSetting("theme", %"auto")
+    info((if isDaytime(): "Day" else: "Night") & ": " & theme.name & " — light from " & sStr("theme.dayStarts") &
+         ", dark from " & sStr("theme.nightStarts") & " (theme.light, theme.dark and these times are settings)")))
   add("Run: configurations…", "", cmdRunConfigs())
   add("Tasks: run a task…", "Shift+F4", cmdRunTask())
   add("Tasks: run the last task again", "F4", cmdRerunTask())

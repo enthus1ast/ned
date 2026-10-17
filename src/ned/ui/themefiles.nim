@@ -18,10 +18,29 @@ proc handleTermBg() =
     ch[i] = parseHexInt(h)
   termBgKnown = true
   termBgLight = luminance(Rgb((ch[0] shl 16) or (ch[1] shl 8) or ch[2])) > 0.25
-  if cfgThemeName == "auto":
+  if cfgThemeName == "auto" and not autoByClock():
     applyTheme("auto")
+    themeFollowers()
     prevGrid.setLen(0)
     needRender = true
+
+var lastDaytime = -1         # theme.autoBy "clock": light (1) or dark (0) at the last look
+
+proc themeClockCheck() =
+  ## every few seconds: "theme": "auto" by the clock switches at theme.dayStarts and theme.nightStarts
+  if cfgThemeName != "auto" or not autoByClock():
+    lastDaytime = -1
+    return
+  let d = ord(isDaytime())
+  if d == lastDaytime: return
+  let first = lastDaytime < 0
+  lastDaytime = d
+  if first: return                            # (applied when the settings were)
+  applyTheme("auto")
+  themeFollowers()
+  prevGrid.setLen(0)
+  needRender = true
+  info((if d == 1: "Day: the light theme, " else: "Night: the dark theme, ") & theme.name)
 
 proc refreshThemeChoices() =
   ## the settings' lists of themes, after adding one
@@ -62,6 +81,81 @@ proc saveThemeFile(j: JsonNode): string =
   createDir(themesDir())
   result = themesDir() / (name & ".json")
   writeFile(result, j.pretty & "\n")
+
+# ── Termux: the whole terminal in ned's colours — ~/.termux/colors.properties written from the theme. Colours of
+#    your own are kept beside it (colors.properties.ned-backup) and put back by "Theme: put Termux's own colours
+#    back" ──
+
+const TermuxMark = "# written by ned"
+
+proc termuxColorsFile(): string = getHomeDir() / ".termux" / "colors.properties"
+
+proc termuxColorsText(t: Theme): string =
+  ## Termux's colours: background, foreground, cursor, the 16 ANSI colours — the theme's own
+  result = TermuxMark & ", from its theme " & t.name & " — palette › Theme: put Termux's own colours back\n"
+  result.add "background=" & hexOf(t.bg) & "\n"
+  result.add "foreground=" & hexOf(t.fg) & "\n"
+  result.add "cursor=" & hexOf(readableOn(t.accent, t.bg, 3.0)) & "\n"
+  for i in 0 .. 15: result.add "color" & $i & "=" & hexOf(t.ansi[i]) & "\n"
+
+proc termuxReload() =
+  ## Termux reads the file again (the termux-reload-settings command; without it, on the next session)
+  if haveExe("termux-reload-settings"):
+    discard startJob(jkAux, "termux-reload-settings >/dev/null 2>&1", getHomeDir())
+
+proc termuxWriteColors(quiet: bool): bool =
+  ## the theme's colours into Termux; your own colours kept once beside them. false: could not
+  let f = termuxColorsFile()
+  let text = termuxColorsText(theme)
+  try:
+    if fileExists(f):
+      let cur = readFile(f)
+      if cur == text: return true
+      if not cur.startsWith(TermuxMark): copyFile(f, f & ".ned-backup")    # (colours of your own: kept)
+    else: createDir(parentDir(f))
+    writeFileSafe(f, text)
+  except CatchableError as e:
+    if not quiet: error("Cannot write " & tildePath(f) & ": " & e.msg)
+    return false
+  termuxReload()
+  true
+
+proc themeFollowers() =
+  ## after the theme changed: Termux follows it, when you asked for that
+  if sBool("theme.termuxColors") and isTermux(): discard termuxWriteColors(quiet = true)
+
+proc cmdTermuxColors() =
+  if not isTermux():
+    info("This is for Termux (Android): it writes ~/.termux/colors.properties from the theme — this is not Termux")
+    return
+  if not termuxWriteColors(quiet = false): return
+  if sBool("theme.termuxColors"):
+    info("Termux has the " & theme.name & " colours")
+    return
+  toast("Termux has the " & theme.name & " colours now (yours are kept: Theme › put Termux's own colours back)", 3,
+        "Keep matching", proc() =
+    setSetting("theme.termuxColors", %true)
+    info("Termux follows ned's theme from now on"), 15000)
+
+proc cmdTermuxRestore() =
+  ## Termux's colours as they were before ned wrote them
+  let f = termuxColorsFile()
+  let bak = f & ".ned-backup"
+  if sBool("theme.termuxColors"): setSetting("theme.termuxColors", %false)
+  try:
+    if fileExists(bak):
+      moveFile(bak, f)
+      info("Termux has your own colours again")
+    elif fileExists(f) and readFile(f).startsWith(TermuxMark):
+      removeFile(f)
+      info("Termux has its default colours again")
+    else:
+      info("Termux's colours are not ned's — nothing to put back")
+      return
+  except CatchableError as e:
+    error("Cannot put Termux's colours back: " & e.msg)
+    return
+  termuxReload()
 
 proc stripJsonc(s: string): string =
   ## VS Code's theme files are JSON with comments and trailing commas
@@ -224,3 +318,133 @@ proc askPath(label, initial: string, cb: proc(t: string)) =
   ## a prompt for a file or folder (Tab completes)
   gitPromptCb = cb
   openPrompt(pPathInput, label, initial)
+
+# ── the theme editor: every colour of the theme with a swatch and how readable it is (WCAG contrast); pick one to
+#    type a new colour, make it lighter or darker, or readable — saved in your copy of the theme, shown at once ──
+
+const ThemeEditKeys = ["fg", "bg", "comment", "keyword", "type", "string", "number", "function", "operator", "macro",
+                       "property", "accent", "selection", "error", "warning", "ok", "titleBar", "dock", "statusBar", "ruler"]
+
+proc themeKeyColor(t: Theme, k: string): Rgb =
+  let i = ThemeKeys.find(k)
+  if i >= 0: return t.base[i]
+  let j = ChromeKeys.find(k)
+  if j >= 0: return (if t.hasChrome: t.chromeCols[j] else: [t.titleBg, t.dockBg, t.statusBg][j])
+  t.ruler
+
+proc themeKeyIsBack(k: string): bool = k in ["bg", "selection", "titleBar", "dock", "statusBar"]
+
+proc themeContrast(t: Theme, k: string): (float, float, string) =
+  ## (the contrast, the least that reads well, what it is measured against)
+  let c = themeKeyColor(t, k)
+  let bg = t.base[0]
+  let fg = t.base[1]
+  case k
+  of "bg", "fg": (contrast(fg, bg), 4.5, "text on the background")
+  of "selection", "titleBar", "dock", "statusBar": (contrast(fg, c), 4.5, "text on it")
+  of "comment": (contrast(c, bg), 3.0, "on the background")
+  of "ruler": (contrast(c, bg), 1.3, "on the background")
+  else: (contrast(c, bg), 3.0, "on the background")
+
+proc themeFileOf(name: string): string =
+  ## the file of one of your themes (~/.config/ned/themes), "" for a built-in one
+  if not dirExists(themesDir()): return ""
+  try:
+    for kind, p in walkDir(themesDir()):
+      if kind notin {pcFile, pcLinkToFile} or not p.endsWith(".json"): continue
+      try:
+        let (ok, th) = themeFromJson(parseFile(p), splitFile(p).name)
+        if ok and th.name == name: return p
+      except CatchableError: discard
+  except OSError: discard
+  ""
+
+proc themeEditFile(): string =
+  ## the theme's file to change: your own theme's, or a copy of a built-in one (<name>-mine), put in use
+  var builtin = false
+  for t in allThemesRaw():
+    if t.name == theme.name: builtin = true
+  if not builtin:
+    let f = themeFileOf(theme.name)
+    if f.len > 0: return f
+  var j = themeJson(theme)
+  var name = theme.name
+  if not name.endsWith("-mine"): name.add "-mine"
+  j["name"] = %name
+  result = themeFileOf(name)
+  if result.len == 0: result = saveThemeFile(j)
+  themeCache.setLen(0)
+  refreshThemeChoices()
+  if cfgThemeName == "auto": setSetting(if theme.dark: "theme.dark" else: "theme.light", %name)
+  else: setSetting("theme", %name)
+  info("Changing your copy of the theme: " & name & " (" & tildePath(result) & ")")
+
+proc cmdThemeEditor(at = "")
+
+proc themeSetColor(k: string, c: Rgb) =
+  ## one colour of your theme changed: written, applied, the editor shown again
+  let f = themeEditFile()
+  try:
+    let j = parseFile(f)
+    if j{"colors"} == nil or j{"colors"}.kind != JObject: j["colors"] = newJObject()
+    j["colors"][k] = %hexOf(c)
+    writeFileSafe(f, j.pretty & "\n")
+  except CatchableError as e:
+    error("Cannot change the theme file: " & e.msg)
+    return
+  for b in bufs:
+    if b.path == f and not b.dirty: reloadBuffer(b)
+  themeCache.setLen(0)
+  applyTheme(cfgThemeName)
+  themeFollowers()
+  prevGrid.setLen(0)
+  needRender = true
+  cmdThemeEditor(k)
+
+proc themeKeyMenu(k: string) =
+  let c = themeKeyColor(theme, k)
+  let (r, want, what) = themeContrast(theme, k)
+  var items: seq[(string, string, Action)]
+  items.add act("Type a colour…", "#rrggbb", proc() =
+    askText(k & " — a colour (#rrggbb)", hexOf(c), proc(t: string) =
+      let v = parseColor(t, theme.base[0])
+      if v < 0: error("Not a colour: " & t & " (#rrggbb)")
+      else: themeSetColor(k, Rgb(v))))
+  if r < want:
+    let fixed = if themeKeyIsBack(k): bgUnder(c, theme.base[1], want) else: readableOn(c, theme.base[0], want)
+    items.add act("Make it readable", hexOf(fixed) & " · " & formatFloat(want, ffDecimal, 1) & ":1", proc() =
+      themeSetColor(k, fixed))
+  items.add act("Lighter", "", proc() = themeSetColor(k, blend(c, 0xFFFFFF'u32, 0.12)))
+  items.add act("Darker", "", proc() = themeSetColor(k, blend(c, 0x000000'u32, 0.12)))
+  var orig = theme.name
+  if orig.endsWith("-mine"): orig.setLen(orig.len - 5)
+  let (found, ot) = themeNamed(orig)
+  if found and orig != theme.name and themeKeyColor(ot, k) != c:
+    let oc = themeKeyColor(ot, k)
+    items.add act("As in " & orig, hexOf(oc), proc() = themeSetColor(k, oc))
+  items.add act("Back to the list", "", proc() = cmdThemeEditor(k))
+  openActions(k & "  " & hexOf(c) & " — " & formatFloat(r, ffDecimal, 1) & ":1 " & what, items)
+  pickSwatches = @[]
+
+proc themeKeyAct(k: string): Action =
+  result = proc() = themeKeyMenu(k)
+
+proc cmdThemeEditor(at = "") =
+  ## the colours of the theme in use: a swatch, the value, its contrast — hard-to-read ones marked
+  var items: seq[(string, string, Action)]
+  var sw: seq[int]
+  var weak = 0
+  var sel = 0
+  for k in ThemeEditKeys:
+    let c = themeKeyColor(theme, k)
+    let (r, want, _) = themeContrast(theme, k)
+    let low = r < want
+    if low: inc weak
+    if k == at: sel = items.len
+    items.add act((if low: "⚠ " else: "") & k & (if low: " — hard to read" else: ""),
+                  hexOf(c) & "  " & formatFloat(r, ffDecimal, 1) & ":1", themeKeyAct(k))
+    sw.add int(c)
+  openActions("Theme editor — " & theme.name & (if weak > 0: " · " & $weak & " hard to read" else: " · all readable"),
+              items)
+  pickSwatches = sw
+  if sel > 0 and sel < pickShown.len: pickSel = sel

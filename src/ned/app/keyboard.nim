@@ -313,6 +313,7 @@ proc editorKey(k: Key) =
       s.addUtf8(k.ch)
       b.typeChar(s)
       afterType(k.ch)
+      if cfgFormatOnType: formatOnTypeAsk(b, s)
   of kPaste:
     closeComp()
     let l0 = b.primary.range[0].line
@@ -323,7 +324,9 @@ proc editorKey(k: Key) =
     if alt or ctrl: cmdCodeActions()          # Alt+Enter: quick fixes (imports, AI fix, server actions)
     elif shift and replCommandFor(b.lang)[0].len > 0 and b.lang.id != "shellscript":
       replSendSelOrStatement()                # Shift+Enter (terminals that report it): send to the REPL
-    else: b.newline()
+    else:
+      b.newline()
+      if cfgFormatOnType: formatOnTypeAsk(b, "\n")
   of kTab:
     closeComp()
     if shift:

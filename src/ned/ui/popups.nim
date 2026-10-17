@@ -215,6 +215,17 @@ proc drawPicker() =
           of "#": theme.syn[tkHeading]
           else: theme.dim
       xx = putStr(xx, y, it.icon & " ", ic, bg)
+    if pickKind == pickAction and it.idx < pickSwatches.len and pickSwatches[it.idx] >= 0:
+      xx = putStr(xx, y, "██", Rgb(pickSwatches[it.idx]), bg)
+      xx = putStr(xx, y, " ", fg, bg)
+    elif pickKind == pickTheme and not cfgAccessible:
+      # the theme's background with its keyword, string and function colours on it
+      let (ok, th) = themeNamed(it.label)
+      if ok:
+        xx = putStr(xx, y, "▌", th.bg, bg)
+        for c in [th.syn[tkKeyword], th.syn[tkString], th.syn[tkFunc]]: xx = putStr(xx, y, "■", c, th.bg)
+        xx = putStr(xx, y, "▐", th.bg, bg)
+        xx = putStr(xx, y, " ", fg, bg)
     let detailW = if it.detail.len > 0: min(strWidth(it.detail), max(0, (pw - 6) div 2)) else: 0
     let labelMax = px + pw - 2 - (if detailW > 0: detailW + 2 else: 0)
     if pickKind == pickFile:

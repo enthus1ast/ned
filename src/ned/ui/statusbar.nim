@@ -96,6 +96,12 @@ proc drawStatusBar() =
   var lsTxt = ""
   if srv != nil:
     lsTxt = if srv.status.len > 0: "○ " & truncTo(srv.status, 26) elif srv.ready: ic("ok") & " " & srv.name else: "○ " & srv.name
+  if b.lspMore:
+    # a linter's server next to it (lsp.alsoRun, lsp.linters): "pyright + ruff"
+    var more = ""
+    for s in servers:
+      if s.secondary and not s.dead and s.langId == b.lang.id and b.id in s.docVer: more.add " + " & s.name
+    if more.len > 0: lsTxt = (if lsTxt.len > 0: lsTxt & more else: ic("ok") & " " & more[3 .. ^1])
   elif nimEngineOn(b):
     let st = if nsUsable(b): nsStatus(b) else: ""
     lsTxt = ic("ok") & " Nim" & (if st.len == 0: "" elif st == "nimsuggest": " + nimsuggest" else: " · " & st)

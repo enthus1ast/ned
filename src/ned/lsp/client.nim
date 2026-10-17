@@ -107,13 +107,87 @@ proc lspInstallToast(langName: string, cands: seq[seq[string]]) =
           3, "Install", proc() = runInTerm(shown), 12000)
     return
 
+proc lspSpawn(id: string, c: seq[string], secondary: bool): LspServer =
+  ## start one language server (its `initialize` sent); nil when it cannot start
+  try:
+    var p = spawnProc(c, rootDir, siPipe, erPipe)
+    let shown = if c.len > 1 and extractFilename(c[0]) in ["python", "python3", "node", "sh", "bash", "ruby"]:
+                  extractFilename(c[1]) else: extractFilename(c[0])
+    let s = LspServer(langId: id, name: shown, cmd: c, pr: p, inFd: p.inFd, uid: lspUidNext, secondary: secondary,
+                      outFd: p.outFd, errFd: p.errFd, status: "starting…", startedAt: getMonoTime())
+    inc lspUidNext
+    s.pr.inFd = -1
+    s.pr.outFd = -1
+    s.pr.errFd = -1
+    setNonBlock(s.inFd); setNonBlock(s.outFd); setNonBlock(s.errFd)
+    servers.add s
+    let root = uriFromPath(rootDir)
+    let params = %*{
+      "processId": getCurrentProcessId(),
+      "rootUri": root, "rootPath": rootDir,
+      "workspaceFolders": wsFoldersJson(),
+      "clientInfo": {"name": AppName, "version": Version},
+      "capabilities": {
+        "general": {"positionEncodings": ["utf-8", "utf-16"]},
+        "textDocument": {
+          "synchronization": {"didSave": true, "dynamicRegistration": false},
+          "completion": {"completionItem": {"snippetSupport": false,
+            "documentationFormat": ["markdown", "plaintext"],
+            "resolveSupport": {"properties": ["documentation", "detail"]}}, "contextSupport": true},
+          "hover": {"contentFormat": ["markdown", "plaintext"]},
+          "signatureHelp": {"signatureInformation": {"parameterInformation": {"labelOffsetSupport": true},
+                                                     "documentationFormat": ["markdown", "plaintext"]},
+                            "contextSupport": true},
+          "definition": {"linkSupport": true},
+          "publishDiagnostics": {"relatedInformation": false, "codeActionsInline": true},
+          "rename": {"prepareSupport": false},
+          "formatting": {"dynamicRegistration": false},
+          "inlayHint": {"dynamicRegistration": false},
+          "codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet":
+            ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source"]}}},
+          "documentSymbol": {"hierarchicalDocumentSymbolSupport": true},
+          "callHierarchy": {"dynamicRegistration": false},
+          "typeHierarchy": {"dynamicRegistration": false},
+          "typeDefinition": {"linkSupport": true}, "implementation": {"linkSupport": true},
+          "documentLink": {"dynamicRegistration": false, "tooltipSupport": true},
+          "onTypeFormatting": {"dynamicRegistration": false},
+          "diagnostic": {"dynamicRegistration": false, "relatedDocumentSupport": false},
+          "documentHighlight": {"dynamicRegistration": false},
+          "foldingRange": {"dynamicRegistration": false, "lineFoldingOnly": true},
+          "rangeFormatting": {"dynamicRegistration": false},
+          "semanticTokens": {"dynamicRegistration": false, "requests": {"full": true},
+            "tokenTypes": ["namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
+                           "parameter", "variable", "property", "enumMember", "event", "function", "method",
+                           "macro", "keyword", "modifier", "comment", "string", "number", "regexp", "operator",
+                           "decorator"],
+            "tokenModifiers": ["declaration", "definition", "readonly", "static", "deprecated", "abstract",
+                               "async", "modification", "documentation", "defaultLibrary"],
+            "formats": ["relative"], "overlappingTokenSupport": false, "multilineTokenSupport": false}},
+        "workspace": {"configuration": true, "workspaceFolders": true, "applyEdit": true,
+                      "diagnostics": {"refreshSupport": true},
+                      "didChangeConfiguration": {"dynamicRegistration": false},
+                      "inlayHint": {"refreshSupport": true}, "symbol": {}, "executeCommand": {}},
+        "window": {"workDoneProgress": true}}}
+    if secondary: discard
+    elif id == "nim": params["initializationOptions"] = nimSection()
+    elif id == "html":
+      params["initializationOptions"] = %*{"embeddedLanguages": {"css": true, "javascript": true},
+                                            "provideFormatter": true}
+    elif id in ["css", "json"]: params["initializationOptions"] = %*{"provideFormatter": true}
+    discard s.lspRequest("initialize", params, LspReq(kind: lrInit))
+    return s
+  except CatchableError: discard
+
+proc lspPullDiags(s: LspServer, b: Buffer)      # (doclinks.nim) pull diagnostics: the server's problems, asked for
+proc lspLinksAsk(s: LspServer, b: Buffer)       # … the file's links (#include, @import, URLs)
+
 proc lspFor(b: Buffer, start = true): LspServer =
   if b.path.len == 0 or b.lines.len > 40000 or b.largeOn: return nil   # huge files: keep typing instant
   let id = b.lang.id
   if id == "nim" and not nimUsesLsp(): return nil
   if id == "c" and cfgCEngine == "builtin": return nil        # (ned's own C engine answers)
   for s in servers:
-    if s.langId == id and not s.dead: return s
+    if s.langId == id and not s.dead and not s.secondary: return s
   if not start or id in lspFailed: return nil
   var cands: seq[seq[string]]
   if id in cfgUserLsp: cands.add cfgUserLsp[id]
@@ -125,79 +199,92 @@ proc lspFor(b: Buffer, start = true): LspServer =
     prepareNimMapping(b)
   for c in cands:
     if c.len == 0 or findExe(c[0]).len == 0: continue
-    try:
-      var p = spawnProc(c, rootDir, siPipe, erPipe)
-      let shown = if c.len > 1 and extractFilename(c[0]) in ["python", "python3", "node", "sh", "bash", "ruby"]:
-                    extractFilename(c[1]) else: extractFilename(c[0])
-      let s = LspServer(langId: id, name: shown, cmd: c, pr: p, inFd: p.inFd,
-                        outFd: p.outFd, errFd: p.errFd, status: "starting…", startedAt: getMonoTime())
-      s.pr.inFd = -1
-      s.pr.outFd = -1
-      s.pr.errFd = -1
-      setNonBlock(s.inFd); setNonBlock(s.outFd); setNonBlock(s.errFd)
-      servers.add s
-      let root = uriFromPath(rootDir)
-      let params = %*{
-        "processId": getCurrentProcessId(),
-        "rootUri": root, "rootPath": rootDir,
-        "workspaceFolders": wsFoldersJson(),
-        "clientInfo": {"name": AppName, "version": Version},
-        "capabilities": {
-          "general": {"positionEncodings": ["utf-8", "utf-16"]},
-          "textDocument": {
-            "synchronization": {"didSave": true, "dynamicRegistration": false},
-            "completion": {"completionItem": {"snippetSupport": false,
-              "documentationFormat": ["markdown", "plaintext"],
-              "resolveSupport": {"properties": ["documentation", "detail"]}}, "contextSupport": true},
-            "hover": {"contentFormat": ["markdown", "plaintext"]},
-            "signatureHelp": {"signatureInformation": {"parameterInformation": {"labelOffsetSupport": true},
-                                                       "documentationFormat": ["markdown", "plaintext"]},
-                              "contextSupport": true},
-            "definition": {"linkSupport": true},
-            "publishDiagnostics": {"relatedInformation": false, "codeActionsInline": true},
-            "rename": {"prepareSupport": false},
-            "formatting": {"dynamicRegistration": false},
-            "inlayHint": {"dynamicRegistration": false},
-            "codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet":
-              ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source"]}}},
-            "documentSymbol": {"hierarchicalDocumentSymbolSupport": true},
-            "callHierarchy": {"dynamicRegistration": false},
-            "typeHierarchy": {"dynamicRegistration": false},
-            "typeDefinition": {"linkSupport": true}, "implementation": {"linkSupport": true},
-            "documentHighlight": {"dynamicRegistration": false},
-            "foldingRange": {"dynamicRegistration": false, "lineFoldingOnly": true},
-            "rangeFormatting": {"dynamicRegistration": false},
-            "semanticTokens": {"dynamicRegistration": false, "requests": {"full": true},
-              "tokenTypes": ["namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
-                             "parameter", "variable", "property", "enumMember", "event", "function", "method",
-                             "macro", "keyword", "modifier", "comment", "string", "number", "regexp", "operator",
-                             "decorator"],
-              "tokenModifiers": ["declaration", "definition", "readonly", "static", "deprecated", "abstract",
-                                 "async", "modification", "documentation", "defaultLibrary"],
-              "formats": ["relative"], "overlappingTokenSupport": false, "multilineTokenSupport": false}},
-          "workspace": {"configuration": true, "workspaceFolders": true, "applyEdit": true,
-                        "didChangeConfiguration": {"dynamicRegistration": false},
-                        "inlayHint": {"refreshSupport": true}, "symbol": {}, "executeCommand": {}},
-          "window": {"workDoneProgress": true}}}
-      if id == "nim": params["initializationOptions"] = nimSection()
-      elif id == "html":
-        params["initializationOptions"] = %*{"embeddedLanguages": {"css": true, "javascript": true},
-                                              "provideFormatter": true}
-      elif id in ["css", "json"]: params["initializationOptions"] = %*{"provideFormatter": true}
-      discard s.lspRequest("initialize", params, LspReq(kind: lrInit))
-      return s
-    except CatchableError: discard
+    let s = lspSpawn(id, c, secondary = false)
+    if s != nil: return s
   lspFailed.incl id
   if cands.len > 0 and cfgLspHints and id in ["python", "c", "cpp", "javascript", "typescript", "rust", "go",
                                               "shellscript", "lua", "ruby", "css", "php", "csharp", "sql", "kotlin"]:
     lspInstallToast(b.lang.name, cands)
   nil
 
+
+# ── more servers for a language (lsp.alsoRun, lsp.linters): a linter next to the main server — only its problems
+#    and quick fixes are used, merged with the main server's ──
+
+const KnownLinters = [("python", @["ruff", "server"]), ("go", @["golangci-lint-langserver"]),
+                      ("markdown", @["harper-ls", "--stdio"])]
+
+proc lspMoreCmds(b: Buffer): seq[seq[string]] =
+  ## the second servers this buffer's language gets: yours (lsp.alsoRun), then the known linters that are installed
+  let id = b.lang.id
+  for key in [id, "*"]:
+    for c in cfgLspAlso.getOrDefault(key): result.add c
+  if cfgLspLinters:
+    for (lid, c) in KnownLinters:
+      if lid == id and c notin result: result.add c
+  # (not the main server again)
+  var main: seq[string]
+  for s in servers:
+    if s.langId == id and not s.dead and not s.secondary: main = s.cmd
+  var keep: seq[seq[string]]
+  for c in result:
+    if c.len > 0 and c != main and c.join(" ") notin lspMoreFailed and c notin keep: keep.add c
+  keep
+
+proc lspMoreFor(b: Buffer, start = true): seq[LspServer] =
+  ## the second servers running for this buffer (started now when `start` and installed)
+  if b.path.len == 0 or b.lines.len > 40000 or b.largeOn or b.lang == nil: return
+  let id = b.lang.id
+  for c in lspMoreCmds(b):
+    var found: LspServer = nil
+    for s in servers:
+      if s.secondary and s.langId == id and s.cmd == c and not s.dead: found = s
+    if found == nil and start and findExe(c[0]).len > 0:
+      if not codeTrusted(rootDir):
+        askTrust(rootDir, quiet = true)
+        continue
+      found = lspSpawn(id, c, secondary = true)
+      if found == nil: lspMoreFailed.incl c.join(" ")
+    if found != nil: result.add found
+
+proc lspMoreSync(b: Buffer, start = false) =
+  ## the second servers have the buffer as it is now (opened on first sight)
+  if b.path.len == 0 or b.title.len > 0: return
+  for s in lspMoreFor(b, start):
+    if not s.ready or s.dead: continue
+    let v = s.docVer.getOrDefault(b.id, -1)
+    if v < 0:
+      s.docVer[b.id] = b.changeId
+      b.lspMore = true
+      s.lspNotify("textDocument/didOpen", %*{"textDocument": {"uri": uriFromPath(b.path),
+        "languageId": b.lang.id, "version": b.changeId + 1, "text": b.allText & "\n"}})
+      lspPullDiags(s, b)
+    elif v != b.changeId:
+      s.docVer[b.id] = b.changeId
+      s.lspNotify("textDocument/didChange", %*{"textDocument": {"uri": uriFromPath(b.path),
+        "version": b.changeId + 1}, "contentChanges": [{"text": b.allText & "\n"}]})
+      lspPullDiags(s, b)
+
+proc lspMoreSaved(b: Buffer) =
+  for s in lspMoreFor(b, false):
+    if s.ready and not s.dead and b.id in s.docVer:
+      lspMoreSync(b)
+      s.lspNotify("textDocument/didSave", %*{"textDocument": b.docId, "text": b.allText & "\n"})
+      lspPullDiags(s, b)
+
+proc lspMoreClosed(b: Buffer) =
+  for s in lspMoreFor(b, false):
+    if s.ready and not s.dead and b.id in s.docVer:
+      s.lspNotify("textDocument/didClose", %*{"textDocument": b.docId})
+      s.docVer.del b.id
+  b.lspMore = false
+
 var lspHoldAttach = initTable[int, MonoTime]()   # buffer id → open it once nimlangserver has its new mapping
 var nimCfgWaitUntil: MonoTime   # a fresh nimlangserver pulls its settings first: files open after that
 
 proc lspAttach(b: Buffer) =
-  let s = lspFor(b)
+  let s = lspFor(b)                      # (the main server first: a second one is never the main one again)
+  lspMoreSync(b, start = true)
   if s == nil or not s.ready or b.lspOpen: return
   if b.id in lspHoldAttach and getMonoTime() < lspHoldAttach[b.id]: return
   lspHoldAttach.del b.id
@@ -219,10 +306,15 @@ proc lspAttach(b: Buffer) =
   inc b.lspVersion
   s.lspNotify("textDocument/didOpen", %*{"textDocument": {"uri": uriFromPath(b.path),
     "languageId": b.lang.id, "version": b.lspVersion, "text": b.allText & "\n"}})
+  lspPullDiags(s, b)
+  lspLinksAsk(s, b)
 
 proc lspSync(b: Buffer) =
+  if b.lspMore: lspMoreSync(b)
   let s = lspFor(b, false)
-  if s == nil or not s.ready: return
+  if s == nil or not s.ready:
+    if not b.lspOpen: b.lspDirty = false        # (a main server that starts later gets the whole text then)
+    return
   if not b.lspOpen:
     lspAttach(b)
     return
@@ -231,14 +323,19 @@ proc lspSync(b: Buffer) =
   inc b.lspVersion
   s.lspNotify("textDocument/didChange", %*{"textDocument": {"uri": uriFromPath(b.path),
     "version": b.lspVersion}, "contentChanges": [{"text": b.allText & "\n"}]})
+  lspPullDiags(s, b)
+  lspLinksAsk(s, b)
 
 proc lspDidSave(b: Buffer) =
+  if b.lspMore: lspMoreSaved(b)
   let s = lspFor(b, false)
   if s == nil or not s.ready or not b.lspOpen: return
   lspSync(b)
   s.lspNotify("textDocument/didSave", %*{"textDocument": b.docId, "text": b.allText & "\n"})
+  lspPullDiags(s, b)
 
 proc lspDidClose(b: Buffer) =
+  if b.lspMore: lspMoreClosed(b)
   let s = lspFor(b, false)
   if s == nil or not s.ready or not b.lspOpen: return
   s.lspNotify("textDocument/didClose", %*{"textDocument": b.docId})

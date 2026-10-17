@@ -4,16 +4,20 @@
 
 type SemMap = ref object
   at: int                        # buffer version it was made for
+  rich: bool                     # made with nim.richColors
   built: MonoTime
   kinds: Table[string, TokKind]  # this file's names → colour (normalized)
   fields: HashSet[string]        # this file's names that are fields of some object (coloured so after a dot)
   calls: HashSet[string]         # … that are routines
   macros: HashSet[string]        # … templates and macros among them
   routines: seq[(int, int, seq[string])]   # this file's routines: (first line, last line, their parameters)
+  locals: seq[(int, int, HashSet[string], HashSet[string])]   # (nim.richColors) each routine's vars and lets
+  globalVars, globalLets, deprecated: HashSet[string]          # … the module's own, and deprecated names
   modules: HashSet[string]       # the names its imports go by (strutils, or the `as` name)
   importKey: string              # the imported modules (and their stamps) the part below was made from
   importKinds: Table[string, TokKind]
   importFields, importCalls, importMacros: HashSet[string]
+  importGlobalVars, importGlobalLets, importDeprecated: HashSet[string]
 
 const SemPauseMs = 350
 var semMaps: Table[int, SemMap]
@@ -45,9 +49,13 @@ proc semMapFor(b: Buffer): SemMap =
   ## imported modules is kept while they stay the same: only this file's own names are gone through again
   if not cfgSemColors or not nimEngineOn(b) or b.path.len == 0: return nil
   result = semMaps.getOrDefault(b.id)
+  if result != nil and result.rich != cfgRichColors:
+    result.rich = cfgRichColors                  # (the setting changed: all of it again)
+    result.at = -1
+    result.importKey = ""
   if result != nil and (result.at == b.changeId or msSince(b.lspChangeAt) < SemPauseMs): return
   if result == nil:
-    result = SemMap()
+    result = SemMap(rich: cfgRichColors)
     semMaps[b.id] = result
     if b.lines.len > 3000:
       # a big file just opened: shown at once, its names coloured a moment later (the main loop asks for that
@@ -71,26 +79,52 @@ proc semMapFor(b: Buffer): SemMap =
       result.importFields.clear()
       result.importCalls.clear()
       result.importMacros.clear()
+      result.importGlobalVars.clear()
+      result.importGlobalLets.clear()
+      result.importDeprecated.clear()
       for r in sc.refs:
         if r.file == f: continue
         semAdd(result.importKinds, result.importFields, result.importCalls, result.importMacros, r.sym)
+        if cfgRichColors:
+          let n = nxNorm(r.sym.name)
+          if "deprecated" in r.sym.pragmas: result.importDeprecated.incl n
+          if not r.sym.local:
+            if r.sym.kind == nxVar: result.importGlobalVars.incl n
+            elif r.sym.kind == nxLet: result.importGlobalLets.incl n
     # this file's own names (they win over imported ones of the same name)
     result.kinds.clear()
     result.fields.clear()
     result.calls.clear()
     result.macros.clear()
     result.routines.setLen(0)
+    result.locals.setLen(0)
+    result.globalVars.clear()
+    result.globalLets.clear()
+    result.deprecated.clear()
     result.modules.clear()
     for m in sc.modules.keys: result.modules.incl nxNorm(m)
     for s in f.syms:
       if s.made: continue
       semAdd(result.kinds, result.fields, result.calls, result.macros, s)
+      if cfgRichColors:
+        let n = nxNorm(s.name)
+        if "deprecated" in s.pragmas: result.deprecated.incl n
+        if not s.local and nxEnclosing(f, s.line) < 0:
+          if s.kind == nxVar: result.globalVars.incl n
+          elif s.kind == nxLet: result.globalLets.incl n
       if s.kind in NxRoutineKinds and s.endLine >= s.line:
         var ps: seq[string]
         for p in s.params: ps.add nxNorm(p.name)
         if s.ret.len > 0 and s.ret != "void" and s.kind notin {nxTemplate, nxMacro, nxIterator}:
           ps.add "result"           # (the routine's implicit variable, coloured like its parameters)
         if ps.len > 0: result.routines.add (s.line, s.endLine, ps)
+        if cfgRichColors and s.endLine > s.line and s.endLine < b.lines.len and s.endLine - s.line < 4000:
+          # its locals: which can change (var) and which cannot (let) — a local wins over a global of that name
+          var vs, ls: HashSet[string]
+          for l in nxLocals(f, b.lines, s.endLine, b.lines[s.endLine].len, everything = true):
+            if l.kind == nxVar: vs.incl nxNorm(l.name)
+            elif l.kind in {nxLet, nxForVar}: ls.incl nxNorm(l.name)
+          if vs.len + ls.len > 0: result.locals.add (s.line, s.endLine, vs, ls)
   except Exception as e: internalError("Nim index", e)
   semLastMs = float((getMonoTime() - t0).inMicroseconds) / 1000.0
 
@@ -104,6 +138,17 @@ proc semParamsAt(m: SemMap, line: int): seq[string] =
     if a > line: break
     if line <= e: result.add ps
 
+proc semLocalKind(m: SemMap, line: int, w: string): TokKind =
+  ## (nim.richColors) a local's colour on `line`: tkMutable for a var, tkText for a let, tkNone… (tkPunct: not a local)
+  result = tkPunct
+  for k in countdown(m.locals.high, 0):         # (an inner routine's locals first)
+    let (a, e, vs, ls) = m.locals[k]
+    if a > line or line > e: continue
+    if w in vs: return tkMutable
+    if w in ls: return tkText
+
+const UnsafeWords = ["cast", "addr", "unsafeAddr", "ptr"]
+
 proc applySem(s: string, toks: var seq[TokKind], m: SemMap, line = -1) =
   ## recolour the names on a line by what the index knows they are, and where they stand
   var i = 0
@@ -113,6 +158,10 @@ proc applySem(s: string, toks: var seq[TokKind], m: SemMap, line = -1) =
     if s[i] in IdentStartChars and (i == 0 or s[i - 1] notin IdentChars):
       var j = i
       while j < n and s[j] in IdentChars: inc j
+      if cfgRichColors and toks[i] in {tkKeyword, tkText, tkFunc} and j - i <= 10 and s[i ..< j] in UnsafeWords:
+        for p in i ..< j: toks[p] = tkUnsafe
+        i = j
+        continue
       if toks[i] in {tkText, tkType, tkFunc, tkProperty}:     # (what the lexer guessed from the shape: f(…), x.y)
         let w = nxNorm(s[i ..< j])
         var q = j
@@ -135,6 +184,14 @@ proc applySem(s: string, toks: var seq[TokKind], m: SemMap, line = -1) =
           k = m.semKind(w)
           if k == tkProperty and not (q < n and s[q] == ':' and (q + 1 >= n or s[q + 1] != ':')):
             k = tkText              # (a bare field name is coloured only where it is named: Foo(x: 1))
+          if cfgRichColors and k == tkText and line >= 0:
+            let lk = m.semLocalKind(line, w)
+            if lk != tkPunct: k = lk
+            elif w in m.globalVars or (w notin m.globalLets and w in m.importGlobalVars): k = tkGlobalVar
+            elif w in m.globalLets or w in m.importGlobalLets: k = tkGlobal
+        if cfgRichColors and k != tkParam and (w in m.deprecated or w in m.importDeprecated) and
+           not (i > 0 and s[i - 1] == '.' and k == tkProperty):
+          k = tkDeprecated
         if k != tkText:
           for p in i ..< j: toks[p] = k
       i = j

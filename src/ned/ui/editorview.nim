@@ -367,6 +367,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           if d.line == line: lineDiag = di
     if spellOnHere and s.len <= 4000:
       for (a, e) in b.spellErrors(s, toks): diagR.add (a, e, 9)        # misspelled: underlined, colour kept
+    if b.path.len > 0 and b.id notin diffViews and ("://" in s or b.id in docLinks):
+      for (a, e) in linkRangesOn(b, line): diagR.add (a, e, 9)        # a link: underlined (F12 or Ctrl+click opens it)
     let isCurLine = line == ph.line and not primSel
     var rowBg = if isCurLine and active and cfgLineHl: theme.curLine else: theme.bg
     if flashBuf == b.id and line >= flashA and line <= flashB and msSince(flashAt) < 1800:
@@ -537,7 +539,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         if tk == tkPunct and i < rbCol.len and s[i] in {'(', ')', '[', ']', '{', '}'}:
           fg = rbCol[i]
         if tk in {tkComment, tkDoc}: at.incl aItalic
-        elif tk in {tkHeading, tkBold} or (tk == tkKeyword and theme.boldKw): at.incl aBold
+        elif tk in {tkHeading, tkBold, tkGlobal, tkGlobalVar} or (tk in {tkKeyword, tkUnsafe} and theme.boldKw): at.incl aBold
+        elif tk == tkDeprecated: at.incl aStrike
         var bg = rowBg
         if tintFrom >= 0 and vc >= tintFrom: bg = blend(rowBg, theme.warn, 0.11)      # past the last ruler
         for (sc, sn, cc) in swBg:

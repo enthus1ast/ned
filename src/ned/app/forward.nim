@@ -102,6 +102,7 @@ proc examplesHead(s: string): bool =
 proc foldRange(b: Buffer, l: int): (bool, int)
 proc setPanel(k: PanelKind)
 proc toast(text: string, sev = 3, actLabel = "", act: Action = nil, ttl = 0)
+proc themeFollowers()           # after the theme changed: Termux's colours (theme.termuxColors)
 proc showSide(v: SideView)
 proc prepareNimMapping(b: Buffer)
 proc nimMapAdd(b: Buffer): bool

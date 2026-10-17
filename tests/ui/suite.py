@@ -4594,6 +4594,243 @@ def t_67_yaml_toml():
     keys('M-f'); time.sleep(0.5); keys('C-s'); time.sleep(0.5)
     check('67 TOML formatted', ftext('c67.toml') == 'name = "x"\n\n[deps]\nlist = [1, 2]\n', ftext('c67.toml'))
 
+def t_67_termux_clock():
+    # Termux's colours from the theme (yours kept and put back), following theme changes; light by day, dark at night
+    home = TMP + '/termux67'
+    shutil.rmtree(home, ignore_errors=True)
+    os.makedirs(home + '/.termux'); os.makedirs(home + '/bin')
+    own = 'background=#123456\nforeground=#abcdef\n'
+    open(home + '/.termux/colors.properties', 'w').write(own)
+    open(home + '/bin/termux-reload-settings', 'w').write('#!/bin/sh\necho x >> %s/reloaded\n' % home)
+    os.chmod(home + '/bin/termux-reload-settings', 0o755)
+    f = home + '/.termux/colors.properties'
+    env = 'HOME=%s TERMUX_VERSION=0.118.1' % home
+    setup({"theme": "nim-crown", "nim.nimsuggest": None})
+    start('src/demo.nim', w=120, h=30, path=home + '/bin:' + TOOLS + ':$PATH', env_extra=env); time.sleep(0.6)
+    palette('Theme: use these colours in all of Termux'); time.sleep(1.0)
+    c = open(f).read()
+    check('67 Termux colours written from the theme', c.startswith('# written by ned') and 'nim-crown' in c and
+          'background=#' in c and 'color15=#' in c and 'cursor=#' in c, c)
+    check('67 your own Termux colours kept beside them', open(f + '.ned-backup').read() == own)
+    check('67 Termux told to read them again', os.path.exists(home + '/reloaded'))
+    palette("Theme: put Termux's own colours back"); time.sleep(0.8)
+    check("67 Termux's own colours put back", open(f).read() == own and not os.path.exists(f + '.ned-backup'), open(f).read())
+    # following the theme
+    setup({"theme": "nim-crown", "theme.termuxColors": True, "nim.nimsuggest": None})
+    start('src/demo.nim', w=120, h=30, path=home + '/bin:' + TOOLS + ':$PATH', env_extra=env); time.sleep(0.6)
+    check('67 Termux follows the theme from the start', 'nim-crown' in open(f).read(), open(f).read())
+    keys('M-t'); time.sleep(0.6); text('modus-operandi'); time.sleep(0.4); keys('Enter'); time.sleep(1.0)
+    check('67 Termux follows a theme change', 'modus-operandi' in open(f).read(), open(f).read())
+    # day and night by the clock (the Termux file says which theme is on)
+    setup({"theme": "auto", "theme.autoBy": "clock", "theme.dayStarts": "00:00", "theme.nightStarts": "23:59",
+           "theme.termuxColors": True, "nim.nimsuggest": None})
+    start('src/demo.nim', w=120, h=30, path=home + '/bin:' + TOOLS + ':$PATH', env_extra=env); time.sleep(0.6)
+    check('67 by the clock: the light theme by day', 'github-light' in open(f).read(), open(f).read())
+    setup({"theme": "auto", "theme.autoBy": "clock", "theme.dayStarts": "23:59", "theme.nightStarts": "00:00",
+           "theme.termuxColors": True, "nim.nimsuggest": None})
+    start('src/demo.nim', w=120, h=30, path=home + '/bin:' + TOOLS + ':$PATH', env_extra=env); time.sleep(0.6)
+    check('67 by the clock: the dark theme at night', 'nim-crown' in open(f).read(), open(f).read())
+    # not Termux: nothing written
+    setup({"theme": "nim-crown", "nim.nimsuggest": None})
+    os.remove(f)
+    start('src/demo.nim', w=120, h=30, env_extra='HOME=' + home); time.sleep(0.6)
+    palette('Theme: use these colours in all of Termux'); time.sleep(0.6)
+    check('67 not Termux: said, nothing written', 'not Termux' in screen() and not os.path.exists(f), screen())
+
+def sgr_at_col(row, k):
+    """the SGR attributes (1 bold, 9 struck through …) in force at column k of an ANSI row"""
+    at, col, i = set(), 0, 0
+    while i < len(row):
+        m = re.match(r'\x1b\[([0-9;:]*)m', row[i:])
+        if m:
+            ps = m.group(1).split(';')
+            j = 0
+            while j < len(ps):
+                if ps[j] in ('38', '48', '58') and j + 1 < len(ps) and ps[j + 1] == '2': j += 5; continue
+                if ps[j] in ('0', ''): at = set()
+                elif ps[j] in ('22',): at -= {'1', '2'}
+                elif ps[j] in ('29',): at.discard('9')
+                else: at.add(ps[j])
+                j += 1
+            i += m.end(); continue
+        if col == k: return at
+        col += 1; i += 1
+    return set()
+
+def t_67_rich_colors():
+    # Nim: a var tinted, a let plain, the module's own variables in bold, deprecated names struck through, cast/addr tinted
+    setup({"nim.nimsuggest": None})
+    open(W + '/r67.nim', 'w').write('var counter = 0\nlet limit = 10\nproc old(x: int): int {.deprecated: "use fresh".} = x\n'
+        'proc fresh(x: int): int = x\nproc work(a: int): int =\n  var total = a\n  let step = 2\n'
+        '  total += step + counter + limit\n  let p = addr total\n  result = old(total) + cast[int](p)\n')
+    start('r67.nim', w=110, h=20); time.sleep(2.0)
+    keys('Down'); time.sleep(1.0)
+    row = ansi_row('total += step')
+    plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)
+    check('67 a var is tinted, a let is not', fg_at(row, 'total') != fg_at(row, 'step') and fg_at(row, 'total') == fg_at(row, 'counter'),
+          str((fg_at(row, 'total'), fg_at(row, 'step'), fg_at(row, 'counter'))))
+    check("67 the module's own variables in bold", '1' in sgr_at_col(row, plain.find('counter')) and
+          '1' in sgr_at_col(row, plain.find('limit')) and '1' not in sgr_at_col(row, plain.find('step')),
+          str((sgr_at_col(row, plain.find('counter')), sgr_at_col(row, plain.find('step')))))
+    row2 = ansi_row('result = old(')
+    p2 = re.sub(r'\x1b\[[0-9;:]*m', '', row2)
+    check('67 a deprecated proc is struck through where it is called', '9' in sgr_at_col(row2, p2.find('old(')),
+          str(sgr_at_col(row2, p2.find('old('))))
+    row3 = ansi_row('addr total')
+    check('67 addr and cast in the warning colour', fg_at(row3, 'addr') != fg_at(row3, 'let') and fg_at(row3, 'addr') is not None and
+          fg_at(row2, 'cast') == fg_at(row3, 'addr'), str((fg_at(row3, 'addr'), fg_at(row3, 'let'), fg_at(row2, 'cast'))) + row2 + row3)
+    setup({"nim.nimsuggest": None, "nim.richColors": False})
+    start('r67.nim', w=110, h=20); time.sleep(2.0)
+    keys('Down'); time.sleep(1.0)
+    row = ansi_row('total += step')
+    check('67 nim.richColors off: as before', fg_at(row, 'total') == fg_at(row, 'step'), str((fg_at(row, 'total'), fg_at(row, 'step'))))
+
+def t_67_theme_editor():
+    # every colour of the theme with its contrast; a change goes into your copy of the theme and shows at once
+    setup({"theme": "nim-crown"})
+    if os.path.exists(CFG + '/ned/themes/nim-crown-mine.json'): os.remove(CFG + '/ned/themes/nim-crown-mine.json')
+    start('src/demo.nim', w=120, h=34); time.sleep(0.6)
+    palette('Theme: edit colours'); time.sleep(0.6)
+    s = screen()
+    check('67 theme editor lists the colours with their contrast', 'Theme editor' in s and 'comment' in s and ':1' in s and '██' in s, s)
+    text('comment'); time.sleep(0.3); keys('Enter'); time.sleep(0.5)
+    keys('Enter'); time.sleep(0.4)                       # Type a colour…
+    keys('C-u'); text('#22252a'); keys('Enter'); time.sleep(1.0)
+    f = CFG + '/ned/themes/nim-crown-mine.json'
+    j = json.load(open(f)) if os.path.exists(f) else {}
+    check('67 the change goes into your copy of the theme, put in use', j.get('colors', {}).get('comment', '').lower() == '#22252a' and
+          re.search(r'"theme"\s*:\s*"nim-crown-mine"', open(CFG + '/ned/config.json').read()) is not None,
+          str(j) + open(CFG + '/ned/config.json').read())
+    s = screen()
+    check('67 a hard-to-read colour is marked', '⚠ comment' in s and 'hard to read' in s, s)
+    text('comment'); time.sleep(0.3); keys('Enter'); time.sleep(0.5)
+    s = screen()
+    check('67 "make it readable" is offered', 'Make it readable' in s, s)
+    text('readable'); time.sleep(0.3); keys('Enter'); time.sleep(1.0)
+    c = json.load(open(f))['colors']['comment']
+    check('67 made readable', c.lower() != '#22252a' and '⚠ comment' not in screen(), c + screen())
+
+def t_67_two_servers():
+    # a linter's server next to the main one: both servers' problems in one list, edits keep both, its fix applies
+    setup({"lsp": {"python": ["python3", MOCKS + "/mocklsp.py"]},
+           "lsp.alsoRun": {"python": [["python3", MOCKS + "/mocklint.py"]]}})
+    open(W + '/two.py', 'w').write('x = PRIMARY_ERR\ny = TODO_LINT\nprint(x, y)\n')
+    start('two.py', w=120, h=26); time.sleep(2.5)
+    s = screen()
+    check('67 both servers named in the status bar', 'mocklsp.py + mocklint.py' in s, s)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check("67 both servers' problems listed", 'PRIMARY_ERR here' in s and 'TODO_LINT left in' in s, s)
+    keys('Escape'); time.sleep(0.2)
+    keys('C-g'); text('3:1'); keys('Enter'); time.sleep(0.2)
+    text('z = 1\n'); time.sleep(1.5)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check("67 after an edit both servers' problems are still there", 'PRIMARY_ERR here' in s and 'TODO_LINT left in' in s, s)
+    keys('Escape'); time.sleep(0.2)
+    keys('C-g'); text('2:6'); keys('Enter'); time.sleep(0.3)
+    keys('M-Enter'); time.sleep(1.2)
+    s = screen()
+    check("67 the linter's fix among the quick fixes", 'Replace TODO_LINT with DONE' in s, s)
+    text('Replace TODO'); time.sleep(0.3); keys('Enter'); time.sleep(0.6)
+    keys('C-s'); time.sleep(1.2)
+    check("67 the linter's fix applied", 'y = DONE' in ftext('two.py'), ftext('two.py'))
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check("67 the linter's problem gone, the main server's stays", 'PRIMARY_ERR here' in s and 'TODO_LINT left in' not in s, s)
+    if which('ruff'):
+        # the known linters: ruff next to the main server, when installed
+        setup({"lsp": {"python": ["python3", MOCKS + "/mocklsp.py"]}, "lsp.linters": True})
+        open(W + '/r.py', 'w').write('import os\nprint(1)\n')
+        start('r.py', w=120, h=26); time.sleep(4)
+        palette('Show problems'); time.sleep(0.8)
+        s = screen()
+        check('67 ruff found and run next to the main server', '`os` imported but unused' in s or 'F401' in s, s)
+
+def t_67_lsp_links():
+    # pull diagnostics (a server that only answers when asked), document links (underlined, F12 opens them, a URL in
+    # a comment too), on-type formatting (editor.formatOnType)
+    mock = TMP + '/l2bin'
+    shutil.rmtree(mock, ignore_errors=True); os.makedirs(mock)
+    open(mock + '/xdg-open', 'w').write('#!/bin/sh\necho "$1" > %s/opened\n' % mock)
+    os.chmod(mock + '/xdg-open', 0o755)
+    setup({"lsp": {"lua": ["python3", MOCKS + "/mockl2.py"]}, "editor.formatOnType": True})
+    open(W + '/l2.lua', 'w').write('local a = 1\nlocal b = BAD\n-- see LINK:other here\n-- docs: https://example.com/x\n')
+    open(W + '/other.lua', 'w').write('-- other\nlocal second = 2\n')
+    start('l2.lua', w=110, h=24, path=mock + ':' + TOOLS + ':$PATH'); time.sleep(2.5)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check('67 pull diagnostics: the server is asked for the problems', 'BAD is pulled' in s, s)
+    keys('Escape'); time.sleep(0.2)
+    row = ansi_row('see LINK:other')
+    plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)
+    check("67 the server's link is underlined", '4' in sgr_at_col(row, plain.find('other here')), str(sgr_at_col(row, plain.find('other here'))))
+    keys('C-g'); text('3:13'); keys('Enter'); time.sleep(0.3)
+    keys('F12'); time.sleep(0.8)
+    s = screen()
+    check("67 F12 on a server's link opens its target, at its line", 'other.lua' in s and status_pos() == (2, 1), str(status_pos()) + s)
+    keys('M-,'); time.sleep(0.5)
+    keys('C-g'); text('4:18'); keys('Enter'); time.sleep(0.3)
+    keys('F12'); time.sleep(1.0)
+    check('67 F12 on a URL in a comment opens the browser', os.path.exists(mock + '/opened') and
+          'https://example.com/x' in open(mock + '/opened').read())
+    keys('C-g'); text('2:1'); keys('Enter'); time.sleep(0.2)
+    keys('C-k'); time.sleep(0.2)                         # (the line with BAD goes)
+    keys('Enter'); keys('Up'); time.sleep(0.2)
+    text('local  c   =  {}'); time.sleep(1.5)
+    check('67 on-type formatting after }', 'local c = {}' in screen(), screen())
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check('67 pulled again after the edit', 'BAD is pulled' not in s, s)
+
+def t_67_ai_plan():
+    # plan first (reading only: an edit is refused), then one step, then the rest; back to before step 1
+    setup({"ai.agent": True, "ai.autoApprove": "edits", "ai.checkEdits": False})
+    utils = W + '/src/demo/utils.nim'
+    before = open(utils).read()
+    start('src/demo.nim', w=130, h=40); time.sleep(0.6)
+    palette('AI: plan a change'); time.sleep(0.4)
+    text('PLANTASK add two procs'); keys('Enter')
+    ok = wait_for('Do it: all 2 steps', 15)
+    s = screen()
+    check('67 the plan comes first, as a menu', ok and 'One step' in s and 'Change the plan' in s, s)
+    check('67 nothing is changed while planning (an edit is refused)', open(utils).read() == before, open(utils).read())
+    keys('Down'); keys('Enter')                          # One step
+    ok = wait_for('Go on: the last step', 15)
+    check('67 one step done, then the menu again', ok and 'twice2' in open(utils).read() and 'thrice2' not in open(utils).read(),
+          open(utils).read() + screen())
+    keys('Enter')                                        # Go on
+    ok = wait_for('plan is done', 15)
+    check('67 the rest done', ok and 'thrice2' in open(utils).read(), open(utils).read() + screen())
+    palette('AI: the plan'); time.sleep(0.6)
+    s = screen()
+    check('67 restore points for each step', 'Back to before step 2' in s and 'Back to before step 1' in s, s)
+    text('before step 1'); time.sleep(0.3); keys('Enter'); time.sleep(0.4); keys('y'); time.sleep(1.0)
+    check('67 back to before step 1: the files as they were', open(utils).read() == before, open(utils).read())
+
+def t_67_ai_offline():
+    # AI on this device: a running Ollama found, a model that fits downloaded (progress shown), ned set to it, timed
+    port = 11999
+    srv = subprocess.Popen(['python3', MOCKS + '/mockollama.py', str(port)])
+    try:
+        time.sleep(0.5)
+        setup({"ai.localUrl": "http://127.0.0.1:%d" % port})
+        start('src/demo.nim', w=130, h=34); time.sleep(0.6)
+        palette('AI: on this device'); time.sleep(1.5)
+        s = screen()
+        check('67 offline AI: a running Ollama found, a model that fits offered', 'Ollama is running' in s and
+              'Download and use qwen2.5-coder' in s, s)
+        keys('Enter')
+        ok = wait_for('answers on this device', 15)
+        cfg = open(CFG + '/ned/config.json').read()
+        check('67 the model downloaded, ned set to it, a first answer timed', ok and '"ollama"' in cfg and
+              'qwen2.5-coder' in cfg and '127.0.0.1:%d/v1' % port in cfg, cfg + screen())
+        palette('AI: on this device'); time.sleep(1.5)
+        s = screen()
+        check('67 the downloaded model listed', 'Use qwen2.5-coder' in s and 'in use' in s, s)
+    finally:
+        srv.kill()
+
 def t_66_trust():
     # a folder's code runs only once you trust it: its config.nims (run by the compiler) does nothing on open or
     # while typing, the built-in engine still answers, and Trust runs what was held back
@@ -4678,4 +4915,4 @@ def t_63_git():
           os.path.isdir(dest + '/.git'), screen())
     check('63 … and a Nim project offers to install what it needs', wait_for('install the packages it needs', 5), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml]
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline]

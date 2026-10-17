@@ -55,6 +55,12 @@ proc initSettingDefs() =
        "theme.dark, whichever matches the terminal's background", allThemeNames() & @["auto"])
   defS("Appearance", "theme.dark", %"nim-crown", "With \"theme\": \"auto\": the theme on a dark terminal", allThemeNames())
   defS("Appearance", "theme.light", %"github-light", "With \"theme\": \"auto\": the theme on a light terminal", allThemeNames())
+  defS("Appearance", "theme.autoBy", %"terminal", "With \"theme\": \"auto\": light or dark as the terminal's background " &
+       "is (terminal), or light by day and dark at night (clock: theme.dayStarts, theme.nightStarts)", @["terminal", "clock"])
+  defS("Appearance", "theme.dayStarts", %"07:00", "With theme.autoBy \"clock\": when the light theme starts (HH:MM)")
+  defS("Appearance", "theme.nightStarts", %"19:00", "With theme.autoBy \"clock\": when the dark theme starts (HH:MM)")
+  defS("Appearance", "theme.termuxColors", %false, "Termux: keep ~/.termux/colors.properties matching ned's theme, so the " &
+       "whole terminal (the shell after ned too) has its colours. Palette › Theme: put Termux's own colours back")
   defS("Appearance", "theme.colors", newJObject(),
        "Change colours of any theme: {\"comment\": \"#8a8a8a\", \"bg\": \"#101010\"} for all, " &
        "{\"nim-crown\": {…}} for one. Names: " & ThemeKeys.join(", ") & ", " & ChromeKeys.join(", ") & ", ruler")
@@ -236,6 +242,9 @@ proc initSettingDefs() =
   defS("Nim", "nim.semanticColors", %true,
        "Colour names by what they are (procs, types, constants, fields), as the built-in engine knows them — not by " &
        "whether they start with a capital letter. Other languages get them from their language server")
+  defS("Nim", "nim.richColors", %true,
+       "With semantic colours: a `var` tinted (a `let` stays plain), the module's own variables in bold, deprecated " &
+       "names faded and struck through, cast/addr/unsafeAddr/ptr in the warning colour")
   defS("Nim", "nim.autoImport", %true,
        "Completion also offers standard-library names whose module is not imported yet; choosing one adds the import")
   defS("Nim", "nim.postfixCompletion", %true,
@@ -368,6 +377,7 @@ proc initSettingDefs() =
   defS("AI", "ai.openaiApi", %"auto", "OpenAI endpoint: chat completions, the Responses API, or auto (switches by itself when a model needs it)",
        @["auto", "chat", "responses"])
   defS("AI", "ai.temperature", %(-1), "Sampling temperature ×100 (e.g. 30 = 0.3; -1 = provider default)")
+  defS("AI", "ai.localUrl", %"http://127.0.0.1:11434", "Where Ollama listens (AI › on this device, offline)")
   defS("AI", "ai.agent", %true, "Agent mode: the assistant may read, search, edit files and run commands")
   defS("AI", "ai.autoApprove", %"reads", "Which agent actions run without asking", @["none", "reads", "edits", "all"])
   defS("AI", "ai.maxSteps", %30, "Maximum tool steps per request")
@@ -395,6 +405,12 @@ proc initSettingDefs() =
        "found by the built-in engine, so answers know them")
   # ── Languages ──
   defS("Languages", "lsp", newJObject(), "Language servers per language id, e.g. {\"python\": [\"pyright-langserver\", \"--stdio\"]}")
+  defS("Languages", "lsp.alsoRun", newJObject(), "More language servers next to the main one — their problems and " &
+       "quick fixes are merged with its: {\"python\": [[\"ruff\", \"server\"]], \"*\": [[\"typos-lsp\"]]} (\"*\": every language)")
+  defS("Editor", "editor.formatOnType", %false, "Let the language server tidy the line as you type the characters " &
+       "it asks for (a closing }, ;, a new line) — servers that offer it: clangd, gopls, rust-analyzer …")
+  defS("Languages", "lsp.linters", %true, "Also run a linter's language server when it is installed — Python: ruff, " &
+       "Go: golangci-lint-langserver, Markdown: harper-ls — its problems and fixes next to the main server's")
   defS("Languages", "formatters", newJObject(), "Formatter command per language id (stdin → stdout), e.g. {\"nim\": \"nph -\"}")
   defS("Languages", "run", newJObject(), "Run command per language id ($file, $dir, $name), e.g. {\"python\": \"python3 $file\"}")
   defS("Languages", "languages", newJObject(), "Your own languages (or changes to built-in ones): {\"zig\": " &
@@ -603,6 +619,7 @@ proc applySettings() =
   cfgDimInactive = sBool("editor.dimInactiveCode")
   cfgCommitChecks = sStr("git.checksBeforeCommit")
   cfgSemColors = sBool("nim.semanticColors")
+  cfgRichColors = sBool("nim.richColors")
   cfgMinimap = sStr("ui.minimap")
   cfgScrollbar = sBool("ui.scrollbar")
   cfgTodoHl = sBool("todo.highlight")
@@ -786,6 +803,20 @@ proc applySettings() =
       for x in v: cmd.add x.getStr
     elif v.kind == JString: cmd = v.getStr.splitWhitespace
     if cmd.len > 0: cfgUserLsp[k] = cmd
+  cfgLspAlso.clear()
+  for k, v in sval("lsp.alsoRun"):
+    var cmds: seq[seq[string]]
+    if v.kind == JArray:
+      for c in v:
+        var cmd: seq[string]
+        if c.kind == JArray:
+          for x in c: cmd.add x.getStr
+        elif c.kind == JString: cmd = c.getStr.splitWhitespace
+        if cmd.len > 0: cmds.add cmd
+    elif v.kind == JString and v.getStr.strip.len > 0: cmds.add v.getStr.splitWhitespace
+    if cmds.len > 0: cfgLspAlso[k] = cmds
+  cfgLspLinters = sBool("lsp.linters")
+  cfgFormatOnType = sBool("editor.formatOnType")
   cfgUserFmt.clear()
   for k, v in sval("formatters"): cfgUserFmt[k] = v.getStr
   cfgUserRun.clear()
@@ -920,7 +951,7 @@ proc applyUserLanguages() =
 proc riskyProjectKey(k: string): bool =
   ## settings that start programs or send code somewhere: a cloned repository must not set them
   ## until you trust the folder
-  k in ["lsp", "formatters", "run", "run.configs", "terminal.shell", "nim.nimsuggestPath", "nim.ide", "keys", "commands",
+  k in ["lsp", "lsp.alsoRun", "formatters", "run", "run.configs", "terminal.shell", "nim.nimsuggestPath", "nim.ide", "keys", "commands",
         "languages", "debug.adapters", "repl.commands", "sync.repository", "editor.spellDictionary", "editor.keymap"] or
     k.startsWith("ai.")
 
@@ -1075,6 +1106,7 @@ proc reloadSettings(fromFile = true) =
     toast("Project settings ignored until you trust this folder: " & projectSettingsBlocked.join(", "), 2,
           "Trust", proc() = runCmd("Workspace: trust this folder"), 12000)
   applyTheme(cfgThemeName)
+  themeFollowers()
   if gRaw and (oldMouse != cfgMouse or oldHover != cfgHoverFx): setMouseMode()
   if gRaw: applyCursorStyle()
   lspConfigChanged()
