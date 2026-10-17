@@ -62,6 +62,7 @@ var
   cfgFolderTrust = "ask"       # security.folderTrust: ask (a folder's code runs once you trust it) | off
   cfgEmitClangd = true         # C in {.emit.} goes through clangd when it is installed
   cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
+  cfgFormatVerify = false      # nim.format.verify: the built-in Nim formatter's result checked by Nim's own parser too
   cfgCSigHints = true          # nim.cSignatureHints: the C declaration dimmed after an importc wrapper
   cfgParamHints = "literals"   # nim.parameterHints: names before call arguments — literals | all | off
   cfgCEngine = "auto"          # c.engine: auto (ned's own when clangd is not installed) | builtin | clangd | both

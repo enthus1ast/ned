@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.7.0"
+version       = "6.8.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
@@ -8,7 +8,7 @@ description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linu
                 "integrated terminal, vim mode"
 license       = "MIT"
 srcDir        = "src"
-bin           = @["ned"]
+bin           = @["ned", "nedfmt"]   # nedfmt: the formatters as a command of their own
 installExt    = @["nim"]          # the sources too: `import ned/nim/index` from other programs
 skipDirs      = @["tests", "screenshots"]
 
@@ -18,12 +18,14 @@ requires "nim >= 2.2.0"
 
 # Tasks
 #   nimble release        optimised binary ./ned
+#   nimble nedfmt         ./nedfmt: ned's formatters from the shell, CI and git hooks (nph's options)
 #   nimble termux         build straight into $PREFIX/bin (Termux)
 #   nimble local          build into ~/.local/bin
 #   nimble debug          debug build with stack traces and line info
 #   nimble typecheck      type-check only (fast)
 #   nimble android        cross-check that ned compiles for Android/arm64 (no toolchain needed)
 #   nimble test           the unit tests: the Nim index, the formatters, the regular expressions
+#   nimble parsecheck     the Nim formatter checked by Nim's own parser on 463 files of Nim itself
 #   nimble uitest         the whole editor driven through tmux (tests/ui — needs tmux and python3)
 #   nimble bench          render a large file off-screen and print frame timings
 #   nimble perf           startup time, memory and frame times against the CI budget (needs python3)
@@ -42,17 +44,22 @@ proc tmpDir(): string =
 task release, "Build an optimised ./ned":
   exec "nim c " & flags & " -o:ned " & main
 
-task termux, "Build into $PREFIX/bin/ned (Termux)":
+task nedfmt, "Build ./nedfmt: ned's formatters as a command of their own (nph's options, a pre-commit hook)":
+  exec "nim c " & flags & " -o:nedfmt src/nedfmt.nim"
+
+task termux, "Build into $PREFIX/bin: ned and nedfmt (Termux)":
   let prefix = getEnv("PREFIX")
   if prefix.len == 0:
     echo "PREFIX is not set — this task is meant for Termux; use `nimble release` or `nimble local`"
   else:
     exec "nim c " & flags & " -o:" & prefix & "/bin/ned " & main
+    exec "nim c " & flags & " -o:" & prefix & "/bin/nedfmt src/nedfmt.nim"
 
-task local, "Build into ~/.local/bin/ned":
+task local, "Build into ~/.local/bin: ned and nedfmt":
   let dir = getEnv("HOME") & "/.local/bin"
   mkDir dir
   exec "nim c " & flags & " -o:" & dir & "/ned " & main
+  exec "nim c " & flags & " -o:" & dir & "/nedfmt src/nedfmt.nim"
   echo "Make sure ", dir, " is on your PATH"
 
 task debug, "Debug build with stack traces (./ned_debug)":
@@ -65,10 +72,13 @@ task android, "Check that ned compiles for Android (arm64) — generates C only"
   exec "nim c --os:android --cpu:arm64 -d:release --compileOnly --hints:off --nimcache:" &
        tmpDir() & "ned_android " & main
 
-task test, "Unit tests: the Nim index, the C index, the formatters, the regular expressions, ARC/ORC copies":
+task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies":
   for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim",
-            "tests/unit/tcopies.nim"]:
+            "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim"]:
     exec "nim r -d:release --hints:off " & t
+
+task parsecheck, "The Nim formatter checked by Nim's own parser over the compiler and stdlib (needs their sources)":
+  exec "sh tests/format/parsecheck.sh"
 
 task uitest, "The editor driven through tmux, every feature (tests/ui; needs tmux and python3)":
   exec "nim c " & flags & " -o:ned " & main
