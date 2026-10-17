@@ -140,18 +140,17 @@ proc semKind(m: SemMap, w: string): TokKind =
 
 proc semParamsAt(m: SemMap, line: int): seq[string] =
   ## the parameters of the routines that `line` is inside (an inner one's too)
-  for (a, e, ps) in m.routines:
-    if a > line: break
-    if line <= e: result.add ps
+  for i in 0 ..< m.routines.len:            # (by index: no copy of each routine's list on the way)
+    if m.routines[i][0] > line: break
+    if line <= m.routines[i][1]: result.add m.routines[i][2]
 
 proc semLocalKind(m: SemMap, line: int, w: string): TokKind =
   ## (nim.richColors) a local's colour on `line`: tkMutable for a var, tkText for a let, tkNone… (tkPunct: not a local)
   result = tkPunct
   for k in countdown(m.locals.high, 0):         # (an inner routine's locals first)
-    let (a, e, vs, ls) = m.locals[k]
-    if a > line or line > e: continue
-    if w in vs: return tkMutable
-    if w in ls: return tkText
+    if m.locals[k][0] > line or line > m.locals[k][1]: continue
+    if w in m.locals[k][2]: return tkMutable
+    if w in m.locals[k][3]: return tkText
 
 const UnsafeWords = ["cast", "addr", "unsafeAddr", "ptr"]
 
