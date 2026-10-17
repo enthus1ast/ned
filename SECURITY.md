@@ -38,6 +38,19 @@ Only the newest release gets security fixes — updating is always the remedy.
   `--help` pass). ned's own Nim and C engines still read the code. A folder's own settings that run programs (`.ned/settings.json`: `lsp`, `run`,
   `formatters`, `commands`, `ai.*` with MCP servers, `nim.nimsuggestPath`, `sync.repository` …) are ignored too,
   so opening a cloned repository cannot start programs or send your code elsewhere.
-- **Tests run on save and the copies check** (`nim.testOnSave`, `nim.showCopies`) build into private folders
-  (0700), removed afterwards; tests are stopped after two minutes.
+- **Tests run on save or before a commit, and the copies check** (`nim.testOnSave`, `git.checksBeforeCommit`,
+  `nim.showCopies`) build into private folders (0700), removed afterwards; tests are stopped after two minutes.
+- **Signing in to GitHub** never asks for, sees or stores a token: the GitHub CLI signs you in in the browser and
+  keeps its token in its own store (git asks it through `gh auth setup-git`), and an SSH key's passphrase is typed
+  into `ssh-keygen` in the terminal. Review comments, replies and resolving a thread go through `gh` as well.
+- **A second language server** (`lsp.alsoRun`, `lsp.linters`) is started only when it is installed and the folder
+  is trusted; a folder's own settings cannot add one (`lsp.alsoRun` is among the settings that need trust).
+- **The assistant's plan**: while it plans, it can only read — editing files and running commands are refused,
+  not merely asked about. Each step it then takes has a restore point.
+- **AI on this device** talks only to the local server (`ai.localUrl`, 127.0.0.1 by default); a model is
+  downloaded only when you pick it, and an install command runs in the terminal where you see it.
+- **Termux colours**: ned writes only `~/.termux/colors.properties`, keeping colours of your own beside it
+  (`colors.properties.ned-backup`) for *Theme: put Termux's own colours back*.
+- **Links** in files (a language server's, or URLs) open only when you ask (F12, Ctrl+click), handed to the
+  opener as one argument.
 - The fuzzer refuses to run as root unless it is given a user to drop to (`NED_FUZZ_USER`).

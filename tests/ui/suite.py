@@ -2002,7 +2002,10 @@ def t_510_spell():
     line = [l for l in raw.splitlines() if 'mispelled' in l][0]
     check('510 spell: a misspelled word in Markdown is underlined', re.search(r'\x1b\[4m(\x1b\[[0-9;]*m)*mispelled', line) and not re.search(r'\x1b\[4m(\x1b\[[0-9;]*m)*paragraph', line), repr(line))
     l2 = [l for l in raw.splitlines() if 'badwordd' in l][0]
-    check('510 spell: code spans and URLs are left alone', '\x1b[4m' not in l2, repr(l2))
+    # (the URL is underlined as a whole, as a link — not its misspelled part)
+    check('510 spell: code spans and URLs are left alone', not re.search(r'\x1b\[4m(\x1b\[[0-9;]*m)*`?badwordd', l2) and
+          not re.search(r'\x1b\[4m(\x1b\[[0-9;]*m)*recieve', l2) and
+          not re.search(r'\x1b\[4m(\x1b\[[0-9;]*m)*(Checking|colors|code|stay)', l2), repr(l2))
     palette('Spell check: next misspelled word'); time.sleep(0.4)
     check('510 spell: next misspelled word', '“mispelled”' in screen(), screen())
     keys('M-Enter'); time.sleep(0.6)

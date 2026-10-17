@@ -34,8 +34,12 @@ proc aiPlanSteps0(text: string): seq[string] =
     if s2.strip.len > 0: keep.add s2
   keep
 
+proc stepLine(i: int): string =
+  ## a step's first line as a menu shows it (without Markdown's backticks)
+  aiPlanSteps[i].splitLines()[0].replace("`", "")
+
 proc aiPlanTitle(i: int): string =
-  "Step " & $(i + 1) & "/" & $aiPlanSteps.len & ": " & truncTo(aiPlanSteps[i].splitLines()[0], 70)
+  "Step " & $(i + 1) & "/" & $aiPlanSteps.len & ": " & truncTo(stepLine(i), 70)
 
 proc aiPlanNext()
 proc aiPlanMenu()
@@ -73,7 +77,7 @@ proc aiPlanMenu() =
                   "stops when a check fails", proc() =
       aiPlanAuto = true
       aiPlanNext())
-    items.add act("One step: " & truncTo(aiPlanSteps[aiPlanAt].splitLines()[0], 50), "then asks again", proc() =
+    items.add act("One step: " & truncTo(stepLine(aiPlanAt), 50), "then asks again", proc() =
       aiPlanAuto = false
       aiPlanNext())
     items.add act("Change the plan…", "say what should be different", proc() =
@@ -83,7 +87,7 @@ proc aiPlanMenu() =
                "not done yet" & (if aiPlanAt > 0: " — steps 1–" & $aiPlanAt & " are done" else: "") &
                "). Do not change any files yet.", withContext = false, shownAs = "Change the plan: " & t)))
   for i in countdown(min(aiPlanCps.high, aiPlanAt - 1), 0):
-    items.add act("Back to before step " & $(i + 1), truncTo(aiPlanSteps[i].splitLines()[0], 40), aiPlanStepAct(i))
+    items.add act("Back to before step " & $(i + 1), truncTo(stepLine(i), 40), aiPlanStepAct(i))
   items.add act("Drop the plan", "the changes made so far stay", proc() =
     aiPlanState = apNone
     aiPlanSteps.setLen(0)

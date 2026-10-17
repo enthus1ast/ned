@@ -13,6 +13,7 @@ type SemMap = ref object
   routines: seq[(int, int, seq[string])]   # this file's routines: (first line, last line, their parameters)
   locals: seq[(int, int, HashSet[string], HashSet[string])]   # (nim.richColors) each routine's vars and lets
   globalVars, globalLets, deprecated: HashSet[string]          # … the module's own, and deprecated names
+  undeprecated, importUndeprecated: HashSet[string]            # … names that also have an overload not deprecated
   modules: HashSet[string]       # the names its imports go by (strutils, or the `as` name)
   importKey: string              # the imported modules (and their stamps) the part below was made from
   importKinds: Table[string, TokKind]
@@ -80,6 +81,7 @@ proc semMapFor(b: Buffer): SemMap =
       result.importCalls.clear()
       result.importMacros.clear()
       result.importGlobalVars.clear()
+      result.importUndeprecated.clear()
       result.importGlobalLets.clear()
       result.importDeprecated.clear()
       for r in sc.refs:
@@ -88,6 +90,7 @@ proc semMapFor(b: Buffer): SemMap =
         if cfgRichColors:
           let n = nxNorm(r.sym.name)
           if "deprecated" in r.sym.pragmas: result.importDeprecated.incl n
+          elif r.sym.kind in NxRoutineKinds + {nxType, nxConst}: result.importUndeprecated.incl n
           if not r.sym.local:
             if r.sym.kind == nxVar: result.importGlobalVars.incl n
             elif r.sym.kind == nxLet: result.importGlobalLets.incl n
@@ -101,6 +104,7 @@ proc semMapFor(b: Buffer): SemMap =
     result.globalVars.clear()
     result.globalLets.clear()
     result.deprecated.clear()
+    result.undeprecated.clear()
     result.modules.clear()
     for m in sc.modules.keys: result.modules.incl nxNorm(m)
     for s in f.syms:
@@ -109,6 +113,7 @@ proc semMapFor(b: Buffer): SemMap =
       if cfgRichColors:
         let n = nxNorm(s.name)
         if "deprecated" in s.pragmas: result.deprecated.incl n
+        elif s.kind in NxRoutineKinds + {nxType, nxConst}: result.undeprecated.incl n
         if not s.local and nxEnclosing(f, s.line) < 0:
           if s.kind == nxVar: result.globalVars.incl n
           elif s.kind == nxLet: result.globalLets.incl n
@@ -189,7 +194,9 @@ proc applySem(s: string, toks: var seq[TokKind], m: SemMap, line = -1) =
             if lk != tkPunct: k = lk
             elif w in m.globalVars or (w notin m.globalLets and w in m.importGlobalVars): k = tkGlobalVar
             elif w in m.globalLets or w in m.importGlobalLets: k = tkGlobal
+        # (deprecated: every overload of that name is — `add` has deprecated overloads, and others)
         if cfgRichColors and k != tkParam and (w in m.deprecated or w in m.importDeprecated) and
+           w notin m.undeprecated and w notin m.importUndeprecated and
            not (i > 0 and s[i - 1] == '.' and k == tkProperty):
           k = tkDeprecated
         if k != tkText:
