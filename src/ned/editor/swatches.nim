@@ -126,9 +126,91 @@ proc colourSwatches(lang: Lang, s: string, toks: seq[TokKind]): seq[(int, int, R
           continue
     inc i
 
+var decorOverlay: seq[(int, string)]
+  ## set by lineDecor: hints drawn over the spaces that follow their column (an aligned `=`), (column, text)
+
+proc declShape(s: string): (bool, int, int, int) =
+  ## a declaration lined up on its `=` — `name = …`, `name*: T   = …`: (it is one, indentation, where the spaces
+  ## before the `=` start, the `=`'s column)
+  var i = 0
+  while i < s.len and s[i] in {' ', '\t'}: inc i
+  let ind = i
+  if i >= s.len: return
+  if s[i] == '`':
+    let e = s.find('`', i + 1)
+    if e < 0: return
+    i = e + 1
+  else:
+    if s[i] notin IdentStartChars: return
+    while i < s.len and s[i] in IdentChars: inc i
+  if i < s.len and s[i] == '*': inc i
+  var padStart = i
+  var k = i
+  while k < s.len and s[k] == ' ': inc k
+  if k < s.len and s[k] == ':':
+    # an explicit type: up to the `=` outside brackets
+    var d = 0
+    var q = k + 1
+    while q < s.len:
+      let c = s[q]
+      if c in {'[', '(', '{'}: inc d
+      elif c in {']', ')', '}'}: dec d
+      elif c in {'"', '\''}: return
+      elif c == '=' and d == 0: break
+      inc q
+    if q >= s.len: return
+    var e = q
+    while e > k and s[e - 1] == ' ': dec e
+    padStart = e
+    k = q
+  if k >= s.len or s[k] != '=' or k == padStart or (k + 1 < s.len and s[k + 1] in {'=', '>', '<'}): return
+  for q in padStart ..< k:
+    if s[q] != ' ': return
+  (true, ind, padStart, k)
+
+proc typeHintAt(b: Buffer, line, col: int): string =
+  ## the type hint (`: int`) drawn at a column of a line, or ""
+  if cfgInlayHints and line in b.inlays:
+    for (c, lb) in b.inlays[line]:
+      if c == col and lb.strip.startsWith(":"): return lb
+
 proc lineDecor(b: Buffer, line: int, toks: seq[TokKind], sw: seq[(int, int, Rgb)]): seq[(int, string)] =
   ## what is drawn between the characters of a line: inlay hints and colour swatches, in column order
+  decorOverlay.setLen(0)
   if (cfgInlayHints or b.lang.mode == lmCsv) and line in b.inlays: result = b.lineInlays(line, toks)
+  if cfgInlayHints and b.lang.mode == lmNim and line < b.lines.len and b.lines[line].len < 400 and
+     (not cfgWrap or b.lineSegs(line).len == 1):
+    # declarations lined up on their `=` (nim.format.align): a type hint goes over the spaces before the `=`, and
+    # every line of the run moves its `=` by the same amount — they stay lined up, with hints or without
+    let (ok, ind, padStart, eq) = declShape(b.lines[line])
+    if ok:
+      var a = line
+      var e = line
+      while a > 0 and line - a < 200:
+        let (ok2, ind2, _, eq2) = declShape(b.lines[a - 1])
+        if not ok2 or ind2 != ind or eq2 != eq: break
+        dec a
+      while e < b.lines.high and e - line < 200:
+        let (ok2, ind2, _, eq2) = declShape(b.lines[e + 1])
+        if not ok2 or ind2 != ind or eq2 != eq: break
+        inc e
+      var target = eq
+      var anyHint = false
+      for l in a .. e:
+        let (_, _, ps, _) = declShape(b.lines[l])
+        let h = b.typeHintAt(l, ps)
+        if h.len > 0:
+          anyHint = true
+          target = max(target, ps + strWidth(h) + 1)
+      if anyHint:
+        let own = b.typeHintAt(line, padStart)
+        var keep: seq[(int, string)]
+        for (c, lb) in result:
+          if not (c == padStart and lb == own): keep.add (c, lb)
+        result = keep
+        if target > eq: result.add (padStart, spaces(target - eq))
+        if own.len > 0: decorOverlay.add (padStart, own)
+        result.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
   if cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]:
     let (c, lb) = cSigHints[b.id][line]
     if line < b.lines.len and c == b.lines[line].len: result.add (c, lb)     # (at the end of the line it was made for)

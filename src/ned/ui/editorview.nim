@@ -381,9 +381,12 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     let sw = if cfgSwatches and s.len <= 4000 and b.lang.mode != lmDiff and b.id notin graphBufs:
                colourSwatches(b.lang, s, toks) else: @[]
     var swBg: seq[(int, int, Rgb)]       # swatches with no room on the row: the colour behind the text instead
+    var overlays: seq[(int, string)]     # type hints over the spaces before a lined-up `=`
     if (showInlays and line in b.inlays) or sw.len > 0 or
-       (cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]):
+       (cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]) or
+       (showInlays and b.lang.mode == lmNim and s.len < 400 and '=' in s):     # (a run lined up on `=` with hints)
       hints = b.lineDecor(line, (if toksUnfaded.len > 0: toksUnfaded else: toks), sw)
+      overlays = decorOverlay
       var hw = 0
       for (_, lb) in hints: hw += strWidth(lb)
       if segs.len > 1 or (cfgWrap and visColOf(s, s.len) + hw > textW):
@@ -594,6 +597,14 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         vc += cw
         i += n
       if rulersOn: rulerRow(y)
+      for (oc, ot) in overlays:
+        # a type hint over the spaces before a lined-up `=` (its column: where the spaces start)
+        if oc < segStart or oc > segEnd: continue
+        var hs = 0
+        for (hc, lb) in hints:
+          if hc < oc: hs += strWidth(lb)
+        let ox = tx0 + visColOf(s, oc) - baseVc + rowOff + hs
+        if ox >= tx0: discard putStr(ox, y, ot, theme.inlay, blend(rowBg, theme.fg, 0.05), {aItalic}, limX)
       if segEnd == s.len:
         while hk < hints.len:
           let hx = tx0 + vc - baseVc + rowOff + shift
