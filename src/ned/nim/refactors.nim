@@ -286,21 +286,21 @@ proc nimEvaluate() =
     if not saveForTool(b): return
     var ls = b.lines
     ls.add "static: echo \"NEDEVAL\\t\", repr(" & ex & ")"
-    let tmp = parentDir(b.path) / ("ned_eval_" & $getCurrentProcessId() & ".nim")
+    # (a private copy, checked on stdin from the file's folder)
+    let tmp = privTmp("eval") & ".nim"
     try: writeFile(tmp, ls.join("\n") & "\n")
     except CatchableError as e:
-      error("Cannot write next to the file: " & e.msg)
+      error("Cannot write the copy to check: " & e.msg)
       return
-    projectTemps.add tmp
     let last = ls.len
     info("Evaluating " & truncTo(ex, 40) & "…")
-    discard startJob(jkTool, "nim check --hints:off --warnings:off --colors:off " & quoteShell(tmp) & " 2>&1",
+    discard startJob(jkTool, "nim check --hints:off --warnings:off --colors:off - < " & quoteShell(tmp) & " 2>&1",
                      parentDir(b.path), proc(j: Job) =
       try: removeFile(tmp)
       except CatchableError: discard
       var val = ""
       var err = ""
-      let tn = extractFilename(tmp)
+      let tn = "stdinfile.nim"
       for l in j.output.splitLines:
         if l.startsWith("NEDEVAL\t"):
           val = l[8 .. ^1]

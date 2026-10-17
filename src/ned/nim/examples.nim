@@ -60,14 +60,16 @@ proc runExamples(b: Buffer, line: int) =
         imports.add (txt, k, ind0)
       else: outp.add (pad & txt, k, ind0 - pad.len)
   var lines = @[("import \"./" & modName & "\"", blocks[0][0], 0)] & imports & outp
-  let tmp = parentDir(b.path) / ("ned_examples_" & $getCurrentProcessId() & ".nim")
+  # a private copy, compiled on stdin from the file's folder (its imports, nim.cfg and ./module work there):
+  # the compiler calls it stdinfile.nim
+  let priv = privTmp("examples") & ".nim"
+  let tmp = "stdinfile.nim"
   var text = ""
   for (t, _, _) in lines: text.add t & "\n"
-  try: writeFile(tmp, text)
+  try: writeFile(priv, text)
   except CatchableError as ex:
-    error("Cannot write next to the file: " & ex.msg)
+    error("Cannot write the examples: " & ex.msg)
     return
-  projectTemps.add tmp
   let exe = privDir() / ("ned_examples_" & $getCurrentProcessId())
   var keys: seq[string]
   for (a, _) in blocks: keys.add b.path & ":" & $a
@@ -79,11 +81,11 @@ proc runExamples(b: Buffer, line: int) =
   var flagStr = ""
   for f in flags: flagStr.add quoteShell(f) & " "
   let cmd = "nim c" & (if compileOnly: "" else: " -r") & " --hints:off --warnings:off --colors:off " &
-            flagStr & "--nimcache:" & quoteShell(privDir() / "examples_cache") & " -o:" & quoteShell(exe) & " " &
-            quoteShell(tmp) & " 2>&1"
+            flagStr & "--nimcache:" & quoteShell(privDir() / "examples_cache") & " -o:" & quoteShell(exe) & " - < " &
+            quoteShell(priv) & " 2>&1"
   discard startJob(jkTool, cmd, parentDir(b.path), proc(j: Job) =
     try:
-      removeFile(tmp)
+      removeFile(priv)
       if fileExists(exe): removeFile(exe)
     except CatchableError: discard
     # tmp(LINE, COL) → the file's own line and column

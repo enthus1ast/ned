@@ -40,21 +40,20 @@ proc nimEffects() =
   let name = b.lines[a].strip.split({' ', '(', '*', '[', '='})[1]
   var ls = b.lines
   ls.insert(bodyInd & "{.effects.}", e + 1)
-  # next to the file so its imports and nim.cfg work; a module name must be an identifier, so not a dot file
-  let tmp = parentDir(b.path) / ("ned_effects_" & $getCurrentProcessId() & ".nim")
+  # a private copy, checked on stdin from the file's folder (so its imports and nim.cfg work)
+  let tmp = privTmp("effects") & ".nim"
   try: writeFile(tmp, ls.join("\n") & "\n")
   except CatchableError as ex:
-    error("Cannot write next to the file: " & ex.msg)
+    error("Cannot write the copy to check: " & ex.msg)
     return
-  projectTemps.add tmp
   info("Asking the compiler what " & name & " can raise…")
-  discard startJob(jkTool, "nim check --hint:all:off --hint:User:on --warnings:off --colors:off " & quoteShell(tmp) &
+  discard startJob(jkTool, "nim check --hint:all:off --hint:User:on --warnings:off --colors:off - < " & quoteShell(tmp) &
                    " 2>&1", parentDir(b.path), proc(j: Job) =
     try: removeFile(tmp)
     except CatchableError: discard
     var raises, effects: seq[string]
     var failed = ""
-    let tn = extractFilename(tmp)
+    let tn = "stdinfile.nim"
     for l in j.output.splitLines:
       if tn notin l: continue
       if "Error:" in l:
@@ -125,15 +124,16 @@ proc nimBenchmark() =
     src.add "  s.sort()"
     src.add "  echo \"NEDBENCH \", n, \" \", s[0], \" \", s[3], \" \", s[^1]"
     src.add "nedBenchRun()"
-    let tmp = parentDir(b.path) / ("ned_bench_" & $getCurrentProcessId() & ".nim")
+    # (a private copy, built on stdin from the file's folder: its imports work there)
+    let tmp = privTmp("bench") & ".nim"
     let exe = privDir() / ("ned_bench_" & $getCurrentProcessId())
     try: writeFile(tmp, src.join("\n") & "\n")
     except CatchableError as ex:
-      error("Cannot write next to the file: " & ex.msg)
+      error("Cannot write the benchmark: " & ex.msg)
       return
-    projectTemps.add tmp
     info("Benchmarking " & call & " (release build)…")
-    discard startJob(jkTool, "nim c -r -d:release --hints:off --warnings:off --colors:off -o:" & quoteShell(exe) & " " &
+    discard startJob(jkTool, "nim c -r -d:release --hints:off --warnings:off --colors:off --nimcache:" &
+                     quoteShell(privDir() / "bench_cache") & " -o:" & quoteShell(exe) & " - < " &
                      quoteShell(tmp) & " 2>&1", parentDir(b.path), proc(j: Job) =
       try:
         removeFile(tmp)
