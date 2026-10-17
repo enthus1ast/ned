@@ -665,6 +665,57 @@ proc lsInlayHints(params: JsonNode): JsonNode =
 
 # ── formatting ──
 
+proc lsFormatText(text, path: string): (string, string) =
+  ## ned's formatter (nimFormatAll) on a whole text, in a child process of its own: the memory a big file takes
+  ## goes with it, and a formatter that fails on a strange file — or never ends — takes nothing else down
+  const Failed = "the built-in formatter failed on this file (please report it)"
+  var fds: array[2, cint]
+  if posix.pipe(fds) != 0: return nimFormatAll(text, path)
+  let pid = posix.fork()
+  if pid < 0:
+    discard posix.close(fds[0])
+    discard posix.close(fds[1])
+    return nimFormatAll(text, path)
+  if pid == 0:
+    discard posix.close(fds[0])
+    var msg = ""
+    try:
+      let (res, err) = nimFormatAll(text, path)
+      msg = if err.len > 0: "E" & err else: "R" & res
+    except CatchableError, Defect: msg = "E" & Failed
+    var off = 0
+    while off < msg.len:
+      let n = posix.write(fds[1], unsafeAddr msg[off], msg.len - off)
+      if n > 0: off += n
+      elif n < 0 and errno == EINTR: continue
+      else: break
+    exitnow(0)
+  discard posix.close(fds[1])
+  var got = ""
+  var buf: array[65536, char]
+  let t0 = getMonoTime()
+  while true:
+    var pfd = TPollfd(fd: fds[0], events: POLLIN)
+    let left = 30_000 - int(msSince(t0))
+    if left <= 0:
+      discard posix.kill(pid, SIGKILL)
+      got = ""
+      break
+    let r = poll(addr pfd, 1, cint(min(left, 1000)))
+    if r < 0 and errno == EINTR: continue
+    if r <= 0: continue
+    let n = posix.read(fds[0], addr buf[0], buf.len)
+    if n > 0:
+      let old = got.len
+      got.setLen(old + n)
+      copyMem(addr got[old], addr buf[0], n)
+    elif n == 0 or errno notin [EINTR, EAGAIN]: break
+  discard posix.close(fds[0])
+  var st: cint
+  discard posix.waitpid(pid, st, 0)
+  if got.len == 0: return (text, Failed)
+  if got[0] == 'E': (text, got[1 .. ^1]) else: (got[1 .. ^1], "")
+
 proc lsFormatting(params: JsonNode): JsonNode =
   let d = lsDocOf(params)
   result = newJArray()
@@ -672,7 +723,7 @@ proc lsFormatting(params: JsonNode): JsonNode =
   let b = d.b
   let text = b.allText & "\n"
   var res, err: string
-  try: (res, err) = nimFormatAll(text, b.path)
+  try: (res, err) = lsFormatText(text, b.path)
   except CatchableError, Defect: err = "the built-in formatter failed on this file (please report it)"
   if err.len > 0:
     # (said once for a text: a client that formats on every save would repeat it)

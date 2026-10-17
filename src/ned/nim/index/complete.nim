@@ -354,6 +354,7 @@ proc nxPostfixShape*(sc: NxScope, typ: string, depth = 0): (string, seq[string])
     return
 
 proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
+  let f = nxAt(f, lines, line)             # (code in a `when` branch left out here: as that branch sees it)
   let sc = nxScope(f)
   let text = lines[line]
   var ws = min(col, text.len)

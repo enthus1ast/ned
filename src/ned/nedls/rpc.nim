@@ -80,10 +80,11 @@ proc lsReplyError(id: JsonNode, code: int, msg: string) =
 proc lsNotify(meth: string, params: JsonNode) =
   lsSend(%*{"jsonrpc": "2.0", "method": meth, "params": params})
 
-proc lsRequestOut(meth: string, params: JsonNode) =
-  ## a request to the client (its answer is read and dropped)
+proc lsRequestOut(meth: string, params: JsonNode): string {.discardable.} =
+  ## a request to the client; its id (the answer comes back as a message without a method)
   inc lsNextOutId
-  lsSend(%*{"jsonrpc": "2.0", "id": "nedls-" & $lsNextOutId, "method": meth, "params": params})
+  result = "nedls-" & $lsNextOutId
+  lsSend(%*{"jsonrpc": "2.0", "id": result, "method": meth, "params": params})
 
 proc lsShowMessage(typ: int, msg: string) =
   ## window/showMessage — 1 error, 2 warning, 3 info

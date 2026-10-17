@@ -10,6 +10,8 @@ type
     secKind*: NxKind       # bkVarSec: nxConst / nxLet / nxVar
     memberInd*: int        # first member's indent in a section (-1 until known)
     owner*: string
+    inact*: bool           # a `when` branch left out here (its body: start + 1 .. the last line before the pop)
+    start*: int
 
 proc nxParseImports*(f: NxFile, rest: string, line: int, kw: string) =
   var r = rest.strip
@@ -281,7 +283,26 @@ proc nxSubstIdents*(s: string, sub: Table[string, string]): string =
     result.add c
     inc i
 
-proc nxParse*(lines: openArray[string], path: string): NxFile =
+proc nxConstWhen(f: NxFile, cond: string, depth = 0): int =
+  ## a `when` on a constant of this file declared above (const useWinVersion = defined(windows) or …): its value
+  ## worked out the same way (1 / 0 / -1)
+  var c = cond.strip
+  var neg = false
+  if c.startsWith("not "):
+    neg = true
+    c = c[4 .. ^1].strip
+  if c.len == 0 or depth > 3 or not c.allCharsInSet(IdentChars): return -1
+  for k in countdown(f.syms.high, 0):
+    let s = f.syms[k]
+    if s.kind == nxConst and s.name == c and s.value.len > 0:
+      var v = nxWhen(s.value)
+      if v < 0: v = nxConstWhen(f, s.value, depth + 1)
+      return (if v < 0: -1 elif neg: 1 - v else: v)
+  -1
+
+proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxFile =
+  ## the declarations of a file. A `when` branch left out on this platform is skipped (its lines are recorded in
+  ## `inactive`); with keepInactive it is read too, and `symBranch` tells which declarations come from one
   result = NxFile(path: path, module: splitFile(path).name)
   let f = result
   var st: NxLexState
@@ -296,6 +317,7 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
   var whenTaken = initTable[int, int]()
 
   var localDepth = 0         # > 0: inside a routine's body (a type declared there is a local one)
+  var curInact = -1          # (keepInactive) the left-out branch the current statement is in: its `when` line
   template addSym(s0: NxSym) =
     f.syms.add s0
     if localDepth > 0: f.syms[^1].local = true
@@ -360,18 +382,24 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
     var v = -1
     if w0 == "when":
       v = nxWhen(cond)
+      if v < 0: v = nxConstWhen(f, cond)
       whenTaken[ind] = (if v == 1: 1 elif v == 0: 0 else: -1)
     elif w0 == "elif":
       let prev = whenTaken.getOrDefault(ind, -1)
       if prev == 1: v = 0
       else:
         v = nxWhen(cond)
+        if v < 0: v = nxConstWhen(f, cond)
         if v == 1 and prev == 0: whenTaken[ind] = 1
         elif v == -1: whenTaken[ind] = -1
     else:
       let prev = whenTaken.getOrDefault(ind, -1)
       v = if prev == 1: 0 elif prev == 0: 1 else: -1
-    stack.add NxFrame(ind: ind, kind: (if v == 0: bkOther else: transparentKind), sym: -1)
+    if v == 0:
+      # left out here: skipped — or, for code inside such a branch (keepInactive), read like the others
+      stack.add NxFrame(ind: ind, kind: (if keepInactive: transparentKind else: bkOther), sym: -1, inact: true,
+                        start: startLine)
+    else: stack.add NxFrame(ind: ind, kind: transparentKind, sym: -1)
 
   template varMember(mtT: string, kkT: NxKind) =
     ## a*, b {.pragma.}: T = value   /   (x, y) = value
@@ -471,11 +499,18 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
                     t.endsWith("export"): " " else: ", ") & c2s
         inc i
         inc guard
+    if keepInactive:
+      while f.symBranch.len < f.syms.len: f.symBranch.add curInact.int32
     while stack.len > 0 and stack[^1].ind >= ind:
       let fr = stack.pop()
       if fr.kind in {bkRoutine, bkObject, bkEnum} and fr.sym >= 0 and fr.sym < f.syms.len:
         f.syms[fr.sym].endLine = lastContent
+      if fr.inact and lastContent > fr.start: f.inactive.add (int32(fr.start + 1), int32(lastContent))
     lastContent = i - 1
+    if keepInactive:
+      curInact = -1
+      for fr in stack:
+        if fr.inact: curInact = fr.start
     var k = stack.high
     while k >= 0 and stack[k].kind == bkTransparent: dec k
     let fk = if k >= 0: stack[k].kind else: bkTransparent
@@ -660,3 +695,6 @@ proc nxParse*(lines: openArray[string], path: string): NxFile =
     let fr = stack.pop()
     if fr.kind in {bkRoutine, bkObject, bkEnum} and fr.sym >= 0 and fr.sym < f.syms.len:
       f.syms[fr.sym].endLine = lastContent
+    if fr.inact and lastContent > fr.start: f.inactive.add (int32(fr.start + 1), int32(lastContent))
+  if keepInactive:
+    while f.symBranch.len < f.syms.len: f.symBranch.add curInact.int32

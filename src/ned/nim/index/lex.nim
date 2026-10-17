@@ -46,6 +46,9 @@ type
     pragmas*: seq[(string, int)]    # {.pragma: name, ….} it defines (name, line)
     byLine*: Table[int, seq[int]]   # line → the declarations on it (built on first use, for nxSymAt)
     byLineN*: int                   # syms.len when byLine was built
+    inactive*: seq[(int32, int32)]  # the bodies of `when` branches left out here: (first line, last line)
+    symBranch*: seq[int32]          # (nxParse keepInactive) each declaration's left-out branch: its first line, or -1
+    scopeKey*: string               # (the file as code in a left-out branch sees it: its scope's own key)
 
 const
   NxOpChars* = {'+', '-', '*', '/', '\\', '<', '>', '!', '?', '^', '.', '|', '=', '%', '&', '$', '@', '~', ':'}
