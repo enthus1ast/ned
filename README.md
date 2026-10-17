@@ -111,7 +111,10 @@ library, and builds to one binary of about 9 MB.
 ![AI: plan first — numbered steps, then all of them or one at a time, each with a restore point](screenshots/plan-67.png)
 
 Also: editing ned's own source in ned — files that are `include`d into another — no longer shows every name as
-undeclared: they are checked through the file that includes them.
+undeclared: they are checked through the file that includes them. The Nim formatter no longer joins an enum's
+values with the next type after a trailing comma, nor takes `SomeNumber | enum | ptr` for an enum, and keeps a
+`##` comment on a statement's line where Nim would not take it under: every file of Nim's compiler and standard
+library, and of ned, now reads the same to Nim's parser after formatting.
 
 Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies,
 ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one
@@ -707,6 +710,13 @@ export ANTHROPIC_API_KEY=…     # or OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_A
 
 Choose the provider and model with *AI: choose provider…* / *AI: choose model…*, or in the settings
 (`ai.provider`, `ai.model`, `ai.baseUrl` for Ollama or any OpenAI-compatible server — Ollama needs no key).
+
+**No key, no internet**: *AI: on this device, offline…* (also first in *AI: choose provider…*) runs a model on
+your phone or computer. It finds Ollama — or installs it (`pkg install ollama` in Termux, `brew install ollama`,
+Ollama's script on Linux) — starts it, offers the Qwen 2.5 Coder model that fits the device's memory (0.5B under
+3 GB, 1.5B from 3 GB, 3B from 5 GB, 7B from 9 GB, 14B from 18 GB; *Other models…* for the rest), downloads it with
+its progress in the status bar, sets `ai.provider` and `ai.model`, and times a first answer. llama.cpp's
+`llama-server` on port 8080 is used the same way. `ai.localUrl` says where Ollama listens.
 *Type a model id…* in the model list accepts any model your provider offers. Keys are passed to `curl`
 through a private temporary file, never on the command line.
 
@@ -720,7 +730,13 @@ parameter, ned adjusts the request, retries, and remembers the change for that m
   edit files and run commands. Edits and commands wait for your approval (`ai.autoApprove`: none / reads /
   edits / all); file changes are shown as a **diff** first, with *Open diff* for the whole change. Anything
   outside the project folder always asks, and the agent cannot edit outside it.
-- **Slash commands**: `/explain` `/fix` `/tests` `/doc` `/review` `/optimize` `/commit` `/regen` `/new`
+- **Plan first** (*AI: plan a change, then do it step by step…*, or `/plan …`): the assistant reads the code —
+  editing and commands are refused while it plans — and answers with numbered steps. *Do it* runs them all
+  (stopping when a step leaves errors), *One step* asks again after each, *Change the plan…* sends what should be
+  different. Every step has a restore point: *AI: the plan…* › *Back to before step N*.
+- **A failing test**: Alt+Enter on a failed check (or *AI: make the failing test pass*) sends the test, how it
+  failed and the code it tests; the change is kept only when the test then passes.
+- **Slash commands**: `/explain` `/fix` `/tests` `/doc` `/review` `/optimize` `/commit` `/plan` `/regen` `/new`
   `/history` `/model` `/provider` `/help`.
 - **Mentions** attach context: `@file` `@selection` `@diff` `@staged` `@problems` `@terminal` `@tree`, or
   `@path/to/file`.
@@ -731,7 +747,9 @@ parameter, ned adjusts the request, retries, and remembers the change for that m
   `ai.price`. Requests over `ai.warnTokens` ask first. `ai.fastModel` adds a ⚡ fast / smart switch.
 - **Undo**: every agent run keeps the files it changed; the toast at the end, or *AI: undo the assistant's
   changes…*, puts them back.
-- **Nim context** (`ai.nimContext`): the definitions your Nim code uses go along with it.
+- **Nim context** (`ai.nimContext`): the definitions your Nim code uses go along with it — and with inline
+  edits and suggestions, for C too; a suggestion naming something that does not exist is dropped
+  (`ai.checkSuggestions`).
 - *AI: review staged changes* puts its findings in the Problems panel.
 - Code blocks have *Copy*, *Insert*, and *Apply* when the block names a file (shows the diff first).
 - Alt+Shift+C rewrites the selection (or the enclosing block) in place — Ctrl+Z undoes it.
@@ -957,7 +975,11 @@ other programs can import them (`import ned/nim/index`). The tests are described
 - **Comments look odd or garbled** — italics are off by default. Turn them on with `"ui.italics": true`
   only if your terminal font has an italic face.
 - **AI says "No API key"** — export the key in the shell that starts ned, or set `ai.apiKey`
-  (`ai.apiKeyEnv` names a different variable).
+  (`ai.apiKeyEnv` names a different variable). Or use a model on the device, which needs none: *AI: on this
+  device, offline…*.
+- **git push asks for a username and password, and fails** — GitHub stopped taking passwords. Since 6.7 ned
+  offers *Sign in* when that happens (also *Git: sign in to GitHub*): the GitHub CLI signs you in in the
+  browser, or an SSH key is made and added. In a shell the same is `gh auth login` and `gh auth setup-git`.
 - **"the built-in formatter would change the code here, so nothing was changed"** — the formatter met code it
   cannot lay out safely and left the file as it was. Choose nph for that project (`"nim.formatter": "nph"` in
   its `.ned/settings.json`), and please report the file.

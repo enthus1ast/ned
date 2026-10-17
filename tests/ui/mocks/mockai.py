@@ -122,7 +122,7 @@ class H(BaseHTTPRequestHandler):
         want_edit = 'doc comment to shout' in user and 'tools' in b and not has_tool_result(msgs)
         want_cube = 'add a cube proc' in user and 'tools' in b
         want_gen = 'run the generator' in user and 'tools' in b and not has_tool_result(msgs)
-        want_plan = ('PLANTASK' in user or 'of the plan now' in user) and 'tools' in b
+        want_plan = ('PLANTASK' in user or 'twice2 and thrice2' in user or 'of the plan now' in user) and 'tools' in b
         mcp_name = None
         if 'use the echo tool' in user and not has_tool_result(msgs):
             for t in b.get('tools') or []:
