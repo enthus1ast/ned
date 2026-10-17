@@ -1534,6 +1534,13 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
       if logic:
         let sub = fRenderLine(FOut(depth: o.depth + 1, toks: o.toks[eq + 1 .. ^1], exprLine: true), @[value])
         return @[pad & fRender(o.toks[0 .. eq])] & sub
+  # `raise newException(…)`, `discard "…"`, `return f(…)` too long: the value on the next line when it fits there
+  # (like nph)
+  if not hasInnerComment and t0.kind == fkKw and t0.text in ["raise", "discard", "return", "yield"] and
+     o.toks.len > 1 and o.toks[^1].kind != fkComment and
+     not (o.toks[1].kind == fkKw and o.toks[1].text in ["if", "when", "try", "case", "proc", "func"]):
+    let value = pad & "  " & fRender(fDropTrailing(o.toks[1 .. ^1]))
+    if fFitLen(value) <= FmtMax: return @[pad & t0.text, value]
   # a routine header: its parameters, indented 4, then  ): T =
   if t0.kind == fkKw and t0.text in FRoutineKw:
     var open = -1
@@ -1743,7 +1750,10 @@ proc fStructureOf*(lines: seq[FLine]): seq[int] =
       delta = result[^1] - base             # `else: static:` — the block opened last holds the children
     elif t0.kind == fkKw and t0.text in FSectionKw and fCodeToks(l.toks) > 1: inc delta    # (`const ## doc`: not one)
     if fValueEq(l.toks): dec delta
-    if l.toks.len == 1 and t0.kind == fkKw and t0.text in ["return", "yield"]: dec delta   # return ⏎ if a: …
+    if l.toks.len == 1 and t0.kind == fkKw and t0.text in ["return", "yield", "raise", "discard"]:
+      var nx = li + 1
+      while nx < lines.len and lines[nx].comment: inc nx
+      if nx < lines.len and lines[nx].depth > l.depth: dec delta          # return ⏎ its value under it
     if t0.kind == fkKw and t0.text == "case": dec delta          # its branches, if indented
     # `import` on its own line: the modules under it are part of that one statement
     if l.toks.len == 1 and t0.kind == fkKw and t0.text in ["import", "export", "include"]: dec delta
