@@ -188,7 +188,9 @@ pkg install gdb termux-api                  # debugger; clipboard (also install 
 ```
 
 Nothing stays running in the background — nimsuggest is off by default, and the checks while you type are short
-`nim check` runs — which suits a phone's memory.
+`nim check` runs — which suits a phone's memory. A save also runs the tests that cover the file and asks the
+compiler where ARC/ORC copies, short runs as well; `"nim.testOnSave": "off"` and `"nim.showCopies": false` leave
+them out to spare the battery.
 
 Use a Nerd Font in `~/.termux/font.ttf` and set `"ui.icons": "nerd"` for nicer icons. The extra-keys row of
 Termux (Esc, Ctrl, Alt, arrows, F-keys) makes every shortcut reachable; every command is also in the menus
