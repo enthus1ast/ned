@@ -125,6 +125,8 @@ proc nimProjectFile(b: Buffer): string =
     if b.path.startsWith(src & "/"):
       let m = nimMainModule(info.dir)
       if m.len > 0: return m
+  let top = nxTopIncluder(b.path)                     # (a file another one includes: that module)
+  if top.len > 0: return top
   b.path
 
 proc reEsc(s: string): string =
