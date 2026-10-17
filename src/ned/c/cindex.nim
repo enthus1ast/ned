@@ -561,6 +561,16 @@ proc cxDocFor(comments: seq[CxComment], line: int, endLine = -1): string =
   for k in max(0, best) .. min(comments.high, best + 3):
     if k >= 0 and comments[k].a == el and not comments[k].lone: return cxCleanComment(comments[k].text)
 
+proc cxInactiveIn*(text: string): seq[(int, int)] =
+  ## what #if 0, #ifdef __cplusplus … leave out of a C text: (first line, last line) — for the editor to dim, with
+  ## whichever engine answers for the file
+  var toks: seq[CxTok]
+  var comments: seq[CxComment]
+  var pp: seq[(int, string)]
+  cxLex(text, toks, comments, pp)
+  for (a, b) in cxInactive(pp):
+    if b - 1 >= a + 1: result.add (a + 1, b - 1)
+
 proc cxParse*(text, path: string, full = true): CxFile =
   ## one C file's declarations (not the ones of the files it includes); full: a prototype's parameters too (the
   ## file being edited: they are answered for; a header read for it: they are not needed)
