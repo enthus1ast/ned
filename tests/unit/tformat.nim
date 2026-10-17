@@ -35,6 +35,60 @@ suite "Nim":
       inc files
     check files > 100
 
+suite "Nim: nph's layouts (6.8)":
+  test "a lambda among the arguments: one argument a line, its body under it":
+    check nimFmt("let f2 = filter(colors, proc(x: string): bool = x.len < 6)\n") ==
+          "let f2 = filter(\n  colors,\n  proc(x: string): bool =\n    x.len < 6,\n)\n"
+
+  test "after a command in a lambda's body the comma goes on a line of its own":
+    check nimFmt("apply([0, 1], proc(item: int) = message.addInt item)\n") ==
+          "apply(\n  [0, 1],\n  proc(item: int) =\n    message.addInt item\n  ,\n)\n"
+
+  test "an if-expression argument with calls in it: as a block":
+    check nimFmt("result = codePageToName(if uiApp: getACP() else: getGetConsoleCP())\n") ==
+          "result = codePageToName(\n  if uiApp:\n    getACP()\n  else:\n    getGetConsoleCP()\n)\n"
+
+  test "a command whose last argument is a lambda with a block: one argument a line":
+    check nimFmt("registerCallback c, \"name\", proc(a: VmArgs) =\n  setResult(a, 1)\n") ==
+          "registerCallback c,\n  \"name\",\n  proc(a: VmArgs) =\n    setResult(a, 1)\n"
+
+  test "a lambda on the line after `=` goes up":
+    check nimFmt("f.callback =\n  proc() =\n    echo 1\n") == "f.callback = proc() =\n  echo 1\n"
+
+  test "a call's block given on its line goes under it":
+    check nimFmt("doAssertRaises(IOError): discard s.readInt8()\n") ==
+          "doAssertRaises(IOError):\n  discard s.readInt8()\n"
+
+  test "`quote do:` as a statement's value loses its do — not when another call takes it":
+    check nimFmt("result = quote do:\n  echo 1\n") == "result = quote:\n  echo 1\n"
+    check nimFmt("result.add quote do:\n  echo 1\n") == "result.add quote do:\n  echo 1\n"
+
+  test "a try value and a non-plain return-if as blocks; a plain if-else stays inline":
+    check nimFmt("result = try: getAppl() except OSError: \"\"\n") ==
+          "result =\n  try:\n    getAppl()\n  except OSError:\n    \"\"\n"
+    check nimFmt("return if b: toUpper(s) else: toLower(s)\n") ==
+          "return\n  if b:\n    toUpper(s)\n  else:\n    toLower(s)\n"
+    check nimFmt("return if h < m: nil else: x\n") == "return if h < m: nil else: x\n"
+    check nimFmt("if a:\n  x\nelse:\n  y\n") == "if a: x else: y\n"
+
+  test "a format string and its long list: broken after %, the list wrapped in place when it does not fit":
+    let src = "proc f() =\n  result = getConfigVar(d.conf, \"doc.section\") % [\"sectionid\", $ord(kind), " &
+              "\"sectionTitle\", title, \"sectionTitleID\", $(ord(kind) + 50)]\n"
+    check nimFmt(src) == "proc f() =\n  result =\n    getConfigVar(d.conf, \"doc.section\") % [\n      \"sectionid\",\n" &
+          "      $ord(kind),\n      \"sectionTitle\",\n      title,\n      \"sectionTitleID\",\n      $(ord(kind) + 50),\n    ]\n"
+
+  test "a condition ending in a call too long by itself: the call wrapped, the comparison after it":
+    check nimFmt("if fillConsoleOutputAttribute(h, scrbuf.wAttributes, wt, scrbuf.dwCursorPosition, " &
+                 "addr(numwrote)) == 0:\n  discard\n") ==
+          "if fillConsoleOutputAttribute(\n  h, scrbuf.wAttributes, wt, scrbuf.dwCursorPosition, addr(numwrote)\n) == 0:\n" &
+          "  discard\n"
+
+  test "a product broken across lines keeps its spaces (not an export marker)":
+    let r = nimFmt("proc f() =\n  result.mom4 = a.mom4 + b.mom4 + delta4*a.n.float*b.n.float * toFloat(a.n*a.n - " &
+                   "a.n*b.n + b.n*b.n) / (n*n*n)\n")
+    check "delta4 * a.n.float * b.n.float" in r
+    check "delta4*" notin r
+
 suite "Nim layout settings (nim.format.*)":
   setup:
     FmtMax = 88
