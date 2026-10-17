@@ -664,7 +664,7 @@ proc fLiteralGroup(sg: seq[FTok]): (int, int) =
   ## a piece of an expression that is one literal — `[a, b]`, `@[…]`, `{…}`, `(a, b)` — maybe with the operator
   ## after it: (its open, its close), else (-1, -1)
   var last = sg.high
-  if last > 0 and (sg[last].kind == fkOp or fWordOp(sg[last])): dec last
+  if last > 0 and (sg[last].kind in {fkOp, fkColon} or fWordOp(sg[last])): dec last
   var open = 0
   if sg.len > 1 and sg[0].kind == fkOp and sg[0].text == "@": open = 1
   if last <= open + 1 or sg[open].kind != fkOpen or sg[last].kind != fkClose: return (-1, -1)
@@ -1027,7 +1027,9 @@ proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: in
       let colon = fTop(e, proc(t: FTok, d: int): bool = t.kind == fkColon)
       if r.len > FmtMax and not params:
         var w = fWrapElem(e, innerInd, importish)
-        if w.len == 0 and colon < 0 and fTopEq(e, 0, e.len) < 0: w = fBreakOps(e, pad, pad & "  ")
+        if w.len == 0 and colon < 0 and fTopEq(e, 0, e.len) < 0:
+          # (inside `(…)` that only groups an expression its lines line up; an argument's go 2 deeper)
+          w = fBreakOps(e, pad, if parenOne: pad else: pad & "  ")
         if w.len > 0:
           lines.add w
           continue
@@ -1305,7 +1307,9 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
         result = @[pad & fRender(elems[0])]
         for e in elems[1 .. ^1]: result.add pad & "  " & fRender(e)
         return
-  if one.len <= FmtMax and not hasInnerComment:
+  # (a block's closing `:` does not count: nph lets it stand past the width)
+  let oneFit = if one.len > 0 and one[^1] == ':': one.len - 1 else: one.len
+  if oneFit <= FmtMax and not hasInnerComment:
     # a trailing comma before the closing bracket goes away on one line
     if not hasTrailing: return @[one]
     return @[pad & fRender(fDropTrailing(o.toks), importish = o.importish)]
