@@ -181,6 +181,8 @@ proc lsPumpChecks() =
       cb.topLine = keepTop
       textH = keepH
       lsDiagsDirty = true
+    if cfgMacroNames and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and quiet > 1500:
+      macroNamesFor(cb)                  # names its macro calls make: from the compiler, once
   except Exception as e: lsLog("checks: " & e.msg)
 
 proc lsTimeToNextCheck(): int =

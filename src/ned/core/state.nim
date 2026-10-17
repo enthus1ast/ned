@@ -64,6 +64,7 @@ var
   cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
   cfgFormatVerify = false      # nim.format.verify: the built-in Nim formatter's result checked by Nim's own parser too
   cfgEngineChecks = true       # nim.engineChecks: the engine's own checks while typing (fields, arguments, dead code)
+  cfgMacroNames = true         # nim.macroNames: a module's top-level macro calls expanded by the compiler, once
   cfgCompilerAnswers = true    # nim.compilerAnswers: nimsuggest off — the compiler asked once where the engine has no answer
   cfgCSigHints = true          # nim.cSignatureHints: the C declaration dimmed after an importc wrapper
   cfgParamHints = "literals"   # nim.parameterHints: names before call arguments — literals | all | off

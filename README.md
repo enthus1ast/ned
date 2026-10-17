@@ -207,7 +207,8 @@ inside the Linux file system (`~/code`, not `/mnt/c/…`): it is much faster the
 
 The project's GitHub Actions workflow (`.github/workflows/build.yml`) builds ned on every push for Linux (x86_64
 and arm64), macOS (Apple silicon and Intel), Termux (aarch64) and Windows through WSL, runs it in a real
-pseudo-terminal, and attaches the binaries to the release when you push a tag such as `v5.6.1`.
+pseudo-terminal, and attaches the binaries to the release when you push a tag such as `v5.6.1` — `nedfmt` (the
+formatter) and `nedls` (the language server) beside each `ned`.
 
 ### Optional tools ned uses when present
 
@@ -415,17 +416,34 @@ save, `nim check` runs on the file. See [What's new in 5.26](CHANGELOG.md#whats-
 
 **The engine's own checks, at once** (`nim.engineChecks`, on by default), half a second after you stop typing and
 before the compiler's check: a field name that is a typo of one the object has (`p.lable` — *did you mean
-'label'?*), a call with the wrong number of arguments for every routine of that name in scope, code after a
-`return`, `raise`, `break` or `continue` in the same block, and a local `let`/`var` nothing uses. Only what the
-engine can be sure of: not inside templates and macros or what they are given, not where an overload the engine
-cannot see could be the one called, not in `when` branches left out. On Nim's own compiler and standard library
-(463 files, all of which compile) they report nothing but the unused locals the compiler reports too; the
-compiler's word wins on any line where both say something.
+'label'?*), a call with the wrong number of arguments for every routine of that name in scope, a call whose value is
+neither used nor discarded, a literal that can never be the declared type (`let n: int = "3"`), an import nothing in
+the file uses, code after a `return`, `raise`, `break` or `continue` in the same block, and a local `let`/`var`
+nothing uses. The messages are the compiler's own, so the same quick fixes apply (Alt+Enter: discard the value,
+remove the import). Only what the engine can be sure of: not inside templates and macros or what they are given,
+not where an overload the engine cannot see could be the one called, not an import whose `$` or `==` code here might
+call without naming it, not in `when` branches left out. On Nim's own compiler and standard library (463 files) and
+563 files of 19 nimble packages they report nothing the compiler would not — apart from a few mistakes in generic
+code nothing instantiates, which the compiler never looks at; the compiler's word wins on any line where both say
+something.
 
 **The compiler's answer, once** (`nim.compilerAnswers`, on by default). With nimsuggest off (the default), a
 hover or *Go to definition* the engine has no answer for — a name a macro makes, say — asks the compiler once: one
 nimsuggest run for that question, which then quits, so its memory goes with it. The answer is kept until the file
 changes; your unsaved text goes to it as a private copy, deleted after.
+
+**Names a macro makes** (`nim.macroNames`, on by default). `makeProcs(Foo, Bar)` at the top of a module declares
+`getFoo` and `getBar`, which no reader of the text can see: the compiler expands the file's top-level macro calls
+once, in the background (`nim check --expandMacro`, your unsaved text as a private copy, deleted after), and the
+project files it imports are expanded the same way. What the expansions declare — routines, types and their fields,
+constants — is then known to completion, hover (which says which call made it), signature help and *Go to
+definition* (which goes to the call). It runs again only when those calls change.
+
+**The index on disk** (`nim.indexCache`, on by default). The engine's reading of the standard library and the
+nimble packages is kept in `~/.cache/ned/index`, so a new session — ned's or nedls' — answers its first question
+without parsing them again (the whole standard library comes back from the cache in a fifth of the time parsing
+it takes). An entry is used only for the very text it was made from, by the same parser, with the same
+defines; anything else is read afresh.
 
 **Expansion.** Alt+M on a template call writes it out with the arguments in place (the engine, at once); on a
 macro call, the compiler expands it (`nim check --expandMacro`). Hover on a template call shows the same.
@@ -898,6 +916,8 @@ belongs to vim: leave with Alt+Z or `:zen`; the corner shows the vim mode.
 | `~/.local/state/ned/history/` | local history (previous versions of saved files) |
 | `~/.local/state/ned/chats/` | saved AI chats (newest 200) |
 | `~/.local/state/ned/nimindex.json` | index of the Nim standard library's exports |
+| `~/.cache/ned/index/` | the engine's reading of the standard library and packages, kept between sessions (`nim.indexCache`; `$XDG_CACHE_HOME`; safe to delete) |
+| `~/.cache/ned/nedastcheck-*` | the Nim parser check the formatter can use (`nim.format.verify`), built once |
 | `~/.local/state/ned/errors.log` | details of internal errors, if any ever happen (please include it in a report) |
 | `~/.local/state/ned/remote/` | the local copies of remote (SSH) folders, and `remotes.json` |
 | `~/.local/state/ned/settings-sync/` | the clone of your settings repository (*Settings sync: push / pull*) |

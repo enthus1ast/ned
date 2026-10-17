@@ -345,7 +345,15 @@ proc initSettingDefs() =
        "then quits. Kept until the file changes")
   defS("Nim", "nim.engineChecks", %true, "While you type, ned's own engine checks what it can be sure of, at once " &
        "(before the compiler's check): a field name that is a typo of one the object has, a call with the wrong number " &
-       "of arguments, code after a return, a local never used. The compiler's word wins on a line where both speak")
+       "of arguments, a value neither used nor discarded, a literal of the wrong type, an unused import, code after a " &
+       "return, a local never used. The compiler's word wins on a line where both speak")
+  defS("Nim", "nim.macroNames", %true, "Names a macro makes (makeProcs(Foo) declaring getFoo): a file's top-level " &
+       "macro calls, and those of the project files it imports, are expanded by the compiler once (nim check " &
+       "--expandMacro, in the background) and what they declare is known to completion, hover and Go to " &
+       "definition. Again only when those calls change")
+  defS("Nim", "nim.indexCache", %true, "Keep the engine's reading of the standard library and nimble packages on " &
+       "disk (~/.cache/ned/index), so a new session answers at once instead of reading them again. An entry is used " &
+       "only for the very text it was made from")
   defS("Nim", "nim.extraFlags", %"", "Extra flags for nim c/cpp/js when running or building, e.g. \"--mm:orc -d:ssl\"")
   defS("Nim", "nim.testFlags", %"--hints:off", "Flags used by the test explorer when compiling tests")
   # ── nimlangserver (sent to the server as its \"nim\" configuration section) ──
@@ -773,6 +781,8 @@ proc applySettings() =
   cfgFormatVerify = sBool("nim.format.verify")
   cfgEngineChecks = sBool("nim.engineChecks")
   cfgCompilerAnswers = sBool("nim.compilerAnswers")
+  nxDiskCache = sBool("nim.indexCache")
+  cfgMacroNames = sBool("nim.macroNames")
   cfgCSigHints = sBool("nim.cSignatureHints")
   cfgParamHints = sStr("nim.parameterHints")
   cfgCEngine = sStr("c.engine")
