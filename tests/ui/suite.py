@@ -4346,6 +4346,54 @@ def t_66_include_check():
     ok = wait_for(r'✓ 0', 20)
     check('66 include: fixed and saved, the error goes', ok and 'missing' not in screen(), screen())
 
+def t_67_github_signin():
+    # a push GitHub refuses for a login: the ways that work (the GitHub CLI, an SSH key) instead of a password
+    # prompt that cannot succeed; with an SSH key and the GitHub CLI signed in, the key is added and the remote
+    # switches to SSH
+    setup({"nim.nimsuggest": None})
+    git('remote remove origin'); git('remote add origin https://github.com/foxtest/demo.git')
+    mock = TMP + '/mockbin'
+    shutil.rmtree(mock, ignore_errors=True); os.makedirs(mock)
+    open(mock + '/git', 'w').write('#!/bin/sh\ncase "$1" in push|pull|fetch) echo "fatal: could not read Username for '
+                                   "'https://github.com': terminal prompts disabled\" >&2; exit 128;; esac\n"
+                                   'exec ' + (which('git') or '/usr/bin/git') + ' "$@"\n')
+    os.chmod(mock + '/git', 0o755)
+    home = TMP + '/home67'
+    shutil.rmtree(home, ignore_errors=True); os.makedirs(home + '/.ssh')
+    open(home + '/.ssh/id_ed25519.pub', 'w').write('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest ned-test\n')
+    # (no GitHub CLI: PATH without /usr/local/bin, where one may be installed)
+    start('src/demo.nim', w=130, h=34, path=mock + ':' + TOOLS + ':/usr/bin:/bin', env_extra='GIT_CONFIG_COUNT=0 HOME=' + home)
+    palette('Git: push')
+    ok = wait_for(r'GitHub needs you to sign in', 10)
+    sc = screen()
+    check('67 GitHub: a push refused for a login offers the ways that work, not a password prompt',
+          ok and 'Sign in with GitHub' in sc and 'Use an SSH key' in sc and 'access token' in sc, sc)
+    check('67 GitHub: … the GitHub CLI installed for you when it is missing', 'installs the GitHub CLI' in sc,
+          '\n'.join(l for l in sc.split('\n') if 'GitHub' in l or 'SSH' in l or 'token' in l))
+    keys('Escape'); time.sleep(0.3); tm('kill-server'); time.sleep(0.3)
+    # the GitHub CLI, signed in (a stand-in): the SSH key goes to the account, the remote to SSH
+    open(mock + '/gh', 'w').write('#!/bin/sh\necho "$@" >> ' + TMP + '/gh.log\n'
+                                  'case "$1 $2" in "auth status") exit 0;; "api user") echo foxtest; exit 0;;'
+                                  ' "ssh-key add") exit 0;; "auth setup-git") exit 0;; esac\nexit 1\n')
+    os.chmod(mock + '/gh', 0o755)
+    start('src/demo.nim', w=130, h=34, path=mock + ':' + TOOLS + ':$PATH', env_extra='GIT_CONFIG_COUNT=0 HOME=' + home)
+    palette('Git: push')
+    wait_for(r'GitHub needs you to sign in', 10)
+    text('SSH key'); time.sleep(0.4); keys('Enter')
+    for _ in range(20):
+        if 'git@github.com:foxtest/demo.git' in git('config --get remote.origin.url').stdout: break
+        time.sleep(0.5)
+    log = open(TMP + '/gh.log').read() if os.path.exists(TMP + '/gh.log') else ''
+    log += '\n' + screen()
+    check('67 GitHub: the SSH key added to the account by the GitHub CLI', 'ssh-key add' in log and 'id_ed25519.pub' in log, log)
+    # (git config, not get-url: an insteadOf rule of the environment would rewrite it back)
+    check('67 GitHub: … and the remote switched to SSH', git('config --get remote.origin.url').stdout.strip() ==
+          'git@github.com:foxtest/demo.git', git('config --get remote.origin.url').stdout)
+    tm('kill-server'); time.sleep(0.3)
+    start('src/demo.nim', w=130, h=34, path=mock + ':' + TOOLS + ':$PATH', env_extra='GIT_CONFIG_COUNT=0 HOME=' + home)
+    palette('Git panel')
+    check('67 GitHub: the Git dock says who you push as', wait_for(r'GitHub: @foxtest', 10), screen())
+
 def t_66_trust():
     # a folder's code runs only once you trust it: its config.nims (run by the compiler) does nothing on open or
     # while typing, the built-in engine still answers, and Trust runs what was held back
@@ -4430,4 +4478,4 @@ def t_63_git():
           os.path.isdir(dest + '/.git'), screen())
     check('63 … and a Nim project offers to install what it needs', wait_for('install the packages it needs', 5), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check]
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin]

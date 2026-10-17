@@ -367,6 +367,7 @@ proc initCommands() =
   add("Git: pull", "", gitNet("pull", "Pulled"))
   add("Git: pull (rebase)", "", gitNet("pull --rebase", "Pulled"))
   add("Git: push", "", gitNet("push", "Pushed"))
+  add("Git: sign in to GitHub", "GitHub CLI or an SSH key", cmdGithubSignIn())
   add("Git: fetch", "", gitNet("fetch --all --prune", "Fetched"))
   add("Git: sync (pull, then push)", "", gitSync())
   add("Git: branches…", "click the branch in the title bar", cmdBranches())

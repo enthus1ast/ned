@@ -58,9 +58,9 @@ proc gitNet(args, okMsg: string, then: proc() = nil) =
       let remote = if w.len >= 4: w[3] else: "origin"
       gitNet("push --set-upstream " & quoteShell(remote) & " HEAD", okMsg, then)
     elif "terminal prompts disabled" in o or "could not read Username" in o or "Permission denied" in o or
-         "Authentication failed" in o or "Host key verification" in o or "passphrase" in o:
-      runInTerm("git " & args)
-      info("git needs your login — finish it in the terminal")
+         "Authentication failed" in o or "Host key verification" in o or "passphrase" in o or
+         "Password authentication is not supported" in o or "Invalid username or token" in o:
+      gitLoginNeeded(args, root, o)              # GitHub: sign in with the GitHub CLI or an SSH key; else the terminal
     else: error("git " & args.firstWord & " failed:\n" & o.splitLines[max(0, o.splitLines.len - 4) .. ^1].join("\n"))
     refreshGitStatus()
     checkDiskChanges()

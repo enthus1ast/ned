@@ -280,6 +280,12 @@ proc buildGitItems(): seq[SideItem] =
   result.add sideItem("Pull", 7, "↓", "L", proc() = gitNet("pull", "Pulled"))
   result.add sideItem("Push", 7, "↑", "P", proc() = gitNet("push", "Pushed"))
   result.add sideItem("Fetch", 7, "⇣", "", proc() = gitNet("fetch --all --prune", "Fetched"))
+  if "github.com" in gitRemoteUrl(home):
+    ghAskAccount()
+    if ghAccount.len > 0:
+      result.add sideItem("GitHub: @" & ghAccount, 5, ic("ok"), "signed in", proc() = cmdGithubSignIn())
+    else:
+      result.add sideItem("Sign in to GitHub…", 7, "→", "no passwords", proc() = cmdGithubSignIn())
   result.add sideItem("Branches…", 7, ic("branch"), "b", proc() = cmdBranches())
   result.add sideItem("History…", 7, ic("timeline"), "l", proc() = gitLogView())
   result.add sideItem("Stash…", 7, "▤", "", proc() = gitStashMenu())
