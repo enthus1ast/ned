@@ -30,12 +30,16 @@ proc refilterComp() =
       # a prefix match, and nearer names (locals, this module) before far ones (system)
       compItems[i].score = sc + (if compItems[i].filter.startsWith(pre): 30 else: 0) + max(0, 4 - compItems[i].rank) * 4
       compItems[i].hl = hl
-      if compItems[i].label != pre: compShown.add i
+      if compItems[i].label != pre or compItems[i].postfix > 0: compShown.add i
       elif pre.len > 0: exact = true
   if exact and not compManual:
     # the word typed so far is already complete (`int`, `result`…): don't let Tab/Enter turn it into
-    # something longer — keep typing to see longer candidates
-    compShown.setLen(0)
+    # something longer — keep typing to see longer candidates (a postfix template, xs.for, stays: it is what
+    # the word was typed for)
+    var keep: seq[int]
+    for i in compShown:
+      if compItems[i].postfix > 0 and compItems[i].label == pre: keep.add i
+    compShown = keep
   if pre.len > 0:
     compShown.sort(proc(a, b: int): int =
       result = cmp(compItems[b].score, compItems[a].score)
@@ -231,7 +235,9 @@ proc acceptComp() =
     closeComp()
     b.cursors = @[b.primary]
     b.prim = 0
-    b.expandSnippet(Pos(line: h.line, col: min(compStartCol, h.col)), h, it.snippet)
+    # a postfix template (xs.for) replaces its receiver as well
+    let a = if it.postfix > 0 and h.line == compLine: min(it.postfix - 1, h.col) else: min(compStartCol, h.col)
+    b.expandSnippet(Pos(line: h.line, col: a), h, it.snippet)
     return
   b.beginEdit()
   for i in countdown(b.cursors.high, 0):
