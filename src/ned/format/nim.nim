@@ -1500,6 +1500,10 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
         let hasBody = o.toks[^1].kind == fkOp and o.toks[^1].text == "="
         let w = fPragmaWrap(o.toks, ind, ind + (if hasBody: 4 else: 2))
         if w.len > 0: return w
+  # a pragma statement too long: `{.` ⏎ its pragmas (one a line when they are not plain) ⏎ `.}` (like nph)
+  if t0.kind == fkPragOpen and not hasInnerComment:
+    let w = fPragmaWrap(o.toks, ind, ind + 2)
+    if w.len > 0: return w
   # a long expression: break after its loosest operator (or, and, comparisons, &, + -) where the next
   # operand no longer fits — 4 deeper in a condition, 2 elsewhere, not at all for a value that already
   # stands on its own line — like nph
@@ -1588,6 +1592,12 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
       let r = fWrapGroup(o.toks[0 .. open], o.toks[open + 1 ..< close], o.toks[close .. ^1], ind, ind + 2,
                          mode in {fwOnePerLine, fwAlways}, importish = o.importish)
       if r.len > 0: return r
+  # a pragma that makes the line too long: `… {.` ⏎ its pragmas ⏎ `.}` (like nph) — not a name's own pragma
+  # (`Lock* {.importc: "x", final.} = object`: nph leaves that line long)
+  if not hasInnerComment and not (t0.kind == fkIdent and o.toks.len > 2 and
+                                  (o.toks[1].kind == fkPragOpen or o.toks[2].kind == fkPragOpen)):
+    let w = fPragmaWrap(o.toks, ind, ind + 2)
+    if w.len > 0 and w.len >= 3: return w
   # cannot wrap: as written (inner comments need their line breaks)
   if lines.len > 0: lines else: fAsWritten(o0)
 

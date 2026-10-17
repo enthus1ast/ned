@@ -15,6 +15,7 @@ var
   lsInlayBudgetMs = 250               # time for one inlay hint request (the first one reads the imports)
   lsSnippets = true                   # the client expands snippets
   lsFoldLimit = 5000                  # folding ranges sent at most (the client's rangeLimit)
+  lsFmtSaid = ""                      # the formatter's last refusal shown (document, version, why)
 
 proc lsEnsureFiles() =
   ## the project's file list, complete (the editor lists it in the background, a slice at a time) — up to 3 s
@@ -547,6 +548,7 @@ proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): string =
   if not lsEngineOn(d) or b.lines.len == 0: return "{\"data\":[]}"
   let lo = clamp(lo0, 0, b.lines.high)
   let hi = clamp(hi0, lo, b.lines.high)
+  let t0 = getMonoTime()
   var m = semMapFor(b)
   if m != nil and m.at != b.changeId: m = semMapFor(b)     # (a big file's first map comes on the second call)
   let f = nxFileFor(b)
@@ -559,7 +561,9 @@ proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): string =
       for s in f.syms:
         if s.kind == nxEnumVal: enums.incl nxNorm(s.name)
     except Exception: discard
+  let t1 = getMonoTime()
   b.ensureHl(hi + 1)
+  var lexT, semT: Duration
   var o = newStringOfCap(4096)
   o.add "{\"data\":["
   var first = true
@@ -569,9 +573,13 @@ proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): string =
   for l in lo .. hi:
     let s = b.lines[l]
     if s.len == 0 or s.len > 20000: continue
+    let q0 = getMonoTime()
     discard lexLine(b.lang, s, b.hlStart[l], toks)
     let foreign = lexForeign
+    let q1 = getMonoTime()
     if m != nil: applySem(s, toks, m, l)
+    lexT += q1 - q0
+    semT += getMonoTime() - q1
     let ascii = block:
       var a = true
       for ch in s:
@@ -615,6 +623,9 @@ proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): string =
         i = j
       else: inc i
   o.add "]}"
+  if lsVerbose:
+    lsLog("semanticTokens: map+scope " & $(t1 - t0).inMilliseconds & " ms, lexer " & $lexT.inMilliseconds &
+          " ms, colours " & $semT.inMilliseconds & " ms, all " & $(getMonoTime() - t0).inMilliseconds & " ms")
   o
 
 # ── inlay hints ──
@@ -664,7 +675,10 @@ proc lsFormatting(params: JsonNode): JsonNode =
   try: (res, err) = nimFormatAll(text, b.path)
   except CatchableError, Defect: err = "the built-in formatter failed on this file (please report it)"
   if err.len > 0:
-    lsShowMessage(2, "format: " & err)
+    # (said once for a text: a client that formats on every save would repeat it)
+    if lsFmtSaid != d.uri & "#" & $d.version & err:
+      lsFmtSaid = d.uri & "#" & $d.version & err
+      lsShowMessage(2, "format: " & err)
     return
   if res == text: return
   result = lsLineEdits(b.lines, lsTextLines(res), lsEol(b))

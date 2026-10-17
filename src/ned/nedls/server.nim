@@ -18,6 +18,7 @@ var
   lsInlayRefresh = false
   lsWatchFiles = false                 # the client watches files for nedls (dynamic registration)
   lsSignal = 0                         # SIGTERM / SIGINT arrived
+  lsRootGuess = false                  # no project folder from the client: the first file's project is it
 
 const LsHelp = """nedls — ned's built-in Nim engine as a language server (LSP over stdio)
 
@@ -73,6 +74,8 @@ proc lsApplySettings() =
   cfgSemColors = true
   cfgMessages = "status"
   cfgToasts = false
+  if sStr("nim.liveDiagnosticsFrom") == "nimsuggest":
+    settingsJ["nim.liveDiagnosticsFrom"] = %"auto"   # (no nimsuggest here: the compiler checks while typing)
   var v = lsOpt("inlayHints")
   if v != nil and v.kind == JBool: cfgInlayHints = v.getBool
   v = lsOpt("parameterHints")
@@ -128,9 +131,14 @@ proc lsInitialize(params: JsonNode): JsonNode =
     if p.len == 0: continue
     if root.len == 0: root = p else: others.add p
   if root.len == 0: root = lsPathOf(params{"rootUri"}.getStr)
-  if root.len == 0: root = params{"rootPath"}.getStr
-  if root.len > 0: lsSetRoot(root)
-  else: rootDir = getCurrentDir()
+  let rp = params{"rootPath"}
+  if root.len == 0 and rp != nil and rp.kind == JString: root = rp.getStr
+  let home = getHomeDir().normalizedPath.strip(leading = false, chars = {'/'})
+  if root.len > 0 and dirExists(root) and root.normalizedPath.strip(leading = false, chars = {'/'}) notin [home, ""]:
+    lsSetRoot(root)
+  else:
+    rootDir = ""                       # (a file on its own: its project, when it is opened)
+    lsRootGuess = true
   wsRoots = others
   lsApplySettings()
   privSweep()
@@ -261,11 +269,15 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
     let td = p{"textDocument"}
     let u = td{"uri"}.getStr
     if u.len == 0: lsRaise(ErrInvalidParams, "textDocument.uri expected")
+    let path = lsPathOf(u)
+    if lsRootGuess and path.len > 0:
+      # no folder from the client: the project the file belongs to (else its own folder), as `ned file.nim` does
+      lsRootGuess = false
+      var r = projectRootOf(path)
+      if r.len == 0: r = parentDir(path)
+      lsSetRoot(r)
+      lsApplySettings()                        # (the project's own settings, now that there is one)
     discard lsOpenDoc(u, td{"text"}.getStr, td{"version"}.getInt, td{"languageId"}.getStr)
-    if rootDir.len == 0 or rootDir == "/":
-      let path = lsPathOf(u)
-      let r = if path.len > 0: projectRootOf(path) else: ""
-      if r.len > 0: lsSetRoot(r)
     lsDiagsDirty = true
   of "textDocument/didChange":
     let d = lsDocOf(p)
@@ -384,7 +396,7 @@ proc lsMainLoop() =
   var lastNx = nxGen
   while not lsExit:
     if lsSignal != 0 or lsOutBroken: break
-    var fds = @[TPollfd(fd: 0, events: POLLIN)]
+    var fds = @[TPollfd(fd: lsInFd, events: POLLIN)]
     if lsEof: fds.setLen(0)
     var timeout = 1000
     if lsQueue.len > 0: timeout = 0
@@ -404,7 +416,7 @@ proc lsMainLoop() =
         for f in fds:
           if (f.revents and (POLLIN or POLLHUP or POLLERR)) != 0: ready.incl f.fd
     else: os.sleep(timeout)
-    if 0.cint in ready:
+    if lsInFd in ready:
       if not lsReadInput():
         lsEof = true
       lsTakeMessages()
@@ -448,6 +460,7 @@ proc nedlsMain(): int =
       else:
         stderr.writeLine("nedls: unknown option " & a & " (nedls --help)")
         return 2
+  lsTakeStdio()
   signal(SIGPIPE, SIG_IGN)
   signal(SIGTERM, onLsSignal)
   signal(SIGINT, onLsSignal)
