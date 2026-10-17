@@ -242,6 +242,10 @@ proc initSettingDefs() =
        "Mark where ARC/ORC copies a value (a string, a seq, an object): after a save the compiler shows ned its " &
        "=copy and =dup calls (nim c --expandArc, in a trusted folder) and ⧉copy appears beside each — hover it " &
        "for why, and how to move instead")
+  defS("Nim", "nim.testOnSave", %"related",
+       "Run std/unittest tests in the background when you save (in a trusted folder): related = the test file you " &
+       "save, or the test files that import the module you save · file = only a test file you save · off. ✓ or ✗ " &
+       "shows beside each test, a failed check's message on its line", @["related", "file", "off"])
   defS("Nim", "nim.nimsuggest", %false,
        "builtin engine: also run nimsuggest (if installed) as a second opinion when ned's own index cannot tell what " &
        "a name is. Off by default: the index answers completion, hover, definitions, references and rename itself, " &
@@ -581,6 +585,7 @@ proc applySettings() =
   cfgAutoImport = sBool("nim.autoImport")
   cfgPostfix = sBool("nim.postfixCompletion")
   cfgShowCopies = sBool("nim.showCopies")
+  cfgTestOnSave = sStr("nim.testOnSave")
   cfgSemColors = sBool("nim.semanticColors")
   cfgMinimap = sStr("ui.minimap")
   cfgScrollbar = sBool("ui.scrollbar")

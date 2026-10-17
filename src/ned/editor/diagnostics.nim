@@ -18,6 +18,7 @@ proc lspAndBuildDiags(path: string): seq[Diag] =
         break
     if not dup: result.add d
   for d in diagsFfi.getOrDefault(path): result.add d
+  for d in diagsTest.getOrDefault(path): result.add d
   let em = diagsEmit.getOrDefault(path)
   if em.len > 0:
     var k = 0

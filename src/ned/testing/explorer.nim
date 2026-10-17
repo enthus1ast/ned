@@ -135,7 +135,7 @@ proc lensAt(b: Buffer, l: int): (string, Action) =
   let tn = quotedName(t, "test ")
   if tn.len > 0:
     let st = testStatus.getOrDefault(testKey(p, tn))
-    return ((if st == 1: ic("ok") elif st == 2: "✗" else: ic("run")), proc() = runTests(p, tn))
+    return ((if st == 1: ic("ok") elif st == 2: "✗" elif st == 3: "…" else: ic("run")), proc() = runTests(p, tn))
   if quotedName(t, "suite ").len > 0: return (ic("run"), proc() = runTests(p))
   if t.startsWith("when isMainModule"): return (ic("run"), proc() = runCurrent())
   if examplesHead(t):

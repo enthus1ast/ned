@@ -243,6 +243,7 @@ type
     path, cmd, cwd: string
     bufId: int
     onDone: proc(j: Job) {.closure.}
+    deadlineMs: int           # > 0: stopped after this long (tests run on save)
 
   LspReqKind = enum lrInit, lrCompletion, lrHover, lrDefinition, lrRename, lrFormat, lrSymbols, lrShutdown,
                     lrSignature, lrReferences, lrExpand, lrInlay, lrCodeAction, lrResolve, lrOther,

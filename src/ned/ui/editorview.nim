@@ -644,6 +644,13 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                 bb.setSingle(bb.clampPos(Pos(line: dl, col: dc)))
                 if fixable: cmdCodeActions() else: cmdHover(),
                 (if fixable: "Fix it (Alt+Enter)" else: "The whole message (Alt+H)"))
+        elif b.lang.mode == lmNim and (let (tnote, tst) = b.testNoteAt(line); tst > 0) and ex + 6 < limX:
+          # a test's last result (run on save, or by ▶)
+          let tc = case tst
+            of 1: theme.gitAdd
+            of 2: theme.err
+            else: theme.inlay
+          discard putStr(ex + 3, y, tnote, tc, rowBg, {aItalic}, limX)
         elif cfgBlame and active and line == ph.line and blameText.len > 0 and ex + 8 < limX and
              blameFor.startsWith(b.path & ":" & $line & ":"):
           discard putStr(ex + 3, y, blameText, theme.inlay, rowBg, {aItalic}, limX)
