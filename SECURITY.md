@@ -11,9 +11,10 @@ Only the newest release gets security fixes — updating is always the remedy.
 
 ## What counts
 
-- Opening a file or a folder makes ned run something it should not (a folder's own settings that start programs —
-  its language servers, run commands, formatters, MCP servers — count only once you ran *Workspace: trust this
-  folder*, never just because it was opened).
+- Opening a file or a folder makes ned run something it should not. Until you trust a folder (*Workspace: trust
+  this folder*), nothing of it may run: not the Nim compiler (which runs `config.nims` and macros), nimble,
+  nimsuggest, its tests, its program, nor the programs its own settings name (language servers, run commands,
+  formatters, MCP servers) — only ned's own engines read it.
 - A secret leaks: an API key, an SSH password or passphrase, a token in a git link — into a command line other
   programs can read, a log, a temporary file others can read, the settings-sync repository, or a crash report.
 - A file is written outside where it should be (a theme, a dictionary, an imported setting, a clone's folder),
@@ -31,7 +32,12 @@ Only the newest release gets security fixes — updating is always the remedy.
   folder only you can read (0700), removed afterwards; old ones are swept at start-up.
 - **Saves are atomic** (a temporary file renamed over the original, permissions kept), unsaved edits have
   recovery files, and the standard library and installed packages open read-only.
-- **A folder's own settings that run programs** (`.ned/settings.json`: `lsp`, `run`, `formatters`, `commands`,
-  `ai.*` with MCP servers, `nim.nimsuggestPath`, `sync.repository` …) are ignored until you trust the folder, so
-  opening a cloned repository cannot start programs or send your code elsewhere.
+- **Folder trust** (`security.folderTrust`): in a folder not trusted yet, every program ned starts goes through one
+  gate (`spawnProc`) that refuses the Nim compiler, nimble, nimsuggest, nimlangserver, testament and the folder's
+  own commands — also inside `sh -c`, behind `env`, `nice`, `timeout` and the like — and says why. ned's own Nim and
+  C engines still read the code. A folder's own settings that run programs (`.ned/settings.json`: `lsp`, `run`,
+  `formatters`, `commands`, `ai.*` with MCP servers, `nim.nimsuggestPath`, `sync.repository` …) are ignored too,
+  so opening a cloned repository cannot start programs or send your code elsewhere.
+- **Tests run on save and the copies check** (`nim.testOnSave`, `nim.showCopies`) build into private folders
+  (0700), removed afterwards; tests are stopped after two minutes.
 - The fuzzer refuses to run as root unless it is given a user to drop to (`NED_FUZZ_USER`).
