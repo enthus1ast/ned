@@ -238,6 +238,10 @@ proc initSettingDefs() =
   defS("Nim", "nim.postfixCompletion", %true,
        "After a `.`, completion also offers postfix templates that wrap what is in front of it: xs.for → " &
        "for x in xs:, c.case → a case with every value of its enum, v.if, x.echo, x.let, x.not …")
+  defS("Nim", "nim.showCopies", %true,
+       "Mark where ARC/ORC copies a value (a string, a seq, an object): after a save the compiler shows ned its " &
+       "=copy and =dup calls (nim c --expandArc, in a trusted folder) and ⧉copy appears beside each — hover it " &
+       "for why, and how to move instead")
   defS("Nim", "nim.nimsuggest", %false,
        "builtin engine: also run nimsuggest (if installed) as a second opinion when ned's own index cannot tell what " &
        "a name is. Off by default: the index answers completion, hover, definitions, references and rename itself, " &
@@ -576,6 +580,7 @@ proc applySettings() =
   for x in jitems(sval("ui.touchBarKeys")): cfgTouchKeys.add x.getStr
   cfgAutoImport = sBool("nim.autoImport")
   cfgPostfix = sBool("nim.postfixCompletion")
+  cfgShowCopies = sBool("nim.showCopies")
   cfgSemColors = sBool("nim.semanticColors")
   cfgMinimap = sStr("ui.minimap")
   cfgScrollbar = sBool("ui.scrollbar")

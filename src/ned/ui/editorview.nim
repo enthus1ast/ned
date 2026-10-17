@@ -384,6 +384,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     var overlays: seq[(int, string)]     # type hints over the spaces before a lined-up `=`
     if (showInlays and line in b.inlays) or sw.len > 0 or
        (cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]) or
+       (cfgShowCopies and b.id in copyMarks and line in copyMarks[b.id]) or
        (showInlays and b.lang.mode == lmNim and s.len < 400 and '=' in s):     # (a run lined up on `=` with hints)
       hints = b.lineDecor(line, (if toksUnfaded.len > 0: toksUnfaded else: toks), sw)
       overlays = decorOverlay

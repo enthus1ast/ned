@@ -7,6 +7,7 @@ proc runCheck(b: Buffer)
 proc runCheckPath(path, langId: string, keepExamples: bool)
 proc recheckBuildErrors(saved: Buffer)
 proc ffiCheck(b: Buffer)
+proc copiesCheck(b: Buffer, everyRoutine = true)
 var ffiQueue: seq[int]           # buffers whose C wrappers get checked once ned is idle (not before a file shows)
 proc cGotoFromDecl(b: Buffer, p: Pos, anyUse = false): bool
 proc cHoverInfo(b: Buffer, p: Pos): string

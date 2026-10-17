@@ -66,6 +66,7 @@ var
   cfgParamHints = "literals"   # nim.parameterHints: names before call arguments — literals | all | off
   cfgCEngine = "auto"          # c.engine: auto (ned's own when clangd is not installed) | builtin | clangd | both
   cSigHints: Table[int, Table[int, (int, string)]]   # buffer id → line → (column, the C signature shown there)
+  copyMarks: Table[int, Table[int, seq[CopyMark]]]    # buffer id → line → where ARC/ORC copies on it
   cSigHintsAt: Table[int, (int, int, int)]           # buffer id → (changeId, first, last line) they were made for
   cfgPasteFmt = "indent"       # editor.formatOnPaste: indent | format | off
   cfgNimCompiler = "nim"       # nim | nimony
@@ -111,6 +112,7 @@ var
   cfgTouchKeys: seq[string] = @[]
   cfgAutoImport = true         # Nim completion also offers standard-library names that need an import
   cfgPostfix = true            # Nim completion after a `.` offers postfix templates: xs.for, c.case, v.if …
+  cfgShowCopies = true         # mark where ARC/ORC copies (nim c --expandArc on save, a trusted folder)
   cfgSemColors = true          # Nim: colour names by what the index knows they are
   cfgMinimap = "auto"
   cfgScrollbar = true

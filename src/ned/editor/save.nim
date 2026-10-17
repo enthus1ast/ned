@@ -80,6 +80,7 @@ proc saveBuffer(b: Buffer, path = "", force = false): bool =
   runCheck(b)
   recheckBuildErrors(b)
   ffiCheck(b)
+  copiesCheck(b)
   refreshGit(b)
   # (a remote folder's file goes to the server too: writeFileSafe → fileWritten)
   true

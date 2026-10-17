@@ -207,6 +207,10 @@ type
     addImport: string         # accepting it also adds this import (a standard-library name not imported yet)
     postfix: int              # a postfix template (xs.for): 1 + the column its receiver starts at, 0 = not one
 
+  CopyMark = object             # where ARC/ORC copies (nim c --expandArc, on save)
+    col, startCol: int          # just after the copied expression; where it starts
+    text: string                # the line as it was then (the mark shows while the line is unchanged)
+    what: string                # why it is copied, and how not to
   PickItem = object
     label, detail, path, icon: string
     search: string        # more text the query may match (lower case): a setting's description

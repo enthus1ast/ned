@@ -198,6 +198,22 @@ proc initCommands() =
   add("Nim: expand macro/template at cursor", "Alt+M", cmdExpandMacro())
   add("Nim: expand macro one level", "", cmdExpandMacro("1"))
   add("Nim: ARC/ORC view of current proc (expandArc)", "", cmdExpandArc())
+  add("Nim: show where ARC/ORC copies (⧉copy)", "", (block:
+    if not cfgShowCopies:
+      cfgShowCopies = true
+      setSetting("nim.showCopies", %true)
+    let b = buf()
+    if b.lang.mode != lmNim or b.path.len == 0: info("Copies are shown for a saved Nim file")
+    elif not codeTrusted(parentDir(b.path)): askTrust(parentDir(b.path))
+    else:
+      copyMs.del b.path
+      info("Asking the compiler where ARC/ORC copies…")
+      copiesCheck(b)))
+  add("Nim: hide ARC/ORC copies", "", (block:
+    cfgShowCopies = false
+    setSetting("nim.showCopies", %false)
+    copyMarks.clear()
+    needRender = true))
   add("Nim: show generated C", "", cmdShowC())
   add("Nim: go to the C declaration (importc)", "", (block:
     let b = buf()
