@@ -234,7 +234,8 @@ const NxPragmas* = [
   ("requiresInit", "must be initialized"), ("size", "the C size of an enum or object"), ("align", "alignment"),
   ("cursor", "a non-owning reference (ARC)"), ("noalias", "restrict"), ("inject", "a template's symbol visible outside"),
   ("gensym", "a template's symbol kept hidden"), ("dirty", "a template whose symbols are not bound"),
-  ("varargs", "a C function taking ..."), ("nodecl", "not declared in the generated C"), ("codegenDecl", "how C declares it"),
+  ("varargs", "a C function taking ..."), ("pragma", "a pragma of your own: {.pragma: name, ….}"),
+  ("noconv", "no calling convention (a C callback)"), ("nodecl", "not declared in the generated C"), ("codegenDecl", "how C declares it"),
   ("passc", "flags for the C compiler"), ("passl", "flags for the linker"), ("compile", "a C file to compile with it"),
   ("link", "a library to link"), ("effectsOf", "its effects are those of a parameter"), ("thread", "runs in a thread"),
   ("sideEffect", "has side effects"), ("enforceNoRaises", "raises nothing"), ("overflowChecks", "on / off"),
@@ -398,7 +399,14 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     let joined = nxJoinBack(lines, line, ws - 1)
     let recv = nxReceiver(joined, joined.len)
     if recv.len == 0: return
-    let v = nxTypeOfExpr(f, sc, locals, recv, line, 0)
+    var v = nxTypeOfExpr(f, sc, locals, recv, line, 0)
+    if recv.startsWith("`") and nxQuoteStart(lines, line) >= 0:
+      # `apId`.… in quote do: the value the code made holds, not the macro's NimNode
+      let (x, xe) = nxName(recv, 0)
+      let qt = nxQuotedType(f, sc, lines, locals, x, 0)
+      if qt.len > 0:
+        v = nxTypeOfExpr(f, sc, locals & @[NxSym(name: x, kind: nxLet, typ: qt, line: line)], x & recv[xe .. ^1],
+                         line, 0)
     if v.module.len > 0:
       result.known = true
       result.recvIsType = true
@@ -432,6 +440,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     var typ = v.typ
     if typ.len == 0 and v.routine.len > 0: typ = nxCallType(f, sc, locals, v.routine, "", line, 0)
     result.receiverType = typ
+    typ = nxConstrained(f, line, typ)        # (x: T with [T: Duration | Time]: the members of both)
     result.known = typ.len > 0
     if result.known:
       (result.recvShape, result.enumVals) = nxPostfixShape(sc, typ)
@@ -466,6 +475,10 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
             for t in ["int", "cint", "uint", "int32", "int64"]:
               result.items.add NxItem(label: t, detail: "conversion", kind: nxType, rank: 4,
                                       local: NxSym(name: t, kind: nxType, typ: "converts to " & t))
+          elif conv.len == 0 and ownDistinct.len > 0:
+            # (a distinct string, RawJson: back to what it is made of, v.string)
+            result.items.add NxItem(label: ownDistinct, detail: "conversion", kind: nxType, rank: 4,
+                                    local: NxSym(name: ownDistinct, kind: nxType, typ: "converts to " & ownDistinct))
         break
       if numLike:
         # and the distinct numbers in scope: fd.AsyncFD, h.SocketHandle (and back: x.int); and from an integer,
@@ -481,7 +494,13 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
             if b in NxInts or nxResolveAlias(sc, b) in NxInts:
               seenD.incl s.name
               result.items.add NxItem(label: s.name, detail: "conversion", kind: nxType, rank: 4, refs: @[r])
-          elif intLike and r.origin in {1, 2} and (def == "enum" or def.startsWith("enum ")) and
+          elif intLike and r.origin in {1, 2} and (def.startsWith("range[") or def.startsWith("range ")) and
+               (r.file == f or s.exported):
+            # (yearweek.IsoWeekRange)
+            seenD.incl s.name
+            result.items.add NxItem(label: s.name, detail: "conversion to the range", kind: nxType, rank: 4,
+                                    refs: @[r])
+          elif r.origin in {1, 2} and (def == "enum" or def.startsWith("enum ")) and
                (r.file == f or s.exported):
             seenD.incl s.name
             result.items.add NxItem(label: s.name, detail: "conversion to the enum", kind: nxType, rank: 4,
@@ -525,7 +544,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
   var seenLocal: HashSet[string]
   for i in countdown(locals.high, 0):
     let s = locals[i]
-    if s.name in seenLocal: continue
+    if s.name in seenLocal or s.name == "_": continue
     seenLocal.incl s.name
     var ls = s
     if ls.typ.len == 0 and ls.kind notin NxRoutineKinds and seenLocal.len <= 40:

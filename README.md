@@ -42,7 +42,51 @@ library, and builds to one binary of about 9 MB.
 
 ## What's new in 6.8
 
-TODO68
+![The engine's own checks while typing: an unused import, a literal of the wrong type, a value not used, a field typo, one argument too many, code after a return](screenshots/engine-checks-68.png)
+
+- **nedls: ned's Nim engine as a language server**, for VS Code, Neovim, Helix, Zed, Emacs, Kate and Sublime —
+  instead of nimlangserver or nimsuggest. Completion, hover, signature help, definitions, references, rename,
+  symbols, semantic colours, inlay hints, formatting, quick fixes and problems, from the same code the editor
+  runs; it starts at about 6 MB and answers a hover in a few milliseconds. See
+  [nedls](#nedls-neds-engine-in-other-editors).
+- **nedfmt: the formatter on its own**, with nph's command line — `--check`, `--diff`, `--out`, `--outDir`,
+  `--stdin-name`, `--line-length`, `--include`, `--exclude`, `--extend-exclude`, `.nph.toml` — and a git pre-commit
+  hook in one step (`nedfmt --install-hook`). `ned --format` is the same program. The release binaries come with
+  `nedfmt` and `nedls` beside `ned`.
+- **The formatter checked by Nim's own parser** (`nim.format.verify`, `nedfmt --verify`): a small checker built once
+  from the compiler's sources compares the syntax tree before and after; a file it reads differently is left as it
+  was. On Nim's compiler and standard library (463 files): no difference (`nimble parsecheck`).
+- **The formatter closer to nph**: 99.0% of the lines of Nim's compiler and standard library come out as nph writes
+  them (98.0% in 6.7) — lambdas, `if` and `try` values among the arguments as blocks, a command's comma on a line
+  of its own, `f():` blocks without the parentheses, prefix operators on their bracket (`%*{…}`).
+- **The engine's own checks, at once**: an unused import, a value neither used nor discarded, a literal of the
+  wrong type, a field typo (*did you mean 'label'?*), the wrong number of arguments, code after a `return`, an
+  unused local — before the compiler's check, in the compiler's words (so its quick fixes apply), and only what
+  the engine is sure of.
+- **Names a macro makes**: the compiler expands a module's top-level macro calls once, in the background, and
+  completion, hover and *Go to definition* know `getConfig` from `makeGetters(Config)`.
+- **The compiler's answer, once**: where the engine has none (nimsuggest off), one nimsuggest run answers that hover
+  or *Go to definition* and quits.
+- **The index on disk**: the standard library and nimble packages are read once, not again in every session — ned's
+  and nedls' first answer comes sooner.
+- **A sharper engine** — the same answers as nimsuggest for 98.6% of type hints (94% in 6.7), 98.9% of
+  definitions (95.5%), 98% of variable types (91%) and 98.6% of member completions (90.5%; nimsuggest's own:
+  74%). It now reads `when` branches left out on this platform with their own imports and types, unions and type
+  classes, names a template call declares and a template's parameters at its call, `quote do` interpolations,
+  forward declarations, `since` blocks, overloads of `[]` by their number of indices, and more.
+- **Release binaries built with link-time optimisation** (`-d:lto`): 5–10% less time in the engine and the
+  formatter, a 7% smaller binary.
+
+![Names a macro makes, in completion: getCache from makeGetters(Config, Cache, Client), and the call that made it](screenshots/macro-names-68.png)
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.7](CHANGELOG.md#whats-new-in-67) signed in to GitHub without
+a password and brought AI that knows your code, [6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies,
+ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one
+parameter a line, [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures,
+[6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's instance, organize
+imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your settings,
+[6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours,
+[6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
 
 ---
 
@@ -400,15 +444,17 @@ nimble packages and the compiler (see [What's new in 5.25](CHANGELOG.md#whats-ne
 
 | | ned's engine | nimsuggest |
 |---|---|---|
-| type hints: the same as nimsuggest's | 94% | — |
-| go to definition: the same place | 95.5% | — |
-| a variable's type: the same | 91% | — |
-| member completion: the member written there is offered | 90.5% | 74% |
+| type hints: the same as nimsuggest's | 98.6% | — |
+| go to definition: the same place | 98.9% | — |
+| a variable's type: the same | 98% | — |
+| member completion: the member written there is offered | 98.6% | 74% |
 | time for one question | 0.6 ms | 250 ms |
 
-The differences are mostly places where both answers are defensible (a proc's forward declaration versus its
-body), code inside macros' `quote do`, and identifiers nimsuggest has no answer for. The comparison is in
-[tests/engine](tests/engine): `tests/engine/build.sh && tests/engine/compare.py file.nim` runs it on your own code.
+Where nimsuggest answers with a name it made up itself (a gensym'd symbol, an `:anonymous` proc) it counts as no
+answer. What still differs is mostly where both answers are defensible (a name a template call declares: ned goes
+to the call, nimsuggest into the template), chronos' `raises` futures, which its async macro builds, and number
+types that generics infer from literals. The comparison is in [tests/engine](tests/engine):
+`tests/engine/build.sh && tests/engine/compare.py file.nim` runs it on your own code.
 
 **Errors.** While you type, the compiler checks the unsaved text after a pause (`nim check`, reading it from
 stdin in the file's folder: same imports, same config); a misspelled name is marked at once by the engine. On
@@ -928,7 +974,12 @@ belongs to vim: leave with Alt+Z or `:zen`; the corner shows the vim mode.
 nim c -d:release --opt:speed -d:strip -o:ned src/ned.nim      # what you need
 ```
 
-`src/ned.nims` (picked up automatically) turns on `--opt:speed` for release builds. The nimble file has tasks:
+`src/ned.nims` (picked up automatically) turns on `--opt:speed` for release builds. Add `-d:lto` for link-time
+optimisation: 5–10% less time in the engine and the formatter, a 7% smaller binary and 1.5 MB less memory at
+start, for a build that takes about twice as long (gcc, or clang with a linker that does LTO); the release binaries
+are built with it. `-d:useMalloc` (the C library's allocator) saves about 3 MB with a big file open but makes the
+engine and the formatter 20% slower: not used, but yours to add where memory matters most. The nimble file has
+tasks:
 
 | task | |
 |---|---|
@@ -943,6 +994,9 @@ nim c -d:release --opt:speed -d:strip -o:ned src/ned.nim      # what you need
 | `nimble bench` | render a 200 000-line file off-screen and print frame timings |
 | `nimble perf` | startup time, memory and frame times, checked against the CI budget (needs python3) |
 | `nimble smoke` | build and run the non-interactive checks |
+| `nimble nedfmt` · `nimble nedls` | build the formatter and the language server on their own |
+| `nimble lsptest` | nedls driven by a test client: every feature, then 2000 random edits |
+| `nimble parsecheck` | the formatter over 463 files of Nim's own source, each checked by Nim's parser |
 | `nimble tools` | install nimlangserver, nph and inim |
 
 Why it is fast: a cell grid with per-cell diffing (only changed cells are sent, inside synchronized-output

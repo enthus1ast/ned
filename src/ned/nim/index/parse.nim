@@ -12,6 +12,7 @@ type
     owner*: string
     inact*: bool           # a `when` branch left out here (its body: start + 1 .. the last line before the pop)
     start*: int
+    chain*: int            # (keepInactive) the conditions of the left-out branches it is in: index into `chains`
 
 proc nxParseImports*(f: NxFile, rest: string, line: int, kw: string) =
   var r = rest.strip
@@ -169,76 +170,195 @@ proc nxWhen*(cond: string): int =
   let v = orExpr()
   if p < toks.len: -1 else: v
 
+proc nxCodeOf*(s: string): string =
+  ## a line without its comment (strings kept), stripped
+  var q = false
+  var k = 0
+  while k < s.len:
+    if s[k] == '\\' and q: inc k
+    elif s[k] == '"': q = not q
+    elif s[k] == '#' and not q: return s[0 ..< k].strip
+    inc k
+  s.strip
+
+proc nxGoesOn(t: string): bool =
+  ## a line that ends inside an expression: the next one continues it
+  t.endsWith(",") or t.endsWith("&") or t.endsWith("+") or t.endsWith("-") or t.endsWith("*") or
+    t.endsWith(" or") or t.endsWith(" and") or t.endsWith("|") or t.endsWith("(") or t.endsWith("[")
+
+proc nxBalance(t: string): int =
+  var q = false
+  for ch in t:
+    if ch == '"': q = not q
+    elif not q:
+      if ch in {'(', '[', '{'}: inc result
+      elif ch in {')', ']', '}'}: dec result
+
 proc nxBlockValue*(lines: openArray[string], start, ind: int, val: string): string =
-  ## a value that goes on in the lines below — let x = if c:   /   case k   /   try:   /   block:
-  ## — as one line for the type to come from: "if c: <the first branch's last line> …"
+  ## a value that goes on in the lines below — let x = if c:   /   case k   /   try:   /   block:   /   when c:
+  ## — as one line for the type to come from: "if c: <the first branch's last statement> …" (for `when`: the branch
+  ## taken here; for `block:` a variable of its own as what it holds)
   result = val
-  let v = val.strip
+  var v = val.strip
+  var start = start
   if v.len == 0:
     # let x =
     #   expression       (on the lines below: the first one, with what continues it)
     for l in start ..< min(lines.len, start + 20):
       let raw = lines[l]
-      let t0 = raw.strip
-      if t0.len == 0 or t0[0] == '#': continue
+      let t0 = nxCodeOf(raw)
+      if t0.len == 0: continue
       if leadWs(raw) <= ind: return
       var t = t0
+      if (t.startsWith("if ") or t.startsWith("when ")) and nxFindTop(t, ':') > 0 and not t.endsWith(":"):
+        # when defined(macos): ':'⏎ elif …: '\\'⏎ else: '/'   — one branch a line: all of them
+        let bi = leadWs(raw)
+        for l2 in l + 1 ..< min(lines.len, l + 20):
+          let c2 = nxCodeOf(lines[l2])
+          if c2.len == 0: continue
+          if leadWs(lines[l2]) != bi or not (c2.startsWith("elif ") or c2.startsWith("else:")): break
+          t.add " " & c2
+        return t
       if t.startsWith("if ") or t.startsWith("when ") or t.startsWith("case ") or t == "try:" or t == "block:":
         return nxBlockValue(lines, l + 1, ind, t)
-      var open = 0
+      if (t.startsWith("quote") and t.endsWith(":")) or t == "quote do:": return "quote(nil)"
+      var open = nxBalance(t)
       var l2 = l
-      while true:
-        var q = false
-        for ch in lines[l2]:
-          if ch == '"': q = not q
-          elif not q:
-            if ch in {'(', '[', '{'}: inc open
-            elif ch in {')', ']', '}'}: dec open
-        let tt = lines[l2].strip
-        if open <= 0 and not (tt.endsWith(",") or tt.endsWith("&") or tt.endsWith("+") or tt.endsWith("or") or
-                              tt.endsWith("and")):
-          break
+      while open > 0 or nxGoesOn(t):
         inc l2
-        if l2 >= lines.len or l2 - l > 30 or leadWs(lines[l2]) <= ind: break
-        t.add " " & lines[l2].strip
+        if l2 >= lines.len or l2 - l > 30 or (lines[l2].strip.len > 0 and leadWs(lines[l2]) <= ind): break
+        let c2 = nxCodeOf(lines[l2])
+        if c2.len == 0: continue                   # (a comment line between: not part of the value)
+        t.add " " & c2
+        open += nxBalance(c2)
       return t
     return
+  if nxGoesOn(v) and not (v.startsWith("if ") or v.startsWith("when ") or v.startsWith("case ")):
+    # "\x01" &⏎ "…": the lines that continue it
+    var t = v
+    var open = nxBalance(t)
+    var l2 = start - 1
+    while open > 0 or nxGoesOn(t):
+      inc l2
+      if l2 >= lines.len or l2 - start > 30 or (lines[l2].strip.len > 0 and leadWs(lines[l2]) <= ind): break
+      let c2 = nxCodeOf(lines[l2])
+      if c2.len == 0: continue
+      t.add " " & c2
+      open += nxBalance(c2)
+    return t
+  if (v.startsWith("if ") or v.startsWith("when ")) and not v.endsWith(":") and nxFindTop(v, ':') < 0:
+    # if a and⏎ b:   the condition goes on below
+    var l2 = start
+    while l2 < lines.len and l2 - start < 8:
+      let c2 = nxCodeOf(lines[l2])
+      inc l2
+      if c2.len == 0: continue
+      v.add " " & c2
+      if c2.endsWith(":"): break
+    start = l2
   let isCase = v.startsWith("case ")
-  if not (isCase or (v.endsWith(":") and (v.startsWith("if ") or v.startsWith("when ") or v == "try:" or
-                                          v == "block:"))):
+  let isWhen = v.startsWith("when ")
+  if not (isCase or (v.endsWith(":") and (v.startsWith("if ") or isWhen or v == "try:" or v == "block:"))):
     return
   var inBranch = not isCase
+  var taken = if isWhen: nxWhen(v[5 ..< ^1]) != 0 else: true    # (when: this branch is the one compiled)
+  var anyTaken = isWhen and nxWhen(v[5 ..< ^1]) == 1
+  var bodyInd = -1
   var last = ""
-  for l in start ..< min(lines.len, start + 40):
+  var stmt = ""
+  var bal = 0
+  var decls: Table[string, string]           # (block:) its own variables: name → what gives their type
+  var deepLast = ""                          # (the last value inside a nested block: `if isSsl: Port(443) …`)
+  var elseVal = ""
+  for l in start ..< min(lines.len, start + 60):
     let raw = lines[l]
-    var t = raw.strip
-    var q = false
-    for k in 0 ..< t.len:
-      if t[k] == '"': q = not q
-      elif t[k] == '#' and not q:
-        t = t[0 ..< k].strip
-        break
+    let t = nxCodeOf(raw)
     if t.len == 0: continue
     if leadWs(raw) <= ind: break
-    if t.startsWith("of ") or t.startsWith("elif ") or t.startsWith("else:") or t == "else" or
-       t.startsWith("except"):
-      if inBranch: break
+    if bal > 0:
+      # a statement over several lines (accept4(…,⏎ addr(addrLen), …)): all of it
+      stmt.add " " & t
+      bal += nxBalance(t)
+      if bal <= 0 and taken and inBranch: last = stmt
+      continue
+    let kw = t.startsWith("of ") or t.startsWith("elif ") or t.startsWith("else:") or t == "else" or
+             t.startsWith("except")
+    if kw and (bodyInd < 0 or leadWs(raw) < bodyInd):
+      if isWhen:
+        if taken and last.len > 0: break
+        if t.startsWith("elif "):
+          let c = nxFindTop(t, ':')
+          let wv = nxWhen(if c > 5: t[5 ..< c] else: "")
+          taken = not anyTaken and wv != 0
+          if wv == 1: anyTaken = true
+        else: taken = not anyTaken
+        last = ""
+        let c = nxFindTop(t, ':')
+        if taken and c > 0 and c + 1 < t.len:
+          last = t[c + 1 .. ^1].strip
+          break
+        continue
+      if inBranch:
+        if not isCase and t.startsWith("else:") and t.len > 5 and t[5 .. ^1].strip.len > 0:
+          elseVal = t[5 .. ^1].strip         # (if c: … else: ("", 1): the other branch's value, the same type)
+        break
       inBranch = true
       let c = t.find(": ")                  # of 1: "one"
       if c > 0 and c + 2 < t.len:
         last = t[c + 2 .. ^1].strip
         break
       continue
-    if not inBranch or t.endsWith(":"): continue
-    let (w, _) = nxName(t, 0)
+    if bodyInd < 0: bodyInd = leadWs(raw)
+    if inBranch and taken and leadWs(raw) > bodyInd and last.len == 0 and not t.endsWith(":") and
+       not (t.startsWith("else") or t.startsWith("elif ") or t.startsWith("of ")) and nxFindTop(t, '=') < 0 and
+       nxName(t, 0)[0] notin ["raise", "return", "discard", "echo", "var", "let", "const", "inc", "dec", "add"]:
+      deepLast = t
+    if not inBranch or not taken or leadWs(raw) > bodyInd: continue
+    if (t.startsWith("quote") and t.endsWith(":")) or t == "quote do:":
+      last = "quote(nil)"                    # (a syntax tree: NimNode)
+      continue
+    if t.endsWith(":"): continue
+    let (w, we) = nxName(t, 0)
+    if w in ["var", "let", "const"] and v == "block:":
+      let r = t[we .. ^1].strip
+      let c1 = nxFindTop(r, ':')
+      let e1 = nxFindTop(r, '=')
+      var ne = r.len
+      if c1 >= 0: ne = c1
+      if e1 >= 0 and e1 < ne: ne = e1
+      let nm = r[0 ..< ne].strip(chars = {'*', ' '})
+      if c1 >= 0 and (e1 < 0 or c1 < e1):
+        decls[nm] = "cast[" & (if e1 > c1: r[c1 + 1 ..< e1] else: r[c1 + 1 .. ^1]).strip & "](0)"
+      elif e1 >= 0: decls[nm] = r[e1 + 1 .. ^1].strip
+      continue
     if w in ["raise", "return", "discard", "echo", "doAssert", "assert", "inc", "dec", "break", "continue",
              "var", "let", "const", "add", "quit"]:
       continue
     let e = nxFindTop(t, '=')
     if e > 0 and e + 1 < t.len and t[e + 1] != '=' and t[e - 1] notin {'<', '>', '!', '='}: continue   # x = 1
-    last = t
-  if last.len > 0:
-    result = (if isCase: v & ": " else: v & " ") & last & " …"
+    stmt = t
+    bal = nxBalance(t)
+    if bal <= 0: last = t
+  if v == "block:" and last in decls: last = decls[last]
+  if last.len == 0 and deepLast.len > 0 and nxBalance(deepLast) == 0: last = deepLast
+  if last.len > 0 or elseVal.len > 0:
+    result = (if isCase: v & ": " elif isWhen: "block: " else: v & " ") & last &
+             (if elseVal.len > 0: " else: " & elseVal else: "") & " …"
+
+proc nxShortValue*(v: string): string =
+  ## a declaration's value kept short (it is shown, and typed): what decides its type stays — the callee or
+  ## constructor of a long call (`ClCfg(…)`), the first item of a long array (`["CON", …]`)
+  if v.len <= 200: return v
+  var e = 0
+  while e < v.len and (nxIsIdent(v[e]) or v[e] == '.'): inc e
+  if e > 0 and e < v.len and v[e] in {'(', '['}:
+    let ce = nxMatchClose(v, e)
+    if ce == v.high or ce < 0: return v[0 .. e] & "…" & (if v[e] == '(': ")" else: "]")
+  if v[0] == '[' or v.startsWith("@["):
+    let b = if v[0] == '@': 1 else: 0
+    let first = nxSplitTop(v[b + 1 .. ^1], {','})
+    if first.len > 0 and first[0].len < 150: return v[0 .. b] & first[0].strip & ", …]"
+  v[0 ..< 197] & "…"
 
 proc nxSubstIdents*(s: string, sub: Table[string, string]): string =
   ## a template's body line with its arguments in place of its parameters; `lower 2` with lower = vec → vec2
@@ -302,7 +422,9 @@ proc nxConstWhen(f: NxFile, cond: string, depth = 0): int =
 
 proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxFile =
   ## the declarations of a file. A `when` branch left out on this platform is skipped (its lines are recorded in
-  ## `inactive`); with keepInactive it is read too, and `symBranch` tells which declarations come from one
+  ## `inactive`); with keepInactive it is read too, and `symBranch` tells which declarations come from one: the
+  ## conditions of the left-out branches around them (`chains`, outermost first), the same for every branch written
+  ## with the same condition
   result = NxFile(path: path, module: splitFile(path).name)
   let f = result
   var st: NxLexState
@@ -315,9 +437,10 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
   var i = 0
   let n = lines.len
   var whenTaken = initTable[int, int]()
+  var whenFirst = initTable[int, string]()    # (indentation → the condition of its `when`, for an `else` branch)
 
   var localDepth = 0         # > 0: inside a routine's body (a type declared there is a local one)
-  var curInact = -1          # (keepInactive) the left-out branch the current statement is in: its `when` line
+  var curInact = -1          # (keepInactive) the left-out branches the current statement is in: index into `chains`
   template addSym(s0: NxSym) =
     f.syms.add s0
     if localDepth > 0: f.syms[^1].local = true
@@ -368,9 +491,14 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       elif def.startsWith("tuple["):
         let ce = nxMatchClose(def, 5)
         if ce > 5:
+          var at = (startLine, 0)
           for p in nxParseParams(def[6 ..< ce]):
-            f.syms.add NxSym(name: p.name.strip(chars = {'*'}), kind: nxField, line: startLine,
-                             col: nxWordCol(raw, p.name), owner: nm, typ: p.typ, exported: true, local: localDepth > 0)
+            # (where each is written: a tuple[ over several lines has its fields on the lines below)
+            let fname = p.name.strip(chars = {'*'})
+            let (pl, pc) = nxLocate(lines, fname, startLine, max(startLine, i - 1), at)
+            at = (pl, pc + fname.len)
+            f.syms.add NxSym(name: fname, kind: nxField, line: pl, col: pc, owner: nm, typ: p.typ, exported: true,
+                             local: localDepth > 0)
         docTarget = tyIdx
       elif t.endsWith(":") or t.endsWith("=") or def.len == 0:
         stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
@@ -384,6 +512,7 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       v = nxWhen(cond)
       if v < 0: v = nxConstWhen(f, cond)
       whenTaken[ind] = (if v == 1: 1 elif v == 0: 0 else: -1)
+      whenFirst[ind] = cond
     elif w0 == "elif":
       let prev = whenTaken.getOrDefault(ind, -1)
       if prev == 1: v = 0
@@ -397,8 +526,18 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       v = if prev == 1: 0 elif prev == 0: 1 else: -1
     if v == 0:
       # left out here: skipped — or, for code inside such a branch (keepInactive), read like the others
+      var chain = -1
+      if keepInactive:
+        var outer = ""
+        for fr in stack:
+          if fr.inact: outer = f.chains[fr.chain] & "\x01"
+        let key = outer & (if w0 == "else": "else|" & whenFirst.getOrDefault(ind) else: cond.strip)
+        chain = f.chains.find(key)
+        if chain < 0:
+          chain = f.chains.len
+          f.chains.add key
       stack.add NxFrame(ind: ind, kind: (if keepInactive: transparentKind else: bkOther), sym: -1, inact: true,
-                        start: startLine)
+                        start: startLine, chain: chain)
     else: stack.add NxFrame(ind: ind, kind: transparentKind, sym: -1)
 
   template varMember(mtT: string, kkT: NxKind) =
@@ -422,7 +561,7 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       let val2 = if typ.len == 0 and e1 >= 0: nxBlockValue(lines, i, ind, val) else: val
       addSym(NxSym(name: nm, kind: kk, line: startLine, col: nxWordCol(raw, nm),
                    exported: e < pn.len and pn[e] == '*', typ: (if unpack: "" else: nxCollapse(typ)),
-                   value: (if val2.len > 200: val2[0 ..< 197] & "…" else: val2),
+                   value: nxShortValue(val2),
                    slot: vi.int16, slots: (if unpack: -names.len.int16 else: 0)))
 
   while i < n:
@@ -460,7 +599,8 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
     moduleDocOpen = false
     # join continuation lines: open brackets, or a trailing comma
     var guard = 0
-    while (depth > 0 or t.endsWith(",")) and i < n and guard < 60 and not st.inTriple and st.blockDepth == 0:
+    while (depth > 0 or t.endsWith(",") or t.endsWith("|")) and i < n and guard < 60 and not st.inTriple and
+          st.blockDepth == 0:          # (and `A = B |⏎ C`: one type)
       var c2, d2: string
       nxSplitLine(lines[i], st, c2, d2, depth)
       t.add " " & c2.strip
@@ -490,7 +630,15 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       #   ast, astalgo, idents,
       #   semdata
       while i < n and guard < 60 and not st.inTriple and st.blockDepth == 0:
-        if lines[i].strip.len == 0 or leadWs(lines[i]) <= ind: break
+        if lines[i].strip.len == 0:
+          # (a blank line inside the list: it goes on when the next line is still under the import, after a comma)
+          var k = i + 1
+          while k < n and lines[k].strip.len == 0: inc k
+          if k < n and leadWs(lines[k]) > ind and t.endsWith(","):
+            i = k
+            continue
+          break
+        if leadWs(lines[i]) <= ind: break
         var c2, d2: string
         nxSplitLine(lines[i], st, c2, d2, depth)
         let c2s = c2.strip
@@ -505,12 +653,14 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       let fr = stack.pop()
       if fr.kind in {bkRoutine, bkObject, bkEnum} and fr.sym >= 0 and fr.sym < f.syms.len:
         f.syms[fr.sym].endLine = lastContent
-      if fr.inact and lastContent > fr.start: f.inactive.add (int32(fr.start + 1), int32(lastContent))
+      if fr.inact and lastContent > fr.start:
+        f.inactive.add (int32(fr.start + 1), int32(lastContent))
+        if keepInactive: f.inactiveChain.add fr.chain.int32
     lastContent = i - 1
     if keepInactive:
       curInact = -1
       for fr in stack:
-        if fr.inact: curInact = fr.start
+        if fr.inact: curInact = fr.chain
     var k = stack.high
     while k >= 0 and stack[k].kind == bkTransparent: dec k
     let fk = if k >= 0: stack[k].kind else: bkTransparent
@@ -592,6 +742,9 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
           if opensBlock: stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
       elif w0 in ["when", "elif", "else"] and opensBlock:
         whenBranch(bkTransparent)
+      elif w0 == "since" and t.endsWith(":") and rest.strip.startsWith("("):
+        # since (1, 3, 5): the standard library's declarations for Nim versions from then on (all of them here)
+        stack.add NxFrame(ind: ind, kind: bkTransparent, sym: -1)
       elif opensBlock:
         stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
       elif w0.len > 0 and rest.len > 0 and rest[0] in {'(', ' '}:
@@ -688,13 +841,16 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
         if r.len == 0: stack.add NxFrame(ind: ind, kind: bkTypeSec, sym: -1, memberInd: -1)
         else: typeMember(r)
       elif w0 in ["when", "elif", "else"] and opensBlock: whenBranch(bkLocal)
-      elif w0 in NxRoutineKw: (if opensBlock: stack.add NxFrame(ind: ind, kind: bkOther, sym: -1))  # (a nested routine)
+      elif w0 in NxRoutineKw: (if opensBlock: stack.add NxFrame(ind: ind, kind: bkLocal, sym: -1))  # (a nested
+                                                                    # routine: its local types too)
       elif opensBlock: stack.add NxFrame(ind: ind, kind: bkLocal, sym: -1)
     of bkOther: discard
   while stack.len > 0:
     let fr = stack.pop()
     if fr.kind in {bkRoutine, bkObject, bkEnum} and fr.sym >= 0 and fr.sym < f.syms.len:
       f.syms[fr.sym].endLine = lastContent
-    if fr.inact and lastContent > fr.start: f.inactive.add (int32(fr.start + 1), int32(lastContent))
+    if fr.inact and lastContent > fr.start:
+      f.inactive.add (int32(fr.start + 1), int32(lastContent))
+      if keepInactive: f.inactiveChain.add fr.chain.int32
   if keepInactive:
     while f.symBranch.len < f.syms.len: f.symBranch.add curInact.int32

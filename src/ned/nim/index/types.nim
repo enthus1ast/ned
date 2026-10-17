@@ -1,12 +1,19 @@
 # ── types: what an expression is, and what a type offers ──
 
+proc nxGenericNames*(generics: string): seq[string]
+proc nxSubst*(t: string, b: Table[string, string]): string
+proc nxFlat*(s: string): string
+proc nxExpandAlias*(sc: NxScope, t: string): string
+proc nxAlternatives*(t: string): seq[string]
+proc nxRangeText*(f: NxFile, t: string): string
+
 proc nxStripValMods*(t: string): string =
   ## "var Foo" / "sink Foo" / "lent Foo" → "Foo", but a ref or ptr stays: what a routine's result really is
   result = t.strip
   var changed = true
   while changed:
     changed = false
-    for m in ["var ", "sink ", "lent ", "out ", "owned "]:
+    for m in ["var ", "sink ", "lent ", "lent2 ", "out ", "owned "]:     # (lent2: system's iterators)
       if result.startsWith(m):
         result = result[m.len .. ^1].strip
         changed = true
@@ -17,10 +24,10 @@ proc nxStripValMods*(t: string): string =
 proc nxStripMods*(t: string): string =
   ## "var seq[int]" → "seq[int]", "sink Foo" → "Foo", "ref Foo" → "Foo", "static[int]" → "int"
   result = t.strip
-  var changed = true
+  var changed = result.len > 0 and result[0] in {'v', 's', 'l', 'r', 'p', 'o'}   # (most types: nothing to strip)
   while changed:
     changed = false
-    for m in ["var ", "sink ", "lent ", "ref ", "ptr ", "out ", "owned "]:
+    for m in ["var ", "sink ", "lent ", "lent2 ", "ref ", "ptr ", "out ", "owned "]:
       if result.startsWith(m):
         result = result[m.len .. ^1].strip
         changed = true
@@ -50,26 +57,89 @@ proc nxTypeArgs*(t: string): seq[string] =
 proc nxTypeSyms*(sc: NxScope, name: string): seq[NxRef] =
   for r in nxLookup(sc, name):
     if r.sym.kind == nxType: result.add r
+  let dq = name.find('.')
+  if result.len == 0 and dq > 0 and name[0 ..< dq].allCharsInSet(IdentChars) and name[0 ..< dq] in sc.modules:
+    # posix.Servent: that module's type (not one of the same name here)
+    var got: seq[NxRef]
+    var seen: HashSet[string]
+    nxExports(sc.modules[name[0 ..< dq]], 0, seen, got)
+    let n = nxNorm(name[dq + 1 .. ^1])
+    for r in got:
+      if r.sym.kind == nxType and nxNorm(r.sym.name) == n: result.add r
+
+proc nxQualified(sc: NxScope, rf: NxFile, t: string): string =
+  ## a result type of a routine of another module (rf) that names a type this module declares one of its own by
+  ## that name (posix.getservbyname's ptr Servent in nativesockets, which has a Servent): written with its module
+  result = t
+  if sc.own == nil or rf == nil or rf.path == sc.own.path: return
+  let b = nxBaseName(nxStripMods(t))
+  if b.len == 0 or not b.allCharsInSet(IdentChars): return
+  var mine = false
+  for r in nxLookup(sc, b):
+    if r.sym.kind == nxType and r.file.path == sc.own.path and not r.sym.local: mine = true
+  if not mine: return
+  var home = rf
+  let inc = nxIncluderOf(rf.path)
+  if inc.len > 0:
+    let g = nxLoad(inc)
+    if g != nil: home = g
+  var theirs = false
+  for g in @[home] & nxIncluded(home):
+    for s in g.syms:
+      if s.kind == nxType and s.name == b: theirs = true
+  if not theirs: return
+  var q = ""
+  for k, v in sc.modules:
+    if v == home.path: q = k
+  if q.len == 0 or not q.allCharsInSet(IdentChars): return
+  let k = t.find(b)
+  if k >= 0: result = t[0 ..< k] & q & "." & t[k .. ^1]
 
 proc nxObjectDef*(sc: NxScope, typ: string, depth = 0): (NxRef, string) =
   ## the type declaration behind `typ`, following aliases and `ref X` / `ptr X` definitions
   if depth > 6: return
   let b = nxBaseName(typ)
   if b.len == 0: return
-  for r in nxTypeSyms(sc, b):
+  var cands: seq[NxRef]
+  if '.' in typ:
+    let st = nxStripMods(typ)
+    var e = 0
+    while e < st.len and (nxIsIdent(st[e]) or st[e] == '.'): inc e
+    if e > b.len and st[e - b.len - 1] == '.':
+      cands = nxTypeSyms(sc, st[0 ..< e])          # posix.Servent: that module's
+  if cands.len == 0: cands = nxTypeSyms(sc, b)
+  for r in cands:
     let def = r.sym.typ
     let sm = nxStripMods(def)
     if def.contains("object") or def.startsWith("enum") or def.startsWith("tuple") or def.startsWith("concept") or
        def.startsWith("distinct") or def.len == 0:
       return (r, def)
+    let dq = sm.find('.')
+    if dq > 0 and sm[0 ..< dq].allCharsInSet(IdentChars) and depth < 4:
+      # NativeRequest* = httpbeast.Request: that module's Request, not the one of the module asking
+      let q = sm[0 ..< dq]
+      let sc2 = if r.file == sc.own: sc else: nxScope(r.file)
+      if q in sc2.modules:
+        var got: seq[NxRef]
+        var seen: HashSet[string]
+        nxExports(sc2.modules[q], 0, seen, got)
+        let want = nxBaseName(sm)
+        for r2 in got:
+          if r2.sym.kind == nxType and r2.sym.name == want:
+            let deeper = nxObjectDef(nxScope(r2.file), want, depth + 1)
+            return (if deeper[0].file != nil: deeper else: (r2, r2.sym.typ))
     if sm.len > 0 and nxBaseName(sm) != b:
       let deeper = nxObjectDef(sc, sm, depth + 1)
       if deeper[0].file != nil: return deeper
     return (r, def)
 
 proc nxFields*(sc: NxScope, typ: string, depth = 0): seq[NxRef] =
-  ## the fields of an object or tuple type, including inherited ones
+  ## the fields of an object or tuple type, including inherited ones (of each alternative of `A | B`)
   if depth > 8: return
+  let alts = nxAlternatives(nxStripMods(typ))
+  if alts.len > 1:
+    for x in alts: result.add nxFields(sc, x, depth + 1)
+    return
   let (r, def) = nxObjectDef(sc, typ)
   if r.file == nil: return
   let owner = r.sym.name
@@ -80,7 +150,9 @@ proc nxFields*(sc: NxScope, typ: string, depth = 0): seq[NxRef] =
     let base = def[k + 4 .. ^1].strip
     if base.len > 0 and base notin ["RootObj", "RootRef"]:
       # the base type is looked up from the file that declares this type
-      let sc2 = if r.file == sc.own or r.file.path == "": sc else: nxScope(r.file)
+      var sc2 = if r.file == sc.own or r.file.path == "": sc else: nxScope(r.file)
+      if sc2 != sc and nxObjectDef(sc2, base)[0].file == nil:
+        sc2 = sc      # (system/exceptions.nim's IOError of CatchableError: system's, which that file's scope lacks)
       result.add nxFields(sc2, base, depth + 1)
   if def.startsWith("tuple["):
     discard     # tuple[...] fields were recorded as fields of the alias already
@@ -94,7 +166,8 @@ proc nxAncestors*(sc: NxScope, child: string): seq[string] =
   var cur = key
   var csc = sc
   for depth in 0 .. 8:
-    let (r, def) = nxObjectDef(csc, cur)
+    var (r, def) = nxObjectDef(csc, cur)
+    if r.file == nil and csc != sc: (r, def) = nxObjectDef(sc, cur)
     if r.file == nil: break
     let k = def.find(" of ")
     if k < 0: break
@@ -184,11 +257,93 @@ proc nxConstraintFit*(sc: NxScope, generics, name, rb: string): int =
     if alt notin NxInts and alt notin NxFloats and alt notin ["string", "cstring", "char", "bool"]: known = false
   if known: 0 else: 1
 
-proc nxCompat*(sc: NxScope, paramType, generics, recv: string): int =
+proc nxAlternatives*(t: string): seq[string] =
+  ## `A | B`, `A or B` (outside brackets) → A, B; anything else → itself
+  if '|' notin t and " or " notin t: return @[t.strip]
+  let fl = nxFlat(t)
+  if '|' notin fl and " or " notin fl: return @[t.strip]
+  var a = 0
+  var i = 0
+  while i < fl.len:
+    if fl[i] == '|':
+      result.add t[a ..< i].strip
+      a = i + 1
+    elif i + 4 <= fl.len and fl[i ..< i + 4] == " or ":
+      result.add t[a ..< i].strip
+      a = i + 4
+      i += 3
+    inc i
+  result.add t[a .. ^1].strip
+
+proc nxUnionAlts*(sc: NxScope, t: string): seq[string] =
+  ## the alternatives of a union type — written (`PType | PSym`) or an alias of one (`GVec234[T] = GVec2[T] |
+  ## GVec3[T] | GVec4[T]`, `AsyncStreamRW = AsyncStreamReader | AsyncStreamWriter`) — or @[] for any other type
+  if t in sc.plain: return
+  let s0 = nxStripMods(t)
+  if s0.len == 0: return
+  if '|' in s0 or " or " in s0:
+    let alts = nxAlternatives(s0)
+    if alts.len > 1: return alts
+  let b = nxBaseName(s0)
+  if b.len == 0 or b in ["seq", "array", "openArray", "string", "int", "float", "bool", "char", "set", "Table"]:
+    if sc.plain.len < 20000: sc.plain.incl t
+    return
+  if b notin sc.unions:
+    var entry: (seq[string], seq[string])
+    var found = false
+    for r in nxTypeSyms(sc, b):
+      found = true
+      let d = r.sym.typ.strip
+      if not (d.startsWith("object") or d.startsWith("ref ") or d.startsWith("enum") or d.startsWith("distinct")):
+        let da = nxAlternatives(d)
+        if da.len > 1: entry = (da, nxGenericNames(r.sym.generics))
+      break
+    if not found and not (b.len <= 2 and b[0] in {'A'..'Z'}):
+      # a type the module declaring the routine keeps to itself (vmath's GVec234): the files this scope reads
+      for (p, _) in sc.deps:
+        let g = nxFiles.getOrDefault(p)
+        if g == nil: continue
+        if not g.unionsMade:
+          g.unionsMade = true
+          for i, s in g.syms:
+            if s.kind == nxType and '|' in s.typ: g.unionTypes[s.name] = i
+        let k = g.unionTypes.getOrDefault(b, -1)
+        if k >= 0:
+          let da = nxAlternatives(g.syms[k].typ.strip)
+          if da.len > 1:
+            entry = (da, nxGenericNames(g.syms[k].generics))
+            break
+    sc.unions[b] = entry
+  let ent = addr sc.unions[b]                         # (no copy: asked for every routine a completion weighs)
+  if ent[][0].len == 0:
+    if sc.plain.len < 20000: sc.plain.incl t
+    return
+  let (da, names) = ent[]
+  let args = nxTypeArgs(s0)
+  var binds: Table[string, string]
+  for i in 0 ..< min(names.len, args.len): binds[names[i]] = args[i]
+  for x in da: result.add nxSubst(x, binds)
+
+proc nxCompat*(sc: NxScope, paramType, generics, recv: string, depth = 0): int =
   ## can a value of type `recv` be the first argument of a routine whose first parameter is `paramType`?
   ## 3 exact · 2 related (subtype, openArray, type class, alias, wider number) · 1 generic · 0 no
-  let p = nxStripMods(paramType)
+  var p = nxStripMods(paramType)
+  if p.startsWith("type ") and recv.startsWith("typedesc["): p = "typedesc[" & p[5 .. ^1].strip & "]"   # (T: type X)
   if p.len == 0: return 1
+  if depth < 3:
+    # a union on either side (written, or through an alias: GVec234[T]): the best of its alternatives
+    let pa = nxUnionAlts(sc, p)
+    if pa.len > 1:
+      for x in pa: result = max(result, nxCompat(sc, x, generics, recv, depth + 1))
+      return
+    let ra = nxUnionAlts(sc, recv)
+    if ra.len > 1:
+      for x in ra: result = max(result, nxCompat(sc, paramType, generics, x, depth + 1))
+      return
+  if p.startsWith("typedesc[") and recv.startsWith("typedesc[") and p.endsWith("]") and recv.endsWith("]"):
+    # T.init(…): typedesc[Moment] is not typedesc[AsyncStreamWriterVtbl]
+    let c = nxCompat(sc, p[9 ..< ^1], generics, recv[9 ..< ^1], depth + 1)
+    return (if c == 0: 0 else: max(2, c))       # (typedesc[T] fits a type better than a bare T)
   var pb = nxBaseName(p)
   var rb = nxBaseName(recv)
   if rb.len == 0: return 1
@@ -204,6 +359,8 @@ proc nxCompat*(sc: NxScope, paramType, generics, recv: string): int =
   case pb
   of "openArray", "varargs":
     if rb in ["seq", "array", "openArray", "varargs"]: return 2
+    let ex = nxExpandAlias(sc, recv)            # MultipartEntries = openArray[tuple[…]]
+    if ex.len > 0 and nxBaseName(ex) in ["seq", "array", "openArray", "varargs"]: return 2
     if rb in ["string", "cstring"]:
       let a = nxTypeArgs(p)
       if a.len > 0 and a[0] == "char": return 2
@@ -310,7 +467,8 @@ proc nxCompatP*(sc: NxScope, prm: NxParam, generics, recv: string): int =
 
 proc nxBindings*(s: NxSym, recv: string, genArgs: seq[string] = @[]): Table[string, string] =
   ## generic parameters of routine `s` bound from explicit [args] or from its first argument's type
-  if recv.startsWith("typedesc[") and s.params.len > 0 and nxStripMods(s.params[0].typ).startsWith("typedesc") and
+  if recv.startsWith("typedesc[") and s.params.len > 0 and
+     (nxStripMods(s.params[0].typ).startsWith("typedesc") or nxStripMods(s.params[0].typ).startsWith("type ")) and
      s.params[0].name.len > 0 and s.params[0].name[0] in {'A'..'Z'}:
     # proc none(T: typedesc): Option[T] · proc high(T: typedesc[SomeFloat]): T — the parameter is the type
     result[s.params[0].name] = recv[9 ..< ^1]
@@ -498,6 +656,18 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
     if rets.len != 1: return ""
   let s = best.sym
   var b = nxBindings(s, recv, genArgs)
+  if b.len == 0 and recv.len > 0 and s.params.len > 0 and genArgs.len == 0:
+    # dist[T](at, to: GVec234[T]) with a GVec2[float32]: T from the alternative it is
+    block unions:
+      for alt in nxUnionAlts(sc, s.params[0].typ):
+        if nxNorm(nxBaseName(alt)) == nxNorm(nxBaseName(recv)):
+          nxUnify(alt, recv, nxGenericNames(s.generics), b)
+          break unions
+      # and a union argument (GVec234[float32]) against one of its alternatives (GVec2[T])
+      for ra in nxUnionAlts(sc, recv):
+        if nxNorm(nxBaseName(ra)) == nxNorm(nxBaseName(s.params[0].typ)):
+          nxUnify(s.params[0].typ, ra, nxGenericNames(s.generics), b)
+          break unions
   if argExprs.len > 0 and s.generics.len > 0 and genArgs.len == 0:
     # T bound by a later argument: convert(Seconds, Nanoseconds, x) is x's type
     let names = nxGenericNames(s.generics)
@@ -514,6 +684,33 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
         let at = nxTypeOfExpr(f, sc, locals, e, line, depth + 1).typ
         if at.len > 0: nxUnify(pt, at, names, b)
   var rt = nxStripValMods(nxSubst(s.ret, b))
+  for kw in ["type(", "typeof("]:
+    if rt.startsWith(kw) and rt.endsWith(")"):
+      # proc dir*[T](at, to: GVec234[T]): type(to) — the type of that argument
+      let pn = rt[kw.len ..< ^1].strip
+      for k, prm in s.params:
+        if prm.name == pn:
+          # (the parameter's type with what the call binds — GVec234[float32] — or else the argument's)
+          let declared = nxSubst(nxStripMods(prm.typ), b)
+          var unbound = false
+          for g in nxGenericNames(s.generics):
+            if g notin b and declared.find(g) >= 0: unbound = true
+          rt = if declared.len > 0 and not unbound and nxIsGenericName(declared, s.generics) == false: declared
+               elif k == 0: recv
+               elif k - 1 < argExprs.len: nxTypeOfExpr(f, sc, locals, argExprs[k - 1], line, depth + 1).typ
+               else: ""
+          break
+      if rt.startsWith(kw): rt = ""
+  if "multisync" in s.pragmas and nxBaseName(rt) in ["Future", "FutureEx"]:
+    let ta = nxTypeArgs(rt)
+    if ta.len > 0:
+      let alts = nxSplitTop(ta[0], {'|'})
+      if alts.len > 1:
+        # a {.multisync.} routine (Future[Response | AsyncResponse]): called with the synchronous client, its
+        # result as it is (Response); with the asynchronous one, a Future of the other
+        let palts = if s.params.len > 0: nxSplitTop(s.params[0].typ, {'|'}) else: @[]
+        let sync = recv.len == 0 or palts.len < 2 or nxCompat(sc, palts[0].strip, s.generics, recv) >= 2
+        rt = if sync: alts[0].strip else: "Future[" & alts[1].strip & "]"
   if rt == "auto":
     rt = nxStripMods(nxSubst(nxInferAuto(best.file, s, depth + 1), b))
     if rt.len == 0: return ""
@@ -521,7 +718,7 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
   if nxIsGenericName(rt, s.generics):
     # unbound `T`: the receiver's element is the usual answer (seq[T].pop)
     return (if recv.len > 0: nxElemType(recv) else: "")
-  rt
+  nxQualified(sc, best.file, rt)
 
 proc nxProcRet*(t: string): string =
   ## what a proc type returns: "proc (x: int): string {.closure.}" → "string"
@@ -561,6 +758,15 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
   if x.len == 0: return
   let rg = nxFindRange(x)
   if rg > 0:
+    # a .. b: what the slice is of (0 ..< n with n: cint is a cint)
+    let whole = nxTypeOfExpr(f, sc, locals, x, line, depth + 1).typ
+    if whole.startsWith("HSlice["):
+      let ta = nxTypeArgs(whole)
+      if ta.len > 0 and ta[0].len > 0:
+        # (1 .. n with n: Natural counts in ints; a range's values are its base type's; low(a)..high(a) of an array
+        # indexed by a range written as its bounds: that range)
+        if nxFindRange(ta[0]) > 0 or ta[0].allCharsInSet(Digits): return nxRangeText(f, ta[0])
+        return (if ta[0] in ["Natural", "Positive"] or nxResolveAlias(sc, ta[0]) == "range": "int" else: ta[0])
     let lt = nxTypeOfExpr(f, sc, locals, x[0 ..< rg], line, depth + 1).typ
     return (if lt.len > 0: lt else: "int")
   # split  recv.name(args) / name(args) / value
@@ -600,16 +806,25 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
   if a > 0 and head[a - 1] == '.' and not called and not hasIter and
      name notin ["pairs", "mpairs", "items", "mitems", "keys", "values", "mvalues", "countup", "countdown"]:
     recvExpr = x                                 # a field, a proc call without (): the value's own items
-  elif a > 0 and head[a - 1] == '.':
+  elif a > 0 and head[a - 1] == '.' and not (called and nxTypeOfExpr(f, sc, locals, head[0 ..< a - 1], line,
+                                                                     depth + 1).module.len > 0):
     itName = name
     recvExpr = head[0 ..< a - 1]
-  elif a == 0 and called and name.len > 0:
+  elif (a == 0 or head[a - 1] == '.') and called and name.len > 0:
+    # (modulegraphs.allSyms(g, m): a call of the module's iterator, its first argument the receiver)
     itName = name
     let ps = nxSplitTop(args, {','})
     if ps.len > 0 and nxFindTop(ps[0], '=') < 0: recvExpr = ps[0].strip
   else:
     recvExpr = x
-  var ct = if recvExpr.len > 0: nxTypeOfExpr(f, sc, locals, recvExpr, line, depth + 1).typ else: ""
+  let cv = if recvExpr.len > 0: nxTypeOfExpr(f, sc, locals, recvExpr, line, depth + 1) else: NxVal()
+  var ct = cv.typ
+  if ct.len == 0 and cv.typeName.len > 0 and itName.len == 0 and slots <= 1:
+    # for kind in VNodeKind: an enum (or a range) type's values
+    for r in nxTypeSyms(sc, cv.typeName):
+      let d = r.sym.typ.strip
+      if d.startsWith("enum") or d.startsWith("range"): return cv.typeName
+      break
   var base = nxBaseName(ct)
   const Known = ["seq", "openArray", "varargs", "array", "string", "cstring", "set", "HSlice", "Slice",
                  "CountTable", "CountTableRef", "StringTableRef", "Table", "TableRef", "OrderedTable",
@@ -640,6 +855,14 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
     elif base == "StringTableRef": ("string", "string")
     elif base in ["Table", "TableRef", "OrderedTable", "OrderedTableRef"]: (a0, a1)
     elif base == "JsonNode": ("string", "JsonNode")
+    elif base == "array" and a0.len > 0:
+      # its index type: array[mJan..mDec, T] counts in range 1..12(Month), array[3, T] in range 0..2(int), an
+      # enum's values (array[WeekDay, T]) in the enum
+      let rt = nxRangeText(f, a0)
+      let ix = if rt.startsWith("range "): rt
+               elif nxIsIdent(a0[0]) and a0.allCharsInSet(IdentChars) and nxTypeSyms(sc, a0).len > 0: a0
+               else: "int"
+      (ix, nxElemType(ct))
     else: ("int", nxElemType(ct))
   case itName
   of "pairs", "mpairs":
@@ -662,7 +885,15 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
       return (if slot == 0: k else: v)
     return nxElemType(ct)
   else: discard
-  # an iterator by that name: what it yields
+  # an iterator by that name: what it yields (one declared in this routine first)
+  for k in countdown(locals.high, 0):
+    let s = locals[k]
+    if s.kind == nxIterator and nxNorm(s.name) == nxNorm(itName) and s.ret.len > 0 and s.generics.len == 0:
+      let rt = nxStripMods(s.ret)
+      if slots >= 2:
+        let parts = nxTupleTypes(rt)
+        return (if slot < parts.len: parts[slot] else: "")
+      return rt
   for r in nxLookup(sc, itName):
     let s = r.sym
     if s.kind != nxIterator or s.ret.len == 0: continue
@@ -678,12 +909,115 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
   if slots >= 2: return (if slot == 0: "int" else: nxElemType(vt))
   nxElemType(vt)
 
+proc nxTypeOfName*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, line, depth: int): NxVal
+
+proc nxCallArg*(args: string, params: seq[NxParam], k: int): string =
+  ## the argument a call passes for the k-th parameter: by name (`maxsplit = 2`) or by position
+  var pos: seq[string]
+  for p in nxSplitTop(args, {','}):
+    let q = p.strip
+    let eq = nxFindTop(q, '=')
+    if eq > 0 and (eq + 1 >= q.len or q[eq + 1] != '=') and q[0 ..< eq].strip.allCharsInSet(IdentChars):
+      if k < params.len and nxNorm(q[0 ..< eq].strip) == nxNorm(params[k].name): return q[eq + 1 .. ^1].strip
+    else: pos.add q
+  if k < pos.len: pos[k] else: ""
+
+proc nxTemplateUse(f: NxFile, sc: NxScope, name: string, param: bool, line, at, depth: int): NxVal =
+  ## inside a template: an untyped parameter of it (param) — the type of what its calls in the file pass — or a name
+  ## it does not declare, bound where it is called (tabCellHash(i) = t.data[i].hcode; jsony's doCopy and the
+  ## copyStart declared after it)
+  if depth > 9 or f == nil or f.path.len == 0: return
+  let fl = nxLinesOf(f)
+  let tpl = nxTemplateAround(fl, line)
+  if tpl.line < 0: return
+  var pk = -1
+  for k, p in tpl.params:
+    if nxNorm(p.name.strip(chars = {'`'})) == nxNorm(name): pk = k
+  if param != (pk >= 0): return
+  var n = 0
+  for (cl, cc, args) in nxTemplateCalls(f, fl.ls, tpl, nxInactiveLine(f, at)):
+    if n >= 3: break
+    inc n
+    let f2 = nxAt(f, fl.ls, cl)
+    let sc2 = if f2 == f: sc else: nxScope(f2)
+    if param:
+      var arg = nxCallArg(args, tpl.params, pk)
+      var al = cl
+      var ac = cc
+      if arg.len == 0 and pk == tpl.params.high and nxCodeOf(fl.ls[cl]).endsWith(":"):
+        # the block the call ends with: what its last statement gives, where that is (its own lets known)
+        arg = nxBlockValue(fl.ls, cl + 1, leadWs(fl.ls[cl]), "block:")
+        if arg == "block:": arg = ""
+        for l in cl + 1 ..< min(fl.ls.len, cl + 60):
+          let lw = leadWs(fl.ls[l])
+          if lw >= fl.ls[l].len or fl.ls[l][lw] == '#': continue
+          if lw <= leadWs(fl.ls[cl]): break
+          al = l
+          ac = fl.ls[l].len
+      if arg.len == 0: continue
+      result = nxTypeOfExpr(f2, sc2, nxLocals(f2, fl.ls, al, ac), arg, al, depth + 2)
+    else:
+      result = nxTypeOfName(f2, sc2, nxLocals(f2, fl.ls, cl, cc), name, cl, depth + 2)
+    if result.typ.len > 0 or result.typeName.len > 0 or result.module.len > 0: return
+  result = NxVal()
+
+proc nxTemplateFree*(f: NxFile, lines: openArray[string], name: string, line: int): NxSym =
+  ## a name a template's body does not declare, the local it is where the template is called (for its definition)
+  let fl = nxLinesOf(f)
+  let tpl = nxTemplateAround(fl, line)
+  if tpl.line < 0: return
+  for p in tpl.params:
+    if nxNorm(p.name.strip(chars = {'`'})) == nxNorm(name): return
+  var n = 0
+  for (cl, cc, args) in nxTemplateCalls(f, fl.ls, tpl, nxInactiveLine(f, line)):
+    if n >= 3: break
+    inc n
+    let f2 = nxAt(f, fl.ls, cl)
+    let locs = nxLocals(f2, fl.ls, cl, cc)
+    for i in countdown(locs.high, 0):
+      if nxNorm(locs[i].name) == nxNorm(name) and locs[i].line <= cl: return locs[i]
+
+proc nxInjectedType(f: NxFile, sc: NxScope, before: seq[NxSym], s: NxSym, depth: int): NxVal =
+  ## a name a template call declares (withData(p.selector, fd, adata) do: …): the value the template gives it,
+  ## worked out in the template's module (its private fields) with its parameters of the types the call passes
+  let parts = s.owner.split('\x01')
+  if parts.len < 4 or depth > 10: return
+  let tf = nxLoad(parts[1])
+  if tf == nil: return
+  let vl = try: parseInt(parts[2]) except ValueError: -1
+  let ri = block:
+    var best = -1
+    for i, ts in tf.syms:
+      if ts.kind == nxTemplate and ts.line < vl and vl <= ts.endLine and (best < 0 or ts.line > tf.syms[best].line):
+        best = i
+    best
+  if ri < 0: return
+  let tpl = tf.syms[ri]
+  let tls = nxLinesOf(tf).ls
+  if vl >= tls.len: return
+  let t = nxCodeOf(tls[vl])
+  let eq = nxFindTop(t, '=')
+  if eq < 0: return
+  var tlocs = nxLocals(tf, tls, vl, leadWs(tls[vl]) + eq)
+  for k, p in tpl.params:
+    let a = nxCallArg(parts[3], tpl.params, k)
+    if a.len == 0: continue
+    let at = nxTypeOfExpr(f, sc, before, a, s.line, depth + 1).typ
+    if at.len == 0: continue
+    for j in 0 ..< tlocs.len:
+      if tlocs[j].kind == nxParam and tlocs[j].name == p.name.strip(chars = {'`'}): tlocs[j].typ = at
+  nxTypeOfExpr(tf, nxScope(tf), tlocs, t[eq + 1 .. ^1].strip, vl, depth + 1)
+
 proc nxTypeOfName*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, line, depth: int): NxVal =
   if depth > 14: return
   for i in countdown(locals.high, 0):
     let s = locals[i]
     if nxNorm(s.name) == nxNorm(name) and s.line <= line:
       if s.kind in NxRoutineKinds: return NxVal(routine: name)
+      if s.kind == nxParam and nxStripMods(s.typ) in ["auto", "any", "untyped", "typed"]:
+        if s.typ in ["untyped", "typed"]:
+          return nxTemplateUse(f, sc, name, true, s.line, line, depth)   # (a template's: what its calls pass)
+        return NxVal()                               # (vars: auto — any type: none to tell overloads apart)
       if s.typ.len > 0:
         if s.kind == nxParam and '|' in s.typ:
           # client: HttpClient | AsyncHttpClient — its members are those of the first
@@ -695,11 +1029,19 @@ proc nxTypeOfName*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, lin
         var before: seq[NxSym]
         for k in 0 ..< i:
           if locals[k].line < s.line or (locals[k].line == s.line and locals[k].kind != nxForVar): before.add locals[k]
+        var vt = ""
         if s.slots < 0:
           let whole = nxIterVarType(f, sc, before, s.value, 0, 1, s.line, depth + 1)
           let parts = nxTupleTypes(whole)
-          return NxVal(typ: (if s.slot < parts.len: parts[s.slot] else: ""))
-        return NxVal(typ: nxIterVarType(f, sc, before, s.value, s.slot.int, max(1, s.slots.int), s.line, depth + 1))
+          vt = if s.slot < parts.len: parts[s.slot] else: ""
+        else: vt = nxIterVarType(f, sc, before, s.value, s.slot.int, max(1, s.slots.int), s.line, depth + 1)
+        if s.sub > 0:
+          # for i, (a, b) in …: a part of that variable's tuple
+          let parts = nxTupleTypes(nxStripMods(vt))
+          vt = if s.sub - 1 < parts.len: parts[s.sub - 1] else: ""
+        return NxVal(typ: vt)
+      if s.owner.startsWith("\x01"):
+        return nxInjectedType(f, sc, locals[0 ..< i], s, depth)
       if s.value.len > 0:
         var k0 = i
         while k0 > 0 and locals[k0 - 1].line == s.line and locals[k0 - 1].slots < 0: dec k0
@@ -726,6 +1068,62 @@ proc nxTypeOfName*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, lin
     of nxEnumVal: return NxVal(typ: s.owner)
     of NxRoutineKinds: return NxVal(routine: s.name)
     else: discard
+  if name.len > 0 and nxIsIdent(name[0]):
+    result = nxTemplateUse(f, sc, name, false, line, line, depth)     # (in a template: bound where it is called)
+
+proc nxConstrained*(f: NxFile, line: int, typ: string): string =
+  ## a value whose type is a generic parameter of the routine around it ([S: GVec2[T] | GVec3[T]], [T: Duration |
+  ## Time], [T: array]): what its constraint says it is (for its members), else the type itself
+  let t = nxStripMods(typ)
+  if t.len == 0 or not t.allCharsInSet(IdentChars): return typ
+  let ri = nxEnclosing(f, line)
+  if ri < 0 or f.syms[ri].generics.len == 0: return typ
+  for p in nxParseParams(f.syms[ri].generics.strip(chars = {'[', ']', ' '})):
+    if p.name == t and p.typ.len > 0 and not p.typ.startsWith("not ") and not p.typ.startsWith("static"):
+      return p.typ
+  typ
+
+proc nxQuotedType*(f: NxFile, sc: NxScope, lines: openArray[string], locals: seq[NxSym], x: string,
+                   depth: int): string =
+  ## `x` interpolated in quoted code (`` `apId`.val4req ``): the type the code made gives it — a macro parameter's
+  ## written type (cf: ClCfg), or what a quoted declaration says (`` var `apId`: ArgcvtParams ``, `` var `pId` =
+  ## initOptParser(…) ``), "" when nothing tells
+  for i in countdown(locals.high, 0):
+    let s = locals[i]
+    if s.kind == nxParam and s.name == x and s.ret.len > 0: return s.ret
+  let pat = "`" & x & "`"
+  for l, t in lines:
+    var k = t.find(pat)
+    while k >= 0:
+      var j = k + pat.len
+      while j < t.len and t[j] == ' ': inc j
+      let pre = t[0 ..< k].strip
+      if pre.endsWith("var") or pre.endsWith("let") or pre.endsWith("const"):
+        if j < t.len and t[j] == ':' and (j + 1 >= t.len or t[j + 1] notin {':', '='}):
+          let rest = t[j + 1 .. ^1]
+          var stop = rest.len
+          for ch in ['=', ';']:
+            let q = nxFindTop(rest, ch)
+            if q >= 0 and q < stop: stop = q
+          let ty = rest[0 ..< stop].strip
+          if ty.len > 0 and '`' notin ty: return ty
+        elif j < t.len and t[j] == '=' and (j + 1 >= t.len or t[j + 1] != '=') and depth < 2:
+          var ex = t[j + 1 .. ^1]
+          var l2 = l
+          var bal = 0
+          for ch in ex:
+            if ch in {'(', '['}: inc bal
+            elif ch in {')', ']'}: dec bal
+          while bal > 0 and l2 + 1 < lines.len and l2 - l < 10:        # (a call that goes on below)
+            inc l2
+            ex.add " " & lines[l2].strip
+            for ch in lines[l2]:
+              if ch in {'(', '['}: inc bal
+              elif ch in {')', ']'}: dec bal
+          let ty = nxTypeOfExpr(f, sc, @[], ex.replace("`", "").strip, l, depth + 1).typ
+          if ty.len > 0 and ty != "NimNode": return ty
+      k = t.find(pat, k + 1)
+  ""
 
 proc nxLambdaType*(f: NxFile, sc: NxScope, locals: seq[NxSym], fn, argT: string, line, depth: int): string =
   ## what a function passed to map … returns for an argument of type argT: proc (w: string): int = …,
@@ -845,6 +1243,26 @@ proc nxInferAuto*(fp: NxFile, s: NxSym, depth: int): string =
       return t
   ""
 
+proc nxWhenIs(f: NxFile, sc: NxScope, locals: seq[NxSym], cond: string, line, depth: int): int =
+  ## a `when` condition: what nxWhen says (defined(…), constants), or for `x is T` what x's type says (a
+  ## {.multisync.} routine's socket is the synchronous Socket): 1 true, 0 false, -1 not known
+  result = nxWhen(cond)
+  if result >= 0: return
+  let c = cond.strip
+  let k = c.find(" is ")
+  if k <= 0 or " " in c[k + 4 .. ^1].strip: return
+  let x = c[0 ..< k].strip
+  let t = c[k + 4 .. ^1].strip
+  if not x.allCharsInSet(IdentChars) or t.len == 0: return
+  let xt = nxTypeOfName(f, sc, locals, x, line, depth + 1).typ
+  if xt.len == 0 or '|' in xt: return
+  if nxNorm(nxBaseName(nxStripMods(xt))) == nxNorm(nxBaseName(t)): return 1
+  # (not that type: only when both are types of their own, not a class like SomeInteger or `ref`)
+  for ty in [t, xt]:
+    let (r, def) = nxObjectDef(sc, ty)
+    if r.file == nil or not (def.contains("object") or def.startsWith("distinct") or def.startsWith("enum")): return
+  result = 0
+
 proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, depth: int): NxVal =
   if depth > 16: return
   var s = e.strip
@@ -855,12 +1273,36 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
     # for a value that goes on in the lines below)
     let fl2 = nxFlat(s)
     let colon = fl2.find(":")
+    if s.startsWith("when ") and colon > 5 and nxWhenIs(f, sc, locals, s[5 ..< colon], line, depth) == 0:
+      # when defined(windows): [...] else: [""] — the branch compiled here
+      let ke = fl2.find(" elif ", colon)
+      let k = fl2.find(" else:", colon)
+      if ke > 0 and (k < 0 or ke < k): return nxTypeOfExpr(f, sc, locals, "when " & s[ke + 6 .. ^1], line, depth + 1)
+      if k > 0:
+        var e = s.len
+        let dots = fl2.find(" …", k)
+        if dots > 0: e = dots
+        return nxTypeOfExpr(f, sc, locals, s[k + 6 ..< e], line, depth + 1)
+      return
     if colon > 0 and colon + 1 < s.len and s[colon + 1 .. ^1].strip.len > 0:     # (if a:b too)
       var e = s.len
       for stop in [" elif ", " else:", " except", " …", " finally:"]:
         let k = fl2.find(stop, colon)
         if k > 0 and k < e: e = k
-      return nxTypeOfExpr(f, sc, locals, s[colon + 1 ..< e], line, depth + 1)
+      result = nxTypeOfExpr(f, sc, locals, s[colon + 1 ..< e], line, depth + 1)
+      var unknown = result.typ.len == 0 and result.typeName.len == 0
+      if not unknown and result.typ.startsWith("("):
+        for part in nxTupleTypes(result.typ):
+          if part.strip.len == 0: unknown = true          # ((k, k) with k unknown: (, ))
+      if unknown and s.startsWith("if "):
+        # (the first branch's value is made of its own locals: the else branch's, the same type)
+        let k = fl2.rfind(" else:")                    # (the last: the one of this `if`)
+        if k > colon:
+          var e2 = s.len
+          let dots = fl2.find(" …", k)
+          if dots > 0: e2 = dots
+          result = nxTypeOfExpr(f, sc, locals, s[k + 6 ..< e2], line, depth + 1)
+      return
     return
   # await x, waitFor x: what the Future holds
   for kw in ["await ", "waitFor "]:
@@ -985,9 +1427,13 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
         if nxResolveAlias(sc, nxStripMods(r2)) in NxFloats: return NxVal(typ: nxStripMods(r2))
         if rt in NxInts: return NxVal(typ: "float")
       if rt in NxFloats or rt == "string": return NxVal(typ: lt)
+  var castEnd = -1               # cast[T](x).f(): T, then the rest of the chain
   if s.startsWith("cast["):
     let ce = nxMatchClose(s, 4)
-    if ce > 4: return NxVal(typ: s[5 ..< ce].strip)
+    if ce > 4:
+      let pe = if ce + 1 < s.len and s[ce + 1] == '(': nxMatchClose(s, ce + 1) else: -1
+      if pe < 0 or pe >= s.high or s[pe + 1] notin {'.', '['}: return NxVal(typ: s[5 ..< ce].strip)
+      castEnd = pe + 1
   if s.startsWith("case ") or s.startsWith("block"): return
   if s.len > 1 and s[0] in {'-', '+', '~', '!', '?', '^', '%'} and s[1] notin {' ', '=', '"'} and
      (s[1] notin Digits):
@@ -1112,7 +1558,10 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
   # a chain: name(.name | (args) | [idx])*
   var i = 0
   var v: NxVal
-  if s[0] in {'"', '\'', '@', '[', '(', '{'} and not s.startsWith("\"\"\""):
+  if castEnd > 0:
+    v = NxVal(typ: s[5 ..< nxMatchClose(s, 4)].strip)
+    i = castEnd
+  elif s[0] in {'"', '\'', '@', '[', '(', '{'} and not s.startsWith("\"\"\""):
     # a literal or a bracketed expression in front of a call: "a,b".split(','), @[3, 1].sorted, (a + b).abs
     var pe = -1
     if s[0] == '"':
@@ -1256,7 +1705,12 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
           let k = parseInt(inner)              # t[1] of a tuple
           v = NxVal(typ: (if k < tt.len: tt[k] else: ""))
         else:
-          var el = nxElemType(v.typ)
+          var el = ""
+          let idx = nxSplitTop(inner, {','})
+          if idx.len > 1 and v.typ.len > 0:
+            # m[2, 0]: the type's `[]` that takes that many indices (not the one-index one: a row)
+            el = nxCallType(f, sc, locals, "[]", v.typ, line, depth, @[], 1 + idx.len)
+          if el.len == 0: el = nxElemType(v.typ)
           if el.len == 0 and v.typ.len > 0:
             let ex = nxExpandAlias(sc, v.typ)
             if ex.len > 0: el = nxElemType(ex)
@@ -1350,6 +1804,14 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
           let ce = nxMatchClose(s, i)
           if ce < 0: return NxVal()
           i = ce + 1
+    elif c == '"' and v.typeName.len > 0 and i > 0 and s[i - 1] != ' ':
+      # CacheTable"jester.routes": the type made from a string literal
+      var j = i + 1
+      while j < s.len and s[j] != '"':
+        if s[j] == '\\': inc j
+        inc j
+      v = NxVal(typ: v.typeName)
+      i = j + 1
     elif c == '"' and v.routine.len > 0 and i > 0 and s[i - 1] != ' ':
       # headers.getOrDefault"Location", fmt"…": a call with a string
       var j = i + 1
@@ -1408,6 +1870,12 @@ proc nxReceiver*(line: string, dot: int): string =
     elif c == '"':
       var j = i - 1
       while j >= 0 and line[j] != '"': dec j
+      if j < 0: break
+      i = j - 1
+    elif c == '`':
+      # `apId`.val4req (in quote do: code)
+      var j = i - 1
+      while j >= 0 and line[j] != '`': dec j
       if j < 0: break
       i = j - 1
     elif c == '\'':

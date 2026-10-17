@@ -668,6 +668,8 @@ proc ecLiteralTypes(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag])
                  msg: "type mismatch: got '" & (if lit == "float": "float64" elif lit == "int": "int literal(" & v & ")" else: lit) & "' for '" & v &
                       "' but expected '" & typ & "'")
 
+var ecModMarked: Table[string, (string, bool)]    # module file → (its stamp, says {.used.} or hides declarations)
+
 proc ecTypeWords(t: string, into: var HashSet[string]) =
   ## the names in a type as written (Table[string, Time] → table, string, time)
   var i = 0
@@ -858,6 +860,13 @@ proc ecUnusedImports(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]
     # (or declares more than the engine reads: a block given to a call at the top, `since (1, 4):` …)
     var marked = false
     for fp in o.seen:
+      let st = nxStamp(fp)
+      let known = ecModMarked.getOrDefault(fp, ("", false))
+      if st.len > 0 and known[0] == st:
+        if known[1]: marked = true
+        continue
+      let before = marked
+      marked = false
       try:
         let txt = readFile(fp)
         if "{.used.}" in txt or "{.used, " in txt or "addQuitProc" in txt or "addExitProc" in txt or
@@ -879,6 +888,8 @@ proc ecUnusedImports(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]
                                 "runnableExamples", "using"]:
             marked = true
       except CatchableError: marked = true
+      ecModMarked[fp] = (st, marked)
+      marked = marked or before
     if marked: continue
     let line = b.lines[o.line]
     var col = line.find(o.modName)

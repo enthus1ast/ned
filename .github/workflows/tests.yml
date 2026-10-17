@@ -1,5 +1,6 @@
 # ned's tests, on every push and pull request:
 #   unit  — the Nim index, the C index, the formatters and the regular expressions, on Linux and macOS
+#   nedls — the language server driven by a test client; the formatter checked by Nim's own parser
 #   ui    — the whole editor driven through tmux, its screen read back (tests/ui), in four parts side by side,
 #           with the tools the tests use installed (language servers, clangd, gdb, shells, an SSH server)
 # Started by hand (Actions › tests › Run workflow) it can also fuzz ned and compare its Nim engine with nimsuggest.
@@ -35,6 +36,29 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Unit tests
         run: for t in tests/unit/t*.nim; do nim r -d:release --hints:off "$t" || exit 1; done
+
+  nedls:
+    # the language server driven by a test client, and the formatter checked by Nim's own parser
+    name: nedls and the parser check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: nedls (every feature, then 2000 random edits)
+        run: |
+          nim c -d:release --hints:off -o:nedls src/nedls.nim
+          python3 tests/lsp/tnedls.py ./nedls
+      - name: The formatter and Nim's parser (463 files of Nim's own source)
+        run: |
+          root=$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")
+          if [ -f "$root/compiler/parser.nim" ] && [ -f "$root/lib/system.nim" ]; then
+            tests/format/parsecheck.sh "$root"
+          else
+            echo "this Nim has no compiler sources: skipped"
+          fi
 
   ui:
     name: ui (part ${{ matrix.shard }} of 4)

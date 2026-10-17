@@ -20,10 +20,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-x86_64,       os: ubuntu-latest,    nim: stable, cc: gcc,   out: ned-linux-x86_64 }
-          - { name: linux-x86_64-clang, os: ubuntu-latest,    nim: stable, cc: clang, out: ned-linux-x86_64-clang }
-          - { name: linux-nim-2.2.4,    os: ubuntu-latest,    nim: "2.2.4", cc: gcc,  out: ned-linux-nim-2.2.4 }
-          - { name: macos-arm64,        os: macos-latest,     nim: stable, cc: clang, out: ned-macos-arm64 }
+          # (lto: the binaries attached to a release get link-time optimisation — src/ned.nims)
+          - { name: linux-x86_64,       os: ubuntu-latest,    nim: stable, cc: gcc,   out: ned-linux-x86_64, lto: -d:lto }
+          - { name: linux-x86_64-clang, os: ubuntu-latest,    nim: stable, cc: clang, out: ned-linux-x86_64-clang, lto: "" }
+          - { name: linux-nim-2.2.4,    os: ubuntu-latest,    nim: "2.2.4", cc: gcc,  out: ned-linux-nim-2.2.4, lto: "" }
+          - { name: macos-arm64,        os: macos-latest,     nim: stable, cc: clang, out: ned-macos-arm64, lto: -d:lto }
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -32,11 +33,11 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
         run: |
-          nim c -d:release --opt:speed -d:strip --hints:off --cc:${{ matrix.cc }} -o:${{ matrix.out }} src/ned.nim
+          nim c -d:release --opt:speed -d:strip --hints:off ${{ matrix.lto }} --cc:${{ matrix.cc }} -o:${{ matrix.out }} src/ned.nim
           # the formatter and the language server on their own
           o=${{ matrix.out }}
-          nim c -d:release --opt:speed -d:strip --hints:off --cc:${{ matrix.cc }} -o:nedfmt-${o#ned-} src/nedfmt.nim
-          nim c -d:release --opt:speed -d:strip --hints:off --cc:${{ matrix.cc }} -o:nedls-${o#ned-} src/nedls.nim
+          nim c -d:release --opt:speed -d:strip --hints:off ${{ matrix.lto }} --cc:${{ matrix.cc }} -o:nedfmt-${o#ned-} src/nedfmt.nim
+          nim c -d:release --opt:speed -d:strip --hints:off ${{ matrix.lto }} --cc:${{ matrix.cc }} -o:nedls-${o#ned-} src/nedls.nim
       - name: Command-line checks
         run: |
           o=${{ matrix.out }}
@@ -95,10 +96,10 @@ jobs:
       - name: Build
         run: |
           ${{ matrix.setup }}
-          nim c -d:release --opt:speed -d:strip --hints:off ${{ matrix.flags }} -o:${{ matrix.out }} src/ned.nim
+          nim c -d:release --opt:speed -d:strip -d:lto --hints:off ${{ matrix.flags }} -o:${{ matrix.out }} src/ned.nim
           o=${{ matrix.out }}
-          nim c -d:release --opt:speed -d:strip --hints:off ${{ matrix.flags }} -o:nedfmt-${o#ned-} src/nedfmt.nim
-          nim c -d:release --opt:speed -d:strip --hints:off ${{ matrix.flags }} -o:nedls-${o#ned-} src/nedls.nim
+          nim c -d:release --opt:speed -d:strip -d:lto --hints:off ${{ matrix.flags }} -o:nedfmt-${o#ned-} src/nedfmt.nim
+          nim c -d:release --opt:speed -d:strip -d:lto --hints:off ${{ matrix.flags }} -o:nedls-${o#ned-} src/nedls.nim
           file ${{ matrix.out }}
       - uses: actions/upload-artifact@v4
         with:
@@ -124,7 +125,7 @@ jobs:
           CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           test -x "$CC"
           for p in ned nedfmt nedls; do
-            nim c -d:release --opt:speed -d:strip --hints:off --os:android --cpu:arm64 --cc:clang \
+            nim c -d:release --opt:speed -d:strip -d:lto --hints:off --os:android --cpu:arm64 --cc:clang \
               --clang.exe:"$CC" --clang.linkerexe:"$CC" -o:$p-termux-aarch64 src/$p.nim
           done
           file ned-termux-aarch64

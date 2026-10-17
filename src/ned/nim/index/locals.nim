@@ -13,6 +13,217 @@ proc nxTypeArgs*(t: string): seq[string]
 
 var nxHeaderCache*: Table[string, seq[NxSym]]    # a nested routine's header → its declaration
 
+proc nxMacroParam*(typ: string): string =
+  ## a macro's parameter inside the macro: a syntax tree (NimNode) whatever type is written — `cf: ClCfg`,
+  ## `nested = true`, `x: typed{nkSym}` — apart from static[T] and typedesc ones, which keep theirs
+  let t = typ.replace(" ", "")
+  if t.startsWith("static") or t.startsWith("typedesc") or t.startsWith("type[") or t == "type": typ
+  else: "NimNode"
+
+proc nxMultisyncParam*(typ: string): string =
+  ## a {.multisync.} routine's `HttpClient | AsyncHttpClient` parameter: the first, the synchronous one (the
+  ## routine is written as that, the async one is made from it)
+  let alts = nxSplitTop(typ, {'|'})
+  if alts.len > 1: alts[0].strip else: typ
+
+proc nxHeaderEnd*(lines: openArray[string], r: NxSym): int =
+  ## the last line a routine's parameters can be on (its header may span many lines)
+  min(lines.high, max(r.line + 12, min(r.line + 80, r.endLine)))
+
+proc nxQuoteStart*(lines: openArray[string], line: int): int =
+  ## the line of the `quote do:` whose quoted code `line` is in, or -1
+  if line >= lines.len: return -1
+  var curMin = high(int)
+  if lines[line].strip.len > 0: curMin = leadWs(lines[line])
+  var l = line - 1
+  while l >= 0 and line - l < 400 and curMin > 0:
+    let t = lines[l]
+    let ts = t.strip
+    if ts.len > 0 and not ts.startsWith("#") and leadWs(t) < curMin:
+      curMin = leadWs(t)
+      var c = ts
+      let h = c.find(" #")
+      if h >= 0: c = c[0 ..< h].strip
+      if c.endsWith("quote do:") or c.endsWith("quote:") or (c.endsWith("do:") and "quote(" in c): return l
+      if c.startsWith("proc ") or c.startsWith("macro ") or c.startsWith("template ") or c.startsWith("func "):
+        if leadWs(t) == 0: return -1
+    dec l
+  -1
+
+proc nxReceiver*(line: string, dot: int): string
+proc nxCallArg*(args: string, params: seq[NxParam], k: int): string
+
+const NxBlockKw = ["if", "elif", "else", "while", "when", "case", "of", "for", "block", "try", "except", "finally",
+                   "static", "defer", "proc", "func", "method", "iterator", "converter", "template", "macro", "type",
+                   "return", "let", "var", "const"]
+
+type
+  NxTplAround* = object      # a template around a line: its name, parameters, header line, last line of its body
+    name*: string
+    params*: seq[NxParam]
+    line*, endLine*: int
+  NxLines* = ref object
+    key: string
+    ls*: seq[string]
+    tpls: seq[(int32, int32)]  # the templates declared in it, nested ones too: (header line, last line of the body)
+    tplsMade: bool
+
+var
+  nxLinesCache: seq[NxLines]                                # the files last asked about (a few), the latest last
+  nxCallSites: Table[string, seq[(int, int, string)]]       # (template, file) → its calls there
+  nxInjects: Table[string, seq[(int, string, int)]]         # template → what it declares for its arguments
+
+proc nxLinesOf*(f: NxFile): NxLines =
+  ## the file's lines (the open buffer's when there is one), kept for the few files last asked about
+  let key = f.path & "\t" & f.stamp.split('#')[0]
+  for k in countdown(nxLinesCache.high, 0):
+    if nxLinesCache[k].key == key:
+      result = nxLinesCache[k]
+      if k < nxLinesCache.high:
+        nxLinesCache.delete(k)
+        nxLinesCache.add result
+      return
+  result = NxLines(key: key)
+  try:
+    result.ls = if nxBufferLines != nil and nxBufferStamp(f.path).len > 0: nxBufferLines(f.path)
+                elif f.path.len > 0 and getFileSize(f.path) <= 4_000_000: readFile(f.path).splitLines
+                else: @[]
+  except CatchableError: discard
+  if nxLinesCache.len >= 4: nxLinesCache.delete(0)
+  nxLinesCache.add result
+
+proc nxTemplateHeader(lines: openArray[string], l: int): NxSym =
+  ## the template declared on line l (its header may go on below)
+  var hdr: seq[string]
+  let i0 = leadWs(lines[l])
+  for k in l .. min(lines.high, l + 12):
+    hdr.add lines[k][min(i0, leadWs(lines[k])) .. ^1]
+    if nxCodeOf(lines[k]).endsWith("=") or (k == l and nxFindTop(lines[k], '=') > 0): break
+  let key = hdr.join("\n")
+  if key notin nxHeaderCache:
+    if nxHeaderCache.len > 4000: nxHeaderCache.clear()
+    nxHeaderCache[key] = nxParse(hdr, "").syms
+  for s in nxHeaderCache[key]:
+    if s.kind == nxTemplate: return s
+
+proc nxTemplateAround*(fl: NxLines, line: int): NxTplAround =
+  ## the innermost template whose body (or header) `line` is in — at the top level or declared inside a routine —
+  ## or line -1
+  result.line = -1
+  template lines: untyped = fl.ls
+  if not fl.tplsMade:
+    fl.tplsMade = true
+    var st: NxLexState
+    var code, doc: string
+    var dep = 0
+    for l in 0 ..< lines.len:
+      let inStr = st.inTriple or st.blockDepth > 0
+      nxSplitLine(lines[l], st, code, doc, dep)
+      if inStr: continue
+      let i0 = leadWs(code)
+      if not code.continuesWith("template ", i0): continue
+      var e = l
+      for k in l + 1 ..< lines.len:
+        let lw = leadWs(lines[k])
+        if lw >= lines[k].len or lines[k][lw] == '#': continue
+        if lw <= i0: break
+        e = k
+      fl.tpls.add (int32(l), int32(e))
+  var best = -1
+  for k, (a, e) in fl.tpls:
+    if a <= line and line <= e and (best < 0 or a > fl.tpls[best][0]): best = k
+  if best < 0: return
+  let l = fl.tpls[best][0].int
+  let s = nxTemplateHeader(lines, l)
+  if s.name.len > 0: result = NxTplAround(name: s.name, params: s.params, line: l, endLine: fl.tpls[best][1].int)
+
+proc nxInactiveLine*(f: NxFile, l: int): bool =
+  ## in a `when` branch left out here
+  for (a, b) in f.inactive:
+    if a <= l and l <= b: return true
+
+proc nxTemplateCalls*(f: NxFile, lines: openArray[string], tpl: NxTplAround, mine: bool): seq[(int, int, string)] =
+  ## the calls of a template in its file, outside its own body: (line, column of the name, its arguments' text —
+  ## the receiver written before a dot first); calls in code compiled here first, or, for code in a `when` branch
+  ## left out here (mine), calls in such branches first
+  let key = f.path & "\t" & f.stamp.split('#')[0] & "\t" & $tpl.line & "\t" & $mine
+  if key in nxCallSites: return nxCallSites[key]
+  template inactive(l: int): bool = nxInactiveLine(f, l)
+  var other, before: seq[(int, int, string)]
+  # a template declared in a routine is called in the rest of it; one at the top level after it (or, in other
+  # templates, before)
+  var lo = 0
+  var hi = lines.high
+  let ri = nxEnclosing(f, tpl.line)
+  if ri >= 0 and f.syms[ri].line < tpl.line:
+    lo = tpl.endLine + 1
+    hi = min(hi, f.syms[ri].endLine)
+  for l in lo .. hi:
+    if l >= tpl.line and l <= tpl.endLine: continue
+    let raw = lines[l]
+    if tpl.name notin raw: continue
+    let code = nxCodeOf(raw)
+    let off = leadWs(raw)
+    var k = code.find(tpl.name)
+    while k >= 0 and result.len + other.len + before.len < 12:
+      let e = k + tpl.name.len
+      var quotes = 0                             # (not in a string: of "resp", "pass": …)
+      var q = 0
+      while q < k:
+        if code[q] == '\\': inc q
+        elif code[q] == '"': inc quotes
+        elif code[q] == '\'' and q + 2 < code.len and code[q + 2] == '\'': q += 2
+        inc q
+      if quotes mod 2 == 0 and (k == 0 or not nxIsIdent(code[k - 1])) and (e >= code.len or not nxIsIdent(code[e])):
+        let pre = code[0 ..< k].strip
+        if not (pre.endsWith("template") or pre.endsWith("proc") or pre.endsWith("func") or pre.endsWith("macro")):
+          var args = ""
+          if e < code.len and code[e] == '(':
+            var whole = code[e .. ^1]
+            var l2 = l
+            while nxMatchClose(whole, 0) < 0 and l2 + 1 < lines.len and l2 - l < 12:
+              inc l2
+              whole.add " " & nxCodeOf(lines[l2])
+            let ce = nxMatchClose(whole, 0)
+            args = if ce > 0: whole[1 ..< ce] else: whole[1 .. ^1]
+          elif e < code.len and code[e] == ' ':
+            args = code[e .. ^1].strip
+            if args.endsWith("do:"): args = args[0 ..< ^3].strip
+            if args.endsWith(":"): args = args[0 ..< ^1].strip
+          if k > 0 and code[k - 1] == '.':
+            let r = nxReceiver(code, k - 1)
+            if r.len > 0: args = (if args.len > 0: r & ", " & args else: r)
+          let c = (l, off + k, args)
+          if inactive(l) != mine: other.add c
+          elif l < tpl.line: before.add c
+          else: result.add c
+      k = code.find(tpl.name, k + 1)
+  result.add before
+  result.add other
+  if nxCallSites.len > 300: nxCallSites.clear()
+  nxCallSites[key] = result
+
+proc nxTemplateInjects*(r: NxRef): seq[(int, string, int)] =
+  ## what a template declares in its body for its untyped parameters — withData(s, fd, value, body): `var value =
+  ## addr(s.fds[fdi].data)` — as (parameter index, the value written, its line)
+  let s = r.sym
+  let key = r.file.path & "\t" & r.file.stamp & "\t" & $s.line
+  if key in nxInjects: return nxInjects[key]
+  let ls = nxLinesOf(r.file).ls
+  if s.line >= ls.len: return
+  for l in s.line + 1 .. min(s.endLine, ls.high):
+    let t = nxCodeOf(ls[l])
+    for kw in ["var ", "let "]:
+      if t.startsWith(kw):
+        let rest = t[kw.len .. ^1]
+        let eq = nxFindTop(rest, '=')
+        if eq <= 0: continue
+        let nm = nxStripPragma(rest[0 ..< eq])[0].strip
+        for k, p in s.params:
+          if p.name == nm and (p.typ.len == 0 or p.typ == "untyped"): result.add (k, rest[eq + 1 .. ^1].strip, l)
+  if nxInjects.len > 300: nxInjects.clear()
+  nxInjects[key] = result
+
 proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything = false): seq[NxSym] =
   ## the routine's parameters and the locals visible at line:col (everything: all declared up to that line,
   ## whatever block they are in)
@@ -25,12 +236,15 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
     for p in r.params:
       # where the parameter is written (headers can span lines)
       let nm = p.name.strip(chars = {'`'})
-      let (pl, pc) = nxLocate(lines, nm, r.line, min(r.line + 12, lines.high), at)
+      let (pl, pc) = nxLocate(lines, nm, r.line, nxHeaderEnd(lines, r), at)
       at = (pl, pc + nm.len)
       var pt = p.typ
-      if r.kind == nxMacro and pt.replace(" ", "") in ["untyped", "typed", "varargs[untyped]", "varargs[typed]"]:
-        pt = "NimNode"                    # (inside a macro its arguments are syntax trees)
-      result.add NxSym(name: nm, kind: nxParam, typ: pt, value: p.default, line: pl, col: pc)
+      if r.kind == nxMacro: pt = nxMacroParam(pt)    # (inside a macro its arguments are syntax trees)
+      elif r.kind == nxTemplate and pt.len == 0 and p.default.len == 0: pt = "untyped"
+      elif "multisync" in r.pragmas: pt = nxMultisyncParam(pt)
+      # (ret: the type as written, when it is read otherwise inside — what its own declaration shows)
+      result.add NxSym(name: nm, kind: nxParam, typ: pt, value: p.default, line: pl, col: pc,
+                       ret: (if pt != p.typ: p.typ else: ""))
     if r.ret.len > 0 and r.kind notin {nxTemplate, nxMacro, nxIterator}:
       var rt = r.ret
       if rt.startsWith("owned(") and rt.endsWith(")"): rt = rt[6 ..< rt.high].strip
@@ -69,6 +283,10 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
   var indents = newSeq[int](max(0, last - a + 1))
   var lastS, lastFor = 0
   var open = 0
+  # `when` opens no scope: what its branches declare is the enclosing block's (headers: (indentation, a `when`))
+  var hdrs: seq[(int, bool)]
+  var chainWhen: Table[int, bool]
+  var secScope = 0
   template flushScopes() =
     while scopes.len < result.len:
       scopes.add (if result[scopes.len].kind == nxForVar: lastFor + 1 else: lastS)
@@ -87,6 +305,17 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
     if not wasOpen: indents[l - a] = ind
     lastS = ind
     lastFor = ind
+    if not wasOpen:
+      while hdrs.len > 0 and hdrs[^1][0] >= ind: discard hdrs.pop()
+      var k = hdrs.high
+      while k >= 0 and hdrs[k][1] and hdrs[k][0] < lastS:
+        lastS = hdrs[k][0]                       # (in a `when` branch: the block around the `when`)
+        dec k
+      if t.endsWith(":"):
+        let w = nxName(t, 0)[0]
+        if w == "when": chainWhen[ind] = true
+        elif w in ["if", "case", "try"]: chainWhen[ind] = false
+        hdrs.add (ind, w == "when" or (w in ["elif", "else"] and chainWhen.getOrDefault(ind)))
     if secInd >= 0 and ind <= secInd:
       secInd = -1
       memberInd = -1
@@ -107,7 +336,7 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
       let names = nxSplitTop(text[0 ..< endNames].strip(chars = {'(', ')', ' '}), {','})
       for vi, p in names:
         let (nm, _) = nxName(nxStripPragma(p)[0], 0)
-        if nm.len == 0 or nm == "_": continue
+        if nm.len == 0: continue                 # (`_` too: it has a type hint, nothing refers to it)
         res.add NxSym(name: nm, kind: kk, typ: (if unpack: "" else: nxCollapse(typ)), value: val, line: l,
                       col: nxWordCol(raw, nm), slot: vi.int16, slots: (if unpack: -names.len.int16 else: 0))
     template whole(x: string): string =
@@ -123,10 +352,30 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
           tj.add " " & c2.strip
           inc l2
       tj
+    if not wasOpen and "proc" in t:
+      # anonymous procs — fut.callback = proc (future: Future[T]) = … — their parameters, inside their bodies
+      var k = t.find("proc")
+      while k >= 0:
+        var j = k + 4
+        while j < t.len and t[j] == ' ': inc j
+        if (k == 0 or not nxIsIdent(t[k - 1])) and j < t.len and t[j] == '(':
+          let wt = whole(t)[j .. ^1]
+          let ce = nxMatchClose(wt, 0)
+          if ce > 0 and nxFindTop(wt[ce + 1 .. ^1], '=') >= 0:
+            flushScopes()
+            var at3 = (l, max(0, raw.find('(', raw.find("proc"))))
+            for p in nxParseParams(wt[1 ..< ce]):
+              let pn = p.name.strip(chars = {'`'})
+              if pn.len == 0: continue
+              let (pl, pc) = nxLocate(lines, pn, l, min(l + 12, lines.high), at3)
+              at3 = (pl, pc + pn.len)
+              result.add NxSym(name: pn, kind: nxParam, typ: p.typ, value: p.default, line: pl, col: pc)
+              scopes.add ind + 1
+        k = t.find("proc", k + 4)
     if secInd >= 0:
       if memberInd < 0: memberInd = ind
       if ind == memberInd:
-        lastS = secInd
+        lastS = secScope
         addVars(whole(t), secKind, result, l, raw, lines, ind)
         continue
     if w0 in ["let", "var", "const"]:
@@ -134,6 +383,7 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
       if rest.len == 0:
         secKind = kk
         secInd = ind
+        secScope = lastS
         memberInd = -1
       else:
         let wr = whole(rest)
@@ -149,6 +399,7 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
                         result, l, raw, lines, ind)
         else: addVars(wr, kk, result, l, raw, lines, ind)
     elif w0 == "for":
+      let t = if dep > 0: whole(t) else: t         # (for p in s.partitionRange(⏎ …): the header goes on below)
       let k = t.find(" in ")
       if k > 3:
         let vars = nxSplitTop(t[4 ..< k].strip(chars = {'(', ')', ' '}), {','})
@@ -157,15 +408,17 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
         let iter = if colon > 0: t[k + 4 ..< colon].strip else: t[k + 4 .. ^1].strip(chars = {':', ' '})
         for vi, p in vars:
           if p.strip.startsWith("("):
-            # for i, (a, b) in …: nested unpacking — the names are known, their types are not
-            for q in nxSplitTop(p.strip(chars = {'(', ')', ' '}), {','}):
+            # for i, (a, b) in …: nested unpacking — each name a part of that variable's tuple
+            for qi, q in nxSplitTop(p.strip(chars = {'(', ')', ' '}), {','}):
               let (qn, _) = nxName(q, 0)
-              if qn.len > 0 and qn != "_":
-                result.add NxSym(name: qn, kind: nxForVar, line: l, col: nxWordCol(raw, qn), value: "",
+              if qn.len > 0:
+                result.add NxSym(name: qn, kind: nxForVar, line: l, col: nxWordCol(raw, qn), value: iter,
+                                 slot: vi.int16, slots: (if unpack: -vars.len.int16 else: vars.len.int16),
+                                 sub: int16(qi + 1),
                                  endLine: (if colon > 0 and colon < t.high: ind + colon + 1 else: -1))
             continue
           let (nm, _) = nxName(p, 0)
-          if nm.len > 0 and nm != "_":
+          if nm.len > 0:
             # endLine: where a one-line body starts (`for x in xs: echo x`), -1 when it is on the next lines
             result.add NxSym(name: nm, kind: nxForVar, line: l, col: nxWordCol(raw, nm), value: iter,
                              slot: vi.int16, slots: (if unpack: -vars.len.int16 else: vars.len.int16),
@@ -197,9 +450,11 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
           let (pl, pc) = nxLocate(lines, pn, l, min(l + 12, lines.high), at2)
           at2 = (pl, pc + pn.len)
           var pt = p.typ
-          if s.kind == nxMacro and pt.replace(" ", "") in ["untyped", "typed", "varargs[untyped]", "varargs[typed]"]:
-            pt = "NimNode"
-          result.add NxSym(name: pn, kind: nxParam, typ: pt, value: p.default, line: pl, col: pc)
+          if s.kind == nxMacro: pt = nxMacroParam(pt)
+          elif s.kind == nxTemplate and pt.len == 0 and p.default.len == 0: pt = "untyped"
+          elif "multisync" in s.pragmas: pt = nxMultisyncParam(pt)
+          result.add NxSym(name: pn, kind: nxParam, typ: pt, value: p.default, line: pl, col: pc,
+                           ret: (if pt != p.typ: p.typ else: ""))
           scopes.add ind + 1
         if s.ret.len > 0 and s.kind notin {nxTemplate, nxMacro, nxIterator}:
           result.add NxSym(name: "result", kind: nxResult, typ: s.ret, line: l)
@@ -210,7 +465,78 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
       let (nm, _) = nxName(t, k + 4)
       if nm.len > 0: result.add NxSym(name: nm, kind: nxLet, typ: "ref " & t[6 ..< k].strip, line: l,
                                       col: nxWordCol(raw, nm))
+    elif t.endsWith(":") and not wasOpen and w0.len > 0 and w0 notin NxBlockKw:
+      # a template called with a block: what it declares for its arguments there — withData(s, fd, value) do: …
+      # (`var value = addr(s.fds[fdi].data)` in its body)
+      let po = t.find('(')
+      if po > 0 and t[0 ..< po].allCharsInSet(IdentChars + {'.'}):
+        let pc = nxMatchClose(t, po)
+        let tail = if pc > po: t[pc + 1 .. ^1].strip else: ""
+        if tail in [":", "do:"]:
+          let dot = t.rfind('.', last = po - 1)
+          let callee = t[dot + 1 ..< po]
+          var args = t[po + 1 ..< pc]
+          if dot > 0: args = t[0 ..< dot] & ", " & args
+          for r in nxLookup(nxScope(f), callee):
+            if r.sym.kind != nxTemplate: continue
+            let inj = nxTemplateInjects(r)
+            if inj.len == 0: continue
+            let ps = r.sym.params
+            var sub: Table[string, string]
+            for k, p in ps:
+              let av = nxCallArg(args, ps, k)
+              if av.len > 0: sub[p.name] = "(" & av & ")"
+            flushScopes()
+            for (k, v, vl) in inj:
+              let nm = nxCallArg(args, ps, k)
+              if nm.len == 0 or not nm.allCharsInSet(IdentChars): continue
+              # (its type is worked out in the template's module, from what the call passes: owner says where)
+              result.add NxSym(name: nm, kind: nxVar, value: nxSubstIdents(v, sub), line: l, col: nxWordCol(raw, nm),
+                               owner: "\x01" & r.file.path & "\x01" & $vl & "\x01" & args)
+              scopes.add ind + 1
+            break
   flushScopes()
+  block whenIs:
+    # inside `when client is AsyncHttpClient:` the parameter is that one (multisync code, unions)
+    var curMin = if line < lines.len: leadWs(lines[line]) else: 0
+    var l = line - 1
+    while l >= a and curMin > 0:
+      let tl = lines[l].strip
+      if tl.len > 0 and not tl.startsWith("#") and leadWs(lines[l]) < curMin:
+        curMin = leadWs(lines[l])
+        if (tl.startsWith("when ") or tl.startsWith("elif ")) and tl.endsWith(":") and " is " in tl:
+          let c = tl[5 ..< ^1].strip
+          let k = c.find(" is ")
+          let pn = c[0 ..< k].strip
+          let pt = c[k + 4 .. ^1].strip
+          if pn.allCharsInSet(IdentChars) and pt.len > 0 and " " notin pt:
+            for i in countdown(result.high, 0):
+              if result[i].kind == nxParam and result[i].name == pn:
+                result[i].typ = pt
+                break
+          break
+        if tl == "else:":
+          # the `else:` of `when client is HttpClient:`: the parameter is the other one of its two
+          let ind0 = leadWs(lines[l])
+          var h = l - 1
+          while h >= a and (lines[h].strip.len == 0 or leadWs(lines[h]) > ind0 or lines[h].strip.startsWith("#")): dec h
+          if h >= a and leadWs(lines[h]) == ind0:
+            let hl = nxCodeOf(lines[h])
+            if hl.startsWith("when ") and hl.endsWith(":") and " is " in hl:
+              let c = hl[5 ..< ^1].strip
+              let k = c.find(" is ")
+              let pn = c[0 ..< k].strip
+              let pt = c[k + 4 .. ^1].strip
+              for i in countdown(result.high, 0):
+                if result[i].kind == nxParam and result[i].name == pn:
+                  let written = if result[i].ret.len > 0: result[i].ret else: result[i].typ
+                  let alts = nxSplitTop(written, {'|'})
+                  if alts.len == 2:
+                    let other = if alts[0].strip == pt: alts[1].strip elif alts[1].strip == pt: alts[0].strip else: ""
+                    if other.len > 0: result[i].typ = other
+                  break
+          break
+      dec l
   block itTemplate:
     # inside s.mapIt(…), filterIt(s, …) …: `it` is one item of the collection
     var depthP = 0

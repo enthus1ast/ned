@@ -15,6 +15,9 @@ type
     anc*: Table[string, seq[string]]       # type → its ancestors (normalized base names), memoized
     deps*: seq[(string, string)]           # (path, stamp) of every other file it took symbols from
     alias*: Table[string, string]          # type name → what its aliases lead to, memoized
+    unions*: Table[string, (seq[string], seq[string])]   # type name → (its alternatives when it is `A | B`, its
+                                                          #   generic parameters), memoized
+    plain*: HashSet[string]                # types as written that are no union (nxUnionAlts asked again and again)
 
 var
   nxFiles* = initTable[string, NxFile]()          # path → parsed file
@@ -46,6 +49,8 @@ proc nxCurStamp*(path: string): string =
     if s.len > 0: return s
   nxStamp(path)
 
+proc nxParseDisk*(path: string): NxFile
+
 proc nxLoad*(path: string): NxFile =
   ## the parsed file, from the open buffer when there is one, else from disk (cached by mtime and size)
   if path.len == 0: return nil
@@ -54,7 +59,9 @@ proc nxLoad*(path: string): NxFile =
     if stamp.len > 0:
       let old = nxFiles.getOrDefault(path)
       if old != nil and old.stamp == stamp: return old
-      result = nxParse(nxBufferLines(path), path)
+      let lines = nxBufferLines(path)
+      result = nxParse(lines, path)
+      nxAddMacroSyms(result, lines)
       result.stamp = stamp
       nxFiles[path] = result
       return
@@ -64,7 +71,8 @@ proc nxLoad*(path: string): NxFile =
   if old != nil and old.stamp == stamp: return old
   try:
     if getFileSize(path) > 4_000_000: return nil
-    result = nxParse(readFile(path).splitLines, path)
+    result = nxParseDisk(path)
+    if path in nxMacroSyms: nxAddMacroSyms(result, readFile(path).splitLines)
     result.stamp = stamp
     nxFiles[path] = result
   except CatchableError: result = nil
@@ -84,8 +92,11 @@ proc nxVerLess*(a, b: seq[int]): bool =
     if x != y: return x < y
   false
 
+var nxPkgRoots: seq[string]       # (the folders nimble packages were looked for in last)
+
 proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraPkgRoots: seq[string] = @[]) =
   nxLibDir = libDir
+  nxPkgRoots = lazyPaths & extraPkgRoots
   nxSearchPaths.setLen(0)
   for p in searchPaths:
     if p.len > 0 and dirExists(p) and p notin nxSearchPaths: nxSearchPaths.add p
@@ -139,6 +150,28 @@ proc nxPackageSrc*(dir: string): string =
       if up.len == 0 or up == d: break
       d = up
   nxSrcDirs[dir] = result
+
+var nxLibOfDir: Table[string, string]
+
+proc nxLibOf*(dir: string): string =
+  ## no standard library known (no `nim` found): the one of the Nim tree a file is in, if it is in one (a folder
+  ## above it with system.nim and pure/), else ""
+  if dir in nxLibOfDir: return nxLibOfDir[dir]
+  var d = dir
+  for _ in 0 .. 5:
+    if d.len == 0: break
+    if fileExists(d / "system.nim") and dirExists(d / "pure"):
+      result = d
+      break
+    let lib = d / "lib"
+    if fileExists(lib / "system.nim") and dirExists(lib / "pure"):
+      result = lib                   # (compiler/x.nim of a Nim checkout: its lib/ next to it)
+      break
+    let up = parentDir(d)
+    if up == d: break
+    d = up
+  if nxLibOfDir.len > 2000: nxLibOfDir.clear()
+  nxLibOfDir[dir] = result
 
 proc nxResolve*(fromPath, spec0: string): string =
   ## the file an import refers to, searched like the compiler does: next to the importing module,
@@ -217,12 +250,19 @@ proc nxExports*(path: string, depth: int, seen: var HashSet[string], res: var se
     let nm = nxModuleName(e.split(" except ")[0])
     if nm in mods: nxExports(mods[nm], depth + 1, seen, res)
     else:
-      # a single symbol re-exported from one of the imports
-      for _, p in mods:
+      # a single symbol re-exported from one of the imports (export asyncmacro.async: from that one)
+      var only = e
+      var fromMod = ""
+      let dot = e.rfind('.')
+      if dot > 0 and e[0 ..< dot].allCharsInSet(IdentChars):
+        fromMod = e[0 ..< dot]
+        only = e[dot + 1 .. ^1].strip(chars = {'`', ' '})
+      for mname, p in mods:
+        if fromMod.len > 0 and mname != fromMod: continue
         let g = nxLoad(p)
         if g == nil: continue
         for i, s in g.syms:
-          if s.exported and s.name == e: res.add NxRef(file: g, idx: int32(i))
+          if s.exported and s.name == only: res.add NxRef(file: g, idx: int32(i))
 
 var
   nxIncFiles*: Table[string, (string, seq[string])]          # a file → (its stamp, the files it `include`s)
@@ -361,10 +401,21 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
   if host.path notin seenP: result.deps.add (host.path, host.stamp)
   nxKeepScope(f.skey, result)
 
+proc nxScopeStamp(f: NxFile): string =
+  ## what a module's scope depends on besides the files it reads: its text, the toolchain, its imports
+  result = f.stamp & "/" & $nxGen
+  for im in f.imports: result.add "|" & im.spec & ":" & $im.only.len & ":" & $im.excepts.len
+
 proc nxScope*(f: NxFile): NxScope =
   ## what `f` can see: its own declarations, system, and its imports (a file another one `include`s: what that
   ## one sees)
   if f == nil: return NxScope()
+  if nxLibDir.len == 0 and f.path.len > 0:
+    # no standard library known (no `nim` found) and a file of a Nim tree: that tree's
+    let lib = nxLibOf(parentDir(f.path))
+    if lib.len > 0:
+      let (sp, roots) = (nxSearchPaths, nxPkgRoots)     # (copies: the call starts both afresh)
+      nxSetToolchain(lib, sp, @[], roots)
   if f.path notin nxScopeBuilding:
     let hp = nxIncluderOf(f.path)
     if hp.len > 0:
@@ -374,8 +425,7 @@ proc nxScope*(f: NxFile): NxScope =
         try: result = nxIncludedScope(f, hf)
         finally: nxScopeBuilding.excl f.path
         return
-  var stamp = f.stamp & "/" & $nxGen
-  for im in f.imports: stamp.add "|" & im.spec & ":" & $im.only.len & ":" & $im.excepts.len
+  let stamp = nxScopeStamp(f)
   var old = nxScopes.getOrDefault(f.skey)
   if old != nil:
     # another file it sees was edited (or saved): start over
@@ -453,7 +503,7 @@ proc nxAt*(f: NxFile, lines: openArray[string], line: int): NxFile =
   ## the file as code at `line` sees it: when the line is inside a `when` branch left out on this platform (Windows
   ## code, `when defined(js)`, `when false`), the branch's own declarations and imports come first — the types it
   ## declares are not those of the branch taken here — then the file's, then those of the other left-out branches
-  if f == nil or f.inactive.len == 0 or lines.len == 0: return f
+  if f == nil or f.inactive.len == 0 or lines.len == 0 or f.scopeKey.len > 0: return f   # (an overlay already)
   var inside = false
   for (a, b) in f.inactive:
     if a <= line and line <= b:
@@ -463,27 +513,66 @@ proc nxAt*(f: NxFile, lines: openArray[string], line: int): NxFile =
   let fkey = f.path & "\t" & f.stamp
   if nxFullParse[0] != fkey: nxFullParse = (fkey, nxParse(lines, f.path, keepInactive = true))
   let full = nxFullParse[1]
-  # the innermost left-out branch around the line
+  # the innermost left-out branch around the line: its conditions
   var lo, hi = -1'i32
-  for (a, b) in full.inactive:
+  var chain = -1'i32
+  for k, (a, b) in full.inactive:
     if a <= line and line <= b and (lo < 0 or b - a < hi - lo):
       lo = a
       hi = b
-  let key = fkey & "\t" & $lo
-  for (k, g) in nxOverlays:
-    if k == key: return g
-  var ends: Table[int32, int32]
-  for (a, b) in full.inactive: ends[a - 1] = b              # (symBranch holds the `when` line: the body starts below)
-  let g = NxFile(path: f.path, module: f.module, stamp: f.stamp & "#" & $lo, doc: f.doc, imports: full.imports,
-                 exports: full.exports, pragmas: full.pragmas,
-                 scopeKey: f.path & "#when" & $lo)
-  var mine, others: seq[NxSym]
+      chain = if k < full.inactiveChain.len: full.inactiveChain[k] else: -1
+  if chain < 0: return f
+  let cs = full.chains[chain]
+  let key = fkey & "\t" & cs
+  for i in countdown(nxOverlays.high, 0):
+    if nxOverlays[i][0] == key:
+      result = nxOverlays[i][1]
+      if i < nxOverlays.high:                       # (the latest last: the oldest go first)
+        let e = nxOverlays[i]
+        nxOverlays.delete(i)
+        nxOverlays.add e
+      return
+  let g = NxFile(path: f.path, module: f.module, stamp: f.stamp & "#" & $chain, doc: f.doc, imports: full.imports,
+                 exports: full.exports, pragmas: full.pragmas, scopeKey: f.path & "#when" & $chain,
+                 inactive: f.inactive)
+  # the declarations of branches with these conditions first (any `when defined(windows)` of the file for Windows
+  # code), then those of the branches around them, then the file's, then the rest
+  var mine, around, others: seq[NxSym]
   for k, s in full.syms:
-    let b = if k < full.symBranch.len: full.symBranch[k] else: -1
+    let b = if k < full.symBranch.len: full.symBranch[k] else: -1'i32
     if b < 0: g.syms.add s
-    elif b < line and line <= ends.getOrDefault(b, -1): mine.add s
+    elif b == chain: mine.add s
+    elif cs.startsWith(full.chains[b] & "\x01"): around.add s
     else: others.add s
-  g.syms = mine & g.syms & others
-  if nxOverlays.len >= 4: nxOverlays.delete(0)
+  g.syms = mine & around & g.syms & others
+  if nxIncluderOf(f.path).len == 0:
+    # its scope: the file's own one with these declarations in place of its, and what the left-out branches import
+    # (made from the file's scope rather than read again from all the imports: a branch is entered in a few ms)
+    let base = nxScope(f)
+    let sc = NxScope(stamp: nxScopeStamp(g), own: g, modules: base.modules, deps: base.deps)
+    for i in 0 ..< g.syms.len: sc.refs.add NxRef(file: g, idx: int32(i), origin: 1)
+    for r in base.refs:
+      if r.file.path != f.path: sc.refs.add r
+    var have: HashSet[string]
+    for im in f.imports: have.incl im.spec
+    var seen: HashSet[string]
+    seen.incl f.path
+    for im in g.imports:
+      if im.isInclude or im.spec in have: continue
+      let p = nxResolve(f.path, im.spec)
+      if p.len == 0: continue
+      sc.modules[nxModuleName(if im.alias.len > 0: im.alias else: im.spec)] = p
+      var got: seq[NxRef]
+      nxExports(p, 0, seen, got)
+      for r in got:
+        var r2 = r
+        r2.origin = 2
+        sc.refs.add r2
+        if r.file.path notin have:
+          have.incl r.file.path
+          sc.deps.add (r.file.path, r.file.stamp)
+    nxIndexNames(sc)
+    nxKeepScope(g.skey, sc)
+  if nxOverlays.len >= 16: nxOverlays.delete(0)
   nxOverlays.add (key, g)
   g
