@@ -273,6 +273,15 @@ proc nxIncluderOf*(path: string): string =
     if h.len > 0 and h != path: return h
   ""
 
+proc nxTopIncluder*(path: string): string =
+  ## the module a file belongs to when another one `include`s it — following includes of includes — or ""
+  var p = path
+  for _ in 0 .. 6:
+    let up = nxIncluderOf(p)
+    if up.len == 0 or up == path: break
+    p = up
+  if p == path: "" else: p
+
 proc nxScope*(f: NxFile): NxScope
 
 proc nxIndexNames(sc: NxScope) =

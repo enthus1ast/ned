@@ -19,6 +19,12 @@ proc checkCmdForPath(path, langId: string): (string, string) =
   case langId
   of "nim":
     if path.endsWith(".nim") and haveExe("nim"):
+      # a file another one includes is no module of its own: the module that includes it is checked (its errors
+      # land on this file's lines)
+      let top = nxTopIncluder(path)
+      if top.len > 0:
+        return ("nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on " &
+                quoteShell(top), parentDir(top))
       return ("nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on " & q, dir)
   of "c":
     if haveExe("cc"): return ("cc -fsyntax-only -Wall " & q, dir)

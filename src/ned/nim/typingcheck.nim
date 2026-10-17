@@ -24,7 +24,9 @@ proc typingCheckUsable(b: Buffer): bool =
   if how != "compiler" and took > 30_000: return false
   for l in b.lines:
     if l.startsWith("<<<<<<< ") or l == "<<<<<<<": return false     # (a merge to finish first: no errors yet)
-  nxIncluderOf(b.path).len == 0             # (a file another one includes is no module of its own)
+  # a file another one includes is checked inside it (includerCopy): one level of include
+  let inc = nxIncluderOf(b.path)
+  inc.len == 0 or nxIncluderOf(inc).len == 0
 
 proc parseNimCheck(output, cwd, stdinPath: string): (Table[string, seq[Diag]], Table[string, seq[(int, int, string)]]) =
   ## `nim check`'s errors, warnings and "declared but not used" hints by file; `stdinPath`: the file that
@@ -48,26 +50,81 @@ proc parseNimCheck(output, cwd, stdinPath: string): (Table[string, seq[Diag]], T
       result[0][lastP][^1].msg.add "\n" & t
       inc extra
 
+proc includerCopy(b: Buffer, copy: string): (string, string) =
+  ## a file another one includes is no module of its own: (the module that includes it, that module's text with
+  ## the `include` of this file pointing at `copy`, the private copy of the unsaved text) — so the compiler
+  ## checks the unsaved text where it belongs. ("", "") when that cannot be done: the includer is itself
+  ## included, or the file imports or includes by a path of its own (looked for next to the copy, that would fail)
+  let inc = nxIncluderOf(b.path)
+  if inc.len == 0 or nxIncluderOf(inc).len > 0: return
+  for l in b.lines:
+    let t = l.strip
+    if (t.startsWith("import ") or t.startsWith("include ") or t.startsWith("from ")) and
+       not (t.startsWith("import std/") or t.startsWith("from std/")):
+      return
+  let g = nxLoad(inc)
+  if g == nil: return
+  let bi = bufIndexByPath(inc)
+  var lines: seq[string]
+  try: lines = if bi >= 0: bufs[bi].lines else: readFile(inc).splitLines
+  except CatchableError: return
+  var target = -1
+  for im in g.imports:
+    if im.isInclude and nxResolve(inc, im.spec) == b.path: target = im.line
+  if target < 0 or target >= lines.len or ';' in lines[target] or not lines[target].strip.startsWith("include "):
+    return
+  var specs: seq[string]
+  for im in g.imports:
+    if im.isInclude and im.line == target:
+      specs.add (if nxResolve(inc, im.spec) == b.path: "\"" & copy & "\"" else: im.spec)
+  lines[target] = spaces(leadWs(lines[target])) & "include " & specs.join(", ")
+  (inc, lines.join("\n") & "\n")
+
 proc typingCheck(b: Buffer) =
   if b.path in typingChecks: return
   let id = b.changeId
   let copy = privTmp("typing") & ".nim"
-  try: writeFile(copy, b.lines.join("\n") & (if b.noEol: "" else: "\n"))
+  # an included file: checked inside the module that includes it (that module's text, on stdin, includes the copy)
+  var (main, mainText) = ("", "")
+  if nxIncluderOf(b.path).len > 0:
+    (main, mainText) = includerCopy(b, copy)
+    if main.len == 0:
+      b.chkAt = id
+      return
+  let mainCopy = if main.len > 0: privTmp("typingmain") & ".nim" else: ""
+  try:
+    writeFile(copy, b.lines.join("\n") & (if b.noEol: "" else: "\n"))
+    if main.len > 0: writeFile(mainCopy, mainText)
   except CatchableError: return
   b.chkAt = id
   let path = b.path
   let bid = b.id
   typingChecks[path] = (id, getMonoTime(), copy)
   discard startJob(jkCheck, "nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off " &
-                            "--listFullPaths:on - < " & quoteShell(copy), parentDir(path), proc(j: Job) =
+                            "--listFullPaths:on - < " & quoteShell(if main.len > 0: mainCopy else: copy),
+                   parentDir(if main.len > 0: main else: path), proc(j: Job) =
     let st = typingChecks.getOrDefault(path)
     typingChecks.del path
     typingCheckMs[path] = int(msSince(st[1]))
-    try: removeFile(copy)
+    # (read while the copies are still there: a message's file is looked up)
+    var (found, unused) = parseNimCheck(j.output, j.cwd, (if main.len > 0: main else: path))
+    try:
+      removeFile(copy)
+      if mainCopy.len > 0: removeFile(mainCopy)
     except CatchableError: discard
     let x = bufById(bid)
     if x == nil or x.changeId != id: return        # (typed since: the next pause checks the new text)
-    let (found, unused) = parseNimCheck(j.output, j.cwd, path)
+    if main.len > 0:
+      # what the compiler says about the copy is this file's (its path may come back through a symlink: by name)
+      let cn = extractFilename(copy)
+      var mineD: seq[Diag]
+      var mineU: seq[(int, int, string)]
+      for k, v in found:
+        if extractFilename(k) == cn: mineD = v
+      for k, v in unused:
+        if extractFilename(k) == cn: mineU = v
+      found[path] = mineD
+      unused[path] = mineU
     var mine = found.getOrDefault(path)
     keepCDiags(path, mine)
     diagsBuild[path] = mine                          # (other files' errors: from their own checks, on disk)
