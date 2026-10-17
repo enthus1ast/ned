@@ -5,8 +5,8 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 
 | folder | what | how long | run |
 |---|---|---|---|
-| [`unit/`](unit) | the Nim index, the C index, the formatters, the regular expressions — as libraries, without the editor | seconds | `nimble test` |
-| [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 790 checks | ~1 hour | `nimble uitest` |
+| [`unit/`](unit) | the Nim index (compile-time values too), the C index, the formatters, the regular expressions, where ARC/ORC copies — as libraries, without the editor | seconds | `nimble test` |
+| [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 850 checks | ~1 hour | `nimble uitest` |
 | [`fuzz/`](fuzz) | random keys, mouse events, pastes, palette commands and resizes; crashes, hangs and internal errors reported | as long as you like | `tests/fuzz/batch.sh 120 mixed vim palette` |
 | [`engine/`](engine) | ned's Nim engine against nimsuggest on the standard library, nimble packages and the compiler; its C engine against clangd | ~1 hour | `tests/engine/build.sh && tests/engine/corpus.sh /tmp/out` · `tests/engine/ccompare.py` |
 | [`build/`](build) | ned built for every target: gcc, clang, and with zig macOS (arm64, x86_64) and Android/Linux arm64 | minutes | `tests/build/cross.sh` |
