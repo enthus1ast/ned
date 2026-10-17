@@ -5,7 +5,7 @@
 ## Exit status: 0 done (or nothing to change), 1 --check found files that would change, 2 a file was left alone
 ## (the formatter was not sure of it, or it could not be read or written), 3 wrong arguments.
 
-import std/[os, strutils, json, algorithm, osproc, terminal, streams, hashes, times]
+import std/[os, strutils, json, algorithm, osproc, terminal, streams, hashes, times, posix]
 import formatters
 import ../editor/regex
 
@@ -181,6 +181,9 @@ proc astSame*(exe, a, b: string, timeoutMs = 20000): (int, string) =
   ## does `b` parse to the same tree as `a`? (0 yes · 1 no, and where · 2 cannot tell: `a` does not parse, or the
   ## checker failed)
   var p: Process
+  # (a checker that stops reading early must not take this process with it: SIGPIPE ignored while writing to it)
+  let oldPipe = signal(SIGPIPE, SIG_IGN)
+  defer: discard signal(SIGPIPE, oldPipe)
   try:
     p = startProcess(exe, args = ["-"], options = {poStdErrToStdOut})
     let inp = p.inputStream
