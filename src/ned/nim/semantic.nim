@@ -114,16 +114,17 @@ proc semMapFor(b: Buffer): SemMap =
         let n = nxNorm(s.name)
         if "deprecated" in s.pragmas: result.deprecated.incl n
         elif s.kind in NxRoutineKinds + {nxType, nxConst}: result.undeprecated.incl n
-        if not s.local and nxEnclosing(f, s.line) < 0:
+        if s.kind in {nxVar, nxLet} and not s.local and nxEnclosing(f, s.line) < 0:
           if s.kind == nxVar: result.globalVars.incl n
-          elif s.kind == nxLet: result.globalLets.incl n
+          else: result.globalLets.incl n
       if s.kind in NxRoutineKinds and s.endLine >= s.line:
         var ps: seq[string]
         for p in s.params: ps.add nxNorm(p.name)
         if s.ret.len > 0 and s.ret != "void" and s.kind notin {nxTemplate, nxMacro, nxIterator}:
           ps.add "result"           # (the routine's implicit variable, coloured like its parameters)
         if ps.len > 0: result.routines.add (s.line, s.endLine, ps)
-        if cfgRichColors and s.endLine > s.line and s.endLine < b.lines.len and s.endLine - s.line < 4000:
+        if cfgRichColors and s.endLine > s.line and s.endLine < b.lines.len and s.endLine - s.line < 4000 and
+           result.locals.len < 3000:
           # its locals: which can change (var) and which cannot (let) — a local wins over a global of that name
           var vs, ls: HashSet[string]
           for l in nxLocals(f, b.lines, s.endLine, b.lines[s.endLine].len, everything = true):

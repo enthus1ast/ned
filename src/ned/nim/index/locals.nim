@@ -3,7 +3,8 @@
 proc nxEnclosing*(f: NxFile, line: int): int =
   ## index of the top-level routine around `line`, or -1
   result = -1
-  for i, s in f.syms:
+  for i in 0 ..< f.syms.len:
+    template s: untyped = f.syms[i]      # (no copy of each symbol)
     if s.kind in NxRoutineKinds and s.line <= line and line <= s.endLine and not s.made:
       if result < 0 or s.line > f.syms[result].line: result = i
 
