@@ -22,6 +22,7 @@ type
     src*, dest*, callee*: string  # what is copied, into what (=copy), or the call that takes it (=dup)
     kind*: ArcKind
     param*: bool                  # it is one of the routine's (borrowed) parameters, or part of one
+    loopView*: bool               # it is a loop variable (a view of an element, not its own), or part of one
 
 const ArcIdent = {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
 
@@ -175,13 +176,16 @@ proc codeOf(line: string): string =
     inc i
 
 proc findExpr(code, w: string, start: int): int =
-  ## w in code from start, standing on its own (`a.b` is in `x = a.b`, not in `xa.b`, `y.a.b` or `a.bc`)
+  ## w in code from start, standing on its own (`a.b` is in `x = a.b`, not in `xa.b`, `y.a.b`, `a.bc`, `a.b.c` or
+  ## `a.b[0]`: a part of it is another value)
   var k = start
   while k <= code.len - w.len:
     let i = code.find(w, k)
     if i < 0: return -1
     let okL = i == 0 or (code[i - 1] notin ArcIdent and code[i - 1] != '.')
-    let okR = i + w.len >= code.len or code[i + w.len] notin ArcIdent
+    let e = i + w.len
+    let okR = e >= code.len or (code[e] notin ArcIdent and code[e] != '[' and
+                                not (code[e] == '.' and e + 1 < code.len and code[e + 1] in ArcIdent))
     if okL and okR: return i
     k = i + 1
   -1
@@ -190,10 +194,25 @@ proc isTemp(e: string): bool =
   ## an inlined iterator's parameter, bound to what the loop goes over (:tmp, :tmp_3 — not a =dup's :tmpD)
   e == ":tmp" or (e.startsWith(":tmp_") and e[5 .. ^1].allCharsInSet(Digits))
 
+proc hasWord(code, w: string): bool =
+  ## the name w in code (`t` in `t.title = …`, `add` in `xs.add x`)
+  var k = 0
+  while true:
+    let i = code.find(w, k)
+    if i < 0: return false
+    if (i == 0 or code[i - 1] notin ArcIdent) and (i + w.len >= code.len or code[i + w.len] notin ArcIdent): return true
+    k = i + 1
+
 proc place(evs: seq[ArcEvent], lines: openArray[string], r: ArcRoutine): seq[ArcCopy] =
   var at = r.line
   var taken: HashSet[(int, int)]
   let last = min(r.endLine, lines.high)
+  # the header — its parameters, their defaults — may go on over several lines, up to the `=` that ends it
+  var hdrEnd = r.line
+  for l in r.line .. min(r.line + 12, last):
+    if codeOf(lines[l]).strip.endsWith("="):
+      hdrEnd = l
+      break
   # the loop variables (`for k, v in …`): what is copied into one comes from the iterator's own code
   var loopVars: HashSet[string]
   for l in r.line .. last:
@@ -220,7 +239,8 @@ proc place(evs: seq[ArcEvent], lines: openArray[string], r: ArcRoutine): seq[Arc
       for l in a .. e:
         var code = codeOf(lines[l])
         var from0 = 0
-        if l == r.line:
+        if l < hdrEnd: continue
+        if l == hdrEnd:
           # the header names the parameters: only what follows its `=` (a one-line routine)
           let eq = code.rfind(" =")
           if eq < 0: continue
@@ -235,7 +255,7 @@ proc place(evs: seq[ArcEvent], lines: openArray[string], r: ArcRoutine): seq[Arc
           c = if kind == akLoopVar: findExpr(code[0 ..< inAt], src, 0) else: findExpr(code, src, inAt + 4)
         of akCapture:
           # the closure is made where it is declared: `proc grp(…) =`, `proc (…) =`, `(x) => …`
-          if l == r.line: continue
+          if l <= hdrEnd: continue
           if not (t.startsWith("proc") or t.startsWith("func") or "= proc" in code or "=>" in code or " do" in code):
             continue
           let k = max(code.find("proc"), max(code.find("func"), code.find("=>")))
@@ -255,13 +275,12 @@ proc place(evs: seq[ArcEvent], lines: openArray[string], r: ArcRoutine): seq[Arc
           c = findExpr(code, src, from0)
         while c >= 0 and (l, c) in taken: c = findExpr(code, src, c + 1)
         if c < 0: continue
-        if kind == akAssign and dest.len > 0 and dest != "result" and findExpr(code, baseName(dest), 0) < 0: continue
-        if kind == akSink and ev.callee.len > 0 and ev.callee[0] in ArcIdent and findExpr(code, ev.callee, 0) < 0 and
-           code.find("." & ev.callee) < 0:
-          continue
+        if kind == akAssign and dest.len > 0 and dest != "result" and not hasWord(code, baseName(dest)): continue
+        if kind == akSink and ev.callee.len > 0 and ev.callee[0] in ArcIdent and not hasWord(code, ev.callee): continue
         taken.incl (l, c)
         result.add ArcCopy(line: l, col: c, ecol: c + src.len, src: src, dest: dest, callee: ev.callee,
-                           kind: kind, param: baseName(src) in r.params)
+                           kind: kind, param: baseName(src) in r.params,
+                           loopView: kind != akLoopVar and baseName(src) in loopVars)
         at = l
         found = true
         break

@@ -32,6 +32,15 @@ proc copyWhy(c: ArcCopy): string =
   let src = "`" & c.src & "`"
   let callee = if c.callee.len > 0: "`" & c.callee & "`" else: "this call"
   case c.kind
+  of akSink, akAssign:
+    if c.loopView:
+      return "⧉ **copy** — " & src & " is the loop's view of an element (not a value of its own): " &
+        (if c.kind == akSink: callee & " keeps it (a `sink` parameter)"
+         else: "keeping it" & (if c.dest.len > 0 and c.dest != "result": " in `" & c.dest & "`" else: "")) &
+        ", so it is copied — the element itself stays where it is. If those are not needed afterwards, move them " &
+        "out instead (`move(xs[i])` in an index loop over a `var`)"
+  else: discard
+  case c.kind
   of akSink:
     if c.param:
       "⧉ **copy** — " & src & " is a parameter, only borrowed, and " & callee & " keeps it (a `sink` " &
