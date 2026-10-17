@@ -175,7 +175,7 @@ proc menuItems(i: int): seq[MenuItem] =
   of "Git":
     @[mc("Git panel", "Source control"), mc("Git: branches…", "Branches…"), msep(),
       mc("Git: commit (message box)…", "Commit…"), mc("Git: amend the last commit…", "Amend the last commit…"),
-      mc("Git: undo the last commit", "Undo the last commit"), msep(),
+      mc("Git: undo…", "Undo… (commit, pull, merge)"), msep(),
       mc("Git: sync (pull, then push)", "Sync"), mc("Git: pull", "Pull"), mc("Git: push", "Push"),
       mc("Git: sign in to GitHub", "Sign in to GitHub…"),
       msub("Pull and fetch", @[mc("Git: pull (rebase)", "Pull (rebase)"), mc("Git: fetch", "Fetch")]), msep(),

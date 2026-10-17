@@ -13,6 +13,8 @@ proc gitLoginNeeded(args, root, output: string)
 proc gitRemoteUrl(root: string, remote = "origin"): string
 proc ghAskAccount()
 proc cmdGithubSignIn()
+proc gitUndoMenu()
+proc gitUndoLast()
 proc inactiveRanges(b: Buffer): seq[(int, int)]
 proc lineInactive(rs: seq[(int, int)], line: int): bool
 proc testNoteAt(b: Buffer, line: int): (string, int)

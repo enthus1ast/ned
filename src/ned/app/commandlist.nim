@@ -373,9 +373,9 @@ proc initCommands() =
   add("Git: branches…", "click the branch in the title bar", cmdBranches())
   add("Git: commit (message box)…", "", gitCommitBox(false))
   add("Git: amend the last commit…", "", gitCommitBox(true))
-  add("Git: undo the last commit", "", (block:
-    askConfirm("Undo the last commit? Its changes stay, staged. (y/n)", proc(c: char) =
-      if c in {'y', 'Y'}: gitRun(@["reset", "--soft", "HEAD~1"], "Undid the last commit — its changes are staged"))))
+  add("Git: undo…", "the last commits, pulls, merges, rebases — back to before one", gitUndoMenu())
+  add("Git: undo the last step", "a commit, an amend, a pull, a merge …", gitUndoLast())
+  add("Git: undo the last commit", "its changes stay, staged", gitUndoLast())
   add("Git: stage selected lines", "", stageSelectedLines())
   add("Git: history…", "", gitLogView())
   add("Git: stash…", "", gitStashMenu())
