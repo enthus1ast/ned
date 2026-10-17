@@ -427,9 +427,10 @@ proc usage() =
   echo "  --check               check the setup: Nim, tools, clipboard, terminal (for bug reports too)"
   echo "  --default-settings    print the full settings file with every option and its default"
   echo "  --bench FILE          render FILE off-screen and print timings (performance check)"
-  echo "  --format [--check] FILE|FOLDER…  format in place with ned's own formatters: Nim (nph style), JSON,"
-  echo "                        Markdown tables, CSS; a folder: every such file in it (not what git ignores);"
-  echo "                        --check: only list the files it would change (exit 1)"
+  echo "  --format [options] FILE|FOLDER…|-  format with ned's own formatters: Nim (nph style), JSON, Markdown"
+  echo "                        tables, CSS, C, YAML, TOML; a folder: every such file in it (not what git ignores)."
+  echo "                        --check (exit 1 if one would change), --diff, --out, --outDir, - (stdin),"
+  echo "                        --install-hook (git pre-commit) … — the same as nedfmt: ned --format --help"
   echo "  --startup-time [FILE…] start as usual, then quit once settled and print how long each step took"
   echo "                        and the memory used (the CI benchmark reads it)"
   echo "  --                    the rest are file names, even when they start with -"
@@ -495,55 +496,13 @@ proc runBench(path: string) =
   quit 0
 
 proc formatFiles(args: seq[string]) =
-  ## ned --format [--check] FILE|FOLDER… : ned's own formatters from the shell — Nim (nph's style), JSON,
-  ## Markdown (tables), CSS and C (indentation and spaces). Each file is rewritten in place when it changes (written atomically); --check
-  ## only says which would change (exit 1). A file a formatter is not sure about is left alone and named (exit 2).
-  ## A folder: every file in it these formatters know (git's list in a repository: ignored files stay out).
-  var check = false
-  var files: seq[string]
-  for a in args:
-    if a == "--check": check = true
-    elif a.len > 0:
-      if dirExists(a):
-        for p in fmtAllFiles(absolutePath(a)):
-          if builtinFmtKind(p, "").len > 0: files.add relativePath(p, getCurrentDir())
-      else: files.add a
-  var named = false
-  for a in args:
-    if a != "--check" and a.len > 0: named = true
-  if not named:
-    quit "ned --format: which files? (ned --format [--check] file.nim README.md src/ …)", 2
-  var changed, refused = 0
-  for f in files:
-    let kind = builtinFmtKind(f, "")
-    if kind.len == 0:
-      stderr.writeLine(f & ": ned has no formatter for this kind of file — left alone")
-      continue
-    var text = ""
-    try: text = readFile(f)
-    except CatchableError as e:
-      stderr.writeLine(f & ": " & e.msg)
-      inc refused
-      continue
-    let (res, err) = builtinFormatText(kind, text, 2, absolutePath(f))
-    if err.len > 0:
-      stderr.writeLine(f & ": " & err)
-      inc refused
-      continue
-    if res == text: continue
-    inc changed
-    if check:
-      echo f & ": would change"
-      continue
-    try:
-      writeFileSafe(f, res)
-      echo f & ": formatted"
-    except CatchableError as e:
-      stderr.writeLine(f & ": cannot write: " & e.msg)
-      inc refused
-  if refused > 0: quit 2
-  if check and changed > 0: quit 1
-  quit 0
+  ## ned --format [options] FILE|FOLDER… : the same as nedfmt (--check, --diff, --out, --outDir, - for stdin …),
+  ## with the editor's own Nim formatting (the C in emits by clang-format, as Alt+F does)
+  fmtVerifyFromCli = true
+  quit fmtCliMain(args, "ned --format", Version, proc(text, path: string): (string, string) =
+    cfgFormatEmitC = fmtEmitC                 # (fmtCliMain read this file's settings: yours, then its project's)
+    cfgNimTarget = if fmtEmitCpp: "cpp" else: "c"
+    nimFormatAll(text, path))
 
 proc isProjectDir(d: string): bool =
   ## does `d` look like the root of a project? (git, a .nimble file, Cargo.toml … — the same list the

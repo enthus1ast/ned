@@ -18,66 +18,54 @@ proc looksCpp(text: string): bool =
 
 proc formatEmitBlocks(text, path: string): (string, int, string) =
   ## the C in each {.emit: """…""".} of a Nim file formatted (nim.formatEmitC): clang-format when it is installed
-  ## (your .clang-format applies), else ned's own C formatter — (new text, blocks changed, what formatted them).
-  ## A block with `nim symbols` in backticks, or on the string's first line, stays as it is
-  result = (text, 0, "")
-  if not cfgFormatEmitC or "emit" notin text: return
-  var ok = true
-  let toks = fLex(text, ok)
-  if not ok: return
-  let cpp = cfgNimTarget == "cpp"
-  let clang = haveExe("clang-format")
-  var outp = ""
-  var at = 0
-  for k in 0 ..< toks.len - 3:
-    if not (toks[k].kind == fkPragOpen and toks[k + 1].kind == fkIdent and toks[k + 1].text == "emit" and
-            toks[k + 2].kind == fkColon and toks[k + 3].kind == fkStr): continue
-    let st = toks[k + 3]
-    if not (st.text.startsWith("\"\"\"") and st.text.endsWith("\"\"\"") and st.text.len >= 7): continue
-    let body = st.text[3 ..< st.text.len - 3]
-    if '`' in body or not body.startsWith("\n"): continue
-    var ls = body[1 .. ^1].split('\n')
-    # the closing quotes on a line of their own: that line's indentation stays
-    var closing = ""
-    if ls.len > 0 and ls[^1].strip.len == 0:
-      closing = ls[^1]
-      ls.setLen(ls.len - 1)
-    var base = high(int)
-    for l in ls:
-      if l.strip.len > 0: base = min(base, l.len - l.strip(trailing = false).len)
-    if base == high(int): continue
-    var c = ""
-    for l in ls: c.add (if l.strip.len == 0: "" else: l[min(base, l.len) .. ^1].strip(leading = false)) & "\n"
-    var res = ""
-    if clang:
-      let fake = parentDir(if path.len > 0: path else: rootDir / "x") / (if cpp: "emit.cpp" else: "emit.c")
-      let (fok, o, _) = runFilter("clang-format --sort-includes=false --assume-filename=" & quoteShell(fake), c,
-                                  (if path.len > 0: parentDir(path) else: rootDir), 5000)
-      if fok and o.strip.len > 0: res = o
-      result[2] = "clang-format"
-    if res.len == 0:
-      let (r, e) = fmtC(c, 2, cpp)
-      if e.len > 0: continue
-      res = r
-      if result[2].len == 0: result[2] = "ned's C formatter"
-    if res.strip(chars = {'\n'}) == c.strip(chars = {'\n'}): continue
-    var nb = "\"\"\"\n"
-    for l in res.strip(chars = {'\n'}).split('\n'):
-      nb.add (if l.strip.len == 0: "" else: spaces(base) & l.strip(leading = false)) & "\n"
-    nb.add closing & "\"\"\""
-    outp.add text[at ..< st.pos]
-    outp.add nb
-    at = st.pos + st.text.len
-    inc result[1]
-  if result[1] == 0: return
-  outp.add text[at .. ^1]
-  result[0] = outp
+  ## (your .clang-format applies), else ned's own C formatter — (new text, blocks changed, what formatted them)
+  if not cfgFormatEmitC or "emit" notin text: return (text, 0, "")
+  let clang: ClangFn = if haveExe("clang-format"):
+      proc(c, fake, dir: string): string =
+        let (ok, o, _) = runFilter("clang-format --sort-includes=false --assume-filename=" & quoteShell(fake), c, dir, 5000)
+        if ok: o else: ""
+    else: nil
+  formatEmitC(text, path, cfgNimTarget == "cpp", clang, rootDir)
+
+var
+  fmtCheckerBuilding = false
+  fmtCheckerNoted = false
+  fmtVerifyFromCli = false       # (ned --format: fmtCliMain chose the checker)
+
+proc fmtCheckerExe(): string =
+  ## nim.format.verify: Nim's own parser as the formatter's second check — the checker program, built once in the
+  ## background against the compiler sources here (until it is ready, the formatter's own check is the one)
+  if not cfgFormatVerify: return ""
+  let exe = astCheckerPath()
+  if exe.len == 0:
+    if not fmtCheckerNoted:
+      fmtCheckerNoted = true
+      warn("nim.format.verify: no Nim compiler sources here (choosenim and source builds have them, or: nimble " &
+           "install compiler) — the formatter's own check is used")
+    return ""
+  if fileExists(exe): return exe
+  if not fmtCheckerBuilding:
+    let cmd = astCheckerBuildCmd()
+    if cmd.len == 0: return ""
+    fmtCheckerBuilding = true
+    info("nim.format.verify: building the Nim parser check (once, in the background)…")
+    discard startJob(jkTool, cmd, getHomeDir(), proc(j: Job) =
+      fmtCheckerBuilding = false
+      if j.code == 0 and fileExists(exe): info("The Nim parser check is ready: formatting is checked with it too")
+      else:
+        let l = j.output.strip.splitLines
+        error("Could not build the Nim parser check" & (if l.len > 0: ": " & truncTo(l[^1], 80) else: "")))
+  ""
 
 proc nimFormatAll(text, path: string): (string, string) =
-  ## ned's own Nim formatter on a whole file, then the C in its emits (nim.formatEmitC)
+  ## ned's own Nim formatter on a whole file (checked by Nim's parser too with nim.format.verify), then the C in
+  ## its emits (nim.formatEmitC)
   var err = ""
   var r = fFormat(text, err)
   if err.len > 0: return (text, err)
+  if not fmtVerifyFromCli: fmtVerifyExe = fmtCheckerExe()
+  let why = verifyNim(text, r)
+  if why.len > 0: return (text, why)
   r = formatEmitBlocks(r, path)[0]
   (r, "")
 
@@ -137,6 +125,9 @@ proc formatLineRange(b: Buffer, l0, l1: int, quiet: bool): bool =
   try: res = fFormat(src, err)
   except CatchableError, Defect: err = "the built-in formatter failed on this selection"
   FmtMax = FmtWidth
+  if err.len == 0:
+    fmtVerifyExe = fmtCheckerExe()
+    err = verifyNim(src, res)
   if err.len > 0:
     if not quiet: error("Format selection: " & err)
     return false

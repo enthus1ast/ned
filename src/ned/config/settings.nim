@@ -297,6 +297,9 @@ proc initSettingDefs() =
   defS("Nim", "nim.format.reflowDocComments", %false, "Built-in formatter: a ## doc comment paragraph with a line " &
        "longer than nim.format.lineLength is re-wrapped to fit (lists, code and tables stay as they are)")
   defS("Nim", "nim.format.maxBlankLines", %1, "Built-in formatter: empty lines kept in a row (1–3)")
+  defS("Nim", "nim.format.verify", %false, "Built-in formatter: check each result with Nim's own parser as well (the " &
+       "formatter checks its tokens and blocks anyway). Needs the compiler sources — choosenim and source builds have " &
+       "them, or `nimble install compiler`; ned builds a small checker from them once, in the background")
   defS("C", "c.engine", %"auto",
        "What answers in C files: builtin = ned's own engine (completion with struct members, hover with the " &
        "comment above a declaration, F12 through #includes, references, rename, outline, signature help, the C " &
@@ -761,6 +764,7 @@ proc applySettings() =
   cfgCheckWrappers = sBool("nim.checkWrappers")
   cfgEmitClangd = sBool("nim.emitClangd")
   cfgFormatEmitC = sBool("nim.formatEmitC")
+  cfgFormatVerify = sBool("nim.format.verify")
   cfgCSigHints = sBool("nim.cSignatureHints")
   cfgParamHints = sStr("nim.parameterHints")
   cfgCEngine = sStr("c.engine")

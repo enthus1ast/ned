@@ -36,10 +36,11 @@ import std/[os, strutils, tables, sets, algorithm, json, posix, termios,
 from std/math import pow
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
-import ned/core/text, ned/editor/regex, ned/format/formatters, ned/nim/index, ned/nim/arccopies, ned/c/cindex
+import ned/core/text, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index, ned/nim/arccopies,
+       ned/c/cindex, ned/version
 
 const
-  Version = "6.7.0"
+  Version = NedVersion
   AppName = "ned"
 
 # ── ned --startup-time: how long each step of starting takes, and the memory it uses ──
