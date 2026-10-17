@@ -100,6 +100,9 @@ proc nxEnsureToolchain(b: Buffer) =
   if b == nil or b.path.len == 0 or nxDumping.len > 0 or not haveExe("nim"): return
   let proj = nimProjectFile(b)
   if proj in nxDumped: return
+  if not codeTrusted(parentDir(proj)):
+    askTrust(parentDir(proj), quiet = true)        # (nim dump runs config.nims: the guess stands meanwhile)
+    return
   nxDumping.incl proj
   discard startJob(jkTool, "nim dump --hints:off --warnings:off --dump.format:json " & quoteShell(proj) & " 2>/dev/null",
                    parentDir(proj), proc(j: Job) =

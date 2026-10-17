@@ -59,6 +59,7 @@ var
   cfgNimMode = "debug"         # debug | release | danger
   cfgNimTarget = "c"           # c | cpp | js | objc
   cfgCheckWrappers = true      # importc wrappers checked against their C headers
+  cfgFolderTrust = "ask"       # security.folderTrust: ask (a folder's code runs once you trust it) | off
   cfgEmitClangd = true         # C in {.emit.} goes through clangd when it is installed
   cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
   cfgCSigHints = true          # nim.cSignatureHints: the C declaration dimmed after an importc wrapper

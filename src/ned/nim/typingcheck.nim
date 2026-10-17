@@ -13,6 +13,9 @@ proc typingCheckUsable(b: Buffer): bool =
   if b.lang == nil or b.lang.mode != lmNim or b.path.len == 0 or not b.path.endsWith(".nim") or b.largeOn or
      b.readOnly or not haveExe("nim") or lspActiveFor(b) or not nimEngineOn(b):
     return false
+  if not codeTrusted(parentDir(b.path)):
+    askTrust(parentDir(b.path), quiet = true)          # (the compiler runs the folder's config.nims and macros)
+    return false
   let how = sStr("nim.liveDiagnosticsFrom")
   if how == "nimsuggest": return false
   let took = typingCheckMs.getOrDefault(b.path, 0)

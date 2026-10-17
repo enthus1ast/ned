@@ -23,6 +23,9 @@ proc runExamples(b: Buffer, line: int) =
   if b.lang.mode != lmNim or not haveExe("nim"):
     info("Open a Nim file (and install Nim)")
     return
+  if not codeTrusted(parentDir(b.path)):
+    askTrust(parentDir(b.path))
+    return
   if not saveForTool(b): return
   var blocks: seq[(int, int)]
   for (a, e) in b.exampleBlocks():

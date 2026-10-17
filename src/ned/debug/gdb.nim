@@ -235,8 +235,6 @@ proc dbgEnd(msg: string) =
   dapWpTried.clear()
   dbgPanel()
 
-proc nimLibDir(): string
-
 proc nimGdbScript(): string =
   ## tools/debug/nim-gdb.py of the Nim in use (choosenim, grabnim, a source build, a distribution)
   var cands: seq[string]

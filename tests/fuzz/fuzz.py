@@ -159,6 +159,8 @@ proc total(xs: seq[int]): int =
     cfg = {"terminal.shell": "/bin/cat", "ai.provider": "custom", "ai.baseUrl": "http://127.0.0.1:8765/v1",
            "ai.model": "gpt-6", "ai.apiKey": "x"}
     if MODE == 'vim': cfg["editor.vimMode"] = True
+    # the compiler, nimble and nimsuggest run in the test project, except in the modes that try the trust prompt
+    if MODE not in ('mixed', 'palette', 'helix', 'emacs', 'a11y', 'c'): cfg["security.folderTrust"] = "off"
     if MODE == 'c': cfg.update({"c.engine": "builtin", "editor.fontLigatures": rnd.choice(["symbols", "font"])})
     if MODE == 'term': cfg["terminal.shell"] = "/bin/bash"
     if MODE == 'ai': cfg["ai.autoApprove"] = rnd.choice(["edits", "reads", "all"])

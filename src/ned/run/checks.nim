@@ -131,6 +131,9 @@ proc runCheckPath(path, langId: string, keepExamples: bool) =
   let (cmd, cwd) = checkCmdForPath(path, langId)
   if cmd.len == 0: return
   let exe = cmd.firstWord
+  if not codeTrusted(cwd) and runsProjectCode(@["sh", "-c", cmd]):
+    askTrust(cwd, quiet = true)
+    return
   if path in checkPending:
     pendingRecheck.incl path
     return
