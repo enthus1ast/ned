@@ -295,9 +295,7 @@ proc buildGitItems(): seq[SideItem] =
   if not gitBisecting(home):
     result.add sideItem("Find the commit that broke it…", 7, "⌕", "bisect", proc() = gitBisectStart())
   result.add sideItem("Amend the last commit…", 7, "✎", "", proc() = gitCommitBox(true))
-  result.add sideItem("Undo the last commit", 7, "↶", "", proc() =
-    askConfirm("Undo the last commit? Its changes stay, staged. (y/n)", proc(c: char) =
-      if c in {'y', 'Y'}: gitRun(@["reset", "--soft", "HEAD~1"], "Undid the last commit — its changes are staged")))
+  result.add sideItem("Undo…", 7, "↶", "the last commit, pull, merge …", proc() = gitUndoMenu())
 
 # ── timeline: git history of the current file ──
 

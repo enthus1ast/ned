@@ -265,6 +265,7 @@ include ned/git/advanced
 include ned/git/history
 include ned/git/github
 include ned/git/signin
+include ned/git/undo
 include ned/run/configsui
 include ned/nim/extras
 include ned/nim/examples
