@@ -165,6 +165,9 @@ proc initSettingDefs() =
        @["indent", "format", "off"])
   defS("Editor", "csv.alignColumns", %true, "CSV and TSV files: line their columns up on screen (the file itself is not " &
        "changed) and keep the first row in view")
+  defS("Editor", "editor.formatOnSaveScope", %"file",
+       "With editor.formatOnSave: the whole file, or only the lines you changed since git last saw it (staged or " &
+       "committed) — an old file you touch does not turn into one big diff", @["file", "changed"])
   defS("Editor", "editor.formatOnSaveLanguages", newJArray(), "With editor.formatOnSave: only these languages, " &
        "e.g. [\"nim\", \"json\"] (their ids: nim, json, markdown, css, python …); empty: every language that has a formatter")
   defS("Editor", "editor.persistentUndo", %true,
@@ -672,6 +675,7 @@ proc applySettings() =
   cfgAiCheckEdits = sBool("ai.checkEdits")
   cfgFolding = sBool("editor.folding")
   cfgFormatOnSave = sBool("editor.formatOnSave")
+  cfgFormatScope = sStr("editor.formatOnSaveScope")
   cfgCsvAlign = sBool("csv.alignColumns")
   cfgFormatOnSaveLangs.setLen(0)
   for x in jitems(settingNode("editor.formatOnSaveLanguages")):

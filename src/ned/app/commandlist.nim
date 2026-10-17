@@ -34,6 +34,15 @@ proc initCommands() =
   add("Format document", "Alt+F", buf().formatBuffer())
   add("Format selection (Nim built in, or the language server)", "Alt+F with lines selected", buf().formatSelection())
   add("Format: the code in this string", "JSON, CSS, C in an emit …", cmdFormatEmbedded())
+  add("Format: only the lines I changed", "since git last saw the file", (block:
+    let b = buf()
+    if b.canEdit():
+      let saved = cfgFormatScope
+      cfgFormatScope = "changed"
+      let before = b.lines
+      formatOnSave(b)
+      cfgFormatScope = saved
+      info(if b.lines == before: "Nothing to format where you changed lines" else: "Formatted the lines you changed")))
   add("Format: every file in the project…", "", cmdFormatAll())
   add("Format: review the project's changes", "", fmtAllReview())
   add("Next problem", "Alt+N / F8", gotoDiag(1))

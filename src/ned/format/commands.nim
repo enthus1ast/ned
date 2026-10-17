@@ -357,7 +357,77 @@ proc cmdFormatEmbedded() =
   if not formatEmbedded(b):
     info("Put the cursor in a \"\"\"string\"\"\" that holds code (JSON, CSS, HTML, SQL, C in an emit …)")
 
+proc changedLineSet(b: Buffer): (bool, HashSet[int]) =
+  ## the lines changed since git last saw the file (its staged or committed version): (known, lines) — not known
+  ## for a file git does not have
+  if not b.gitHasBase: return (false, initHashSet[int]())
+  var s: HashSet[int]
+  let ops = lineDiff(b.gitBase, b.lines)
+  for k, op in ops:
+    if op.kind == '+': s.incl op.bLine
+    elif op.kind == '-':
+      # a line deleted: the lines on both sides of where it was
+      var q = k - 1
+      while q >= 0 and ops[q].bLine < 0: dec q
+      if q >= 0: s.incl ops[q].bLine
+      q = k + 1
+      while q < ops.len and ops[q].bLine < 0: inc q
+      if q < ops.len: s.incl ops[q].bLine
+  (true, s)
+
+proc keepFormatOf(orig, formatted: seq[string], changed: HashSet[int]): seq[string] =
+  ## the formatter's changes only where they touch a changed line (a re-indented block is one change: all of it
+  ## or none); elsewhere the lines as they were
+  let ops = lineDiff(orig, formatted)
+  var i = 0
+  while i < ops.len:
+    if ops[i].kind == ' ':
+      result.add ops[i].text
+      inc i
+      continue
+    var j = i
+    var touches = false
+    var olds, news: seq[string]
+    while j < ops.len and ops[j].kind != ' ':
+      if ops[j].kind == '-':
+        olds.add ops[j].text
+        if ops[j].aLine in changed: touches = true
+      else: news.add ops[j].text
+      inc j
+    if olds.len == 0:
+      # lines only added (a blank line put between): when the lines around them changed
+      let before = if i > 0: ops[i - 1].aLine else: -1
+      let after = if j < ops.len: ops[j].aLine else: -1
+      touches = before in changed or after in changed
+    for x in (if touches: news else: olds): result.add x
+    i = j
+
+proc formatOnSave0(b: Buffer)
+
 proc formatOnSave(b: Buffer) =
+  ## the formatter on save — on the whole file, or (editor.formatOnSaveScope: changed) only where the lines
+  ## changed since git last saw the file are
+  if cfgFormatScope != "changed":
+    formatOnSave0(b)
+    return
+  let (known, changed) = changedLineSet(b)
+  if not known:
+    formatOnSave0(b)                         # (a file git does not have: all of it is new)
+    return
+  if changed.len == 0: return
+  let before = b.lines
+  formatOnSave0(b)
+  if b.lines == before: return
+  var merged = keepFormatOf(before, b.lines, changed)
+  if merged == b.lines: return
+  if b.lang.mode == lmNim:
+    # (a Nim file that is half formatted must still be the same code: the formatter reads it again)
+    var err = ""
+    discard fFormat(merged.join("\n") & "\n", err)
+    if err.len > 0: merged = before
+  b.setTextMinimal(merged.join("\n"))
+
+proc formatOnSave0(b: Buffer) =
   ## only fast, synchronous formatters (external tool or JSON) — never leaves the file dirty after saving
   var cmds: seq[string]
   if b.lang.mode == lmNim:
