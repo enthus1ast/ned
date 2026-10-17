@@ -24,6 +24,10 @@ proc unformattedFiles(root: string, files: seq[string], all: bool): seq[(string,
   ## (file, its formatted text, only staged = the worktree has the same text) for those ned's own formatter would change
   for f in files:
     let lang = detectLang(f, "")
+    # (only the languages you have formatted on save: a file in another style is not called wrong)
+    if not cfgFormatOnSave or lang == nil: continue
+    if cfgFormatOnSaveLangs.len > 0 and lang.id.toLowerAscii notin cfgFormatOnSaveLangs and
+       lang.name.toLowerAscii notin cfgFormatOnSaveLangs: continue
     let kind = builtinFmtKind(f, (if lang != nil: lang.id else: ""))
     if kind.len == 0 or (kind == "nim" and (cfgNimFormatter != "builtin" or "nim" in cfgUserFmt)): continue
     if kind == "c" and haveExe("clang-format"): continue          # (clang-format is the one in use for C)
