@@ -23,6 +23,24 @@ nimsuggest the same questions about one file and counts where they agree:
 package that is not installed is skipped (`nimble install chronos jsony pixie jester cligen karax vmath` for
 all of them). nimsuggest comes from `PATH`.
 
+### Speed and memory
+
+`bench.nim` reads files and everything they import, answers again after an edit, completes at the end, and
+prints the time and the memory held:
+
+```sh
+nim r -d:release tests/engine/bench.nim ~/Nim/compiler/semexprs.nim ~/Nim/compiler/vm.nim
+```
+
+On five of the Nim compiler's modules and ned itself (462 files read, 21 700 declarations), 6.6 against 6.5.1 —
+names kept in one sorted index per scope instead of a table, positions as 32-bit numbers, at most 12 scopes:
+
+| | 6.5.1 | 6.6 |
+|---|---|---|
+| semexprs.nim: read with its 123 imports · after an edit · completion | 203 · 5.5 · 11.3 ms | 198 · 5.4 · 11.3 ms |
+| memory after all six | 27.7 MB | 22.4 MB |
+| ned with 25 compiler modules opened one after another | 82 MB | 46 MB |
+
 `NED_NS_CACHE=/tmp/ns-cache` keeps nimsuggest's answers: the next run on unchanged files (with the same
 nimsuggest) asks it nothing, so comparing a new build of the engine over the whole corpus takes a minute instead
 of an hour. The times reported for nimsuggest are the ones it took when it answered.
