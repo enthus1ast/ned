@@ -26,6 +26,7 @@ var
 const LsHelp = """nedls — ned's built-in Nim engine as a language server (LSP over stdio)
 
 Usage: nedls [--stdio] [--verbose] [--log:FILE]
+       nedls --lint [options] [FILE|FOLDER…]    the engine's checks over files, no editor (nedls --lint --help)
        nedls --version | --help
 
 Editors start it and talk to it over stdin/stdout. It gives what ned gives in its own editor — completion with
@@ -47,7 +48,9 @@ Settings (initializationOptions, or workspace/didChangeConfiguration under "nedl
   checkOnSave       true      `nim check` the file when it is saved
   liveDiagnostics   true      check the unsaved text while typing (misspelled names at once, the compiler
                               after a pause)
-  formatLineLength  88        line length of the built-in formatter (40–240)
+  formatLineLength  88        line length of the built-in formatter (40–240); not given: nim.format.lineLength,
+                              else the file's .editorconfig max_line_length
+  raisesHints       false     what a routine can raise, as a hint after its header ({.raises: [IOError].})
   nedSettings       true      also read ned's settings files (~/.config/ned/config.json, .ned/settings.json)
 """
 
@@ -95,6 +98,8 @@ proc lsApplySettings() =
   if v != nil and v.kind in {JInt, JFloat}:
     FmtWidth = clamp((if v.kind == JInt: v.getInt else: int(v.getFloat)), 40, 240)
     FmtMax = FmtWidth
+    cfgFmtWidth = FmtWidth
+    cfgFmtWidthSet = true                 # (the client said it: before any .editorconfig)
 
 # ── the project ──
 
@@ -469,6 +474,10 @@ proc lsMainLoop() =
 
 proc nedlsMain(): int =
   var args = commandLineParams()
+  let li = args.find("--lint")
+  if li >= 0:                                  # (the engine's checks over files, then out: ned --lint's)
+    signal(SIGPIPE, SIG_DFL)
+    return lintMain(args[li + 1 .. ^1], "nedls --lint")
   for a in args:
     case a
     of "--version", "-V":

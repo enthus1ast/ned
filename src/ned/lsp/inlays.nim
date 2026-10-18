@@ -104,6 +104,25 @@ proc engineParamHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, s
         while c < e and s[c] == ' ': inc c
         hints.mgetOrPut(l, @[]).add (c, name & ": ")
 
+proc engineRaisesHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, seq[(int, string)]], t0: MonoTime): bool =
+  ## what each routine on screen without a {.raises.} of its own can raise, before the `=` of its header
+  ## (nim.raisesHints) — only when the engine is sure of every call in it, and something is raised. false: out of
+  ## time (what was worked out is kept: the next round goes on from there)
+  result = true
+  for i, s in f.syms:
+    if s.kind notin {nxProc, nxFunc, nxIterator, nxConverter} or s.line > hi or s.line + 16 < lo: continue
+    let left = engineInlayBudget - int(msSince(t0))
+    if left <= 0: return false
+    if not nxRaisesHintable(f, b.lines, s): continue
+    let x = nxRaisesOf(NxRef(file: f, idx: int32(i)), 4000, left)
+    if x.cut: return false
+    if not x.known or x.excs.len == 0: continue
+    let (l, c) = nxRaisesHintAt(b.lines, s)
+    if l < lo or l > hi or l >= b.lines.len: continue
+    var list = nxExcList(x)
+    if list.len > 60: list = list[0 ..< 59] & "…"
+    hints.mgetOrPut(l, @[]).add (c, " {.raises: [" & list & "].}")
+
 proc engineInlays(b: Buffer, lo, hi: int) =
   ## the types of lets, vars and consts written without one, worked out by ned's own engine (no nimsuggest)
   let f = nxFileFor(b)
@@ -111,6 +130,7 @@ proc engineInlays(b: Buffer, lo, hi: int) =
   let sc = nxScope(f)
   let t0 = getMonoTime()
   var cut = false                          # (out of time: the rest on the next round)
+  var raisesCut = false                    # (… because of what routines raise: more rounds for that)
   var hints: Table[int, seq[(int, string)]]
   proc hintFor(s: NxSym, typ: string) =
     var t = typ.strip.replace("system.", "")
@@ -168,6 +188,11 @@ proc engineInlays(b: Buffer, lo, hi: int) =
   if cfgParamHints != "off" and not cut:
     try: engineParamHints(b, f, lo, hi, hints, t0)
     except Exception as e: internalError("parameter hints", e)
+  if cfgRaisesHints and not cut:
+    try:
+      cut = not engineRaisesHints(b, f, lo, hi, hints, t0)
+      raisesCut = cut
+    except Exception as e: internalError("exception hints", e)
   b.inlays.clear()
   for l, v in hints:
     var vs = v
@@ -182,7 +207,7 @@ proc engineInlays(b: Buffer, lo, hi: int) =
     let (rc, rn) = inlayRetries.getOrDefault(b.id, (-1, 0))
     let n = if rc == b.changeId: rn + 1 else: 1
     inlayRetries[b.id] = (b.changeId, n)
-    if n <= 4: b.inlayAt = -1
+    if n <= (if raisesCut: 16 else: 4): b.inlayAt = -1    # (the modules a routine calls into: read once, then kept)
   needRender = true
 
 proc csvInlays(b: Buffer, lo, hi: int) =

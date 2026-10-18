@@ -3,6 +3,7 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 proc refreshGit(b: Buffer)
+proc applyNimToolchain()
 proc runCheck(b: Buffer)
 proc runCheckPath(path, langId: string, keepExamples: bool)
 proc recheckBuildErrors(saved: Buffer)

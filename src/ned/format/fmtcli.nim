@@ -5,9 +5,9 @@
 ## Exit status: 0 done (or nothing to change), 1 --check found files that would change, 2 a file was left alone
 ## (the formatter was not sure of it, or it could not be read or written), 3 wrong arguments.
 
-import std/[os, strutils, json, algorithm, osproc, terminal, streams, hashes, times, posix]
+import std/[os, strutils, json, algorithm, osproc, terminal, streams, hashes, times, posix, tables]
 import formatters
-import ../editor/regex
+import ../editor/regex, ../core/editorconfig
 
 type FmtFn* = proc(text, path: string): (string, string) {.closure.}
 
@@ -294,6 +294,8 @@ proc settingOf(j: JsonNode, key: string): JsonNode =
     cur = cur[part]
   cur
 
+var fmtWidthSaid = false        # (a settings file gave nim.format.lineLength: before any .editorconfig)
+
 proc applySettingsFile(p: string) =
   if not fileExists(p): return
   var j: JsonNode
@@ -303,6 +305,7 @@ proc applySettingsFile(p: string) =
   if n != nil and n.kind == JInt:
     FmtWidth = clamp(n.getInt, 40, 240)
     FmtMax = FmtWidth
+    fmtWidthSaid = true
   for (key, which) in [("nim.format.params", 0), ("nim.format.arguments", 1), ("nim.format.collections", 2)]:
     n = settingOf(j, key)
     if n != nil and n.kind == JString:
@@ -357,9 +360,16 @@ proc applySettingsFor*(path: string) =
   fmtEmitC = true
   fmtEmitCpp = false
   fmtVerifyWanted = false
+  fmtWidthSaid = false
   applySettingsFile(userSettingsFile())
   let p = projectSettingsFile(parentDir(absolutePath(path)))
   if p.len > 0: applySettingsFile(p)
+  # (nim.format.lineLength in neither: the file's .editorconfig max_line_length, as the editor does)
+  if not fmtWidthSaid:
+    let m = editorConfigMaxLine(absolutePath(path))
+    if m > 0:
+      FmtWidth = clamp(m, 40, 240)
+      FmtMax = FmtWidth
 
 # ── a unified diff of two texts ──
 
@@ -559,7 +569,18 @@ proc installHook(prog, exe: string, exeArgs: string, force: bool): int =
   except CatchableError: discard
   if hooks.len == 0: hooks = root / ".git" / "hooks"
   let hook = hooks / "pre-commit"
-  if fileExists(hook) and HookMark notin readFile(hook) and not force:
+  # (ned --lint's hook there: kept, before the format check's result)
+  var lintBlock = ""
+  if fileExists(hook):
+    let old = readFile(hook)
+    let k = old.find("# ned --lint pre-commit hook")
+    if k >= 0:
+      var e = k
+      for _ in 0 ..< 4:
+        let n = old.find('\n', e)
+        e = if n < 0: old.len else: n + 1
+      lintBlock = old[k ..< e]
+  if fileExists(hook) and HookMark notin readFile(hook) and lintBlock.len == 0 and not force:
     stderr.writeLine prog & ": " & hook & " exists already (your own hook) — not replaced. Add this line to it:\n" &
                      "  git diff --cached --name-only --diff-filter=ACMR -- '*.nim' | xargs -r " & prog & " --check\n" &
                      "or run again with --force to replace it"
@@ -576,7 +597,7 @@ proc installHook(prog, exe: string, exeArgs: string, force: bool): int =
     "  [ $? = 1 ] && fail=1\n" &
     "done\n" &
     "[ $fail = 0 ] || echo \"Not formatted: run nedfmt on the files above (or Alt+F in ned), then git add them.\" >&2\n" &
-    "exit $fail\n"
+    lintBlock & "exit $fail\n"
   try:
     createDir(hooks)
     writeFile(hook, script)
@@ -644,6 +665,40 @@ proc readNphToml*(path: string): (seq[string], seq[string], seq[string], int) =
     of "color": result[3] = (if val.startsWith("true"): 1 elif val.startsWith("false"): 0 else: -1)
     else: discard
 
+var nphCache: Table[string, (string, seq[Regex])]    # .nph.toml → (its stamp, exclude + extend-exclude compiled)
+
+proc nphTomlFor*(path: string): string =
+  ## the .nph.toml nearest above a file (its folder or one above, up to the repository's top) — "" none
+  var d = parentDir(path)
+  for _ in 0 .. 40:
+    if fileExists(d / ".nph.toml"): return d / ".nph.toml"
+    if dirExists(d / ".git") or d.len <= 1: break
+    let up = parentDir(d)
+    if up == d or up.len == 0: break
+    d = up
+  ""
+
+proc nphExcluded*(path: string): bool =
+  ## does the project's .nph.toml leave this file out (its exclude / extend-exclude patterns, on the path from the
+  ## .nph.toml's folder)? Formatting on save and formatting the project skip it, as nph would
+  let t = nphTomlFor(path)
+  if t.len == 0: return false
+  var st = ""
+  try: st = $getLastModificationTime(t).toUnix & ":" & $getFileSize(t)
+  except CatchableError: return false
+  var res: seq[Regex]
+  if t in nphCache and nphCache[t][0] == st: res = nphCache[t][1]
+  else:
+    let (ex, ext, _, _) = readNphToml(t)
+    for pat in ex & ext:
+      try: res.add compileRegex(pat)
+      except CatchableError: discard
+    nphCache[t] = (st, res)
+  let rel = relativePath(path, parentDir(t)).replace('\\', '/')
+  for re in res:
+    if re.matches(rel) or re.matches("/" & rel): return true
+  false
+
 # ── the command ──
 
 proc usageText(prog, version: string): string =
@@ -654,7 +709,8 @@ proc usageText(prog, version: string): string =
   "  --diff                show what would change (a unified diff), change nothing (with --check: exit 1)\n" &
   "  --out:FILE            write the result there (one input file)\n" &
   "  --outDir:DIR          write the results under DIR (the same relative paths)\n" &
-  "  --line-length:N       where Nim lines wrap (default: nim.format.lineLength, 88)\n" &
+  "  --line-length:N       where Nim lines wrap (default: nim.format.lineLength, else .editorconfig's\n" &
+  "                        max_line_length, else 88)\n" &
   "  --include:REGEX       in folders: the paths to take (default: every kind of file ned formats)\n" &
   "  --exclude:REGEX       in folders: paths to leave out, instead of the usual ones (.git, nimcache, build …)\n" &
   "  --extend-exclude:REGEX  in folders: paths to leave out as well as the usual ones\n" &

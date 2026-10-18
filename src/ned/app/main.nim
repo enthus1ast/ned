@@ -434,6 +434,10 @@ proc usage() =
   echo "                        tables, CSS, C, YAML, TOML; a folder: every such file in it (not what git ignores)."
   echo "                        --check (exit 1 if one would change), --diff, --out, --outDir, - (stdin),"
   echo "                        --install-hook (git pre-commit) … — the same as nedfmt: ned --format --help"
+  echo "  --lint [options] [FILE|FOLDER…]  the Nim engine's checks without the compiler: misspelled names, fields,"
+  echo "                        argument counts, unused imports and locals, a var that can be a let, deprecated or"
+  echo "                        too-new library names … — text, GitHub annotations or JSON; --staged, --install-hook"
+  echo "                        (git pre-commit): ned --lint --help"
   echo "  --startup-time [FILE…] start as usual, then quit once settled and print how long each step took"
   echo "                        and the memory used (the CI benchmark reads it)"
   echo "  --                    the rest are file names, even when they start with -"
@@ -505,7 +509,7 @@ proc formatFiles(args: seq[string]) =
   quit fmtCliMain(args, "ned --format", Version, proc(text, path: string): (string, string) =
     cfgFormatEmitC = fmtEmitC                 # (fmtCliMain read this file's settings: yours, then its project's)
     cfgNimTarget = if fmtEmitCpp: "cpp" else: "c"
-    nimFormatAll(text, path))
+    nimFormatAll(text, path, ownWidth = false))      # (fmtCliMain worked out the width: settings, .editorconfig)
 
 proc isProjectDir(d: string): bool =
   ## does `d` look like the root of a project? (git, a .nimble file, Cargo.toml … — the same list the
@@ -558,6 +562,8 @@ proc main() =
         runBench(cl[ai])
       of "--format":
         formatFiles(cl[ai .. ^1])
+      of "--lint":
+        quit lintMain(cl[ai .. ^1])
       else:
         stderr.writeLine("ned: unknown option " & a & " — see ned --help\n" &
           "     (to open a file whose name starts with -, use: ned -- " & a & ")")
@@ -594,6 +600,7 @@ proc main() =
     loadState()
     rootDir = getCurrentDir()
     loadConfig()
+    applyNimToolchain()
     stdout.write setupReport(false)
     quit 0
   # piped input (`git log | ned`, `nim check x.nim | ned -`): read it, then take keys from the terminal
@@ -640,6 +647,7 @@ proc main() =
     except OSError: rootDir = getCurrentDir()
   smark("project folder")
   loadConfig()
+  applyNimToolchain()                 # (the project's Nim first on PATH, before anything is started)
   smark("settings")
   applyTheme(cfgThemeName)
   themeFollowers()

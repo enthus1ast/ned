@@ -70,6 +70,9 @@ proc setupRows(inEditor: bool): seq[SetupRow] =
                 elif defined(macosx): "brew install nim (or choosenim)"
                 else: "see nim-lang.org/install.html (choosenim or grabnim)"
   tool("Nim", "nim", "compiler: run, build, check", true, nimHint)
+  if nimToolchainLine().len > 0:
+    rows.add ("Nim", "this project", (if tcProblem.len > 0: 2 else: 3), "", nimToolchainLine(),
+              (if tcProblem.len > 0: tcProblem & " — Nim › choose the Nim for this project" else: ""))
   tool("Nim", "nimble", "packages and nimble tasks", true, nimHint)
   tool("Nim", "nimsuggest", "extra lookups for the built-in engine", false, "comes with Nim", false)
   tool("Nim", "nimlangserver", "optional language server (the built-in engine works without it)", false,

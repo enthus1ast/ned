@@ -5094,4 +5094,316 @@ def t_68_settings_panel():
     missing = sorted(k for k in used if k not in defs and not k.endswith('.'))
     check('68 settings panel: every setting the source reads has an entry', not missing, repr(missing))
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel]
+def t_69_locked_versions():
+    # 6.9: the engine reads the dependency versions the project builds with: its nimble.lock pins the older of two
+    # installed versions of a package — hover and Go to definition are the locked one's, the Nim dock says why
+    setup({"nim.nimsuggest": False})
+    nd = TMP + '/nimble69'
+    shutil.rmtree(nd, ignore_errors=True)
+    for ver, sha, word in [('1.0.0', 'a' * 40, 'old'), ('2.0.0', 'b' * 40, 'new')]:
+        d = nd + '/pkgs2/vfoo-%s-%s' % (ver, sha)
+        os.makedirs(d)
+        open(d + '/vfoo.nimble', 'w').write('version = "%s"\n' % ver)
+        open(d + '/vfoo.nim', 'w').write('proc lockedGreet*(): string =\n  ## vfoo %s says %s\n  "%s"\n' % (ver, word, word))
+    open(W + '/demo.nimble', 'a').write('requires "vfoo"\n')
+    json.dump({"version": 2, "packages": {"vfoo": {"version": "1.0.0", "vcsRevision": "x", "url": "https://example.com/vfoo",
+               "downloadMethod": "git", "dependencies": [], "checksums": {"sha1": "a" * 40}}}, "tasks": {}},
+              open(W + '/nimble.lock', 'w'))
+    open(W + '/src/v69.nim', 'w').write('import vfoo\necho lockedGreet()\n')
+    start('src/v69.nim', w=140, h=50, env_extra='NIMBLE_DIR=' + nd); time.sleep(1)
+    keys('C-g'); text('2:7'); keys('Enter'); keys('M-h')
+    ok = wait_for(r'vfoo 1\.0\.0 says old', 6)
+    check('69 locked versions: hover shows the version nimble.lock pins (the older one)', ok and 'says new' not in screen(),
+          screen())
+    keys('Escape'); keys('F12'); time.sleep(1.0)
+    s = screen()
+    check('69 locked versions: Go to definition opens the locked version', 'vfoo.nim' in s and '"old"' in s and
+          '"new"' not in s, s[:1500])
+    keys('M-,'); time.sleep(0.5)                       # (back to the project's file: the dock shows its .nimble)
+    keys('M-e'); ok = wait_for(r'1\.0\.0 \(nimble\.lock\)', 6)
+    check('69 locked versions: the Nim dock shows the version and why (vfoo 1.0.0 (nimble.lock))', ok, screen())
+
+def t_69_expected_type():
+    # 6.9: completion where the code expects a type (a call's argument, `let x: T = `): the items of that type first,
+    # the others still listed after them
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/e69.nim', 'w').write(
+        'type Color = enum cRed, cGreen, cBlue\n'
+        'proc paint(c: Color, times: int) = discard\n'
+        'proc main() =\n'
+        '  let aTitle = "x"\n'
+        '  let zCount = 3\n'
+        '  let myShade = cGreen\n'
+        '  \n')
+    start('src/e69.nim', w=130, h=34); time.sleep(1.5)
+    def row(word, below):
+        """the screen row of `word` in the completion list (the rows under the line being written)"""
+        ls = screen().split('\n')
+        k = max([i for i, l in enumerate(ls) if below in l] or [len(ls)])
+        for i, l in enumerate(ls[k + 1:]):
+            if re.search(r'\b%s\b' % word, l): return i
+        return -1
+    keys('C-g'); text('7'); keys('Enter', 'End'); text('paint(myShade, '); keys('C-space')
+    ok = wait_for(r'zCount\s+int', 4)
+    m = 'paint(myShade, '
+    check('69 expected type: an int argument — the int local first, before the others', ok and
+          0 <= row('zCount', m) < row('aTitle', m) and row('zCount', m) < row('myShade', m), screen())
+    keys('Escape'); keys('Home', 'S-End'); text('paint('); keys('C-space')
+    ok = wait_for(r'cGreen', 4)
+    m = 'paint('
+    check('69 expected type: an enum argument — its values and the enum local first', ok and
+          0 <= row('myShade', m) < row('aTitle', m) and 0 <= row('cBlue', m) < row('aTitle', m), screen())
+    keys('Escape'); keys('Home', 'S-End'); text('let t: string = '); keys('C-space')
+    ok = wait_for(r'aTitle\s+string', 4)
+    m = 'let t: string ='
+    check('69 expected type: let x: string = — the string local first', ok and
+          0 <= row('aTitle', m) < row('myShade', m) and row('aTitle', m) < row('zCount', m), screen())
+
+LAYOUT_SRC = '''type
+  Rec = object
+    flag: bool  # set once
+    count: int
+    small: int16
+    big: float
+
+var r = Rec(flag: true, count: 1, small: 2, big: 3.0)
+echo r.count, " ", sizeof(Rec)
+'''
+
+def t_69_memory_layout():
+    # 6.9: the hover of a type shows its memory layout — offsets, sizes, the padding after each field — and Alt+Enter
+    # on its line sorts the fields by alignment when that saves bytes (comments move with their field); it compiles
+    setup({"nim.nimsuggest": False})
+    open(W + '/a.nim', 'w').write(LAYOUT_SRC)
+    start('a.nim', w=120, h=36); time.sleep(1.5)
+    keys('C-g'); text('2:4'); keys('Enter'); keys('M-h')
+    ok = wait_for(r'Memory layout', 5)
+    s = screen()
+    check('69 layout: the hover of a type shows offsets, sizes and padding', ok and '32 bytes, align 8' in s and
+          'flag: bool' in s and '+7 padding' in s and 'sorted by alignment: 24 bytes' in s, s)
+    keys('Escape'); keys('C-g'); text('9:28'); keys('Enter'); keys('M-h')
+    check('69 layout: … and where the type is used', wait_for(r'32 bytes, align 8', 5), screen())
+    t, sc = qf_fix(2, 4, 'Reorder fields to save 8 bytes')
+    check('69 layout: Alt+Enter reorders the fields, a comment with its field', t is not None and
+          t.index('count: int') < t.index('big: float') < t.index('small: int16') < t.index('flag: bool') and
+          'flag: bool  # set once' in t, sc)
+    r = subprocess.run([shutil.which('nim', path=TOOLS) or 'nim', 'r', '--hints:off', '--nimcache:' + TMP + '/laycache',
+                        W + '/a.nim'], capture_output=True, text=True, timeout=300)
+    check('69 layout: the reordered file compiles, and the object is smaller', r.returncode == 0 and '1 24' in r.stdout,
+          r.stdout + r.stderr)
+
+RAISES_SRC = '''import std/strutils
+
+proc load(s: string): int =
+  result = parseInt(s)
+
+proc safe(s: string): int =
+  try:
+    result = parseInt(s)
+  except ValueError:
+    result = 0
+
+proc check(x: int) =
+  if x < 0:
+    raise newException(IOError, "negative")
+
+echo load("1") + safe("x")
+check(1)
+'''
+
+def t_69_raises_hints():
+    # 6.9: nim.raisesHints — after the header of a routine without {.raises.}, what it can raise as the engine works
+    # it out (not where a try catches it); the hover of a call says the same; off by default
+    setup({"nim.nimsuggest": False, "nim.raisesHints": True})
+    open(W + '/r.nim', 'w').write(RAISES_SRC)
+    start('r.nim', w=120, h=36); time.sleep(2)
+    ok = wait_for(r'raises: \[ValueError\]', 10)
+    s = screen()
+    check('69 raises hints: what a routine can raise, before the = of its header', ok and
+          re.search(r'proc load\(s: string\): int \{\.raises: \[ValueError\]\.\} =', s) and
+          re.search(r'proc check\(x: int\) \{\.raises: \[IOError\]\.\} =', s), s)
+    check('69 raises hints: none where a try catches it', not re.search(r'proc safe.*raises', s), s)
+    keys('C-g'); text('16:7'); keys('Enter'); keys('M-h')
+    check('69 raises hints: the hover of a call says what it can raise', wait_for(r'can raise:.*ValueError', 5), screen())
+    keys('Escape')
+    # off (the default): no hints
+    tm('kill-server'); time.sleep(0.3)
+    c = json.load(open(CFG + '/ned/config.json'))
+    c.pop("nim.raisesHints", None)
+    json.dump(c, open(CFG + '/ned/config.json', 'w'))
+    start('r.nim', w=120, h=36); time.sleep(2.5)
+    s = screen()
+    check('69 raises hints: off by default', 'proc load(s: string): int =' in s and 'raises:' not in s, s)
+
+def t_69_engine_hints():
+    # hints the compiler does not give, at once while typing: a var nothing changes (quick fix: let, and all of
+    # them in the file), a parameter never used, a routine that never sets its result; a deprecated name from
+    # another module (its replacement as the quick fix); a standard-library name and module newer than the Nim the
+    # .nimble asks for — but not inside a `when` that asks which Nim this is
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest"})
+    nb = open(W + '/demo.nimble').read().replace('nim >= 2.0.0', 'nim >= 1.6.0')
+    open(W + '/demo.nimble', 'w').write(nb)
+    open(W + '/oldapi.nim', 'w').write('proc oldSum*(a, b: int): int {.deprecated: "use newSum instead".} = a + b\n'
+                                       'proc newSum*(a, b: int): int = a + b\n')
+    open(W + '/hints.nim', 'w').write('import std/[sequtils, paths]\nimport oldapi\n\n'
+                                      'proc total(xs: seq[int], spare: int): int =\n  var sum = 0\n'
+                                      '  for x in xs: sum += x\n  var limit = 10\n  var cap = 3\n'
+                                      '  echo limit, cap\n  result = sum\n\n'
+                                      'proc pick(a: int): int =\n  if a > 1:\n    echo "big"\n\n'
+                                      'proc main() =\n  let xs = @[1, 2, 3]\n  echo total(xs, 0), pick(2)\n'
+                                      '  echo oldSum(1, 2)\n  echo minmax(xs)\n  when NimMajor >= 2:\n'
+                                      '    echo minmax(xs)\n  echo Path("a")\n\nmain()\n')
+    start('hints.nim', w=150, h=40); time.sleep(1.5)
+    keys('C-g'); text('26'); keys('Enter', 'End', 'Enter')          # (a change: the checks run)
+    time.sleep(2)
+    palette('Show problems')
+    ok = wait_for(r"is never changed", 10)
+    s = screen()
+    check('69 engine hint: a var nothing changes can be a let', ok and "'limit' is never changed" in s and
+          "'sum' is never changed" not in s, s)
+    check("69 engine hint: a parameter never used", "parameter 'spare' is never used" in s, s)
+    check("69 engine hint: a routine that never sets its result", "'pick' never sets its result" in s, s)
+    check("69 engine: a deprecated name from another module, in the compiler's words",
+          'use newSum instead; oldSum is deprecated' in s, s)
+    check("69 engine: a library name newer than the package's Nim",
+          "'minmax' is not in Nim 1.6.20 or older (Nim 2.0.0 has it)" in s and 'requires "nim >= 1.6.0"' in s, s)
+    check("69 engine: a library module newer than the package's Nim", 'module paths is not in Nim 1.6.20' in s, s)
+    check("69 engine: nothing inside `when NimMajor >= 2`", "[20:8]" in s and "[22:" not in s, s)
+    keys('Escape')
+    # the quick fixes: var → let (one, then all in the file), the deprecated name's replacement
+    keys('C-g'); text('7:7'); keys('Enter', 'M-Enter')
+    ok = wait_for(r'Make limit a let', 4)
+    s = screen()
+    check('69 quick fix: var → let offered, and all of them in the file', ok and 'Fix all 2 like this' in s, s)
+    keys('Enter'); time.sleep(0.5)
+    keys('C-s'); time.sleep(0.8)
+    t = ftext('hints.nim')
+    check('69 quick fix: var → let applies', 'let limit = 10' in t and 'var cap = 3' in t, t)
+    keys('C-g'); text('19:8'); keys('Enter', 'M-Enter')
+    ok = wait_for(r'Use newSum instead of oldSum', 4)
+    keys('Enter'); time.sleep(0.5)
+    keys('C-s'); time.sleep(0.8)
+    check('69 quick fix: the deprecated name replaced', ok and 'echo newSum(1, 2)' in ftext('hints.nim'), screen())
+    # nim.minVersion "off": no version marks
+    tm('kill-server'); time.sleep(0.3)
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest", "nim.minVersion": "off"})
+    open(W + '/demo.nimble', 'w').write(nb)
+    open(W + '/v.nim', 'w').write('import std/sequtils\n\necho minmax(@[1, 2])\n')
+    start('v.nim', w=150, h=30); time.sleep(1.5)
+    keys('C-g'); text('3'); keys('Enter', 'End', 'Enter'); time.sleep(3)
+    check('69 nim.minVersion off: no version marks', 'is not in Nim' not in screen(), screen())
+
+def t_69_shared_settings():
+    # one source for the line length: nim.format.lineLength when a settings file says it, else the file's
+    # .editorconfig max_line_length — the formatter, the ruler, nedfmt and ned --format alike; a file the
+    # project's .nph.toml excludes is not formatted on save nor by "every file in the project"
+    setup({"nim.nimsuggest": False, "editor.rulers": ["lineLength"]})
+    open(W + '/.editorconfig', 'w').write('root = true\n\n[*.nim]\nmax_line_length = 60\n')
+    long = ('proc area(width, height: int): int =\n  width * height\n\n'
+            'echo area(width = 1234567, height = 7654321), area(width = 2, height = 3), area(1, 2)\n')
+    open(W + '/w.nim', 'w').write(long)
+    start('w.nim', w=130, h=30); time.sleep(1.2)
+    s = screen()
+    check('69 .editorconfig max_line_length: the ruler at 60 (nim.format.lineLength not set)',
+          any(l.find('▏') == 66 for l in s.splitlines()[2:6]), s)
+    keys('M-f'); time.sleep(1); keys('C-s'); time.sleep(0.6)
+    t = ftext('w.nim')
+    check('69 … and the formatter wraps at 60', max(len(l) for l in t.splitlines()) <= 60 and t != long, t)
+    r = subprocess.run([BIN, '--format', '--check', W + '/w.nim'], capture_output=True, text=True)
+    check('69 ned --format follows the .editorconfig too (the file is already as it wants)', r.returncode == 0,
+          r.stdout + r.stderr)
+    open(W + '/w2.nim', 'w').write(long)
+    r = subprocess.run([BIN, '--format', '--out:' + W + '/w3.nim', W + '/w2.nim'], capture_output=True, text=True)
+    check('69 ned --format FILE: the same layout as the editor', ftext('w3.nim') == t, ftext('w3.nim') + r.stderr)
+    # a setting written in a settings file wins over the .editorconfig
+    tm('kill-server'); time.sleep(0.3)
+    setup({"nim.nimsuggest": False, "editor.rulers": ["lineLength"], "nim.format.lineLength": 100})
+    open(W + '/.editorconfig', 'w').write('root = true\n\n[*.nim]\nmax_line_length = 60\n')
+    open(W + '/w.nim', 'w').write(long)
+    start('w.nim', w=130, h=30); time.sleep(1.2)
+    keys('M-f'); time.sleep(1); keys('C-s'); time.sleep(0.6)
+    check('69 nim.format.lineLength written: it wins (100: the line stays)', ftext('w.nim') == long,
+          ftext('w.nim'))
+    # .nph.toml excludes: no format on save, left out of the project's formatting
+    tm('kill-server'); time.sleep(0.3)
+    setup({"nim.nimsuggest": False, "editor.formatOnSave": True})
+    open(W + '/.nph.toml', 'w').write('[tool.nph]\nextend-exclude = "generated/"\n')
+    os.makedirs(W + '/generated', exist_ok=True)
+    messy = 'proc  f( a:int ):int=a+1\necho   f(2)\n'
+    open(W + '/generated/g.nim', 'w').write(messy)
+    open(W + '/m.nim', 'w').write(messy)
+    start('generated/g.nim', w=130, h=30); time.sleep(1.2)
+    keys('End'); text(' '); keys('BSpace'); keys('C-s'); time.sleep(0.8)
+    check('69 .nph.toml excludes a file: not formatted on save', ftext('generated/g.nim') == messy, ftext('generated/g.nim'))
+    palette('Format: every file in the project'); time.sleep(0.5)
+    ok = wait_for('would change', 30)
+    s = screen()
+    check('69 … and left out of "every file in the project"', ok and 'm.nim' in s and 'generated/g.nim' not in s, s)
+    keys('Escape')
+
+def t_69_toolchain():
+    # one Nim per project (nim.toolchain): auto picks an installed Nim the .nimble asks for (PATH's does not do),
+    # the status bar and the Nim dock say which; a requirement no installed Nim meets is a warning
+    fake = TMP + '/toolchains'
+    shutil.rmtree(fake, ignore_errors=True)
+    d = fake + '/nim-9.1.0'
+    os.makedirs(d + '/bin'); os.makedirs(d + '/lib/system')
+    open(d + '/bin/nim', 'w').write('#!/bin/sh\necho "Nim Compiler Version 9.1.0 [Linux: amd64]"\n')
+    os.chmod(d + '/bin/nim', 0o755)
+    open(d + '/lib/system/compilation.nim', 'w').write('const\n  NimMajor* {.intdefine.}: int = 9\n'
+                                                       '  NimMinor* {.intdefine.}: int = 1\n  NimPatch* {.intdefine.}: int = 0\n')
+    setup({"nim.nimsuggest": False})
+    nb = open(W + '/demo.nimble').read()
+    open(W + '/demo.nimble', 'w').write(nb.replace('nim >= 2.0.0', 'nim >= 9.0'))
+    start('src/demo.nim', w=150, h=34, env_extra='NED_NIM_TOOLCHAINS=' + fake); time.sleep(2)
+    s = screen()
+    check('69 nim.toolchain auto: the Nim the .nimble asks for (an installed one), in the status bar',
+          'Nim 9.1.0' in s, s)
+    palette('Toggle terminal'); time.sleep(1.5)
+    text('nim --version'); keys('Enter'); time.sleep(1)
+    check('69 … and every tool ned starts uses it (the terminal: nim --version)', 'Version 9.1.0' in screen(), screen())
+    # nothing installed meets it: a warning, in the status bar too
+    tm('kill-server'); time.sleep(0.3)
+    setup({"nim.nimsuggest": False})
+    open(W + '/demo.nimble', 'w').write(nb.replace('nim >= 2.0.0', 'nim >= 99.0'))
+    start('src/demo.nim', w=150, h=34, env_extra='NED_NIM_TOOLCHAINS=' + fake); time.sleep(2)
+    s = screen()
+    check('69 a requirement no installed Nim meets: a warning in the status bar', 'needs nim >= 99.0' in s, s)
+    palette('Nim: choose the Nim for this project'); time.sleep(0.6)
+    s = screen()
+    check('69 Nim › choose the Nim for this project: PATH\'s and the installed ones', 'Nim 9.1.0' in s and 'PATH' in s, s)
+    keys('Escape')
+
+def t_69_lint_and_ci():
+    # ned --lint (the engine's checks, no compiler): plain lines, GitHub annotations, the exit status; Nim › add a
+    # CI workflow writes .github/workflows/ci.yml (the Nims the .nimble allows; ned's lint when asked)
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/l.nim', 'w').write('proc f(x: int): int =\n  if x > 1:\n    echo "big"\n\necho f(2)\n')
+    r = subprocess.run([BIN, '--lint', W + '/src/l.nim'], capture_output=True, text=True, cwd=W)
+    check('69 ned --lint: a problem as path:line:col, exit 1',
+          r.returncode == 1 and "src/l.nim:1:6: warning: 'f' never sets its result" in r.stdout, r.stdout + r.stderr)
+    r = subprocess.run([BIN, '--lint', '--format:github', 'src/l.nim'], capture_output=True, text=True, cwd=W)
+    check('69 ned --lint --format:github: annotations', '::warning file=src/l.nim,line=1,col=6' in r.stdout, r.stdout)
+    r = subprocess.run([BIN, '--lint', '--fail-on:error', 'src/l.nim'], capture_output=True, text=True, cwd=W)
+    check('69 ned --lint --fail-on:error: warnings do not fail', r.returncode == 0, r.stdout + r.stderr)
+    start('src/l.nim', w=150, h=34); time.sleep(1.2)
+    palette('Nim: add a CI workflow'); time.sleep(0.6)
+    check('69 Nim › add a CI workflow: what it runs, to choose', wait_for('Build and test', 4), screen())
+    keys('Enter'); time.sleep(1)
+    ci = ftext('.github/workflows/ci.yml') if os.path.exists(W + '/.github/workflows/ci.yml') else ''
+    check('69 … ci.yml: the oldest Nim the .nimble allows and the newest, the tests',
+          "nim: ['2.0.0', 'stable']" in ci and 'nimble test -y' in ci and 'nimble install -y --depsOnly' in ci, ci)
+    # with ned's lint: the repository asked (a login in the link refused)
+    os.remove(W + '/.github/workflows/ci.yml')
+    palette('Nim: add a CI workflow'); time.sleep(0.6)
+    keys('Down', 'Enter'); time.sleep(0.6)
+    keys('C-u'); text('https://user:secret@example.com/x/ned'); keys('Enter'); time.sleep(0.6)
+    check('69 … a link with a login in it is refused', not os.path.exists(W + '/.github/workflows/ci.yml'), screen())
+    palette('Nim: add a CI workflow'); time.sleep(0.6)
+    keys('Down', 'Enter'); time.sleep(0.6)
+    keys('C-u'); text('https://example.com/x/ned'); keys('Enter'); time.sleep(1)
+    ci = ftext('.github/workflows/ci.yml') if os.path.exists(W + '/.github/workflows/ci.yml') else ''
+    check("69 … with ned's lint: built from the repository given, annotations on the pull request",
+          'git clone --depth 1 https://example.com/x/ned' in ci and 'ned --lint --format:github .' in ci, ci)
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci]

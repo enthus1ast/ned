@@ -36,8 +36,8 @@ import std/[os, strutils, tables, sets, algorithm, json, posix, termios,
 from std/math import pow
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
-import ned/core/text, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index, ned/nim/arccopies,
-       ned/c/cindex, ned/version
+import ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
+       ned/nim/arccopies, ned/c/cindex, ned/version
 
 const
   Version = NedVersion
@@ -130,6 +130,7 @@ include ned/nim/copies
 include ned/nim/outline
 include ned/editor/completion
 include ned/nim/messages
+include ned/nim/nimapis
 include ned/nim/enginechecks
 include ned/nim/macronames
 include ned/editor/diagnostics
@@ -144,6 +145,7 @@ include ned/git/status
 include ned/ui/outline
 include ned/ui/pickers
 include ned/ui/prompts
+include ned/nim/toolchain
 include ned/ui/themefiles
 include ned/config/sync
 include ned/ui/promptkeys
@@ -269,6 +271,7 @@ include ned/app/keyboard
 include ned/app/setupcheck
 include ned/git/commands
 include ned/git/setup
+include ned/nim/ciworkflow
 include ned/git/advanced
 include ned/git/history
 include ned/git/github
@@ -281,5 +284,6 @@ include ned/nim/extras
 include ned/nim/examples
 include ned/run/tasks
 include ned/app/usercommands
+include ned/app/lint
 include ned/app/commandlist
 include ned/app/main

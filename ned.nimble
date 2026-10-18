@@ -81,7 +81,8 @@ task android, "Check that ned compiles for Android (arm64) — generates C only"
 
 task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies":
   for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim",
-            "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim", "tests/unit/tdiskcache.nim"]:
+            "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim", "tests/unit/tdiskcache.nim", "tests/unit/tversions.nim",
+            "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim"]:
     exec "nim r -d:release --hints:off " & t
 
 task lsptest, "nedls driven by a test client: every feature, and 2000 random edits (needs python3)":

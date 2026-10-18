@@ -110,6 +110,80 @@ proc typeAtCursor(b: Buffer): (NxFile, int) =
     if sy.kind == nxType and sy.line == b.primary.head.line and ("object" in sy.typ or "tuple" in sy.typ): return (f, i)
   (nil, -1)
 
+type ReorderPlan = object
+  ok: bool
+  name: string
+  first, last: int            # the lines replaced
+  text: string                # what takes their place
+  before, after: int          # the object's size now and with the fields sorted
+
+proc reorderPlan(b: Buffer): ReorderPlan =
+  ## the object declared on the cursor's line with its fields sorted by alignment, largest first (stable), when that
+  ## makes it smaller — a field's comments (the lines above it, the deeper ones below it) move with it
+  let (f, ti) = typeAtCursor(b)
+  if f == nil: return
+  let lay = nxLayoutOf(NxRef(file: f, idx: int32(ti)))
+  if not lay.ok or not lay.plain or lay.kind != "object" or lay.declLine != f.syms[ti].line: return
+  let size = if lay.viaPtr.len > 0: lay.objSize else: lay.size
+  if lay.sorted >= size: return
+  # the fields' lines (a, b: int is one line, one unit) and what each must be aligned to
+  var units: seq[(int, int)]                 # (line, alignment)
+  for r in lay.rows:
+    if r.depth != 0 or r.name.len == 0 or r.line < 0: continue
+    if units.len > 0 and units[^1][0] == r.line: continue
+    if units.len > 0 and r.line < units[^1][0]: return
+    units.add (r.line, r.align)
+  if units.len < 2 or lay.endLine >= b.lines.len: return
+  var isField: HashSet[int]
+  for (l, _) in units: isField.incl l
+  let fieldInd = leadingWs(b.lines[units[0][0]]).len
+  var blocks: seq[seq[string]]
+  var gapBefore: seq[bool]                   # (blank lines before it: one is kept)
+  var start = lay.declLine + 1
+  for (l, _) in units:
+    var bl: seq[string]
+    var gap = false
+    for k in start ..< l:
+      let t = b.lines[k].strip
+      if t.len == 0:
+        if bl.len == 0: gap = true else: bl.add b.lines[k]
+      elif t.startsWith("#"): bl.add b.lines[k]
+      else: return                           # (code that is not a field: leave it alone)
+    bl.add b.lines[l]
+    var e = l
+    while e + 1 <= lay.endLine and e + 1 notin isField and b.lines[e + 1].strip.startsWith("#") and
+          leadingWs(b.lines[e + 1]).len > fieldInd:
+      inc e
+      bl.add b.lines[e]
+    blocks.add bl
+    gapBefore.add gap
+    start = e + 1
+  var order: seq[int]
+  for k in 0 ..< units.len: order.add k
+  order.sort(proc(x, y: int): int =
+    result = cmp(units[y][1], units[x][1])
+    if result == 0: result = cmp(x, y))
+  var outp: seq[string]
+  for i, k in order:
+    if i > 0 and gapBefore[k]: outp.add ""
+    outp.add blocks[k]
+  ReorderPlan(ok: true, name: f.syms[ti].name, first: lay.declLine + 1, last: start - 1, text: outp.join("\n"),
+              before: size, after: lay.sorted)
+
+proc reorderFields() =
+  let b = buf()
+  if not b.canEdit(): return
+  var p: ReorderPlan
+  try: p = reorderPlan(b)
+  except Exception as e: internalError("Nim index", e)
+  if not p.ok:
+    info("Put the cursor on an object type's line whose fields, sorted by alignment, take less room")
+    return
+  b.beginEdit()
+  discard b.replaceText(Pos(line: p.first, col: 0), Pos(line: p.last, col: b.lines[p.last].len), p.text)
+  b.endEdit()
+  info("Reordered the fields of " & p.name & ": " & $p.before & " → " & $p.after & " bytes — Ctrl+Z undoes it")
+
 proc generateForType(what: string) =
   let b = buf()
   if not b.canEdit(): return

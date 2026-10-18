@@ -281,6 +281,18 @@ proc ecMembers(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
                        msg: "'" & name & "' is not a field of " & base & " — did you mean '" & meant & "'?")
       k = s.find('.', me)
 
+proc ecStmtStart(s: string, k: int, start = 0): int =
+  ## where the statement holding column k starts on its line (or after column `start`, an opening bracket's
+  ## inside): after the last `:` or `;` outside brackets before it (`if c: inc x`, `of 'a': x.add 1`,
+  ## `a = 1; inc x`), else `start`
+  result = start
+  var d = 0
+  for j in start ..< min(k, s.len):
+    let c = s[j]
+    if c in {'(', '[', '{'}: inc d
+    elif c in {')', ']', '}'}: dec d
+    elif d == 0 and (c == ';' or c == ':' and j + 1 < s.len and s[j + 1] == ' '): result = j + 1
+
 proc ecRoutineKind(sc: NxScope, name: string): int =
   ## what a name called means: 0 unknown, 1 only procs/funcs/iterators, 2 a template, macro or anything else too
   let found = nxLookup(sc, name)
@@ -389,7 +401,7 @@ proc ecArgCounts(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
           else: dec dd
         dec j
       # (a command's argument: `cmd f(x)`, the command may be a template too)
-      let lead = s[0 ..< ma].strip
+      let lead = s[ecStmtStart(s, ma) ..< ma].strip
       if lead.len > 0 and nxIsIdent(lead[0]):
         var q = 0
         while q < lead.len and (nxIsIdent(lead[q]) or lead[q] == '.'): inc q
@@ -897,6 +909,711 @@ proc ecUnusedImports(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]
     res.add Diag(line: o.line, col: col, eline: o.line, ecol: col + o.modName.len, sev: 2, src: "ned",
                  msg: "imported and not used: '" & o.modName & "'")
 
+# ── a var that never changes, a parameter never used, a result never set, a deprecated name, an API newer than
+#    the Nim the package asks for ──
+
+const EcAssignOps = ["=", "+=", "-=", "*=", "/=", "&=", "@=", "|=", "^=", "%=", "<<=", ">>=", "div=", "mod=", "and=",
+                     "or=", "xor=", "shl=", "shr="]
+
+proc ecSkipChain(s: string, k: int): int =
+  ## past `.name`, `[…]` and `{…}` after a name: where what follows the whole place begins
+  var j = k
+  while true:
+    var q = j
+    while q < s.len and s[q] == ' ': inc q
+    if q < s.len and s[q] == '.' and q + 1 < s.len and nxIsIdent(s[q + 1]):
+      inc q
+      while q < s.len and nxIsIdent(s[q]): inc q
+      j = q
+    elif q < s.len and s[q] in {'[', '{'} and q == j:
+      var d = 0
+      while q < s.len:
+        if s[q] in {'[', '{', '('}: inc d
+        elif s[q] in {']', '}', ')'}:
+          dec d
+          if d == 0:
+            inc q
+            break
+        inc q
+      j = q
+    else: return j
+
+proc ecAssignAfter(s: string, k: int): bool =
+  ## does an assignment operator start at k (spaces skipped)? (`=`, `+=` … — not `==`, `<=`, `>=`, `!=`)
+  var q = k
+  while q < s.len and s[q] == ' ': inc q
+  for op in EcAssignOps:
+    if s.continuesWith(op, q):
+      let e = q + op.len
+      if op == "=" and e < s.len and s[e] == '=': return false
+      if e < s.len and s[e] in NxOpChars and op.len <= 2 and op != "=": return false
+      if op.len > 2 and op[0] in IdentChars and q > 0 and s[q - 1] notin {' ', '.', ')', ']'}: return false
+      return true
+  false
+
+proc ecMutatingCall(f: NxFile, b: Buffer, l, col: int, argIdx: int): bool =
+  ## the routine named at l:col, given something at argument `argIdx` (-1: any): may it change it? (a `var`/`out`
+  ## parameter there in any overload, or not a plain routine at all — a template or macro may do anything)
+  const Reads = ["assert", "doAssert", "debugEcho", "echo", "fmt", "len", "high", "low", "check", "require", "$"]
+  let s = b.lines[l]
+  let (a, e) = ecWordAt(s, col)
+  if a >= e: return true
+  if s[a ..< e] in Reads: return false
+  # (its address taken, or a view of it handed on: whatever gets it may change it)
+  if s[a ..< e] in ["addr", "unsafeAddr", "toOpenArray", "toOpenArrayByte", "toOpenArrayChar"]: return true
+  var rs: seq[NxRef]
+  try: (rs, _, _) = nxTargets(f, b.lines, l, a)
+  except CatchableError: return true
+  if rs.len == 0: return true
+  for r in rs:
+    let sy = r.sym
+    if sy.kind notin {nxProc, nxFunc, nxMethod, nxIterator, nxConverter}: return true
+    for i, p in sy.params:
+      if argIdx >= 0 and i != argIdx and not p.typ.startsWith("varargs"): continue
+      let t = p.typ.strip
+      if t.startsWith("var ") or t.startsWith("out ") or t == "var" or t.startsWith("var[") or t.startsWith("sink") and false:
+        return true
+      if t.startsWith("varargs[untyped") or t.startsWith("varargs[typed") and argIdx < 0 or t in ["untyped", "typed"]:
+        return true
+  false
+
+proc ecEnclosingCall(s: string, k: int): (int, int, int, bool) =
+  ## the innermost bracket around column k on its line: (its column, the callee's column or -1, the argument's
+  ## index, opened by `(`)
+  var d = 0
+  var commas = 0
+  var j = k - 1
+  while j >= 0:
+    let c = s[j]
+    if c in {')', ']', '}'}: inc d
+    elif c in {'(', '[', '{'}:
+      if d == 0:
+        var q = j - 1
+        if c == '(' and q >= 0 and nxIsIdent(s[q]):
+          let (ca, _) = ecWordAt(s, q)
+          return (j, ca, commas, true)
+        return (j, -1, commas, c == '(')
+      dec d
+    elif c == ',' and d == 0: inc commas
+    dec j
+  (-1, -1, 0, false)
+
+proc ecCallsDirty(sc: NxScope, code: seq[string], a, e: int, memo: var Table[string, bool]): bool =
+  ## does lines a..e call a {.dirty.} template? (it sees the caller's names: it may use or change any of them)
+  if sc == nil: return true
+  for l in a .. min(e, code.high):
+    let s = code[l]
+    var k = 0
+    while k < s.len:
+      if nxIsIdent(s[k]) and (k == 0 or not nxIsIdent(s[k - 1])) and s[k] notin {'0'..'9'}:
+        var q = k
+        while q < s.len and nxIsIdent(s[q]): inc q
+        let w = s[k ..< q]
+        var dirty = memo.getOrDefault(w, false)
+        # (system's `in`, `notin`, `isnot` are dirty templates that only call contains/not: they change nothing
+        # of the caller's — and `for x in xs` calls no template at all)
+        if w in ["in", "notin", "isnot", "is", "of", "as", "and", "or", "not", "xor", "shl", "shr", "div", "mod"]:
+          memo[w] = false
+        elif w notin memo:
+          for r in nxLookup(sc, w):
+            if r.file != nil and r.sym.kind == nxTemplate and "dirty" in r.sym.pragmas: dirty = true
+          memo[w] = dirty
+        if dirty: return true
+        k = q
+      else: inc k
+
+proc ecModuleBefore(f: NxFile, s: string, dot: int): bool =
+  ## is the word before the dot at column `dot` a module's name (`strutils.find(…)`: a qualified call, no receiver)?
+  if dot <= 0 or not nxIsIdent(s[dot - 1]): return false
+  let (a, e) = ecWordAt(s, dot - 1)
+  if a > 0 and s[a - 1] == '.': return false
+  let w = nxNorm(s[a ..< e])
+  if w == "system" or w == nxNorm(splitFile(f.path).name): return true
+  for im in f.imports:
+    if im.isInclude: continue
+    let nm = if im.alias.len > 0: im.alias else: splitFile(im.spec).name
+    if nxNorm(nm) == w: return true
+  false
+
+proc ecCommandAt(f: NxFile, b: Buffer, s: string, l, k, start: int): int =
+  ## the word at column k given to a command whose statement starts at `start` (`inc x`, `swap a, x`,
+  ## `obj.add x`): 1 the command may change it, 0 it surely does not, -1 no command there
+  var ind = start
+  while ind < s.len and s[ind] == ' ': inc ind
+  var w = ind
+  while w < s.len and (nxIsIdent(s[w]) or s[w] == '.'): inc w
+  if not (w < k and w < s.len and s[w] == ' ' and w > ind): return -1
+  # (`a = b`, `x xor y`, `n < 3`: an operator after the word, not a command's argument)
+  var q = w
+  while q < s.len and s[q] == ' ': inc q
+  var o = q
+  while o < s.len and s[o] in {'=', '+', '-', '*', '/', '<', '>', '@', '$', '~', '&', '%', '|', '!', '?', '^', '.', ':'}: inc o
+  if o > q and (o >= s.len or s[o] == ' '): return -1
+  var ow = q
+  while ow < s.len and nxIsIdent(s[ow]): inc ow
+  if s[q ..< ow] in ["and", "or", "xor", "not", "shl", "shr", "div", "mod", "in", "notin", "is", "isnot", "of", "as"]:
+    return -1
+  let cw = s[ind ..< w]
+  if cw in ["return", "result", "discard", "yield", "raise", "if", "elif", "while", "when", "case", "of", "let",
+            "var", "const", "for", "in", "and", "or", "not", "echo", "assert", "doAssert", "notin", "is", "isnot"]:
+    return -1
+  var idx = 0                          # (its argument's index: commas outside brackets)
+  var d = 0
+  for c in s[w ..< k]:
+    if c in {'(', '[', '{'}: inc d
+    elif c in {')', ']', '}'}: dec d
+    elif c == ',' and d == 0: inc idx
+  let cc = if '.' in cw: ind + cw.rfind('.') + 1 else: ind
+  let dotted = '.' in cw and not ecModuleBefore(f, s, cc - 1)
+  if ecMutatingCall(f, b, l, cc, idx + ord(dotted)): 1 else: 0
+
+proc ecVarsNeverChanged(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## `var x = …` in a routine that nothing changes afterwards: it can be a `let`. Only when every use of x is
+  ## surely a read — an assignment to it or to a part of it, a call that takes it (or a part) as `var`, `addr`,
+  ## a template or macro given it, a use inside a nested routine, inside brackets that began on an earlier line:
+  ## any of these and x is left alone
+  let lines = b.lines
+  let sc = nxScope(f)
+  var memo: Table[string, bool]
+  for ri in 0 ..< f.syms.len:
+    let r = f.syms[ri]
+    if r.kind notin {nxProc, nxFunc, nxMethod, nxIterator, nxConverter} or r.made or r.endLine <= r.line or
+       r.endLine >= code.len or r.endLine - r.line > 2000:
+      continue
+    var nested: seq[(int, int)]
+    for sy in f.syms:
+      if sy.kind in NxRoutineKinds and sy.line > r.line and sy.endLine <= r.endLine: nested.add (sy.line, sy.endLine)
+    var depthAt = newSeq[int](r.endLine - r.line + 2)
+    var d = 0
+    for l in r.line .. r.endLine:
+      depthAt[l - r.line] = d
+      for ch in code[l]:
+        if ch in {'(', '[', '{'}: inc d
+        elif ch in {')', ']', '}'}: dec d
+      if d < 0: d = 0
+    if ecCallsDirty(sc, code, r.line, r.endLine, memo): continue
+    var locals: seq[NxSym]
+    try: locals = nxLocals(f, lines, r.endLine, 0, everything = true)
+    except CatchableError: continue
+    for v in locals:
+      if v.kind != nxVar or v.line <= r.line or v.line > r.endLine or v.slots != 0 or v.name.len == 0 or
+         v.name.startsWith("_") or v.exported:
+        continue
+      if v.col < 0 or v.col + v.name.len > code[v.line].len or code[v.line][v.col ..< v.col + v.name.len] != v.name:
+        continue
+      var inNested = false
+      for (a, e) in nested:
+        if v.line >= a and v.line <= e: inNested = true
+      if inNested: continue
+      # (written with a value, and nothing else on the line declares — `var a, b = 0`, pragmas, a section's
+      # several members on one line: left alone)
+      let rest = code[v.line][v.col + v.name.len .. ^1].strip
+      if not (rest.startsWith("=") and not rest.startsWith("==") or rest.startsWith(":") and " = " in rest):
+        continue
+      if "{." in rest or code[v.line].strip.startsWith("var ") and code[v.line].count(',') > 0 and
+         code[v.line].find('=') > code[v.line].find(','):
+        continue
+      let key = nxNorm(v.name)
+      var uses = 0
+      var changed = false
+      for l in v.line .. r.endLine:
+        if changed: break
+        let s = code[l]
+        var k = 0
+        while k < s.len and not changed:
+          if not (nxIsIdent(s[k]) and (k == 0 or not nxIsIdent(s[k - 1])) and s[k] notin {'0'..'9'}):
+            inc k
+            continue
+          var e = k
+          while e < s.len and nxIsIdent(s[e]): inc e
+          if nxNorm(s[k ..< e]) != key or l == v.line and k == v.col or k > 0 and s[k - 1] == '.':
+            k = e
+            continue
+          inc uses
+          for (a, e2) in nested:
+            if l >= a and l <= e2: changed = true
+          if depthAt[l - r.line] > 0: changed = true            # (inside brackets from a line above)
+          let before = s[0 ..< k].strip
+          if before.endsWith("addr") or before.endsWith("unsafeAddr") or before.endsWith("ref"): changed = true
+          # what follows the place: an assignment, or `.name` a call of
+          let after = ecSkipChain(s, e)
+          if ecAssignAfter(s, after): changed = true
+          var q = e
+          while not changed and q < after:
+            if s[q] == '.' and q + 1 < s.len and nxIsIdent(s[q + 1]):
+              if ecMutatingCall(f, b, l, q + 1, 0): changed = true
+              break
+            inc q
+          if not changed:
+            let (open, callee, idx, paren) = ecEnclosingCall(s, k)
+            if open >= 0 and callee >= 0:
+              # (`r.parse(x)`: the receiver is the first argument)
+              let dotted = callee > 0 and s[callee - 1] == '.' and not ecModuleBefore(f, s, callee - 1)
+              if ecMutatingCall(f, b, l, callee, idx + ord(dotted)): changed = true
+            elif open >= 0 and paren:
+              # (a command inside ( ): `(inc x; y = 1)`)
+              let cm = ecCommandAt(f, b, s, l, k, ecStmtStart(s, k, open + 1))
+              if cm == 1: changed = true
+              elif cm < 0:
+                # (a tuple: `(x, y) = …` assigns to it)
+                var dd = 0
+                var c2 = open
+                while c2 < s.len:
+                  if s[c2] in {'(', '[', '{'}: inc dd
+                  elif s[c2] in {')', ']', '}'}:
+                    dec dd
+                    if dd == 0: break
+                  inc c2
+                if c2 < s.len and ecAssignAfter(s, c2 + 1): changed = true
+            elif open < 0:
+              # a command: `inc x`, `swap a, x`, `add x, 1` — the first word of the statement (after `if c:`,
+              # `else:`, `of 'a':` or `;` on the same line, if any)
+              if ecCommandAt(f, b, s, l, k, ecStmtStart(s, k)) == 1: changed = true
+          k = e
+      if not changed and uses > 0:
+        res.add Diag(line: v.line, col: v.col, eline: v.line, ecol: v.col + v.name.len, sev: 4, src: "ned",
+                     msg: "'" & v.name & "' is never changed: it can be a let")
+
+proc ecUnusedParams(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## a parameter of a routine of this module (not exported, not passed around as a value, not a hook or an
+  ## operator, not a stub, not calling a dirty template — it sees the parameters too) that its body never mentions
+  let sc = nxScope(f)
+  var memo: Table[string, bool]
+  for ri in 0 ..< f.syms.len:
+    let r = f.syms[ri]
+    if r.kind notin {nxProc, nxFunc, nxIterator, nxConverter} or r.made or r.exported or r.local or
+       r.endLine <= r.line or r.endLine >= code.len or r.endLine - r.line > 3000 or r.params.len == 0:
+      continue
+    if r.name.len == 0 or not nxIsIdent(r.name[0]) or r.name.startsWith("="): continue
+    let pr = r.pragmas.toLowerAscii
+    if "exportc" in pr or "importc" in pr or "cdecl" in pr or "noconv" in pr or "dynlib" in pr or "used" in pr or
+       "closure" in pr or "nimcall" in pr or "async" in pr or "base" in pr:
+      continue
+    # (passed around as a value, or declared twice — a forward declaration: its signature is not its own to change)
+    var asValue = false
+    var decls = 0
+    let key = nxNorm(r.name)
+    for sy in f.syms:
+      if sy.kind in NxRoutineKinds and nxNorm(sy.name) == key: inc decls
+    if decls > 1: continue
+    for l in 0 ..< code.len:
+      let s = code[l]
+      var k = s.find(r.name)
+      while k >= 0 and not asValue:
+        let e = k + r.name.len
+        if (k == 0 or not nxIsIdent(s[k - 1])) and (e >= s.len or not nxIsIdent(s[e])) and l != r.line:
+          var q = e
+          while q < s.len and s[q] == ' ': inc q
+          let callLike = q < s.len and s[q] in {'(', '['} or q < s.len and e < s.len and s[e] == ' ' and
+                         s[q] notin {',', ')', ']', '}', '=', ':'}
+          if not callLike and not (k > 0 and s[k - 1] == '.' and q < s.len and s[q] == '('): asValue = true
+        k = s.find(r.name, k + 1)
+      if asValue: break
+    if asValue: continue
+    # the body: after the header's `=` (a one-line body counts too)
+    var bodyText = ""
+    var stub = true
+    for l in r.line .. r.endLine:
+      bodyText.add code[l] & "\n"
+      if l > r.line:
+        let t = code[l].strip
+        if t.len > 0 and not t.startsWith("discard") and not t.startsWith("raise") and
+           not t.startsWith("doAssert false") and not t.startsWith("assert false"):
+          stub = false
+    if stub or ecCallsDirty(sc, code, r.line, r.endLine, memo): continue
+    var counts: Table[string, int]
+    var k = 0
+    while k < bodyText.len:
+      if nxIsIdent(bodyText[k]) and (k == 0 or not nxIsIdent(bodyText[k - 1])) and bodyText[k] notin {'0'..'9'}:
+        var e = k
+        while e < bodyText.len and nxIsIdent(bodyText[e]): inc e
+        counts.mgetOrPut(nxNorm(bodyText[k ..< e]), 0) += 1
+        k = e
+      else: inc k
+    for l in r.line .. r.endLine:                         # (names in emit strings: `name`)
+      let raw = b.lines[l]
+      var q = raw.find('`')
+      while q >= 0:
+        let e = raw.find('`', q + 1)
+        if e < 0: break
+        counts.mgetOrPut(nxNorm(raw[q + 1 ..< e]), 0) += 1
+        q = raw.find('`', e + 1)
+    for p in r.params:
+      let pn = p.name.strip(chars = {'`', ' ', '*'})
+      if pn.len == 0 or pn == "_" or pn.startsWith("_") or not nxIsIdent(pn[0]): continue
+      # (a type given only to choose the overload or the generic: `retType: type[T]`)
+      let pt = p.typ.strip
+      if pt.startsWith("typedesc") or pt.startsWith("type[") or pt.startsWith("type ") or pt == "type": continue
+      if counts.getOrDefault(nxNorm(pn)) <= 1:
+        var at = -1
+        var al = r.line
+        for l in r.line .. min(r.endLine, r.line + 10):
+          let (a0, e0) = (code[l].find(pn), code[l].find(pn) + pn.len)
+          if a0 >= 0 and (a0 == 0 or not nxIsIdent(code[l][a0 - 1])) and (e0 >= code[l].len or not nxIsIdent(code[l][e0])):
+            at = a0
+            al = l
+            break
+        if at < 0: continue
+        res.add Diag(line: al, col: at, eline: al, ecol: at + pn.len, sev: 4, src: "ned",
+                     msg: "parameter '" & pn & "' is never used")
+
+proc ecResultNeverSet(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## a routine with a result type whose body never sets `result`, never returns a value and does not end in an
+  ## expression: it always gives the default value — usually a forgotten `result =`
+  var inString = newSeq[bool](code.len)          # (the line starts inside a """ string: part of what is above)
+  var inTriple = false
+  var inComment = 0
+  for i in 0 ..< min(code.len, b.lines.len):
+    inString[i] = inTriple or inComment > 0
+    discard ecCodeOnly(b.lines[i], inTriple, inComment)
+  for r in f.syms:
+    if r.kind notin {nxProc, nxFunc, nxMethod, nxConverter} or r.made or r.endLine <= r.line or
+       r.endLine >= code.len or r.endLine - r.line > 3000:
+      continue
+    let rt = r.ret.strip
+    if rt.len == 0 or rt in ["void", "auto", "untyped", "typed"] or rt.startsWith("Future") or
+       "noreturn" in r.pragmas or "importc" in r.pragmas or "importjs" in r.pragmas or "async" in r.pragmas or
+       "magic" in r.pragmas or "compilerproc" in r.pragmas:
+      continue
+    # (a one-line body after the header: an expression)
+    let hdr = code[r.line].strip
+    if not hdr.endsWith("="): continue
+    var bodyInd = -1
+    var last = -1
+    var mentions = false
+    # (the body: the lines below the header indented more than it — the index's end may stop short)
+    let hind = ecIndent(b.lines[r.line])
+    var bodyEnd = r.line
+    while bodyEnd + 1 < code.len and (code[bodyEnd + 1].strip.len == 0 or ecIndent(b.lines[bodyEnd + 1]) > hind or
+                                      inString[bodyEnd + 1]):
+      inc bodyEnd
+    while bodyEnd > r.line and code[bodyEnd].strip.len == 0: dec bodyEnd
+    for l in r.line + 1 .. bodyEnd:
+      let t = code[l].strip
+      if t.len == 0: continue
+      if inString[l]: continue
+      if bodyInd < 0: bodyInd = ecIndent(b.lines[l])
+      if ecIndent(b.lines[l]) == bodyInd: last = l
+      var k = 0
+      let s = code[l]
+      while k < s.len:
+        if nxIsIdent(s[k]) and (k == 0 or not nxIsIdent(s[k - 1])):
+          var e = k
+          while e < s.len and nxIsIdent(s[e]): inc e
+          let w = s[k ..< e]
+          if w in ["result", "return", "asm", "emit", "quote", "noreturn"]: mentions = true
+          k = e
+        else: inc k
+    if mentions or last < 0 or bodyInd <= ecIndent(b.lines[r.line]): continue
+    # (the last statement at the body's level must be one that has no value)
+    let t = code[last].strip
+    var e0 = 0
+    while e0 < t.len and nxIsIdent(t[e0]): inc e0
+    let w0 = t[0 ..< e0]
+    # (an `if` with no `else` — the last line at the body's level — has no value either; a `when` may: only its
+    # branch for this build is there)
+    var head = w0
+    if w0 == "elif":
+      for l in countdown(last - 1, r.line + 1):
+        let tl = code[l].strip
+        if ecIndent(b.lines[l]) == bodyInd and (tl.startsWith("if ") or tl.startsWith("when ")):
+          head = tl.split(' ')[0]
+          break
+    let stmtOnly = w0 in ["for", "while", "echo", "inc", "dec", "var", "let", "const", "discard", "debugEcho"] or
+                   (head == "if" and " else:" notin t and " else " notin t) or
+                   (e0 > 0 and ecAssignAfter(t, ecSkipChain(t, e0)) and w0 notin ["if", "case", "when"])
+    if not stmtOnly or w0 == "discard": continue                       # (`discard`: the default, on purpose)
+    if last + 1 <= bodyEnd:
+      # (the last statement goes on below — unless what follows is its block: `for …:`, `if …:`)
+      if ecIndent(b.lines[bodyEnd]) > bodyInd and not t.endsWith(":"): continue
+    res.add Diag(line: r.line, col: max(0, b.lines[r.line].find(r.name)), eline: r.line,
+                 ecol: max(0, b.lines[r.line].find(r.name)) + r.name.len, sev: 2, src: "ned",
+                 msg: "'" & r.name & "' never sets its result: it always returns the default value")
+
+proc ecPragmaArg(pragmas, name: string): (bool, string) =
+  ## is pragma `name` among these, and the text after `name:` (unquoted)
+  var k = 0
+  while true:
+    k = pragmas.find(name, k)
+    if k < 0: return (false, "")
+    let e = k + name.len
+    if (k == 0 or pragmas[k - 1] in {' ', ',', '.', '{'}) and (e >= pragmas.len or pragmas[e] in {' ', ',', ':', '.', '}'}):
+      var v = ""
+      var q = e
+      while q < pragmas.len and pragmas[q] == ' ': inc q
+      if q < pragmas.len and pragmas[q] == ':':
+        inc q
+        while q < pragmas.len and pragmas[q] == ' ': inc q
+        if q < pragmas.len and pragmas[q] == '"':
+          let c = pragmas.find('"', q + 1)
+          if c > q: v = pragmas[q + 1 ..< c]
+        elif q < pragmas.len and pragmas[q] == '(':
+          let c = pragmas.find(')', q)
+          if c > q: v = pragmas[q + 1 ..< c]
+      return (true, v)
+    k = e
+
+proc ecVersion(v: string): seq[int] =
+  ## "2, 2" / "2.2.4" / "(1, 3, 5)" → @[2, 2(, 4)]
+  for p in v.replace("(", "").replace(")", "").replace(",", ".").split('.'):
+    let t = p.strip
+    if t.len == 0: continue
+    try: result.add parseInt(t)
+    except ValueError: return @[]
+
+proc ecVerLess(a, b: seq[int]): bool =
+  for i in 0 ..< max(a.len, b.len):
+    let x = if i < a.len: a[i] else: 0
+    let y = if i < b.len: b[i] else: 0
+    if x != y: return x < y
+  false
+
+var ecSinceBlocks: Table[string, (string, seq[(int, int, seq[int])])]   # library file → (stamp, its since blocks)
+var ecMinNim: Table[string, (string, seq[int], string)]                  # .nimble → (stamp, the Nim it needs, as written)
+
+proc ecSinceOf(r: NxRef): seq[int] =
+  ## the Nim version a library declaration first appeared in: its {.since.} pragma or the `since (…):` block
+  ## around it (@[] when it does not say)
+  let sy = r.sym
+  let (has, v) = ecPragmaArg(sy.pragmas, "since")
+  if has: return ecVersion(v)
+  let path = r.file.path
+  let st = nxStamp(path)
+  var blocks = ecSinceBlocks.getOrDefault(path, ("", @[]))
+  if blocks[0] != st:
+    blocks = (st, @[])
+    let ls = nxLinesOf(r.file).ls
+    var i = 0
+    while i < ls.len:
+      let t = ls[i].strip
+      if (t.startsWith("since (") or t.startsWith("since((")) and t.endsWith(":"):
+        let ind = ecIndent(ls[i])
+        var e = i + 1
+        while e < ls.len and (ls[e].strip.len == 0 or ecIndent(ls[e]) > ind): inc e
+        let o = t.find('(')
+        let c = t.rfind(')')
+        if o >= 0 and c > o: blocks[1].add (i, e - 1, ecVersion(t[o .. c]))
+      inc i
+    if ecSinceBlocks.len > 200: ecSinceBlocks.clear()
+    ecSinceBlocks[path] = blocks
+  for (a, e, v) in blocks[1]:
+    if sy.line > a and sy.line <= e: return v
+
+proc ecProjectNim(path: string): (seq[int], string) =
+  ## the oldest Nim the package says it works with: nim.minVersion, else `requires "nim >= …"` in its .nimble
+  let set = cfgNimMinVersion.strip
+  if set == "off": return (@[], "")
+  if set.len > 0: return (ecVersion(set), set & " (nim.minVersion)")
+  let nb = findNimbleFile(parentDir(path))
+  if nb.len == 0: return (@[], "")
+  let st = nxStamp(nb)
+  let known = ecMinNim.getOrDefault(nb, ("", @[], ""))
+  if known[0] == st and st.len > 0: return (known[1], known[2])
+  var found: seq[int]
+  var said = ""
+  try:
+    for ln in lines(nb):
+      let t = ln.strip
+      if not t.startsWith("requires"): continue
+      var k = t.find('"')
+      while k >= 0:
+        let c = t.find('"', k + 1)
+        if c < 0: break
+        let req = t[k + 1 ..< c].strip
+        if req.startsWith("nim ") or req.startsWith("nim>") or req == "nim":
+          let rest = req[3 .. ^1].strip
+          var v = ""
+          for op in [">=", "==", "^=", "~=", ">"]:
+            if rest.startsWith(op):
+              v = rest[op.len .. ^1].strip.split({'&', ' '})[0]
+              break
+          if v.len > 0:
+            found = ecVersion(v)
+            said = "requires \"" & req & "\""
+        k = t.find('"', c + 1)
+  except CatchableError: discard
+  ecMinNim[nb] = (st, found, said)
+  (found, said)
+
+proc ecNamesIn(code: seq[string], names: HashSet[string], visit: proc(l, k, e: int)) =
+  ## each word of the code that is one of `names` (normalized), not after a dot's left side
+  for l in 0 ..< code.len:
+    let s = code[l]
+    var k = 0
+    while k < s.len:
+      if nxIsIdent(s[k]) and (k == 0 or not nxIsIdent(s[k - 1])) and s[k] notin {'0'..'9'}:
+        var e = k
+        while e < s.len and nxIsIdent(s[e]): inc e
+        if nxNorm(s[k ..< e]) in names: visit(l, k, e)
+        k = e
+      else: inc k
+
+var ecApiNew: Table[string, int]          # "module\tname" (normalized) → the release step that added it (NimApiSteps)
+var ecModNew: Table[string, int]          # a module's name → the release step that added it
+
+proc ecApiLoad() =
+  if ecApiNew.len > 0: return
+  for i, st in NimApiSteps:
+    for m in st[2].splitWhitespace: ecModNew[m] = i
+    for ln in st[3].split('\n'):
+      let c = ln.find(": ")
+      if c < 0: continue
+      let m = ln[0 ..< c]
+      for n in ln[c + 2 .. ^1].splitWhitespace: ecApiNew[m & "\t" & nxNorm(n)] = i
+
+proc ecApiStep(r: NxRef): int =
+  ## the release step that added a library declaration (-1: older than any, or not known)
+  if nxLibDir.len == 0 or not r.file.path.startsWith(nxLibDir & "/"): return -1
+  var m = r.file.path[nxLibDir.len + 1 .. ^1]
+  if m.endsWith(".nim"): m.setLen(m.len - 4)
+  if m == "system" or m.startsWith("system/"): m = "system"
+  ecApiLoad()
+  ecApiNew.getOrDefault(m & "\t" & nxNorm(r.sym.name), -1)
+
+proc ecVersionGuarded(code: seq[string]): seq[bool] =
+  ## the lines of `when` statements that ask which Nim this is (NimMajor, NimVersion, declared(…), compiles(…),
+  ## defined(nimHas…)): every branch — code there is written for more than one Nim
+  result = newSeq[bool](code.len)
+  const Guards = ["NimMajor", "NimMinor", "NimPatch", "NimVersion", "declared(", "compiles(", "defined(nim",
+                  "declaredInScope("]
+  var i = 0
+  while i < code.len:
+    let t = code[i].strip
+    if not (t.startsWith("when ") or t.startsWith("when(")):
+      inc i
+      continue
+    let ind = ecIndent(code[i])
+    var guarded = false
+    var e = i
+    var j = i
+    while j < code.len:
+      let tj = code[j].strip
+      if j > i and tj.len > 0 and ecIndent(code[j]) <= ind and
+         not (ecIndent(code[j]) == ind and (tj.startsWith("elif ") or tj.startsWith("elif(") or tj.startsWith("else:") or tj == "else")):
+        break
+      if j == i or (ecIndent(code[j]) == ind and tj.startsWith("elif")):
+        for g in Guards:
+          if g in tj: guarded = true
+      if tj.len > 0: e = j
+      inc j
+    if guarded:
+      for k in i .. e: result[k] = true
+    i = if guarded: e + 1 else: i + 1
+
+proc ecVerText(v: seq[int]): string =
+  var vs: seq[string]
+  for x in v: vs.add $x
+  vs.join(".")
+
+proc ecDeprecatedAndNewer(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## a name whose every declaration it can mean is {.deprecated.} (the compiler's own words, so its quick fix
+  ## applies), and a library name or module newer than the Nim the package asks for (its {.since.}, or the release
+  ## that added it: NimApiSteps) — not in a `when` that asks which Nim this is
+  let sc = nxScope(f)
+  if sc == nil or ecImportsKnown(f) < 0: return
+  let (minNim, said) = ecProjectNim(f.path)
+  var guarded: seq[bool]
+  if minNim.len > 0:
+    guarded = ecVersionGuarded(code)
+    ecApiLoad()
+  # (a module the package's oldest Nim does not have: its import)
+  if minNim.len > 0 and nxLibDir.len > 0:
+    for im in f.imports:
+      if im.isInclude or im.line < 0 or im.line >= code.len or guarded[im.line]: continue
+      let p = nxResolve(f.path, im.spec)
+      if not p.startsWith(nxLibDir & "/"): continue
+      let stem = splitFile(p).name
+      let st = ecModNew.getOrDefault(stem, -1)
+      if st < 0 or ecVerLess(ecVersion(NimApiSteps[st][0]), minNim): continue
+      let s = code[im.line]
+      var k = s.find(stem)
+      while k >= 0 and ((k > 0 and nxIsIdent(s[k - 1])) or (k + stem.len < s.len and nxIsIdent(s[k + stem.len]))):
+        k = s.find(stem, k + 1)
+      if k < 0: continue
+      res.add Diag(line: im.line, col: k, eline: im.line, ecol: k + stem.len, sev: 2, src: "ned",
+                   msg: "module " & stem & " is not in Nim " & NimApiSteps[st][0] & " or older (Nim " &
+                        NimApiSteps[st][1] & " has it); this package " & said)
+  var depNames, newNames: HashSet[string]
+  var notDep: HashSet[string]            # (a name with one declaration that is not deprecated: an overload may be meant)
+  for r in sc.refs:
+    if r.file == nil: continue
+    let sy = r.sym
+    if "deprecated" in sy.pragmas and r.file.path != f.path: depNames.incl nxNorm(sy.name)
+    elif "deprecated" notin sy.pragmas: notDep.incl nxNorm(sy.name)
+    if minNim.len > 0 and nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir & "/"):
+      let st = ecApiStep(r)
+      if st >= 0 and not ecVerLess(ecVersion(NimApiSteps[st][0]), minNim): newNames.incl nxNorm(sy.name)
+      elif "since" in sy.pragmas or r.file.path notin ecSinceBlocks or ecSinceBlocks[r.file.path][1].len > 0:
+        let v = ecSinceOf(r)
+        if v.len > 0 and ecVerLess(minNim, v): newNames.incl nxNorm(sy.name)
+  for x in notDep: depNames.excl x
+  if depNames.len == 0 and newNames.len == 0: return
+  var n = 0
+  let lines = b.lines
+  var all = depNames
+  for x in newNames: all.incl x
+  var found: seq[Diag]
+  ecNamesIn(code, all, proc(l, k, e: int) =
+    if n > 200: return
+    let key = nxNorm(code[l][k ..< e])
+    # (inside a pragma, or given to a template or macro — `cbconf selfExe:` names a callback: not a use)
+    let s = code[l]
+    let po = s.rfind("{.", 0, k)
+    if po >= 0 and (s.find(".}", po) < 0 or s.find(".}", po) > k): return
+    let (open, callee, _, _) = ecEnclosingCall(s, k)
+    var cw = ""
+    if open >= 0 and callee >= 0:
+      let (ca, ce) = ecWordAt(s, callee)
+      cw = s[ca ..< ce]
+    elif open < 0:
+      let t0 = s.strip(trailing = false)
+      let ind = s.len - t0.len
+      var w = ind
+      while w < s.len and nxIsIdent(s[w]): inc w
+      if w < k and w < s.len and s[w] == ' ': cw = s[ind ..< w]
+    if cw.len > 0 and cw notin ["echo", "return", "result", "discard", "let", "var", "const", "if", "elif", "when",
+                                "while", "case", "of", "for", "in", "and", "or", "not", "yield", "raise"] and
+       ecRoutineKind(sc, cw) != 1:
+      return
+    var rs: seq[NxRef]
+    try: (rs, _, _) = nxTargets(f, lines, l, k)
+    except CatchableError: return
+    if rs.len == 0: return
+    var allDep = key in depNames
+    var allNew = key in newNames and not guarded[l]
+    var newest: seq[int]                 # (the newest {.since.} of what it can mean)
+    var step = -1                        # (else the latest release step that added one of them)
+    var depMsg = ""
+    for r in rs:
+      let sy = r.sym
+      if r.file.path == f.path and sy.line == l: return                 # (its own declaration)
+      let (has, msg) = ecPragmaArg(sy.pragmas, "deprecated")
+      if not has: allDep = false
+      elif depMsg.len == 0: depMsg = msg
+      if allNew:
+        let st = ecApiStep(r)
+        if st >= 0 and not ecVerLess(ecVersion(NimApiSteps[st][0]), minNim):
+          step = max(step, st)
+        else:
+          let v = if nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir & "/"): ecSinceOf(r) else: @[]
+          if v.len == 0 or not ecVerLess(minNim, v): allNew = false
+          elif newest.len == 0 or ecVerLess(newest, v): newest = v
+    let name = lines[l][k ..< e]
+    if allDep:
+      inc n
+      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned",
+                     msg: (if depMsg.len > 0: depMsg & "; " else: "") & name & " is deprecated")
+    elif allNew and newest.len > 0:
+      inc n
+      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned",
+                     msg: "'" & name & "' is in Nim " & ecVerText(newest) & " and later; this package " & said)
+    elif allNew and step >= 0:
+      inc n
+      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned",
+                     msg: "'" & name & "' is not in Nim " & NimApiSteps[step][0] & " or older (Nim " &
+                          NimApiSteps[step][1] & " has it); this package " & said))
+  res.add found
+
 proc engineChecksFor(b: Buffer): seq[Diag] =
   ## the engine's own checks of a Nim buffer as it is now
   if b == nil or b.lang == nil or b.lang.mode != lmNim or b.lines.len > 20000 or b.largeOn: return
@@ -919,6 +1636,11 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
     ecDiscarded(f, b, code, result)
     ecLiteralTypes(f, b, code, result)
     ecUnusedImports(f, b, code, result)
+    if cfgEngineMoreChecks:
+      ecVarsNeverChanged(f, b, code, result)
+      ecUnusedParams(f, b, code, result)
+      ecResultNeverSet(f, b, code, result)
+    ecDeprecatedAndNewer(f, b, code, result)
   except CatchableError, Defect: discard
   var keep: seq[Diag]
   for d in result:

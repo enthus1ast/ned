@@ -277,7 +277,8 @@ proc initSettingDefs() =
        "(it checks its result and leaves the file alone if the code would change) · nph · nimpretty (installed " &
        "separately). A \"formatters\" entry for \"nim\" wins over this", @["builtin", "nph", "nimpretty"])
   defS("Nim", "nim.format.lineLength", %88, "The built-in Nim formatter's line length (nph's is 88; 80 and 100 are " &
-       "common)")
+       "common). Not written in your settings or the project's: a file's .editorconfig max_line_length, if it has " &
+       "one — in the editor, nedfmt, ned --format and nedls alike")
   defS("Nim", "nim.format.params", %"fit",
        "How a routine's parameters are laid out (built-in formatter): fit = on one line when it fits, else all on " &
        "the next line or one per line (nph) · onePerLine = one per line when the line is too long · always = one per " &
@@ -311,6 +312,13 @@ proc initSettingDefs() =
   defS("Nim", "nim.parameterHints", %"literals", "Parameter names shown before the arguments of a call " &
        "(built-in engine, with the inlay hints): literals = before numbers, strings, true/false/nil — draw(width: 10, " &
        "height: 20) · all = before every argument · off", @["literals", "all", "off"])
+  defS("Nim", "nim.memoryLayout", %true, "The hover of a type shows its memory layout: each field's offset, size " &
+       "and the padding after it, the total size and alignment, as the compiler lays it out here (64-bit; 32-bit on " &
+       "i386 and ARM) — only when ned is sure of every field. Alt+Enter on an object reorders its fields when that " &
+       "saves bytes")
+  defS("Nim", "nim.raisesHints", %false, "After the header of a routine without {.raises.}: what it can raise, as " &
+       "ned's engine works it out (its raise statements and the routines it calls, less what its try … except " &
+       "catches) — only when it is sure of every call; Defects are not listed. The hover of a routine shows it too")
   defS("Nim", "nim.cSignatureHints", %true, "After a wrapper that imports C (importc), its C declaration — dimmed, " &
        "from the header or the {.emit.} (int puts(const char *s))")
   defS("Nim", "nim.formatEmitC", %true, "Formatting a Nim file also formats the C in its {.emit: \"\"\"…\"\"\".} blocks: " &
@@ -338,6 +346,13 @@ proc initSettingDefs() =
        "triple-quoted strings that start with an HTML tag or SQL. Mark any other string with #[html]# " &
        "(#[c]#, #[sql]#, #[css]# …) just before it")
   defS("Nim", "nim.compiler", %"nim", "Compiler used for Alt+R", @["nim", "nimony"])
+  defS("Nim", "nim.ciNedRepository", %"", "Where a CI workflow made by Nim › add a CI workflow builds ned from, for " &
+       "its lint and format check (https://… or git@…; asked the first time)")
+  defS("Nim", "nim.toolchain", %"auto", "The Nim this project builds with — for every tool ned starts (nim, nimble, " &
+       "nimsuggest, nimlangserver, testament, the terminal): its bin folder goes first on PATH. auto = the nim on " &
+       "PATH, unless the project's .nimble asks for a Nim it is not and choosenim or grabnim installed one that is · " &
+       "path = the nim on PATH · a version (\"2.0.16\") · a Nim folder. Best set per project (Nim › choose the Nim " &
+       "for this project); a project's own setting needs the folder trusted")
   defS("Nim", "nim.liveDiagnostics", %true, "Errors while you type, not only on save")
   defS("Nim", "nim.liveDiagnosticsFrom", %"auto", "What checks the text while you type: the compiler (nim check " &
        "on the unsaved text, after a pause), nimsuggest, or auto: the compiler, unless its check of the file takes " &
@@ -349,6 +364,11 @@ proc initSettingDefs() =
        "(before the compiler's check): a field name that is a typo of one the object has, a call with the wrong number " &
        "of arguments, a value neither used nor discarded, a literal of the wrong type, an unused import, code after a " &
        "return, a local never used. The compiler's word wins on a line where both speak")
+  defS("Nim", "nim.engineHints", %true, "With nim.engineChecks: hints the compiler does not give — a var nothing " &
+       "changes (it can be a let), a parameter a routine never uses, a routine that never sets its result")
+  defS("Nim", "nim.minVersion", %"", "The oldest Nim your code must build with: a standard-library name or module newer " &
+       "than it is marked (its {.since.}, or the Nim release that added it), except inside a `when` that asks which " &
+       "Nim this is. Empty: what the package's .nimble requires (\"nim >= 2.0.0\") · \"off\"")
   defS("Nim", "nim.macroNames", %true, "Names a macro makes (makeProcs(Foo) declaring getFoo): a file's top-level " &
        "macro calls, and those of the project files it imports, are expanded by the compiler once (nim check " &
        "--expandMacro, in the background) and what they declare is known to completion, hover and Go to " &
@@ -356,6 +376,9 @@ proc initSettingDefs() =
   defS("Nim", "nim.indexCache", %true, "Keep the engine's reading of the standard library and nimble packages on " &
        "disk (~/.cache/ned/index), so a new session answers at once instead of reading them again. An entry is used " &
        "only for the very text it was made from")
+  defS("Nim", "nim.indexMemory", %64, "Megabytes the engine's parsed files may take (0: no limit). Above it the " &
+       "files asked about least recently, and not open, are dropped; one is read again when needed (a library file " &
+       "from the index cache, in a few ms)")
   defS("Nim", "nim.extraFlags", %"", "Extra flags for nim c/cpp/js when running or building, e.g. \"--mm:orc -d:ssl\"")
   defS("Nim", "nim.testFlags", %"--hints:off", "Flags used by the test explorer when compiling tests")
   # ── nimlangserver (sent to the server as its \"nim\" configuration section) ──
@@ -619,6 +642,10 @@ proc mergeSettingsFile(j: JsonNode) =
 
 var stateOverrides = newJObject()   # values remembered in state.json (theme, build mode …) — the file wins
 
+var
+  projectSettingKeys: seq[string]   # keys the project file set (settings UI marks them)
+  projectSettingsBlocked: seq[string]
+
 proc applySettings() =
   ## settingsJ → the cfg* globals the rest of the editor reads
   cfgThemeName = sStr("theme")
@@ -788,15 +815,24 @@ proc applySettings() =
   cfgEngineChecks = sBool("nim.engineChecks")
   cfgCompilerAnswers = sBool("nim.compilerAnswers")
   nxDiskCache = sBool("nim.indexCache")
+  nxIndexBudget = max(0, sInt("nim.indexMemory")) * 1048576
   cfgMacroNames = sBool("nim.macroNames")
+  cfgEngineMoreChecks = sBool("nim.engineHints")
+  cfgNimMinVersion = sStr("nim.minVersion")
   cfgCSigHints = sBool("nim.cSignatureHints")
   cfgParamHints = sStr("nim.parameterHints")
+  nxLayoutOn = sBool("nim.memoryLayout")
+  if sBool("nim.raisesHints") != cfgRaisesHints:
+    cfgRaisesHints = sBool("nim.raisesHints")
+    for b in bufs: b.inlayAt = -1             # (the hints again, with or without what routines raise)
   cfgCEngine = sStr("c.engine")
   if not cfgCSigHints: cSigHints.clear()
   cSigHintsAt.clear()
   cfgPasteFmt = sStr("editor.formatOnPaste")
   FmtWidth = clamp(sInt("nim.format.lineLength"), 40, 240)
   FmtMax = FmtWidth
+  cfgFmtWidth = FmtWidth
+  cfgFmtWidthSet = settingsUser.hasKey("nim.format.lineLength") or "nim.format.lineLength" in projectSettingKeys
   FmtParams = parseEnum[FWrap](sStr("nim.format.params"), fwFit)
   FmtArgs = parseEnum[FWrap](sStr("nim.format.arguments"), fwFit)
   FmtColl = parseEnum[FWrap](sStr("nim.format.collections"), fwFit)
@@ -911,9 +947,6 @@ proc codeTrusted(dir: string): bool =
   let nb = trustKey(getHomeDir() / ".nimble")
   d.startsWith(nb & "/")
 
-var
-  projectSettingKeys: seq[string]   # keys the project file set (settings UI marks them)
-  projectSettingsBlocked: seq[string]
 
 var userLangIds: seq[string]           # languages that come from the "languages" setting
 
@@ -979,7 +1012,8 @@ proc applyUserLanguages() =
 proc riskyProjectKey(k: string): bool =
   ## settings that start programs or send code somewhere: a cloned repository must not set them
   ## until you trust the folder
-  k in ["lsp", "lsp.alsoRun", "formatters", "run", "run.configs", "terminal.shell", "nim.nimsuggestPath", "nim.ide", "keys", "commands",
+  k in ["lsp", "lsp.alsoRun", "formatters", "run", "run.configs", "terminal.shell", "nim.nimsuggestPath", "nim.ide",
+        "nim.toolchain", "nim.ciNedRepository", "keys", "commands",
         "languages", "debug.adapters", "repl.commands", "sync.repository", "editor.spellDictionary", "editor.keymap"] or
     k.startsWith("ai.")
 
@@ -1112,6 +1146,7 @@ proc reloadSettings(fromFile = true) =
   let oldIde = cfgNimIde
   let oldNs = cfgNimSuggest
   if fromFile: loadConfig() else: applySettings()
+  applyNimToolchain()                # (nim.toolchain, or another project: the Nim every tool uses)
   if oldIde != cfgNimIde:
     # switching the Nim engine: stop what the old one ran, start what the new one needs
     nsShutdown()
@@ -1198,20 +1233,41 @@ proc toggleSetting(key, label: string) =
   setSetting(key, %(not sBool(key)))
   info(label & (if sBool(key): " on" else: " off"))
 
+proc nimLineLength(path: string): int =
+  ## where the built-in formatter wraps a Nim file's lines: nim.format.lineLength when a settings file says it,
+  ## else the file's .editorconfig max_line_length, else nim.format.lineLength's default (nph's 88)
+  if not cfgFmtWidthSet and cfgEditorConfig and path.len > 0:
+    let m = editorConfigMaxLine(path)
+    if m > 0: return clamp(m, 40, 240)
+  cfgFmtWidth
+
+template withNimLineLength(path: string, body: untyped) =
+  ## `body` with the formatter wrapping at the file's line length (nimLineLength)
+  let keepW = FmtWidth
+  let keepM = FmtMax
+  FmtWidth = nimLineLength(path)
+  FmtMax = FmtWidth
+  try:
+    body
+  finally:
+    FmtWidth = keepW
+    FmtMax = keepM
+
 proc lineLengthFor(b: Buffer): int =
-  ## where a file's lines should end: its .editorconfig max_line_length, else for Nim the formatter's line length
-  ## (nim.format.lineLength; nph's 88, nimpretty's 80), else 80
-  if b != nil and b.ecMaxLine > 0: return b.ecMaxLine
+  ## where a file's lines should end: for Nim where its formatter wraps (nimLineLength; nph's 88, nimpretty's 80),
+  ## else its .editorconfig max_line_length, else 80
   if b != nil and b.lang != nil and b.lang.mode == lmNim:
     return (case cfgNimFormatter
             of "nph": 88
             of "nimpretty": 80
-            else: FmtWidth)
+            else: nimLineLength(b.path))
+  if b != nil and b.ecMaxLine > 0: return b.ecMaxLine
   80
 
 proc rulerColumns(b: Buffer): seq[int] =
   ## the columns of a file's rulers (editor.rulers; "lineLength" where its formatter wraps)
-  if b != nil and b.ecMaxLine > 0: return @[b.ecMaxLine]       # (.editorconfig: the project's limit)
+  if b != nil and b.ecMaxLine > 0 and not (cfgRulerAtLength and b.lang != nil and b.lang.mode == lmNim):
+    return @[b.ecMaxLine]                                      # (.editorconfig: the project's limit)
   result = cfgRulers
   if cfgRulerAtLength:
     let c = lineLengthFor(b)

@@ -51,6 +51,62 @@ proc nxCurStamp*(path: string): string =
 
 proc nxParseDisk*(path: string): NxFile
 
+# ── what the index takes: the parsed files are counted, and over nim.indexMemory the ones asked about least recently
+#    (and not open) are dropped with the scopes that read them — a library file comes back from the disk cache ──
+
+var
+  nxIndexBudget* = 64 * 1048576        # nim.indexMemory: bytes the parsed files may take (0: no limit)
+  nxTick = 0                           # (a clock: each file or scope asked for moves it on)
+  nxFileUsed: Table[string, int]       # path → when it was asked for last
+  nxFileBytes: Table[string, int]      # path → what its parsed file takes
+  nxFilesBytes* = 0                    # their sum
+  nxBuildDepth = 0                     # (scopes being built: no file is dropped meanwhile)
+  nxDropped* = 0                       # files dropped to stay within the budget, so far
+
+proc nxStrBytes(s: string): int {.inline.} =
+  if s.len == 0: 0 else: (s.capacity + 9 + 15) and not 15
+
+proc nxFileSize*(f: NxFile): int =
+  ## the bytes a parsed file takes (its declarations, their strings, its imports; its line table when made)
+  result = 256 + nxStrBytes(f.path) + nxStrBytes(f.module) + nxStrBytes(f.stamp) + nxStrBytes(f.doc) +
+           f.syms.capacity * sizeof(NxSym) + f.syms.len * 40      # (byLine, made on first use)
+  for s in f.syms:
+    result += nxStrBytes(s.name) + nxStrBytes(s.generics) + nxStrBytes(s.ret) + nxStrBytes(s.typ) +
+              nxStrBytes(s.value) + nxStrBytes(s.pragmas) + nxStrBytes(s.doc) + nxStrBytes(s.owner)
+    if s.params.len > 0:
+      result += 16 + s.params.capacity * sizeof(NxParam)
+      for p in s.params: result += nxStrBytes(p.name) + nxStrBytes(p.typ) + nxStrBytes(p.default)
+  result += f.imports.capacity * sizeof(NxImport)
+  for im in f.imports:
+    result += nxStrBytes(im.spec) + nxStrBytes(im.alias)
+    for x in im.only: result += nxStrBytes(x) + 16
+    for x in im.excepts: result += nxStrBytes(x) + 16
+  for x in f.exports: result += nxStrBytes(x) + 16
+  result += f.inactive.len * 8 + f.symBranch.len * 4 + f.inactiveChain.len * 4
+  for x in f.chains: result += nxStrBytes(x) + 16
+
+proc nxTrimIndex*(keep = "")
+
+proc nxBuildDone(keep: string) =
+  ## a scope made: what it read may have gone over the budget meanwhile
+  dec nxBuildDepth
+  if nxBuildDepth == 0 and nxIndexBudget > 0 and nxFilesBytes > nxIndexBudget: nxTrimIndex(keep)
+
+proc nxKeepFile(path: string, f: NxFile) =
+  ## a freshly parsed file kept: what it takes counted; over the budget, the least recently used ones go
+  if f.syms.capacity - f.syms.len > 8:
+    # (the parser's list grew by doubling: 12% of what the declarations took was room never used)
+    var s = newSeqOfCap[NxSym](f.syms.len)
+    for x in f.syms.mitems: s.add move(x)
+    f.syms = move(s)
+  nxFiles[path] = f
+  let b = nxFileSize(f)
+  nxFilesBytes += b - nxFileBytes.getOrDefault(path)
+  nxFileBytes[path] = b
+  inc nxTick
+  nxFileUsed[path] = nxTick
+  if nxIndexBudget > 0 and nxFilesBytes > nxIndexBudget and nxBuildDepth == 0: nxTrimIndex(path)
+
 proc nxLoad*(path: string): NxFile =
   ## the parsed file, from the open buffer when there is one, else from disk (cached by mtime and size)
   if path.len == 0: return nil
@@ -58,24 +114,37 @@ proc nxLoad*(path: string): NxFile =
     let stamp = nxBufferStamp(path)
     if stamp.len > 0:
       let old = nxFiles.getOrDefault(path)
-      if old != nil and old.stamp == stamp: return old
+      if old != nil and old.stamp == stamp:
+        inc nxTick
+        nxFileUsed[path] = nxTick
+        return old
       let lines = nxBufferLines(path)
       result = nxParse(lines, path)
       nxAddMacroSyms(result, lines)
       result.stamp = stamp
-      nxFiles[path] = result
+      nxKeepFile(path, result)
       return
   let stamp = nxStamp(path)
   if stamp.len == 0: return nil
   let old = nxFiles.getOrDefault(path)
-  if old != nil and old.stamp == stamp: return old
+  if old != nil and old.stamp == stamp:
+    inc nxTick
+    nxFileUsed[path] = nxTick
+    return old
   try:
     if getFileSize(path) > 4_000_000: return nil
     result = nxParseDisk(path)
     if path in nxMacroSyms: nxAddMacroSyms(result, readFile(path).splitLines)
     result.stamp = stamp
-    nxFiles[path] = result
+    nxKeepFile(path, result)
   except CatchableError: result = nil
+
+proc nxForgetFiles*() =
+  ## every parsed file read again when next asked for (the defines changed: what `when` decides)
+  nxFiles.clear()
+  nxFileBytes.clear()
+  nxFileUsed.clear()
+  nxFilesBytes = 0
 
 proc nxVersionKey*(dirName: string): seq[int] =
   ## "jsony-1.1.5-abc…" → @[1, 1, 5]
@@ -94,6 +163,180 @@ proc nxVerLess*(a, b: seq[int]): bool =
 
 var nxPkgRoots: seq[string]       # (the folders nimble packages were looked for in last)
 
+type
+  NxInstalled* = object
+    ver*: string                  # "1.1.5", "#head", "" (atlas: none in the folder's name)
+    key*: seq[int]
+    sum*: string                  # pkgs2's checksum: name-1.1.5-<sum>
+    dir*: string
+  NxDep* = object
+    name*, version*, dir*, why*: string     # why: "nimble.lock", "nimble.paths", "requires >= 1.2", "newest installed" …
+  NxProject* = ref object
+    root*: string                 # the folder of its .nimble ("" for files outside any nimble package)
+    paths*: seq[string]           # package folders its config puts on the path (`nim dump`: nimble.paths, atlas)
+    deps*: seq[NxDep]             # the version of each package it uses, and why that one
+    dirs*: seq[string]            # their folders, in the order imports look in them
+    rest*: seq[string]            # the newest installed version of every other package
+    key*: string                  # (what imports resolve to: a scope or a resolved import made for another is not used)
+    stamp: string
+    checked: float
+
+var
+  nxInstalled*: Table[string, seq[NxInstalled]]   # package (lower case) → every installed version
+  nxProjects*: Table[string, NxProject]           # project folder → the versions it builds with
+  nxProjectPaths*: Table[string, seq[string]]     # project folder → the package folders `nim dump` put on its path
+  nxActive*: NxProject                            # the project asked about last: package files follow it
+  nxRootOf: Table[string, string]                 # folder → the project folder above it ("" none)
+
+proc nxPkgSplit*(dirName: string): (string, string) =
+  ## a package folder's name and version: "jsony-1.1.5-7957fb…" → ("jsony", "1.1.5"), "nim-libp2p-1.2.0" →
+  ## ("nim-libp2p", "1.2.0"), "foo-#head-ab12" → ("foo", "#head"), "foo" (atlas) → ("foo", "")
+  let parts = dirName.split('-')
+  for i in 1 ..< parts.len:
+    if parts[i].len > 0 and (parts[i][0] in Digits or parts[i][0] == '#'):
+      return (parts[0 ..< i].join("-"), parts[i])
+  (dirName, "")
+
+proc nxVerKey*(v: string): seq[int] =
+  ## "1.10.2" → @[1, 10, 2] (a version that is no number, #head: @[])
+  for p in v.strip(chars = {'v', ' '}).split('.'):
+    var d = 0
+    var any = false
+    for c in p:
+      if c notin Digits: break
+      d = d * 10 + (ord(c) - 48)
+      any = true
+    if not any: break
+    result.add d
+
+proc nxSatisfies*(ver, cons: string): bool =
+  ## nimble's version rules: >= 1.2 · > · <= · < · == · 1.2 (that one) · ^= 1.2 (same major) · ~= 1.2.3 (same minor)
+  ## · several joined by & · #head, #tag (that one) · nothing (any)
+  let c = cons.strip
+  if c.len == 0 or c == "*" or c == "any version": return true
+  if c.startsWith("#") or c.startsWith("@#"): return ver == c.strip(chars = {'@'})
+  if ver.startsWith("#"): return false              # (#head does not count for a numbered requirement)
+  let v = nxVerKey(ver)
+  if v.len == 0: return true                         # (a version we cannot read: not held against it)
+  for part0 in c.split('&'):
+    let part = part0.strip
+    if part.len == 0: continue
+    var k = 0
+    while k < part.len and part[k] in {'>', '<', '=', '^', '~', '@'}: inc k
+    let op = part[0 ..< k]
+    let want = nxVerKey(part[k .. ^1])
+    if want.len == 0: continue
+    var d = 0
+    for i in 0 ..< max(v.len, want.len):
+      let x = if i < v.len: v[i] else: 0
+      let y = if i < want.len: want[i] else: 0
+      if x != y:
+        d = cmp(x, y)
+        break
+    let ok = case op
+      of ">=": d >= 0
+      of ">": d > 0
+      of "<=": d <= 0
+      of "<": d < 0
+      of "", "==", "@": d == 0
+      of "^=": d >= 0 and (if want[0] > 0: v[0] == want[0] else: v.len > 1 and want.len > 1 and v[1] == want[1])
+      of "~=":
+        var same = true
+        for i in 0 ..< max(1, want.len - 1):
+          if i >= v.len or i >= want.len or v[i] != want[i]: same = false
+        d >= 0 and same
+      else: true
+    if not ok: return false
+  true
+
+proc nxSplitRequire*(r: string): (string, string) =
+  ## "jsony >= 1.1 & < 2.0" → ("jsony", ">= 1.1 & < 2.0") · "foo#head" → ("foo", "#head") ·
+  ## "https://github.com/x/bar.git >= 1.0" → ("bar", ">= 1.0")
+  let t = r.strip
+  var k = 0
+  if "://" in t or t.startsWith("git@"):
+    k = (if t.startsWith("git@"): 4 else: t.find("://") + 3)
+    while k < t.len and t[k] notin {' ', '#', '>', '<', '=', '~', '^', '@'}: inc k
+    var nm = t[0 ..< k].strip(chars = {'/'})
+    nm = nm[max(nm.rfind('/'), nm.rfind(':')) + 1 .. ^1]
+    if nm.endsWith(".git"): nm.setLen(nm.len - 4)
+    return (nm, t[k .. ^1].strip(chars = {' ', '@'}))
+  while k < t.len and t[k] notin {' ', '>', '<', '=', '#', '@', '~', '^'}: inc k
+  (t[0 ..< k], t[k .. ^1].strip(chars = {' ', '@'}))
+
+proc nxNimbleRequires*(nimbleFile: string): seq[string] =
+  ## the `requires` of a .nimble file as written ("jsony >= 1.1", "https://…/foo#head")
+  var inReq = false
+  var depth = 0                     # (inside `requires(` … `)` over several lines)
+  try:
+    for raw in lines(nimbleFile):
+      let t = raw.strip
+      if t.len == 0 or t.startsWith("#"):
+        if depth == 0: inReq = false
+        continue
+      let k = t.find("requires")
+      if (k >= 0 and (k == 0 or not nxIsIdent(t[k - 1])) and k + 8 < t.len and t[k + 8] in {' ', '('}) or
+         (inReq and (t.startsWith("\"") or t.startsWith(")"))):
+        var i = (if k >= 0: k + 8 else: 0)
+        while i < t.len:
+          if t[i] == '#': break
+          if t[i] == '"':
+            let e = t.find('"', i + 1)
+            if e < 0: break
+            result.add t[i + 1 ..< e]
+            i = e + 1
+          else:
+            if t[i] == '(': inc depth
+            elif t[i] == ')': depth = max(0, depth - 1)
+            inc i
+        inReq = t.endsWith(",") or depth > 0
+      else:
+        inReq = false
+        depth = 0
+  except CatchableError: discard
+
+proc nxNimbleIn(dir: string): string =
+  ## the .nimble file in a folder ("" none)
+  try:
+    for kind, p in walkDir(dir):
+      if kind in {pcFile, pcLinkToFile} and p.endsWith(".nimble"): return p
+  except OSError: discard
+  ""
+
+proc nxNimbleVersion(dir: string): string =
+  ## the `version = "…"` of the package in `dir`
+  let nf = nxNimbleIn(dir)
+  if nf.len == 0: return
+  try:
+    for l in lines(nf):
+      let t = l.strip
+      if t.toLowerAscii.startsWith("version") and '=' in t:
+        let q = t.find('"')
+        let e = t.find('"', q + 1)
+        if q >= 0 and e > q: return t[q + 1 ..< e]
+  except CatchableError: discard
+
+proc nxPkgVersions(root: string): Table[string, seq[NxInstalled]] =
+  ## the package folders in a pkgs2/pkgs/deps folder, by package (lower case)
+  if not dirExists(root): return
+  try:
+    for kind, d in walkDir(root):
+      if kind notin {pcDir, pcLinkToDir}: continue
+      let nm = extractFilename(d)
+      if nm.len == 0 or nm[0] == '.': continue
+      let (pkg, ver) = nxPkgSplit(nm)
+      var sum = ""
+      if ver.len > 0:
+        let k = nm.find("-" & ver & "-", pkg.len)
+        if k >= 0: sum = nm[k + ver.len + 2 .. ^1]
+      result.mgetOrPut(pkg.toLowerAscii, @[]).add NxInstalled(ver: ver, key: nxVerKey(ver), sum: sum, dir: d)
+  except OSError: discard
+
+proc nxNewer(a, b: NxInstalled): bool =
+  ## is a newer than b? (#head is newest, as the compiler takes it)
+  if a.ver.startsWith("#") != b.ver.startsWith("#"): return a.ver.startsWith("#")
+  nxVerLess(b.key, a.key)
+
 proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraPkgRoots: seq[string] = @[]) =
   nxLibDir = libDir
   nxPkgRoots = lazyPaths & extraPkgRoots
@@ -106,21 +349,23 @@ proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraP
             libDir / "wrappers", libDir / "windows", libDir / "js", libDir / "deprecated" / "pure",
             libDir / "deprecated" / "core"]:
     if dirExists(p) and p notin nxSearchPaths: nxSearchPaths.add p
-  # nimble packages: the newest version of each
-  var best = initTable[string, (seq[int], string)]()
+  # nimble packages: every installed version; the newest of each is what a file outside a project imports
+  nxInstalled.clear()
   for root in lazyPaths & extraPkgRoots:
-    if not dirExists(root): continue
-    try:
-      for kind, d in walkDir(root):
-        if kind notin {pcDir, pcLinkToDir}: continue
-        let nm = extractFilename(d)
-        let dash = nm.find('-')
-        let pkg = if dash > 0: nm[0 ..< dash] else: nm
-        let v = nxVersionKey(nm)
-        if pkg notin best or nxVerLess(best[pkg][0], v): best[pkg] = (v, d)
-    except OSError: discard
+    for pkg, vs in nxPkgVersions(root):
+      for v in vs:
+        var dup = false
+        for w in nxInstalled.getOrDefault(pkg):
+          if w.dir == v.dir: dup = true
+        if not dup: nxInstalled.mgetOrPut(pkg, @[]).add v
   nxPkgDirs.setLen(0)
-  for _, (v, d) in best: nxPkgDirs.add d
+  for _, vs in nxInstalled:
+    var best = 0
+    for i in 1 ..< vs.len:
+      if nxNewer(vs[i], vs[best]): best = i
+    nxPkgDirs.add vs[best].dir
+  nxProjects.clear()
+  nxActive = nil
   nxModCache.clear()
   nxScopes.clear()
   inc nxGen
@@ -173,13 +418,172 @@ proc nxLibOf*(dir: string): string =
   if nxLibOfDir.len > 2000: nxLibOfDir.clear()
   nxLibOfDir[dir] = result
 
+proc nxIsPkgPath*(path: string): bool =
+  ## a file or folder of an installed package (nimble's pkgs2, a project's nimbledeps/, atlas' deps/)
+  for r in nxPkgRoots:
+    if r.len > 1 and (path == r or path.startsWith(r & "/")): return true
+  "/pkgs2/" in path or "/pkgs/" in path or "/nimbledeps/" in path or "/deps/" in path
+
+proc nxRootFor*(dir: string): string =
+  ## the project folder `dir` is in: the nearest one above with a .nimble ("" none) — a package's own folder
+  ## inside pkgs2 too
+  if dir in nxRootOf: return nxRootOf[dir]
+  var d = dir
+  var seen: seq[string]                  # (the folders on the way: theirs is the same answer)
+  for _ in 0 .. 10:
+    if d.len == 0: break
+    if d in nxRootOf:
+      result = nxRootOf[d]
+      break
+    seen.add d
+    if nxNimbleIn(d).len > 0:
+      result = d
+      break
+    let up = parentDir(d)
+    if up == d: break
+    d = up
+  if nxRootOf.len > 5000: nxRootOf.clear()
+  for s in seen: nxRootOf[s] = result
+
+proc nxLockedDir(name, ver, sum: string, local: Table[string, seq[NxInstalled]]): (string, string) =
+  ## the installed folder of a locked package version: (folder, "" | why it is not the locked one)
+  var byVer = ""
+  for vs in [local.getOrDefault(name.toLowerAscii), nxInstalled.getOrDefault(name.toLowerAscii)]:
+    for v in vs:
+      if v.ver == ver and sum.len > 0 and v.sum.len > 0 and (v.sum.startsWith(sum) or sum.startsWith(v.sum)):
+        return (v.dir, "")
+      if v.ver == ver and byVer.len == 0 and (v.sum.len == 0 or sum.len == 0): byVer = v.dir   # (pkgs/: no checksum)
+  if byVer.len > 0: return (byVer, "")
+  ("", "not installed")
+
+proc nxComputeProject(root: string): NxProject =
+  ## which version of each package the project builds with: the paths its config gives (`nim dump`: nimble.paths,
+  ## atlas' nim.cfg), then nimble.lock, its nimbledeps/ folder, atlas' deps/, the `requires` of its .nimble (the
+  ## newest installed version that meets them, and theirs in turn); any other package: the newest installed
+  result = NxProject(root: root)
+  var chosen: Table[string, int]              # package (lower case) → index in deps
+  let res = result
+  proc take(d: NxDep) =
+    let k = d.name.toLowerAscii
+    if k.len == 0 or k == "nim" or k in chosen: return
+    chosen[k] = res.deps.len
+    res.deps.add d
+  # 1. what its config puts on the path
+  let nimblePaths = try: readFile(root / "nimble.paths") except CatchableError: ""
+  let nimCfg = try: readFile(root / "nim.cfg") except CatchableError: ""
+  for p in nxProjectPaths.getOrDefault(root):
+    var (nm, ver) = nxPkgSplit(extractFilename(p))
+    if ver.len == 0: ver = nxNimbleVersion(p)
+    result.paths.add p
+    take NxDep(name: nm, version: ver, dir: p,
+               why: (if p in nimblePaths: "nimble.paths" elif p in nimCfg: "nim.cfg" else: "--path"))
+  var local: Table[string, seq[NxInstalled]]          # nimbledeps/
+  for sub in ["pkgs2", "pkgs"]:
+    for k, vs in nxPkgVersions(root / "nimbledeps" / sub): local.mgetOrPut(k, @[]).add vs
+  # 2. nimble.lock
+  if fileExists(root / "nimble.lock"):
+    try:
+      let j = parseJson(readFile(root / "nimble.lock"))
+      let ps = j{"packages"}
+      if ps != nil and ps.kind == JObject:
+        for name, v in ps.pairs:
+          if v.kind != JObject: continue
+          let ver = v{"version"}.getStr
+          let sum = v{"checksums"}{"sha1"}.getStr
+          let (d, missing) = nxLockedDir(name, ver, sum, local)
+          take NxDep(name: name, version: ver, dir: d, why: "nimble.lock" & (if missing.len > 0: ", " & missing else: ""))
+    except CatchableError: discard
+  # 3. nimbledeps/ (the newest there of each), 4. atlas' deps/
+  for k, vs in local:
+    var best = 0
+    for i in 1 ..< vs.len:
+      if nxNewer(vs[i], vs[best]): best = i
+    take NxDep(name: nxPkgSplit(extractFilename(vs[best].dir))[0], version: vs[best].ver, dir: vs[best].dir,
+               why: "nimbledeps/")
+  for k, vs in nxPkgVersions(root / "deps"):
+    for v in vs:
+      take NxDep(name: nxPkgSplit(extractFilename(v.dir))[0], version: (if v.ver.len > 0: v.ver else: nxNimbleVersion(v.dir)),
+                 dir: v.dir, why: "deps/")
+  # 5. `requires`: the newest installed version that meets them — and what those require, in turn
+  var queue: seq[(string, string, string)]            # (requirement, required by: "" the project)
+  for r in nxNimbleRequires(nxNimbleIn(root)): queue.add (r, "", "")
+  var walked: HashSet[string]
+  var qi = 0
+  while qi < queue.len and qi < 2000:
+    let (req, by, _) = queue[qi]
+    inc qi
+    let (nm, cons) = nxSplitRequire(req)
+    let k = nm.toLowerAscii
+    if k.len == 0 or k == "nim": continue
+    if k notin chosen:
+      var best = -1
+      let vs = nxInstalled.getOrDefault(k)
+      for i, v in vs:
+        if nxSatisfies(v.ver, cons) and (best < 0 or nxNewer(v, vs[best])): best = i
+      let why = (if by.len > 0: by & " requires" else: "requires") & (if cons.len > 0: " " & cons else: "")
+      if best >= 0: take NxDep(name: nxPkgSplit(extractFilename(vs[best].dir))[0], version: vs[best].ver,
+                               dir: vs[best].dir, why: why)
+      else: take NxDep(name: nm, version: "", dir: "",
+                       why: why & (if vs.len > 0: ", no installed version meets it" else: ", not installed"))
+    let d = result.deps[chosen.getOrDefault(k, 0)]
+    if k in chosen and d.dir.len > 0 and k notin walked:
+      walked.incl k
+      for r in nxNimbleRequires(nxNimbleIn(d.dir)): queue.add (r, d.name, "")
+  for d in result.deps:
+    if d.dir.len > 0 and d.dir notin result.dirs: result.dirs.add d.dir
+  # 6. every other package: the newest installed
+  for p in nxPkgDirs:
+    if nxPkgSplit(extractFilename(p))[0].toLowerAscii notin chosen: result.rest.add p
+  result.key = if result.deps.len == 0 and result.paths.len == 0: "" else: $hash(result.dirs.join("\n"))
+
+proc nxProjectStamp(root: string): string =
+  result = nxStamp(nxNimbleIn(root)) & "|" & nxStamp(root / "nimble.lock") & "|" & nxStamp(root / "nimble.paths") & "|" &
+           $dirExists(root / "nimbledeps") & $dirExists(root / "deps") & "|" & $nxGen & "|" &
+           $hash(nxProjectPaths.getOrDefault(root).join("\n"))
+
+var nxNoProject = NxProject()        # files outside any nimble package: the newest installed version of each
+
+proc nxProjectAt*(root: string): NxProject =
+  ## the project in folder `root` and the versions it builds with (worked out again when its .nimble, nimble.lock
+  ## or nimble.paths changed — looked at once in 2 s at most)
+  if root.len == 0:
+    if nxNoProject.stamp != $nxGen:
+      nxNoProject = NxProject(rest: nxPkgDirs, stamp: $nxGen)
+    return nxNoProject
+  let now = epochTime()
+  var p = nxProjects.getOrDefault(root)
+  if p != nil and now - p.checked < 2: return p
+  let st = nxProjectStamp(root)
+  if p != nil and p.stamp == st:
+    p.checked = now
+    return p
+  p = nxComputeProject(root)
+  p.stamp = st
+  p.checked = now
+  nxProjects[root] = p
+  p
+
+proc nxProjectOf*(path: string): NxProject =
+  ## the project a file belongs to; a package's own file follows the project asked about last (what imports it)
+  if nxIsPkgPath(path):
+    return (if nxActive != nil: nxActive else: nxProjectAt(""))
+  let root = nxRootFor(parentDir(path))
+  if root.len > 0 and nxIsPkgPath(root): return (if nxActive != nil: nxActive else: nxProjectAt(""))
+  nxProjectAt(root)
+
+proc nxSetActiveFile*(path: string) =
+  ## the file asked about now (a request starts): the package files it reaches follow its project's versions
+  if path.len == 0 or nxIsPkgPath(path): return
+  nxActive = nxProjectOf(path)
+
 proc nxResolve*(fromPath, spec0: string): string =
   ## the file an import refers to, searched like the compiler does: next to the importing module,
-  ## then the search paths (stdlib, --path, config), then nimble packages
+  ## then the search paths (stdlib, --path, config), then nimble packages — the versions the project builds with
   var spec = spec0.strip(chars = {'"', ' '})
   if spec.len == 0: return ""
   let dir = parentDir(fromPath)
-  let key = dir & "\t" & spec
+  let proj = nxProjectOf(fromPath)
+  let key = proj.key & "\t" & dir & "\t" & spec
   if key in nxModCache: return nxModCache[key]
   var std = false
   var pkg = false
@@ -197,14 +601,18 @@ proc nxResolve*(fromPath, spec0: string): string =
       if fileExists(q): found = normalizedPath(q)
   if spec.isAbsolute: try1(spec)
   if not std and not pkg: try1(dir / spec)
+  if not std:
+    for p in proj.paths: try1(p / spec)        # (nimble.paths, atlas: before the standard library, as --path is)
   if not pkg:
     for p in nxSearchPaths: try1(p / spec)
   if not std:
-    for p in nxPkgDirs: try1(p / spec)
+    for p in proj.dirs: try1(p / spec)
+    for p in proj.rest: try1(p / spec)
     # `import foo` of a package whose module sits in src/ inside the package folder
-    let first = spec.split('/')[0].replace(".nim", "")
-    for p in nxPkgDirs:
-      if extractFilename(p).startsWith(first & "-"): try1(p / "src" / spec)
+    let first = spec.split('/')[0].replace(".nim", "").toLowerAscii
+    for ps in [proj.dirs, proj.rest]:
+      for p in ps:
+        if found.len == 0 and nxPkgSplit(extractFilename(p))[0].toLowerAscii == first: try1(p / "src" / spec)
     if found.len == 0:
       let ps = nxPackageSrc(dir)
       if ps.len > 0: try1(ps / spec)
@@ -335,13 +743,12 @@ proc nxIndexNames(sc: NxScope) =
 
 var
   nxScopeMax* = 12                     # scopes kept: the files asked about most recently (each holds thousands of refs)
-  nxScopeTick = 0
-  nxScopeUsed: Table[string, int]
+  nxScopeUsed: Table[string, int]      # path → when its scope was asked for last (nxTick)
 
 proc nxKeepScope(path: string, sc: NxScope) =
   ## remember a scope — and forget the one asked about least recently when there are too many
-  inc nxScopeTick
-  nxScopeUsed[path] = nxScopeTick
+  inc nxTick
+  nxScopeUsed[path] = nxTick
   nxScopes[path] = sc
   while nxScopes.len > nxScopeMax:
     var oldest = ""
@@ -372,8 +779,8 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
         fresh = false
         break
     if fresh:
-      inc nxScopeTick
-      nxScopeUsed[f.skey] = nxScopeTick
+      inc nxTick
+      nxScopeUsed[f.skey] = nxTick
       return old
   result = NxScope(stamp: st, own: f, modules: hs.modules)
   for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
@@ -403,19 +810,22 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
 
 proc nxScopeStamp(f: NxFile): string =
   ## what a module's scope depends on besides the files it reads: its text, the toolchain, its imports
-  result = f.stamp & "/" & $nxGen
+  result = f.stamp & "/" & $nxGen & "/" & nxProjectOf(f.path).key     # (the package versions it is read with)
   for im in f.imports: result.add "|" & im.spec & ":" & $im.only.len & ":" & $im.excepts.len
 
 proc nxScope*(f: NxFile): NxScope =
   ## what `f` can see: its own declarations, system, and its imports (a file another one `include`s: what that
   ## one sees)
   if f == nil: return NxScope()
+  inc nxBuildDepth                     # (no parsed file is dropped while a scope is made: it would hold the old one)
+  defer: nxBuildDone(f.path)
   if nxLibDir.len == 0 and f.path.len > 0:
     # no standard library known (no `nim` found) and a file of a Nim tree: that tree's
     let lib = nxLibOf(parentDir(f.path))
     if lib.len > 0:
       let (sp, roots) = (nxSearchPaths, nxPkgRoots)     # (copies: the call starts both afresh)
       nxSetToolchain(lib, sp, @[], roots)
+  if nxActive == nil and f.path.len > 0 and not nxIsPkgPath(f.path): nxActive = nxProjectOf(f.path)
   if f.path notin nxScopeBuilding:
     let hp = nxIncluderOf(f.path)
     if hp.len > 0:
@@ -434,8 +844,8 @@ proc nxScope*(f: NxFile): NxScope =
         old = nil
         break
   if old != nil and old.stamp == stamp and old.own == f:
-    inc nxScopeTick
-    nxScopeUsed[f.skey] = nxScopeTick
+    inc nxTick
+    nxScopeUsed[f.skey] = nxTick
     return old
   if old != nil and old.stamp == stamp:
     # own symbols change with every edit; imports rarely do
@@ -504,6 +914,8 @@ proc nxAt*(f: NxFile, lines: openArray[string], line: int): NxFile =
   ## code, `when defined(js)`, `when false`), the branch's own declarations and imports come first — the types it
   ## declares are not those of the branch taken here — then the file's, then those of the other left-out branches
   if f == nil or f.inactive.len == 0 or lines.len == 0 or f.scopeKey.len > 0: return f   # (an overlay already)
+  inc nxBuildDepth
+  defer: nxBuildDone(f.path)
   var inside = false
   for (a, b) in f.inactive:
     if a <= line and line <= b:
@@ -576,3 +988,60 @@ proc nxAt*(f: NxFile, lines: openArray[string], line: int): NxFile =
   if nxOverlays.len >= 16: nxOverlays.delete(0)
   nxOverlays.add (key, g)
   g
+
+proc nxTrimIndex*(keep = "") =
+  ## over nim.indexMemory: drop the parsed files needed least recently — never one open in a buffer, nor `keep` —
+  ## down to three quarters of the budget, with the scopes and `when` overlays made from them (a file comes back
+  ## when next asked for: a library file from the disk cache in a few ms)
+  if nxIndexBudget <= 0: return
+  var total = 0                         # (the sum again: a file may have been dropped elsewhere)
+  var stale: seq[string]
+  for p, b in nxFileBytes:
+    if p in nxFiles: total += b
+    else: stale.add p
+  for p in stale:
+    nxFileBytes.del p
+    nxFileUsed.del p
+  nxFilesBytes = total
+  if total <= nxIndexBudget: return
+  # when each file was needed last: asked for itself, or read by a scope asked for
+  var used = nxFileUsed
+  for k, sc in nxScopes:
+    let t = nxScopeUsed.getOrDefault(k, 0)
+    for (p, _) in sc.deps:
+      if used.getOrDefault(p, 0) < t: used[p] = t
+    if sc.own != nil and used.getOrDefault(sc.own.path, 0) < t: used[sc.own.path] = t
+  var cands: seq[(int, string)]
+  for p, _ in nxFiles:
+    if p == keep or (nxBufferStamp != nil and nxBufferStamp(p).len > 0): continue
+    cands.add (used.getOrDefault(p, 0), p)
+  cands.sort(proc(a, b: (int, string)): int = cmp(a[0], b[0]))
+  let goal = nxIndexBudget div 4 * 3
+  var gone: HashSet[string]
+  for (_, p) in cands:
+    if nxFilesBytes <= goal: break
+    gone.incl p
+    nxFiles.del p
+    nxFilesBytes -= nxFileBytes.getOrDefault(p)
+    nxFileBytes.del p
+    nxFileUsed.del p
+    inc nxDropped
+  if gone.len == 0: return
+  # the scopes that read a dropped file: they would keep it alive, and answer with it
+  var dead: seq[string]
+  for k, sc in nxScopes:
+    var hit = sc.own != nil and sc.own.path in gone
+    if not hit:
+      for (p, _) in sc.deps:
+        if p in gone:
+          hit = true
+          break
+    if hit: dead.add k
+  for k in dead:
+    nxScopes.del k
+    nxScopeUsed.del k
+  var keepO: seq[(string, NxFile)]
+  for o in nxOverlays:
+    if o[1].path notin gone: keepO.add o
+  nxOverlays = keepO
+  if nxFullParse[1] != nil and nxFullParse[1].path in gone: nxFullParse = ("", nil)

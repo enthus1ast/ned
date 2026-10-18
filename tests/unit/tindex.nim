@@ -483,4 +483,70 @@ suite "engine fixes against nimsuggest (6.8)":
                           "    else: (\"\", 1)\n  echo a, b\n")
     check tyAt(f, ls, 5, "a") == "string" and tyAt(f, ls, 5, "b") == "int"
 
+# ── completion ranked by the type the code expects (6.9) ──
+
+const ExpectSrc = "type\n  Color = enum red, green, blue\n  P = object\n    name: string\n  Q = object\n    n: int\n" &
+  "    s: string\n  Shape = ref object of RootObj\n  Circle = ref object of Shape\n" &
+  "proc paint(c: Color, times: int) = discard\nproc show(p: P) = discard\nproc makeP(): P = P(name: \"m\")\n" &
+  "proc size(q: Q): int = q.n\nproc g(a: int, b: string) = discard\nproc g(a: string, b: int) = discard\n" &
+  "proc f1(x: int) = discard\nproc f1(x: string) = discard\nproc draw(s: Shape) = discard\n" &
+  "proc many(xs: varargs[string]) = discard\nproc total(): int =\n  let count = 3\n  let title = \"x\"\n" &
+  "  let shade = green\n  let pp = P(name: \"a\")\n  let q = Q(n: 1)\n  let nat: Natural = 2\n  let c = Circle()\n" &
+  "  var s: string\n  "
+
+proc expectAt(tail: string): NxCompletion =
+  ## completion at the end of `tail`, written on the last line of a routine that has locals of every kind
+  let (f, ls) = fixture(ExpectSrc & tail & "\n")
+  nxComplete(f, ls, ls.high - 1, ls[^2].len)
+
+proc first(c: NxCompletion): seq[string] =
+  ## the labels offered first: those ranked before every local (what the expected type put in front)
+  for it in c.items:
+    if it.rank < 0 and it.label notin result: result.add it.label
+
+proc rankOf(c: NxCompletion, label: string): int =
+  result = high(int)
+  for it in c.items:
+    if it.label == label: result = min(result, it.rank)
+
+suite "completion ranked by the expected type":
+  test "a call's argument: the values and routines of the parameter's type first, the rest still there":
+    let c = expectAt("paint(")
+    check "shade" in c.first and "red" in c.first and "blue" in c.first
+    check "count" notin c.first and "count" in c.labels and "title" in c.labels
+    let d = expectAt("paint(shade, ")
+    check "count" in d.first and "nat" in d.first and "size" in d.first     # (a Natural is an int; size returns one)
+    check "shade" notin d.first and "title" notin d.first
+    check rankOf(d, "len") == 2                     # (system's int routines: one step up only, there are hundreds)
+    let e = expectAt("show(")
+    check "pp" in e.first and "makeP" in e.first and "P" in e.first and "count" notin e.first
+
+  test "overloads: the type they agree on, or the one of those that fit the arguments so far":
+    check expectAt("f1(").first.len == 0          # (int or string: nothing goes first)
+    let c = expectAt("g(count, ")
+    check "title" in c.first and "s" in c.first and "count" notin c.first
+    check "count" in expectAt("g(title, ").first
+
+  test "a named argument, varargs, a subtype, a field in an object constructor":
+    check "count" in expectAt("paint(times = ").first
+    check "title" in expectAt("many(title, ").first
+    check "c" in expectAt("draw(").first
+    let p = expectAt("discard P(name: ")
+    check "title" in p.first and "count" notin p.first
+
+  test "let x: T = , x = , result = , return , == against a typed value":
+    check "title" in expectAt("let t2: string = ").first
+    check "count" in expectAt("var n2: int = ").first and "title" notin expectAt("var n2: int = ").first
+    check "title" in expectAt("s = ").first
+    check "count" in expectAt("result = ").first and "count" in expectAt("return ").first
+    let e = expectAt("if shade == ")
+    check "red" in e.first and "green" in e.first and "count" notin e.first
+    check expectAt("let t3 = ").first.len == 0 and expectAt("echo ").first.len == 0
+
+  test "member completion where a type is expected: that type's members first":
+    let c = expectAt("paint(shade, q.")
+    check c.member and "n" in c.first and "size" in c.first and "s" notin c.first
+    check "s" in expectAt("s = q.").first
+    check "name" in expectAt("let nm: string = pp.").first
+
 removeDir(dir)

@@ -1,7 +1,7 @@
 ## The index kept on disk (nim.indexCache): a library file read from the cache is the same as one parsed afresh;
 ## a changed text, other defines or a damaged cache file are never used. Run: nim r tests/unit/tdiskcache.nim
 
-import std/[os, strutils, unittest, random, sets, times]
+import std/[os, strutils, unittest, random, sets, times, algorithm, tables]
 import ../../src/ned/nim/index
 
 proc nimLib(): string =
@@ -139,5 +139,55 @@ suite "the index on disk":
     check nxParseDisk(pkg).syms.len == 1
     check cacheFiles().len == before
     nxDiskCache = true
+
+suite "the index's memory (nim.indexMemory)":
+  test "over the budget the files asked about least recently go — never an open one — and come back the same":
+    var libFiles: seq[string]
+    for f in walkDirRec(lib / "pure"):
+      if f.endsWith(".nim") and getFileSize(f) < 200_000: libFiles.add f
+    libFiles.sort()
+    # a project file importing strutils, "open in a buffer"
+    let mine = tmp / "proj" / "open.nim"
+    createDir(mine.parentDir)
+    let text = "import std/strutils\nlet s = \"x\"\necho s.toUpp\n"
+    writeFile(mine, text)
+    nxBufferStamp = proc(p: string): string = (if p == mine: "b1:1" else: "")
+    nxBufferLines = proc(p: string): seq[string] = (if p == mine: text.split('\n') else: @[])
+    let f = nxLoad(mine)
+    let ls = text.split('\n')
+    let before = nxComplete(f, ls, 2, ls[2].len)
+    check before.items.len > 0
+    nxIndexBudget = 400_000
+    let dropped0 = nxDropped
+    for p in libFiles[0 ..< min(80, libFiles.len)]: discard nxLoad(p)
+    check nxDropped > dropped0
+    check nxFilesBytes <= nxIndexBudget
+    check mine in nxFiles                              # (open: kept)
+    var labels: seq[string]
+    for it in before.items: labels.add it.label
+    var again: seq[string]
+    for it in nxComplete(nxLoad(mine), ls, 2, ls[2].len).items: again.add it.label
+    check again == labels                              # (what was dropped is read again: the same answer)
+    check "toUpperAscii" in again
+    nxIndexBudget = 0                                  # (no limit: nothing goes)
+    let dropped1 = nxDropped
+    for p in libFiles[0 ..< min(80, libFiles.len)]: discard nxLoad(p)
+    check nxDropped == dropped1
+    nxBufferStamp = nil
+    nxBufferLines = nil
+
+  test "what a parsed file takes, as counted, is near what freeing it gives back":
+    nxForgetFiles()
+    nxScopes.clear()
+    nxIndexBudget = 0
+    GC_fullCollect()
+    let m0 = getOccupiedMem()
+    for f in walkDirRec(lib / "pure"):
+      if f.endsWith(".nim"): discard nxLoad(f)
+    let counted = nxFilesBytes
+    GC_fullCollect()
+    let used = getOccupiedMem() - m0
+    check counted > 1_000_000
+    check counted.float > used.float * 0.6 and counted.float < used.float * 1.4
 
 removeDir(tmp)

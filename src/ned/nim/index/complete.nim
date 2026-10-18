@@ -354,6 +354,288 @@ proc nxPostfixShape*(sc: NxScope, typ: string, depth = 0): (string, seq[string])
       return nxPostfixShape(sc, def, depth + 1)
     return
 
+# ── the type expected where a word is completed: the items of that type are offered first ──
+
+const NxNoExpect = ["untyped", "typed", "auto", "any", "typedesc", "type", "void", "RootObj", "RootRef"]
+
+proc nxPlainType(t: string): bool =
+  ## a type of the language's own (numbers, string, bool, char…): many routines return one, few are what you want
+  let b = nxBaseName(t)
+  b in NxInts or b in NxFloats or b in ["string", "cstring", "bool", "char", "seq", "array", "set", "openArray",
+                                         "varargs", "pointer"]
+
+proc nxArgTypes(f: NxFile, sc: NxScope, locals: seq[NxSym], args: seq[string], line: int,
+                memo: var Table[string, string]): seq[string] =
+  ## the types of the arguments written so far ("" unknown), each worked out once
+  for a in args:
+    let t = a.strip
+    if t notin memo:
+      memo[t] = (if t.len == 0 or t.len > 200 or nxFindTop(t, '=') > 0: "" else: nxTypeOfExpr(f, sc, locals, t, line, 0).typ)
+    result.add memo[t]
+
+proc nxArgElem(t: string): string =
+  ## what one argument for a parameter of this type is: T for `varargs[T]`, T for `var T`
+  let x = nxStripValMods(t)
+  if x.startsWith("varargs[") and x.endsWith("]"): x[8 ..< ^1].strip else: x
+
+proc nxExpectedType*(f: NxFile, sc: NxScope, lines: seq[string], locals: seq[NxSym], line, col: int,
+                     h: NxSigHelp): string =
+  ## the type the code wants where a word starts at (line, col) — "" when it cannot be told: an argument of a
+  ## call where every overload that fits so far wants the same type there, a field in an object constructor,
+  ## `let x: T = `, `x = ` (x's type), `result = `, `return ` / `yield `, `==` / `!=` / `<` … against a typed operand
+  let text = lines[line]
+  let b = text[0 ..< min(col, text.len)].strip(leading = false)
+  if b.len == 0: return
+  # the arguments written so far in the call around (on this line), and the name of this one if it has one
+  var callArgs: seq[string]
+  var argName = ""
+  var argStart = false
+  if h.overloads.len > 0:
+    var q = b.high
+    var d = 0
+    while q >= 0:
+      if b[q] in {')', ']', '}'}: inc d
+      elif b[q] in {'(', '[', '{'}:
+        if d == 0: break
+        dec d
+      elif b[q] == '"':
+        dec q
+        while q >= 0 and b[q] != '"': dec q
+      dec q
+    if q >= 0 and b[q] == '(':
+      callArgs = nxSplitTop(b[q + 1 .. ^1] & " ", {','})
+      let cur = callArgs.pop.strip            # (the one being written)
+      if cur.len == 0: argStart = true
+      elif cur.len > 1 and cur[^1] in {'=', ':'} and cur[^2] notin NxOpChars:
+        let nm = cur[0 ..< ^1].strip
+        if nm.len > 0 and nm.allCharsInSet(IdentChars + {'`'}):     # (name = …, or a constructor's name: …)
+          argName = nm
+          argStart = true
+  if argStart:
+    let ctor = h.overloads[0].sym.pragmas == "ned:constructor"
+    if ctor:
+      # Foo(name: |) — the field's type
+      if argName.len == 0: return
+      for p in h.overloads[0].sym.params:
+        if nxNorm(p.name.strip(chars = {'`', '*'})) == nxNorm(argName): return p.typ
+      return
+    var memo: Table[string, string]
+    let given = if callArgs.len <= 6: nxArgTypes(f, sc, locals, callArgs, line, memo) else: @[]
+    var named = false
+    for a in callArgs:
+      if nxFindTop(a, '=') > 0: named = true      # (an argument by name before: positions no longer tell)
+    if named and argName.len == 0: return
+    let skip = if h.ufcs: 1 else: 0
+    var want = ""
+    var any = false
+    for r in h.overloads[0 ..< min(h.overloads.len, 40)]:
+      let ps = r.sym.params
+      var pt = ""
+      var k = -1
+      if argName.len > 0:
+        for i, p in ps:
+          if nxNorm(p.name.strip(chars = {'`', '*'})) == nxNorm(argName): k = i
+        if k < 0: continue
+      else:
+        k = h.active + skip
+        if k >= ps.len:
+          if ps.len > 0 and nxStripMods(ps[^1].typ).startsWith("varargs["): k = ps.high
+          else: continue                         # (fewer parameters: does not fit)
+      pt = ps[k].typ
+      if pt.len == 0 and ps[k].default.len > 0: pt = nxLiteralType(ps[k].default)
+      # does it fit the arguments written so far?
+      var fits = true
+      if argName.len == 0:
+        for i, t in given:
+          let at = if i + skip < ps.len: i + skip else: ps.high
+          if t.len > 0 and at >= 0 and ps[at].typ.len > 0 and
+             nxCompat(sc, nxArgElem(ps[at].typ), r.sym.generics, t) == 0:
+            fits = false
+            break
+      if not fits: continue
+      any = true
+      pt = nxArgElem(pt)
+      let pb = nxBaseName(pt)
+      if pt.len == 0 or pb in NxNoExpect or nxIsGenericName(pb, r.sym.generics) or
+         (pb.len <= 2 and pb.len > 0 and pb[0] in {'A'..'Z'} and nxTypeSyms(sc, pb).len == 0) or
+         pt.startsWith("proc") or '|' in pt or pt.startsWith("static"):
+        return                                   # (one that takes anything there: nothing to put first)
+      if want.len == 0: want = pt
+      elif nxNorm(nxFlat(want).replace(" ", "")) != nxNorm(nxFlat(pt).replace(" ", "")): return   # (two types wanted)
+    return (if any: want else: "")
+  if b.endsWith("=") and not b.endsWith("==") and (b.len < 2 or b[^2] notin {'<', '>', '!', '=', '+', '-', '*', '/', '&',
+                                                                              '|', '^', '%', '~', '.', ':'}):
+    let lhs = b[0 ..< ^1].strip
+    for kw in ["proc ", "func ", "method ", "iterator ", "converter ", "template ", "macro ", "type "]:
+      if lhs.startsWith(kw): return                              # (a routine's body, a type's definition)
+    # let x: T = …, var x: T = …, a name in a var section (x: T = …)
+    let c = nxFindTop(lhs, ':')
+    if c > 0:
+      var names = lhs[0 ..< c].strip
+      for kw in ["let ", "var ", "const "]:
+        if names.startsWith(kw): names = names[kw.len .. ^1].strip
+      for n in names.split(','):
+        let n2 = nxStripPragma(n.strip)[0].strip(chars = {'*', '`', ' '})
+        if n2.len == 0 or not n2.allCharsInSet(IdentChars): return    # (`if c: x = …`, `of a: …`)
+      var t = lhs[c + 1 .. ^1].strip
+      let p = t.find("{.")
+      if p >= 0: t = t[0 ..< p].strip
+      if t.len > 0 and t[0] notin {'"', '\''}: return t
+      return
+    for kw in ["let ", "var ", "const "]:
+      if lhs.startsWith(kw) or (" " & kw) in lhs: return        # (no type written: nothing to expect)
+    let target = nxReceiver(lhs, lhs.len)
+    if target.len == 0 or target != lhs.strip and not lhs.endsWith(" " & target) and not lhs.endsWith(":" & target):
+      return
+    return nxTypeOfExpr(f, sc, locals, target, line, 0).typ
+  let lastWord = b[max(0, max(b.rfind(' '), b.rfind(':')) + 1) .. ^1]
+  if lastWord in ["return", "yield"] and (b == lastWord or b[b.high - lastWord.len] in {' ', ':', ';', '('}):
+    for s in locals:
+      if s.kind == nxResult: return s.typ
+    let ri = nxEnclosing(f, line)
+    if ri >= 0 and f.syms[ri].kind == nxIterator and lastWord == "yield": return f.syms[ri].ret
+    return
+  for op in ["==", "!=", "<=", ">=", "<", ">"]:
+    if b.endsWith(op):
+      let le = b[0 ..< b.len - op.len].strip(leading = false)
+      if le.len == 0 or le[^1] in NxOpChars: return             # (..<, =>, <<)
+      let left = nxReceiver(le, le.len)
+      if left.len == 0: return
+      return nxTypeOfExpr(f, sc, locals, left, line, 0).typ
+
+type NxFitMemo = object
+  full, base: Table[string, bool]      # (a type as written → fits; a base type name → fits)
+  w, wb, wAlias: string                # the expected type, its base name and what that is an alias of (normalized)
+  alts: seq[string]                    # a union's alternatives (normalized base names)
+  wInt, wFloat, wList, wChars: bool    # an integer, a float, an openArray / varargs (of char) is expected
+  subs: HashSet[string]                # the expected object type and the types inheriting from it (normalized)
+  parentMade: bool
+
+proc nxFitInit(sc: NxScope, w: string): NxFitMemo =
+  result.w = w
+  let b = nxBaseName(w)
+  result.wb = nxNorm(b)
+  let ra = nxResolveAlias(sc, b)
+  result.wAlias = nxNorm(ra)
+  result.wInt = b in NxInts or ra in NxInts
+  result.wFloat = b in NxFloats or ra in NxFloats
+  result.wList = b in ["openArray", "varargs"]
+  if result.wList:
+    let a = nxTypeArgs(w)
+    result.wChars = a.len > 0 and a[0] == "char"
+  let alts = nxUnionAlts(sc, w)
+  if alts.len > 1:
+    for x in alts: result.alts.add nxNorm(nxBaseName(x))
+
+proc nxSubtypeFits(sc: NxScope, m: var NxFitMemo, tb: string): bool =
+  ## an object type that inherits from the expected one — the types of the scope that do are worked out once:
+  ## `X = object of Y` from Y down, and `PX = ref X` of each
+  if not m.parentMade:
+    m.parentMade = true
+    let (pr, _) = nxObjectDef(sc, m.w)
+    if pr.file != nil:
+      var kids, refOf: Table[string, seq[string]]
+      for r in sc.refs:
+        template s: untyped = r.file.syms[r.idx]
+        if s.kind != nxType: continue
+        let k = s.typ.find(" of ")
+        if k > 0 and "object" in s.typ[0 ..< k]:
+          kids.mgetOrPut(nxNorm(nxBaseName(s.typ[k + 4 .. ^1])), @[]).add nxNorm(s.name)
+        elif s.typ.startsWith("ref ") or s.typ.startsWith("ptr "):
+          refOf.mgetOrPut(nxNorm(nxBaseName(s.typ)), @[]).add nxNorm(s.name)
+      var todo = @[m.wb, nxNorm(pr.sym.name)]
+      var i = 0
+      while i < todo.len and i < 5000:
+        let x = todo[i]
+        inc i
+        if x in m.subs: continue
+        m.subs.incl x
+        for c in kids.getOrDefault(x): todo.add c
+        for c in refOf.getOrDefault(x): todo.add c
+  nxNorm(tb) in m.subs
+
+proc nxFitsExpected(sc: NxScope, m: var NxFitMemo, t0: string): bool =
+  ## can a value of type `t` go where the expected type is wanted: the same type, an alias of it, a number that
+  ## converts without a cast, a seq for an openArray, a subtype — with the same type arguments
+  if t0.len == 0: return false
+  if t0 in m.full: return m.full[t0]
+  let t = if t0[0] in {'v', 's', 'l', 'o'}: nxStripValMods(t0) else: t0     # (var T, sink T, lent T …: a T)
+  let tb = nxBaseName(t)
+  let n = nxNorm(tb)
+  if n.len == 0: result = false
+  elif n in m.base: result = m.base[n]
+  else:
+    result = n == m.wb or n in m.alts
+    if not result:
+      let ta = nxResolveAlias(sc, tb)
+      let na = nxNorm(ta)
+      result = na == m.wAlias or na in m.alts or
+               (m.wInt and (tb in NxInts or ta in NxInts)) or (m.wFloat and (tb in NxFloats or ta in NxFloats)) or
+               (m.wList and tb in ["seq", "array", "openArray", "varargs"]) or
+               (m.wChars and tb in ["string", "cstring"])
+      if not result and not m.wInt and not m.wFloat and not m.wList: result = nxSubtypeFits(sc, m, tb)
+    m.base[n] = result
+  if result and '[' in m.w and '[' in t and not m.wList:
+    let wa = nxTypeArgs(m.w)
+    let ta = nxTypeArgs(t)
+    if wa.len == ta.len:
+      for i in 0 ..< wa.len:
+        if nxNorm(nxFlat(wa[i]).replace(" ", "")) != nxNorm(nxFlat(ta[i]).replace(" ", "")) and
+           nxCompat(sc, wa[i], "", ta[i]) < 2: result = false
+  m.full[t0] = result
+
+proc nxRankExpected*(items: var seq[NxItem], f: NxFile, sc: NxScope, want: string, recv = "") =
+  ## put the items whose type (or result type) fits the expected one first — the others keep their place behind them:
+  ## locals and this module's declarations first; another module's only when the type is not a number, a string,
+  ## a bool … (of those there are hundreds: they move one step up)
+  let w = nxStripValMods(want)
+  if w.len == 0 or nxBaseName(w) in NxNoExpect: return
+  let plain = nxPlainType(w)
+  let wb = nxNorm(nxBaseName(w))
+  var memo = nxFitInit(sc, w)
+  var inferred = 0
+  for it in items.mitems:
+    if it.detail == "keyword" or it.kind == nxModule: continue
+    var fits = false
+    if it.refs.len == 0:
+      template s: untyped = it.local                 # (no copy of the declaration)
+      if s.kind in NxRoutineKinds: fits = nxFitsExpected(sc, memo, s.ret)
+      elif s.kind == nxType: fits = not plain and nxNorm(s.name) == wb
+      elif s.kind in {nxField, nxParam} and it.insert.len > 0: fits = false     # (`name: ` / `name = `)
+      else: fits = nxFitsExpected(sc, memo, s.typ)
+    else:
+      for r in it.refs:
+        template s: untyped = r.file.syms[r.idx]
+        case s.kind
+        of NxRoutineKinds:
+          if s.ret.len == 0 or s.ret == "auto": continue
+          if s.generics.len > 0:
+            if recv.len == 0: continue                    # (a generic result: what it is depends on the call)
+            let rt = nxSubst(nxStripValMods(s.ret), nxBindings(s, recv))
+            if nxIsGenericName(nxBaseName(rt), s.generics): continue
+            fits = nxFitsExpected(sc, memo, rt)
+          else: fits = nxFitsExpected(sc, memo, s.ret)
+        of nxType:
+          if not plain:
+            if nxNorm(s.name) == wb: fits = true
+            elif " of " in s.typ: fits = nxSubtypeFits(sc, memo, s.name)   # (only a type that inherits can be one)
+        of nxEnumVal: fits = nxFitsExpected(sc, memo, s.owner)
+        of nxField: fits = nxFitsExpected(sc, memo, if it.detail.len > 0: it.detail else: s.typ)
+        else:
+          if s.typ.len > 0: fits = nxFitsExpected(sc, memo, s.typ)
+          elif s.value.len > 0:
+            var t = nxLiteralType(s.value)
+            if t.len == 0 and r.file == f and inferred < 40:
+              # (a declaration of this module written without a type: what its value is, for the first few)
+              inc inferred
+              t = nxTypeOfExpr(f, sc, @[], s.value, s.line, 0).typ
+            fits = nxFitsExpected(sc, memo, t)
+        if fits: break
+    if not fits: continue
+    # (a number, a string … expected: the system's and other modules' values and routines of that type are many —
+    # one step up only, behind the locals; an enum's values always first)
+    it.rank = if it.rank <= 1 or not plain or it.kind == nxEnumVal: -1 else: max(0, it.rank - 1)
+
 proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
   let f = nxAt(f, lines, line)             # (code in a `when` branch left out here: as that branch sees it)
   let sc = nxScope(f)
@@ -539,6 +821,18 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
           for r in nxLookup(sc, nm):
             if r.sym.kind in NxRoutineKinds and r.sym.name notin have: reqs.add r
         nxAddRefs(result.items, f, reqs, ufcs = true, rankBias = -1)
+    # where a type is expected (`f(p.`, `let n: int = p.`, `result = p.` …): the members of that type first
+    if result.known:
+      let rs = ws - 1 - recv.len
+      if rs >= 0 and joined == text[0 ..< ws - 1] and text[rs ..< ws - 1] == recv:
+        let before = text[0 ..< rs].strip(leading = false)
+        if before.len > 0 and (before[^1] in {'(', ',', '=', ':', '<', '>'} or before.endsWith("return") or
+                               before.endsWith("yield")):
+          let h2 = if before[^1] in {'(', ',', '=', ':'}: nxSignatureHelp(f, lines, line, rs) else: NxSigHelp()
+          var want = ""
+          try: want = nxExpectedType(f, sc, lines, locals, line, rs, h2)
+          except CatchableError: want = ""
+          if want.len > 0: nxRankExpected(result.items, f, sc, want, recv = typ)
     return
   # a plain name: locals, this module, imports, system, module names, keywords
   var seenLocal: HashSet[string]
@@ -598,7 +892,13 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
           result.items.add NxItem(label: pn & " =", insert: pn & " = ", detail: what & " · " & r.sym.name & "'s argument",
                                   kind: nxParam, rank: 1, local: NxSym(name: pn, kind: nxParam, typ: ps[i].typ,
                                   value: ps[i].default))
-  # `of` in a case on an enum, or `x == `: the enum's values (those no branch has taken yet first)
+  # the type the code wants here (an argument, `let x: T = `, `result = ` …): the items of that type first
+  var expect = ""
+  let leadE = text[0 ..< ws].strip
+  if not (leadE == "of" or (leadE.startsWith("of ") and leadE.endsWith(","))):
+    try: expect = nxExpectedType(f, sc, lines, locals, line, ws, h)
+    except CatchableError: expect = ""
+  # `of` in a case on an enum, `x == `, or an enum expected: the enum's values (those no branch has taken yet first)
   block enumValues:
     let lead = text[0 ..< ws].strip
     var et = ""
@@ -629,6 +929,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
           let sp = max(le.rfind(' '), le.rfind('('))
           if sp >= 0: le = le[sp + 1 .. ^1]
           if le.len > 0: et = nxTypeOfExpr(f, sc, locals, le, line, 0).typ
+      if et.len == 0: et = expect
     if et.len == 0: break enumValues
     let eb = nxBaseName(nxStripMods(et))
     for r in nxTypeSyms(sc, eb):
@@ -643,6 +944,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
           result.items.add NxItem(label: s2.name, detail: r.sym.name & (if used: " · has a branch" else: ""),
                                   kind: nxEnumVal, rank: (if used: 3 else: 0), refs: @[NxRef(file: r.file, idx: int32(i))])
       break
+  if expect.len > 0: nxRankExpected(result.items, f, sc, expect)
 
 proc nxRstToMd*(doc0: string): string =
   ## Nim doc comments are RST-flavoured: turn code blocks and ``literals`` into Markdown

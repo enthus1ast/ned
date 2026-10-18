@@ -272,6 +272,18 @@ proc nimDiagFixes(b: Buffer, d: Diag): seq[(string, string, Action)] =
     result.add act("Discard the result", "discard " & truncTo(ex, 40),
                    qAct(b, @[(Pos(line: d.line, col: at), Pos(line: d.line, col: at), "discard ")], ""))
     return
+  # ── 'x' is never changed: it can be a let (ned's own hint)
+  if "is never changed: it can be a let" in first:
+    let nm = quotedName(first)
+    let t = s.strip(trailing = false)
+    let ind = s.len - t.len
+    # (only `var x = …` alone on its line: a section's member would need moving out of it)
+    let comma = t.find(',')
+    if nm.len > 0 and t.startsWith("var ") and t[4 .. ^1].strip.startsWith(nm) and
+       (comma < 0 or comma > t.find('=')):
+      result.add act("Make " & nm & " a let", "var → let: nothing changes it",
+                     qAct(b, @[(Pos(line: d.line, col: ind), Pos(line: d.line, col: ind + 3), "let")], ""))
+    return
   # ── 'x' cannot be assigned to · expression 'x' is immutable, not 'var'
   var immut = ""
   if "cannot be assigned to" in first: immut = quotedName(first)
@@ -584,6 +596,7 @@ proc nimFixKind(d: Diag): string =
   elif "bare except clause is deprecated" in f or "[BareExcept]" in f: "bareExcept"
   elif "imported and not used" in f: "unusedImport"
   elif "is deprecated" in f: "deprecated:" & quotedName(f)
+  elif "is never changed: it can be a let" in f: "varLet"
   else: ""
 
 proc nimFixAll(b: Buffer, kind: string): (int, Action) =
@@ -613,6 +626,15 @@ proc nimFixAll(b: Buffer, kind: string): (int, Action) =
       let k = s.find("except:")
       if k >= 0:
         edits.add (Pos(line: d.line, col: k), Pos(line: d.line, col: k + 7), "except CatchableError:")
+        inc n
+    of "varLet":
+      # (the fix's own test: `var x = …` alone on its line)
+      let t = s.strip(trailing = false)
+      let ind = s.len - t.len
+      let nm = quotedName(d.msg)
+      let comma = t.find(',')
+      if nm.len > 0 and t.startsWith("var ") and t[4 .. ^1].strip.startsWith(nm) and (comma < 0 or comma > t.find('=')):
+        edits.add (Pos(line: d.line, col: ind), Pos(line: d.line, col: ind + 3), "let")
         inc n
     else:
       if kind.startsWith("deprecated:"):

@@ -245,6 +245,16 @@ echo s.aera
 BAD2 = '''let q: int = "text"
 '''
 
+HINTS = '''proc total(xs: seq[int]): int =
+  var sum = 0
+  for x in xs: sum += x
+  var limit = 10
+  echo limit
+  result = sum
+
+echo total(@[1, 2])
+'''
+
 FMT = '''proc  f( a:int ):int=a+1
 echo   f(2)
 '''
@@ -620,6 +630,22 @@ def run_checks(nedls, root, have_nim, log):
         ds = c.wait_diagnostics(uri(bad_p), lambda ds: not any("aera" in d["message"] for d in ds), timeout=60)
         check("diagnostics while typing: the fixed text has no error", ds is not None and
               not any(d["severity"] == 1 for d in ds), ds)
+        # the engine's own hints (no compiler run): a var nothing changes, and its quick fix
+        hints_p = os.path.join(src, "hints.nim")
+        open_doc(c, hints_p, HINTS)
+        ds = c.wait_diagnostics(uri(hints_p), lambda ds: any("is never changed" in d["message"] for d in ds),
+                                timeout=60)
+        hv = [d for d in ds or [] if "'limit' is never changed" in d["message"]]
+        check("engine hint: a var nothing changes can be a let (on its name)",
+              hv and hv[0]["severity"] == 4 and range_text(HINTS, hv[0]["range"]) == "limit" and
+              not any("'sum'" in d["message"] for d in ds), ds)
+        if hv:
+            r = c.request("textDocument/codeAction", {"textDocument": {"uri": uri(hints_p)}, "range": hv[0]["range"],
+                                                      "context": {"diagnostics": hv}})
+            acts = (r or {}).get("result") or []
+            fix = [a for a in acts if a["title"] == "Make limit a let"]
+            ok = fix and "let limit = 10" in apply_edits(HINTS, fix[0]["edit"]["changes"][uri(hints_p)])
+            check("codeAction: var → let", ok, [a["title"] for a in acts])
     else:
         print("SKIP  diagnostics (no nim on PATH)")
 
