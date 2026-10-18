@@ -78,7 +78,7 @@ var
   termSplit = false            # two terminals side by side
   termOther = -1               # … the one that is not curTerm
 
-proc blankCell(t: Term): TCell = TCell(ch: 32, fg: NoColor, bg: t.bg)
+func blankCell(t: Term): TCell = TCell(ch: 32, fg: NoColor, bg: t.bg)
 proc blankRow(t: Term): TRow =
   result = newSeq[TCell](t.w)
   let c = t.blankCell

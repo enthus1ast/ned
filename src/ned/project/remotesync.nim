@@ -1,7 +1,7 @@
 proc remotesFile(): string = stateDir() / "remote" / "remotes.json"
 
 proc saveRemotes() =
-  var j = newJArray()
+  let j = newJArray()
   for r in remotes: j.add %*{"host": r.host, "path": r.path, "absPath": r.absPath, "mirror": r.mirror, "git": r.git,
                              "pulledAt": r.pulledAt}
   try:
@@ -21,7 +21,7 @@ proc loadRemotes() =
                          git: x{"git"}.getBool, pulledAt: x{"pulledAt"}.getFloat)
   except CatchableError: discard
 
-proc remoteSafe(s: string): string =
+func remoteSafe(s: string): string =
   for c in s:
     result.add (if c.isAlphaNumeric or c in {'-', '_', '.'}: c else: '_')
 

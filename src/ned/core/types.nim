@@ -113,6 +113,7 @@ type
     raw: string         # the server's own words, when msg was tidied (sent back when asking for its fixes)
     fixes: JsonNode     # the fixes the server sent with it (clangd: codeActionsInline), nil when none
     srv: int            # the language server that reported it (its uid; 0: not a language server)
+    rule: string        # ned's own checks: the rule that found it ("var-let", "unused-import" …; .ned/lint.json)
 
   Buffer = ref object
     id: int

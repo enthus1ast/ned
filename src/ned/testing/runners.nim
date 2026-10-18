@@ -11,7 +11,7 @@ var
   testStatus = initTable[string, int]()    # "file::name" → 1 ok, 2 failed, 3 running, 4 skipped
   testRunPath = ""
 
-proc quotedName(t: string, kw: string): string =
+func quotedName(t: string, kw: string): string =
   ## test "name": → name
   let s = t.strip
   if not s.startsWith(kw): return ""
@@ -21,11 +21,11 @@ proc quotedName(t: string, kw: string): string =
   if e < 0: return ""
   s[q + 1 ..< e]
 
-proc testKey(path, name: string): string = path & "::" & name
+func testKey(path, name: string): string = path & "::" & name
 
 # ── tests in other languages: pytest, go test, cargo test (▶ in the gutter, the test explorer) ──
 
-proc testLangOf(path: string): string =
+func testLangOf(path: string): string =
   if path.endsWith(".py"): "py"
   elif path.endsWith("_test.go"): "go"
   elif path.endsWith(".rs"): "rs"
@@ -35,7 +35,7 @@ proc testLangOf(path: string): string =
   elif path.endsWith(".kt") or path.endsWith(".java"): "jvm"
   else: ""
 
-proc testMethodName(t: string): string =
+func testMethodName(t: string): string =
   ## the method declared on a line: `fun name(` / `fun `two words`(` / `void name(` / `public function name(`
   let bt = t.find("fun `")
   if bt >= 0:
@@ -52,7 +52,7 @@ proc testMethodName(t: string): string =
   if before.len == 0 or before.endsWith("=") or before.endsWith(".") or before.endsWith("new"): return ""
   t[a ..< e]
 
-proc testAttrLine(lang, t: string): bool =
+func testAttrLine(lang, t: string): bool =
   ## an attribute or annotation that makes the next method a test
   case lang
   of "cs": t.startsWith("[Fact") or t.startsWith("[Theory") or t.startsWith("[Test") or
@@ -255,7 +255,7 @@ proc otherTestCmd(path, filter: string): (string, string) =
        " 2>&1", root)
   else: ("", "")
 
-proc otherTestAt(b: Buffer, l: int): (string, bool) =
+func otherTestAt(b: Buffer, l: int): (string, bool) =
   ## a test (or test class) declared on line l of a Python, Go or Rust file: (its name, a group of tests?)
   let s = b.lines[l]
   let t = s.strip(trailing = false)

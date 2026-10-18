@@ -105,7 +105,7 @@ proc drawTooltip() =
   if i < 0 or regions[i].tip.len == 0: return
   let t = regions[i].tip
   let w = strWidth(t) + 2
-  var x = clamp(mouseX - w div 2, 0, max(0, scrW - w))
+  let x = clamp(mouseX - w div 2, 0, max(0, scrW - w))
   var y = mouseY + 1
   if y >= scrH - 1: y = mouseY - 1
   fillRect(x, y, w, 1, theme.fg, theme.toastBg)

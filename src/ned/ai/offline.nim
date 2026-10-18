@@ -25,7 +25,7 @@ proc memTotalMB(): int =
     except ValueError: discard
   0
 
-proc localModelFits(mb: int): int =
+func localModelFits(mb: int): int =
   ## the biggest of LocalModels that runs well in this much memory (0: the smallest)
   result = 0
   for i, (_, _, need) in LocalModels:

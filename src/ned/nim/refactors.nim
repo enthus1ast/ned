@@ -1,6 +1,6 @@
 # ── refactors: extract a variable, inline one, "a" & x → fmt"a{x}", and evaluating Nim at compile time ──
 
-proc stmtStart(b: Buffer, line: int): int =
+func stmtStart(b: Buffer, line: int): int =
   ## the first line of the statement `line` belongs to (lines that end with , ( [ { or an operator continue)
   result = line
   while result > 0:

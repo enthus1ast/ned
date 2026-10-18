@@ -41,7 +41,7 @@ proc wsRemoveFolder(d: string) =
 proc wsSave(path0: string) =
   var f = absolutePath(expandTilde(path0.strip)).normalizedPath
   if not (f.endsWith(".ned-workspace") or f.endsWith(".code-workspace")): f.add ".ned-workspace"
-  var folders = newJArray()
+  let folders = newJArray()
   for d in @[rootDir] & wsRoots:
     let rel = relativePath(d, parentDir(f))
     folders.add %*{"path": (if rel.startsWith("../../..") : d else: rel)}

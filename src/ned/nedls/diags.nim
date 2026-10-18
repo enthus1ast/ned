@@ -50,7 +50,9 @@ proc lsDiagnosticsOf(path: string): JsonNode =
     var j = %*{"range": lsRangeIn(lines, d.line, max(0, sc), el, max(0, ec)),
                "severity": clamp(d.sev, 1, 4), "message": msg.strip(leading = false)}
     if d.src.len > 0: j["source"] = %(if d.src == "ned": "nedls" else: d.src)
+    if d.rule.len > 0: j["code"] = %d.rule          # (ned's own rule: what .ned/lint.json and `# ned: ignore[…]` name)
     if "is deprecated" in d.msg: j["tags"] = %*[2]
+    elif d.rule in ["unused-local", "unused-import", "unused-param", "unreachable"]: j["tags"] = %*[1]
     result.add j
   # names the compiler says are not used: faded, as in the editor
   for (l, c, name) in unusedHints.getOrDefault(path):

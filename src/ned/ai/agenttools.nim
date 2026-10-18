@@ -1,4 +1,4 @@
-proc toolKind(name: string): int =
+func toolKind(name: string): int =
   ## 0 read-only, 1 edits files, 2 runs commands (an MCP server's tool counts as a command)
   if name.startsWith("mcp__"): return 2
   case name
@@ -42,7 +42,7 @@ proc bufferFor(path: string): Buffer =
   lspAttach(b)
   b
 
-proc posAt(text: string, off: int): Pos =
+func posAt(text: string, off: int): Pos =
   var line = 0
   var ls = 0
   for i in 0 ..< min(off, text.len):

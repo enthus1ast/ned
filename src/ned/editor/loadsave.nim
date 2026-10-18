@@ -2,7 +2,7 @@
 #  Loading & saving
 # ════════════════════════════════════════════════════════════════════════════
 
-proc detectIndent(b: Buffer) =
+func detectIndent(b: Buffer) =
   var tabs, spaced = 0
   var counts: array[9, int]
   var prev = 0

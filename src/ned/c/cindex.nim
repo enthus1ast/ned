@@ -199,7 +199,7 @@ proc cxIsTypeStart(toks: seq[CxTok], k: int, typedefs: HashSet[string]): bool =
   let w = toks[k].text
   w in CxTypeWords or w in typedefs or w.endsWith("_t")
 
-proc cxNoise(w: string): bool =
+func cxNoise(w: string): bool =
   ## words that are not part of the C a reader cares about: attributes, export and calling macros
   w.startsWith("__attribute") or w in ["__asm__", "__asm", "asm", "__declspec", "__THROW", "__wur", "__nonnull",
     "__attr_dealloc", "__attr_dealloc_free", "__THROWNL", "__NTH", "__LEAF", "__BEGIN_DECLS", "__END_DECLS",
@@ -208,7 +208,7 @@ proc cxNoise(w: string): bool =
     "APIENTRY", "CALLBACK", "__cdecl", "__stdcall", "__fastcall", "__inline_always", "__extern_always_inline",
     "__extern_inline", "__fortify_function", "__always_inline", "__attribute_artificial__"]
 
-proc cxTypeText(toks: seq[CxTok], a, b: int): string =
+func cxTypeText(toks: seq[CxTok], a, b: int): string =
   ## tokens as a type, spaced the way C is written: "const char *", "struct point"
   for k in a ..< b:
     let t = toks[k].text
@@ -219,7 +219,7 @@ proc cxTypeText(toks: seq[CxTok], a, b: int): string =
       if result.len > 0 and result[^1] notin {'(', '['}: result.add ' '
       result.add t
 
-proc cxSkipGroup(toks: seq[CxTok], k: int): int =
+func cxSkipGroup(toks: seq[CxTok], k: int): int =
   ## past the bracket group that starts at toks[k] ( ( [ { ): the index after its closing one
   var d = 0
   var i = k
@@ -233,7 +233,7 @@ proc cxSkipGroup(toks: seq[CxTok], k: int): int =
     inc i
   toks.len
 
-proc cxTypeEnd(toks: seq[CxTok], a, b: int): int =
+func cxTypeEnd(toks: seq[CxTok], a, b: int): int =
   ## where a declaration's type ends and its first declarator starts: `struct list *next` → at `*`, `int x = 1` → at
   ## `x`, `int (*fn)(int)` → at `(`, `int f(void)` → at `f`; b when there is no declarator (`struct list;`)
   var j = a
@@ -260,7 +260,7 @@ proc cxTypeEnd(toks: seq[CxTok], a, b: int): int =
     return lastWord
   j
 
-proc cxDeclarators(toks: seq[CxTok], a, b: int): seq[(int, string, int)] =
+func cxDeclarators(toks: seq[CxTok], a, b: int): seq[(int, string, int)] =
   ## the declarators of toks[a ..< b] after the type: (index of the name, the pointer stars and array part, the
   ## index just past it) — `*p = 1, q[3], (*fn)(int)`
   var k = a
@@ -295,7 +295,7 @@ proc cxDeclarators(toks: seq[CxTok], a, b: int): seq[(int, string, int)] =
     if nameAt >= 0: result.add (nameAt, stars, k)
     inc k                                         # past the comma
 
-proc cxParams(toks: seq[CxTok], a, b: int): (seq[CxParam], bool) =
+func cxParams(toks: seq[CxTok], a, b: int): (seq[CxParam], bool) =
   ## a parameter list's parameters (toks[a ..< b] inside the parentheses); `void` alone: none; `...`: varargs
   var parts: seq[(int, int)]
   var d = 0
@@ -355,7 +355,7 @@ proc cxValueKnown(name: string): int =
     except ValueError: return 1
   1
 
-proc cxTopSplit(t, op: string): seq[string] =
+func cxTopSplit(t, op: string): seq[string] =
   ## t split at `op` outside parentheses
   var d = 0
   var st = 0
@@ -433,7 +433,7 @@ proc cxInactive(pp: seq[(int, string)]): seq[(int, int)] =
     start: int
   var st: seq[Frame]
   for (l, d) in pp:
-    var t = d[1 .. ^1].strip
+    let t = d[1 .. ^1].strip
     var w = 0
     while w < t.len and t[w] in IdentChars: inc w
     let word = t[0 ..< w]
@@ -1164,7 +1164,7 @@ proc cxFields*(files: seq[CxFile], owner: string): seq[(CxFile, int)] =
     g.byOwner.withValue(owner, ks):
       for k in ks[]: result.add (g, k.int)
 
-proc cxLocalsAt*(f: CxFile, line: int): seq[CxSym] =
+func cxLocalsAt*(f: CxFile, line: int): seq[CxSym] =
   ## the parameters, locals and labels seen on `line` (the innermost last)
   for s in f.syms:
     if s.kind in {cxParam, cxLocal, cxLabel} and line >= s.scopeA and line <= s.scopeB and
@@ -1231,7 +1231,7 @@ proc cxTypeOfExpr*(files: seq[CxFile], f: CxFile, expr: string, line: int, depth
         if m.params.len == 0 and not m.varargs and not body.startsWith("("):
           if body.strip.len > 0: typ = cxTypeOfExpr(files, f, body.strip, line, depth + 1)
         elif body.startsWith("("):
-          var pe = body.find(')')
+          let pe = body.find(')')
           var j = i
           while j < s.len and s[j] == ' ': inc j
           if pe > 0 and j < s.len and s[j] == '(':
@@ -1328,14 +1328,14 @@ type
     rank*: int                  # 0 locals · 1 this file · 2 its headers · 3 system headers · 4 keywords
     insert*: string
 
-proc cxAfterWord(t: string, at: int, words: openArray[string]): bool =
+func cxAfterWord(t: string, at: int, words: openArray[string]): bool =
   ## is the text before `at` one of `words` (as a whole word, spaces between)
   var e = at
   while e > 0 and t[e - 1] in {' ', '\t'}: dec e
   for w in words:
     if e >= w.len and t[e - w.len ..< e] == w and (e == w.len or t[e - w.len - 1] notin IdentChars): return true
 
-proc cxReceiver*(line: string, endAt: int): string =
+func cxReceiver*(line: string, endAt: int): string =
   ## the expression before `.` or `->` that ends at endAt (exclusive): `a.b[i]->` → "a.b[i]", `get(x)` → "get(x)"
   var k = endAt - 1
   var d = 0
@@ -1453,7 +1453,7 @@ proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq
   ## completion at line:col: (items, after a member access, the type there)
   if f == nil or line >= f.lines.len: return
   let t = f.lines[line]
-  var c = min(col, t.len)
+  let c = min(col, t.len)
   var w = c
   while w > 0 and t[w - 1] in IdentChars: dec w
   let (onInclude, headers) = cxIncludeItems(f, t, c, systemDirs)
@@ -1504,7 +1504,7 @@ proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq
   for kw in CxKeywords:
     if kw notin seen: result[0].add CxItem(label: kw, detail: "keyword", kind: cxMacro, rank: 4)
 
-proc cxWordAt*(t: string, col: int): (int, int) =
+func cxWordAt*(t: string, col: int): (int, int) =
   var a = min(col, t.len)
   var e = a
   while a > 0 and t[a - 1] in IdentChars: dec a

@@ -239,7 +239,7 @@ proc nimFfiDecls(lines: seq[string]): seq[NimFfi] =
     result.add f
     l = e + 1
 
-proc ffiAtLine(decls: seq[NimFfi], line: int): int =
+func ffiAtLine(decls: seq[NimFfi], line: int): int =
   for i, d in decls:
     if line >= d.line and line <= d.eline: return i
   -1

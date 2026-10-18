@@ -207,7 +207,7 @@ proc cBlank(s: var string) =
         inc n
     ls = le + 1
 
-proc cWordAt(s: string, i: int, w: string): bool =
+func cWordAt(s: string, i: int, w: string): bool =
   i >= 0 and s.continuesWith(w, i) and (i == 0 or s[i-1] notin IdentChars) and
     (i + w.len >= s.len or s[i + w.len] notin IdentChars)
 

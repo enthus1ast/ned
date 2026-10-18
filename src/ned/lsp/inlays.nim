@@ -4,7 +4,7 @@ var engineInlayBudget = 60                 # ms for the type hints of the lines 
 
 var inlayRetries: Table[int, (int, int)]     # buffer id → (changeId, rounds cut short for it)
 
-proc argIsLiteral(a: string): bool =
+func argIsLiteral(a: string): bool =
   ## a number, string, character, true / false / nil, or a literal collection — what a reader cannot tell the
   ## meaning of without the parameter's name
   let t = a.strip

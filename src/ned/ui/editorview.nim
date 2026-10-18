@@ -43,7 +43,7 @@ proc graphLineColors(s: string): seq[Rgb] =
   if dot > e:
     for k in dot ..< s.len: result[k] = theme.dim
 
-proc graphHashAt(s: string): string =
+func graphHashAt(s: string): string =
   var i = 0
   while i < s.len and s[i] in {'*', '|', '/', '\\', '_', ' ', '-', '.'}: inc i
   var e = i
@@ -76,7 +76,7 @@ proc ligatureRuns(s: string, toks: seq[TokKind]): seq[(int, int)] =
       i = e
     else: inc i
 
-proc ligatureSymbol(op, langId: string): array[2, uint32] =
+func ligatureSymbol(op, langId: string): array[2, uint32] =
   ## the two cells `symbols` draws for an operator (only a whole one: not the >= of >>=), [0, 0] for none
   for (k, v) in LigSyms:
     if op == k: return v

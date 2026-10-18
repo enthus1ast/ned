@@ -61,7 +61,7 @@ proc parseAffCond(c: string): seq[(bool, set[char])] =
       result.add (false, {c[i]})
       inc i
 
-proc affCondOk(w: string, cond: seq[(bool, set[char])], atEnd: bool): bool =
+func affCondOk(w: string, cond: seq[(bool, set[char])], atEnd: bool): bool =
   if cond.len > w.len: return false
   let off = if atEnd: w.len - cond.len else: 0
   for k, (neg, cs) in cond:

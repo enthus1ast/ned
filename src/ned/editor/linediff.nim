@@ -78,7 +78,7 @@ proc textLines(t: string): seq[string] =
   for x in result.mitems:
     if x.len > 0 and x[^1] == '\r': x.setLen(x.len - 1)
 
-proc diffStats(ops: seq[DiffOp]): (int, int) =
+func diffStats(ops: seq[DiffOp]): (int, int) =
   for o in ops:
     if o.kind == '+': inc result[0]
     elif o.kind == '-': inc result[1]
@@ -98,7 +98,7 @@ proc unifiedDiff(a, b: seq[string], nameA, nameB: string, ctx = 3): string =
       inc i
       continue
     # a hunk: back up `ctx` lines, run until `ctx * 2` unchanged lines follow
-    var s = max(0, i - ctx)
+    let s = max(0, i - ctx)
     var lastChange = i
     var e = i
     while e < ops.len:

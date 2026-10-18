@@ -1,6 +1,6 @@
 # ── split editor ──
 
-proc snapView(b: Buffer): ViewSnap =
+func snapView(b: Buffer): ViewSnap =
   ViewSnap(topLine: b.topLine, topSub: b.topSub, leftCol: b.leftCol, prim: b.prim, cursors: b.cursors,
            lastHead: b.lastHead, lastChange: b.lastChange)
 

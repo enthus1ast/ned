@@ -125,12 +125,12 @@ proc sgrColorFast(s: var string, c: Rgb, fg: bool) {.inline.} =
     s.add (if fg: ";38;5;" else: ";48;5;")
     s.add numStr[rgbTo256(c)]
 
-proc sameCell(a, b: Cell): bool {.inline.} =
+func sameCell(a, b: Cell): bool {.inline.} =
   a.ch == b.ch and a.fg == b.fg and a.bg == b.bg and a.at == b.at
 
 var cfgAccessible = false       # ui.accessible: ASCII for every box line and symbol, letters beside colours
 
-proc asciiGlyph(cp: int): int =
+func asciiGlyph(cp: int): int =
   ## accessibility mode: the frames, bars and symbols as plain ASCII a screen reader reads sensibly
   case cp
   of 0x2500, 0x2501, 0x2504, 0x2505, 0x2508, 0x2509, 0x254C, 0x254D, 0x2550, 0x2574, 0x2576, 0x2578, 0x257A,

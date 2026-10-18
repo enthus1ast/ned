@@ -35,7 +35,7 @@ proc mdIsDelim*(line: string): bool =
 
 proc fmtMarkdown*(s: string): (string, string) =
   ## tables lined up (column widths, alignment colons kept); outside code blocks only
-  var lines = s.split('\n')
+  let lines = s.split('\n')
   var outp: seq[string]
   var i = 0
   var fence = ""

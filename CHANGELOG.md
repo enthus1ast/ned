@@ -1,6 +1,49 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-69). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-610). Older releases:
+
+## What's new in 6.9
+
+![The engine's hints: a var that can be a let, a parameter never used, a routine that never sets its result, a deprecated name, a library name newer than the package's Nim](screenshots/engine-hints-69.png)
+
+- **More of what the compiler does not tell you, while you type**: a `var` nothing changes (*it can be a let* —
+  Alt+Enter makes it one, or every one in the file), a parameter a routine never uses, a routine that never sets
+  its result, a name only a deprecated declaration has (the compiler's words, so *Use newSum instead* applies),
+  and a standard-library name or module newer than the Nim your .nimble asks for (`requires "nim >= 1.6.0"` and
+  `minmax`: *not in Nim 1.6.20 or older*) — from `{.since.}` and a table of what every release from 1.0 to 2.2.12
+  added, not inside a `when` that asks which Nim this is. On Nim's compiler and standard library, each of the 992
+  vars it calls lets was made one and compiled again: no new error.
+- **Memory layout on hover**: a type's fields with their offsets, sizes and padding, its size and alignment, as
+  the compiler lays it out (64- and 32-bit) — the same as the compiler's `sizeof`, `alignof` and `offsetOf` for
+  all 1,312 types compared. When sorting the fields would make it smaller, Alt+Enter reorders them.
+- **Exception hints** (`nim.raisesHints`, View › Editor): what a routine can raise, after its header —
+  `{.raises: [IOError, OSError].}` — and on hover; for 1,420 routines compared, the compiler's effects agree.
+- **The package versions your build uses**: nimble.lock, nimble.paths, atlas, `nimbledeps/`, then the newest
+  installed version that meets the `requires` — per project; the Nim dock shows each one and why
+  (`jsony 1.1.5 (nimble.lock)`).
+- **Completion by the expected type**: in a call argument, `let x: T =`, `x =`, `result =`, `return` or a
+  comparison, what has that type comes first — values, enum values, fields, routines returning it.
+- **The formatter at 99.6% of nph** (99.0% in 6.8): long statements laid out as nph's parser reads them — calls,
+  chains, conditions, commands, strings over several lines, routine headers, comments in lists and branches.
+- **One line length everywhere**: with `nim.format.lineLength` not set in a settings file, a file's
+  `.editorconfig` `max_line_length` is where the formatter wraps and the ruler stands — in ned, `nedfmt`,
+  `ned --format` and nedls alike. A file the project's `.nph.toml` excludes is not formatted on save or by
+  *Format: every file in the project*.
+- **The index's memory, capped** (`nim.indexMemory`, 64 MB): above it, the files needed least recently are read
+  again when needed — on the whole Nim repository, 16 MB holds ned at 23 MB instead of 40.
+- **One Nim per project** (`nim.toolchain`): the Nim a project builds with is first on PATH for every tool ned
+  starts — nim, nimble, nimsuggest, nimlangserver, the terminal. `auto` (the default) keeps PATH's unless the
+  .nimble asks for one it is not and choosenim or grabnim installed one that is; or a version, or a folder. The
+  status bar shows the version, and warns when the Nim in use is not what the .nimble asks for, or when
+  nimsuggest is another Nim's. *Nim: choose the Nim for this project…*
+- **`ned --lint`** (and `nedls --lint`): the engine's checks over files or a whole project without the compiler —
+  plain lines, GitHub annotations (`--format:github`, by itself under GitHub Actions) or JSON, `--staged`, and a
+  git pre-commit hook (`--install-hook`, beside nedfmt's). Ned's own 259 files take under 5 seconds.
+- **Nim: add a CI workflow**: `.github/workflows/ci.yml` for the project — its dependencies, build and tests on
+  Linux and macOS with the oldest Nim the .nimble allows and the newest; with ned's lint and nedfmt's check when you
+  ask, ned built from the repository you give.
+
+![Memory layout on hover: each field's offset, size and padding — sorted by alignment the object would take 16 bytes instead of 32](screenshots/memory-layout-69.png)
 
 ## What's new in 6.8
 

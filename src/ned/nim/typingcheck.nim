@@ -128,6 +128,7 @@ proc typingCheck(b: Buffer) =
     var mine = found.getOrDefault(path)
     keepCDiags(path, mine)
     diagsBuild[path] = mine                          # (other files' errors: from their own checks, on disk)
+    engineAgain(path)
     unusedHints[path] = unused.getOrDefault(path)
     needRender = true)
 

@@ -18,10 +18,10 @@ var
   menus: seq[MenuState]
   menuBarRanges: seq[(int, int, int)]     # x0, x1, index
 
-proc mi(label: string, keys = "", act: Action = nil, check = -1, disabled = false): MenuItem =
+func mi(label: string, keys = "", act: Action = nil, check = -1, disabled = false): MenuItem =
   MenuItem(label: label, keys: keys, act: act, check: check, disabled: disabled)
-proc msep(): MenuItem = MenuItem(sep: true)
-proc msub(label: string, sub: seq[MenuItem]): MenuItem = MenuItem(label: label, sub: sub, check: -1)
+func msep(): MenuItem = MenuItem(sep: true)
+func msub(label: string, sub: seq[MenuItem]): MenuItem = MenuItem(label: label, sub: sub, check: -1)
 
 proc menuOpen(): bool {.inline.} = menus.len > 0
 

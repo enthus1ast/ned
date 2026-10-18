@@ -90,7 +90,7 @@ proc similar(a, b: TNodeKind): bool =
   a == b or (a in {nkElse, nkElseExpr} and b in {nkElse, nkElseExpr}) or
     (a in {nkElifBranch, nkElifExpr} and b in {nkElifBranch, nkElifExpr})
 
-proc cCode(s: string): string =
+func cCode(s: string): string =
   ## C in an emit, as far as its layout goes: no whitespace, no comment markers (nim.formatEmitC lays it out)
   for c in s:
     if c notin Whitespace: result.add c

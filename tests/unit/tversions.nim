@@ -55,6 +55,9 @@ proc resolved(root, module: string): string =
   if d.endsWith("/src"): d = d.parentDir
   if d.startsWith(pkgs & "/"): d[pkgs.len + 1 .. ^1] else: relativePath(d, tmp)
 
+const AtlasCfg = "############# begin Atlas config section ##########\n--noNimblePath\n--path:\"deps/foo\"\n" &
+                 "############# end Atlas config section   ##########\n"
+
 proc why(root, name: string): string =
   for d in nxProjectAt(root).deps:
     if d.name == name: return d.version & " (" & d.why & ")"
@@ -112,7 +115,8 @@ suite "the version a project builds with":
     check resolved(d, "foo") == "pj/nimbledeps/pkgs2/foo-1.5.0-gggg7777"
     check why(d, "foo") == "1.5.0 (nimbledeps/)"
     let e = project("pk", "requires \"foo >= 2.0\"\n", [("deps/foo/foo.nimble", "version = \"1.7.0\"\n"),
-                                                        ("deps/foo/foo.nim", "proc atlasOne*() = discard\n")])
+                                                        ("deps/foo/foo.nim", "proc atlasOne*() = discard\n"),
+                                                        ("nim.cfg", AtlasCfg)])
     check resolved(e, "foo") == "pk/deps/foo"
     check why(e, "foo") == "1.7.0 (deps/)"
 
@@ -149,5 +153,39 @@ suite "the version a project builds with":
     var names: seq[string]
     for r in nxScope(nxLoad(a / "src" / "pa.nim")).refs: names.add r.sym.name
     check "newOne" in names and "oldOne" notin names
+
+suite "package folders: the layout nimble and atlas make, not a folder's name (6.10)":
+  const sha = "0123456789abcdef0123456789abcdef01234567"
+  test "nimble: pkgs2/name-version-<sha1>, .nimble/pkgs/name-version, a project's nimbledeps/":
+    check nxIsPkgPath(pkgs / "foo-1.0.0-aaaa1111" / "foo.nim")             # (the folder the toolchain gives)
+    check nxIsPkgPath("/home/u/elsewhere/pkgs2/jsony-1.1.5-" & sha & "/jsony.nim")
+    check nxIsPkgPath("/home/u/elsewhere/pkgs2/jsony-#head-" & sha)
+    check nxIsPkgPath("/home/u/.nimble/pkgs/jester-0.6.0/jester.nim")
+    check nxIsPkgPath(tmp / "pj" / "nimbledeps" / "pkgs2" / "foo-1.5.0-gggg7777" / "foo.nim")
+    check nxPkgDirName("nim-libp2p-1.2.0-" & sha, sum = true) and not nxPkgDirName("nim-libp2p-1.2.0", sum = true)
+    check nxPkgDirName("jester-0.6.0", sum = false) and not nxPkgDirName("jester", sum = false)
+
+  test "folders of your own called pkgs2, pkgs, nimbledeps or deps are not packages":
+    check not nxIsPkgPath("/home/u/work/pkgs2/tool/tool.nim")
+    check not nxIsPkgPath("/home/u/work/pkgs2/tool-1.0/tool.nim")
+    check not nxIsPkgPath("/home/u/work/pkgs2/tool-1.0-abc/tool.nim")          # (no checksum: not nimble's)
+    check not nxIsPkgPath("/home/u/work/pkgs/jester-0.6.0/jester.nim")         # (pkgs/ not in a nimble folder)
+    check not nxIsPkgPath(tmp / "pj" / "nimbledeps" / "notes" / "x.nim")
+    check not nxIsPkgPath(tmp / "pj" / "src" / "deps" / "helper.nim")
+
+  test "atlas' deps/: only in a project atlas set up (its nim.cfg section, atlas.config)":
+    check nxIsPkgPath(tmp / "pk" / "deps" / "foo" / "foo.nim")
+    let r = project("pr", "requires \"foo\"\n", [("deps/atlas.config", "{}\n"), ("deps/foo/foo.nim", "proc a*() = discard\n")])
+    check nxIsPkgPath(r / "deps" / "foo" / "foo.nim")
+    # a folder of the project's own called deps (nothing puts it on the path): not a package, not a dependency
+    let q = project("pq", "requires \"foo\"\n", [("deps/foo/foo.nimble", "version = \"9.0.0\"\n"),
+                                                ("deps/foo/foo.nim", "proc mineOne*() = discard\n")])
+    check not nxIsPkgPath(q / "deps" / "foo" / "foo.nim")
+    check resolved(q, "foo") == "foo-#head-cccc3333"
+    check why(q, "foo") == "#head (requires)"
+    # an atlas dependency's own file follows the project asking (its nimble file is not a project of its own)
+    nxSetActiveFile(tmp / "pk" / "src" / "pk.nim")
+    check nxProjectOf(tmp / "pk" / "deps" / "foo" / "foo.nim").root == tmp / "pk"
+    check nxProjectOf(q / "deps" / "foo" / "foo.nim").root == q / "deps" / "foo"
 
 removeDir(tmp)

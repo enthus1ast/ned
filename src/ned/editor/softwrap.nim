@@ -41,7 +41,7 @@ proc wrapSegs(s: string, width: int, extra: seq[(int, int)] = @[]): seq[int] =
     vc += w
     i += n
 
-proc subRowOf(segs: seq[int], col: int): int =
+func subRowOf(segs: seq[int], col: int): int =
   result = 0
   for k in 1 ..< segs.len:
     if segs[k] <= col: result = k else: break

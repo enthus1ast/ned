@@ -43,7 +43,7 @@ proc verCmp(a, b: string): int =
     if p != q: return cmp(p, q)
   0
 
-proc tagVersion(tag: string): string =
+func tagVersion(tag: string): string =
   ## refs/tags/v1.2.3 → 1.2.3 ("" for tags that are not versions)
   var t = tag.strip
   if t.startsWith("refs/tags/"): t = t[10 .. ^1]

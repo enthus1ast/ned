@@ -93,7 +93,7 @@ proc openaiTools(flat: bool): JsonNode =
     else: result.add %*{"type": "function", "function": {"name": n, "description": d, "parameters": sc}}
 
 proc openaiBody(): JsonNode =
-  var msgs = newJArray()
+  let msgs = newJArray()
   let model = aiModel()
   let sysRole = if hasQuirk("developer") or (cfgAiProvider == "openai" and isReasoningModel(model)): "developer"
                 else: "system"
@@ -108,7 +108,7 @@ proc openaiBody(): JsonNode =
     of 1:
       var o = %*{"role": "assistant", "content": m.text}
       if m.calls.len > 0:
-        var tc = newJArray()
+        let tc = newJArray()
         for c in m.calls:
           tc.add %*{"id": c.id, "type": "function", "function": {"name": c.name,
                     "arguments": (if c.args.len > 0: c.args else: "{}")}}

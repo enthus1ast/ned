@@ -4,6 +4,7 @@
 
 proc refreshGit(b: Buffer)
 proc applyNimToolchain()
+proc engineAgain(path: string)
 proc runCheck(b: Buffer)
 proc runCheckPath(path, langId: string, keepExamples: bool)
 proc recheckBuildErrors(saved: Buffer)
@@ -24,6 +25,7 @@ proc cxFileOf(b: Buffer): CxFile
 proc inactiveRanges(b: Buffer): seq[(int, int)]
 proc lineInactive(rs: seq[(int, int)], line: int): bool
 proc testNoteAt(b: Buffer, line: int): (string, int)
+proc cmdCoverageTestFile(path: string)
 var ffiQueue: seq[int]           # buffers whose C wrappers get checked once ned is idle (not before a file shows)
 proc cGotoFromDecl(b: Buffer, p: Pos, anyUse = false): bool
 proc cHoverInfo(b: Buffer, p: Pos): string
@@ -86,11 +88,11 @@ proc replSendCell(b: Buffer, line: int)
 proc runExamples(b: Buffer, line: int)
 var exampleStatus: Table[string, int]    # "path:line" of a runnableExamples block → 1 passed · 2 failed · 3 running
 
-proc examplesHead(s: string): bool =
+func examplesHead(s: string): bool =
   ## a `runnableExamples:` line — also with flags (`runnableExamples("-r:off"):`) or a comment after the colon
   let t = s.strip
   if not t.startsWith("runnableExamples"): return false
-  var rest = t["runnableExamples".len .. ^1]
+  let rest = t["runnableExamples".len .. ^1]
   if rest.len > 0 and rest[0] in IdentChars: return false
   var inStr = false
   var cut = rest.len

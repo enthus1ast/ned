@@ -9,7 +9,7 @@ proc rfMoveTo(d: NxRef, target: string) =
     return
   # its lines: the comments right above it, the declaration, the body
   var a = s.line
-  var e = max(s.line, s.endLine)
+  let e = max(s.line, s.endLine)
   var isTypeInSection = false
   if s.kind == nxType:
     if srcLines[a].len > 0 and srcLines[a][0] in {' ', '\t'}: isTypeInSection = true

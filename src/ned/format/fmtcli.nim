@@ -16,7 +16,7 @@ const
                   "dist"]     # (and every hidden folder: .git, .nimble, .venv, .vscode …) — nph's usual list
   HookMark = "# nedfmt --install-hook wrote this"
 
-proc fmtKindOf*(path: string): string =
+func fmtKindOf*(path: string): string =
   ## which of ned's formatters fits a file: "nim", "json", "markdown", "css", "scss", "c", "yaml", "toml" or ""
   let ext = splitFile(path).ext.toLowerAscii
   case ext
@@ -30,7 +30,7 @@ proc fmtKindOf*(path: string): string =
   of ".toml": "toml"
   else: ""
 
-proc looksCppText(text: string): bool =
+func looksCppText(text: string): bool =
   for w in ["template<", "template <", "namespace ", "std::", "class ", "public:", "private:", "nullptr"]:
     if w in text: return true
 
@@ -250,7 +250,7 @@ proc fmtTextOf*(kind, text, path: string, nimFmt: FmtFn = nil): (string, string)
 
 # ── settings: nim.format.* from your settings and the project's, as ned reads them ──
 
-proc stripJsoncText(s: string): string =
+func stripJsoncText(s: string): string =
   ## JSON with comments and trailing commas → JSON
   var i = 0
   var inStr = false
@@ -449,7 +449,7 @@ proc unifiedDiff*(a, b, nameA, nameB: string, color = false): string =
   result = c("--- " & nameA, "1") & "\n" & c("+++ " & nameB, "1") & "\n"
   var i = 0
   while i < changes.len:
-    var lo = max(0, changes[i] - 3)
+    let lo = max(0, changes[i] - 3)
     var hi = min(ops.high, changes[i] + 3)
     var j = i + 1
     while j < changes.len and changes[j] - 3 <= hi + 1:
@@ -701,7 +701,7 @@ proc nphExcluded*(path: string): bool =
 
 # ── the command ──
 
-proc usageText(prog, version: string): string =
+func usageText(prog, version: string): string =
   prog & " " & version & " — ned's formatters: Nim (nph's style, checked), JSON, Markdown tables, CSS/SCSS, C, YAML, " &
   "TOML\n\n" &
   "Usage: " & prog & " [options] FILE|FOLDER…     " & prog & " [options] -   (stdin → stdout)\n\n" &

@@ -2,14 +2,14 @@
 #  Editing commands (all multi-cursor aware)
 # ════════════════════════════════════════════════════════════════════════════
 
-proc pairClose(pairs: string, ch: char): char =
+func pairClose(pairs: string, ch: char): char =
   var i = 0
   while i + 1 < pairs.len:
     if pairs[i] == ch: return pairs[i+1]
     i += 2
   '\0'
 
-proc isCloser(pairs: string, ch: char): bool =
+func isCloser(pairs: string, ch: char): bool =
   var i = 1
   while i < pairs.len:
     if pairs[i] == ch: return true
@@ -116,7 +116,7 @@ proc newline(b: Buffer) =
     var (a, e) = b.cursors[i].range
     let line = b.lines[a.line]
     let before = line[0 ..< a.col]
-    var after = b.lines[e.line][e.col .. ^1]
+    let after = b.lines[e.line][e.col .. ^1]
     let ind = leadingWs(before)
     let trimmed = before.strip(leading = false)
     let lang = b.langAt(a)                 # C inside a Nim emit indents as C; a Markdown code block as its code
@@ -366,7 +366,7 @@ proc deleteLines(b: Buffer) =
   b.endEdit()
   b.normalize()
 
-proc wordRangeAt(b: Buffer, p: Pos): (Pos, Pos) =
+func wordRangeAt(b: Buffer, p: Pos): (Pos, Pos) =
   if p.line < 0 or p.line >= b.lines.len: return (p, p)     # a position from before the text changed
   let s = b.lines[p.line]
   var a = min(max(p.col, 0), s.len)
@@ -381,7 +381,7 @@ proc wordRangeAt(b: Buffer, p: Pos): (Pos, Pos) =
     e = a
   (Pos(line: p.line, col: a), Pos(line: p.line, col: e))
 
-proc wordAt(b: Buffer, p: Pos): string =
+func wordAt(b: Buffer, p: Pos): string =
   if p.line < 0 or p.line >= b.lines.len: return ""
   let (a, e) = b.wordRangeAt(p)
   b.lines[p.line][a.col ..< e.col]
@@ -400,7 +400,7 @@ proc selectLine(b: Buffer) =
       c.head = Pos(line: endL, col: 0)
   b.normalize()
 
-proc rawFind(s, q: string, start: int, caseSens: bool): int =
+func rawFind(s, q: string, start: int, caseSens: bool): int =
   ## allocation-free substring search; for case-insensitive search `q` may be any case
   let n = q.len
   if n == 0 or start < 0: return -1

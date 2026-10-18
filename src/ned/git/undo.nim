@@ -18,7 +18,7 @@ proc gitSteps(root: string, n = 12): seq[GitStep] =
     if a >= 0 and ago.endsWith("}"): ago = ago[a + 1 ..< ^1]
     result.add GitStep(hash: p[0], subject: p[1], ago: ago)
 
-proc stepWords(s: string): string =
+func stepWords(s: string): string =
   ## a step as a person would say it
   let c = s.find(": ")
   let kind = if c > 0: s[0 ..< c] else: s
@@ -35,7 +35,7 @@ proc stepWords(s: string): string =
   elif kind.startsWith("revert"): "the revert “" & what & "”"
   else: s
 
-proc stepGroup(s: string): string =
+func stepGroup(s: string): string =
   ## the steps of one rebase (or pull --rebase) share this: "rebase", "pull --rebase" — "" for a step of its own
   let i = s.find(" (")
   if i > 0:

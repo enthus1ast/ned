@@ -28,6 +28,8 @@ proc dockActions(v: SideView): seq[(string, string, Action)] =
   of svSearch: @[("⇄", "Replace in files (Alt+H)", Action(proc() = toggleReplaceRow())),
                  ("⟳", "Search again", Action(proc() = projectSearch(dockQuery)))]
   of svTests: @[(ic("run"), "Run all tests", Action(proc() = runCmd("Run all tests"))),
+                ("◑", "Run all tests with coverage (c: the selected test's file)",
+                 Action(proc() = runCmd("Test coverage: run and colour the lines that ran"))),
                 ("⟳", "Rescan tests", Action(proc() = rescanTests()))]
   of svProject: @[("⟳", "Refresh tools", Action(proc() =
                     resetExeCache()
@@ -287,6 +289,10 @@ proc dockListKey(dl: var DockList, v: SideView, k: Key) =
         else: discard
         needRender = true
         return
+      if v == svTests and c == 'c':           # the selected test's file, with coverage
+        if it.path.len > 0: cmdCoverageTestFile(it.path)
+        else: runCmd("Test coverage: run and colour the lines that ran")
+        return
       if v == svGit and it.path.len > 0 or (v == svGit and c in {'a', 'c', 'P', 'L', 'l'}):
         let root = gitHome()
         let rel = if it.path.startsWith(root & "/"): it.path[root.len + 1 .. ^1] else: it.path
@@ -356,7 +362,7 @@ proc searchViewKey(k: Key) =
 proc sideKey(k: Key) =
   if k.kind == kTab and mCtrl notin k.mods and not (sideView == svSearch and (dockShowReplace or dockShowInclude)):
     let d = if mShift in k.mods: -1 else: 1
-    var i = LeftViews.find(sideView)
+    let i = LeftViews.find(sideView)
     showSide(LeftViews[(i + d + LeftViews.len) mod LeftViews.len])
     return
   case sideView
@@ -370,7 +376,7 @@ proc rightKey(k: Key) =
     return
   if k.kind == kTab and mCtrl notin k.mods:
     let d = if mShift in k.mods: -1 else: 1
-    var i = RightViews.find(rightView)
+    let i = RightViews.find(rightView)
     showSide(RightViews[(i + d + RightViews.len) mod RightViews.len])
     return
   dockListKey(rightList, rightView, k)

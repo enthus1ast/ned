@@ -2,7 +2,7 @@
 
 const TestamentName = "testament"
 
-proc testamentSpecLine(lines: seq[string]): int =
+func testamentSpecLine(lines: seq[string]): int =
   ## the line of a testament spec at the top of a file, -1 when there is none
   for i, l in lines:
     let t = l.strip

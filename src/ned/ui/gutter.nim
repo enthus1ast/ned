@@ -1,6 +1,6 @@
 # ── gutter clicks: fold markers and run buttons ──
 
-proc gutterClick(x, y: int, p: Pos): bool =
+proc gutterClick(x: int, p: Pos): bool =
   let b = buf()
   let (ex, _, _, _) = editorRect
   if x >= ex + gutterW or b.isWelcome(): return false

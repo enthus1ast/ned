@@ -1,6 +1,6 @@
 # ── rainbow brackets: a pair never takes the colour of the text around it ──
 
-proc rbDepths(s: string, toks: seq[TokKind], d0: int): seq[int16] =
+func rbDepths(s: string, toks: seq[TokKind], d0: int): seq[int16] =
   ## nesting depth of every bracket on a line (an opening bracket and its closing one get the same)
   result.setLen(s.len)
   var d = d0
@@ -15,7 +15,7 @@ proc rbDepths(s: string, toks: seq[TokKind], d0: int): seq[int16] =
         result[q] = int16(d)
       else: discard
 
-proc rbClose(a, b: Rgb): bool =
+func rbClose(a, b: Rgb): bool =
   ## colours too close to tell apart next to each other
   let x = abs(int((a shr 16) and 0xFF) - int((b shr 16) and 0xFF)) +
           abs(int((a shr 8) and 0xFF) - int((b shr 8) and 0xFF)) + abs(int(a and 0xFF) - int(b and 0xFF))

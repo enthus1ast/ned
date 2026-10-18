@@ -44,7 +44,7 @@ proc newTerm(w, h: int, cwd: string, cmd = ""): Term =
     signal(SIGQUIT, SIG_DFL)          # … and Ctrl+\ quits programs in the terminal again
     if cwd.len > 0: discard chdir(cstring(cwd))
     for (k, v) in siEnv: putEnv(k, v)
-    var args = if cmd.len > 0: allocCStringArray([shell, "-c", "exec " & cmd]) else: allocCStringArray(@[shell] & siArgs)
+    let args = if cmd.len > 0: allocCStringArray([shell, "-c", "exec " & cmd]) else: allocCStringArray(@[shell] & siArgs)
     discard execvp(cstring(shell), args)
     exitnow(127)
   t.pid = pid
@@ -356,9 +356,9 @@ proc doCsi(t: Term, fin: char) =
     t.cy = clamp(t.sy, 0, t.h - 1)
   else: discard
 
-proc gRow(t: Term): int = t.sbDropped + t.sb.len + t.cy      # the cursor's row, as a global row
+func gRow(t: Term): int = t.sbDropped + t.sb.len + t.cy      # the cursor's row, as a global row
 
-proc rowByGlobal(t: Term, g: int): TRow =
+func rowByGlobal(t: Term, g: int): TRow =
   let a = g - t.sbDropped
   if a < 0: return @[]
   if a < t.sb.len: return t.sb[a]

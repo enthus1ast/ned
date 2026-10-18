@@ -60,7 +60,7 @@ proc cycleFocus(d: int) =
   focus = order[(i + d + order.len) mod order.len]
   needRender = true
 
-proc terminalPassKey(k: Key): bool =
+func terminalPassKey(k: Key): bool =
   ## keys that still reach ned while the terminal has focus
   if k.kind == kChar and mCtrl in k.mods and k.ch in [ord('\\'), ord('q')]: return true
   if k.kind == kChar and mAlt in k.mods and k.ch in [ord('`'), ord('o'), ord('c')]: return true

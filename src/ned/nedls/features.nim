@@ -25,7 +25,7 @@ proc lsEnsureFiles() =
 
 proc lsEngineOn(d: LsDoc): bool = d != nil and nimEngineOn(d.b)
 
-proc lsMd(s: string): JsonNode = %*{"kind": "markdown", "value": s}
+func lsMd(s: string): JsonNode = %*{"kind": "markdown", "value": s}
 
 proc lsLocation(path: string, l, c: int, lines: seq[string] = @[]): JsonNode =
   ## a Location for the name at (l, c) of a file
@@ -465,7 +465,6 @@ proc lsDocumentSymbol(params: JsonNode): JsonNode =
     return
   # types hold their fields and values; everything else at the top
   var typeAt: Table[string, int]          # owner name → index in result (the last type of that name)
-  var typeEnd: seq[int]
   for s in f.syms:
     if s.kind == nxModule or s.local or s.line < 0 or s.line > b.lines.high: continue
     let j = symJson(s)
@@ -528,7 +527,7 @@ const
   LsTokTypes = ["namespace", "type", "enumMember", "variable", "parameter", "property", "function", "macro"]
   LsTokMods = ["declaration", "readonly", "static", "deprecated"]
 
-proc lsTokOf(k: TokKind): (int, int) =
+func lsTokOf(k: TokKind): (int, int) =
   ## an LSP token type and modifiers for one of ned's colours (-1: no token)
   case k
   of tkFunc: (6, 0)

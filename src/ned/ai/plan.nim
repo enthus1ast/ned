@@ -7,7 +7,7 @@ proc aiPlanSteps0(text: string): seq[string] =
   var cur = ""
   var inList = false
   for raw in text.splitLines:
-    var t = raw.strip
+    let t = raw.strip
     var k = 0
     var u = t
     if u.startsWith("**"): u = u[2 .. ^1]

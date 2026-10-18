@@ -85,7 +85,7 @@ proc aiFixVerify(bid: int, text: string, attempt: int, firstMsg: string) =
     for raw in j.output.splitLines:              # (read while the file is there: its path is checked)
       var t = stripAnsi(raw)
       if t.startsWith("stdinfile.nim("): t = mainOf & t["stdinfile.nim".len .. ^1]
-      var (ok, p, l, c, sev, m) = parseErrLine(t, j.cwd)
+      var (ok, p, l, _, sev, m) = parseErrLine(t, j.cwd)
       if ok and extractFilename(p) == tn: p = b.path
       if main.len > 0 and p == main: continue     # (the module that includes it: not this file)
       if not ok or sev != 1 or p != b.path: continue

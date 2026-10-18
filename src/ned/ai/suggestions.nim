@@ -98,7 +98,7 @@ proc ghostUnknownName(b: Buffer, at: Pos, t: string): string =
       while k < t.len and t[k] == ' ': inc k
       let nextC = if k < t.len: t[k] else: '\0'
       let next2 = if k + 1 < t.len: t[k + 1] else: '\0'
-      var dotBefore = i > 0 and t[i - 1] == '.'
+      let dotBefore = i > 0 and t[i - 1] == '.'
       if prevWord in ["let", "var", "const", "proc", "func", "iterator", "template", "macro", "method", "converter",
                       "type"] or inFor or (nextC == ':' and next2 != ':') or (nextC == '=' and next2 != '='):
         declared.incl nxNorm(w)
@@ -116,7 +116,7 @@ proc ghostUnknownName(b: Buffer, at: Pos, t: string): string =
   for s in nxLocals(f, b.lines, at.line, at.col): localNames.incl nxNorm(s.name)
   # the text with the suggestion in it (a member is looked up the way completion after its dot would)
   var newLines: seq[string]
-  var tLines = t.split('\n')
+  let tLines = t.split('\n')
   for (w, start, dot) in words:
     let n = nxNorm(w)
     if w.len <= 1 or n in declared or n in ghostWords[2] or w in ["it", "result", "_", "true", "false", "nil"]: continue

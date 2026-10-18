@@ -42,6 +42,7 @@ proc rebuildProblems() =
     lines.add PanelLine(text: relPath(p) & "  " & $ds.len, sev: 5, line: -1, path: "")
     for d in ds:
       lines.add PanelLine(text: "  " & diagText(d, p) & fixHint(d) & (if d.src.len > 0: "  " & d.src else: "") &
+        (if d.rule.len > 0: "(" & d.rule & ")" else: "") &
         "  [" & $(d.line + 1) & ":" & $(d.col + 1) & "]", path: p, line: d.line, col: d.col, sev: d.sev)
       inc n
   if n == 0: lines.add PanelLine(text: "  No problems have been detected in the workspace.", sev: 4, line: -1)
@@ -184,7 +185,9 @@ proc drawBottomPanel(x0, y0, w, h: int) =
           if mx < x0 + w: discard putStr(mx, y, pl.text[ms ..< ms + ml], theme.fg, theme.match, {aBold}, x0 + w)
     else:
       let at = if pl.sev == 5: {aBold} elif pl.path.len > 0 and pl.sev in {1, 2}: {aUnder} else: {}
-      discard putStr(xx, y, pl.text, fg, bg, at, x0 + w)
+      let lead = pl.text.len - pl.text.strip(trailing = false).len      # (an indent is not underlined with the link)
+      if lead > 0: xx = putStr(xx, y, pl.text[0 ..< lead], fg, bg, {}, x0 + w)
+      discard putStr(xx, y, pl.text[lead .. ^1], fg, bg, at, x0 + w)
     if pl.path.len > 0:
       let idx = i
       capture idx:

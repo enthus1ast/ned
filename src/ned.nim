@@ -37,7 +37,7 @@ from std/math import pow
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
 import ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
-       ned/nim/arccopies, ned/c/cindex, ned/version
+       ned/nim/arccopies, ned/c/cindex, ned/version, ned/testing/gcovdata
 
 const
   Version = NedVersion
@@ -146,6 +146,7 @@ include ned/ui/outline
 include ned/ui/pickers
 include ned/ui/prompts
 include ned/nim/toolchain
+include ned/nim/projectchecks
 include ned/ui/themefiles
 include ned/config/sync
 include ned/ui/promptkeys

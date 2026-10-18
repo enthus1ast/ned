@@ -178,7 +178,7 @@ proc cBinary(toks: seq[CTok], cpp: bool): seq[bool] =
                                                       "alignof", "_Alignof", "defined", "co_return", "co_yield"])
     prev = k
 
-proc cSep(a, b: CTok, ws: string, cpp: bool, aBin = false, bBin = false): string =
+func cSep(a, b: CTok, ws: string, cpp: bool, aBin = false, bBin = false): string =
   ## the space between two tokens on a line
   if b.kind in {ckLineComment, ckBlockComment}: return (if ws.len > 0: ws else: " ")
   if a.kind in {ckBlockComment}: return (if ws.len > 0: " " else: "")

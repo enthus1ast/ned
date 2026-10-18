@@ -241,6 +241,11 @@ proc initCommandsV4() =
     needRender = true))
   add("Test coverage: run and colour the lines that ran", "", cmdCoverageRun())
   add("Test coverage: load an lcov file", "", cmdCoverageLoad())
+  add("Test coverage: summary by file", "each file's share that ran, the total", covPanel())
+  add("Test coverage: this Nim test file", "built with gcov, run, its lines counted", (block:
+    let b = buf()
+    if b.lang.mode == lmNim and b.path.len > 0: cmdCoverageTestFile(b.path)
+    else: info("Open a Nim test file")))
   add("Test coverage: hide", "", (block:
     covLines.clear()
     needRender = true))

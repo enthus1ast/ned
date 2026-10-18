@@ -46,7 +46,7 @@ proc mnCalls(f: NxFile, lines: openArray[string]): seq[(int, string)] =
         result.add (i, w)
         break
 
-proc mnHasWord(text, w: string): bool =
+func mnHasWord(text, w: string): bool =
   ## is `w` written in `text` as a word of its own?
   var k = text.find(w)
   while k >= 0:
@@ -68,7 +68,7 @@ proc mnParse(output: string): seq[(int, string)] =
       cur = (try: parseInt(inner[0].strip) - 1 except ValueError: -1)
       if cur < 0: continue
       acc = @[]
-      var rest = raw[k + Head.len .. ^1].strip(trailing = false)
+      let rest = raw[k + Head.len .. ^1].strip(trailing = false)
       if rest.endsWith(Mark):
         result.add (cur, rest[0 ..< rest.len - Mark.len])
         cur = -1

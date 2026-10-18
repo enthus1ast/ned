@@ -243,17 +243,17 @@ proc mcpStarting(): bool =
   for s in mcpServers:
     if s.state == "starting" and not s.dead and msSince(s.startedAt) < 20_000: return true
 
-proc mcpSafe(s: string): string =
+func mcpSafe(s: string): string =
   for c in s:
     result.add (if c.isAlphaNumeric or c in {'_', '-'}: c else: '_')
 
-proc mcpToolName(server, tool: string): string =
+func mcpToolName(server, tool: string): string =
   result = "mcp__" & mcpSafe(server) & "__" & mcpSafe(tool)
   if result.len > 64: result = result[0 ..< 64]
 
 const McpReadRes = "\x01read_resource"     # (ned's own tool for a server's resources)
 
-proc mcpHasTool(s: McpServer, name: string): bool =
+func mcpHasTool(s: McpServer, name: string): bool =
   for t in s.tools:
     if t.name == name: return true
   false

@@ -143,7 +143,8 @@ proc depAct(kind, a, b: string): Action =
     else: discard
 
 proc cmdNimbleTree() =
-  ## the project's dependencies as a tree, each with the version installed (or why it is a problem)
+  ## the project's dependencies as a tree, each with the version the build uses and why (nimble.lock, nimble.paths,
+  ## atlas …), else the newest installed that meets it (or why it is a problem)
   let nf = findNimbleFile(if buf().path.len > 0: parentDir(buf().path) else: rootDir)
   if nf.len == 0:
     info("No .nimble file in this folder")
@@ -178,6 +179,30 @@ proc cmdNimbleTree() =
         let ok = nimV.len == 0 or depSatisfies(depVer(nimV), cons)
         line("  " & branch & label & pad & (if nimV.len == 0: "the compiler" elif ok: nimV & " ✓  (the compiler)"
                                             else: nimV & " ✗ the compiler is older"), (if ok: 0 else: 1), nil)
+        continue
+      # (the version the build uses — nimble.lock, nimble.paths, atlas, nimbledeps: the engine's choice — when it
+      # has one; else the newest installed that meets the requirement)
+      let ed = engineDepOf(parentDir(nf), nm)
+      if ed.dir.len > 0 and ed.why.len > 0 and ed.why != "newest installed" and not ed.why.startsWith("requires") and
+         " requires" notin ed.why:
+        let okv = ed.version.len == 0 or ed.version.startsWith("#") or cons.len == 0 or depSatisfies(depVer(ed.version), cons)
+        var enf = ""
+        try:
+          for k2, f in walkDir(ed.dir):
+            if k2 in {pcFile, pcLinkToFile} and f.endsWith(".nimble"):
+              enf = f
+              break
+        except OSError: discard
+        let again = nm.toLowerAscii in seen
+        if not again: inc nPkgs
+        if not okv: inc nOld
+        line("  " & branch & label & pad & (if ed.version.len > 0: ed.version else: "?") &
+             (if okv: " ✓" else: " ✗ does not meet " & cons) & "  (" & ed.why & ")" &
+             (if again: "  (its dependencies are above)" else: ""), (if okv: 0 else: 2),
+             (if enf.len > 0: depAct("open", enf, "") else: nil))
+        if again or depth >= 12 or enf.len == 0: continue
+        seen.incl nm.toLowerAscii
+        walk(parseNimble(enf).requires, prefix & (if last: "    " else: "│   "), depth + 1)
         continue
       let have = inst.getOrDefault(nm.toLowerAscii)
       var best = -1

@@ -203,6 +203,13 @@ proc nxFileFor(b: Buffer): NxFile =
 var typoAt: Table[int, int]          # buffer id → the change its misspelled names were looked for at
 
 proc engineChecksFor(b: Buffer): seq[Diag]
+proc lintApply*(path: string, lines: openArray[string], ds: var seq[Diag])
+
+proc engineAgain(path: string) =
+  ## the compiler's check replaced a file's problems: the engine's own (hints the compiler does not give) are
+  ## worked out again, merged with it
+  let i = bufIndexByPath(path)
+  if i >= 0: typoAt.del bufs[i].id
 
 proc engineChecksOnOpen(b: Buffer): bool =
   ## a project file just opened, not looked at yet: its problems without waiting for an edit (not a library's,
@@ -232,7 +239,7 @@ proc engineTypos(b: Buffer) =
     for d in ds:
       if d.line == l and ("'" & w & "'") in d.msg: dup = true
     if dup: continue
-    ds.add Diag(line: l, col: c, eline: l, ecol: -1, sev: 1, src: "ned",
+    ds.add Diag(line: l, col: c, eline: l, ecol: -1, sev: 1, src: "ned", rule: "typo",
                 msg: "undeclared identifier: '" & w & "'\ncandidates (edit distance, scope distance); see " &
                      "'--spellSuggest': \n (1, 0): '" & meant & "'")
   var checked = 0
@@ -247,6 +254,7 @@ proc engineTypos(b: Buffer) =
       if not taken:
         ds.add d
         inc checked
+  lintApply(b.path, b.lines, ds)                       # (.ned/lint.json, `# ned: ignore`: the typos too)
   if ds.len != before or found.len > 0 or checked > 0:
     diagsBuild[b.path] = ds
     needRender = true

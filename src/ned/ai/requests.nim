@@ -148,7 +148,7 @@ proc fileContext(): string =
     ">\n" & t & "</file>" & (if defs.len > 0: "\n" & defs else: "")
 
 proc anthropicBody(): JsonNode =
-  var msgs = newJArray()
+  let msgs = newJArray()
   for m in aiMsgs:
     case m.role
     of 0: msgs.add %*{"role": "user", "content": m.text}
@@ -163,7 +163,7 @@ proc anthropicBody(): JsonNode =
       if content.len == 0: content.add %*{"type": "text", "text": "…"}
       msgs.add %*{"role": "assistant", "content": content}
     of 2:
-      var content = newJArray()
+      let content = newJArray()
       for c in m.calls:
         content.add %*{"type": "tool_result", "tool_use_id": c.id, "content": c.result, "is_error": c.isError}
       msgs.add %*{"role": "user", "content": content}

@@ -49,7 +49,7 @@ proc nxExpandTemplate*(f: NxFile, lines: seq[string], line, col: int): (string, 
     if recv.len > 0:
       args.add recv                                  # x.name(…): x is the first argument
       call = recv & "." & name
-  var k = e
+  let k = e
   var blockArg = false
   if k < text.len and text[k] == '(':
     var joined = text[k .. ^1]

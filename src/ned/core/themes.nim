@@ -406,7 +406,7 @@ proc rebuildTheme(t0: Theme, colors: JsonNode): Theme =
 proc themeFromJson(j: JsonNode, fallbackName: string): (bool, Theme) =
   ## a theme file: {"name": "…", "base": "a built-in theme", "dark": true, "colors": {"bg": "#…", …}}
   if j == nil or j.kind != JObject: return
-  var name = j{"name"}.getStr(fallbackName).strip.toLowerAscii.replace(' ', '-')
+  let name = j{"name"}.getStr(fallbackName).strip.toLowerAscii.replace(' ', '-')
   if name.len == 0: return
   let colors = j{"colors"}
   var dark = true

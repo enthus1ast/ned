@@ -26,15 +26,15 @@ proc qAct(b: Buffer, edits: seq[QEdit], what: string): Action =
     let x = bufById(id)
     if x != nil: qApply(x, edits, what)
 
-proc qNumType(t: string): bool =
+func qNumType(t: string): bool =
   t in ["int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "byte", "Natural",
         "Positive", "cint", "cuint", "clong", "culong", "csize_t", "cshort", "cushort", "clonglong", "culonglong",
         "BiggestInt", "char"]
 
-proc qFloatType(t: string): bool =
+func qFloatType(t: string): bool =
   t in ["float", "float32", "float64", "cfloat", "cdouble", "BiggestFloat"]
 
-proc qNormType(t: string): string =
+func qNormType(t: string): string =
   ## int literal(5) → int, float64 → float64, var T → T, a quoted type → its text
   result = t.strip.strip(chars = {'\''})
   if result.startsWith("var "): result = result[4 .. ^1].strip
@@ -42,7 +42,7 @@ proc qNormType(t: string): string =
   if p > 0: result = result[0 ..< p]
   if result == "float literal": result = "float"
 
-proc qSimple(e: string): bool =
+func qSimple(e: string): bool =
   ## an expression that needs no parentheses around it: a name, a call, a literal, a field
   if e.len == 0: return false
   var depth = 0
@@ -55,7 +55,7 @@ proc qSimple(e: string): bool =
     elif depth == 0 and c in {' ', '+', '-', '*', '/', '&', '<', '>', '=', '!', '%', '|', '^', '~', '@'}: return false
   true
 
-proc qConvert(e, got, want: string): (string, string) =
+func qConvert(e, got, want: string): (string, string) =
   ## the expression `e` of type `got` made into a `want`: (new text, the import it needs)
   let g = qNormType(got)
   let w = qNormType(want)
@@ -151,7 +151,7 @@ proc qClosest(name: string, cands: seq[string], maxN = 3): seq[string] =
     if c notin result: result.add c
     if result.len >= maxN: break
 
-proc qRoutineAbove(b: Buffer, line: int): int =
+func qRoutineAbove(b: Buffer, line: int): int =
   ## the routine whose body has `line`: the line of its header
   let s0 = b.lines[line]
   var ind = s0.len - s0.strip(trailing = false).len
@@ -166,7 +166,15 @@ proc qRoutineAbove(b: Buffer, line: int): int =
     if i == 0 and l < line: break
   -1
 
-proc qTopStmt(b: Buffer, line: int): int =
+func qProcKeyword(s: string, nameCol: int): int =
+  ## the `proc` keyword before the name at nameCol on a header line (-1: none)
+  result = -1
+  var k = s.find("proc")
+  while k >= 0 and k < nameCol:
+    if (k == 0 or not (s[k - 1] in IdentChars)) and (k + 4 >= s.len or s[k + 4] notin IdentChars): result = k
+    k = s.find("proc", k + 1)
+
+func qTopStmt(b: Buffer, line: int): int =
   ## the first line of the top-level statement or declaration that has `line`
   result = line
   while result > 0:
@@ -174,7 +182,7 @@ proc qTopStmt(b: Buffer, line: int): int =
     if s.len > 0 and s[0] notin {' ', '\t', '#'}: break
     dec result
 
-proc qArgType(e: string): string =
+func qArgType(e: string): string =
   let t = e.strip
   if t.len == 0: return "auto"
   if t[0] == '"': return "string"
@@ -272,6 +280,15 @@ proc nimDiagFixes(b: Buffer, d: Diag): seq[(string, string, Action)] =
     result.add act("Discard the result", "discard " & truncTo(ex, 40),
                    qAct(b, @[(Pos(line: d.line, col: at), Pos(line: d.line, col: at), "discard ")], ""))
     return
+  # ── 'jsony' is imported but app.nimble does not require it (ned's own check): the requirement added
+  if "is imported but " in first and " does not require it" in first:
+    let pkg = quotedName(first)
+    let nb = findNimbleFile(parentDir(b.path))
+    if pkg.len > 0 and nb.len > 0:
+      result.add act("Add requires \"" & pkg & "\" to " & extractFilename(nb), "the version this project builds with",
+                     proc() =
+        if pcAddRequire(nb, pkg): info("Added to " & extractFilename(nb) & " — Ctrl+S there to save"))
+    return
   # ── 'x' is never changed: it can be a let (ned's own hint)
   if "is never changed: it can be a let" in first:
     let nm = quotedName(first)
@@ -283,6 +300,14 @@ proc nimDiagFixes(b: Buffer, d: Diag): seq[(string, string, Action)] =
        (comma < 0 or comma > t.find('=')):
       result.add act("Make " & nm & " a let", "var → let: nothing changes it",
                      qAct(b, @[(Pos(line: d.line, col: ind), Pos(line: d.line, col: ind + 3), "let")], ""))
+    return
+  # ── 'x' has no side effects: it can be a func (ned's own hint)
+  if "has no side effects: it can be a func" in first:
+    let nm = quotedName(first)
+    let k = qProcKeyword(s, d.col)
+    if nm.len > 0 and k >= 0:
+      result.add act("Make " & nm & " a func", "proc → func: it has no side effects",
+                     qAct(b, @[(Pos(line: d.line, col: k), Pos(line: d.line, col: k + 4), "func")], ""))
     return
   # ── 'x' cannot be assigned to · expression 'x' is immutable, not 'var'
   var immut = ""
@@ -597,6 +622,7 @@ proc nimFixKind(d: Diag): string =
   elif "imported and not used" in f: "unusedImport"
   elif "is deprecated" in f: "deprecated:" & quotedName(f)
   elif "is never changed: it can be a let" in f: "varLet"
+  elif "has no side effects: it can be a func" in f: "canBeFunc"
   else: ""
 
 proc nimFixAll(b: Buffer, kind: string): (int, Action) =
@@ -635,6 +661,11 @@ proc nimFixAll(b: Buffer, kind: string): (int, Action) =
       let comma = t.find(',')
       if nm.len > 0 and t.startsWith("var ") and t[4 .. ^1].strip.startsWith(nm) and (comma < 0 or comma > t.find('=')):
         edits.add (Pos(line: d.line, col: ind), Pos(line: d.line, col: ind + 3), "let")
+        inc n
+    of "canBeFunc":
+      let k = qProcKeyword(s, d.col)
+      if k >= 0:
+        edits.add (Pos(line: d.line, col: k), Pos(line: d.line, col: k + 4), "func")
         inc n
     else:
       if kind.startsWith("deprecated:"):

@@ -24,8 +24,25 @@ type
     deadline: MonoTime         # (a request has this long: past it, cut)
     cycleAt: int               # the outermost routine (index in busy) a cycle came back to: those above it are
                                # not kept (their answer waits for its)
+    fx: bool                   # side effects instead of exceptions (effects.nim): a side effect is the exception
+                               # NxFxMark — a global touched, a routine with side effects called
+    impure: bool               # (fx) a side effect found in the routine being read: the rest of it is not read
+    modFiles: Table[string, seq[string]]   # (fx) file → the files of its module (include), looked up once a request
+    fwdFresh: HashSet[string]  # (fx) the modules whose forward declarations were looked at in this request
+    scopes: Table[string, NxScope]   # file → its scope, made (or checked) once a request: checking it stats every
+                                     # file it reads, and a routine of a big module asks again and again
 
-  NxRsLine = object            # a statement of a body: its code (lines that go on joined), where it is
+  NxRsConv = object            # a converter the body can see that does something (raises, has side effects, or
+                               # the engine cannot tell): the compiler applies it, unwritten, where a value of a type
+                               # it takes goes where its result type is wanted
+    r: NxRef
+    eff: NxRaises              # what it raises (or its side effect), known or not
+    src: seq[string]           # the types it takes (a union or type class: its members)
+    anySrc: bool               # it takes anything (generic, a concept): every value may be converted
+    dest: string               # what it makes
+    anyDest: bool              # (generic: what it makes depends on what it takes)
+
+  NxRsLine = object           # a statement of a body: its code (lines that go on joined), where it is
     ind: int
     text: string
     line, last, col: int
@@ -39,6 +56,10 @@ type
     tainted: HashSet[string]   # (a generic routine, a template) names whose type is only known where it is used
     genNames: HashSet[string]  # its generic parameters (type names inside it)
     excepts: seq[seq[string]]  # the types caught by the except branches around (innermost last): a bare raise
+    convs: seq[NxRsConv]       # the converters it can see that do something (none: the usual case)
+    retConv: bool              # (and one of them makes what the routine gives back: return, yield, its last value)
+
+const NxFxMark* = "side effect"   ## (fx) the "exception" a side effect is
 
 var nxRaisesCache: Table[string, (NxRaises, seq[(string, string)])]   # routine → what it raises, the files read
 
@@ -62,17 +83,87 @@ proc nxRsAdd(dst: var seq[NxExc], e: NxExc) =
     if nxNorm(x.name) == nxNorm(e.name): return
   dst.add e
 
-proc nxRsCatches(e: NxExc, caught: string): bool =
+func nxRsCatches(e: NxExc, caught: string): bool =
   ## an `except caught:` takes `e` (it, or a type derived from it)
   let c = nxNorm(caught)
   nxNorm(e.name) == c or c in e.anc
 
+# ── a file open in the editor changes with every key: its routines are kept apart, each by its own text — a unit,
+#    "\x01" & path & "\x02" & name & "\x02" & its header's hash (& which one of the same header). A unit's stamp is
+#    its text's hash and the file's outline's (all that is not inside a routine's body: declarations, imports,
+#    headers, pushes). An edit inside one body leaves what the others worked out ──
+
+type NxRsUnitTab = object
+  stamp: string                        # the file's stamp they were made for
+  byLine: Table[int, string]           # a routine's line → its unit
+  now: Table[string, string]           # unit → its stamp
+
+var nxRsUnitTabs: Table[string, NxRsUnitTab]
+
+proc nxRsOpenFile(path: string): bool =
+  nxBufferStamp != nil and path.len > 0 and nxBufferStamp(path).len > 0
+
+proc nxRsUnitTabOf(path, st: string): bool =
+  ## the units of an open file as it is now (st: its stamp) — false when it cannot be read
+  if path in nxRsUnitTabs and nxRsUnitTabs[path].stamp == st: return true
+  let f = nxLoad(path)
+  if f == nil: return false
+  let lines = nxLayLinesRef(path).lines
+  var tab = NxRsUnitTab(stamp: st)
+  var inBody = newSeq[bool](lines.len)
+  var bodies: seq[(int, string, Hash)]          # (line, unit, its text's hash)
+  var seen: CountTable[string]
+  for s in f.syms:
+    if s.kind notin NxRoutineKinds or s.made or s.line >= lines.len: continue
+    let e = min(max(s.endLine, s.line), lines.high)
+    var h: Hash = 0
+    for l in s.line .. e:
+      h = h !& hash(lines[l])
+      if l > s.line: inBody[l] = true
+    let base = "\x01" & path & "\x02" & s.name & "\x02" & $hash(nxHeaderLast(lines, s)[0])
+    seen.inc base
+    bodies.add (s.line, base & "\x02" & $seen[base], !$h)
+  var o: Hash = 0
+  for l in 0 ..< lines.len:
+    if not inBody[l]: o = o !& hash(lines[l])
+  let outline = $(!$o)
+  for (l, u, h) in bodies:
+    tab.byLine[l] = u
+    tab.now[u] = $h & "/" & outline
+  if nxRsUnitTabs.len > 16: nxRsUnitTabs.clear()
+  nxRsUnitTabs[path] = tab
+  true
+
 proc nxRsStamp(c: var NxRsCtx, path: string): string =
-  if path notin c.stamps: c.stamps[path] = nxCurStamp(path)
+  ## a file's stamp — or a unit's (a routine of an open file: "" when it is gone)
+  if path notin c.stamps:
+    if path.len > 0 and path[0] == '\x01':
+      let k = path.find('\x02')
+      let file = path[1 ..< k]
+      var st = c.stamps.getOrDefault(file)
+      if st.len == 0:
+        st = nxCurStamp(file)
+        c.stamps[file] = st
+      c.stamps[path] = (if nxRsUnitTabOf(file, st): nxRsUnitTabs[file].now.getOrDefault(path) else: "")
+    else: c.stamps[path] = nxCurStamp(path)
   c.stamps[path]
+
+proc nxRsUnit(c: var NxRsCtx, f: NxFile, line: int): string =
+  ## the unit of the routine declared at `line` of `f` when the file is open in the editor ("" otherwise)
+  if not nxRsOpenFile(f.path): return ""
+  let st = nxRsStamp(c, f.path)
+  if st.len == 0 or not nxRsUnitTabOf(f.path, st): return ""
+  nxRsUnitTabs[f.path].byLine.getOrDefault(line)
 
 proc nxRsDep(c: var NxRsCtx, path: string) =
   if c.deps.len > 0: c.deps[^1].incl path
+
+proc nxRsScope(c: var NxRsCtx, f: NxFile): NxScope =
+  ## the scope of file `f`, made or checked once in a request
+  result = c.scopes.getOrDefault(f.path)
+  if result == nil:
+    result = nxScope(f)
+    c.scopes[f.path] = result
 
 proc nxRsExc(sc: NxScope, t0: string): (bool, NxExc) =
   ## the exception type written `t0` (ValueError, ref ValueError, an alias of one), with its base types
@@ -136,7 +227,7 @@ proc nxRsDeclared(r: NxRef, lines: seq[string]): (bool, string) =
 
 proc nxRsBuiltinType(t0: string): bool =
   ## a value whose `$`, `==`, `items` … are the system's own (none of them raises an exception)
-  var t = nxStripMods(t0).strip
+  let t = nxStripMods(t0).strip
   if t.len == 0: return false
   if t in NxRsBuiltinElems: return true
   for p in ["seq[", "array[", "set[", "openArray[", "varargs[", "HSlice[", "Slice[", "range[", "UncheckedArray["]:
@@ -152,7 +243,40 @@ proc nxRsBuiltinType(t0: string): bool =
 proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxRaises
 proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, exc: var seq[NxExc]): bool
 
-proc nxRsFail(why: string): NxRaises = NxRaises(known: false, why: why)
+func nxRsFail(why: string): NxRaises = NxRaises(known: false, why: why)
+
+func nxFxImpure(why: string): NxRaises =
+  ## (fx) a side effect, known
+  NxRaises(known: true, excs: @[NxExc(name: NxFxMark)], why: why)
+
+func nxFxHas*(excs: seq[NxExc]): bool =
+  for e in excs:
+    if e.name == NxFxMark: return true
+
+func nxFxPragma(p, word: string): bool =
+  ## is `word` one of the pragmas in `p` (noSideEffect, not a part of another: sideEffect in noSideEffect is not)
+  var k = p.find(word)
+  while k >= 0:
+    let e = k + word.len
+    if (k == 0 or not nxIsIdent(p[k - 1])) and (e >= p.len or not nxIsIdent(p[e])): return true
+    k = p.find(word, k + 1)
+  false
+
+proc nxFxGlobals(sc: NxScope, name: string): int =
+  ## (fx) is `name` a module-level variable here (a var, let or threadvar of a module — the compiler's global
+  ## state): 0 no · 1 only such variables · 2 those and something else of that name (a routine, a type …)
+  var glob, other = false
+  for r in nxLookup(sc, name):
+    if r.sym.kind in {nxVar, nxLet} and not r.sym.local: glob = true
+    else: other = true
+  if not glob: 0 elif other: 2 else: 1
+
+proc nxFxNamesGlobal(sc: NxScope, e: string): bool =
+  ## (fx) does expression `e` name a module's variable (a parameter's default value: `nc: var T = nc0`)
+  var st: NxLexState
+  for (a, b) in nxLexRuns(e, st, false):
+    if a > 0 and e[a - 1] == '.': continue
+    if nxFxGlobals(sc, e[a ..< b]) > 0: return true
 
 proc nxRsListOf(sc: NxScope, list: string): NxRaises =
   ## a written list [IOError, OSError] as exceptions
@@ -199,7 +323,7 @@ proc nxRsMerge(dst: var seq[NxExc], r: NxRaises) =
 
 proc nxRsArgs(t: string, nameEnd: int): seq[string] =
   ## a call's arguments after the name ending at `nameEnd`: name(a, b) or name a, b
-  var k = nameEnd
+  let k = nameEnd
   if k < t.len and t[k] == '(':
     let e = nxMatchClose(t, k)
     if e < 0: return
@@ -210,7 +334,7 @@ proc nxRsArgs(t: string, nameEnd: int): seq[string] =
     if rest.len > 0:
       for p in nxSplitTop(rest, {','}): result.add p.strip
 
-proc nxRsCanon(t: string): string =
+func nxRsCanon(t: string): string =
   ## a type as the compiler sees it: the C types and system's aliases are the Nim types they stand for
   result = nxStripMods(t).replace("system.", "").replace(" ", "")
   case result
@@ -259,7 +383,7 @@ proc nxRsNominal(sc: NxScope, t0: string): bool =
   d.startsWith("enum") or d == "object" or d.startsWith("object ") or d.startsWith("ref object") or
     d.startsWith("ptr object")
 
-proc nxRsSame(a, b: string): bool =
+func nxRsSame(a, b: string): bool =
   let x = nxRsCanon(a)
   x.len > 0 and nxNorm(x) == nxNorm(nxRsCanon(b))
 
@@ -280,15 +404,25 @@ proc nxRsExact(cands: seq[NxRef], types: seq[string]): seq[NxRef] =
       elif ps[k].default.len == 0: ok = false
     if ok: result.add r
 
-proc nxRsProcVar(w: NxRsBody, at: NxFile, typ, name: string): NxRaises =
+proc nxRsProcVar(w: NxRsBody, at: NxFile, typ, name: string, fx = false): NxRaises =
   ## a call through a variable, parameter or field of a proc type: the {.raises.} its type declares, else not known
-  ## (the compiler assumes it raises anything)
+  ## (the compiler assumes it raises anything). (fx) a side effect unless its type says {.noSideEffect.}
   var t = nxStripMods(typ).strip
   var file = at
   var sc = if at == w.f: w.sc else: nxScope(at)
   for _ in 0 .. 4:
     if t.startsWith("proc") or t.startsWith("iterator"):
       let k = t.rfind("{.")
+      if fx:
+        # (its own pragmas: after its parameters — not those of a proc type among them, or of its result)
+        let po = t.find('(')
+        let pc = if po >= 0: nxMatchClose(t, po) else: -1
+        let after = if pc > po: t[pc + 1 .. ^1]
+                    elif po < 0: t[min(t.len, (if t.startsWith("proc"): 4 else: 8)) .. ^1]
+                    else: ""
+        if "proc" in after or "iterator" in after: return nxRsFail("a call through " & name)
+        if nxFxPragma(after, "noSideEffect"): return NxRaises(known: true)
+        return nxFxImpure("a call through " & name)
       if k < 0: break
       let e = t.find(".}", k)
       if e < 0: break
@@ -309,6 +443,231 @@ proc nxRsProcVar(w: NxRsBody, at: NxFile, typ, name: string): NxRaises =
     sc = nxScope(file)
     t = def
   nxRsFail("a proc variable: " & name)
+
+# ── converters: the compiler calls one, unwritten, where a value of a type it takes goes where its result's type is
+#    wanted and nothing else makes it fit. Those that do nothing (raise nothing, no side effect) do not matter; for
+#    the others every such place is looked at: the converter counted where it surely applies, no answer where the
+#    engine cannot tell ──
+
+var nxRsConvCache: Table[string, (NxScope, seq[NxRef])]   # file → (its scope, the converters it can see)
+
+proc nxRsConvertersIn(sc: NxScope, path: string): seq[NxRef] =
+  ## the converters scope `sc` sees (read again when the scope was made again)
+  let x = nxRsConvCache.getOrDefault(path)
+  if x[0] == sc and sc != nil: return x[1]
+  for r in sc.refs:
+    if r.sym.kind == nxConverter and not r.sym.made: result.add r
+  if nxRsConvCache.len > 256: nxRsConvCache.clear()
+  nxRsConvCache[path] = (sc, result)
+
+proc nxRsConvSrc(sc: NxScope, t: string, gens: seq[string], into: var NxRsConv, depth = 0) =
+  ## the types a converter's parameter takes: a union, an alias of one, a type class — each member
+  let x = nxStripMods(t).strip
+  if x.len == 0 or depth > 4 or x in gens or x in ["auto", "any", "typed", "untyped", "RootObj"]:
+    into.anySrc = true
+    return
+  for (cls, members) in NxTypeClasses:
+    if x == cls:
+      if cls in ["SomeOrdinal", "Ordinal"]: into.anySrc = true      # (an enum is one too)
+      for m in members.split(' '): into.src.add m
+      return
+  let alts = nxUnionAlts(sc, x)
+  if alts.len > 1:
+    for a in alts: nxRsConvSrc(sc, a, gens, into, depth + 1)
+    return
+  for r in nxTypeSyms(sc, nxBaseName(x)):
+    if r.sym.typ.strip.startsWith("concept"):
+      into.anySrc = true
+      return
+  into.src.add x
+
+func nxRsHasWord(t: string, words: seq[string]): bool =
+  ## does type `t` name one of `words` (generic parameters: T in seq[T])
+  if words.len == 0: return false
+  var k = 0
+  while k < t.len:
+    if nxIsIdent(t[k]) and (k == 0 or not nxIsIdent(t[k - 1])):
+      var e = k
+      while e < t.len and nxIsIdent(t[e]): inc e
+      if t[k ..< e] in words: return true
+      k = e
+    else: inc k
+  false
+
+proc nxRsConvTakes(sc: NxScope, cv: NxRsConv, val: string): bool =
+  ## can converter `cv` take a value of type `val` (itself, a member of its union, a type derived from it)
+  if cv.anySrc: return true
+  let v = nxStripMods(val)
+  for s in cv.src:
+    if nxRsSame(s, v) or nxIsSubtype(sc, v, s): return true
+  false
+
+proc nxRsConvMakes(sc: NxScope, cv: NxRsConv, slot: string): int =
+  ## can what converter `cv` makes go where `slot` is wanted: 0 no · 1 it is that type · 2 a part of it is (a
+  ## seq of it, a tuple with it: a literal there may be converted) or the engine cannot tell
+  let s = nxStripMods(slot)
+  if s.len == 0 or cv.anyDest: return 2
+  if nxRsSame(s, cv.dest) or nxIsSubtype(sc, cv.dest, s): return 1
+  let b = nxNorm(nxBaseName(cv.dest))
+  var k = 0
+  while k < s.len:
+    if nxIsIdent(s[k]) and (k == 0 or not nxIsIdent(s[k - 1])):
+      var e = k
+      while e < s.len and nxIsIdent(s[e]): inc e
+      if nxNorm(s[k ..< e]) == b: return 2
+      k = e
+    else: inc k
+  0
+
+proc nxRsConvAt(c: var NxRsCtx, w: var NxRsBody, slot, val: string, exc: var seq[NxExc]): bool =
+  ## a value of type `val` goes where `slot` is wanted (an argument, an assignment …): the converter that applies
+  ## counted — false when the engine cannot tell whether one does
+  for cv in w.convs:
+    let m = nxRsConvMakes(w.sc, cv, slot)
+    if m == 0: continue
+    let v = nxStripMods(val)
+    if v.len == 0 or nxStripMods(slot).len == 0:
+      c.why = "where the converter " & cv.r.sym.name & " may apply"
+      return false
+    if nxRsSame(nxStripMods(slot), v): continue                       # (taken as it is)
+    if m == 1 and nxCompat(w.sc, slot, "", v) >= 1: continue          # (a subtype, a wider number, a generic …)
+    if not nxRsConvTakes(w.sc, cv, v): continue
+    if m == 2 or not cv.eff.known:
+      c.why = "where the converter " & cv.r.sym.name & " may apply"
+      return false
+    nxRsMerge(exc, cv.eff)                                            # (it applies)
+  true
+
+proc nxRsConvTaken(w: NxRsBody, val: string, overloads: seq[NxRef] = @[]): bool =
+  ## would one of the converters that do something take a value of type `val` (unknown: maybe) — with
+  ## `overloads`, only one whose result one of them takes (+ on ints: a converter from int to Port does not matter)
+  for cv in w.convs:
+    if val.len > 0 and not nxRsConvTakes(w.sc, cv, val): continue
+    if overloads.len == 0: return true
+    for r in overloads:
+      for p in r.sym.params:
+        if nxRsConvMakes(w.sc, cv, p.typ) > 0 and p.typ.len > 0: return true
+  false
+
+proc nxRsConvCall(c: var NxRsCtx, w: var NxRsBody, r: NxRef, types, argTexts: seq[string],
+                  exc: var seq[NxExc]): bool =
+  ## the arguments of a call of `r` (their types: the receiver first, as in `types`): the converters that apply
+  ## counted — false when the engine cannot tell
+  for at in argTexts:
+    if nxFindTop(at, '=') >= 0 or at.endsWith(":"):
+      c.why = "a named argument where a converter may apply"
+      return false
+  let ps = r.sym.params
+  let names = nxGenericNames(r.sym.generics)
+  var binds: Table[string, string]
+  for k in 0 ..< types.len:
+    let pk = min(k, ps.high)
+    if pk < 0: break
+    if k > ps.high and not ps[pk].typ.startsWith("varargs["): break
+    var raw = ps[pk].typ
+    if raw.len == 0: raw = nxLiteralType(ps[pk].default)
+    if raw.startsWith("varargs["):
+      let ta = nxTypeArgs(raw)
+      if ta.len != 1: continue                       # (varargs[typed, `$`]: each one converted by `$`)
+      raw = ta[0]
+    let slot = nxSubst(raw, binds)
+    # (a generic parameter not bound yet: this argument binds it, as it is)
+    if nxRsHasWord(slot, names) or nxStripMods(slot) in ["untyped", "typed", "auto", "any"]:
+      if types[k].len > 0: nxUnify(raw, types[k], names, binds)
+      continue
+    if not nxRsConvAt(c, w, slot, types[k], exc): return false
+    if names.len > 0 and types[k].len > 0: nxUnify(raw, types[k], names, binds)
+  true
+
+proc nxRsConvSetup(c: var NxRsCtx, w: var NxRsBody, s: NxSym): bool =
+  ## the converters the body can see that do something (each one's own effect worked out once) — false when the
+  ## engine will not read the body because of one (a converter to bool: every condition may call it)
+  for cr in nxRsConvertersIn(w.sc, w.f.path):
+    if cr.file.path == w.f.path and cr.sym.line == s.line: continue        # (itself)
+    let eff = nxRsRoutine(c, cr, w.f.path, s.line)
+    if c.cut: return false
+    if eff.known and (if c.fx: not nxFxHas(eff.excs) else: eff.excs.len == 0): continue   # (it does nothing)
+    var cv = NxRsConv(r: cr, eff: eff)
+    let csc = nxRsScope(c, cr.file)
+    let gens = nxGenericNames(cr.sym.generics)
+    if cr.sym.params.len == 0: continue
+    nxRsConvSrc(csc, cr.sym.params[0].typ, gens, cv)
+    cv.dest = nxStripValMods(cr.sym.ret).strip
+    if nxRsHasWord(cv.dest, gens): cv.anyDest = true
+    if cv.dest.len == 0 or cv.dest in ["auto", "untyped", "typed"]: cv.anyDest = true
+    if cv.anyDest or nxRsSame(cv.dest, "bool"):
+      c.why = "the converter " & cr.sym.name & (if cv.anyDest: "" else: " to bool")
+      return false
+    w.convs.add cv
+  # (what the routine itself gives back may be converted: `return x`, `yield x`, its last expression)
+  for cv in w.convs:
+    if s.ret.len > 0 and nxRsConvMakes(w.sc, cv, nxStripValMods(s.ret)) > 0: w.retConv = true
+  true
+
+proc nxRsConvLast(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], exc: var seq[NxExc]): bool =
+  ## (a converter makes what the routine gives back) its last statement, when it is its value: what it is
+  var k = ls.high
+  while k > 0 and ls[k].ind > ls[0].ind: dec k
+  let st = ls[k]
+  let (kw, _) = nxName(st.text, 0)
+  if kw in ["if", "when", "case", "block", "try"] or st.text.endsWith(":"):
+    c.why = "a last value a converter may make"
+    return false
+  if kw in ["for", "while", "discard", "return", "raise", "var", "let", "const", "result", "break", "continue",
+            "defer", "yield", "type", "proc", "func", "template", "iterator", "macro", "converter", "method"] or
+     st.text.startsWith("{."):
+    return true
+  var q = 0
+  var depth = 0
+  while q < st.text.len:                   # (an assignment: no value)
+    let ch = st.text[q]
+    if ch in {'(', '[', '{'}: inc depth
+    elif ch in {')', ']', '}'}: dec depth
+    elif ch == '=' and depth == 0 and (q + 1 >= st.text.len or st.text[q + 1] != '=') and
+         (q == 0 or st.text[q - 1] notin NxOpChars): return true
+    inc q
+  inc c.steps
+  let v = nxTypeOfExpr(w.f, w.sc, nxLocals(w.f, w.lines, st.line, st.col), st.text, st.line, 0).typ
+  nxRsConvAt(c, w, nxStripValMods(w.rs.ret), v, exc)
+
+proc nxRsConvStmt(c: var NxRsCtx, w: var NxRsBody, st: NxRsLine, decl: bool, exc: var seq[NxExc]): bool =
+  ## (converters that do something can be seen) a statement that puts a value somewhere: x = v, x.f = v,
+  ## let x: T = v — the converter that applies counted, false when the engine cannot tell
+  let t = st.text
+  var k = 0
+  var depth = 0
+  var inStr = false
+  var eq = -1
+  while k < t.len:
+    let ch = t[k]
+    if ch == '"': inStr = not inStr
+    elif inStr: discard
+    elif ch in {'(', '[', '{'}: inc depth
+    elif ch in {')', ']', '}'}: dec depth
+    elif ch == '=' and depth == 0 and (k + 1 >= t.len or t[k + 1] != '=') and
+         (k == 0 or t[k - 1] notin NxOpChars):
+      eq = k
+      break
+    inc k
+  if eq < 0: return true
+  let locs = nxLocals(w.f, w.lines, st.line, st.col)
+  var lhs = t[0 ..< eq].strip
+  var slot = ""
+  if decl:
+    for kw in ["let ", "var ", "const "]:
+      if lhs.startsWith(kw): lhs = lhs[kw.len .. ^1].strip
+    let col = nxFindTop(lhs, ':')
+    if col < 0: return true                          # (its type is the value's: nothing converted)
+    slot = lhs[col + 1 .. ^1].strip
+    let pe = slot.find("{.")
+    if pe >= 0: slot = slot[0 ..< pe].strip
+  else:
+    if lhs.len == 0 or lhs.startsWith("(") or ',' in lhs: return true
+    inc c.steps
+    slot = nxTypeOfExpr(w.f, w.sc, locs, lhs, st.line, 0).typ
+  inc c.steps
+  let val = nxTypeOfExpr(w.f, w.sc, locs, t[eq + 1 .. ^1].strip, st.line, 0).typ
+  nxRsConvAt(c, w, slot, val, exc)
 
 proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
   ## the identifier at line:a..e of the body — known (and what it raises, when it is a call) or not
@@ -343,6 +702,18 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
       if t[q] in {'(', '[', '{'}: inc d
       elif t[q] in {')', ']', '}'}: dec d
     if d > 0: return NxRaises(known: true)
+  if c.fx and not member and name != "result":
+    # a module's variable (a var, let or threadvar of this module or an imported one): global state, a side effect
+    let g = nxFxGlobals(w.sc, name)
+    if g > 0:
+      if nxNorm(name) in w.localNames:
+        # (a local of that name hides it — when it is declared before this, in a block around it)
+        var vis = false
+        for x in nxLocals(w.f, w.lines, line, a):
+          if nxNorm(x.name) == nxNorm(name): vis = true
+        if not vis: return nxRsFail("a local and a global named " & name)
+      elif nxNorm(name) notin w.genNames:
+        return (if g == 1: nxFxImpure("it uses the global " & name) else: nxRsFail(name & " may be a global"))
   if not member and (nxNorm(name) in w.localNames or name == "result") and not (called or cmdCall or strCall):
     return NxRaises(known: true)
   if not member and not (called or cmdCall or strCall):
@@ -379,7 +750,7 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
   if locals.len > 0:
     let s = locals[0]
     if s.kind in NxRoutineKinds: return nxRsFail("a routine declared inside: " & name)
-    if called or cmdCall: return nxRsProcVar(w, w.f, s.typ, name)
+    if called or cmdCall: return nxRsProcVar(w, w.f, s.typ, name, c.fx)
     return NxRaises(known: true)
   if refs.len == 0: return nxRsFail("cannot tell what " & name & " is")
   var routines: seq[NxRef]
@@ -388,6 +759,8 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
   if routines.len == 0:
     # a type (a conversion, a constructor), a constant, a field, a module-level variable
     for r in refs:
+      if c.fx and r.sym.kind in {nxLet, nxVar} and not r.sym.local:
+        return nxFxImpure("it uses the global " & name)          # (module.variable)
       if r.sym.kind in {nxLet, nxVar, nxField} and (called or cmdCall):
         var typ = r.sym.typ
         if r.sym.kind == nxField:
@@ -400,11 +773,31 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
             if not x.startsWith("{."): break
             typ.add " " & x
             inc l
-        return nxRsProcVar(w, r.file, typ, name)       # (a call through a proc-typed variable or field)
+        return nxRsProcVar(w, r.file, typ, name, c.fx)       # (a call through a proc-typed variable or field)
       if r.sym.kind == nxType and called:
         # a constructor of an object whose fields have defaults that call something: not looked into
         for fr in nxFields(w.sc, r.sym.name):
           if '(' in fr.sym.value: return nxRsFail("a field default of " & name)
+    if w.convs.len > 0 and called:
+      # (converters that do something are seen) Obj(f: v): what goes in each field; T(x): a conversion
+      for r in refs:
+        if r.sym.kind != nxType: continue
+        var conv: seq[NxExc]
+        let locs = nxLocals(w.f, w.lines, line, a)
+        for arg in nxRsArgs(t, e):
+          let col = nxFindTop(arg, ':')
+          inc c.steps
+          let vt = nxTypeOfExpr(w.f, w.sc, locs, (if col >= 0: arg[col + 1 .. ^1] else: arg).strip, line, 0).typ
+          if col < 0:
+            var one: seq[NxExc]
+            if not nxRsConvAt(c, w, r.sym.name, vt, one) or one.len > 0:
+              return nxRsFail("a conversion to " & name & " where a converter may apply")
+            continue
+          var ft = ""
+          for fr in nxFields(w.sc, r.sym.name):
+            if nxNorm(fr.sym.name) == nxNorm(arg[0 ..< col].strip): ft = fr.sym.typ
+          if not nxRsConvAt(c, w, ft, vt, conv): return nxRsFail(c.why)
+        return NxRaises(known: true, excs: conv)
     return NxRaises(known: true)
   if routines.len < refs.len:
     var types = 0
@@ -427,6 +820,8 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
          p.default.startsWith("declared(") or p.default.startsWith("sizeof(") or p.default.startsWith("high(") or
          p.default.startsWith("low(") or p.default.startsWith("default(")):
         return nxRsFail("a default argument of " & name)
+      if c.fx and p.default.len > 0 and nxFxNamesGlobal(nxRsScope(c, r.file), p.default):
+        return nxFxImpure("a default argument of " & name & " uses a global")    # (`nc: var T = nc0`)
   # which overload: every visible one of that name (not only those the index ranks first) whose number of
   # parameters fits the call and whose first one takes the first argument — the one taking all the arguments' types
   # exactly when there is one, else they must agree
@@ -490,14 +885,29 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
     if not nxArgsFit(r.sym, nargs): continue
     # (the first argument rules one out only between object and enum types: there conversions do not blur it)
     if firstNominal and r.sym.params.len > 0 and r.sym.generics.len == 0 and
-       nxRsNominal(nxScope(r.file), r.sym.params[0].typ) and
+       nxRsNominal(nxRsScope(c, r.file), r.sym.params[0].typ) and
        nxCompatP(w.sc, r.sym.params[0], r.sym.generics, types[0]) == 0: continue
     fit.add r
   if fit.len == 0: return nxRsFail("no overload of " & name & " fits the call")
+  var chosen = fit
   if fit.len > 1:
     let ex = nxRsExact(fit, types)
-    if ex.len > 0: return nxRsCandidates(c, ex, w.f.path, line)
-  nxRsCandidates(c, fit, w.f.path, line)
+    if ex.len > 0: chosen = ex
+  if w.convs.len > 0:
+    # (converters that do something are seen) its arguments: the converter that applies to one counted
+    var conv: seq[NxExc]
+    var ts = types
+    if strCall and ts.len == 0: ts = @["string"]
+    for r in chosen:
+      var one: seq[NxExc]
+      if not nxRsConvCall(c, w, r, ts, argTexts, one): return nxRsFail(c.why)
+      if chosen.len > 1 and one.len > 0: return nxRsFail("a converter may apply to an argument of " & name)
+      for x in one: nxRsAdd(conv, x)
+    result = nxRsCandidates(c, chosen, w.f.path, line)
+    if result.known:
+      for x in conv: nxRsAdd(result.excs, x)
+    return
+  nxRsCandidates(c, chosen, w.f.path, line)
 
 proc nxRsOp(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
   ## an operator: the overload its operands' types pick (or all visible ones, when they agree)
@@ -527,6 +937,7 @@ proc nxRsOp(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
   var all: seq[NxRef]
   for r in nxLookup(w.sc, op):
     if r.sym.kind in NxRoutineKinds and r.sym.name == op: all.add r
+  var opTyped = false                       # (its operands' types known: converters looked at)
   block exact:
     var i = a
     while i > 0 and t[i - 1] == ' ': dec i
@@ -566,6 +977,12 @@ proc nxRsOp(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
     let ex = nxRsExact(all, types)
     when defined(nxRsDebug): echo "OPTYPES ", op, " ", types, " exact ", ex.len, " at ", w.f.path.extractFilename, ":", line + 1
     if ex.len > 0: return nxRsCandidates(c, ex, w.f.path, line)
+    if w.convs.len > 0:
+      # (converters that do something are seen) an operand one of them takes: which overload, and whether it is
+      # converted, not worked out
+      for ty in types:
+        if nxRsConvTaken(w, ty, all): return nxRsFail("an operand the converter may take: " & written)
+      opTyped = true
     if op in ["==", "<", "<=", "+", "-", "*", "/", "div", "mod", "shl", "shr", "and", "or", "xor", "not", "<%", "+%",
               "-%", "*%", "/%", "%%", "<=%", "$", "+=", "-=", "*=", "/="]:
       # an enum, a ref, a pointer, a set, a number: the system's own magic (none of which raises)
@@ -577,6 +994,7 @@ proc nxRsOp(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
         for r in all:
           if r.file.path == w.f.path: own = true
         if not own: return NxRaises(known: true)
+  if w.convs.len > 0 and not opTyped: return nxRsFail("operands the converter may take: " & written)
   var cands = if op == written: nxOpTargets(w.f, w.lines, line, a) else: @[]
   if cands.len == 0 and op != written: cands = all
   if cands.len == 0:
@@ -607,6 +1025,15 @@ proc nxRsIndex(c: var NxRsCtx, w: var NxRsBody, line, b: int): NxRaises =
         if r.sym.kind notin {nxType} + NxRoutineKinds: allTypes = false
       if any and allTypes: return NxRaises(known: true)
     return nxRsFail("cannot tell the type of " & recv)
+  if w.convs.len > 0:
+    # (converters that do something are seen) an index one of them takes (to an int, an enum …): not worked out
+    let ce0 = nxMatchClose(t, b)
+    if ce0 < 0: return nxRsFail("an index where a converter may apply")
+    for part in nxSplitTop(t[b + 1 ..< ce0], {','}):
+      if part.strip.len == 0: continue
+      inc c.steps
+      let it = nxTypeOfExpr(w.f, w.sc, locals, part.strip, line, 0).typ
+      if nxRsConvTaken(w, it): return nxRsFail("an index where a converter may apply")
   let base = nxStripMods(v.typ)
   if base.startsWith("ptr ") or base.startsWith("ref ") or nxRsBuiltinType(base) or
      base.startsWith("seq[") or base.startsWith("array[") or base.startsWith("openArray[") or
@@ -638,11 +1065,54 @@ proc nxRsIndex(c: var NxRsCtx, w: var NxRsBody, line, b: int): NxRaises =
       if exact.len > 0: return nxRsCandidates(c, exact, w.f.path, line)
   nxRsCandidates(c, cands, w.f.path, line)
 
-proc nxRsWordBefore(t: string, q: int): string =
+func nxRsWordBefore(t: string, q: int): string =
   ## the identifier that ends right before t[q]
   var b = q
   while b > 0 and nxIsIdent(t[b - 1]): dec b
   t[b ..< q]
+
+func nxRsQuoted(t: string, a: int): (int, int) =
+  ## the backquotes around position `a` of the line when it is inside a quoted name (`callback=`, `==`), else -1
+  if a <= 0: return (-1, -1)
+  var lb = a - 1
+  while lb >= 0 and t[lb] notin {'`', ' ', '(', ')', ',', '"'}: dec lb
+  if lb < 0 or t[lb] != '`': return (-1, -1)
+  var rb = a
+  while rb < t.len and t[rb] notin {'`', ' ', '(', ')', ',', '"'}: inc rb
+  if rb >= t.len or t[rb] != '`': return (-1, -1)
+  (lb, rb)
+
+proc nxRsConvOperands(c: var NxRsCtx, w: var NxRsBody, line, a, e: int, binary: bool): bool =
+  ## (converters that do something are seen) the operands of a keyword operator (x in s, a div b, not x): false
+  ## when one may be converted — its type not known, or one a converter takes
+  let t = w.lines[line]
+  let locs = nxLocals(w.f, w.lines, line, a)
+  var ops: seq[string]
+  if binary:
+    var i = a
+    while i > 0 and t[i - 1] == ' ': dec i
+    let ls = nxOperandBack(t, i)
+    if ls >= i:
+      c.why = "operands a converter may take"
+      return false
+    ops.add t[ls ..< i]
+  var j = e
+  while j < t.len and t[j] == ' ': inc j
+  let re = nxOperandFwd(t, j)
+  if re <= j:
+    c.why = "operands a converter may take"
+    return false
+  ops.add t[j ..< re]
+  var overloads: seq[NxRef]
+  let opName = t[a ..< e]
+  for r in nxLookup(w.sc, (if opName in ["in", "notin"]: "contains" else: opName)):
+    if r.sym.kind in NxRoutineKinds: overloads.add r
+  for x in ops:
+    inc c.steps
+    if nxRsConvTaken(w, nxTypeOfExpr(w.f, w.sc, locs, x, line, 0).typ, overloads):
+      c.why = "operands a converter may take"
+      return false
+  true
 
 proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[NxExc], toCol = high(int)): bool =
   ## the calls on one line of the body (from fromCol): what they raise, added to `exc` (false: not sure)
@@ -707,7 +1177,9 @@ proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[
           if not (t[q] == '{' or t[q] == '['):
             if c.why.len == 0: c.why = "`in` on " & yt
             return false
+        if w.convs.len > 0 and not nxRsConvOperands(c, w, line, a, e, true): return false
       of "and", "or", "not", "xor", "div", "mod", "shl", "shr":
+        if w.convs.len > 0 and not nxRsConvOperands(c, w, line, a, e, name != "not"): return false
         var cands: seq[NxRef]
         for r in nxLookup(w.sc, name):
           if r.sym.kind in NxRoutineKinds: cands.add r
@@ -719,7 +1191,13 @@ proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[
           nxRsMerge(exc, x)
       else: discard
       continue
-    if a > 0 and t[a - 1] == '`': continue          # (a quoted name: `proc` in a pragma … — not a call)
+    let (qa, qe) = nxRsQuoted(t, a)
+    if qa >= 0:
+      # (a quoted name: `proc` in a pragma … — not a call; `callback=`(f, cb): one the engine does not follow)
+      if qe + 1 < t.len and t[qe + 1] == '(':
+        if c.why.len == 0: c.why = "a call by a quoted name"
+        return false
+      continue
     if a > 0 and t[a - 1] == '\'': continue         # (a number's type: 0'i32)
     let x = nxRsIdentKind(c, w, line, a, e)
     if not x.known:
@@ -729,6 +1207,12 @@ proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[
   var st2: NxLexState
   for (a, e) in nxLexRuns(t, st2, true):
     if a < fromCol or a >= toCol or prag[a]: continue
+    let (qa, qe) = nxRsQuoted(t, a)
+    if qa >= 0:
+      if qe + 1 < t.len and t[qe + 1] == '(':
+        if c.why.len == 0: c.why = "a call by a quoted name"
+        return false
+      continue                                       # (`==` as a name, not an operator)
     let x = nxRsOp(c, w, line, a, e)
     if not x.known:
       c.why = x.why
@@ -760,6 +1244,13 @@ proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[
 
 proc nxRsRaiseOf(c: var NxRsCtx, w: var NxRsBody, st: NxRsLine, at: int, exc: var seq[NxExc]): bool =
   ## a raise statement whose expression starts at column `at` of st.line (-1: a bare raise)
+  if c.fx:
+    # (fx) raising is no side effect: only what its expression calls
+    if at < 0: return true
+    if not nxRsScan(c, w, st.line, at, exc): return false
+    for l in st.line + 1 .. st.last:
+      if not nxRsScan(c, w, l, 0, exc): return false
+    return true
   if at < 0:
     if w.excepts.len > 0 and w.excepts[^1].len == 1:
       let (ok, e) = nxRsExc(w.sc, w.excepts[^1][0])
@@ -842,7 +1333,7 @@ proc nxRsLines(lines: seq[string], a, b: int): seq[NxRsLine] =
     result.add s
     l = s.last + 1
 
-proc nxRsHeadColon(t: string): int =
+func nxRsHeadColon(t: string): int =
   ## the colon that ends a block statement's head (if c: …, for x in y: …, of a, b: …), -1 when none
   nxFindTop(t, ':')
 
@@ -859,7 +1350,12 @@ proc nxRsBlock(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, i
   ## the statements at indentation `ind` (and what is deeper under them) from ls[i] on
   while i < ls.len and ls[i].ind >= ind:
     if c.cut: return false
-    if not nxRsStmt(c, w, ls, i, exc): return false
+    if not nxRsStmt(c, w, ls, i, exc):
+      if c.fx and nxFxHas(exc): c.impure = true
+      return false
+    if c.fx and nxFxHas(exc):
+      c.impure = true                  # (fx) a side effect: what follows does not change that
+      return false
   true
 
 proc nxRsSub(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ind: int,
@@ -901,7 +1397,7 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
   let s = ls[i]
   let ind = s.ind
   let t = s.text
-  let (kw, kwe) = nxName(t, 0)
+  let (kw, _) = nxName(t, 0)
   inc i
   if t.startsWith("{."):
     # a pragma statement: {.cast(raises: [X]).}: a block that raises what it says; {.cast(gcsafe).}:,
@@ -912,6 +1408,16 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
       return false
     let p = t[2 ..< pe]
     let blockFollows = t[pe + 2 .. ^1].strip.startsWith(":")
+    if c.fx:
+      # (fx) {.cast(noSideEffect).}: a block whose side effects do not count; {.emit.}: C the engine does not read
+      if p.startsWith("cast(") and nxFxPragma(p, "noSideEffect"):
+        while i < ls.len and ls[i].ind > ind: inc i
+        return true
+      if p.startsWith("emit"):
+        c.why = "an emit"
+        return false
+      if blockFollows: return nxRsSub(c, w, ls, i, ind, exc)
+      return true
     if p.startsWith("cast(") and "raises" in p:
       let a = p.find('[')
       let b = if a >= 0: nxMatchClose(p, a) else: -1
@@ -927,6 +1433,9 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
       return true
     if blockFollows: return nxRsSub(c, w, ls, i, ind, exc)
     return true
+  if c.fx and kw == "asm":
+    c.why = "an asm statement"
+    return false
   case kw
   of "proc", "func", "iterator", "method", "converter", "template", "macro", "type", "const", "static", "asm",
      "runnableExamples", "mixin", "bind":
@@ -987,7 +1496,7 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
         head = head[6 .. ^1].strip
         let asK = head.find(" as ")
         if asK >= 0: head = head[0 ..< asK].strip
-        if head.len == 0: caughtAll = true
+        if head.len == 0 or c.fx: caughtAll = true     # (fx: what is caught does not matter)
         else:
           for p in nxSplitTop(head, {','}):
             let x = p.strip
@@ -1003,7 +1512,7 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
         let cc = nxRsColonCol(w, b)
         if cc >= 0 and not nxRsInline(c, w, b, cc + 1, after): return false
         if not nxRsSub(c, w, ls, i, ind, after): return false
-    if not caughtAll:
+    if not caughtAll or c.fx:              # (fx: a side effect is not caught)
       for e in tryExc:
         var hit = false
         for ct in caught:
@@ -1019,7 +1528,7 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
     return nxRsRaiseOf(c, w, s, (if bare: -1 else: k), exc)
   of "if", "elif", "while", "for", "case", "of", "else", "block", "defer", "except", "finally":
     let colon = nxRsColonCol(w, s)
-    var headTo = if colon >= 0: colon else: high(int)
+    let headTo = if colon >= 0: colon else: high(int)
     if kw == "for":
       # for x in expr: the iterator — written (a call) or the one of expr's type (items, pairs)
       let tl = w.lines[s.line]
@@ -1077,6 +1586,21 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
     return nxRsSub(c, w, ls, i, ind, exc)
   of "let", "var":
     # its values (one, or a section below)
+    if c.fx:
+      # (fx) a {.global.} variable is global state: a side effect
+      var l = i - 1
+      while l < ls.len and (l == i - 1 or ls[l].ind > ind):
+        if "{." in ls[l].text and nxFxPragma(ls[l].text, "global"):
+          if c.why.len == 0: c.why = "a {.global.} variable"
+          nxRsAdd(exc, NxExc(name: NxFxMark))
+          return true
+        inc l
+    if w.convs.len > 0:
+      # (converters that do something are seen) let x: T = v — what goes in each one
+      var l = i - 1
+      while l < ls.len and (l == i - 1 or ls[l].ind > ind):
+        if not nxRsConvStmt(c, w, ls[l], true, exc): return false
+        inc l
     if not nxRsScanStmt(c, w, s, s.col + kw.len, exc): return false
     let colon = nxRsColonCol(w, s)
     if colon >= 0 and t.endsWith(":"): (c.why = "a block as a value"; return false)
@@ -1089,8 +1613,14 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
     return true
   of "return", "discard", "yield", "result", "break", "continue":
     if kw in ["break", "continue"]: return true
+    if w.retConv and kw in ["return", "yield"] and t.len > kw.len:
+      # (a converter makes what the routine gives back) what this gives
+      inc c.steps
+      let v = nxTypeOfExpr(w.f, w.sc, nxLocals(w.f, w.lines, s.line, s.col), t[kw.len .. ^1].strip, s.line, 0).typ
+      if not nxRsConvAt(c, w, nxStripValMods(w.rs.ret), v, exc): return false
     if not nxRsScanStmt(c, w, s, s.col + (if kw == "result": 0 else: kw.len), exc): return false
   else:
+    if w.convs.len > 0 and not nxRsConvStmt(c, w, s, false, exc): return false    # (x = v, x.f = v)
     if not nxRsScanStmt(c, w, s, s.col, exc): return false
   if t.endsWith(":") or t.endsWith("do:"):
     # a call with a block (withLock l:, a template's body): the block's statements too
@@ -1106,7 +1636,7 @@ proc nxRsBodyStart(lines: seq[string], s: NxSym): (int, int) =
   let (h, hl) = nxHeaderLast(lines, s)
   var k = h.find(s.name)
   if k < 0: k = 0
-  var p = h.find('(', k)
+  let p = h.find('(', k)
   var from0 = k + s.name.len
   if p >= 0:
     let pc = nxMatchClose(h, p)
@@ -1143,7 +1673,7 @@ proc nxRsAnalyse(c: var NxRsCtx, r: NxRef, lr: NxLinesRef): NxRaises =
   template lines: untyped = lr.lines
   let (bl, bc) = nxRsBodyStart(lines, s)
   if bl < 0: return nxRsFail("no body")
-  var w = NxRsBody(f: r.file, sc: nxScope(r.file), lr: lr, rs: s)
+  var w = NxRsBody(f: r.file, sc: nxRsScope(c, r.file), lr: lr, rs: s)
   let gens = nxRsGenericParams(w.sc, s)
   let open = gens.len > 0 or s.kind in {nxTemplate, nxMacro}
   for g in nxGenericNames(s.generics): w.genNames.incl nxNorm(g)
@@ -1161,6 +1691,8 @@ proc nxRsAnalyse(c: var NxRsCtx, r: NxRef, lr: NxLinesRef): NxRaises =
         if nxNorm(pt) == nxNorm(g): dep = true
       if dep and x.kind == nxResult and pt.len > 0 and pt notin gens: dep = false
       if dep: w.tainted.incl nxNorm(x.name)
+  if not nxRsConvSetup(c, w, s):
+    return nxRsFail(s.name & ": " & (if c.why.len > 0: c.why else: "a converter"))
   var ls: seq[NxRsLine]
   if bc > 0 or bl <= s.line:
     let t = lines[bl]
@@ -1172,7 +1704,11 @@ proc nxRsAnalyse(c: var NxRsCtx, r: NxRef, lr: NxLinesRef): NxRaises =
   if ls.len == 0: return NxRaises(known: true)
   var i = 0
   var exc: seq[NxExc]
+  if w.retConv and not nxRsConvLast(c, w, ls, exc):
+    return nxRsFail(s.name & ": " & c.why)
   if not nxRsBlock(c, w, ls, i, ls[0].ind, exc):
+    if c.fx and (c.impure or nxFxHas(exc)):
+      return nxFxImpure(s.name & (if c.why.len > 0: ": " & c.why else: ""))    # (fx: a side effect, sure)
     return nxRsFail(s.name & ": " & (if c.why.len > 0: c.why else: "a statement it cannot read"))
   if i < ls.len: return nxRsFail(s.name & ": a body it cannot read")
   NxRaises(known: true, excs: exc)
@@ -1182,16 +1718,86 @@ const NxRsNoRaise = ["newException", "doAssert", "assert", "likely", "unlikely",
                      "alloc", "alloc0", "allocShared", "allocShared0", "dealloc", "deallocShared", "realloc",
                      "reallocShared", "create", "createU", "createShared", "createSharedU", "resize", "isNil"]
   ## system routines (templates and generic ones) that raise no exception whatever they are given
+const NxFxNoEffect = ["newException", "doAssert", "assert", "likely", "unlikely", "unsafeAddr", "defined", "declared",
+                  "compiles", "astToStr", "instantiationInfo", "currentSourcePath", "isNil", "debugEcho", "new",
+                  "copyMem", "moveMem", "zeroMem", "cmpMem", "equalMem"]
+  ## (fx) system routines (templates and generic ones) without side effects whatever they are given
+
+var nxFxFwdCache: Table[string, (string, Table[string, seq[(string, int)]])]
+  ## (fx) a module made of several files (include) → (their stamps, name → the forward declarations in them)
+
+proc nxFxModuleFiles(path: string): seq[string] =
+  ## the files of the module `path` belongs to, when it is made of several (include): the includer and what it
+  ## includes — @[] for a module of one file
+  let top = nxTopIncluder(path)
+  let root = if top.len > 0: top else: path
+  let incs = nxIncludesOf(root)
+  if incs.len == 0: return
+  result.add root
+  for p in incs:
+    if p notin result: result.add p
+    for q in nxIncludesOf(p):
+      if q notin result: result.add q
+
+proc nxFxForwardElsewhere(c: var NxRsCtx, target: NxRef, callPath: string): int =
+  ## (fx) a routine of a module made of several files whose forward declaration is in another of its files, called
+  ## from that module (where the compiler may not have seen its body yet): 0 no · 1 yes, declared without side
+  ## effects · 2 yes, not so declared
+  if target.file.path notin c.modFiles: c.modFiles[target.file.path] = nxFxModuleFiles(target.file.path)
+  let files = c.modFiles[target.file.path]
+  if files.len == 0 or callPath notin files: return 0
+  let root = files[0]
+  var st = ""
+  if root notin c.fwdFresh:
+    for p in files: st.add nxRsStamp(c, p) & ";"
+  if root notin c.fwdFresh and (root notin nxFxFwdCache or nxFxFwdCache[root][0] != st):
+    var t: Table[string, seq[(string, int)]]
+    for p in files:
+      let g = nxLoad(p)
+      if g == nil: continue
+      let gl = nxLayLinesRef(p)
+      for j, s in g.syms:
+        if s.kind in NxRoutineKinds and not s.made and s.endLine <= s.line and nxIsForward(gl.lines, s):
+          t.mgetOrPut(nxNorm(s.name), @[]).add (p, j)
+    if nxFxFwdCache.len > 64: nxFxFwdCache.clear()
+    nxFxFwdCache[root] = (st, t)
+  c.fwdFresh.incl root
+  let ts = target.sym
+  for (p, j) in nxFxFwdCache[root][1].getOrDefault(nxNorm(ts.name)):
+    if p == target.file.path: continue
+    let g = nxLoad(p)
+    if g == nil or j >= g.syms.len: continue
+    let s = g.syms[j]
+    if s.name == ts.name and nxSameSig(s, ts):
+      return (if s.kind == nxFunc or nxFxPragma(s.pragmas, "noSideEffect"): 1 else: 2)
+  0
+
+proc nxRsRewrites(sc: NxScope, prag: string): string =
+  ## a pragma of a routine that is a macro, or a template that is not a mere mark ({.pragma.}): what it makes of the
+  ## routine is not what is written — its name ("" none; `since` only keeps it or leaves it out)
+  if prag.len == 0: return
+  for (n, _) in nxLayPragmas(prag):
+    if n.len == 0 or not nxIsIdent(n[0]) or n in ["since", "raises", "tags", "inline", "deprecated", "gcsafe"]: continue
+    for r in nxLookup(sc, n):
+      if r.sym.kind == nxMacro: return n
+      if r.sym.kind == nxTemplate and "pragma" notin r.sym.pragmas.split({',', ' '}): return n
 
 proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxRaises =
   ## what a call of routine `r` (from callPath:callLine) raises
   let s = r.sym
-  nxRsDep(c, r.file.path)
+  let ru = nxRsUnit(c, r.file, s.line)
+  nxRsDep(c, if ru.len > 0: ru else: r.file.path)
   let lr = nxLayLinesRef(r.file.path)
   template lines: untyped = lr.lines
-  let (has, list) = nxRsDeclared(r, lines)
-  if has: return nxRsListOf(nxScope(r.file), list)
   let prag = s.pragmas
+  if c.fx:
+    # (fx) what it declares: a func or {.noSideEffect.} has none (the compiler checks it), {.sideEffect.} has;
+    # the compiler's magic has none (but echo, which says {.sideEffect.}), nor what is imported from C
+    if s.kind == nxFunc or nxFxPragma(prag, "noSideEffect"): return NxRaises(known: true)
+    if nxFxPragma(prag, "sideEffect"): return nxFxImpure(s.name & " has side effects")
+  else:
+    let (has, list) = nxRsDeclared(r, lines)
+    if has: return nxRsListOf(nxRsScope(c, r.file), list)
   let isSystem = nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir / "system")
   if "magic" in prag or "importc" in prag or "importcpp" in prag or "importjs" in prag or "importobjc" in prag:
     if "exportc" notin prag: return NxRaises(known: true)
@@ -1201,7 +1807,7 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
     if s.params.len > 0:
       var bt = nxStripMods(s.params[0].typ)
       for _ in 0 .. 3:
-        let refs = nxTypeSyms(nxScope(r.file), bt)
+        let refs = nxTypeSyms(nxRsScope(c, r.file), bt)
         if refs.len != 1: break
         let d = refs[0].sym.typ.strip
         if d.startsWith("distinct "): bt = d[9 .. ^1].strip
@@ -1213,12 +1819,14 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
   of nxMacro: return nxRsFail(s.name & " is a macro")
   of nxTemplate:
     if "dirty" in prag: return nxRsFail(s.name & " is a dirty template")
-    for l in s.line .. min(s.endLine, lines.high):
-      let x = nxCodeOf(lines[l])
-      if x.startsWith("try") or x.startsWith("except"):
-        return nxRsFail(s.name & " is a template with a try")   # (it may catch what its block raises)
+    if not c.fx:
+      for l in s.line .. min(s.endLine, lines.high):
+        let x = nxCodeOf(lines[l])
+        if x.startsWith("try") or x.startsWith("except"):
+          return nxRsFail(s.name & " is a template with a try")   # (it may catch what its block raises)
   else: discard
-  if (isSystem or r.file.path.endsWith("/std/assertions.nim")) and s.name in NxRsNoRaise:
+  if (isSystem or r.file.path.endsWith("/std/assertions.nim")) and
+     ((c.fx and s.name in NxFxNoEffect) or (not c.fx and s.name in NxRsNoRaise)):
     return NxRaises(known: true)
   if s.kind == nxIterator and (r.file.path.endsWith("/system/iterators.nim") or
                                r.file.path.endsWith("/system/iterators_1.nim")):
@@ -1230,16 +1838,29 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
   if nxIsForward(lines, s):
     let b = nxBodyOf(r.file, lines, s)
     if b < 0:
-      if isSystem: return NxRaises(known: true)        # (the system's routines without a body are its magic)
+      if isSystem and not c.fx: return NxRaises(known: true)   # (the system's routines without a body are its magic)
       return nxRsFail(s.name & " has no body here")
     target = NxRef(file: r.file, idx: int32(b))
   let fw = nxForwardOf(target.file, lines, target.sym)
   if fw >= 0 and callPath == target.file.path and callLine >= 0 and callLine < target.sym.line:
+    let fs = target.file.syms[fw]
+    if c.fx:
+      # (fx) the compiler knows only what the forward declaration says: no side effects when it says so
+      if fs.kind == nxFunc or nxFxPragma(fs.pragmas, "noSideEffect"): return NxRaises(known: true)
+      return nxFxImpure(s.name & " is called before its body")
     let (h2, l2) = nxRsDeclared(NxRef(file: target.file, idx: int32(fw)), lines)
-    if h2: return nxRsListOf(nxScope(target.file), l2)
+    if h2: return nxRsListOf(nxRsScope(c, target.file), l2)
     return NxRaises(known: true, excs: @[NxExc(name: "Exception", anc: @["RootObj"])])
+  if c.fx and fw < 0:
+    case nxFxForwardElsewhere(c, target, callPath)
+    of 1: return NxRaises(known: true)
+    of 2: return nxFxImpure(s.name & " is declared ahead in another file of its module")
+    else: discard
   let ts = target.sym
-  let key = target.file.path & ":" & nxRsStamp(c, target.file.path) & ":" & $ts.line & ":" & ts.name & ":" & $nxGen
+  let tu = nxRsUnit(c, target.file, ts.line)       # (a routine of a file being edited: by its own text)
+  let key = (if c.fx: "fx:" else: "") &
+            (if tu.len > 0: tu else: target.file.path & ":" & nxRsStamp(c, target.file.path) & ":" & $ts.line & ":" &
+                                     ts.name) & ":" & $nxGen
   let onStack = c.busy.find(key)
   if onStack >= 0:
     c.cycleAt = min(c.cycleAt, onStack)
@@ -1255,12 +1876,18 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
       for (p, _) in deps: nxRsDep(c, p)
       return res
   if c.busy.len > 40: return nxRsFail("calls too deep")
+  if prag.len > 0 or target.sym.pragmas.len > 0:
+    let rw = nxRsRewrites(nxRsScope(c, r.file), prag & (if target.idx != r.idx: ", " & target.sym.pragmas else: ""))
+    if rw.len > 0: return nxRsFail(s.name & " is rewritten by its pragma " & rw)    # ({.hasSimd.}, {.async.} …)
   c.busy.add key
   c.deps.add initHashSet[string]()
-  c.deps[^1].incl target.file.path
+  c.deps[^1].incl (if tu.len > 0: tu else: target.file.path)
   var res: NxRaises
+  let impure0 = c.impure
+  c.impure = false
   try: res = nxRsAnalyse(c, target, lr)
   except CatchableError: res = nxRsFail("an error")
+  c.impure = impure0
   let mine = c.deps.pop()
   c.busy.setLen(c.busy.len - 1)
   let partial = c.cycleAt < c.busy.len      # (it came back to a routine still being worked out, below it)

@@ -1,6 +1,6 @@
 proc spellDownload(lang, code: string)
 proc spellDlAct(lang, code: string): Action = (proc() = spellDownload(lang, code))
-proc spellModeAct(v: string): Action =
+func spellModeAct(v: string): Action =
   proc() =
     setSetting("editor.spellCheck", %v)
     info("Spell check: " & v)
@@ -84,7 +84,7 @@ proc cmdSpellWhere() =
   openActions("Spell check — " & (if spellSource.len > 0: spellSource & " (" & $spellWords.len & " words)"
                                   else: "no dictionary found: Spell check: download a dictionary…"), items)
 
-proc spellChangeAct(bid, ln, a, e: int, w, sug: string): Action =
+func spellChangeAct(bid, ln, a, e: int, w, sug: string): Action =
   proc() =
     let bb = bufById(bid)
     if bb == nil or ln >= bb.lines.len or bb.lines[ln].len < e or bb.lines[ln][a ..< e] != w: return

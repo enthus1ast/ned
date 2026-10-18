@@ -14,19 +14,19 @@ proc newBuffer(): Buffer =
                   lang: langByName("Text"), hlStart: @[0'u32, 0'u32], git: @[0'u8], ecTrim: -1, ecFinalNl: -1)
   inc nextBufId
 
-proc topSeq(b: Buffer): int = (if b.undoStack.len == 0: 0 else: b.undoStack[^1].seqId)
-proc dirty(b: Buffer): bool = b.topSeq() != b.savedSeq
-proc isWelcome(b: Buffer): bool =
+func topSeq(b: Buffer): int = (if b.undoStack.len == 0: 0 else: b.undoStack[^1].seqId)
+func dirty(b: Buffer): bool = b.topSeq() != b.savedSeq
+func isWelcome(b: Buffer): bool =
   b.welcome and b.path.len == 0 and b.title.len == 0 and b.lines.len == 1 and b.lines[0].len == 0 and
     b.undoStack.len == 0
 
-proc name(b: Buffer): string =
+func name(b: Buffer): string =
   if b.path.len > 0: extractFilename(b.path)
   elif b.title.len > 0: b.title
   elif b.isWelcome(): "Welcome"
   else: "untitled"
 proc tabOf(b: Buffer): int = (if b.tabSize > 0: b.tabSize else: cfgTabSize)
-proc largeOn(b: Buffer): bool = b != nil and b.large and not b.largeOff
+func largeOn(b: Buffer): bool = b != nil and b.large and not b.largeOff
 proc wrapFor(b: Buffer): bool =
   ## soft wrap: not in large-file mode, nor in a CSV table (its rows scroll sideways)
   cfgWrapUser and not b.largeOn and not (cfgCsvAlign and b.lang != nil and b.lang.mode == lmCsv)
@@ -39,7 +39,7 @@ proc clampPos(b: Buffer, p: Pos): Pos =
   while result.col > 0 and result.col < s.len and (s[result.col].uint8 and 0xC0) == 0x80:
     dec result.col
 
-proc posAfter(a: Pos, text: string): Pos =
+func posAfter(a: Pos, text: string): Pos =
   let nl = text.count('\n')
   if nl == 0: Pos(line: a.line, col: a.col + text.len)
   else: Pos(line: a.line + nl, col: text.len - text.rfind('\n') - 1)
@@ -166,7 +166,7 @@ proc rawReplace(b: Buffer, a, c: Pos, text: string): Pos =
       if b.git[l] == 0: b.git[l] = (if dl > 0 and l > a.line: 1'u8 else: 2'u8)
   needRender = true
 
-proc shiftPos(p, a, c, e: Pos): Pos {.inline.} =
+func shiftPos(p, a, c, e: Pos): Pos {.inline.} =
   if p <= a: p
   elif p <= c: e
   elif p.line == c.line: Pos(line: e.line, col: e.col + p.col - c.col)
@@ -174,17 +174,17 @@ proc shiftPos(p, a, c, e: Pos): Pos {.inline.} =
 
 # ── folding: which lines are hidden (the rest lives in the IDE section) ──
 
-proc isHidden(b: Buffer, l: int): bool =
+func isHidden(b: Buffer, l: int): bool =
   for (s, e) in b.folds:
     if l > s and l <= e: return true
   false
 
-proc foldAt(b: Buffer, l: int): int =
+func foldAt(b: Buffer, l: int): int =
   for i, (s, _) in b.folds:
     if s == l: return i
   -1
 
-proc nextVisible(b: Buffer, l: int): int =
+func nextVisible(b: Buffer, l: int): int =
   result = l + 1
   for (s, e) in b.folds:
     if result > s and result <= e: result = e + 1
@@ -382,14 +382,14 @@ proc normalize(b: Buffer) =
       b.prim = i
       break
 
-proc primary(b: Buffer): var Cursor = b.cursors[b.prim]
+func primary(b: Buffer): var Cursor = b.cursors[b.prim]
 
 proc setSingle(b: Buffer, p: Pos, anchor = Pos(line: -1)) =
   let p2 = b.clampPos(p)
   b.cursors = @[Cursor(anchor: (if anchor.line < 0: p2 else: b.clampPos(anchor)), head: p2, goalX: -1)]
   b.prim = 0
 
-proc bracketDelta(s: string, toks: seq[TokKind]): int =
+func bracketDelta(s: string, toks: seq[TokKind]): int =
   for i in 0 ..< min(s.len, toks.len):
     if toks[i] == tkPunct:
       case s[i]

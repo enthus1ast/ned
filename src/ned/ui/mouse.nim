@@ -349,7 +349,7 @@ proc handleMouse(k: Key) =
     return
   let (ok, p) = editorPosAt(x, y)
   if not ok: return
-  if gutterClick(x, y, p): return
+  if gutterClick(x, p): return
   if treeOpen and scrW < 70: treeOpen = false
   focus = fEditor
   closeComp()

@@ -56,7 +56,7 @@ proc reloadThemes() =
   needRender = true
   info("Themes reloaded")
 
-proc hexOf(c: Rgb): string = "#" & toHex(int(c), 6)
+func hexOf(c: Rgb): string = "#" & toHex(int(c), 6)
 
 proc themeJson(t: Theme): JsonNode =
   ## a theme as a file you can edit: ~/.config/ned/themes/<name>.json
@@ -68,7 +68,7 @@ proc themeJson(t: Theme): JsonNode =
   cs["ruler"] = %hexOf(t.ruler)
   result["colors"] = cs
 
-proc themeSlug(s: string): string =
+func themeSlug(s: string): string =
   ## a theme name that is also a safe file name: lower case, letters, digits, - and _
   for c in s.toLowerAscii:
     if c in {'a'..'z', '0'..'9', '_'}: result.add c
@@ -157,7 +157,7 @@ proc cmdTermuxRestore() =
     return
   termuxReload()
 
-proc stripJsonc(s: string): string =
+func stripJsonc(s: string): string =
   ## VS Code's theme files are JSON with comments and trailing commas
   result = newStringOfCap(s.len)
   var i = 0
@@ -332,7 +332,7 @@ proc themeKeyColor(t: Theme, k: string): Rgb =
   if j >= 0: return (if t.hasChrome: t.chromeCols[j] else: [t.titleBg, t.dockBg, t.statusBg][j])
   t.ruler
 
-proc themeKeyIsBack(k: string): bool = k in ["bg", "selection", "titleBar", "dock", "statusBar"]
+func themeKeyIsBack(k: string): bool = k in ["bg", "selection", "titleBar", "dock", "statusBar"]
 
 proc themeContrast(t: Theme, k: string): (float, float, string) =
   ## (the contrast, the least that reads well, what it is measured against)

@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.9.0"
+version       = "6.10.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
@@ -82,7 +82,8 @@ task android, "Check that ned compiles for Android (arm64) — generates C only"
 task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies":
   for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim",
             "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim", "tests/unit/tdiskcache.nim", "tests/unit/tversions.nim",
-            "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim"]:
+            "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim", "tests/unit/tgcov.nim",
+            "tests/unit/teffects.nim"]:
     exec "nim r -d:release --hints:off " & t
 
 task lsptest, "nedls driven by a test client: every feature, and 2000 random edits (needs python3)":

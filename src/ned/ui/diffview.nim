@@ -44,7 +44,7 @@ proc diffRows(v: DiffView) =
       let b = if k < adds.len: adds[k] else: -1
       v.rows.add DiffRow(a: a, b: b, kind: (if a >= 0 and b >= 0: '~' elif a >= 0: '-' else: '+'))
 
-proc diffSpan(x, y: string): (int, int, int) =
+func diffSpan(x, y: string): (int, int, int) =
   ## the changed part of two similar lines: common prefix length, and where the change ends in each
   var p = 0
   while p < x.len and p < y.len and x[p] == y[p]: inc p

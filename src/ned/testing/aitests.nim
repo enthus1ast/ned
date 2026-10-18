@@ -18,7 +18,7 @@ proc testBlocksOf(lines: seq[string]): seq[(string, int, int)] =
       last = k
     result.add (name, i, last)
 
-proc nimCodeBlock(t: string): string =
+func nimCodeBlock(t: string): string =
   ## the code of the reply's first ```nim block (the reply itself when it has none)
   var a = t.find("```nim")
   if a < 0: a = t.find("```")

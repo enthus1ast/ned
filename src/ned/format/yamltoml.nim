@@ -1,7 +1,7 @@
 # ── YAML and TOML: careful formatters — only the layout changes, never what the file says, and each checks
 #    its own result (the same words in the same order and, for YAML, the same nesting) ──
 
-proc yamlBlockScalarStart(t: string): bool =
+func yamlBlockScalarStart(t: string): bool =
   ## `key: |`, `- >-`, `key: |+  # note` …: the lines below are text, kept as they are (shifted as one)
   var s = t
   let h = s.find(" #")
@@ -105,7 +105,7 @@ proc fmtYaml*(s: string, indent = 2): (string, string) =
     if depth > 0: flowDepth = depth
     if yamlBlockScalarStart(t):
       let hdr = t.strip
-      var lastC = hdr[^1]
+      let lastC = hdr[^1]
       if lastC in Digits: return (s, "")             # (an indentation indicator: left as it is)
       # the text block: its lines (and blank lines among them) shifted as one, after its key
       var j = i + 1

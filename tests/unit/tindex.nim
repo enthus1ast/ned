@@ -549,4 +549,112 @@ suite "completion ranked by the expected type":
     check "s" in expectAt("s = q.").first
     check "name" in expectAt("let nm: string = pp.").first
 
+  test "a call written over several lines: the argument on a line of its own (6.10)":
+    let c = expectAt("paint(\n      ")
+    check "shade" in c.first and "red" in c.first and "count" notin c.first and "count" in c.labels
+    let d = expectAt("paint(shade,\n      ")
+    check "count" in d.first and "nat" in d.first and "shade" notin d.first
+    check "title" in expectAt("g(count,\n      ").first and "count" notin expectAt("g(count,\n      ").first
+    let e = expectAt("g(count, # the count (an int, not a string)\n\n      ")      # (a comment, a blank line)
+    check "title" in e.first and "count" notin e.first
+    check "count" in expectAt("paint(shade,\n      times = ").first
+    check "title" in expectAt("discard P(\n      name: ").first
+    check "q" in expectAt("paint(shade, size(\n      ").first        # (the innermost call: size's argument)
+    check "count" in expectAt("paint(\n      shade, ").first           # (the line goes on after an argument)
+    check "title" in expectAt("g(count.min(\n        3),\n      ").first   # (a bracket opened and closed above)
+    let m = expectAt("paint(shade,\n      q.")                         # (member completion)
+    check m.member and "n" in m.first and "size" in m.first and "s" notin m.first
+    check expectAt("echo(\n      ").first.len == 0                    # (echo takes anything)
+    check expectAt("discard 1 # as paint(").labels.len > 0          # (a `(` in a comment: no call, no crash)
+
+  test "a parameter's default in a routine's header: the parameter's type (6.10)":
+    let c = expectAt("proc inner(c: Color = ")
+    check "red" in c.first and "blue" in c.first and "count" notin c.first
+    check "count" in expectAt("proc inner*[T](x: T; n: int = ").first and
+          "title" notin expectAt("proc inner*[T](x: T; n: int = ").first
+    check "red" in expectAt("proc inner(a: int,\n      c: Color = ").first
+    check "red" in expectAt("let cb = proc (c: Color = ").first
+    check "title" in expectAt("proc `+++`(a: P, b: string = ").first
+    check "pp" in expectAt("func inner(a: int, p: P = ").first
+    check expectAt("proc inner(a: int, b = ").first.len == 0                # (no type written: the default makes it)
+    check expectAt("template inner(body: untyped = ").first.len == 0
+    check "red" in expectAt("proc inner(c: static[Color] = ").first
+    check expectAt("proc paint(c: Color, times: ").first.len == 0             # (a type is written there: no value)
+    check expectAt("proc paint(c: Color,\n      times: ").first.len == 0
+
+# ── what nimsuggest says and the engine did not (6.10) ──
+
+proc typeAt(f: NxFile, ls: seq[string], line: int, name: string): string =
+  ## the type of a name as the code on `line` sees it
+  nxTypeOfName(f, nxScope(f), nxLocals(f, ls, line, ls[line].len), name, line, 0).typ
+
+proc exprAt(f: NxFile, ls: seq[string], line: int, e: string): string =
+  nxTypeOfExpr(f, nxScope(f), nxLocals(f, ls, line, ls[line].len), e, line, 0).typ
+
+const ChronosLike = "type\n  Future*[T] = ref object of RootObj\n  InternalRaisesFuture*[T, E] = ref object of Future[T]\n" &
+  "  Loop = proc (s: int): Future[void] {.\n    async: (raises: []).}\n  Holder = object\n" &
+  "    fut: Future[void].Raising([ValueError])\n    many: seq[Future[int].Raising([ValueError, IOError])]\n" &
+  "    close: proc (s: int) {.async: (raises: []).}\n" &
+  "macro Raising*[T](F: typedesc[Future[T]], E: typed): untyped = discard\n" &
+  "proc newFutureImpl[T](): Future[T] = discard\n" &
+  "proc newInternalRaisesFutureImpl[T, E](): InternalRaisesFuture[T, E] = discard\n" &
+  "template newFuture*[T](): auto =\n  when declared(InternalRaisesFutureRaises):\n" &
+  "    newInternalRaisesFutureImpl[T, InternalRaisesFutureRaises]()\n  else:\n    newFutureImpl[T]()\n" &
+  "proc fetch(n: int): Future[string] {.async: (raises: [ValueError, IOError]).} = discard\n" &
+  "proc ping() {.async: (raises: []).} = discard\nproc plain() {.async.} = discard\n" &
+  "proc rawOne(): Future[int] {.async: (raw: true, raises: [ValueError]).} =\n  let f0 = newFuture[int]()\n  return f0\n" &
+  "proc notRaw(): Future[int] =\n  let f1 = newFuture[int]()\n  return f1\n" &
+  "proc use(h: Holder, loop: Loop) =\n  let a = fetch(1)\n  let b = ping()\n  let c = plain()\n  let d = loop(1)\n" &
+  "  let e = h.close(1)\n  let g = h.fut\n  echo Future[void].\n"
+
+suite "engine fixes against nimsuggest (6.10)":
+  test "chronos' raises futures: what its async macro and Raising make":
+    let (f, ls) = fixture(ChronosLike)
+    let u = ls.len - 2                                     # (the last line: echo Future[void].)
+    check typeAt(f, ls, u, "a") == "InternalRaisesFuture[string, (ValueError, IOError)]"
+    check typeAt(f, ls, u, "b") == "InternalRaisesFuture[void, void]"
+    check typeAt(f, ls, u, "c") == "Future[void]"         # (a plain {.async.} with no result written)
+    check typeAt(f, ls, u, "d") == "InternalRaisesFuture[void, void]"      # (a proc type's {.async: …}, an alias)
+    check typeAt(f, ls, u, "e") == "InternalRaisesFuture[void, void]"      # (a field of a proc type)
+    check typeAt(f, ls, u, "g") == "InternalRaisesFuture[void, (ValueError,)]"
+    check exprAt(f, ls, u, "h.many[0]") == "InternalRaisesFuture[int, (ValueError, IOError)]"
+    let raw = ls.find("  let f0 = newFuture[int]()")
+    check typeAt(f, ls, raw + 1, "f0") == "InternalRaisesFuture[int, InternalRaisesFutureRaises]"
+    check typeAt(f, ls, ls.find("  let f1 = newFuture[int]()") + 1, "f1") == "Future[int]"
+    check "Raising" in nxComplete(f, ls, u, ls[u].len).labels
+
+  test "overloads with numbers: a generic before a conversion, an integer literal goes into any number type":
+    let (f, ls) = fixture("proc p(x: uint32, pq: float32, n: Natural, m: int) =\n  let a = min(x, x)\n" &
+                          "  let b = max(0, pq)\n  let c = min(n, m)\n  let d = max(1, m)\n  echo a\n")
+    check typeAt(f, ls, 5, "a") == "uint32" and typeAt(f, ls, 5, "b") == "float32"
+    check typeAt(f, ls, 5, "c") == "int" and typeAt(f, ls, 5, "d") == "int"
+
+  test "a tuple type's field before a proc of that name; a bare `seq` has no known element":
+    let (f, ls) = fixture("proc month(x: string): char = 'a'\ntype D = tuple[year, month: int]\n" &
+                          "proc p(d: D, ws: var seq) =\n  type L = tuple[a, month: float]\n  var l: L\n" &
+                          "  let m = d.month\n  let m2 = l.month\n  let w = ws[0]\n  echo m\n")
+    check typeAt(f, ls, 8, "m") == "int" and typeAt(f, ls, 8, "m2") == "float"
+    check typeAt(f, ls, 8, "w") == ""
+
+  test "system's fields iterator: the fields' one type, or `when f is T:`; converters in member completion":
+    let (f, ls) = fixture("import std/strutils\ntype\n  O = object\n    a, b: string\n  Mixed = object\n    s: string\n" &
+                          "    k: bool\n  Hv = distinct seq[string]\nconverter toS(v: Hv): string = \"\"\n" &
+                          "proc p(o: O, x: Mixed, h: Hv) =\n  for f in o.fields: echo f\n  for g in x.fields:\n" &
+                          "    when g is string:\n      echo g\n    echo g\n  echo h.\n")
+    check typeAt(f, ls, 10, "f") == "string"
+    check typeAt(f, ls, 13, "g") == "string" and typeAt(f, ls, 14, "g") == ""
+    let c = nxComplete(f, ls, 15, ls[15].len)
+    check "toS" in c.labels and "parseInt" in c.labels        # (string's routines, through the converter)
+
+  test "multisync: only an `X | AsyncX` parameter is the synchronous one; `when s is AsyncSock` on ref types":
+    let (f, ls) = fixture("type\n  Sock = ref object\n    a: int\n  AsyncSock = ref object\n    b: int\n" &
+                          "proc send(s: Sock | AsyncSock, url: string | int) {.multisync.} =\n" &
+                          "  let v =\n    when s is AsyncSock: 1.5\n    else: \"x\"\n  echo v\n")
+    check typeAt(f, ls, 9, "s") == "Sock"
+    let (_, l1, _) = nxTargets(f, ls, 5, colOf(ls, 5, "s:"))
+    check l1.len == 1 and l1[0].typ == "Sock"                 # (also where it is declared)
+    let (_, l2, _) = nxTargets(f, ls, 5, colOf(ls, 5, "url"))
+    check l2.len == 1 and l2[0].typ == "string | int"
+    check typeAt(f, ls, 9, "v") == "string"
+
 removeDir(dir)

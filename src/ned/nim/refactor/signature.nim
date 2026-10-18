@@ -1,6 +1,6 @@
 # ── change signature ──
 
-proc rfParamText(p: NxParam): string =
+func rfParamText(p: NxParam): string =
   p.name & (if p.typ.len > 0: ": " & p.typ else: "") & (if p.default.len > 0: " = " & p.default else: "")
 
 proc cmdChangeSignature() =
@@ -33,7 +33,7 @@ proc cmdChangeSignature() =
   pb.setSingle(Pos(line: 4, col: 0))
   focus = fEditor
 
-proc rfParseParam(t: string): (NxParam, string, string, string) =
+func rfParseParam(t: string): (NxParam, string, string, string) =
   ## "name: Type = default :: value ← old" → (param, old name, value for the calls, error)
   var x = t
   var old = ""
@@ -70,7 +70,7 @@ proc rfParseParam(t: string): (NxParam, string, string, string) =
   if p.typ.len == 0 and p.default.len == 0: return (p, old, value, p.name & " needs a type or a default")
   (p, old, value, "")
 
-proc rfHeaderEdits(lines: seq[string], path: string, l, c: int, name: string, newParams: seq[NxParam],
+proc rfHeaderEdits(lines: seq[string], path: string, l, c: int, newParams: seq[NxParam],
                    ret: string, edits: var seq[RfEdit]): bool =
   ## the declaration (or a forward one) at (l, c): its parameter list and return type rewritten
   let s = lines[l]
@@ -174,7 +174,7 @@ proc doSignatureFromBuffer(b: Buffer): bool =
     let isDecl = (path == plan.path and l == plan.line and c == plan.col) or
                  (g != nil and (let d = nxSymAt(g, l, c); d >= 0 and g.syms[d].kind in NxRoutineKinds))
     if isDecl:
-      if not rfHeaderEdits(lines, path, l, c, plan.name, newParams, ret, edits):
+      if not rfHeaderEdits(lines, path, l, c, newParams, ret, edits):
         byHand.add (path, l, c, "its parameter list")
         continue
       # its body: a renamed parameter's uses follow; one dropped but still used is left to you

@@ -109,7 +109,7 @@ proc drawTree(x0, y0, w, h: int) =
       x = putStr(x, y, fileIcon(n.path), langColor(n.path), bg, {}, x0 + w)
       x += 1
       let bi = bufIndexByPath(n.path)
-      var fg = if worst == 1: theme.err elif worst == 2: theme.warn elif stFg != NoColor: stFg
+      let fg = if worst == 1: theme.err elif worst == 2: theme.warn elif stFg != NoColor: stFg
                elif isCur or bi >= 0: theme.fg else: blend(theme.fg, theme.dim, 0.35)
       # tag comments in this file: ⚑3 in the colour of the most urgent one, left of the git letter
       var nameEnd = x0 + w - 3

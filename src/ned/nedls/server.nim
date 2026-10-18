@@ -473,7 +473,7 @@ proc lsMainLoop() =
       break
 
 proc nedlsMain(): int =
-  var args = commandLineParams()
+  let args = commandLineParams()
   let li = args.find("--lint")
   if li >= 0:                                  # (the engine's checks over files, then out: ned --lint's)
     signal(SIGPIPE, SIG_DFL)

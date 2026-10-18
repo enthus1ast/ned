@@ -79,7 +79,7 @@ proc runAllTests() =
     cmd.add "nim c -r --hints:off " & quoteShell(f)
   runCommand(cmd, rootDir)
 
-proc testAct(p, n: string, line: int, isS: bool): Action =
+func testAct(p, n: string, line: int, isS: bool): Action =
   proc() =
     if line >= 0:
       let b = openFile(p)
@@ -124,7 +124,7 @@ proc lensAt(b: Buffer, l: int): (string, Action) =
     return (ic("run"), proc() = replSendCell(bb, ll))          # a # %% cell: run it in the REPL
   if b.lang.mode != lmNim:
     if testLangOf(p) notin ["py", "go", "rs", "php", "cs", "jvm"]: return ("", nil)
-    let (tn, grp) = b.otherTestAt(l)
+    let (tn, _) = b.otherTestAt(l)
     if tn.len == 0: return ("", nil)
     let st = testStatus.getOrDefault(testKey(p, tn))
     return ((if st == 1: ic("ok") elif st == 2: "✗" elif st == 3: "…" else: ic("run")), proc() = runTests(p, tn))

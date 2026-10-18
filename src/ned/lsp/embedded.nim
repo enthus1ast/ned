@@ -118,7 +118,7 @@ proc embedDocs(b: Buffer): seq[EmbDoc] =
     if not contJson and not (s.strip.len == 0 and stTop(st) != 0): jsonOpen = -1
   closeRuns(result, initHashSet[string]())
 
-proc embExt(id: string): string =
+func embExt(id: string): string =
   case id
   of "javascript": "js"
   else: id

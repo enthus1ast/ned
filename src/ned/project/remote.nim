@@ -16,7 +16,7 @@ proc remoteOf(local: string): int =
     if local == r.mirror or local.startsWith(r.mirror & "/"): return i
   -1
 
-proc sshCmd(r: Remote, batch = true): string =
+func sshCmd(r: Remote, batch = true): string =
   ## ssh through the shared connection (BatchMode: never stops to ask for a password)
   "ssh -o ControlPath=" & quoteShell(r.ctl) & (if batch: " -o BatchMode=yes" else: "") & " " & quoteShell(r.host)
 
@@ -37,7 +37,7 @@ proc sshRun(r: Remote, script: string, batch = true): string =
   ## ssh running `script` on the server (with sh)
   sshCmd(r, batch) & " " & quoteShell(remoteScript(script))
 
-proc remotePath(r: Remote, local: string): string =
+func remotePath(r: Remote, local: string): string =
   if local == r.mirror: r.absPath else: r.absPath & local[r.mirror.len .. ^1]
 
 proc remoteCommand(r: Remote, cmd, localCwd: string, tty = false): string =

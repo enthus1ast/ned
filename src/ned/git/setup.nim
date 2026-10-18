@@ -106,7 +106,7 @@ proc gitLinkParts(link: string): (string, string) =
     u = u.strip(leading = false, chars = {'/'})
   (u, branch)
 
-proc gitLinkHasSecret(url: string): bool =
+func gitLinkHasSecret(url: string): bool =
   ## https://user:token@host/…: a login written into the link (it would stay in .git/config and on a command line)
   let p = url.find("://")
   if p < 0: return false

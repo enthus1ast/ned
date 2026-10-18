@@ -1,3 +1,6 @@
+proc lintIgnoreLineAct(id, line: int, rule: string): Action
+proc lintRuleOffAct(path, rule: string): Action
+
 proc nimProblemFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
   ## the fixes for the compiler's problems `ds` (on one line of a Nim file): each one's own fixes, "all of this kind
   ## in the file", the imports that declare an undeclared name, the removal of an unused import (also used by nedls)
@@ -17,6 +20,7 @@ proc nimProblemFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
         of "bareExcept": "except CatchableError: everywhere"
         of "unusedImport": "remove every unused import"
         of "varLet": "every var nothing changes made a let"
+        of "canBeFunc": "every proc without side effects made a func"
         else: "the new name everywhere it is used"), a)
   for d in ds:
     let m = d.msg
@@ -39,6 +43,57 @@ proc nimProblemFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
           result.add act("Import " & md, "this project's module exports " & name, importAct(b.id, md))
     elif "imported and not used" in m:
       result.add act("Remove unused import " & name, "", removeImportAct(b.id, name))
+  # (ned's own checks: silence the rule on this line, or for the project — .ned/lint.json)
+  var rules: HashSet[string]
+  for d in ds:
+    if d.src == "ned" and d.rule.len > 0 and d.rule notin rules:
+      rules.incl d.rule
+      result.add act("Silence " & d.rule & " on this line", "# ned: ignore[" & d.rule & "]",
+                     lintIgnoreLineAct(b.id, d.line, d.rule))
+      result.add act("Turn off " & d.rule & " for this project", ".ned/lint.json", lintRuleOffAct(b.path, d.rule))
+
+proc lintIgnoreLineAct(id, line: int, rule: string): Action =
+  ## `# ned: ignore[rule]` at the end of the line (added to one that is there)
+  result = proc() =
+    let b = bufById(id)
+    if b == nil or line < 0 or line >= b.lines.len or not b.canEdit(): return
+    let s = b.lines[line]
+    let k = s.find("# ned: ignore[")
+    b.beginEdit()
+    if k >= 0:
+      let c = s.find(']', k)
+      if c > k: discard b.replaceText(Pos(line: line, col: c), Pos(line: line, col: c), ", " & rule)
+    else:
+      discard b.replaceText(Pos(line: line, col: s.len), Pos(line: line, col: s.len), "  # ned: ignore[" & rule & "]")
+    b.endEdit()
+    info("Silenced " & rule & " on this line")
+
+proc lintRuleOffAct(path, rule: string): Action =
+  ## the rule off in the project's .ned/lint.json (made when there is none, beside the .nimble or at the top)
+  result = proc() =
+    if quickFixDryRun: return                          # (it writes the file itself: not an edit nedls can send)
+    var f = lintCfgFile(path)
+    if f.len == 0:
+      let nb = findNimbleFile(parentDir(path))
+      let top = if nb.len > 0: parentDir(nb) elif rootDir.len > 0: rootDir else: parentDir(path)
+      f = top / ".ned" / "lint.json"
+    var j = newJObject()
+    if fileExists(f):
+      try: j = parseJson(readFile(f))
+      except CatchableError:
+        error(f & " is not valid JSON — fix it first")
+        return
+    if j{"rules"} == nil or j{"rules"}.kind != JObject: j["rules"] = newJObject()
+    j["rules"][rule] = %"off"
+    try:
+      createDir(parentDir(f))
+      writeFileSafe(f, j.pretty & "\n")
+    except CatchableError as e:
+      error("Could not write " & f & ": " & e.msg)
+      return
+    for b in bufs: b.lastChange = -1                    # (checked again)
+    typoAt.clear()
+    info(rule & " is off in " & relPath(f) & " — set it to \"warning\", \"hint\" … there to have it back")
 
 proc localFixes(b: Buffer): seq[(string, string, Action)] =
   ## quick fixes ned offers itself, next to the language server's

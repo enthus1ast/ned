@@ -5,7 +5,7 @@
 var pickActions: seq[Action]
 var pickSwatches: seq[int]       # a colour shown before each action's label (the theme editor), -1: none
 
-proc act(label, detail: string, a: Action): (string, string, Action) = (label, detail, a)
+func act(label, detail: string, a: Action): (string, string, Action) = (label, detail, a)
 
 var
   pickFolderDir = ""             # the folder browser's folder (empty: any other picker)

@@ -3,7 +3,7 @@
 
 const SyncFile = "ned-settings.json"
 
-proc secretName(k: string): bool =
+func secretName(k: string): bool =
   let l = k.toLowerAscii
   l in ["ai.apikey", "apikey", "api_key", "authorization"] or "token" in l or "secret" in l or "password" in l or
     "apikey" in l or "api_key" in l or l.endsWith(".key") or l == "key"

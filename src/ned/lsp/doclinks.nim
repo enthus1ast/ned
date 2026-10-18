@@ -124,7 +124,7 @@ proc openLinkAt(b: Buffer, p: Pos): bool =
     else:
       let s = lspReady(b)
       if s == nil: return false
-      var j = %*{"range": {"start": s.lspPos(b, l.a), "end": s.lspPos(b, l.e)}}
+      let j = %*{"range": {"start": s.lspPos(b, l.a), "end": s.lspPos(b, l.e)}}
       discard s.lspRequest("documentLink/resolve", j, LspReq(kind: lrLinks, bufId: b.id, extra: "resolve"))
     return true
   if url.len > 0:

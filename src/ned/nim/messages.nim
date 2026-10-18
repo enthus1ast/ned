@@ -24,7 +24,7 @@ proc splitTop(s: string, seps: set[char]): seq[string] =
     inc i
   result.add s[a .. ^1]
 
-proc topColon(s: string): int =
+func topColon(s: string): int =
   ## where "x: T" splits (": " outside brackets and quotes), -1 when none
   var depth = 0
   var q = '\0'
@@ -77,14 +77,14 @@ proc nimParams(sig: string): seq[(string, string)] =
     for n in names.split(','):
       if n.strip.len > 0: result.add (n.strip, typ)
 
-proc plainType(t: string): string =
+func plainType(t: string): string =
   ## "int literal(1)" → "int", "system.string" → "string"
   let k = t.find(" literal(")
   (if k > 0: t[0 ..< k] else: t).replace("system.", "")
 
-proc sigName(sig: string): (string, int) =
+func sigName(sig: string): (string, int) =
   ## the routine's name in "proc `[]`[A](…)" and where it ends
-  var i = sig.find(' ') + 1
+  let i = sig.find(' ') + 1
   if i <= 0: return ("", 0)
   if i < sig.len and sig[i] == '`':
     let e = sig.find('`', i + 1)
@@ -122,7 +122,7 @@ proc unifyType(pt, gt: string, gens: seq[string], binds: var Table[string, strin
   if pb <= 0 or gb <= 0 or not p.endsWith("]") or not g.endsWith("]"): return
   let ph = p[0 ..< pb]
   let gh = g[0 ..< gb]
-  var pa = splitTop(p[pb + 1 ..< p.high], {','})
+  let pa = splitTop(p[pb + 1 ..< p.high], {','})
   var ga = splitTop(g[gb + 1 ..< g.high], {','})
   if ph == "openArray" and gh == "array" and ga.len == 2: ga = @[ga[1]]
   elif ph != gh and not (ph == "openArray" and gh == "seq"): return
@@ -164,7 +164,7 @@ proc parseMismatch(msg: string): NimMismatch =
       if inCands: result.cands.add (n, rest, @[])
       else:
         let c = topColon(rest)
-        var ex = if c >= 0: rest[0 ..< c] else: rest
+        let ex = if c >= 0: rest[0 ..< c] else: rest
         var ty = if c >= 0: rest[c + 2 .. ^1].strip else: ""
         var nm = ""
         let parts = splitTop(ex, {'='})

@@ -46,12 +46,12 @@ proc runFilter(cmd, input, cwd: string, timeoutMs = 15000): (bool, string, strin
   closeProc(p)
   (code == 0, o, e)
 
-proc nonWsBefore(s: string, col: int): int =
+func nonWsBefore(s: string, col: int): int =
   ## how many non-whitespace characters stand before `col` (survives re-indenting and re-spacing)
   for i in 0 ..< min(col, s.len):
     if s[i] notin {' ', '\t'}: inc result
 
-proc colForNonWs(s: string, n: int): int =
+func colForNonWs(s: string, n: int): int =
   ## the column after `n` non-whitespace characters (the inverse of nonWsBefore)
   if n <= 0:
     var i = 0

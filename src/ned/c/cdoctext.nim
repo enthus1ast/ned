@@ -54,7 +54,7 @@ proc cDocAt(lines: seq[string], line: int): string =
   ## it on its last line (/**< … */, //!< …, or a plain one) — "" when there is none
   if line < 0 or line >= lines.len: return ""
   var blk: seq[string]
-  var l = line - 1
+  let l = line - 1
   if l >= 0:
     let t = lines[l].strip
     if t.endsWith("*/"):
@@ -135,5 +135,5 @@ proc cPrettyProto(cp: CProto, name: string): string =
   for p in cp.params: ps.add cPrettyParam(p)
   if cp.varargs: ps.add "..."
   if ps.len == 0: ps.add "void"
-  var ret = cp.ret.replace("*", " *").splitWhitespace.join(" ").replace("* *", "**")
+  let ret = cp.ret.replace("*", " *").splitWhitespace.join(" ").replace("* *", "**")
   result = ret & (if ret.endsWith("*"): "" else: " ") & name & "(" & ps.join(", ") & ")"

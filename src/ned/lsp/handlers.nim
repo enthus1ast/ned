@@ -1,4 +1,4 @@
-proc symbolIcon(kind: int): string =
+func symbolIcon(kind: int): string =
   case kind
   of 6, 9, 12: "ƒ"
   of 5, 10, 11, 23, 26: "T"
@@ -89,7 +89,7 @@ proc lspHandle(s: LspServer, m: JsonNode) =
   if m.hasKey("id") and m.hasKey("method"):
     case m["method"].getStr
     of "workspace/configuration":
-      var arr = newJArray()
+      let arr = newJArray()
       let items = m{"params", "items"}
       if items != nil:
         for it in jitems(items): arr.add sectionFor(it{"section"}.getStr)
@@ -150,7 +150,7 @@ proc lspHandle(s: LspServer, m: JsonNode) =
       for b in bufs:
         if b.lang.id == s.langId: lspAttach(b)
       info(s.name & " ready" & (if s.secondary: " — its problems and quick fixes next to the main server's" else: ""))
-    of lrCompletion: handleCompletion(s, req, res)
+    of lrCompletion: handleCompletion(req, res)
     of lrResolve:
       # completionItem/resolve: the documentation of the item selected in the list
       if res == nil or res.kind != JObject: return
@@ -273,7 +273,7 @@ proc lspHandle(s: LspServer, m: JsonNode) =
       discard s.lspRequest("typeHierarchy/supertypes", %*{"item": item}, LspReq(kind: lrTypeSuper))
       discard s.lspRequest("typeHierarchy/subtypes", %*{"item": item}, LspReq(kind: lrTypeSub))
     of lrTypeSuper, lrTypeSub:
-      for it in jitems(res): typeHier.items.add callItemOf(s, it, (if req.kind == lrTypeSuper: "↑" else: "↓"))
+      for it in jitems(res): typeHier.items.add callItemOf(it, (if req.kind == lrTypeSuper: "↑" else: "↓"))
       dec typeHier.waiting
       if typeHier.waiting <= 0:
         if typeHier.items.len == 0: info("No supertypes or subtypes of " & typeHier.name)
@@ -281,8 +281,8 @@ proc lspHandle(s: LspServer, m: JsonNode) =
     of lrCallIn, lrCallOut:
       if res != nil and res.kind == JArray:
         for c in res:
-          if req.kind == lrCallIn: callItems.add callItemOf(s, c{"from"}, "←")
-          else: callItems.add callItemOf(s, c{"to"}, "→")
+          if req.kind == lrCallIn: callItems.add callItemOf(c{"from"}, "←")
+          else: callItems.add callItemOf(c{"to"}, "→")
       callDone()
     of lrInlay: handleInlays(s, req, res)
     of lrCodeAction: handleCodeActions(s, req, res)

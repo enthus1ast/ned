@@ -211,7 +211,7 @@ proc lsApplyChange(d: LsDoc, ch: JsonNode) =
 
 # ── edits ──
 
-proc lsEol(b: Buffer): string = (if b != nil and b.crlf: "\r\n" else: "\n")
+func lsEol(b: Buffer): string = (if b != nil and b.crlf: "\r\n" else: "\n")
 
 proc lsLineEdits(old, nw: seq[string], eol = "\n"): JsonNode =
   ## TextEdits that turn lines `old` into `nw`, only where they differ (positions in `old`)
@@ -270,8 +270,10 @@ proc lsDryRun(act: Action): seq[(string, seq[string], seq[string])] =
   let uH = lsCopy(unusedHints)
   let logLen = msgLog.len
   let cb = curBuf
+  quickFixDryRun = true
   try: act()
   except Exception as e: lsLog("quick fix failed: " & e.msg)
+  quickFixDryRun = false
   for (b, ul, rl, cid, cs) in saved:
     if b.changeId == cid: continue
     let after = lsCopy(b.lines)

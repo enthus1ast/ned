@@ -24,7 +24,7 @@ var
   cfgTodoHl = true
   cfgTodoName = false
 
-proc todoRank(color: string): int =
+func todoRank(color: string): int =
   case color.toLowerAscii
   of "red": 0
   of "orange": 1
@@ -116,7 +116,7 @@ proc todoHits(s: string, toks: openArray[TokKind]): seq[TodoHit] =
       k = s.find(t.word, k + 1)
   if result.len > 1: result.sort(proc(x, y: TodoHit): int = cmp(x.a, y.a))
 
-proc todoItemOf(path: string, line: int, s: string, h: TodoHit): TodoItem =
+func todoItemOf(path: string, line: int, s: string, h: TodoHit): TodoItem =
   TodoItem(path: path, line: line, col: h.a, tag: h.tag, text: h.text,
            who: (if h.wa >= 0: s[h.wa + 1 ..< h.we - 1] else: ""))
 

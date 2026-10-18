@@ -5,7 +5,7 @@
 #    word wins on a line where both say something ──
 
 
-proc ecWordAt(s: string, i: int): (int, int) =
+func ecWordAt(s: string, i: int): (int, int) =
   ## the identifier around column i: (start, end)
   var a = i
   var e = i
@@ -13,7 +13,7 @@ proc ecWordAt(s: string, i: int): (int, int) =
   while e < s.len and nxIsIdent(s[e]): inc e
   (a, e)
 
-proc ecCodeOnly(s: string, inTriple: var bool, inComment: var int): string =
+func ecCodeOnly(s: string, inTriple: var bool, inComment: var int): string =
   ## a line with its comments blanked and its strings and characters made 0s (same length): only code is looked
   ## at (inTriple: the line starts inside a """ string, and whether the next one does; inComment: how many
   ## `#[ … ]#` block comments it starts inside)
@@ -98,7 +98,7 @@ proc ecCodeOnly(s: string, inTriple: var bool, inComment: var int): string =
         continue
     inc i
 
-proc ecIndent(s: string): int =
+func ecIndent(s: string): int =
   var k = 0
   while k < s.len and s[k] == ' ': inc k
   k
@@ -137,7 +137,7 @@ proc ecUnreachable(lines: seq[string], code: seq[string], res: var seq[Diag]) =
               "method", "converter", "type", "const"] or nt.startsWith("{.") or nt.startsWith("#") or
        nt.startsWith("##"):
       continue
-    res.add Diag(line: j, col: nind, eline: j, ecol: lines[j].len, sev: 3, src: "ned",
+    res.add Diag(line: j, col: nind, eline: j, ecol: lines[j].len, sev: 3, src: "ned", rule: "unreachable",
                  msg: "this code never runs: the `" & w & "` above it leaves the block first")
 
 proc ecUnusedLocals(f: NxFile, lines: seq[string], code: seq[string], res: var seq[Diag]) =
@@ -195,7 +195,7 @@ proc ecUnusedLocals(f: NxFile, lines: seq[string], code: seq[string], res: var s
         if not nxIsIdent(ch): plainName = false
       if not inExample and plainName and counts.getOrDefault(nxNorm(v.name)) <= 1:
         res.add Diag(line: v.line, col: v.col, eline: v.line, ecol: v.col + v.name.len, sev: 4, src: "ned",
-                     msg: "'" & v.name & "' is declared but not used")
+                     rule: "unused-local", msg: "'" & v.name & "' is declared but not used")
 
 proc ecMembers(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
   ## `x.name` where the engine knows x's object type (one of this project's) and nothing is called `name`: not a
@@ -277,11 +277,11 @@ proc ecMembers(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
             meant = fn
         # (only a near miss of one of its fields: what a typo looks like — anything else is the compiler's call)
         if meant.len > 0:
-          res.add Diag(line: l, col: ma, eline: l, ecol: me, sev: 2, src: "ned",
+          res.add Diag(line: l, col: ma, eline: l, ecol: me, sev: 2, src: "ned", rule: "field-typo",
                        msg: "'" & name & "' is not a field of " & base & " — did you mean '" & meant & "'?")
       k = s.find('.', me)
 
-proc ecStmtStart(s: string, k: int, start = 0): int =
+func ecStmtStart(s: string, k: int, start = 0): int =
   ## where the statement holding column k starts on its line (or after column `start`, an opening bracket's
   ## inside): after the last `:` or `;` outside brackets before it (`if c: inc x`, `of 'a': x.add 1`,
   ## `a = 1; inc x`), else `start`
@@ -346,7 +346,7 @@ proc ecLocalDecl(code: seq[string], name: string): bool =
         return true
     if ("let " & name) in t or ("var " & name) in t: return true
 
-proc ecArgCounts(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+proc ecArgCounts(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =  # ned: ignore[unused-param]
   ## `f(a, b, c)` when every routine called f in scope takes fewer or more arguments — not when any of them is a
   ## template, macro or has varargs or untyped parameters, nor when something else is called f (a variable of a
   ## proc type, a type conversion), nor when the call is given a block (`f(a): …`, `f(a) do …`), nor inside what
@@ -475,7 +475,7 @@ proc ecArgCounts(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
       if not unsure and routines > 0 and not fits:
         if not ecLocalDecl(code, name):
           let want = if lo == hi: $lo else: $lo & " to " & $hi
-          res.add Diag(line: l, col: ma, eline: l, ecol: close + 1, sev: 2, src: "ned",
+          res.add Diag(line: l, col: ma, eline: l, ecol: close + 1, sev: 2, src: "ned", rule: "arg-count",
                        msg: name & " takes " & want & " argument" & (if hi == 1 and lo == 1: "" else: "s") &
                             ", here " & $nargs & (if byDot: " (with the one before the dot)" else: ""))
       k = s.find('(', k + 1)
@@ -582,10 +582,10 @@ proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
     if unsure or fitting == 0 or gives.len == 0 or ecLocalDecl(code, name): continue
     let line = b.lines[l]
     let call = line[ind ..< min(line.len, ind + t.len)]
-    res.add Diag(line: l, col: ind, eline: l, ecol: ind + t.len, sev: 2, src: "ned",
+    res.add Diag(line: l, col: ind, eline: l, ecol: ind + t.len, sev: 2, src: "ned", rule: "discarded",
                  msg: "expression '" & call & "' is of type '" & gives & "' and has to be used (or discarded)")
 
-proc ecLiteralKind(v, code: string): string =
+func ecLiteralKind(v, code: string): string =
   ## the type of a value that is only a literal ("" for anything else): string, int, float, char or bool
   if v.len >= 2 and v[0] == '"' and v[^1] == '"' and not v.startsWith("\"\"\""):
     # (the whole value one string: in the code it is blanked to its end)
@@ -676,7 +676,7 @@ proc ecLiteralTypes(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag])
     if own: continue
     inc n
     if n > 200: return
-    res.add Diag(line: l, col: vStart, eline: l, ecol: vStart + v.len, sev: 2, src: "ned",
+    res.add Diag(line: l, col: vStart, eline: l, ecol: vStart + v.len, sev: 2, src: "ned", rule: "literal-type",
                  msg: "type mismatch: got '" & (if lit == "float": "float64" elif lit == "int": "int literal(" & v & ")" else: lit) & "' for '" & v &
                       "' but expected '" & typ & "'")
 
@@ -907,7 +907,7 @@ proc ecUnusedImports(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]
     var col = line.find(o.modName)
     if col < 0: col = 0
     res.add Diag(line: o.line, col: col, eline: o.line, ecol: col + o.modName.len, sev: 2, src: "ned",
-                 msg: "imported and not used: '" & o.modName & "'")
+                 rule: "unused-import", msg: "imported and not used: '" & o.modName & "'")
 
 # ── a var that never changes, a parameter never used, a result never set, a deprecated name, an API newer than
 #    the Nim the package asks for ──
@@ -915,7 +915,7 @@ proc ecUnusedImports(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]
 const EcAssignOps = ["=", "+=", "-=", "*=", "/=", "&=", "@=", "|=", "^=", "%=", "<<=", ">>=", "div=", "mod=", "and=",
                      "or=", "xor=", "shl=", "shr="]
 
-proc ecSkipChain(s: string, k: int): int =
+func ecSkipChain(s: string, k: int): int =
   ## past `.name`, `[…]` and `{…}` after a name: where what follows the whole place begins
   var j = k
   while true:
@@ -938,7 +938,7 @@ proc ecSkipChain(s: string, k: int): int =
       j = q
     else: return j
 
-proc ecAssignAfter(s: string, k: int): bool =
+func ecAssignAfter(s: string, k: int): bool =
   ## does an assignment operator start at k (spaces skipped)? (`=`, `+=` … — not `==`, `<=`, `>=`, `!=`)
   var q = k
   while q < s.len and s[q] == ' ': inc q
@@ -977,7 +977,7 @@ proc ecMutatingCall(f: NxFile, b: Buffer, l, col: int, argIdx: int): bool =
         return true
   false
 
-proc ecEnclosingCall(s: string, k: int): (int, int, int, bool) =
+func ecEnclosingCall(s: string, k: int): (int, int, int, bool) =
   ## the innermost bracket around column k on its line: (its column, the callee's column or -1, the argument's
   ## index, opened by `(`)
   var d = 0
@@ -988,7 +988,7 @@ proc ecEnclosingCall(s: string, k: int): (int, int, int, bool) =
     if c in {')', ']', '}'}: inc d
     elif c in {'(', '[', '{'}:
       if d == 0:
-        var q = j - 1
+        let q = j - 1
         if c == '(' and q >= 0 and nxIsIdent(s[q]):
           let (ca, _) = ecWordAt(s, q)
           return (j, ca, commas, true)
@@ -1022,7 +1022,7 @@ proc ecCallsDirty(sc: NxScope, code: seq[string], a, e: int, memo: var Table[str
         k = q
       else: inc k
 
-proc ecModuleBefore(f: NxFile, s: string, dot: int): bool =
+func ecModuleBefore(f: NxFile, s: string, dot: int): bool =
   ## is the word before the dot at column `dot` a module's name (`strutils.find(…)`: a qualified call, no receiver)?
   if dot <= 0 or not nxIsIdent(s[dot - 1]): return false
   let (a, e) = ecWordAt(s, dot - 1)
@@ -1172,7 +1172,7 @@ proc ecVarsNeverChanged(f: NxFile, b: Buffer, code: seq[string], res: var seq[Di
           k = e
       if not changed and uses > 0:
         res.add Diag(line: v.line, col: v.col, eline: v.line, ecol: v.col + v.name.len, sev: 4, src: "ned",
-                     msg: "'" & v.name & "' is never changed: it can be a let")
+                     rule: "var-let", msg: "'" & v.name & "' is never changed: it can be a let")
 
 proc ecUnusedParams(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
   ## a parameter of a routine of this module (not exported, not passed around as a value, not a hook or an
@@ -1254,7 +1254,7 @@ proc ecUnusedParams(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag])
             al = l
             break
         if at < 0: continue
-        res.add Diag(line: al, col: at, eline: al, ecol: at + pn.len, sev: 4, src: "ned",
+        res.add Diag(line: al, col: at, eline: al, ecol: at + pn.len, sev: 4, src: "ned", rule: "unused-param",
                      msg: "parameter '" & pn & "' is never used")
 
 proc ecResultNeverSet(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
@@ -1327,10 +1327,37 @@ proc ecResultNeverSet(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag
       # (the last statement goes on below — unless what follows is its block: `for …:`, `if …:`)
       if ecIndent(b.lines[bodyEnd]) > bodyInd and not t.endsWith(":"): continue
     res.add Diag(line: r.line, col: max(0, b.lines[r.line].find(r.name)), eline: r.line,
-                 ecol: max(0, b.lines[r.line].find(r.name)) + r.name.len, sev: 2, src: "ned",
+                 ecol: max(0, b.lines[r.line].find(r.name)) + r.name.len, sev: 2, src: "ned", rule: "result-unset",
                  msg: "'" & r.name & "' never sets its result: it always returns the default value")
 
-proc ecPragmaArg(pragmas, name: string): (bool, string) =
+const EcFuncMs = 25                         # ms a round of the "can be a func" check may take in an open file
+var ecFuncRounds: Table[int, (int, int)]    # buffer id → (the change, the rounds the check asked for after it)
+
+proc ecCanBeFunc(f: NxFile, b: Buffer, res: var seq[Diag]) =
+  ## a proc of this module with no side effects — the engine sure of every call in it, as the compiler infers it:
+  ## it touches no module variable and calls nothing that has side effects — can be a func. In an open file a round
+  ## takes at most EcFuncMs: what is left is looked at in the next rounds (what was worked out is kept)
+  let live = bufById(b.id) == b
+  let keep = proc(s: NxSym): bool =
+    for (a, e) in f.inactive:
+      if s.line >= a and s.line <= e: return false
+    true
+  let (idx, cut) = nxFuncHints(f, b.lines, (if live: EcFuncMs else: 20_000), keep)
+  for i in idx:
+    let s = f.syms[i]
+    if s.line >= b.lines.len: continue
+    var c = s.col
+    if c < 0 or b.lines[s.line].find(s.name, c) != c: c = max(0, b.lines[s.line].find(s.name))
+    res.add Diag(line: s.line, col: c, eline: s.line, ecol: c + s.name.len, sev: 4, src: "ned", rule: "can-be-func",
+                 msg: "'" & s.name & "' has no side effects: it can be a func")
+  if cut and live:
+    # (out of time: another round soon — a few at most for one change)
+    let (ch, n) = ecFuncRounds.getOrDefault(b.id, (-1, 0))
+    let rounds = if ch == b.changeId: n + 1 else: 1
+    ecFuncRounds[b.id] = (b.changeId, rounds)
+    if rounds <= 40: typoAt[b.id] = -1
+
+func ecPragmaArg(pragmas, name: string): (bool, string) =
   ## is pragma `name` among these, and the text after `name:` (unquoted)
   var k = 0
   while true:
@@ -1361,7 +1388,7 @@ proc ecVersion(v: string): seq[int] =
     try: result.add parseInt(t)
     except ValueError: return @[]
 
-proc ecVerLess(a, b: seq[int]): bool =
+func ecVerLess(a, b: seq[int]): bool =
   for i in 0 ..< max(a.len, b.len):
     let x = if i < a.len: a[i] else: 0
     let y = if i < b.len: b[i] else: 0
@@ -1530,7 +1557,7 @@ proc ecDeprecatedAndNewer(f: NxFile, b: Buffer, code: seq[string], res: var seq[
       while k >= 0 and ((k > 0 and nxIsIdent(s[k - 1])) or (k + stem.len < s.len and nxIsIdent(s[k + stem.len]))):
         k = s.find(stem, k + 1)
       if k < 0: continue
-      res.add Diag(line: im.line, col: k, eline: im.line, ecol: k + stem.len, sev: 2, src: "ned",
+      res.add Diag(line: im.line, col: k, eline: im.line, ecol: k + stem.len, sev: 2, src: "ned", rule: "newer-module",
                    msg: "module " & stem & " is not in Nim " & NimApiSteps[st][0] & " or older (Nim " &
                         NimApiSteps[st][1] & " has it); this package " & said)
   var depNames, newNames: HashSet[string]
@@ -1601,18 +1628,169 @@ proc ecDeprecatedAndNewer(f: NxFile, b: Buffer, code: seq[string], res: var seq[
     let name = lines[l][k ..< e]
     if allDep:
       inc n
-      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned",
+      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned", rule: "deprecated",
                      msg: (if depMsg.len > 0: depMsg & "; " else: "") & name & " is deprecated")
     elif allNew and newest.len > 0:
       inc n
-      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned",
+      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned", rule: "newer-api",
                      msg: "'" & name & "' is in Nim " & ecVerText(newest) & " and later; this package " & said)
     elif allNew and step >= 0:
       inc n
-      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned",
+      found.add Diag(line: l, col: k, eline: l, ecol: e, sev: 2, src: "ned", rule: "newer-api",
                      msg: "'" & name & "' is not in Nim " & NimApiSteps[step][0] & " or older (Nim " &
                           NimApiSteps[step][1] & " has it); this package " & said))
   res.add found
+
+# ── rules: each of ned's own checks has a rule id; .ned/lint.json (the nearest above a file) sets a rule's severity
+#    or turns it off and leaves files out, and a `# ned: ignore` comment silences one line — in the editor, nedls
+#    and ned --lint alike ──
+
+const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json says otherwise)
+  ("typo", "a name nothing declares, close to one that is declared (the compiler's words)", 1),
+  ("field-typo", "a field name that is a typo of one the object has", 2),
+  ("arg-count", "a call with the wrong number of arguments for every routine of that name", 2),
+  ("discarded", "a value neither used nor discarded", 2),
+  ("literal-type", "a literal that can never be the declared type", 2),
+  ("unused-import", "an import nothing in the file uses", 2),
+  ("unreachable", "code after a return, raise, break or continue", 3),
+  ("unused-local", "a local let or var nothing uses", 4),
+  ("var-let", "a var nothing changes: it can be a let", 4),
+  ("unused-param", "a parameter a routine never uses", 4),
+  ("result-unset", "a routine that never sets its result", 2),
+  ("deprecated", "a name only deprecated declarations have", 2),
+  ("newer-api", "a standard-library name newer than the Nim the package asks for", 2),
+  ("newer-module", "a standard-library module newer than the Nim the package asks for", 2),
+  ("can-be-func", "a proc with no side effects: it can be a func", 4),
+  ("unused-export", "an exported routine nothing in the project uses (programs, not libraries)", 4),
+  ("import-not-required", "an import of a package the .nimble does not require", 2),
+  ("require-unused", "a package the .nimble requires that nothing imports", 4),
+  ("nimble", "a problem in a .nimble file", 2)]
+
+var ecWantSev* = 4                     # ned --lint: rules less serious than what it shows or fails on are not looked for
+
+func nedRuleSev*(rule: string): int =
+  ## a rule's own severity (NedRules)
+  for (r, _, sv) in NedRules:
+    if r == rule: return sv
+  2
+
+type LintCfg = object
+  dir: string                          # the folder the .ned/ is in ("": no .ned/lint.json)
+  sev: Table[string, int]              # rule → severity (0: off)
+  exclude: seq[string]                 # globs, from that folder (EditorConfig's: * ** ? [ab] {a,b})
+  problems: seq[string]                # what in the file could not be used (ned --lint says)
+
+var lintCfgCache: Table[string, (string, LintCfg)]     # lint.json → (its stamp, what it says)
+
+func lintSevOfName(name: string): int =
+  ## "error" 1 · "warning" 2 · "info" 3 · "hint" 4 · "off" 0 · else -1
+  case name.toLowerAscii
+  of "error", "errors": 1
+  of "warning", "warnings", "warn": 2
+  of "info", "information": 3
+  of "hint", "hints": 4
+  of "off", "none", "never", "false": 0
+  else: -1
+
+proc lintCfgFile(path: string): string =
+  ## the nearest .ned/lint.json above a file (its folder or one above, up to the repository's top) — "" none
+  var d = parentDir(path)
+  for _ in 0 .. 40:
+    if fileExists(d / ".ned" / "lint.json"): return d / ".ned" / "lint.json"
+    if dirExists(d / ".git") or d.len <= 1: break
+    let up = parentDir(d)
+    if up == d or up.len == 0: break
+    d = up
+  ""
+
+proc lintCfgFor*(path: string): LintCfg =
+  ## the rule settings a file is checked with (.ned/lint.json; none: every rule at its own severity)
+  let f = lintCfgFile(path)
+  if f.len == 0: return
+  let st = nxStamp(f)
+  if f in lintCfgCache and lintCfgCache[f][0] == st: return lintCfgCache[f][1]
+  result.dir = parentDir(parentDir(f))
+  var known: HashSet[string]
+  for (r, _, _) in NedRules: known.incl r
+  try:
+    let j = parseJson(readFile(f))
+    let rules = j{"rules"}
+    if rules != nil and rules.kind == JObject:
+      for k, v in rules:
+        let sv = if v.kind == JString: lintSevOfName(v.getStr) elif v.kind == JBool: (if v.getBool: -2 else: 0) else: -1
+        if k notin known: result.problems.add "unknown rule \"" & k & "\""
+        elif sv == -1: result.problems.add "\"" & k & "\": off, error, warning, info or hint"
+        elif sv != -2: result.sev[k] = sv
+    let ex = j{"exclude"}
+    if ex != nil and ex.kind == JArray:
+      for x in ex:
+        if x.kind == JString and x.getStr.len > 0: result.exclude.add x.getStr
+  except CatchableError as e:
+    result.problems.add "not read: " & e.msg
+  lintCfgCache[f] = (st, result)
+
+proc lintExcluded*(cfg: LintCfg, path: string): bool =
+  ## is the file left out by the lint.json's exclude? ("generated/" a folder, "**/*_gen.nim" a glob)
+  if cfg.dir.len == 0 or cfg.exclude.len == 0 or not path.startsWith(cfg.dir & "/"): return false
+  let rel = path[cfg.dir.len + 1 .. ^1]
+  for g in cfg.exclude:
+    let g2 = g.strip(chars = {'/'}, trailing = false)
+    if g2.endsWith("/"):
+      if rel.startsWith(g2) or ("/" & g2) in ("/" & rel): return true
+    elif ecGlobMatches(g2, rel) or ecGlobMatches(g2 & "/**", rel): return true
+  false
+
+proc lintIgnoreRules(comment: string, word: string): (bool, seq[string]) =
+  ## `# ned: ignore` → (true, @[]) — every rule; `# ned: ignore[var-let, unused-param]` → (true, those)
+  let k = comment.find("# ned: " & word)
+  if k < 0: return
+  let e = k + ("# ned: " & word).len
+  if e < comment.len and comment[e] == '[':
+    let c = comment.find(']', e)
+    if c > e:
+      for r in comment[e + 1 ..< c].split(','):
+        if r.strip.len > 0: result[1].add r.strip
+  elif e < comment.len and comment[e] notin {' ', '\t'}: return        # (ignore-next-line, when looking for ignore)
+  result[0] = true
+
+proc lintSilenced*(lines: openArray[string], l: int, rule: string): bool =
+  ## is the rule silenced on line l — `# ned: ignore[…]` on it, `# ned: ignore-next-line[…]` alone on the line
+  ## above, or `# ned: ignore-file[…]` near the top?
+  proc hit(r: (bool, seq[string])): bool = r[0] and (r[1].len == 0 or rule in r[1])
+  if l >= 0 and l < lines.len and "# ned: ignore" in lines[l] and hit(lintIgnoreRules(lines[l], "ignore")): return true
+  if l > 0 and l - 1 < lines.len and lines[l - 1].strip.startsWith("# ned: ignore-next-line") and
+     hit(lintIgnoreRules(lines[l - 1], "ignore-next-line")):
+    return true
+  for i in 0 ..< min(lines.len, 40):
+    if "# ned: ignore-file" in lines[i] and hit(lintIgnoreRules(lines[i], "ignore-file")): return true
+  false
+
+proc lintApply*(path: string, lines: openArray[string], ds: var seq[Diag]) =
+  ## ned's own diagnostics (those with a rule) as .ned/lint.json and `# ned: ignore` comments want them
+  var any = false
+  for d in ds:
+    if d.rule.len > 0: any = true
+  if not any: return
+  let cfg = lintCfgFor(path)
+  if lintExcluded(cfg, path):
+    var keep: seq[Diag]
+    for d in ds:
+      if d.rule.len == 0: keep.add d
+    ds = keep
+    return
+  var keep: seq[Diag]
+  for d0 in ds:
+    var d = d0
+    if d.rule.len > 0:
+      let s = cfg.sev.getOrDefault(d.rule, -1)
+      if s == 0: continue
+      if s > 0: d.sev = s
+      if lintSilenced(lines, d.line, d.rule): continue
+    keep.add d
+  ds = keep
+
+proc pcImportsNotRequired*(f: NxFile, b: Buffer, code: seq[string]): seq[Diag]
+proc pcNimbleChecks*(b: Buffer): seq[Diag]
 
 proc engineChecksFor(b: Buffer): seq[Diag] =
   ## the engine's own checks of a Nim buffer as it is now
@@ -1627,20 +1805,26 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
   var inTriple = false
   var inComment = 0
   for i, l in b.lines: code[i] = ecCodeOnly(l, inTriple, inComment)
-  # (inside a `when` branch the engine leaves out, nothing is checked)
+  # (inside a `when` branch the engine leaves out, nothing is checked; a rule .ned/lint.json turns off is not looked for)
+  let lc = lintCfgFor(f.path)
+  template on(rule: string): bool =
+    (let sv = lc.sev.getOrDefault(rule, nedRuleSev(rule)); sv != 0 and sv <= ecWantSev)
   try:
-    ecUnreachable(b.lines, code, result)
-    ecUnusedLocals(f, b.lines, code, result)
-    ecMembers(f, b, code, result)
-    ecArgCounts(f, b, code, result)
-    ecDiscarded(f, b, code, result)
-    ecLiteralTypes(f, b, code, result)
-    ecUnusedImports(f, b, code, result)
+    if on("unreachable"): ecUnreachable(b.lines, code, result)
+    if on("unused-local"): ecUnusedLocals(f, b.lines, code, result)
+    if on("field-typo"): ecMembers(f, b, code, result)
+    if on("arg-count"): ecArgCounts(f, b, code, result)
+    if on("discarded"): ecDiscarded(f, b, code, result)
+    if on("literal-type"): ecLiteralTypes(f, b, code, result)
+    if on("unused-import"): ecUnusedImports(f, b, code, result)
     if cfgEngineMoreChecks:
-      ecVarsNeverChanged(f, b, code, result)
-      ecUnusedParams(f, b, code, result)
-      ecResultNeverSet(f, b, code, result)
-    ecDeprecatedAndNewer(f, b, code, result)
+      if on("var-let"): ecVarsNeverChanged(f, b, code, result)
+      if on("unused-param"): ecUnusedParams(f, b, code, result)
+      if on("result-unset"): ecResultNeverSet(f, b, code, result)
+      if on("can-be-func"): ecCanBeFunc(f, b, result)
+    if on("deprecated") or on("newer-api") or on("newer-module"): ecDeprecatedAndNewer(f, b, code, result)
+    if on("import-not-required"): result.add pcImportsNotRequired(f, b, code)   # (the project's .nimble: its requires)
+    if b.path.endsWith(".nimble") and on("nimble"): result.add pcNimbleChecks(b)
   except CatchableError, Defect: discard
   var keep: seq[Diag]
   for d in result:
@@ -1648,4 +1832,5 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
     for (a, e) in f.inactive:
       if d.line >= a and d.line <= e: inactive = true
     if not inactive: keep.add d
+  lintApply(f.path, b.lines, keep)
   keep

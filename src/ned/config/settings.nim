@@ -365,7 +365,8 @@ proc initSettingDefs() =
        "of arguments, a value neither used nor discarded, a literal of the wrong type, an unused import, code after a " &
        "return, a local never used. The compiler's word wins on a line where both speak")
   defS("Nim", "nim.engineHints", %true, "With nim.engineChecks: hints the compiler does not give — a var nothing " &
-       "changes (it can be a let), a parameter a routine never uses, a routine that never sets its result")
+       "changes (it can be a let), a parameter a routine never uses, a routine that never sets its result, a proc " &
+       "with no side effects (it can be a func)")
   defS("Nim", "nim.minVersion", %"", "The oldest Nim your code must build with: a standard-library name or module newer " &
        "than it is marked (its {.since.}, or the Nim release that added it), except inside a `when` that asks which " &
        "Nim this is. Empty: what the package's .nimble requires (\"nim >= 2.0.0\") · \"off\"")
@@ -381,6 +382,8 @@ proc initSettingDefs() =
        "from the index cache, in a few ms)")
   defS("Nim", "nim.extraFlags", %"", "Extra flags for nim c/cpp/js when running or building, e.g. \"--mm:orc -d:ssl\"")
   defS("Nim", "nim.testFlags", %"--hints:off", "Flags used by the test explorer when compiling tests")
+  defS("Nim", "nim.coverageTestFiles", %false,
+       "Test coverage for Nim also counts the test files' own lines (off: only the project's code they test)")
   # ── nimlangserver (sent to the server as its \"nim\" configuration section) ──
   defS("nimlangserver", "nim.projectMapping", newJArray(),
        "Map files to nimsuggest projects: [{\"projectFile\": \"src/main.nim\", \"fileRegex\": \".*\\\\.nim\"}]")
@@ -845,6 +848,7 @@ proc applySettings() =
   FmtBlank = clamp(sInt("nim.format.maxBlankLines"), 1, 3)
   cfgNimFlags = sStr("nim.extraFlags")
   cfgNimTestFlags = sStr("nim.testFlags")
+  cfgCovTestFiles = sBool("nim.coverageTestFiles")
   cfgAiProvider = sStr("ai.provider")
   cfgAiModel = sStr("ai.model")
   cfgAiKey = sStr("ai.apiKey")
@@ -1009,7 +1013,7 @@ proc applyUserLanguages() =
       b.lang = nl
       b.hlValid = 0
 
-proc riskyProjectKey(k: string): bool =
+func riskyProjectKey(k: string): bool =
   ## settings that start programs or send code somewhere: a cloned repository must not set them
   ## until you trust the folder
   k in ["lsp", "lsp.alsoRun", "formatters", "run", "run.configs", "terminal.shell", "nim.nimsuggestPath", "nim.ide",
@@ -1068,7 +1072,7 @@ proc loadConfig() =
       warn("project settings: " & e.msg)
   applySettings()
 
-proc jsonValueEnd(s: string, i0: int): int =
+func jsonValueEnd(s: string, i0: int): int =
   var i = i0
   while i < s.len and s[i] in Whitespace: inc i
   if i >= s.len: return i

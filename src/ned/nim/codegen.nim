@@ -331,7 +331,7 @@ proc ctorAtCursor(b: Buffer): CtorInfo =
     if l >= 0: c = b.lines[l].high
   if not found: return
   let t = b.lines[l]
-  var e = c
+  let e = c
   var a = e
   while a > 0 and nxIsIdent(t[a - 1]): dec a
   if a == e or a > 0 and t[a - 1] == '.': return
@@ -513,7 +513,7 @@ proc runSelection() =
   let b = buf()
   if b.lang.mode != lmNim: return
   let (a, e) = b.primary.range
-  var code = if a != e: b.getText(a, e) else: b.lines[a.line]
+  let code = if a != e: b.getText(a, e) else: b.lines[a.line]
   # dedent
   var ind = int.high
   for l in code.splitLines:

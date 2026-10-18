@@ -39,7 +39,7 @@ proc parseEditorConfig(text: string): EcFile =
       if k == "root": result.root = v.toLowerAscii == "true"
     else: result.sections[cur].props.add (k, v)
 
-proc ecMatch(p: string, pi0: int, s: string, si0: int): bool =
+func ecMatch(p: string, pi0: int, s: string, si0: int): bool =
   ## EditorConfig globs: * (not /), ** (anything), ?, [abc] [a-z] [!abc], {a,b,c}, {1..10}, \\ escapes
   var pi = pi0
   var si = si0
@@ -150,8 +150,9 @@ proc ecMatch(p: string, pi0: int, s: string, si0: int): bool =
       inc si
   si == s.len
 
-proc ecGlobMatches(glob, rel: string): bool =
+proc ecGlobMatches*(glob, rel: string): bool =
   ## `rel`: the file's path from the .editorconfig's folder; a glob without / matches the name in any folder
+  ## (EditorConfig's globs: * ** ? [abc] {a,b} {1..10} — also used for .ned/lint.json's exclude)
   if '/' notin glob: return ecMatch(glob, 0, rel.rsplit('/', 1)[^1], 0)
   ecMatch(if glob.startsWith("/"): glob[1 .. ^1] else: glob, 0, rel, 0)
 
