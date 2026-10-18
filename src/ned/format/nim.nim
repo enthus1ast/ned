@@ -232,6 +232,21 @@ proc fLambdaCmd*(toks: openArray[FTok]): bool =
     elif d == 0 and t.kind == fkKw and t.text in FBlockKw: return false
   lastComma > k + 1 and fLambdaAt(toks, lastComma + 1) == toks.high
 
+proc fColonBlock*(toks: openArray[FTok], a, b: int): bool
+proc fCommandLike*(toks: openArray[FTok]): bool
+
+proc fEnumComment(v: seq[FTok], c: FTok): bool =
+  ## is comment c (after an enum value's comma) that value's trailing comment? On the value's line — or on a
+  ## line of its own after a line of several values (`a, b,` ⏎ `# note` → `b # note`, like nph)
+  if not c.nl: return true
+  v.len > 0 and not v[0].nl and v[^1].kind != fkComment and not c.text.startsWith("##") and
+    not c.text.startsWith("#[")
+
+proc fBranchWidth(toks: seq[FTok], depth: int): int =
+  ## the width nph counts for an inline case branch (`of a, b: x`): it measures from after `case `, a few
+  ## columns more than the branch's own line
+  depth * 2 + fRender(toks).len + (if toks[0].text == "else": 5 else: 4)
+
 proc fTypeMemberComplex*(l: FLine): bool =
   for t in l.toks:
     if t.kind == fkKw and t.text in ["object", "enum"]: return true
@@ -258,6 +273,28 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
            c.toks[0].text.startsWith("#") and not c.toks[0].text.startsWith("##[") and
            not c.toks[0].text.startsWith("#[") and
            (k + 2 >= work.len or (not work[k + 2].comment and work[k + 2].depth <= l.depth)):
+          var t = c.toks[0]
+          t.nl = false
+          t.blanks = 0
+          l.toks.add t
+          joined.add l
+          k += 2
+          continue
+      joined.add l
+      inc k
+    work = joined
+  # `if a:` ⏎ a comment written deeper than the block's first statement: the header's trailing comment (nph)
+  block:
+    var joined: seq[FLine]
+    var k = 0
+    while k < work.len:
+      var l = work[k]
+      if not l.comment and not l.verbatim and l.toks.len > 1 and l.toks[^1].kind == fkColon and k + 2 < work.len:
+        let c = work[k + 1]
+        let b = work[k + 2]
+        if c.comment and c.toks.len == 1 and not c.blank and c.toks[0].text.startsWith("#") and
+           not c.toks[0].text.startsWith("##") and not c.toks[0].text.startsWith("#[") and
+           not b.comment and b.indent > l.indent and c.indent > b.indent:
           var t = c.toks[0]
           t.nl = false
           t.blanks = 0
@@ -491,6 +528,31 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       res.add l
       inc jk
   work = move(res)
+  # `x =` ⏎ a value on the next line (or `return` ⏎ its value): one statement again — nph decides where it
+  # breaks (it joins them when they fit on one line)
+  res = @[]
+  var mk = 0
+  while mk < work.len:
+    let l = work[mk]
+    if not l.comment and not l.verbatim and mk + 1 < work.len and l.toks.len >= 1 and
+       (fValueEq(l.toks) or (l.toks.len == 1 and l.toks[0].kind == fkKw and
+                             l.toks[0].text in ["return", "yield", "discard", "raise"])):
+      let m = work[mk + 1]
+      var after = mk + 2
+      while after < work.len and work[after].comment: inc after     # (a doc comment under it stays there)
+      if not m.comment and not m.verbatim and not m.blank and m.depth == l.depth + 1 and m.toks.len > 0 and
+         m.toks[^1].kind != fkComment and not fOpensBlock(FLine(toks: m.toks)) and
+         (after >= work.len or work[after].depth <= l.depth) and
+         (not (m.toks[0].kind == fkKw and (m.toks[0].text in FBlockKw or m.toks[0].text in ["case", "try", "block"])) or
+          (m.toks[0].text in ["if", "when"] and fInlineIf(m.toks, 0, m.toks.len))):
+        var merged = l
+        merged.toks = l.toks & m.toks
+        res.add merged
+        mk += 2
+        continue
+    res.add l
+    inc mk
+  work = move(res)
   # import blocks: one module (or std/[…] group) per line, a comma after all but the last
   res = @[]
   var importDepth = -1
@@ -549,11 +611,13 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       continue
     res.add move(work[li])
   work = move(res)
-  # `Foo = object # what it is`: the comment goes under it, as its body's first line (like nph)
+  # `Foo = object # what it is` ⏎ comment lines: the comment goes under it, as its body's first line (like nph —
+  # when the body starts with no comment, it stays on the line)
   res = @[]
   for k in 0 ..< work.len:
     let l = work[k]
-    if not l.comment and not l.verbatim and l.toks.len > 3 and l.toks[^1].kind == fkComment and
+    if k + 1 < work.len and work[k + 1].comment and work[k + 1].depth > l.depth and
+       not l.comment and not l.verbatim and l.toks.len > 3 and l.toks[^1].kind == fkComment and
        not l.toks[^1].text.startsWith("#[") and not l.toks[^1].text.startsWith("##") and
        l.toks[^2].kind == fkKw and l.toks[^2].text in ["object", "tuple"] and
        (l.toks[^3].kind == fkOp and l.toks[^3].text == "=" or
@@ -568,6 +632,8 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   # one-liners with plain values keeps them inline, otherwise every branch body goes on its own line
   var shifts: seq[int]
   var inlineBranch = newSeq[bool](work.len)
+  var lastBranchComment = newSeq[bool](work.len)
+  var absorbed = newSeq[bool](work.len)      # a branch's value written under it, now on the branch's line
   for idx in 0 ..< work.len:
     template l: untyped = work[idx]
     while shifts.len > 0 and l.depth <= shifts[^1] and not l.comment: shifts.setLen(shifts.len - 1)
@@ -586,11 +652,18 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     if bd == l.depth + 1: shifts.add l.depth
     var trivial = true
     var branches: seq[int]
+    var bodies: seq[int]           # (branches whose value is on the next line)
+    var commented = -1             # (a branch with a trailing comment: only the last may have one)
     j = idx + 1
     while j < work.len:
       let m = work[j]
       if m.comment:
-        if m.depth >= bd: trivial = false
+        if m.depth >= bd:
+          # (comments after the last branch are the case's own: they change nothing)
+          var q = j
+          while q < work.len and work[q].comment: inc q
+          if q < work.len and work[q].depth >= bd: trivial = false
+          else: break
         inc j
         continue
       if m.depth < bd: break
@@ -601,16 +674,38 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       let mt = m.toks[0]
       if not (mt.kind == fkKw and mt.text in ["of", "elif", "else"]): break
       branches.add j
-      let (h, stop) = fSplitIdx(m.toks, 0, m.toks.len)
-      if h < 0 or stop < m.toks.len or m.toks[^1].kind == fkComment or m.verbatim or
-         not fSimpleTail(m.toks, h + 1):
+      if commented >= 0: trivial = false
+      # (`of a:` ⏎ a plain value: as `of a: value` — nph does not keep the line break)
+      if m.toks[^1].kind == fkColon and not m.verbatim and j + 1 < work.len and not work[j + 1].comment and
+         not work[j + 1].verbatim and work[j + 1].depth == bd + 1 and work[j + 1].toks[^1].kind != fkComment and
+         fSimpleTail(work[j + 1].toks, 0) and fTopColon(work[j + 1].toks, 0, work[j + 1].toks.len) < 0 and
+         (j + 2 >= work.len or work[j + 2].depth <= bd):
+        if fBranchWidth(m.toks & work[j + 1].toks, l.depth) > FmtMax: trivial = false
+        bodies.add j
+        j += 2
+        continue
+      let hasC = m.toks[^1].kind == fkComment and not m.toks[^1].text.startsWith("#[") and
+                 not m.toks[^1].text.startsWith("##")
+      if hasC: commented = j
+      let mt2 = if hasC: m.toks[0 ..< m.toks.high] else: m.toks
+      let (h, stop) = fSplitIdx(mt2, 0, mt2.len)
+      if h < 0 or stop < mt2.len or mt2[^1].kind == fkComment or m.verbatim or not fSimpleTail(mt2, h + 1) or
+         fBranchWidth(mt2, l.depth) > FmtMax:
         trivial = false
       inc j
     if trivial:
       for b in branches: inlineBranch[b] = true
+      for b in bodies:
+        work[b].toks = work[b].toks & work[b + 1].toks
+        absorbed[b + 1] = true
+      # (the last branch's trailing comment is the case's own: nph puts it on a line after the branches)
+      if commented >= 0: lastBranchComment[commented] = true
   i = 0
   while i < work.len:
     template l: untyped = work[i]
+    if absorbed[i]:
+      inc i
+      continue
     # where are we: in a type section (members at depth+1), an enum body?
     if not l.comment:
       if typeDepth >= 0 and l.depth <= typeDepth: typeDepth = -1
@@ -625,6 +720,11 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       if k0.kind == fkKw and k0.text in FSectionKw and (l.toks.len == 1 or l.toks[1].kind == fkComment):
         secDepth = l.depth
     if l.comment or l.verbatim:
+      if l.verbatim:
+        # (a value under `x =` holding a long string: nph's layout may join or break it — fNphLayout)
+        var pc = i - 1
+        while pc >= 0 and work[pc].comment: dec pc
+        o.exprLine = pc >= 0 and l.depth == work[pc].depth + 1 and fValueEq(work[pc].toks)
       result.add o
       inc i
       continue
@@ -653,6 +753,24 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       if l.toks.len > 1 and fTypeMemberComplex(l): o.complexKind = 2
     if inType and l.depth == typeDepth + 1 and fTypeMemberComplex(l): o.complexKind = 3
     if t0.kind == fkKw and t0.text == "type" and l.toks.len > 1 and fTypeMemberComplex(l): o.complexKind = 2
+    # `Name = ptr object` with fields under it: `Name =` ⏎ `ptr object` ⏎ the fields one deeper (like nph: a
+    # `ptr` type is not one it keeps on the line of the `=` when it does not fit there)
+    if ((inType and l.depth == typeDepth + 1) or t0.kind == fkKw and t0.text == "type") and l.toks.len >= 4 and
+       l.toks[^1].kind == fkKw and
+       l.toks[^1].text == "object" and l.toks[^2].kind == fkKw and l.toks[^2].text == "ptr" and
+       l.toks[^3].kind == fkOp and l.toks[^3].text == "=" and i + 1 < work.len and work[i + 1].depth > l.depth:
+      var head = o
+      head.toks = l.toks[0 .. ^3]
+      result.add head
+      var po = FOut(depth: l.depth + 1, toks: l.toks[^2 .. ^1])
+      po.toks[0].nl = true
+      result.add po
+      var j = i + 1
+      while j < work.len and work[j].depth > l.depth:
+        work[j].depth += 1
+        inc j
+      inc i
+      continue
     # enum values: one per line
     let isEnumLine = enumDepth >= 0 and l.depth == enumDepth + 1
     var enumAt = -1
@@ -675,7 +793,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
           if t.kind == fkComma and d == 0:
             vals.add curv
             curv = @[]
-          elif t.kind == fkComment and curv.len == 0 and vals.len > 0 and not t.nl: vals[^1].add t
+          elif t.kind == fkComment and curv.len == 0 and vals.len > 0 and fEnumComment(vals[^1], t): vals[^1].add t
           else: curv.add t
         if curv.len > 0: vals.add curv
         for v in vals: result.add FOut(depth: l.depth + 1, toks: v)
@@ -694,7 +812,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
         if t.kind == fkComma and d == 0:
           vals.add curv
           curv = @[]
-        elif t.kind == fkComment and curv.len == 0 and vals.len > 0 and not t.nl: vals[^1].add t
+        elif t.kind == fkComment and curv.len == 0 and vals.len > 0 and fEnumComment(vals[^1], t): vals[^1].add t
         else: curv.add t
       if curv.len > 0: vals.add curv
       for vi, v in vals:
@@ -705,10 +823,37 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     # if-expression value gets one branch per line
     let ifExpr = o.exprLine and t0.kind == fkKw and t0.text in ["if", "when"]
     var splitHere = not inType and (not o.exprLine or ifExpr)
-    if splitHere and (fKeepInline(l.toks, l.depth) or inlineBranch[i]): splitHere = false
+    # (a trailing `#` comment is the statement's own, not its last branch's: `x = if a: b else: c # note` stays
+    # inline when the code fits — the comment goes under it when the line is too long, like nph)
+    let codeOnly = if l.toks.len > 2 and l.toks[^1].kind == fkComment and not l.toks[^1].text.startsWith("#[") and
+                      not l.toks[^1].text.startsWith("##"): l.toks[0 ..< l.toks.high]
+                   else: l.toks
+    if splitHere and (fKeepInline(codeOnly, l.depth) or inlineBranch[i]): splitHere = false
+    if lastBranchComment[i]:
+      o.toks = codeOnly
+      result.add o
+      result.add FOut(depth: l.depth, toks: @[l.toks[^1]], comment: true)
+      inc i
+      continue
     if inType:
+      # (an object branch keeps its fields inline — and `of x: discard`, `of x: nil` too, like nph; other
+      # one-line statements in a type (`when x: discard` ⏎ …) are split)
       let (_, body0, _) = fSplitStatement(l)
-      splitHere = body0.len > 0 and body0[0].kind == fkKw and body0[0].text in ["discard", "nil"]
+      splitHere = body0.len > 0 and body0[0].kind == fkKw and body0[0].text in ["discard", "nil"] and
+                  not (t0.kind == fkKw and t0.text == "of" and body0.len == 1)
+    # `runnableExamples: body`, `assert: x` — a call given a block on its line (not a field, not a section's
+    # member): `name:` ⏎ its body under it (like nph); the body is looked at again as a line of its own
+    if splitHere and not o.declLike and fColonBlock(l.toks, 0, l.toks.len) and l.toks[^1].kind != fkComment and
+       not fOpensBlock(l):
+      var head = o
+      head.toks = l.toks[0 .. 1]
+      result.add head
+      let body = l.toks[2 .. ^1]
+      work[i].toks = body
+      work[i].depth = work[i].depth + 1
+      work[i].blank = false
+      work[i].toks[0].nl = true
+      continue
     if splitHere:
       var pending = @[(l.toks, l.depth, l.blank)]
       var first = true
@@ -751,14 +896,21 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
         while j < work.len and (work[j].depth > l.depth or (work[j].comment and work[j].depth == l.depth + 1)):
           work[j].depth += shift
           inc j
-      # (`static:` / `defer:` with a body on the line: its trailing comment on a line of its own after it — like nph)
-      if result.len - startLen > 1 and not fOpensBlock(l) and t0.kind == fkKw and t0.text in ["static", "defer"]:
+      # (a block written on one line with a trailing comment — like nph: after an `of` branch's body followed by
+      # another branch, the comment goes on a line of its own at the `of`'s level; after a body that is a command
+      # (`static: doAssert x # note`), on a line of its own under it; else it stays on the body's line)
+      if result.len - startLen > 1 and not fOpensBlock(l) and not result[^1].comment:
         let lt = result[^1].toks
         if lt.len > 1 and lt[^1].kind == fkComment and not lt[^1].text.startsWith("##") and
            not lt[^1].text.startsWith("#["):
-          let c = lt[^1]
-          result[^1].toks = lt[0 ..< lt.high]
-          result.add FOut(depth: result[^1].depth, toks: @[c], comment: true)
+          var nx = i + 1
+          while nx < work.len and work[nx].comment: inc nx
+          let branchNext = t0.kind == fkKw and t0.text == "of" and nx < work.len and work[nx].depth == l.depth and
+                           work[nx].toks[0].kind == fkKw and work[nx].toks[0].text in ["of", "elif", "else"]
+          if branchNext or fCommandLike(lt[0 ..< lt.high]) or (t0.kind == fkKw and t0.text in ["static", "defer"]):
+            let c = lt[^1]
+            result[^1].toks = lt[0 ..< lt.high]
+            result.add FOut(depth: (if branchNext: l.depth else: result[^1].depth), toks: @[c], comment: true)
       inc i
       continue
     result.add o
@@ -996,9 +1148,10 @@ proc fBlockElem*(e: openArray[FTok]): (int, int) =
     for k in eq + 1 .. last:
       if e[k].kind == fkSemi or (e[k].kind == fkKw and e[k].text in FBlockKw): return    # (one plain body only)
     return (0, a)
-  if a == 0 and e[0].kind == fkKw and e[0].text in ["if", "when"]:
-    let (h, _) = fSplitIdx(e, 0, last + 1)
-    if h <= 0 or fInlineIf(e, 0, last + 1): return
+  # (also `name: if a: x else: y` — nph puts the if-expression under `name:`)
+  if e[a].kind == fkKw and e[a].text in ["if", "when"]:
+    let (h, _) = fSplitIdx(e, a, last + 1)
+    if h <= a or fInlineIf(e, a, last + 1): return
     var d = 0
     var hasElse = false
     for k in h + 1 .. last:
@@ -1007,7 +1160,7 @@ proc fBlockElem*(e: openArray[FTok]): (int, int) =
       elif t.kind in {fkClose, fkPragClose}: dec d
       elif d == 0 and t.kind == fkKw and t.text == "else": hasElse = true
       elif d == 0 and t.kind == fkSemi: return
-    if hasElse: return (1, 0)
+    if hasElse: return (1, a)
 
 proc fCommandLike*(toks: openArray[FTok]): bool =
   ## a statement or a command call (`echo x`, `s.add item`, `discard f()`): a comma after it would be read as more
@@ -1047,15 +1200,19 @@ proc fBlockElemLines*(e: seq[FTok], kind, a, ind: int): seq[string] =
     lastPart = e[eq + 1 .. last]
     result = @[pad & fRender(e[0 .. eq]), bpad & fRender(lastPart)]
   else:
-    var rest = e[0 .. last]
+    # (`name: if …`: `name:` on its line, the if-expression under it)
+    let ipad = if a > 0: bpad else: pad
+    let ibpad = if a > 0: spaces(ind + 4) else: bpad
+    if a > 0: result.add pad & fRender(e[0 ..< a])
+    var rest = e[a .. last]
     while rest.len > 0:
       let (h, stop) = fSplitIdx(rest, 0, rest.len)
       if h < 0 or h + 1 >= stop: return @[]
-      result.add pad & fRender(rest[0 .. h])
+      result.add ipad & fRender(rest[0 .. h])
       lastPart = rest[h + 1 ..< stop]
-      result.add bpad & fRender(lastPart)
+      result.add ibpad & fRender(lastPart)
       rest = rest[stop .. ^1]
-    if result.len < 4: return @[]
+    if result.len < 4 + ord(a > 0): return @[]
   # (after a command the comma goes on a line of its own: `s.add x,` would give it one more argument — like nph)
   if tail.len > 0:
     if fCommandLike(lastPart): result.add pad & tail
@@ -1104,6 +1261,7 @@ proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: in
   var d = 0
   var hasComment = false
   var typed = false
+  var postfix: seq[int]              # comment lines that belong to the element before them
   for t in inner:
     if t.kind in {fkOpen, fkPragOpen}: inc d
     elif t.kind in {fkClose, fkPragClose}: dec d
@@ -1120,7 +1278,12 @@ proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: in
     elif t.kind == fkComment and d == 0 and cur.len == 0:
       hasComment = true
       if elems.len > 0 and not t.nl: elems[^1].add t   # a comment after an element's comma stays with it
-      else: elems.add @[t]                           # a comment on its own line
+      else:
+        # a comment on its own line — under the element before it and deeper: that element's (2 deeper, nph)
+        if elems.len > 0 and elems[^1].len > 0 and elems[^1][0].kind != fkComment and elems[^1][0].nl and
+           elems[^1][^1].kind != fkComment and t.col > elems[^1][0].col:
+          postfix.add elems.len
+        elems.add @[t]
     elif t.kind == fkComment:
       hasComment = true
       cur.add t
@@ -1189,6 +1352,17 @@ proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: in
             lines.add bl
             continue
       let r = pad & fRender(e, importish = importish)
+      if e.len == 1 and e[0].kind == fkComment and postfix.len > 0 and elems.find(e) in postfix:
+        lines.add pad & "  " & e[0].text
+        continue
+      # (an element's trailing comment that does not fit after it: on the next line, 2 deeper — like nph)
+      if r.len > FmtMax and e.len > 2 and e[^1].kind == fkComment and e[^2].kind == fkComma and
+         not e[^1].text.startsWith("#["):
+        let code = pad & fRender(e[0 ..< e.high], importish = importish)
+        if code.len <= FmtMax:
+          lines.add code
+          lines.add pad & "  " & e[^1].text
+          continue
       let colon = fTop(e, proc(t: FTok, d: int): bool = t.kind == fkColon)
       if r.len > FmtMax and not params:
         var w = fWrapElem(e, innerInd, importish)
@@ -1421,6 +1595,888 @@ proc fAsWritten*(o: FOut): seq[string] =
       extra = 4
   if cur.len > 0: result.add spaces(o.depth * 2 + extra) & fRender(cur, importish = o.importish)
 
+# ── nph's layout of a long statement ──
+# The statement's tokens are read the way nph's parser reads them (calls, brackets, operators by precedence,
+# dots, commands, `k: v` and `k = v` arguments) and that tree is laid out the way nph's renderer lays it out:
+# the same questions (does it fit here? on the next line? one element a line?) asked in the same order. What
+# it decides is where lines break (and how deep the new line starts) and where a trailing comma is added; the
+# text between the breaks is the statement's own one-line rendering. A long string over several lines counts
+# as nph counts it: what holds it never fits on one line.
+
+type
+  XKind = enum
+    xAtom, xList, xCall, xIndex, xCurlyX, xInfix, xPrefix, xDot, xColon, xEq, xCommand, xCast, xParam, xProcTy
+  XFlag = enum
+    xfNoIndent, xfLongIndent, xfStackDot, xfStackDotInCall
+  XNode = object
+    kind: XKind
+    a, b: int              # its tokens: [a, b)
+    l, r: int              # its parts: a call's callee and argument list, an operator's operands, …
+    op: int                # the operator's token; a list's opening bracket
+    close: int             # a list's closing bracket
+    elems: seq[int]        # a list's elements, a command's arguments
+    lk: int                # a bracket on its own: 0 `(x)`, 1 a tuple, 2 `[…]`, 3 `{…}`, 4 pragmas `{.….}`,
+                           # 5 parameters
+    v: int                 # a parameter's default value; a proc type's pragmas (-1: none)
+    obj: bool              # a call whose first argument is `name: value` (nph: an object construction)
+  XLen = tuple[len: int, nl: bool]     # nph's LineLen: the first line's length, and whether a line break follows
+  XTree = object
+    toks: seq[FTok]
+    n: seq[XNode]
+    fail: bool
+    noCmd: int             # inside pragmas: no command syntax
+    typeCtx: int           # reading a type: `proc(…)` is a proc type (not a lambda)
+    pos: seq[int]          # each token's column in the statement's one-line rendering
+    sp: seq[bool]          # a space before it there
+    firstMulti: seq[int]   # the first token at or after it that holds a line break (toks.len: none)
+    brk: seq[int]          # a line starts at the token: its indentation (-1: none)
+    comma: seq[bool]       # a comma added after the token
+    lineLen, indent, pendingNL: int
+
+proc xNew(x: var XTree, nd: XNode): int =
+  x.n.add nd
+  x.n.high
+
+proc xPrec(t: FTok): int =
+  ## nph's precedence of a binary operator (-10: not one)
+  if t.kind == fkKw:
+    case t.text
+    of "div", "mod", "shl", "shr": 9
+    of "in", "notin", "is", "isnot", "of", "as": 5
+    of "and": 4
+    of "or", "xor": 3
+    else: -10
+  elif t.kind == fkOp and t.text != "=":
+    let s = t.text
+    if s.len > 1 and s[^1] == '>' and s[^2] in {'-', '~', '='}: return 0      # arrow-like
+    let asg = s[^1] == '='
+    case s[0]
+    of '$', '^': (if asg: 1 else: 10)
+    of '*', '%', '/', '\\': (if asg: 1 else: 9)
+    of '~': 8
+    of '+', '-', '|': (if asg: 1 else: 8)
+    of '&': (if asg: 1 else: 7)
+    of '=', '<', '>', '!': 5
+    of '.': (if asg: 1 else: 6)
+    of '?': 2
+    else: (if asg: 1 else: 2)
+  else: -10
+
+proc xCmdStart(x: XTree, k: int): bool =
+  ## does toks[k], after an operand, start a command's argument (`echo x`, `f -1`, `(T)x`)?
+  if x.noCmd > 0: return false
+  let t = x.toks[k]
+  case t.kind
+  of fkIdent, fkNum, fkChar, fkStr: true
+  of fkOpen: t.sp or t.nl
+  of fkKw: t.text in ["nil", "cast", "addr"]
+  of fkOp: t.text != "=" and fUnaryAt(x.toks, k)
+  else: false
+
+proc xExpr(x: var XTree, i, e, limit: int, next: var int, cmd = true): int
+
+proc xList(x: var XTree, open, e: int, next: var int): int =
+  ## the bracket group at `open` (or the pragmas `{.….}`): its elements (`a`, `k: v`, `k = v`)
+  var d = 0
+  var close = -1
+  for k in open ..< e:
+    let t = x.toks[k]
+    if t.kind in {fkOpen, fkPragOpen}: inc d
+    elif t.kind in {fkClose, fkPragClose}:
+      dec d
+      if d == 0:
+        close = k
+        break
+  let prag = x.toks[open].kind == fkPragOpen
+  if close < 0 or x.toks[close].kind != (if prag: fkPragClose else: fkClose):
+    x.fail = true
+    return -1
+  if prag: inc x.noCmd
+  var elems: seq[int]
+  var commas = 0
+  var k = open + 1
+  while k < close:
+    var nx = k
+    var el = x.xExpr(k, close, -1, nx)
+    if x.fail: return -1
+    if nx < close and (x.toks[nx].kind == fkColon or (x.toks[nx].kind == fkOp and x.toks[nx].text == "=")):
+      var nx2 = nx
+      let r = x.xExpr(nx + 1, close, -1, nx2)
+      if x.fail: return -1
+      el = x.xNew(XNode(kind: (if x.toks[nx].kind == fkColon: xColon else: xEq), a: k, b: x.n[r].b, l: el, r: r,
+                        op: nx))
+      nx = nx2
+    elems.add el
+    if nx < close:
+      if x.toks[nx].kind != fkComma:
+        x.fail = true
+        return -1
+      inc commas
+      k = nx + 1
+    else: k = nx
+  if prag: dec x.noCmd
+  if commas > 0 and commas >= elems.len and not (elems.len == 1 and x.toks[open].text == "("):
+    x.fail = true                       # (a trailing comma: only `(x,)` has one here)
+    return -1
+  var lk = 2
+  if prag: lk = 4
+  elif x.toks[open].text == "(":
+    lk = (if elems.len == 1 and commas == 0 and x.n[elems[0]].kind != xColon: 0 else: 1)
+  elif x.toks[open].text == "{": lk = 3
+  next = close + 1
+  x.xNew(XNode(kind: xList, a: open, b: close + 1, op: open, close: close, elems: elems, lk: lk))
+
+proc xParamList(x: var XTree, open, e: int, next: var int): int =
+  ## a routine's parameters `(a, b: int; c = 1)` (or generic parameters `[T: X]`): one element per group of names
+  ## with its type and default (nph's identDefs)
+  var d = 0
+  var close = -1
+  for k in open ..< e:
+    let t = x.toks[k]
+    if t.kind in {fkOpen, fkPragOpen}: inc d
+    elif t.kind in {fkClose, fkPragClose}:
+      dec d
+      if d == 0:
+        close = k
+        break
+  if close < 0 or x.toks[close].kind != fkClose:
+    x.fail = true
+    return -1
+  var elems: seq[int]
+  var k = open + 1
+  while k < close:
+    # the names: `a, b*,` up to the group's `:` or `=` (a name alone before `;` or the end is a group too)
+    let start = k
+    var q = k
+    var namesEnd = -1
+    while q < close:
+      if x.toks[q].kind != fkIdent:
+        x.fail = true
+        return -1
+      inc q
+      if q < close and x.toks[q].kind == fkOp and x.toks[q].text == "*" and not x.toks[q].sp: inc q
+      if q < close and x.toks[q].kind == fkComma:
+        # (more names of this group — or the next group: `a, b: int` vs `a: int, b`)
+        var r = q + 1
+        var typed = false
+        while r < close:
+          let u = x.toks[r]
+          if u.kind == fkColon or (u.kind == fkOp and u.text == "="):
+            typed = true
+            break
+          if u.kind != fkIdent and u.kind != fkComma and not (u.kind == fkOp and u.text == "*"): break
+          inc r
+        if typed or r >= close:
+          inc q
+          continue
+        namesEnd = q
+        break
+      namesEnd = q
+      break
+    if namesEnd < 0: namesEnd = q
+    if namesEnd <= start:
+      x.fail = true
+      return -1
+    let names = x.xNew(XNode(kind: xAtom, a: start, b: namesEnd))
+    var nx = namesEnd
+    var tp, colonAt, eqAt, val = -1
+    if nx < close and x.toks[nx].kind == fkColon:
+      colonAt = nx
+      inc x.typeCtx
+      tp = x.xExpr(nx + 1, close, -1, nx)
+      dec x.typeCtx
+      if x.fail: return -1
+    if nx < close and x.toks[nx].kind == fkOp and x.toks[nx].text == "=":
+      eqAt = nx
+      val = x.xExpr(nx + 1, close, -1, nx)
+      if x.fail: return -1
+    let b = if val >= 0: x.n[val].b elif tp >= 0: x.n[tp].b else: namesEnd
+    elems.add x.xNew(XNode(kind: xParam, a: start, b: b, l: names, r: tp, op: colonAt, close: eqAt, v: val))
+    if nx < close:
+      if x.toks[nx].kind notin {fkComma, fkSemi} or nx + 1 >= close:
+        x.fail = true
+        return -1
+      k = nx + 1
+    else: k = nx
+  next = close + 1
+  x.xNew(XNode(kind: xList, a: open, b: close + 1, op: open, close: close, elems: elems, lk: 5))
+
+proc xPrimary(x: var XTree, i, e: int, next: var int, cmd: bool): int =
+  ## an operand: prefix operators, a name or literal or bracket group, then calls, indexes, dots — and with
+  ## `cmd` a command (`f x`) whose argument is the rest of the expression
+  if i >= e:
+    x.fail = true
+    return -1
+  let t = x.toks[i]
+  var nx = i + 1
+  var res = -1
+  if (t.kind == fkOp and t.text != "=") or (t.kind == fkKw and t.text == "not"):
+    let r = x.xPrimary(i + 1, e, nx, true)
+    if x.fail: return -1
+    next = nx
+    return x.xNew(XNode(kind: xPrefix, a: i, b: x.n[r].b, op: i, r: r))
+  case t.kind
+  of fkIdent, fkNum, fkChar, fkStr: res = x.xNew(XNode(kind: xAtom, a: i, b: i + 1))
+  of fkKw:
+    if t.text in ["nil", "addr", "tuple"] or (t.text == "static" and i + 1 < e and x.toks[i + 1].kind == fkOpen and
+                                             not x.toks[i + 1].sp):
+      res = x.xNew(XNode(kind: xAtom, a: i, b: i + 1))
+    elif t.text in ["var", "ptr", "ref", "out", "distinct", "static"] and i + 1 < e and x.toks[i + 1].sp:
+      # a type's modifier: `var T`, `ptr T`
+      let r = x.xPrimary(i + 1, e, nx, false)
+      if x.fail: return -1
+      next = nx
+      return x.xNew(XNode(kind: xPrefix, a: i, b: x.n[r].b, op: i, r: r))
+    elif t.text in ["proc", "iterator"] and x.typeCtx > 0 and i + 1 < e and x.toks[i + 1].kind == fkOpen and
+         x.toks[i + 1].text == "(":
+      # a proc type: `proc(a: int): T {.pragmas.}`
+      var nx2 = i + 1
+      let params = x.xParamList(i + 1, e, nx2)
+      if x.fail: return -1
+      var colonAt, ret, prag = -1
+      if nx2 < e and x.toks[nx2].kind == fkColon:
+        colonAt = nx2
+        ret = x.xExpr(nx2 + 1, e, -1, nx2)
+        if x.fail: return -1
+      if nx2 < e and x.toks[nx2].kind == fkPragOpen:
+        prag = x.xList(nx2, e, nx2)
+        if x.fail: return -1
+      next = nx2
+      return x.xNew(XNode(kind: xProcTy, a: i, b: nx2, l: params, op: colonAt, r: ret, v: prag))
+    elif t.text == "cast" and i + 1 < e and x.toks[i + 1].kind == fkOpen and x.toks[i + 1].text == "[":
+      # cast[T](x): the type as it is, the value laid out
+      var d = 0
+      var c1 = -1
+      for k in i + 1 ..< e:
+        if x.toks[k].kind in {fkOpen, fkPragOpen}: inc d
+        elif x.toks[k].kind in {fkClose, fkPragClose}:
+          dec d
+          if d == 0:
+            c1 = k
+            break
+      if c1 < i + 3 or c1 + 2 >= e or x.toks[c1 + 1].kind != fkOpen or x.toks[c1 + 1].text != "(" or
+         x.toks[c1 + 1].sp or x.toks[c1 + 1].nl:
+        x.fail = true
+        return -1
+      for k in i + 2 ..< c1:
+        if x.toks[k].kind == fkPragOpen or x.toks[k].multi:
+          x.fail = true
+          return -1
+      let tp = x.xNew(XNode(kind: xAtom, a: i + 2, b: c1))
+      var nx2 = c1 + 2
+      let v = x.xExpr(c1 + 2, e, -1, nx2)
+      if x.fail or nx2 >= e or x.toks[nx2].kind != fkClose or x.toks[nx2].text != ")":
+        x.fail = true
+        return -1
+      res = x.xNew(XNode(kind: xCast, a: i, b: nx2 + 1, l: tp, r: v))
+      nx = nx2 + 1
+    else:
+      x.fail = true
+      return -1
+  of fkOpen:
+    var close = -1
+    if t.text == "(" and i + 1 < e and x.toks[i + 1].kind == fkKw and x.toks[i + 1].text in ["if", "when"]:
+      var d = 0
+      for k in i ..< e:
+        if x.toks[k].kind in {fkOpen, fkPragOpen}: inc d
+        elif x.toks[k].kind in {fkClose, fkPragClose}:
+          dec d
+          if d == 0:
+            close = k
+            break
+    if close > i + 1:
+      # `(if a: x else: y)` with plain values: as it is (nph: a statement list in parentheses, on one line)
+      if not fInlineIf(x.toks, i + 1, close):
+        x.fail = true
+        return -1
+      for k in i + 1 ..< close:
+        if x.toks[k].multi:
+          x.fail = true
+          return -1
+      res = x.xNew(XNode(kind: xList, a: i, b: close + 1, op: i, close: close, lk: 6))
+      nx = close + 1
+    else:
+      res = x.xList(i, e, nx)
+      if x.fail: return -1
+  else:
+    x.fail = true
+    return -1
+  while nx < e:
+    let u = x.toks[nx]
+    if u.kind == fkOpen and not u.sp and not u.nl:
+      var nx2 = nx
+      let lst = x.xList(nx, e, nx2)
+      if x.fail: return -1
+      let kind = if u.text == "(": xCall elif u.text == "[": xIndex else: xCurlyX
+      let obj = kind == xCall and x.n[lst].elems.len > 0 and x.n[x.n[lst].elems[0]].kind == xColon
+      res = x.xNew(XNode(kind: kind, a: x.n[res].a, b: x.n[lst].b, l: res, r: lst, obj: obj))
+      nx = nx2
+    elif u.kind == fkDot:
+      if nx + 1 < e and x.toks[nx + 1].kind in {fkIdent, fkKw, fkStr} and not x.toks[nx + 1].multi:
+        let r = x.xNew(XNode(kind: xAtom, a: nx + 1, b: nx + 2))
+        res = x.xNew(XNode(kind: xDot, a: x.n[res].a, b: nx + 2, l: res, r: r, op: nx))
+        nx += 2
+      else:
+        x.fail = true
+        return -1
+    elif cmd and x.xCmdStart(nx):
+      var nx2 = nx
+      let arg = x.xExpr(nx, e, -1, nx2)
+      if x.fail: return -1
+      res = x.xNew(XNode(kind: xCommand, a: x.n[res].a, b: x.n[arg].b, l: res, elems: @[arg]))
+      nx = nx2
+      break
+    else: break
+  next = nx
+  res
+
+proc xExpr(x: var XTree, i, e, limit: int, next: var int, cmd = true): int =
+  ## an expression: operands joined by binary operators, by precedence (as nph's parser does)
+  var nx = i
+  var lhs = x.xPrimary(i, e, nx, cmd)
+  if x.fail: return -1
+  while nx < e:
+    let t = x.toks[nx]
+    let p = xPrec(t)
+    if p == -10 or p < limit or (t.kind == fkOp and fUnaryAt(x.toks, nx)) or fExportStar(x.toks, nx): break
+    let left = if t.kind == fkOp and t.text[0] == '^': 0 else: 1
+    var nx2 = nx + 1
+    let rhs = x.xExpr(nx + 1, e, p + left, nx2)
+    if x.fail: return -1
+    lhs = x.xNew(XNode(kind: xInfix, a: x.n[lhs].a, b: x.n[rhs].b, l: lhs, r: rhs, op: nx))
+    nx = nx2
+  next = nx
+  lhs
+
+# the layout (nph's renderer: lineLen, indent, a pending line break)
+
+proc `+`(a: XLen, b: int): XLen = (if a.nl: a else: (a.len + b, false))
+proc `+`(a: int, b: XLen): XLen = (a + b.len, b.nl)
+proc `+`(a, b: XLen): XLen = (if a.nl: a else: (a.len + b.len, b.nl))
+
+proc xFirstW(t: FTok): int =
+  ## a token's width on its line (up to its first line break)
+  if not t.multi: return t.text.len
+  let p = t.text.find('\n')
+  if p < 0: t.text.len else: p
+
+proc xLen(x: XTree, a, b: int): XLen =
+  ## the one-line length of toks[a ..< b] — up to a long string's first line break when it holds one
+  let m = x.firstMulti[a]
+  if m < b: (x.pos[m] + xFirstW(x.toks[m]) - x.pos[a], true)
+  else: (x.pos[b - 1] + x.toks[b - 1].text.len - x.pos[a], false)
+
+proc xNodeLen(x: XTree, nd: int): XLen = x.xLen(x.n[nd].a, x.n[nd].b)
+proc xSpAt(x: XTree, k: int): int = (if x.pendingNL >= 0 or k == 0: 0 else: ord(x.sp[k]))
+proc xOver(x: XTree, l: XLen): bool = l.nl or x.lineLen + l.len > FmtMax
+proc xFits(l: XLen): bool = not l.nl and l.len <= FmtMax
+proc xFlagIndent(f: set[XFlag]): int = (if xfNoIndent in f: 0 elif xfLongIndent in f: 4 else: 2)
+
+proc xPut(x: var XTree, k: int) =
+  let t = x.toks[k]
+  if x.pendingNL >= 0:
+    x.brk[k] = x.pendingNL
+    x.lineLen = x.pendingNL + t.text.len
+    x.pendingNL = -1
+  else: x.lineLen += ord(x.sp[k] and k > 0) + t.text.len
+  # (after a long string over several lines nph's line length counts all of it: nothing fits after it)
+
+proc xOptNL(x: var XTree) =
+  x.pendingNL = x.indent
+  x.lineLen = x.indent
+
+proc xOptIndent(x: var XTree, w: int) =
+  x.indent += w
+  if x.pendingNL >= 0:
+    x.pendingNL = x.indent
+    x.lineLen = x.indent
+
+proc xIndentNL(x: var XTree, w: int) =
+  x.indent += w
+  x.pendingNL = x.indent
+  x.lineLen = x.indent
+
+proc xDedent(x: var XTree, w: int) =
+  x.indent -= w
+  if x.pendingNL > x.indent:
+    x.pendingNL = x.indent
+    x.lineLen = x.indent
+
+proc xSimple(x: XTree, nd: int): bool =
+  ## nph's simple list element (a name, a literal, a.b, -1): lists of them are packed
+  let node = x.n[nd]
+  case node.kind
+  of xAtom: x.toks[node.a].kind != fkKw or x.toks[node.a].text == "nil"
+  of xDot: x.xSimple(node.l) and x.xSimple(node.r)
+  of xProcTy: true
+  of xParam: node.r < 0 and node.v < 0
+  of xPrefix:
+    x.toks[node.op].text == "-" and x.n[node.r].kind == xAtom and x.toks[x.n[node.r].a].kind == fkNum and
+      not (x.toks[x.n[node.r].a].sp or x.toks[x.n[node.r].a].nl)
+  else: false
+
+proc xNlLenImpl(x: XTree, nd: int): (bool, XLen) =
+  let node = x.n[nd]
+  case node.kind
+  of xDot:
+    let (e, l) = x.xNlLenImpl(node.l)
+    if e: (e, l) else: (false, l + x.xNodeLen(node.r) + 1)
+  of xList: (true, (if node.lk == 4: (2, false) else: (1, false)))
+  of xAtom:
+    let l = x.xNodeLen(nd)
+    if x.toks[node.a].kind == fkStr and x.toks[node.a].text.startsWith("\"\"\""): (true, (l.len, false))
+    else: (false, l)
+  else: (false, x.xNodeLen(nd))
+
+proc xNlLen(x: XTree, nd: int): XLen =
+  ## the length up to where nph would rather break (a bracket's opening, a long string's first line)
+  x.xNlLenImpl(nd)[1]
+
+proc xStacked(x: XTree, nd: int, inCall: bool): bool =
+  ## two calls or more in a dotted chain (`a.b(x).c(y)`): nph may put each `.c(…)` on a line of its own
+  let node = x.n[nd]
+  case node.kind
+  of xCall:
+    if node.obj: false
+    elif inCall: true
+    else: x.xStacked(node.l, true)
+  of xDot: x.xStacked(node.l, inCall)
+  else: false
+
+proc xDotCall(x: XTree, nd: int): bool =
+  let node = x.n[nd]
+  case node.kind
+  of xDot: x.xDotCall(node.l)
+  of xCall: not node.obj
+  else: false
+
+proc xSub(x: var XTree, nd: int, flags: set[XFlag])
+
+proc xComma(x: var XTree, elems: seq[int], indentNL: int, sticky = false, alone = false, sepAtEnd = false,
+            longSep = false, firstComplex = false, subFlags: set[XFlag] = {}) =
+  ## nph's gcomma: on one line when they fit, else one a line when any is not simple, else packed
+  if elems.len == 0: return
+  var start = 0
+  var indented = false
+  if sticky:
+    x.xSub(elems[0], subFlags)
+    if elems.len == 1: return
+    x.xPut(x.n[elems[0]].b)
+    if alone and x.xOver(x.xSpAt(x.n[elems[1]].a) + x.xLen(x.n[elems[1]].a, x.n[elems[^1]].b)):
+      indented = true
+      x.xIndentNL(indentNL)
+    start = 1
+  if not indented: x.indent += indentNL
+  var onePer = false
+  if elems.len - start > 1 and
+     x.xOver(x.xSpAt(x.n[elems[start]].a) + x.xLen(x.n[elems[start]].a, x.n[elems[^1]].b)):
+    for i in (if firstComplex: 1 else: 0) ..< elems.len:
+      if not x.xSimple(elems[i]):
+        onePer = true
+        break
+  var newline = false
+  for i in start ..< elems.len:
+    let c = i < elems.high
+    let ea = x.n[elems[i]].a
+    let eb = x.n[elems[i]].b
+    if onePer or x.xOver(x.xSpAt(ea) + x.xLen(ea, eb) + ord(c)):
+      x.xOptNL()
+      newline = true
+    x.xSub(elems[i], subFlags)
+    if c or sepAtEnd: x.xPut(eb)
+    elif newline and longSep and elems.len - start > 1:
+      x.comma[eb - 1] = true
+      x.lineLen += 1
+  x.xDedent(indentNL)
+
+proc xGlist(x: var XTree, lst: int, indentNL = 2, sepAtEnd = false, longSep = false, firstComplex = false,
+            subFlags: set[XFlag] = {}, extra = 0) =
+  ## nph's glist: `(` and its elements on the line when they fit, else `(` ⏎ the elements ⏎ `)`
+  let open = x.n[lst].op
+  let close = x.n[lst].close
+  let withNL = x.n[lst].elems.len > 0 and x.xOver(x.xSpAt(open) + x.xNodeLen(lst) + extra)
+  x.xPut(open)
+  x.xOptIndent(indentNL)
+  if withNL: x.xOptNL()
+  x.xComma(x.n[lst].elems, 0, sepAtEnd = sepAtEnd, longSep = longSep, firstComplex = firstComplex,
+           subFlags = subFlags)
+  x.xDedent(indentNL)
+  if withNL: x.xOptNL()
+  x.xPut(close)
+
+proc xSubOptNL(x: var XTree, nd: int, flags: set[XFlag] = {}, indentNL = 2) =
+  ## nph's gsubOptNL (the value after `=`, `:`, `return`): on the next line when it fits there and not here,
+  ## or when it is not a call or bracket and its first part does not fit here
+  let node = x.n[nd]
+  let s = x.xSpAt(node.a)
+  let sublen = x.xNodeLen(nd)
+  # (`tuple[…]` is not a bracket expression to nph: it may go to the next line)
+  let tupleTy = node.kind == xIndex and x.n[node.l].kind == xAtom and x.toks[x.n[node.l].a].kind == fkKw
+  let avoid = (node.kind in {xCall, xIndex, xCurlyX, xCommand, xEq, xColon, xCast, xPrefix, xParam, xProcTy} and
+               not tupleTy) or (node.kind == xList and node.lk notin {0, 6}) or x.xDotCall(nd)
+  let nl = (not avoid and x.xOver(s + x.xNlLen(nd))) or
+           (x.xOver(s + sublen) and xFits(sublen + (x.indent + indentNL)))
+  let ind = if x.xStacked(nd, false) or nl or x.pendingNL >= 0: indentNL else: 0
+  x.xOptIndent(ind)
+  if nl: x.xOptNL()
+  x.xSub(nd, if ind > 0: flags + {xfNoIndent} else: flags)
+  x.xDedent(ind)
+
+proc xSub(x: var XTree, nd: int, flags: set[XFlag]) =
+  ## nph's gsub
+  let kind = x.n[nd].kind
+  case kind
+  of xAtom:
+    for k in x.n[nd].a ..< x.n[nd].b: x.xPut(k)
+  of xCall, xIndex, xCurlyX:
+    let callee = x.n[nd].l
+    let lst = x.n[nd].r
+    if kind == xCall:
+      var stackDot = false
+      if x.n[callee].kind == xDot:
+        let dl = x.n[callee].l
+        let dr = x.n[callee].r
+        stackDot = xfStackDot in flags or
+                   (x.xOver(x.xNodeLen(dl) + x.xNodeLen(dr) + 1) and x.xStacked(dl, true))
+      x.xSub(callee, flags * {xfStackDot, xfNoIndent, xfLongIndent} + {xfStackDotInCall})
+      let ind = if stackDot: xFlagIndent(flags) else: 0
+      x.xOptIndent(ind)
+      x.xGlist(lst, longSep = true)
+      x.xDedent(ind)
+    elif kind == xIndex:
+      x.xSub(callee, {})
+      x.xGlist(lst, indentNL = xFlagIndent(flags - {xfNoIndent}), longSep = true)
+    else:
+      x.xSub(callee, {})
+      x.xGlist(lst, indentNL = xFlagIndent(flags), longSep = true)
+  of xList:
+    let elems = x.n[nd].elems.len
+    case x.n[nd].lk
+    of 0: x.xGlist(nd, subFlags = {xfNoIndent})
+    of 1:
+      let one = elems == 1 and x.n[x.n[nd].elems[0]].kind != xColon
+      x.xGlist(nd, sepAtEnd = one, longSep = not one)
+    of 2: x.xGlist(nd, longSep = true, firstComplex = true)
+    of 4: x.xGlist(nd, indentNL = xFlagIndent(flags))
+    of 5: x.xGlist(nd, indentNL = xFlagIndent(flags), longSep = true)
+    of 6:
+      for k in x.n[nd].a ..< x.n[nd].b: x.xPut(k)
+    else: x.xGlist(nd, longSep = true)
+  of xPrefix:
+    x.xPut(x.n[nd].op)
+    x.xSub(x.n[nd].r, {})
+  of xInfix:
+    let f = flags * {xfNoIndent, xfLongIndent}
+    let rhs = x.n[nd].r
+    x.xSub(x.n[nd].l, f)
+    x.xPut(x.n[nd].op)
+    # (the space after the operator does not count: nph decides before it puts it)
+    let sublen = x.xNodeLen(rhs)
+    let over = x.xOver(x.xNlLen(rhs))
+    let wid = xFlagIndent(f)
+    let fitsNL = x.xOver(sublen) and xFits(sublen + (x.indent + wid))
+    let hasIndent = x.n[rhs].kind == xList and x.n[rhs].lk != 1
+    let ind = xfNoIndent notin f and (fitsNL or (over and not hasIndent))
+    if ind: x.xIndentNL(wid)
+    elif over or fitsNL: x.xOptNL()
+    x.xSub(rhs, if ind: f + {xfNoIndent} else: f)
+    if ind: x.xDedent(wid)
+  of xDot:
+    let dl = x.n[nd].l
+    let dr = x.n[nd].r
+    let stackDot = xfStackDot in flags or
+                   (x.xOver(x.xNodeLen(dl) + x.xNodeLen(dr) + 1) and x.xStacked(dl, xfStackDotInCall in flags))
+    var sub = flags * {xfNoIndent, xfLongIndent}
+    if stackDot: sub.incl xfStackDot
+    let wid = xFlagIndent(flags)
+    x.xSub(dl, sub)
+    if stackDot and xfStackDotInCall in flags: x.xOptNL()
+    x.xOptIndent(wid)
+    x.xPut(x.n[nd].op)
+    x.xSub(dr, {xfNoIndent})
+    x.xDedent(wid)
+  of xColon, xEq:
+    x.xSub(x.n[nd].l, {})
+    x.xPut(x.n[nd].op)
+    x.xSubOptNL(x.n[nd].r)
+  of xCommand:
+    x.xSub(x.n[nd].l, {})
+    let args = x.n[nd].elems
+    x.xComma(args, 2, sticky = true, alone = true)
+  of xParam:
+    x.xSub(x.n[nd].l, {})
+    if x.n[nd].op >= 0:
+      x.xPut(x.n[nd].op)
+      x.xSubOptNL(x.n[nd].r)
+    if x.n[nd].close >= 0:
+      x.xPut(x.n[nd].close)
+      x.xSubOptNL(x.n[nd].v)
+  of xProcTy:
+    let ret = x.n[nd].r
+    x.xPut(x.n[nd].a)
+    x.xGlist(x.n[nd].l, longSep = true, extra = (if ret >= 0: x.xNodeLen(ret).len + 2 else: 0))
+    if ret >= 0:
+      x.xPut(x.n[nd].op)
+      x.xSub(ret, {})
+    if x.n[nd].v >= 0: x.xGlist(x.n[nd].v)
+  of xCast:
+    let tp = x.n[nd].l
+    x.xPut(x.n[nd].a)
+    x.xPut(x.n[nd].a + 1)
+    x.xSub(tp, {})
+    x.xPut(x.n[tp].b)
+    x.xPut(x.n[tp].b + 1)
+    x.xSub(x.n[nd].r, {})
+    x.xPut(x.n[nd].b - 1)
+
+proc fNphLayout*(toks0: seq[FTok], depth: int, exprLine = false, declLike = false): seq[string] =
+  ## a long statement laid out as nph lays it out — @[] when it is not one this knows (then the other rules
+  ## decide). A long string's lines come as they are, each a line of the result.
+  let toks = fDropTrailing(toks0)          # (they come back where nph puts them)
+  let n = toks.len
+  if n < 2: return
+  for t in toks:
+    if t.kind in {fkComment, fkSemi}: return
+  var x = XTree(toks: toks, pos: newSeq[int](n), sp: newSeq[bool](n), brk: newSeq[int](n), comma: newSeq[bool](n),
+                firstMulti: newSeq[int](n), indent: depth * 2, lineLen: depth * 2, pendingNL: -1)
+  var col = 0
+  for k in 0 ..< n:
+    if k > 0 and fSpaceBefore(toks, k, false):
+      x.sp[k] = true
+      inc col
+    x.pos[k] = col
+    col += xFirstW(toks[k])
+    x.brk[k] = -1
+  var fm = n
+  for k in countdown(n - 1, 0):
+    if toks[k].multi: fm = k
+    x.firstMulti[k] = fm
+  var nx = 0
+  template whole(i, e: int): int =
+    let r = x.xExpr(i, e, -1, nx)
+    if x.fail or nx != e: return
+    r
+  proc identDefs(x: var XTree, a: int, typeVal = false): bool =
+    ## `a, b*: T = v` (a let/var/const member, a field): the names, then type and value as nph puts them
+    var k = a
+    while k < n:
+      if x.toks[k].kind != fkIdent: return false
+      inc k
+      if k < n and x.toks[k].kind == fkOp and x.toks[k].text == "*" and not x.toks[k].sp: inc k
+      if k < n and x.toks[k].kind == fkComma:
+        inc k
+        continue
+      break
+    if k == a or k >= n: return false
+    let namesEnd = k
+    var names: seq[int]
+    var q = a
+    while q < namesEnd:
+      var b = q + 1
+      if b < namesEnd and x.toks[b].kind == fkOp: inc b
+      names.add x.xNew(XNode(kind: xAtom, a: q, b: b))
+      q = b + 1                                  # (past its comma)
+    var tp, val, colonAt, eqAt = -1
+    var nx2 = k
+    if x.toks[k].kind == fkColon:
+      colonAt = k
+      inc x.typeCtx
+      tp = x.xExpr(k + 1, n, -1, nx2)
+      dec x.typeCtx
+      if x.fail: return false
+      k = nx2
+    if k < n:
+      if x.toks[k].kind != fkOp or x.toks[k].text != "=": return false
+      eqAt = k
+      if typeVal: inc x.typeCtx
+      val = x.xExpr(k + 1, n, -1, nx2)
+      if typeVal: dec x.typeCtx
+      if x.fail or nx2 != n: return false
+    elif colonAt < 0: return false
+    x.xComma(names, 2, sticky = true)
+    if tp >= 0:
+      x.xPut(colonAt)
+      x.xSubOptNL(tp)
+    if val >= 0:
+      x.xPut(eqAt)
+      x.xSubOptNL(val)
+    true
+  proc routine(x: var XTree, a: int, named: bool): bool =
+    ## a routine's header from toks[a] (`proc`) to the end — its name (`named`), generic parameters,
+    ## parameters, return type, pragmas, ` =` — as nph's gproc; also a lambda's (`x = proc(…) =`)
+    var k = a + 1
+    if named:
+      if k >= n or toks[k].kind != fkIdent: return false
+      inc k
+      if k < n and toks[k].kind == fkOp and toks[k].text == "*" and not toks[k].sp: inc k
+    let nameEnd = k
+    var gen = -1
+    if named and k < n and toks[k].kind == fkOpen and toks[k].text == "[":
+      gen = x.xParamList(k, n, k)
+      if x.fail: return false
+    if k >= n or toks[k].kind != fkOpen or toks[k].text != "(": return false
+    let params = x.xParamList(k, n, k)
+    if x.fail: return false
+    var colonAt, ret, prag = -1
+    if k < n and toks[k].kind == fkColon:
+      colonAt = k
+      inc x.typeCtx
+      ret = x.xExpr(k + 1, n, -1, k)
+      dec x.typeCtx
+      if x.fail: return false
+    if k < n and toks[k].kind == fkPragOpen:
+      prag = x.xList(k, n, k)
+      if x.fail: return false
+    let body = k < n and toks[k].kind == fkOp and toks[k].text == "="
+    if k + ord(body) != n or (not named and not body): return false
+    let f = if body: {xfLongIndent} else: {}
+    for q in a ..< nameEnd: x.xPut(q)
+    if gen >= 0: x.xGlist(gen, indentNL = xFlagIndent(f), longSep = true)
+    var extra = (if body: 2 else: 0)
+    if prag >= 0: extra += 1 + x.xNodeLen(prag).len
+    if ret >= 0: extra += x.xNodeLen(ret).len + 2
+    x.xGlist(params, indentNL = xFlagIndent(f), longSep = true, extra = extra)
+    if ret >= 0:
+      x.xPut(colonAt)
+      x.xSub(ret, f)
+    if prag >= 0: x.xGlist(prag, indentNL = xFlagIndent(f))
+    if body: x.xPut(n - 1)
+    true
+  let t0 = toks[0]
+  if exprLine:
+    # a value on its own line under `x =`: as nph puts it there
+    let v = whole(0, n)
+    x.xSub(v, {xfNoIndent})
+  elif t0.kind == fkKw and t0.text != "cast":
+    case t0.text
+    of "return", "discard", "raise", "yield":
+      let v = whole(1, n)
+      x.xPut(0)
+      x.xSubOptNL(v)
+    of "if", "elif", "while", "when":
+      if toks[^1].kind != fkColon: return
+      let c = whole(1, n - 1)
+      x.xPut(0)
+      x.xSub(c, {xfLongIndent})
+      x.xPut(n - 1)
+    of "case":
+      let c = whole(1, n)
+      x.xPut(0)
+      x.xSub(c, {})
+    of "for":
+      if toks[^1].kind != fkColon: return
+      var inAt = -1
+      for k in 1 ..< n:
+        if toks[k].kind in {fkOpen, fkClose, fkPragOpen, fkPragClose}: break
+        if toks[k].kind == fkKw and toks[k].text == "in":
+          inAt = k
+          break
+      if inAt < 2: return
+      let it = whole(inAt + 1, n - 1)
+      for k in 0 .. inAt: x.xPut(k)
+      x.xSub(it, {xfLongIndent})
+      x.xPut(n - 1)
+    of "let", "var", "const":
+      x.xPut(0)
+      if not x.identDefs(1): return
+    of "type":
+      # `type X = T` (a section of one): as its member `X = T`
+      x.xPut(0)
+      if toks[1].kind != fkIdent or toks[2].kind == fkComma or not x.identDefs(1, typeVal = true): return
+    of "bind", "mixin":
+      # names packed, 2 deeper (nph's gcomma)
+      var names: seq[int]
+      var k = 1
+      while k < n:
+        if toks[k].kind != fkIdent or (k + 1 < n and toks[k + 1].kind != fkComma): return
+        names.add x.xNew(XNode(kind: xAtom, a: k, b: k + 1))
+        k += 2
+      x.xPut(0)
+      x.xComma(names, 2)
+    of "proc", "func", "method", "iterator", "converter", "template", "macro":
+      if not x.routine(0, true): return
+    else: return
+  elif t0.kind == fkPragOpen:
+    # a pragma statement: `{.` ⏎ its pragmas ⏎ `.}` when they do not fit
+    let p = x.xList(0, n, nx)
+    if x.fail or nx != n: return
+    x.xSub(p, {})
+  elif t0.kind == fkIdent and declLike and (block:
+         # a type's name with its pragmas: `Name*[T] {.pragmas.} = object`
+         var k = 1
+         if k < n and toks[k].kind == fkOp and toks[k].text == "*" and not toks[k].sp: inc k
+         if k < n and toks[k].kind == fkOpen and toks[k].text == "[":
+           discard x.xParamList(k, n, k)
+         not x.fail and k < n and toks[k].kind == fkPragOpen):
+    var k = 1
+    if toks[k].kind == fkOp: inc k
+    var gen = -1
+    if toks[k].kind == fkOpen: gen = x.xParamList(k, n, k)
+    let prag = x.xList(k, n, k)
+    if x.fail or k + 1 >= n or toks[k].kind != fkOp or toks[k].text != "=" or toks[k + 1].kind != fkKw or
+       toks[k + 1].text notin ["object", "ref", "ptr", "enum", "tuple", "distinct", "concept"]:
+      return
+    for q in 0 ..< (if gen >= 0: x.n[gen].a else: x.n[prag].a): x.xPut(q)
+    if gen >= 0: x.xGlist(gen, longSep = true)
+    x.xGlist(prag)
+    for q in k ..< n: x.xPut(q)
+  elif t0.kind == fkIdent and (toks[1].kind in {fkComma, fkColon} or
+                               (toks[1].kind == fkOp and toks[1].text == "*" and not toks[1].sp)):
+    # (a section's member or a field — not `runnableExamples: body`, a call given a block)
+    if not declLike or not x.identDefs(0): return
+  elif t0.kind in {fkIdent, fkOpen} or (t0.kind == fkKw and t0.text == "cast"):
+    let head = x.xExpr(0, n, -1, nx, cmd = false)
+    if x.fail: return
+    if nx == n: x.xSub(head, {})
+    elif toks[nx].kind == fkOp and toks[nx].text == "=" and nx + 2 < n and toks[nx + 1].kind == fkKw and
+         toks[nx + 1].text in ["proc", "func", "iterator"] and toks[^1].kind == fkOp and toks[^1].text == "=":
+      # `x = proc(…) =` ⏎ its body: the lambda's header as a routine's
+      x.xSub(head, {})
+      x.xPut(nx)
+      if not x.routine(nx + 1, false): return
+    elif toks[nx].kind == fkOp and toks[nx].text == "=":
+      let eqAt = nx
+      let v = whole(eqAt + 1, n)
+      x.xSub(head, {})
+      x.xPut(eqAt)
+      x.xSubOptNL(v)
+    elif x.xCmdStart(nx):
+      # `cmd a, b = c`: a command and its arguments
+      var args: seq[int]
+      var k = nx
+      while true:
+        var nx2 = k
+        var a = x.xExpr(k, n, -1, nx2)
+        if x.fail: return
+        if args.len > 0 and nx2 < n and toks[nx2].kind == fkOp and toks[nx2].text == "=":
+          let eqAt = nx2
+          let r = x.xExpr(eqAt + 1, n, -1, nx2)
+          if x.fail: return
+          a = x.xNew(XNode(kind: xEq, a: k, b: x.n[r].b, l: a, r: r, op: eqAt))
+        args.add a
+        if nx2 == n: break
+        if toks[nx2].kind != fkComma: return
+        k = nx2 + 1
+        if k >= n: return
+      x.xSub(head, {})
+      x.xComma(args, 2, sticky = true, alone = true)
+    else: return
+  else: return
+  var cur = spaces(depth * 2)
+  for k in 0 ..< n:
+    if x.brk[k] >= 0:
+      result.add cur
+      cur = spaces(x.brk[k])
+    elif k > 0 and x.sp[k]: cur.add ' '
+    cur.add toks[k].text
+    if x.comma[k]: cur.add ','
+  result.add cur
+  if x.firstMulti[0] < n:
+    var flat: seq[string]
+    for r in result:
+      for l in r.split('\n'): flat.add l
+    result = flat
+
 proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
   ## the output lines of one statement: on one line when it fits, wrapped like nph when not
   var hasSemi, hasTrailing = false
@@ -1481,6 +2537,10 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
     if not hasTrailing: return @[one]
     return @[pad & fRender(fDropTrailing(o.toks), importish = o.importish)]
   let t0 = o.toks[0]
+  # nph's own layout, for the statements it knows (with nph's list settings: "fit")
+  if not hasInnerComment and not o.importish and FmtArgs == fwFit and FmtColl == fwFit and FmtParams == fwFit:
+    let r = fNphLayout(o.toks, o.depth, o.exprLine, o.declLike)
+    if r.len > 0: return r
   # a long declaration with several names: the names, then the type (and value) under them (like nph) — but
   # not for a trailing comment's sake: when the code fits without it, the comment goes under it (below)
   if not hasInnerComment:
@@ -1500,6 +2560,9 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
     var o2 = o
     o2.toks = o.toks[0 ..< o.toks.high]
     let code = fRenderLine(o2, @[pad & fRender(o2.toks, importish = o.importish)])
+    # (the code over several lines: the comment stays at the end of the last one when it fits there, like nph)
+    if code.len > 1 and code[^1].len + 1 + o.toks[^1].text.len <= FmtMax:
+      return code[0 ..< code.high] & @[code[^1] & " " & o.toks[^1].text]
     return code & @[pad & "  " & o.toks[^1].text]
   # a long `of a, b, c:`: the first value stays, the others follow 4 deeper — packed when all are plain names,
   # else one a line (like nph)
@@ -1524,7 +2587,9 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
       let cpad = spaces(ind + 4)
       for e in elems[1 .. ^1]:
         let r = fRender(e)
-        if not simple or fFitLen(outp[^1] & " " & r) > FmtMax: outp.add cpad & r
+        # (a value's comma counts — nph's gcomma — the branch's closing `:` does not)
+        let w = if r.endsWith(","): outp[^1].len + 1 + r.len else: fFitLen(outp[^1] & " " & r)
+        if not simple or w > FmtMax: outp.add cpad & r
         else: outp[^1].add " " & r
       return outp
   # a long `from x import a, b`: the names on the next line (like nph)
@@ -1538,6 +2603,27 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
       let names = spaces(ind + 2) & fRender(o.toks[imp + 1 .. ^1], importish = true)
       if names.len <= FmtMax:
         return @[pad & fRender(o.toks[0 .. imp], importish = true), names]
+      # (too many for one line: packed, as many a line as fit — the comma counts)
+      var outp = @[pad & fRender(o.toks[0 .. imp], importish = true)]
+      var line = spaces(ind + 2)
+      var cur: seq[FTok]
+      var d = 0
+      for k in imp + 1 .. o.toks.len:
+        if k < o.toks.len:
+          let t = o.toks[k]
+          if t.kind in {fkOpen, fkPragOpen}: inc d
+          elif t.kind in {fkClose, fkPragClose}: dec d
+          cur.add t
+          if not (d == 0 and t.kind == fkComma): continue
+        if cur.len == 0: break
+        let r = fRender(cur, importish = true)
+        if line.len > ind + 2 and line.len + 1 + r.len > FmtMax:
+          outp.add line
+          line = spaces(ind + 2) & r
+        else: line.add (if line.len > ind + 2: " " else: "") & r
+        cur = @[]
+      outp.add line
+      return outp
   # a long import: one module per line under `import`
   if t0.kind == fkKw and t0.text in ["import", "include", "export"] and o.toks.len > 1 and not hasInnerComment:
     var elems: seq[seq[FTok]]
@@ -1560,7 +2646,7 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
       var line = spaces(ind + 2)
       for ei, e in elems:
         let r = fRender(e, importish = true) & (if ei < elems.high: "," else: "")
-        if line.len > ind + 2 and fFitLen(line & " " & r) > FmtMax:
+        if line.len > ind + 2 and line.len + 1 + r.len > FmtMax:        # (the comma counts: nph's gcomma)
           outp.add line
           line = spaces(ind + 2) & r
         else: line.add (if line.len > ind + 2: " " else: "") & r
@@ -1691,7 +2777,8 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
           # (`): T {.pragmas.} =` still too long: its pragmas wrapped too)
           proc pragmaFix(r: seq[string]): seq[string] =
             result = r
-            if r.len > 0 and r[^1].len > FmtMax:
+            # (the ` =` after them does not count: nph lets it stand past the width)
+            if r.len > 0 and r[^1].len - (if r[^1].endsWith(" ="): 2 else: 0) > FmtMax:
               let w = fPragmaWrap(o.toks[close .. ^1], ind, pind)
               if w.len > 0: result = r[0 ..< r.high] & w
           if FmtParams == fwFit:
@@ -1699,8 +2786,9 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
             if res1.len == 3 and res1[1].len <= FmtMax: return pragmaFix(res1)
           return pragmaFix(fWrapGroup(o.toks[0 .. open], inner, o.toks[close .. ^1], ind, pind, true, params = true))
       elif close == open + 1:
-        # no parameters to wrap: the pragmas
+        # no parameters to wrap: the pragmas — when they do not fit even without the ` =` (like nph)
         let hasBody = o.toks[^1].kind == fkOp and o.toks[^1].text == "="
+        if hasBody and one.len - 2 <= FmtMax and not hasInnerComment: return @[one]
         let w = fPragmaWrap(o.toks, ind, ind + (if hasBody: 4 else: 2))
         if w.len > 0: return w
   # a pragma statement too long: `{.` ⏎ its pragmas (one a line when they are not plain) ⏎ `.}` (like nph)
@@ -1807,11 +2895,29 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
   # cannot wrap: as written (inner comments need their line breaks)
   if lines.len > 0: lines else: fAsWritten(o0)
 
+proc fColonBlock*(toks: openArray[FTok], a, b: int): bool =
+  ## `name: stmt` where stmt is a command or a block statement (`runnableExamples: assert x`, `doAssert: static:
+  ## …`): a call given a block on its line — not a field and its type
+  var b = b
+  while b > a and toks[b - 1].kind == fkComment: dec b          # (a trailing comment changes nothing)
+  var a = a
+  if b - a > 3 and toks[a].kind == fkKw and toks[a].text in FSectionKw: inc a     # (`var x: T`: the same)
+  if b - a < 3 or toks[a].kind != fkIdent or toks[a + 1].kind != fkColon: return false
+  let t = toks[a + 2]
+  if t.kind == fkKw: return t.text in ["static", "block", "discard", "echo"] or (t.text in FBlockKw and b - a > 3)
+  # (an expression too — `assert: a in b` — but never one with a `=` after it: `x: T = v`, a field's default)
+  t.kind == fkIdent and t.text notin ["sink", "lent", "owned", "typedesc"] and fTopEq(toks, a + 2, b) < 0 and
+    toks[b - 1].kind != fkColon
+
 proc fStructToks*(toks: openArray[FTok], a, b: int, base: int, res: var seq[int]) =
   ## block depth of each token of a statement: an inline body (`if a: b`, `proc f() = x`) and an
   ## inline section member or enum value list count one deeper, exactly as when written on their own lines
   if a >= b: return
-  let (hdrEnd, stop) = fSplitIdx(toks, a, b)
+  var (hdrEnd, stop) = fSplitIdx(toks, a, b)
+  if hdrEnd < 0 and fColonBlock(toks, a, b):
+    # (`runnableExamples: assert x` — a call given a block: its body one deeper, on the line or under it)
+    hdrEnd = a + 1 + ord(toks[a].kind == fkKw)
+    stop = b
   if hdrEnd >= 0:
     # the body of a section line's lambda (let f = proc() = x) sits under the section's member
     let sec = toks[a].kind == fkKw and toks[a].text in FSectionKw
@@ -2511,7 +3617,10 @@ proc fFormat*(text: string, err: var string): string =
       gap[i] = true
     firstLine[i] = res.len
     var rendered: seq[string]
-    if o.verbatim:
+    # a statement holding a long string: as nph lays it out, when it is one fNphLayout knows
+    if o.verbatim and FmtArgs == fwFit and FmtColl == fwFit and FmtParams == fwFit:
+      rendered = fNphLayout(o.toks, o.depth, o.exprLine, o.declLike)
+    if o.verbatim and rendered.len == 0:
       # holds a long string or block comment: kept as written, only moved to its new indentation
       let delta = o.depth * 2 - o.toks[0].col
       var s = spaces(o.depth * 2)
@@ -2521,18 +3630,28 @@ proc fFormat*(text: string, err: var string): string =
           if t.nl:
             rendered.add s
             s = spaces(max(0, t.col + delta))
-          else: s.add text[p.pos + p.text.len ..< t.pos]
+          else:
+            # (where p ends in the text: an identifier in backticks may be spaced otherwise now — fAccQuoted)
+            let pend = if p.kind == fkIdent and p.text.len > 0 and p.text[0] == '`': text.find('`', p.pos + 1) + 1
+                       else: p.pos + p.text.len
+            s.add text[pend ..< t.pos]
         s.add t.text
       rendered.add s
       var flat: seq[string]
       for r in rendered:
         for x in r.split('\n'): flat.add x
       rendered = flat
-    else:
+    elif not o.verbatim:
       rendered = fRenderLine(o, @[])
     entries[i].lineCount = rendered.len
     # (a long string's lines keep their trailing spaces: they are part of the string)
-    for k, r in rendered: res.add (if o.verbatim and k < rendered.high: r else: r.strip(leading = false))
+    for k, r in rendered:
+      var line = if o.verbatim and k < rendered.high: r else: r.strip(leading = false)
+      if line.len < r.len:
+        # (a comment's own trailing spaces stay, like nph)
+        for t in o.toks:
+          if t.kind == fkComment and t.text.len > 0 and t.text[^1] in {' ', '\t'} and r.endsWith(t.text): line = r
+      res.add line
     prevDepth = o.depth
   if FmtAlign: fAlignRuns(entries, res, firstLine, parentOf, gap)
   while res.len > 0 and res[^1].len == 0: res.setLen(res.len - 1)
