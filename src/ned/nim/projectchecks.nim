@@ -266,6 +266,9 @@ proc lintProjectChecks(files: Table[string, Buffer], nimbles: seq[string]): seq[
       if f == nil: continue
       var inTriple = false
       var inComment = 0
+      var inBraces: Table[string, int]             # (names a format string interpolates: fmt"{helper()}")
+      for l in b.lines: ecBraceNames(l, inBraces)
+      for nm, n in inBraces: used.inc(nm, n)
       for l in b.lines:
         let c = ecCodeOnly(l, inTriple, inComment)
         var k = 0
