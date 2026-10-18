@@ -177,13 +177,17 @@ proc astCheckerBuildCmd*(): string =
     " --nimcache:" & quoteShell(dir / "cache") & " -o:" & quoteShell(exe) & " " & quoteShell(dir / "nedastcheck.nim") &
     " && rm -rf " & quoteShell(dir / "cache")
 
+type CSigHandler = proc (a: cint) {.noconv.}
+proc cSignal(sig: cint, handler: CSigHandler): CSigHandler {.importc: "signal", header: "<signal.h>".}
+  ## (C's signal with its result: posix.signal has none before Nim 2.2.12)
+
 proc astSame*(exe, a, b: string, timeoutMs = 20000): (int, string) =
   ## does `b` parse to the same tree as `a`? (0 yes · 1 no, and where · 2 cannot tell: `a` does not parse, or the
   ## checker failed)
   var p: Process
   # (a checker that stops reading early must not take this process with it: SIGPIPE ignored while writing to it)
-  let oldPipe = signal(SIGPIPE, SIG_IGN)
-  defer: discard signal(SIGPIPE, oldPipe)
+  let oldPipe = cSignal(SIGPIPE, SIG_IGN)
+  defer: discard cSignal(SIGPIPE, oldPipe)
   try:
     p = startProcess(exe, args = ["-"], options = {poStdErrToStdOut})
     let inp = p.inputStream
