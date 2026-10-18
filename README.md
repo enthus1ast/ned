@@ -789,10 +789,10 @@ How it compares with nph, on Nim's compiler and standard library:
 |---|---|---|
 | lines identical to nph's output | 99.6% of 198 000 | — |
 | same code for Nim's parser (463 files) | all | all |
-| semexprs.nim, 3 598 lines | 23 ms | 33 ms |
-| strutils.nim, 3 069 lines | 12.5 ms | 16 ms |
-| json.nim, 1 398 lines | 6 ms | 9.5 ms |
-| json.nim, already formatted | 4 ms | 9.5 ms |
+| semexprs.nim, 3 598 lines | 22 ms | 28 ms |
+| strutils.nim, 3 069 lines | 12 ms | 13 ms |
+| json.nim, 1 398 lines | 6.5 ms | 10 ms |
+| json.nim, already formatted | 6.5 ms | 7.5 ms |
 
 Both measured on the same (slow) machine; nph's times include starting the program, which ned also has to do when
 it runs nph. Where the two still differ — four lines in a thousand — it is mostly a token nph rewrites (a `tuple`
@@ -1025,7 +1025,9 @@ A few examples:
 back to its default after asking. Your old file stays next to it as `config.json.bak-<date>`.
 
 **Project settings**: `<folder>/.ned/settings.json` overrides your settings inside that folder (palette ›
-*Settings: open project settings*). Typical uses: `editor.tabSize`, `nim.projectFile`, `files.exclude`.
+*Settings: open project settings*). Typical uses: `editor.tabSize`, `nim.projectFile`, `files.exclude`,
+`nim.toolchain` (the Nim the project builds with), `nim.minVersion`, `nim.format.lineLength`. Settings that start
+programs (`nim.toolchain`, `lsp`, `run` …) take effect only in a folder you trust.
 
 Setting groups: Appearance (`theme`, `ui.*`), Editor (`editor.*`), Zen (`zen.*`), Vim (`vim.*`), Files
 (`files.*`), Search (`search.*`), Terminal (`terminal.*`), Git (`git.*`), Nim (`nim.*`, including every
