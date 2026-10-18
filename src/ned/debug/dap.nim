@@ -24,7 +24,7 @@ proc dapRequest(cmd: string, args: JsonNode, cb: DapCb = nil) =
 proc dapSetBreakpoints(path: string) =
   ## DAP sets a file's breakpoints all at once (with their conditions)
   if not dbgOn or not dbgDap: return
-  var bps = newJArray()
+  let bps = newJArray()
   var lines: seq[int]
   for l in breakpoints.getOrDefault(path): lines.add l
   if dapTempBp[0] == path and dapTempBp[1] notin lines: lines.add dapTempBp[1]
@@ -44,7 +44,7 @@ proc dapSetBreakpoints(path: string) =
 proc dapSetDataBreakpoints() =
   ## "stop when it changes": the adapter takes the whole list at once
   if not dbgOn or not dbgDap: return
-  var arr = newJArray()
+  let arr = newJArray()
   for (_, id) in dbgWatchpoints: arr.add %*{"dataId": id, "accessType": "write"}
   dapRequest("setDataBreakpoints", %*{"breakpoints": arr})
 
@@ -457,7 +457,7 @@ proc dapSubstJ(n: JsonNode, b: Buffer, port: int, exe, cargoExe, root: string): 
   case n.kind
   of JString: %dapSubst(n.getStr, b, port, exe, cargoExe, root)
   of JArray:
-    var a = newJArray()
+    let a = newJArray()
     for x in n: a.add dapSubstJ(x, b, port, exe, cargoExe, root)
     a
   of JObject:

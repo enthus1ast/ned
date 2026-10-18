@@ -9,7 +9,7 @@ var
 
 const SaveTestTimeoutMs = 120_000
 
-proc isNimTestFile(lines: openArray[string]): bool =
+func isNimTestFile(lines: openArray[string]): bool =
   ## a std/unittest file: it imports unittest and has a `test "…":`
   var imp, tst = false
   for i, l in lines:

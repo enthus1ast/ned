@@ -646,6 +646,11 @@ def run_checks(nedls, root, have_nim, log):
             fix = [a for a in acts if a["title"] == "Make limit a let"]
             ok = fix and "let limit = 10" in apply_edits(HINTS, fix[0]["edit"]["changes"][uri(hints_p)])
             check("codeAction: var → let", ok, [a["title"] for a in acts])
+            check("the hint names its rule (code: var-let)", hv[0].get("code") == "var-let", hv[0])
+            sil = [a for a in acts if a["title"] == "Silence var-let on this line"]
+            ok = sil and "var limit = 10  # ned: ignore[var-let]" in \
+                apply_edits(HINTS, sil[0]["edit"]["changes"][uri(hints_p)])
+            check("codeAction: silence the rule on this line", ok, [a["title"] for a in acts])
     else:
         print("SKIP  diagnostics (no nim on PATH)")
 

@@ -99,7 +99,7 @@ proc reloadBuffer(b: Buffer) =
     var tmp = newBuffer()
     tmp.lang = b.lang
     tmp.setContent(content)
-    var newText = tmp.lines.join("\n")
+    let newText = tmp.lines.join("\n")
     let heads = b.cursors
     b.beginEdit()
     discard b.replaceText(Pos(), Pos(line: b.lines.high, col: b.lines[^1].len), newText)

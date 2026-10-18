@@ -38,7 +38,7 @@ proc arcBlocks*(output: string): seq[(string, seq[string])] =
     elif cur >= 0:
       result[cur][1].add l
 
-proc matchClose(s: string, open: int): int =
+func matchClose(s: string, open: int): int =
   var d = 0
   var inStr = false
   for i in open ..< s.len:
@@ -53,7 +53,7 @@ proc matchClose(s: string, open: int): int =
       if d == 0: return i
   -1
 
-proc splitArgs(s: string): seq[string] =
+func splitArgs(s: string): seq[string] =
   var d = 0
   var cur = ""
   var inStr = false
@@ -69,7 +69,7 @@ proc splitArgs(s: string): seq[string] =
     else: cur.add c
   if cur.strip.len > 0: result.add cur.strip
 
-proc arcNorm*(e: string): string =
+func arcNorm*(e: string): string =
   ## an expression of the expanded code as the source writes it: a_cursor → a, result_1 → result, x[] → x
   ## (a dereference the compiler made visible)
   var i = 0
@@ -89,7 +89,7 @@ proc arcNorm*(e: string): string =
       result.add e[i]
       inc i
 
-proc baseName(e: string): string =
+func baseName(e: string): string =
   var j = 0
   while j < e.len and e[j] in ArcIdent: inc j
   e[0 ..< j]
@@ -98,7 +98,7 @@ type ArcEvent = object
   src, dest, callee: string
   dup: bool
 
-proc arcEvents(body: seq[string]): seq[ArcEvent] =
+func arcEvents(body: seq[string]): seq[ArcEvent] =
   ## the copies in one expanded routine, in order
   for i, l in body:
     var k = 0
@@ -150,7 +150,7 @@ proc arcEvents(body: seq[string]): seq[ArcEvent] =
             break
       result.add ArcEvent(src: args[0], callee: callee, dup: true)
 
-proc codeOf(line: string): string =
+func codeOf(line: string): string =
   ## the line without its comment, its strings blanked (a name in them is no use of it)
   result = line
   var inStr = false
@@ -175,7 +175,7 @@ proc codeOf(line: string): string =
       break
     inc i
 
-proc findExpr(code, w: string, start: int): int =
+func findExpr(code, w: string, start: int): int =
   ## w in code from start, standing on its own (`a.b` is in `x = a.b`, not in `xa.b`, `y.a.b`, `a.bc`, `a.b.c` or
   ## `a.b[0]`: a part of it is another value)
   var k = start
@@ -190,11 +190,11 @@ proc findExpr(code, w: string, start: int): int =
     k = i + 1
   -1
 
-proc isTemp(e: string): bool =
+func isTemp(e: string): bool =
   ## an inlined iterator's parameter, bound to what the loop goes over (:tmp, :tmp_3 — not a =dup's :tmpD)
   e == ":tmp" or (e.startsWith(":tmp_") and e[5 .. ^1].allCharsInSet(Digits))
 
-proc hasWord(code, w: string): bool =
+func hasWord(code, w: string): bool =
   ## the name w in code (`t` in `t.title = …`, `add` in `xs.add x`)
   var k = 0
   while true:
@@ -237,7 +237,7 @@ proc place(evs: seq[ArcEvent], lines: openArray[string], r: ArcRoutine): seq[Arc
     for pass in 0 .. 1:
       let (a, e) = if pass == 0: (at, last) else: (r.line, at - 1)
       for l in a .. e:
-        var code = codeOf(lines[l])
+        let code = codeOf(lines[l])
         var from0 = 0
         if l < hdrEnd: continue
         if l == hdrEnd:
@@ -286,7 +286,7 @@ proc place(evs: seq[ArcEvent], lines: openArray[string], r: ArcRoutine): seq[Arc
         break
       if found: break
 
-proc eqName(a, b: string): bool =
+func eqName(a, b: string): bool =
   ## Nim's rule: the first letter as written, the rest without case or underscores
   if a.len == 0 or b.len == 0 or a[0] != b[0]: return false
   a[1 .. ^1].replace("_", "").toLowerAscii == b[1 .. ^1].replace("_", "").toLowerAscii

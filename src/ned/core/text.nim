@@ -5,7 +5,7 @@ import std/json
 
 var tabW* = 4                  # the tab width in use: the buffer being drawn or edited
 
-proc runeLen*(c: char): int {.inline.} =
+func runeLen*(c: char): int {.inline.} =
   let b = c.uint8
   if b < 0x80: 1
   elif (b and 0xE0) == 0xC0: 2
@@ -13,7 +13,7 @@ proc runeLen*(c: char): int {.inline.} =
   elif (b and 0xF8) == 0xF0: 4
   else: 1
 
-proc runeAt*(s: string, i: int): (int, int) =
+func runeAt*(s: string, i: int): (int, int) =
   ## (codepoint, byte length) of the rune starting at byte i
   let b0 = s[i].uint8.int
   if b0 < 0x80: return (b0, 1)
@@ -28,16 +28,16 @@ proc runeAt*(s: string, i: int): (int, int) =
   else: (((b0 and 0x07) shl 18) or ((s[i+1].uint8.int and 0x3F) shl 12) or
          ((s[i+2].uint8.int and 0x3F) shl 6) or (s[i+3].uint8.int and 0x3F), 4)
 
-proc nextRune*(s: string, i: int): int {.inline.} =
+func nextRune*(s: string, i: int): int {.inline.} =
   if i >= s.len: s.len else: i + runeAt(s, i)[1]
 
-proc prevRune*(s: string, i: int): int =
+func prevRune*(s: string, i: int): int =
   if i <= 0: return 0
   var j = i - 1
   while j > 0 and (s[j].uint8 and 0xC0) == 0x80 and i - j < 4: dec j
   j
 
-proc addUtf8*(s: var string, cp: int) =
+func addUtf8*(s: var string, cp: int) =
   if cp < 0x80: s.add chr(cp)
   elif cp < 0x800:
     s.add chr(0xC0 or (cp shr 6)); s.add chr(0x80 or (cp and 0x3F))
@@ -48,7 +48,7 @@ proc addUtf8*(s: var string, cp: int) =
     s.add chr(0xF0 or (cp shr 18)); s.add chr(0x80 or ((cp shr 12) and 0x3F))
     s.add chr(0x80 or ((cp shr 6) and 0x3F)); s.add chr(0x80 or (cp and 0x3F))
 
-proc runeWidth*(cp: int): int =
+func runeWidth*(cp: int): int =
   if cp < 0x300: return 1
   if (cp >= 0x300 and cp <= 0x36F) or (cp >= 0x483 and cp <= 0x489) or
      (cp >= 0x591 and cp <= 0x5BD) or (cp >= 0x610 and cp <= 0x61A) or
@@ -102,24 +102,24 @@ proc colAtVis*(s: string, target: int, start = 0, startVc = 0): int =
 
 proc strWidth*(s: string): int = visColOf(s, s.len)
 
-proc isWordByte*(c: char): bool {.inline.} =
+func isWordByte*(c: char): bool {.inline.} =
   c in {'a'..'z', 'A'..'Z', '0'..'9', '_'} or c.uint8 >= 0x80
 
-proc isIdentStart*(c: char): bool {.inline.} =
+func isIdentStart*(c: char): bool {.inline.} =
   c in {'a'..'z', 'A'..'Z', '_'} or c.uint8 >= 0x80
 
-proc startsAt*(s, sub: string, i: int): bool {.inline.} =
+func startsAt*(s, sub: string, i: int): bool {.inline.} =
   if sub.len == 0 or i + sub.len > s.len: return false
   for k in 0..<sub.len:
     if s[i+k] != sub[k]: return false
   true
 
-proc leadingWs*(s: string): string =
+func leadingWs*(s: string): string =
   var i = 0
   while i < s.len and s[i] in {' ', '\t'}: inc i
   s[0..<i]
 
-proc isBlank*(s: string): bool =
+func isBlank*(s: string): bool =
   for c in s:
     if c notin {' ', '\t'}: return false
   true

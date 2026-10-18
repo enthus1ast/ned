@@ -170,7 +170,7 @@ proc nxWhen*(cond: string): int =
   let v = orExpr()
   if p < toks.len: -1 else: v
 
-proc nxCodeOf*(s: string): string =
+func nxCodeOf*(s: string): string =
   ## a line without its comment (strings kept), stripped
   var q = false
   var k = 0
@@ -181,12 +181,12 @@ proc nxCodeOf*(s: string): string =
     inc k
   s.strip
 
-proc nxGoesOn(t: string): bool =
+func nxGoesOn(t: string): bool =
   ## a line that ends inside an expression: the next one continues it
   t.endsWith(",") or t.endsWith("&") or t.endsWith("+") or t.endsWith("-") or t.endsWith("*") or
     t.endsWith(" or") or t.endsWith(" and") or t.endsWith("|") or t.endsWith("(") or t.endsWith("[")
 
-proc nxBalance(t: string): int =
+func nxBalance(t: string): int =
   var q = false
   for ch in t:
     if ch == '"': q = not q
@@ -477,8 +477,10 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       let head = h2.strip
       s.pragmas = prag
       if head.startsWith("["): s.generics = nxCollapse(head)
-      let def = nxStripPragma(if eq >= 0: mt[eq + 1 .. ^1].strip else: "")[0].strip
-      s.typ = nxCollapse(def)
+      let def0 = if eq >= 0: mt[eq + 1 .. ^1].strip else: ""
+      # (a proc type keeps its `{.async: (raises: […]).}`: what calling one gives depends on it)
+      let def = if def0.startsWith("proc") and "async" in def0: def0 else: nxStripPragma(def0)[0].strip
+      s.typ = nxTypeText(def)
       addSym(s)
       let tyIdx = f.syms.high
       let fw = def.split({' ', '['})
@@ -560,7 +562,7 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       if nm.len == 0 or nm == "_": continue
       let val2 = if typ.len == 0 and e1 >= 0: nxBlockValue(lines, i, ind, val) else: val
       addSym(NxSym(name: nm, kind: kk, line: startLine, col: nxWordCol(raw, nm),
-                   exported: e < pn.len and pn[e] == '*', typ: (if unpack: "" else: nxCollapse(typ)),
+                   exported: e < pn.len and pn[e] == '*', typ: (if unpack: "" else: nxTypeText(typ)),
                    value: nxShortValue(val2),
                    slot: vi.int16, slots: (if unpack: -names.len.int16 else: 0)))
 
@@ -700,7 +702,7 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
           if ce > j:
             s.params = nxParseParams(t[j + 1 ..< ce])
             for p in s.params.mitems:
-              p.typ = nxCollapse(p.typ)
+              p.typ = nxTypeText(p.typ)
               p.default = nxCollapse(p.default)
             j = ce + 1
         while j < t.len and t[j] == ' ': inc j
@@ -710,7 +712,7 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
           if pr >= 0: e2 = pr
           let eq = nxFindTop(t, '=', j + 1)
           if eq >= 0 and eq < e2: e2 = eq
-          s.ret = nxCollapse(t[j + 1 ..< e2].strip)
+          s.ret = nxTypeText(t[j + 1 ..< e2].strip)
           j = e2
         let pr = t.find("{.", j)
         if pr >= 0:
@@ -822,7 +824,7 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
         let nm = pn.strip(chars = {'*', ' ', '`'})
         if nm.len == 0 or not nxIsIdent(nm[0]): continue
         addSym(NxSym(name: nm, kind: nxField, line: startLine, col: nxWordCol(raw, nm), owner: owner,
-                     typ: nxCollapse(p.typ), value: p.default, exported: pn.endsWith("*")))
+                     typ: nxTypeText(p.typ), value: p.default, exported: pn.endsWith("*")))
       if w0 == "case": stack.add NxFrame(ind: ind, kind: bkObjTransparent, sym: -1)
     of bkEnum:
       let exp = stack[k].sym >= 0 and f.syms[stack[k].sym].exported

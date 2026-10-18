@@ -133,7 +133,7 @@ proc cmdSortImports() =
     info("No imports")
     return
   # only the first run of consecutive plain `import` lines (no comments, no `as`/`except`)
-  var first = stmts[0][0]
+  let first = stmts[0][0]
   var last = -1
   var std, pkgs, locals, keep: seq[string]
   var prev = first - 1
@@ -150,11 +150,11 @@ proc cmdSortImports() =
       prev = le
       last = le
       continue
-    for m in b.importedModulesOf(t):
+    for m in importedModulesOf(t):
       if m.startsWith("./") or m.startsWith("../"): (if m notin locals: locals.add m)
       elif m.startsWith("std/"): (if m[4 .. ^1] notin std: std.add m[4 .. ^1])
       elif m.startsWith("pkg/"): (if m notin pkgs: pkgs.add m)
-      elif b.isStdModule(m): (if m notin std: std.add m)
+      elif isStdModule(m): (if m notin std: std.add m)
       else: (if m notin pkgs: pkgs.add m)
     prev = le
     last = le

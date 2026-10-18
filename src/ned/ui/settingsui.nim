@@ -5,7 +5,7 @@ var
   settingsFilter = ""
   settingNoUi = false     # the value prompt came from outside the settings list (e.g. "Type a model id…")
 
-proc settingLabel(d: SetDef): string =
+func settingLabel(d: SetDef): string =
   var name = d.key
   let dot = name.find('.')
   if dot >= 0: name = name[dot + 1 .. ^1]

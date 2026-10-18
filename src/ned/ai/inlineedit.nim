@@ -1,6 +1,6 @@
 # ── inline edit (selection → AI → replacement) ──
 
-proc inlineClean(text: string): string =
+func inlineClean(text: string): string =
   ## the model's replacement code: without a surrounding code fence if it added one
   var t = text.strip(chars = {'\n'})
   if t.startsWith("```"):
@@ -52,7 +52,7 @@ proc aiInlineEdit(instruction: string) =
   aiInlineText = ""
   aiInlineMode = true
   let code = b.getText(a, e)
-  var ctxLo = max(0, a.line - 40)
+  let ctxLo = max(0, a.line - 40)
   var before = ""
   for i in ctxLo ..< a.line: before.add b.lines[i] & "\n"
   var after = ""

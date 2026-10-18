@@ -6,7 +6,7 @@
 
 proc stateDir(): string = parentDir(stateFile())
 
-proc fnv(s: string): string =
+func fnv(s: string): string =
   ## short stable file key for a path
   var h = 0xcbf29ce484222325'u64
   for c in s:
@@ -45,6 +45,7 @@ var fileWrittenHook: proc(path: string) {.closure.} = nil   # set by remote fold
 
 proc fileWritten(path: string) =
   ## ned wrote a file of the project itself (not through the editor's save): a remote folder's goes to the server
+  nxStatForget(path)                     # (the engine reads it again as it is now)
   if fileWrittenHook != nil: fileWrittenHook(path)
 
 proc writeFileSafe0(path, content: string, newMode = 0o644) =

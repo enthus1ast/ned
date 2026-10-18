@@ -1,4 +1,4 @@
-proc nxWordAt*(text: string, col: int): (int, int) =
+func nxWordAt*(text: string, col: int): (int, int) =
   var a = min(col, text.len)
   var e = a
   while a > 0 and nxIsIdent(text[a - 1]): dec a
@@ -9,7 +9,7 @@ proc nxSymAt*(f: NxFile, line, col: int): int
 proc nxFileLines*(path: string): seq[string]
 proc nxLexRuns*(line: string, st: var NxLexState, ops: bool): seq[(int, int)]
 
-proc nxIsOpName*(n: string): bool =
+func nxIsOpName*(n: string): bool =
   ## an operator's name (`+`, `==`, `$`, `..<`), not `.` `:` `=` (which are not called)
   n.len > 0 and n.allCharsInSet(NxOpChars) and n notin [".", ":", "=", "::", "*:"]
 
@@ -20,7 +20,7 @@ proc nxOpRunAt*(line: string, col: int): (int, int) =
     if a <= col and col <= e and nxIsOpName(line[a ..< e]): return (a, e)
   (0, 0)
 
-proc nxOperandBack*(line: string, i: int): int =
+func nxOperandBack*(line: string, i: int): int =
   ## where the operand that ends at line[i - 1] starts (words, dots, calls, brackets, strings)
   var k = i
   while k > 0:
@@ -44,7 +44,7 @@ proc nxOperandBack*(line: string, i: int): int =
     else: break
   k
 
-proc nxOperandFwd*(line: string, i: int): int =
+func nxOperandFwd*(line: string, i: int): int =
   ## where the operand that starts at line[i] ends
   var k = i
   while k < line.len and line[k] in {'-', '+', '$', '@', '!', '~'}: inc k     # (a prefix operator of its own)
@@ -291,7 +291,7 @@ proc nxIsForward*(lines: openArray[string], s: NxSym): bool =
   let pc = if po >= 0: nxMatchClose(h, po) else: -1
   pc > 0 and nxFindTop(h, '=', pc + 1) < 0
 
-proc nxSameSig(a, b: NxSym): bool =
+func nxSameSig(a, b: NxSym): bool =
   ## a forward declaration and its routine: the same parameters and result (owned(X) and owned X alike)
   if a.kind != b.kind or a.name != b.name or a.params.len != b.params.len or
      a.generics.replace(" ", "") != b.generics.replace(" ", "") or
@@ -442,8 +442,10 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
                                         (s.kind in {nxParam, nxResult} and s.line == line) or
                                         (s.kind == nxForVar and s.endLine > 0 and a > s.endLine)):
       var s2 = locals[i]
-      if s2.kind == nxParam and s2.ret.len > 0 and s2.line == line and s2.col == a:
-        s2.typ = s2.ret                  # (a macro's parameter where it is declared: the type written there)
+      if s2.kind == nxParam and s2.ret.len > 0 and s2.line == line and s2.col == a and '|' notin s2.ret:
+        # (a macro's parameter where it is declared: the type written there — a {.multisync.} one stays the
+        # synchronous one, as everywhere in its body)
+        s2.typ = s2.ret
       if s2.kind == nxParam and not (s2.line == line and s2.col == a):
         # a parameter of a routine declared before (forward), used in its body: the one its forward declaration
         # writes (as the compiler binds it; where it is written in this header, itself)

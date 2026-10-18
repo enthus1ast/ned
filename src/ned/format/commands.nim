@@ -1,4 +1,4 @@
-proc builtinFmtKind(path, langId: string): string =
+func builtinFmtKind(path, langId: string): string =
   ## which of ned's own formatters fits a file: "nim", "json", "markdown", "css", "scss" (with // comments) or ""
   let ext = splitFile(path).ext.toLowerAscii
   if ext in [".nim", ".nims", ".nimble"] or langId == "nim": return "nim"
@@ -11,7 +11,7 @@ proc builtinFmtKind(path, langId: string): string =
   if ext == ".toml": return "toml"                  # (not .ini, .cfg …: TOML's colours, not its rules)
   ""
 
-proc looksCpp(text: string): bool =
+func looksCpp(text: string): bool =
   ## C++ rather than C (a .h file can be either): templates and namespaces give it away
   for w in ["template<", "template <", "namespace ", "std::", "class ", "public:", "private:", "nullptr"]:
     if w in text: return true

@@ -60,14 +60,14 @@ proc saveState() =
   var uses = newJObject()
   for k, v in cmdUses: uses[k] = %v
   var sessions = if savedSessions.isNil: newJObject() else: savedSessions
-  var open = newJArray()
+  let open = newJArray()
   for b in bufs:
     if b.path.len > 0 and b.title.len == 0: open.add %b.path
   if rootDir.len > 0 and cfgRestoreSession:
     var bps = newJObject()
     for f, ls in breakpoints:
       if ls.len > 0:
-        var a = newJArray()
+        let a = newJArray()
         for l in ls: a.add %l
         bps[f] = a
     var conds = newJObject()

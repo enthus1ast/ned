@@ -2,13 +2,13 @@
 #  Small utilities
 # ════════════════════════════════════════════════════════════════════════════
 
-proc `<`(a, b: Pos): bool {.inline.} = a.line < b.line or (a.line == b.line and a.col < b.col)
-proc `<=`(a, b: Pos): bool {.inline.} = not (b < a)
-proc minP(a, b: Pos): Pos {.inline.} = (if a < b: a else: b)
-proc maxP(a, b: Pos): Pos {.inline.} = (if a < b: b else: a)
-proc range(c: Cursor): (Pos, Pos) {.inline.} = (minP(c.anchor, c.head), maxP(c.anchor, c.head))
+func `<`(a, b: Pos): bool {.inline.} = a.line < b.line or (a.line == b.line and a.col < b.col)
+func `<=`(a, b: Pos): bool {.inline.} = not (b < a)
+func minP(a, b: Pos): Pos {.inline.} = (if a < b: a else: b)
+func maxP(a, b: Pos): Pos {.inline.} = (if a < b: b else: a)
+func range(c: Cursor): (Pos, Pos) {.inline.} = (minP(c.anchor, c.head), maxP(c.anchor, c.head))
 proc hasSel(c: Cursor): bool {.inline.} = c.anchor != c.head
-proc cur(p: Pos): Cursor {.inline.} = Cursor(anchor: p, head: p, goalX: -1)
+func cur(p: Pos): Cursor {.inline.} = Cursor(anchor: p, head: p, goalX: -1)
 
 proc msSince(t: MonoTime): int64 = (getMonoTime() - t).inMilliseconds
 
@@ -134,7 +134,7 @@ proc uriFromPath(p: string): string =
     if c in {'a'..'z', 'A'..'Z', '0'..'9', '-', '_', '.', '~', '/'}: result.add c
     else: result.add '%' & toHex(ord(c), 2)
 
-proc pathFromUri(u: string): string =
+func pathFromUri(u: string): string =
   var s = u
   if s.startsWith("file://"): s = s[7..^1]
   var i = 0
@@ -148,7 +148,7 @@ proc pathFromUri(u: string): string =
     result.add s[i]
     inc i
 
-proc textDistance(a, b: string): int =
+func textDistance(a, b: string): int =
   ## edit distance in characters — by bytes when either is not valid UTF-8 (std's own would read past its end)
   var okA, okB = true
   for (s, ok) in [(a, addr okA), (b, addr okB)]:

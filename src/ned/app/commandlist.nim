@@ -271,6 +271,8 @@ proc initCommands() =
   add("Nim: choose the Nim for this project…", "for every tool: nim, nimble, nimsuggest, the terminal", cmdChooseProjectNim())
   add("Nim: add a CI workflow (GitHub Actions)…", "build and test; ned's lint and format check", cmdAddCiWorkflow())
   add("Nim: lint the project (the engine's checks)", "ned --lint over every file", cmdLintProject())
+  add("Nim: lint rules for this project (.ned/lint.json)", "turn a check off, change its severity, leave files out",
+      cmdLintRules())
   add("Nim: format with ned's built-in formatter (nph style)", "", setSetting("nim.formatter", %"builtin"))
   add("Nim: format with nph", "", setSetting("nim.formatter", %"nph"))
   add("Nim: format with nimpretty", "", setSetting("nim.formatter", %"nimpretty"))

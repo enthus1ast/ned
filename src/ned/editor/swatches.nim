@@ -2,14 +2,14 @@
 
 const SwatchMark = "■"
 
-proc hexNib(c: char): int =
+func hexNib(c: char): int =
   case c
   of '0'..'9': ord(c) - ord('0')
   of 'a'..'f': ord(c) - ord('a') + 10
   of 'A'..'F': ord(c) - ord('A') + 10
   else: -1
 
-proc hexColour(h: string): (bool, int, int, int, float) =
+func hexColour(h: string): (bool, int, int, int, float) =
   ## "f80", "f80c", "ff8800", "ff8800cc" → (ok, r, g, b, alpha)
   for c in h:
     if hexNib(c) < 0: return
@@ -40,7 +40,7 @@ proc hslToRgb(h, s, l: float): (int, int, int) =
   (clamp(int((r + m) * 255.0 + 0.5), 0, 255), clamp(int((g + m) * 255.0 + 0.5), 0, 255),
    clamp(int((b + m) * 255.0 + 0.5), 0, 255))
 
-proc rgbToHsl(r, g, b: int): (int, int, int) =
+func rgbToHsl(r, g, b: int): (int, int, int) =
   let rf = r.float / 255.0
   let gf = g.float / 255.0
   let bf = b.float / 255.0
@@ -57,7 +57,7 @@ proc rgbToHsl(r, g, b: int): (int, int, int) =
     h *= 60.0
   (int(h + 0.5) mod 360, int(s * 100.0 + 0.5), int(l * 100.0 + 0.5))
 
-proc cssNum(t: string, scale: float): float =
+func cssNum(t: string, scale: float): float =
   ## "255", "50%", "120deg", "0.5" → a number (percentages of `scale`)
   var x = t.strip
   var pct = false
@@ -129,7 +129,7 @@ proc colourSwatches(lang: Lang, s: string, toks: seq[TokKind]): seq[(int, int, R
 var decorOverlay: seq[(int, string)]
   ## set by lineDecor: hints drawn over the spaces that follow their column (an aligned `=`), (column, text)
 
-proc declShape(s: string): (bool, int, int, int) =
+func declShape(s: string): (bool, int, int, int) =
   ## a declaration lined up on its `=` — `name = …`, `name*: T   = …`: (it is one, indentation, where the spaces
   ## before the `=` start, the `=`'s column)
   var i = 0

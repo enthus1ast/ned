@@ -16,7 +16,7 @@ proc nimDemangle(fn: string): string =
     i += n
   if parts.len == 0: fn else: parts.join(".")
 
-proc nimTypeName(t: string): string =
+func nimTypeName(t: string): string =
   ## the C type gdb reports → its Nim name (NI → int, tySequence__… → seq, tyObject_Person__… → Person)
   const simple = {"NimStringV2": "string", "NI": "int", "NI64": "int64", "NI32": "int32", "NI16": "int16",
                   "NI8": "int8", "NU": "uint", "NU64": "uint64", "NU32": "uint32", "NU8": "uint8",
@@ -99,7 +99,7 @@ proc miValue(s: string, i: var int): JsonNode =
       inc i
     result = %t
 
-proc miQuote(s: string): string =
+func miQuote(s: string): string =
   ## an argument for gdb's machine interface: a C string
   "\"" & s.replace("\\", "\\\\").replace("\"", "\\\"") & "\""
 
@@ -115,7 +115,7 @@ proc dbgSend(cmd: string) =
     if n <= 0: break
     off += n
 
-proc dbgExpandable(t: string): bool =
+func dbgExpandable(t: string): bool =
   let b = t.strip(chars = {' ', '*'})
   b.startsWith("tyObject_") or b.startsWith("tyTuple_") or b.startsWith("tyArray_") or b.startsWith("tySequence_")
 
@@ -736,7 +736,7 @@ proc toggleBreakpoint() =
   if dbgOn and dbgDap: dapSetBreakpoints(b.path)
   needRender = true
 
-proc isNimProgram(b: Buffer): bool =
+func isNimProgram(b: Buffer): bool =
   ## top-level code or `when isMainModule`: a program (or a test), not only declarations
   for l in b.lines:
     if l.len == 0 or l[0] in {' ', '\t', '#', '{'}: continue

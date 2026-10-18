@@ -63,11 +63,14 @@ var
   cfgFolderTrust = "ask"       # security.folderTrust: ask (a folder's code runs once you trust it) | off
   cfgEmitClangd = true         # C in {.emit.} goes through clangd when it is installed
   cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
+  quickFixDryRun = false       # (nedls works out what a quick fix would change by running it: one that writes a file
+                               # itself — not through a buffer — does nothing then)
   cfgFmtWidth = 88             # nim.format.lineLength (the setting; FmtWidth is the width in use)
   cfgFmtWidthSet = false       # nim.format.lineLength written in a settings file — else .editorconfig's max_line_length
   cfgFormatVerify = false      # nim.format.verify: the built-in Nim formatter's result checked by Nim's own parser too
   cfgEngineChecks = true       # nim.engineChecks: the engine's own checks while typing (fields, arguments, dead code)
-  cfgEngineMoreChecks = true   # nim.engineHints: a var never changed, a parameter never used, a result never set
+  cfgEngineMoreChecks = true   # nim.engineHints: a var never changed, a parameter never used, a result never set,
+                               #   a proc that can be a func
   cfgNimMinVersion = ""        # nim.minVersion: the oldest Nim the code must build with ("" = the .nimble says, off)
   cfgMacroNames = true         # nim.macroNames: a module's top-level macro calls expanded by the compiler, once
   cfgCompilerAnswers = true    # nim.compilerAnswers: nimsuggest off — the compiler asked once where the engine has no answer
@@ -176,6 +179,7 @@ var
   cfgGitAutoRefresh = true
   cfgNimFlags = ""
   cfgNimTestFlags = "--hints:off"
+  cfgCovTestFiles = false              # nim.coverageTestFiles: Nim test coverage counts the test files too
   cfgAiProvider = "anthropic"
   cfgAiModel = ""
   cfgAiKey = ""

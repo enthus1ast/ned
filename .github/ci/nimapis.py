@@ -23,22 +23,28 @@ def norm(n):
     n = n.strip('`')
     return n[0] + n[1:].replace('_', '').lower() if n else n
 
+INCL = re.compile(r'^\s*include\s+(.+)$')
+
 def scan(lib):
-    decls, stars, mods = {}, set(), set()
+    decls, stars, mods, included = {}, set(), set(), set()
     for root, _, files in os.walk(lib):
         for f in files:
             if not f.endswith('.nim'): continue
             p = os.path.join(root, f)
             rel = os.path.relpath(p, lib).replace(os.sep, '/')
-            if rel.startswith(PUBLIC) and not any(s in rel for s in ('private/',)): mods.add(f[:-4])
+            if rel.startswith(PUBLIC) and not any(s in rel for s in ('private/', '/includes/')): mods.add(f[:-4])
             names = {}
             with open(p, encoding='utf-8', errors='replace') as fh:
                 for line in fh:
+                    m = INCL.match(line)
+                    if m:
+                        for part in re.split(r'[,\s]+', m.group(1).split('#')[0]):
+                            if part: included.add(part.strip('"').split('/')[-1].replace('.nim', ''))
                     for m in STAR.finditer(line): stars.add(norm(m.group(1)))
                     m = DECL.match(line) or SECT.match(line)
                     if m: names.setdefault(norm(m.group(1)), m.group(1).strip('`'))
             decls[rel] = names
-    return decls, stars, mods
+    return decls, stars, mods, included
 
 def main():
     rels = []
@@ -49,13 +55,13 @@ def main():
            '#    (a release step: the release before it, it, modules new in it, "module: names" new in it) ──', '',
            'const NimApiSteps* = [']
     for i in range(1, len(rels)):
-        before, (oldd, olds, oldm) = rels[i - 1]
+        before, (oldd, olds, oldm, _) = rels[i - 1]
         # (a name or module any earlier release had: not new)
         for j in range(i - 1):
             olds = olds | rels[j][1][1]
             oldm = oldm | rels[j][1][2]
-        ver, (newd, _, newm) = rels[i]
-        newmods = sorted(newm - oldm)
+        ver, (newd, _, newm, newinc) = rels[i]
+        newmods = sorted(newm - oldm - newinc)      # (a module other modules `include` is not one to import)
         bykey = {}
         for rel in sorted(newd):
             if rel.startswith(SKIP) and not rel.startswith('system/'): continue

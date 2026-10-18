@@ -171,7 +171,7 @@ proc drawStatusBar() =
   proc total(): int =
     for i, r in right:
       if keep[i]: result += strWidth(r[0]) + 2
-  var showMsg = msg.len > 0 and msSince(msgTime) < 6000
+  let showMsg = msg.len > 0 and msSince(msgTime) < 6000
   let minMsg = if showMsg: min(strWidth(msg), 30) + 2 else: 0
   for k in countdown(order.high, 0):
     let i = order[k]

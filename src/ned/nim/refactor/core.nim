@@ -11,13 +11,13 @@ type CallSite = object
   oa, ea: Pos                  # the "(" and the ")" of the argument list
   args: seq[(string, string)]  # (name for a named argument or "", the text passed)
 
-proc rfIdentLen(s: string, c: int): int =
+func rfIdentLen(s: string, c: int): int =
   ## the length of the identifier at column c (Nim lets calls spell a name differently: my_proc · myProc)
   var e = c
   while e < s.len and s[e] in IdentChars: inc e
   e - c
 
-proc rfSkipStr(s: string, i: int): int =
+func rfSkipStr(s: string, i: int): int =
   ## the index after the string or char literal starting at `i`
   let q = s[i]
   if q == '"' and i + 2 < s.len and s[i + 1] == '"' and s[i + 2] == '"':
@@ -30,7 +30,7 @@ proc rfSkipStr(s: string, i: int): int =
     else: inc k
   s.len
 
-proc rfMatchClose(lines: seq[string], l, c: int): Pos =
+func rfMatchClose(lines: seq[string], l, c: int): Pos =
   ## the bracket closing the one at (l, c), across lines (-1: none within 80 lines)
   var depth = 0
   var line = l
@@ -52,7 +52,7 @@ proc rfMatchClose(lines: seq[string], l, c: int): Pos =
     i = 0
   Pos(line: -1)
 
-proc rfText(lines: seq[string], a, e: Pos): string =
+func rfText(lines: seq[string], a, e: Pos): string =
   ## the text strictly between a and e
   if a.line == e.line: return lines[a.line][a.col + 1 ..< e.col]
   result = lines[a.line][a.col + 1 .. ^1]
@@ -80,7 +80,7 @@ proc rfSplitArgs(s: string): seq[string] =
     inc i
   if cur.strip.len > 0 or result.len > 0: result.add cur.strip
 
-proc rfRecvStart(s: string, dot: int): int =
+func rfRecvStart(s: string, dot: int): int =
   ## where the receiver before the `.` at `dot` starts: a.b, f(x).y, xs[0].z, "lit".w
   var i = dot - 1
   while i >= 0:
@@ -232,7 +232,7 @@ proc rfRefs(d: NxRef): (bool, seq[(string, int, int)]) =
   if not engineReferences(b, Pos(line: d.sym.line, col: d.sym.col), hits, decl): return
   (not nxRefsCut, hits)
 
-proc rfIsLabel(s: string, a, e: int): bool =
+func rfIsLabel(s: string, a, e: int): bool =
   ## `name` in f(name = v) or P(name: v): a label, not a use of the name
   var k = e
   while k < s.len and s[k] == ' ': inc k

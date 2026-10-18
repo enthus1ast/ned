@@ -5406,4 +5406,360 @@ def t_69_lint_and_ci():
     check("69 … with ned's lint: built from the repository given, annotations on the pull request",
           'git clone --depth 1 https://example.com/x/ned' in ci and 'ned --lint --format:github .' in ci, ci)
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci]
+def t_610_expected_multiline():
+    # 6.10: completion ranked by the expected type also for an argument on a line of its own (the call started on a
+    # line above) and for a parameter's default in a routine's header (here over two lines)
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/e610.nim', 'w').write(
+        'type Color = enum cRed, cGreen, cBlue\n'
+        'proc paint(c: Color, times: int) = discard\n'
+        'proc main() =\n'
+        '  let aTitle = "x"\n'
+        '  let zCount = 3\n'
+        '  let myShade = cGreen\n'
+        '  paint(myShade,\n'
+        '        )\n'
+        'proc wrap(a: int,\n'
+        '          c: Color = ) = discard\n')
+    start('src/e610.nim', w=130, h=34); time.sleep(1.5)
+    def row(word, below):
+        """the screen row of `word` in the completion list (the rows under the line being written)"""
+        ls = screen().split('\n')
+        k = max([i for i, l in enumerate(ls) if below in l] or [len(ls)])
+        for i, l in enumerate(ls[k + 1:]):
+            if re.search(r'\b%s\b' % word, l): return i
+        return -1
+    keys('C-g'); text('8:9'); keys('Enter'); keys('C-space')
+    ok = wait_for(r'zCount\s+int', 4)
+    m = 'paint(myShade,'
+    check('610 expected type: an argument on a line of its own — the int local first, before the others', ok and
+          0 <= row('zCount', m) < row('aTitle', m) and row('zCount', m) < row('myShade', m), screen())
+    keys('Escape'); keys('C-g'); text('10:22'); keys('Enter'); keys('C-space')
+    ok = wait_for(r'cBlue', 4)
+    m = 'c: Color = )'
+    check("610 expected type: a parameter's default in a header over two lines — the enum's values first", ok and
+          0 <= row('cBlue', m) < row('main', m) and 0 <= row('cRed', m) < row('paint', m), screen())
+
+
+def t_610_can_be_func():
+    # 6.10: a proc with no side effects — it uses no module variable, calls nothing that has side effects, the
+    # engine sure of every call — can be a func (an engine hint, rule can-be-func); quick fix: proc → func, and all
+    # of them in the file
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest"})
+    open(W + '/fx.nim', 'w').write('var counter = 0\n\n'
+                                   'proc add1(x: int): int =\n  x + 1\n\n'
+                                   'proc bump() =\n  inc counter\n\n'
+                                   'proc twice(x: int): int =\n  add1(add1(x))\n\n'
+                                   'proc talk(x: int) =\n  echo twice(x)\n\n'
+                                   'proc main() =\n  bump()\n  talk(3)\n\nmain()\n')
+    start('fx.nim', w=150, h=40); time.sleep(1.5)
+    keys('C-g'); text('20'); keys('Enter', 'End', 'Enter')          # (a change: the checks run)
+    time.sleep(2)
+    palette('Show problems')
+    ok = wait_for(r"has no side effects", 10)
+    s = screen()
+    check('610 can be a func: a proc with no side effects', ok and "'add1' has no side effects: it can be a func" in s and
+          "'twice' has no side effects" in s, s)
+    check('610 can be a func: not one that uses a global, echoes, or calls one that does',
+          "'bump' has no" not in s and "'talk' has no" not in s and "'main' has no" not in s, s)
+    keys('Escape')
+    keys('C-g'); text('3:6'); keys('Enter', 'M-Enter')
+    ok = wait_for(r'Make add1 a func', 4)
+    s = screen()
+    check('610 quick fix: proc → func offered, and all of them in the file', ok and 'Fix all 2 like this' in s, s)
+    keys('Down', 'Enter'); time.sleep(0.5)
+    keys('C-s'); time.sleep(0.8)
+    t = ftext('fx.nim')
+    check('610 quick fix: every proc without side effects made a func', 'func add1(x: int): int =' in t and
+          'func twice(x: int): int =' in t and 'proc bump() =' in t and 'proc talk(x: int) =' in t, t)
+
+CONCEPT_SRC = """type
+  Shape = concept
+    proc area(s: Self): float
+  Circle = object
+    r: float
+  Square = object
+    side: float
+  Line = object
+    length: float
+
+proc area(c: Circle): float = 3.14 * c.r * c.r
+proc area(s: Square): float = s.side * s.side
+
+let c = Circle(r: 1)
+echo area(c), Line(length: 2).length
+"""
+
+def t_610_concepts():
+    # 6.10: concepts — the hover of a concept lists the types that satisfy it, the hover of a type the concepts it
+    # satisfies; Go to implementation on a concept: those types
+    setup({"nim.nimsuggest": False})
+    open(W + '/cpt.nim', 'w').write(CONCEPT_SRC)
+    start('cpt.nim', w=130, h=36); time.sleep(1.5)
+    keys('C-g'); text('2:4'); keys('Enter'); keys('M-h')
+    ok = wait_for(r'satisfied by:', 5)
+    s = screen()
+    check('610 hover on a concept: the types that satisfy it', ok and re.search(r'satisfied by:.*Circle.*Square', s) and
+          not re.search(r'satisfied by:.*Line', s), s)
+    keys('Escape'); keys('C-g'); text('4:4'); keys('Enter'); keys('M-h')
+    check('610 hover on a type: the concepts it satisfies', wait_for(r'satisfies:.*Shape', 5), screen())
+    keys('Escape'); keys('C-g'); text('8:4'); keys('Enter'); keys('M-h')
+    time.sleep(1.5)
+    check("610 … not on one that does not", 'satisfies:' not in screen(), screen())
+    keys('Escape'); keys('C-g'); text('2:4'); keys('Enter'); palette('Go to implementation')
+    ok = wait_for(r'Implementations — Shape', 4)
+    s = screen()
+    ls = s.split('\n')
+    top = max([i for i, l in enumerate(ls) if 'Implementations — Shape' in l] or [0])
+    box = []
+    for l in ls[top + 1:]:
+        if '╰' in l: break
+        box.append(l[l.find('│'):] if '│' in l else l)
+    box = '\n'.join(box)
+    check('610 go to implementation on a concept: the types that satisfy it', ok and 'Circle' in box and
+          'Square' in box and 'satisfies Shape' in box and 'Line' not in box, s)
+    keys('Escape')
+
+def t_610_nim_coverage():
+    if not (which('gcov') or which('llvm-cov')): raise Skip('needs gcov (with gcc) or llvm-cov')
+    import glob
+    def numcol(raw, n):
+        """the colour of line number n in the editor's gutter (the first row that starts with it)"""
+        for l in raw.splitlines():
+            fg, vis, first = None, '', None
+            for m in re.finditer(r'\x1b\[([0-9;]*)m|([^\x1b])', l):
+                if m.group(1) is not None:
+                    c = re.search(r'(?:^|;)38;2;(\d+;\d+;\d+)', m.group(1))
+                    if c: fg = c.group(1)
+                    elif m.group(1) in ('', '0'): fg = None
+                elif m.group(2):
+                    vis += m.group(2)
+                    if first is None and m.group(2).isdigit(): first = fg
+            if re.match(r'\s*%d(\s|$)' % n, vis): return first
+        return None
+    def fnv(s):
+        x = 2166136261
+        for c in s.encode():
+            x = ((x ^ c) * 16777619) & 0xffffffff
+        return '%08x' % x
+    def drop_cache():
+        for t in [os.environ.get('TMPDIR') or '/tmp', None]:
+            d = ('%s/ned-%d' % (t, os.getuid())) if t else STATE + '/ned/tmp'
+            shutil.rmtree(d + '/ned_cov/work_' + fnv(W), ignore_errors=True)
+    setup()
+    open(W + '/src/demo/calc.nim', 'w').write(
+        '## numbers\n'
+        'proc classify*(x: int): string =\n'      # 2  ran
+        '  if x > 5:\n'                            # 3  ran
+        '    result = "big"\n'                     # 4  ran
+        '  else:\n'                                # 5  no code
+        '    result = "small"\n'                   # 6  never ran
+        '\n'
+        'proc neverCalled*(x: int): int =\n'       # 8  no test calls it: not in the C at all
+        '  result = x * 2\n')                      # 9
+    open(W + '/tests/tcalc.nim', 'w').write('import unittest\nimport demo/calc\n\ntest "classify":\n  check classify(10) == "big"\n')
+    # (the kept builds of an earlier run of this test: gone, so the first run here builds everything)
+    drop_cache()
+    start('src/demo/calc.nim', w=150, h=42); time.sleep(0.6)
+    t0 = time.time()
+    palette('Test coverage: run and colour the lines that ran')
+    ok = wait_for(r'Coverage: \d+% of \d+ lines ran \(\d+ files, 2 test files', 240)
+    first = time.time() - t0
+    raw = tm('capture-pane', '-t', 'f', '-e', '-p').stdout
+    s = screen()
+    check('610 nim coverage: the project\'s tests built with gcov, run, one result', ok, s[-1200:])
+    ran, never, plain = numcol(raw, 4), numcol(raw, 6), numcol(raw, 7)
+    check('610 nim coverage: a line that ran and one that never did (green, red)',
+          ran and never and ran != never and numcol(raw, 2) == ran and numcol(raw, 3) == ran, raw[:3000])
+    check('610 nim coverage: `else:` and blank lines hold no code (their own colour)',
+          numcol(raw, 5) == plain and plain not in (ran, never), raw[:3000])
+    check('610 nim coverage: a proc no test calls is red (Nim leaves it out of the C)',
+          numcol(raw, 8) == never and numcol(raw, 9) == never, raw[:3000])
+    check('610 nim coverage: the summary by file — the project\'s files, not the tests', 'COVERAGE' in s and
+          re.search(r'50%\s+3/6\s+src/demo/calc\.nim', s) and re.search(r'100%\s+2/2\s+src/demo\.nim', s) and
+          'neverCalled (line 8)' in s and 'tests/tcalc.nim' not in s and 'test_demo' not in s.split('COVERAGE')[-1], s)
+    check('610 nim coverage: the procs of a module the tests import but never call count too',
+          re.search(r'0%\s+0/\d+\s+src/demo/utils\.nim', s) and 'shout' in s, s)
+    # again: the C build is kept, only the tests run
+    exe = glob.glob('%s/ned-%d/ned_cov/work_%s/tcalc_*/tcalc' % (os.environ.get('TMPDIR') or '/tmp', os.getuid(), fnv(W))) + \
+          glob.glob(STATE + '/ned/tmp/ned_cov/work_%s/tcalc_*/tcalc' % fnv(W))
+    m0 = os.stat(exe[0]).st_mtime if exe else 0
+    keys('Escape'); time.sleep(0.3)
+    t0 = time.time()
+    palette('Test coverage: run and colour the lines that ran')
+    ok = wait_for(r'Coverage: \d+% of \d+ lines ran \(\d+ files, 2 test files', 120) and \
+         wait_for(r'50%\s+3/6\s+src/demo/calc\.nim', 10)
+    again = time.time() - t0
+    check('610 nim coverage: run again, the kept C build (not linked again) (%.1fs, then %.1fs)' % (first, again),
+          ok and exe and os.stat(exe[0]).st_mtime == m0 and again < first, screen()[-800:])
+    # one test file, from the test explorer (c on its row)
+    keys('Escape'); palette('Test explorer'); time.sleep(0.8)
+    keys('Home'); keys('c')
+    ok = wait_for(r'Coverage: \d+% of \d+ lines ran \(\d+ files?, t(calc|est_demo)\.nim', 120)
+    check('610 nim coverage: one test file from the test explorer', ok, screen()[-1200:])
+    # clang (Termux's compiler): coverage, or a clear word on what is missing
+    if which('clang') and which('llvm-cov') and which('llvm-profdata'):
+        setup({"nim.extraFlags": "--cc:clang"})
+        open(W + '/src/demo/calc.nim', 'w').write('proc classify*(x: int): string =\n  if x > 5:\n    result = "big"\n'
+                                                  '  else:\n    result = "small"\n')
+        open(W + '/tests/tcalc.nim', 'w').write('import unittest\nimport demo/calc\n\ntest "c":\n  check classify(10) == "big"\n')
+        start('tests/tcalc.nim', w=150, h=42); time.sleep(0.6)
+        palette('Test coverage: this Nim test file')
+        ok = wait_for(r'Coverage: \d+% of|libclang_rt\.profile\) is missing', 180)
+        s = screen()
+        check('610 nim coverage: clang (source-based) — counted, or says what is missing', ok and
+              (re.search(r'75%\s+3/4\s+src/demo/calc\.nim', s) or 'pkg install libcompiler-rt' in s), s[-1500:])
+    # a folder you have not trusted: none of its code runs (the compiler would run its config.nims, then the tests)
+    setup({"security.folderTrust": "ask"})
+    drop_cache()
+    open(W + '/tests/config.nims', 'a').write('writeFile("%s/PWNED", "ran")\n' % W)
+    start('tests/test_demo.nim', w=150, h=42); time.sleep(1)
+    palette('Test coverage: this Nim test file'); time.sleep(4)
+    cache = glob.glob('%s/ned-%d/ned_cov/work_%s' % (os.environ.get('TMPDIR') or '/tmp', os.getuid(), fnv(W)))
+    check('610 nim coverage: nothing runs in a folder you have not trusted', not os.path.exists(W + '/PWNED') and
+          not cache and not re.search(r'Coverage: \d+%|Coverage: building', screen()), screen()[-1200:])
+    drop_cache()                                                  # (the kept builds of this test's folder)
+
+def t_610_lint_rules():
+    # rules: each of ned's checks has one; a quick fix silences it on a line (# ned: ignore[rule]) or turns it off
+    # for the project (.ned/lint.json) — the editor, ned --lint and nedls alike
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest"})
+    open(W + '/src/r.nim', 'w').write('proc total(xs: seq[int], spare: int): int =\n  var limit = 10\n'
+                                      '  var cap = 3\n  echo limit, cap\n  result = xs.len\n\necho total(@[1], 0)\n')
+    start('src/r.nim', w=140, h=34); time.sleep(1.5)
+    keys('C-g'); text('7'); keys('Enter', 'End', 'Enter'); time.sleep(2)
+    palette('Show problems'); ok = wait_for(r"'cap' is never changed", 10); s = screen()
+    check('610 rules: the hints as before', ok and "parameter 'spare' is never used" in s, s)
+    keys('Escape')
+    keys('C-g'); text('3:7'); keys('Enter', 'M-Enter')
+    ok = wait_for(r'Silence var-let on this line', 4)
+    check('610 quick fix: silence the rule on this line, or turn it off for the project',
+          ok and 'Turn off var-let for this project' in screen(), screen())
+    text('Silence'); wait_for(r'› Silence', 3); time.sleep(0.4); keys('Enter'); time.sleep(0.5); keys('C-s'); time.sleep(1.5)
+    check('610 … # ned: ignore[var-let] added', '  var cap = 3  # ned: ignore[var-let]' in ftext('src/r.nim'), ftext('src/r.nim'))
+    keys('C-g'); text('1:26'); keys('Enter', 'M-Enter'); time.sleep(0.6)
+    ok = wait_for(r'Turn off unused-param for this project', 4)
+    text('Turn off'); wait_for(r'› Turn off', 3); time.sleep(0.4); keys('Enter')
+    for _ in range(20):
+        if os.path.exists(W + '/.ned/lint.json'): break
+        time.sleep(0.2)
+    j = ftext('.ned/lint.json') if os.path.exists(W + '/.ned/lint.json') else ''
+    check('610 … the rule off in .ned/lint.json', ok and '"unused-param": "off"' in j, j + screen())
+    keys('End'); text(' '); keys('BSpace'); time.sleep(2)
+    palette('Show problems'); time.sleep(1); s = screen()
+    check("610 … and the problems follow: 'limit' still, not 'cap', not 'spare'",
+          "'limit' is never changed" in s and "'cap' is never changed" not in s and "'spare'" not in s, s)
+    keys('Escape')
+    # ned --lint: rule ids, --fix and --diff, SARIF, lint.json's exclude, a .nimble's problems
+    os.makedirs(W + '/src/gen', exist_ok=True)
+    open(W + '/src/gen/g.nim', 'w').write('proc g(a: int): int =\n  var b = a\n  result = b\n')
+    open(W + '/.ned/lint.json', 'w').write('{"rules": {"var-let": "warning"}, "exclude": ["src/gen/"]}\n')
+    r = subprocess.run([BIN, '--lint', 'src/r.nim', 'src/gen/g.nim'], capture_output=True, text=True, cwd=W)
+    check('610 ned --lint: [rule] after each problem, .ned/lint.json\'s severity and exclude',
+          "src/r.nim:2:7: warning: 'limit' is never changed: it can be a let [var-let]" in r.stdout and
+          'g.nim' not in r.stdout and 'left out by .ned/lint.json' in r.stderr, r.stdout + r.stderr)
+    r = subprocess.run([BIN, '--lint', '--fix', '--diff', 'src/r.nim'], capture_output=True, text=True, cwd=W)
+    check('610 ned --lint --fix --diff: the change shown, nothing written',
+          '+  let limit = 10' in r.stdout and 'var limit = 10' in ftext('src/r.nim'), r.stdout + r.stderr)
+    r = subprocess.run([BIN, '--lint', '--fix', 'src/r.nim'], capture_output=True, text=True, cwd=W)
+    check('610 ned --lint --fix: written, the silenced line left alone',
+          'let limit = 10' in ftext('src/r.nim') and 'var cap = 3  # ned: ignore[var-let]' in ftext('src/r.nim') and
+          '1 fixed' in r.stderr, ftext('src/r.nim') + r.stderr)
+    open(W + '/src/r2.nim', 'w').write('proc f(): int =\n  var x = 1\n  result = x\n')
+    r = subprocess.run([BIN, '--lint', '--format:sarif', 'src/r2.nim'], capture_output=True, text=True, cwd=W)
+    try:
+        sj = json.loads(r.stdout); res = sj['runs'][0]['results']
+        ok = sj['version'] == '2.1.0' and res and res[0]['ruleId'] == 'var-let' and \
+             res[0]['locations'][0]['physicalLocation']['artifactLocation']['uri'] == 'src/r2.nim'
+    except Exception as e:
+        ok = False
+    check('610 ned --lint --format:sarif: SARIF 2.1.0 with the rule', ok, r.stdout[:600])
+    nb = open(W + '/demo.nimble').read()
+    open(W + '/demo.nimble', 'w').write(nb + 'requires "foo >> 1"\nrequires "foo"\n')
+    r = subprocess.run([BIN, '--lint', 'demo.nimble'], capture_output=True, text=True, cwd=W)
+    check('610 ned --lint: a .nimble\'s own problems', 'not a version nimble reads' in r.stdout and
+          "'foo' is required twice" in r.stdout and 'no license' not in r.stdout, r.stdout + r.stderr)
+
+def t_610_imports_required():
+    # an installed package imported without the .nimble requiring it: marked, and a quick fix adds the line
+    nd = TMP + '/fakenimble610'
+    shutil.rmtree(nd, ignore_errors=True)
+    pd = nd + '/pkgs2/tinypkg-1.2.0-' + 'b' * 40
+    os.makedirs(pd)
+    open(pd + '/tinypkg.nimble', 'w').write('version = "1.2.0"\nauthor = "t"\ndescription = "t"\nlicense = "MIT"\n')
+    open(pd + '/tinypkg.nim', 'w').write('proc tiny*(): int = 1\n')
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest"})
+    open(W + '/src/uses.nim', 'w').write('import tinypkg\n\necho tiny()\n')
+    start('src/uses.nim', w=140, h=34, env_extra='NIMBLE_DIR=' + nd); time.sleep(2)
+    keys('C-g'); text('3'); keys('Enter', 'End', 'Enter'); time.sleep(2)
+    ok = wait_for(r"'tinypkg' is imported but demo.nimble does not require it", 10)
+    check('610 an import the .nimble does not require', ok, screen())
+    keys('C-g'); text('1:8'); keys('Enter', 'M-Enter')
+    ok = wait_for(r'Add requires "tinypkg" to demo.nimble', 4)
+    keys('Enter'); time.sleep(0.8)
+    palette('Save all'); time.sleep(0.8)
+    check('610 … the quick fix adds the requirement (the version this project builds with)',
+          ok and 'requires "tinypkg >= 1.2.0"' in ftext('demo.nimble'), ftext('demo.nimble') + screen())
+
+def t_610_dep_tree_locked():
+    # the dependency tree shows the version the build uses — nimble.lock's, older than the newest installed — and why,
+    # and what that version requires in turn
+    setup({"nim.nimsuggest": False})
+    nd = TMP + '/nimble610t'
+    shutil.rmtree(nd, ignore_errors=True)
+    def pkg(name, ver, reqs, sha):
+        d = nd + '/pkgs2/%s-%s-%s' % (name, ver, sha * 40)
+        os.makedirs(d, exist_ok=True)
+        open(d + '/%s.nimble' % name, 'w').write('version = "%s"\n' % ver +
+                                                 ''.join('requires "%s"\n' % r for r in reqs))
+    pkg('vfoo', '1.0.0', ['vbar >= 0.5'], 'a')
+    pkg('vfoo', '2.0.0', [], 'b')
+    pkg('vbar', '0.5.0', [], 'c')
+    for f in os.listdir(W):
+        if f.endswith('.nimble'): os.remove(W + '/' + f)
+    open(W + '/app.nimble', 'w').write('version = "0.1.0"\nauthor = "Ann"\ndescription = "x"\nlicense = "MIT"\n'
+                                       'requires "nim >= 2.0.0", "vfoo"\n')
+    json.dump({"version": 2, "packages": {"vfoo": {"version": "1.0.0", "vcsRevision": "x", "url": "https://example.com/vfoo",
+               "downloadMethod": "git", "dependencies": ["vbar"], "checksums": {"sha1": "a" * 40}},
+               "vbar": {"version": "0.5.0", "vcsRevision": "y", "url": "https://example.com/vbar",
+               "downloadMethod": "git", "dependencies": [], "checksums": {"sha1": "c" * 40}}}, "tasks": {}},
+              open(W + '/nimble.lock', 'w'))
+    start('app.nimble', w=130, h=40, env_extra='NIMBLE_DIR=' + nd); time.sleep(1.5)
+    palette('Nimble: dependency tree'); time.sleep(1)
+    s = screen()
+    rows = {r.split('──')[-1].split()[0]: r for r in s.splitlines() if '──' in r}
+    check('610 dependency tree: the locked version and why (vfoo 1.0.0 (nimble.lock), not 2.0.0)',
+          '1.0.0 ✓' in rows.get('vfoo', '') and 'nimble.lock' in rows.get('vfoo', '') and '2.0.0' not in rows.get('vfoo', ''), s)
+    check('610 … and what that version requires, under it', '│   └── vbar' in s or '    └── vbar' in s, s)
+
+def t_610_project_checks():
+    # ned --lint over a program's project: an exported routine nothing uses, a requirement nothing imports — and the
+    # same answers when only some of its files are given (the others are read for what they use); a library's
+    # exports are for others
+    setup()
+    for f in os.listdir(W):
+        if f.endswith('.nimble'): os.remove(W + '/' + f)
+    os.makedirs(W + '/src/pc', exist_ok=True)
+    open(W + '/pc.nimble', 'w').write('version = "0.1.0"\nauthor = "A"\ndescription = "d"\nlicense = "MIT"\n'
+                                      'srcDir = "src"\nbin = @["pc"]\nrequires "nim >= 2.0.0", "zzunusedpkg >= 1.0"\n')
+    open(W + '/src/pc.nim', 'w').write('import pc/helper\n\nwhen isMainModule:\n  echo usedOne()\n')
+    open(W + '/src/pc/helper.nim', 'w').write('proc usedOne*(): int = 1\nproc nobodyCalls*(): int = 2\n')
+    r = subprocess.run([BIN, '--lint', '--severity:hint', '.'], capture_output=True, text=True, cwd=W)
+    out = r.stdout
+    check("610 project: an exported routine nothing in the program uses [unused-export]",
+          "'nobodyCalls' is exported but nothing in the project uses it [unused-export]" in out and
+          "'usedOne' is exported" not in out,
+          out + r.stderr)
+    check("610 project: a requirement nothing imports [require-unused]",
+          "nothing in the project imports 'zzunusedpkg'" in out, out + r.stderr)
+    r = subprocess.run([BIN, '--lint', '--severity:hint', 'pc.nimble', 'src/pc/helper.nim'], capture_output=True,
+                       text=True, cwd=W)
+    check("610 project: only some files given — the others read for what they use ('usedOne' is used in pc.nim)",
+          "'nobodyCalls' is exported" in r.stdout and "'usedOne' is exported" not in r.stdout, r.stdout + r.stderr)
+    open(W + '/pc.nimble', 'w').write('version = "0.1.0"\nauthor = "A"\ndescription = "d"\nlicense = "MIT"\n'
+                                      'srcDir = "src"\nbinDir = "out"\nrequires "nim >= 2.0.0"\n')
+    r = subprocess.run([BIN, '--lint', '--severity:hint', '.'], capture_output=True, text=True, cwd=W)
+    check("610 project: a library (binDir is not bin) — its exports are for others", "unused-export" not in r.stdout,
+          r.stdout + r.stderr)
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks]

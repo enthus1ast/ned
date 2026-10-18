@@ -77,7 +77,7 @@ proc emitIsC(b: Buffer, p: Pos): bool =
   let l = b.langAt(p)
   l != nil and l.id in ["c", "cpp"]
 
-proc cKindIcon(kind: string): int =
+func cKindIcon(kind: string): int =
   case kind
   of "function": 3
   of "macro": 21

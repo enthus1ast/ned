@@ -50,7 +50,7 @@ proc checkCmdFor(b: Buffer): (string, string) = checkCmdForPath(b.path, b.lang.i
 var unusedHints: Table[string, seq[(int, int, string)]]   # file → (line, col, name) the compiler says is unused
 var covLines: Table[string, Table[int, bool]]            # test coverage: file → line → ran
 
-proc quotedNameOf(msg: string): string =
+func quotedNameOf(msg: string): string =
   let a = msg.find('\'')
   if a < 0: return ""
   let e = msg.find('\'', a + 1)
@@ -197,6 +197,7 @@ proc runCheckPath(path, langId: string, keepExamples: bool) =
       var ds = ds0
       keepCDiags(p, ds)
       diagsBuild[p] = ds
+      engineAgain(p)
     for p, us in unusedFound: unusedHints[p] = us
     if path in pendingRecheck:
       pendingRecheck.excl path

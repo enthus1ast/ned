@@ -2,7 +2,7 @@
 
 var genCLines = initTable[string, (times.Time, seq[string])]()   # generated C files read, with their mtime
 
-proc isNimGenC(path: string): bool =
+func isNimGenC(path: string): bool =
   let n = extractFilename(path)
   n.endsWith(".nim.c") or n.endsWith(".nim.cpp") or n.endsWith(".nim.m")
 

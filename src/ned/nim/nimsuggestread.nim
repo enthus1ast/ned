@@ -81,7 +81,7 @@ proc nsHandle(s: NimSug, r: NsReq, lines: seq[string]) =
     if hoverPrefix.len > 0: parts.add hoverPrefix.strip
     if rows.len > 0:
       let f = rows[0]
-      var sig = "```nim\n" & nsSignature(f[1], f[2], f[3]) & "\n```"
+      let sig = "```nim\n" & nsSignature(f[1], f[2], f[3]) & "\n```"
       let doc = nxRstToMd(unquoteNim(f[7]).strip)
       var t = sig
       if doc.len > 0: t.add "\n---\n" & doc
@@ -178,6 +178,7 @@ proc nsHandle(s: NimSug, r: NsReq, lines: seq[string]) =
       var ds = ds0
       keepCDiags(p, ds)
       diagsBuild[p] = ds
+      engineAgain(p)
     for p, us in unused: unusedHints[p] = us
   of nsOutline:
     if b == nil: return

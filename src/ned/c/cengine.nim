@@ -84,7 +84,7 @@ proc cxFileOf(b: Buffer): CxFile =
   if b.lines.len > 20_000: cxBufParse[b.id] = (b.changeId, now, result)
   else: cxBufParse.del b.id
 
-proc cxKindIcon(k: CxKind): int =
+func cxKindIcon(k: CxKind): int =
   ## the completion list's icon (LSP's numbers)
   case k
   of cxFunc: 3

@@ -45,7 +45,7 @@ const CssDefaults = [("box-sizing", "border-box"), ("transition", "all 0.2s ease
 
 const CssUnitless = ["z-index", "opacity", "line-height", "font-weight", "flex", "flex-grow", "flex-shrink", "order"]
 
-proc cssProp(abbr: string): string =
+func cssProp(abbr: string): string =
   for (a, p) in CssProps:
     if a == abbr: return p
   ""

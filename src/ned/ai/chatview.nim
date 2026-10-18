@@ -1,6 +1,6 @@
 # ── chat rendering ──
 
-proc span(t: string, fg: Rgb, bg: Rgb = NoColor, at: set[Attr] = {}): ChatSpan = ChatSpan(t: t, fg: fg, bg: bg, at: at)
+func span(t: string, fg: Rgb, bg: Rgb = NoColor, at: set[Attr] = {}): ChatSpan = ChatSpan(t: t, fg: fg, bg: bg, at: at)
 
 proc wrapSpans(spans: seq[ChatSpan], width: int, bg: Rgb, indent = 0, firstIndent = -1): seq[ChatLine] =
   ## word-wrap styled spans
@@ -91,9 +91,9 @@ proc applyCodeToFile(path, code: string) =
     bb.setTextMinimal(nl.join("\n"))
     info("Applied — review, then Ctrl+S (Ctrl+Z undoes)"), 30000)
 
-proc indentOf(s: string): string = s[0 ..< s.len - s.strip(trailing = false).len]
+func indentOf(s: string): string = s[0 ..< s.len - s.strip(trailing = false).len]
 
-proc opensBlock(b: Buffer, s: string): bool =
+func opensBlock(b: Buffer, s: string): bool =
   ## does this line open an indented block (Nim/Python `:` `=`, braces, `do`, `->` …)?
   let t = s.strip
   if t.len == 0: return false
@@ -289,7 +289,7 @@ proc markdownLines(text: string, width: int, bg: Rgb, compact = false): seq[Chat
         if i >= cl.len:
           segs.add (a, cl.len)
           break
-        var e = if brk > a + 8: brk elif i > a: i else: a + runeAt(cl, a)[1]
+        let e = if brk > a + 8: brk elif i > a: i else: a + runeAt(cl, a)[1]
         segs.add (a, e)
         a = e
         while a < cl.len and cl[a] == ' ': inc a
@@ -718,7 +718,7 @@ proc drawAssistant(x0, y0, w, h: int) =
     discard putStr(hx, y0 + h - 1, aiUsageShownBelow, theme.dim, bg)
   discard putStr(x0 + 2, y0 + h - 1, truncTo(hint, hx - x0 - 3), blend(theme.dim, bg, 0.3), bg, {}, hx)
 
-proc mentionInsertAct(m: string): Action =
+func mentionInsertAct(m: string): Action =
   proc() =
     let t = m & " "
     aiInput.insert(t, aiInputCur)

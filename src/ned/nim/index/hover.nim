@@ -137,7 +137,7 @@ proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
       result = nxDoc(NxRef(file: g, idx: 0))
       done = true
   if not done:
-    var it = NxItem(label: refs[0].sym.name, kind: refs[0].sym.kind, refs: refs)
+    let it = NxItem(label: refs[0].sym.name, kind: refs[0].sym.kind, refs: refs)
     result = nxDocItem(it, 3)
   let s0 = refs[0].sym
   if s0.kind in NxRoutineKinds and s0.generics.len > 0 and not (refs[0].file == f and s0.line == line):

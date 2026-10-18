@@ -2,7 +2,7 @@
 #    and macOS with the oldest Nim its .nimble allows and the newest; optionally ned's lint (GitHub annotations on
 #    the pull request) and a format check, with ned built from the repository you give (nim.ciNedRepository) ──
 
-proc ciRepoOk(url: string): bool =
+func ciRepoOk(url: string): bool =
   ## a plain https or ssh git link: no login in it, nothing YAML or the shell would read as more than a link
   if url.len < 8 or gitLinkHasSecret(url): return false
   if not (url.startsWith("https://") or url.startsWith("git@")): return false

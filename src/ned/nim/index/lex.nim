@@ -60,9 +60,9 @@ const
   NxRoutineKw* = ["proc", "func", "method", "iterator", "converter", "template", "macro"]
   NxRoutineKinds* = {nxProc, nxFunc, nxMethod, nxIterator, nxConverter, nxTemplate, nxMacro}
 
-proc nxIsIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
+func nxIsIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
 
-proc nxKindWord*(k: NxKind): string =
+func nxKindWord*(k: NxKind): string =
   case k
   of nxProc: "proc"
   of nxFunc: "func"
@@ -82,7 +82,7 @@ proc nxKindWord*(k: NxKind): string =
   of nxResult: "result"
   of nxModule: "module"
 
-proc nxCollapse*(s: string): string =
+func nxCollapse*(s: string): string =
   ## one line, single spaces (multi-line headers read like one signature)
   var sp = false
   for c in s:
@@ -107,7 +107,7 @@ proc addRange*(dst: var string, src: string, a, e: int) {.inline.} =
   dst.setLen(o + e - a)
   copyMem(addr dst[o], unsafeAddr src[a], e - a)
 
-proc leadWs*(s: string): int {.inline.} =
+func leadWs*(s: string): int {.inline.} =
   ## how much whitespace the line starts with (s.len - s.strip(trailing = false).len, without the copy)
   while result < s.len and s[result] in Whitespace: inc result
 

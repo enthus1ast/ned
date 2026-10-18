@@ -3,7 +3,7 @@
 
 # ── header: "…" and importc: "…" ──
 
-proc pragmaStringAt(b: Buffer, p: Pos): (string, string, int, int) =
+func pragmaStringAt(b: Buffer, p: Pos): (string, string, int, int) =
   ## the pragma string the cursor is in: (key — header, importc, importcpp, dynlib —, its text, start, end column)
   result = ("", "", -1, -1)
   if b.lang == nil or b.lang.mode != lmNim or p.line >= b.lines.len: return
@@ -213,7 +213,7 @@ proc cSigHintsUpdate(b: Buffer) =
 
 # ── a wrapper written from its C declaration ──
 
-proc cToNim(ct: string): string =
+func cToNim(ct: string): string =
   ## a C type (as cParamType gives it: "char*", "struct foo*", "unsigned int") as Nim writes it for importc
   if ct == "fnptr": return "pointer"
   let stars = ct.count('*')

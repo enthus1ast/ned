@@ -375,6 +375,115 @@ suite "Nim: nph's layouts (6.9)":
           "    # we do scope-based memory management.\n" &
           "    # a scope is comparable to an nkStmtListExpr like\n    vars: seq[PSym]\n"
 
+suite "Nim: nph's layouts (6.10)":
+  # (each expected text is nph's own output for the input)
+  test "a lambda with its body under it among a call's arguments: one argument a line, `name: proc(…) =`":
+    check nimFmt("proc main() =\n  ol.data = CompletionData(fd: socket, cb:\n    proc (fd: AsyncFD, bytesCount: DWORD) =\n      if not retFuture.finished:\n        foo()\n      bar()\n  )\n") ==
+          "proc main() =\n  ol.data = CompletionData(\n    fd: socket,\n    cb: proc(fd: AsyncFD, bytesCount: DWORD) =\n      if not retFuture.finished:\n        foo()\n      bar(),\n  )\n"
+
+  test "the comma after a lambda's body: on its own line after a lone `if` or a command, else after the body":
+    check nimFmt("proc main() =\n  x = f(a, proc (x: int) =\n    if a:\n      x = 1\n  )\n  x = f(a, proc (x: int) =\n    echo x\n  , b)\n  x = f(a, proc (x: int) =\n    if a:\n      x = 1\n    else:\n      x = 2\n  )\n") ==
+          "proc main() =\n  x = f(\n    a,\n    proc(x: int) =\n      if a:\n        x = 1\n    ,\n  )\n  x = f(\n    a,\n    proc(x: int) =\n      echo x\n    ,\n    b,\n  )\n  x = f(\n    a,\n    proc(x: int) =\n      if a:\n        x = 1\n      else:\n        x = 2,\n  )\n"
+
+  test "an if/elif/else written over lines as a call's only argument: each branch's value under it":
+    check nimFmt("proc p() =\n  result.add(\n    if dt.hour == 0: \"12\"\n    elif dt.hour > 12: $(dt.hour - 12)\n    else: $dt.hour\n  )\n") ==
+          "proc p() =\n  result.add(\n    if dt.hour == 0:\n      \"12\"\n    elif dt.hour > 12:\n      $(dt.hour - 12)\n    else:\n      $dt.hour\n  )\n"
+
+  test "an object's one comment line goes on its line, an object's last field takes the comment line after it":
+    check nimFmt("type\n  L = object\n    ## A singly linked list.\n    head: int\n  O = object\n    a: int\n    # xxx charMode, etc\n\n  P = int\n") ==
+          "type\n  L = object ## A singly linked list.\n    head: int\n\n  O = object\n    a: int # xxx charMode, etc\n\n  P = int\n"
+
+  test "a one-line routine's single doc line: on the header's line (after a `return`'s value)":
+    check nimFmt("func kind*(p: Peg): PegKind = p.kind\n  ## Returns the kind.\n\nproc getFd*(s: Socket): int = return s.fd\n  ## Returns the descriptor\n") ==
+          "func kind*(p: Peg): PegKind = ## Returns the kind.\n  p.kind\n\nproc getFd*(s: Socket): int =\n  return s.fd ## Returns the descriptor\n"
+
+  test "an enum value's comment on the line under it, deeper: the value's own":
+    check nimFmt("type\n  E = enum\n    eA,\n      # deeper comment\n    eB\n") ==
+          "type E = enum\n  eA # deeper comment\n  eB\n"
+
+  test "a value with comments after its operators: under `x =`, a line break after each comment":
+    check nimFmt("proc p() =\n  let y = aaaa and\n    # c2\n    bbbb\n  result = aaaa and # c3\n           bbbb and # c4\n           cccc\n  let ignoreSecond = name != nil and name.s == \"[]\" and n.len > 1 and\n    # generic type instantiation:\n    ((n[1].typ != nil and n[1].typ.kind == tyTypeDesc) or\n      # generic proc instantiation:\n      (n[1].kind == nkSym and n[1].sym.isGenericRoutineStrict))\n") ==
+          "proc p() =\n  let y =\n    aaaa and\n    # c2\n    bbbb\n  result =\n    aaaa and # c3\n    bbbb and # c4\n    cccc\n  let ignoreSecond =\n    name != nil and name.s == \"[]\" and n.len > 1 and\n    # generic type instantiation:\n    (\n      (n[1].typ != nil and n[1].typ.kind == tyTypeDesc) or\n      # generic proc instantiation:\n      (n[1].kind == nkSym and n[1].sym.isGenericRoutineStrict)\n    )\n"
+
+  test "a condition with comments after its operators: as nph lines its operands up":
+    check nimFmt("proc p() =\n  if aaaa and # c5\n     bbbb:\n    discard\n  if aaaa and\n      # c6\n      bbbb:\n    discard\n  if isSymChoice(n[1]) or\n      # generics usually leave field names as symchoices, but not types\n      (n[1].kind == nkSym and n[1].sym.kind == skType):\n    discard\n") ==
+          "proc p() =\n  if aaaa and # c5\n  bbbb:\n    discard\n  if aaaa and\n      # c6\n      bbbb:\n    discard\n  if isSymChoice(n[1]) or\n  # generics usually leave field names as symchoices, but not types\n  (n[1].kind == nkSym and n[1].sym.kind == skType):\n    discard\n"
+
+  test "an if-expression value with a comment in it: one branch a line":
+    check nimFmt("proc p() =\n  let sepLen = if sep.len == 0: 1 # prevents infinite loop\n    else: sep.len\n") ==
+          "proc p() =\n  let sepLen =\n    if sep.len == 0:\n      1 # prevents infinite loop\n    else:\n      sep.len\n"
+
+  test "statements in parentheses too long for the line: `(` ⏎ one a line ⏎ `)`":
+    check nimFmt("proc p() =\n  if expectedType != nil and (let expected = expectedType.skipTypes(abstractRange - {tyDistinct}); expected.kind == tySet):\n    discard\n") ==
+          "proc p() =\n  if expectedType != nil and (\n    let expected = expectedType.skipTypes(abstractRange - {tyDistinct})\n    expected.kind == tySet\n  ):\n    discard\n"
+
+  test "a list with a comment after its `]`: one element a line, the comment after the `]`":
+    check nimFmt("const\n  LineContinuationTokens = [\n    \"let\", \"var\",  # section\n    \"object\",\n    # from ./layouter.oprSet\n    \"div\", \"mod\",\n  ]  # must be all `nimIdentNormalized`-ed\n") ==
+          "const LineContinuationTokens = [\n  \"let\",\n  \"var\", # section\n  \"object\",\n  # from ./layouter.oprSet\n  \"div\",\n  \"mod\",\n] # must be all `nimIdentNormalized`-ed\n"
+
+suite "Nim: code whose meaning the layout must keep (6.10)":
+  # (6.9 changed what Nim's parser reads in these — found by running Nim's parser over Nim's own tests)
+  test "`x.not` ending a line is a call, not an operator: the next statement stays apart":
+    let src = "proc p() =\n  check (a <=\n    b).not\n\n  block: # next\n    discard 1\n"
+    check nimFmt(src) == "proc p() =\n  check (a <= b).not\n\n  block: # next\n    discard 1\n"
+
+  test "a keyword after a dot is a name: `posix.raise(x)` gets no space":
+    check nimFmt("proc p() =\n  discard posix.raise(signal)\n") == "proc p() =\n  discard posix.raise(signal)\n"
+
+  test "a `;` after a block inside a statement is that block's: not split there":
+    let src = "proc p() =\n  say f, if false: f else: f += 1; f\n"
+    check nimFmt(src) == src
+
+  test "the commas after a lambda's command are the command's: the call is not split there":
+    let src = "proc p() =\n  o.cb.add(proc() = echo o.s, \" \", i)\n"
+    check nimFmt(src) == src
+
+  test "statements in parentheses a line apart keep their lines (nph's layout of a long one)":
+    let src = "proc p() =\n  if x and (\n    let a = f(1)\n    a > 0\n  ):\n    discard\n"
+    check nimFmt(src) == src
+
+  test "a template's pattern `{` ⏎ statements ⏎ `}` keeps its lines":
+    let src = "template optWrite{\n  write(f, x)\n  write(f, y)\n}(x, y: string, f: File) =\n  write(f, x & y)\n"
+    check nimFmt(src) == src
+
+  test "a section member's block is code, not more members (`x = f:` ⏎ `a:` ⏎ `b:`)":
+    let src = "let\n  parse = peg.eventParser:\n    pkNonTerminal:\n      enter:\n        pStack.add p\n      leave:\n        pStack.setLen 0\n"
+    check nimFmt(src) == "let parse = peg.eventParser:\n  pkNonTerminal:\n    enter:\n      pStack.add p\n    leave:\n      pStack.setLen 0\n"
+
+  test "a number with a fraction in backticks is one part, like nph":
+    check nimFmt("const\n  `v0.99.99` = \"0.99.99\"\n") == "const `v0 . 99.99` = \"0.99.99\"\n"
+
+  test "the `*` that exports a name is never a place to break a line":
+    # (6.10 broke `type Constructible *` ⏎ `[T] …` — not Nim; a header too long for nph's layout stays as written)
+    check nimFmt("type Constructible*[T] {.importcpp: \"Genode::Constructible\", " &
+                 "header: \"<util/reconstructible.h>\", byref, pure.} = object\n") ==
+      "type Constructible*[T] {.\n  importcpp: \"Genode::Constructible\", header: \"<util/reconstructible.h>\", " &
+      "byref, pure\n.} = object\n"
+    let src = "proc abcdef*[T: not (tuple | object | string | cstring | char | ref | ptr | array | seq | distinct)]() =\n" &
+              "  discard\n"
+    check nimFmt(src) == src
+
+  test "one parameter a line, the last without a type: a `;` after it, like nph (`b,` ⏎ `)` is not Nim)":
+    check nimFmt("template batchImplxxxxxxxxxxxxxxxxxxxxxx(result: var int, dest: var openArray[byte], " &
+                 "getRandomImplxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx) =\n  discard\n") ==
+      "template batchImplxxxxxxxxxxxxxxxxxxxxxx(\n    result: var int,\n    dest: var openArray[byte],\n" &
+      "    getRandomImplxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx;\n) =\n  discard\n"
+
+  test "Unicode operators are operators: `⊙=` one, `a⊞++4⊙3` an operation":
+    check nimFmt("proc `⊙=`(x: var int, y: int) = x *= y\nx ⊙= a⊞++4⊙3\n") ==
+      "proc `⊙=`(x: var int, y: int) =\n  x *= y\n\nx ⊙= a ⊞++ 4 ⊙ 3\n"
+
+  test "a `#[ … ]#` inside a line does not end it, and what follows it stays as close as written":
+    check nimFmt("hel#[!]#lo()\nproc#[!]#someProc*() =\n  discard\n#[!]#someProc()\n") ==
+      "hel #[!]#lo()\nproc #[!]#someProc*() =\n  discard\n\n#[!]#someProc()\n"
+
+  test "statements in parentheses a line apart (no `;`) are never joined: the check refuses that":
+    let src = "block: (\n  discard\n  echo \"2\"\n)\n"
+    var err = ""
+    let r = fFormat(src, err)
+    check "(discard echo" notin r
+    check r == src or "\n" in r[r.find("discard") .. r.find("echo")]
+
 suite "Nim layout settings (nim.format.*)":
   setup:
     FmtMax = 88
@@ -412,6 +521,37 @@ suite "Nim layout settings (nim.format.*)":
     let src = "proc g(alpha: int,\n       beta: int): int = alpha\nlet y = call(1,\n  2, 3)\nlet z = call(1, 2)\n"
     check nimFmt(src) == "proc g(alpha: int,\n    beta: int): int =\n  alpha\n\nlet y = call(1,\n  2, 3)\n" &
                          "let z = call(1, 2)\n"
+
+  test "keep: a line break stays where it was written, or goes where Nim allows one":
+    FmtParams = fwKeep
+    FmtArgs = fwKeep
+    FmtColl = fwKeep
+    # (asyncnet's bindAddr: 6.10 moved the break after `{.` to after the name's `*` — `proc bindAddr *` ⏎ `(…)`)
+    check nimFmt("proc bindAddr*(socket: AsyncSocket, port = Port(0), address = \"\") {.\n" &
+                 "  tags: [ReadIOEffect].} =\n  discard\n") ==
+      "proc bindAddr*(socket: AsyncSocket, port = Port(0), address = \"\") {.\n    tags: [ReadIOEffect]\n.} =\n" &
+      "  discard\n"
+    check nimFmt("proc declaredInScope2*(x: untyped): bool {.magic: \"DefinedInScope\", noSideEffect, compileTime.}\n") ==
+      "proc declaredInScope2*(x: untyped): bool {.\n  magic: \"DefinedInScope\", noSideEffect, compileTime\n.}\n"
+    # (the parameters on one line, the return type over several: its breaks kept)
+    let src = "iterator caasTestsRunner*(filter = \"\", verbose = false): tuple[test,\n    output: string, " &
+              "status: bool,\n    mode: TRunMode] =\n  discard\n"
+    check nimFmt(src) == src
+
+  test "always: `;` after a last parameter without a type; generic parameters and a statement's commas left":
+    FmtParams = fwAlways
+    FmtArgs = fwAlways
+    FmtColl = fwAlways
+    check nimFmt("template t(a: int, b) =\n  b\n") == "template t(\n    a: int,\n    b;\n) =\n  b\n"
+    check nimFmt("type\n  array*[I, T] {.magic: \"Array\".}\n") == "type array*[I, T] {.magic: \"Array\".}\n"
+    check nimFmt("let a2 = collect: (for k,v in a: (k,v))\n") == "let a2 = collect: (for k, v in a: (k, v))\n"
+
+  test "a doc comment after an argument stays on that line (Nim reads it there), however long":
+    FmtMax = 60
+    check nimFmt("idPacket(ZoneQuery, 'Q',\n  tuple[playerCount: uint16], ##i should include a time here or something\n" &
+                 "  tuple[pad: char = '\\0'])\n") ==
+      "idPacket(\n  ZoneQuery,\n  'Q',\n  tuple[playerCount: uint16], ##i should include a time here or something\n" &
+      "  tuple[pad: char = '\\0'],\n)\n"
 
   test "imports sorted, and merged":
     FmtImports = 1

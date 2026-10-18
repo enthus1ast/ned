@@ -40,16 +40,16 @@ proc nxCacheable*(path: string): bool =
   "/pkgs2/" in path or "/pkgs/" in path
 
 # (integers as zigzag varints, strings and lists with their length first)
-proc nxPut(s: var string, x: int64) =
+func nxPut(s: var string, x: int64) =
   var u = (cast[uint64](x) shl 1) xor (if x < 0: not 0'u64 else: 0'u64)
   while u >= 0x80'u64:
     s.add char((u and 0x7f) or 0x80)
     u = u shr 7
   s.add char(u)
-proc nxPut(s: var string, x: bool) = s.add char(ord(x))
+func nxPut(s: var string, x: bool) = s.add char(ord(x))
 proc nxPut[T: int | int8 | int16 | int32](s: var string, x: T) = nxPut(s, int64(x))
 proc nxPut[T: enum](s: var string, x: T) = nxPut(s, int64(ord(x)))
-proc nxPut(s: var string, x: string) =
+func nxPut(s: var string, x: string) =
   nxPut(s, int64(x.len))
   s.add x
 proc nxPut[T](s: var string, x: seq[T])
@@ -63,10 +63,10 @@ type NxReader = object
   s: string
   p: int
 
-proc nxNeed(r: var NxReader, n: int64) =
+func nxNeed(r: var NxReader, n: int64) =
   if n < 0 or n > int64(r.s.len - r.p): raise newException(ValueError, "index cache: cut short")
 
-proc nxGet(r: var NxReader, x: var int64) =
+func nxGet(r: var NxReader, x: var int64) =
   var u = 0'u64
   var sh = 0
   while true:
@@ -78,7 +78,7 @@ proc nxGet(r: var NxReader, x: var int64) =
     if c < 0x80: break
     sh += 7
   x = cast[int64](u shr 1) xor -cast[int64](u and 1)
-proc nxGet(r: var NxReader, x: var bool) =
+func nxGet(r: var NxReader, x: var bool) =
   r.nxNeed(1)
   x = r.s[r.p] != '\0'
   inc r.p
@@ -92,7 +92,7 @@ proc nxGet[T: enum](r: var NxReader, x: var T) =
   nxGet(r, v)
   if v < int64(ord(low(T))) or v > int64(ord(high(T))): raise newException(ValueError, "index cache: bad kind")
   x = T(v)
-proc nxGet(r: var NxReader, x: var string) =
+func nxGet(r: var NxReader, x: var string) =
   var n: int64
   nxGet(r, n)
   r.nxNeed(n)

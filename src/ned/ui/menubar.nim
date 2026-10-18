@@ -26,7 +26,7 @@ proc mc(name: string, label = "", check = -1, disabled: bool): MenuItem =
   result = mc(name, label, check)
   if disabled: result.disabled = true
 
-proc chk(b: bool): int = (if b: 1 else: 0)
+func chk(b: bool): int = (if b: 1 else: 0)
 
 proc openAct(p: string): Action = (proc() = discard openFile(p))
 
@@ -162,6 +162,7 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("Nim: profile", "Profile"), msep(),
       mc("Nimble: tasks…", "Nimble tasks…"), mc("Run tests in file"), mc("Test explorer", "Test explorer"),
       mc("Test coverage: run and colour the lines that ran", "Test coverage (any language)"),
+      mc("Test coverage: summary by file", "Coverage summary"),
       msub("REPL", @[mc("REPL: send the selection or the statement at the cursor", "Send selection / statement (Shift+Enter)"),
         mc("REPL: send the cell (# %%)", "Send the cell"), mc("REPL: send the whole file", "Send the file"),
         mc("REPL: open the REPL for this language", "Open the REPL"), mc("REPL: restart", "Restart")]),

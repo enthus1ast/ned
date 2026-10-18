@@ -29,7 +29,7 @@ var
   lsInFd: cint = 0                        # the protocol's own descriptors: stdin and stdout are moved here at
   lsOutFd: cint = 1                       # start (lsTakeStdio), so nothing else can read or write them
 
-proc lsRaise(code: int, msg: string) {.noreturn.} =
+func lsRaise(code: int, msg: string) {.noreturn.} =
   var e = newException(LsError, msg)
   e.code = code
   raise e

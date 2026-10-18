@@ -1,7 +1,7 @@
-proc isWordAt(s: string, j, n: int): bool {.inline.} =
+func isWordAt(s: string, j, n: int): bool {.inline.} =
   (j == 0 or not isWordByte(s[j-1])) and (j + n >= s.len or not isWordByte(s[j + n]))
 
-proc findInLine(s, q: string, start: int, caseSens, word: bool): int =
+func findInLine(s, q: string, start: int, caseSens, word: bool): int =
   var i = start
   while true:
     let j = rawFind(s, q, i, caseSens)
@@ -141,7 +141,7 @@ proc addCursorVert(b: Buffer, dir: int) =
   b.prim = b.cursors.high
   b.normalize()
 
-proc matchBracket(b: Buffer, p: Pos): (bool, Pos, Pos) =
+func matchBracket(b: Buffer, p: Pos): (bool, Pos, Pos) =
   ## bracket at/before p and its partner
   const opens = "([{"
   const closes = ")]}"

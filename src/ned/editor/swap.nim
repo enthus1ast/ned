@@ -80,7 +80,7 @@ proc writeUndo(b: Buffer) =
     result = newJArray()
     var size = 0
     for g in gs[max(0, gs.len - 300) .. ^1]:
-      var ops = newJArray()
+      let ops = newJArray()
       for o in g.ops:
         ops.add %*[pos(o.a), o.oldText, o.newText]
         size += o.oldText.len + o.newText.len

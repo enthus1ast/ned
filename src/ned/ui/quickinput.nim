@@ -1,6 +1,6 @@
 # ── quick input (prompts) and the find widget ──
 
-proc promptHint(kind: PromptKind): string =
+func promptHint(kind: PromptKind): string =
   case kind
   of pGoto: "Type a line number, line:column or +/- offset"
   of pSaveAs, pNewFile, pNewFolder, pRenamePath: "Tab completes paths · Enter to confirm · Esc to cancel"

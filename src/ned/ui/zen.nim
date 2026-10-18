@@ -1,4 +1,4 @@
-proc wordCount(b: Buffer): int =
+func wordCount(b: Buffer): int =
   if b.lines.len > 200_000: return -1
   for l in b.lines:
     var inWord = false

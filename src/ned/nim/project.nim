@@ -129,7 +129,7 @@ proc nimProjectFile(b: Buffer): string =
   if top.len > 0: return top
   b.path
 
-proc reEsc(s: string): string =
+func reEsc(s: string): string =
   ## escape a literal for nimlangserver's regex (fileRegex)
   for c in s:
     if c in {'.', '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '\\'}: result.add '\\'
@@ -305,7 +305,7 @@ proc unquoteNim(s: string): string =
       result.add t[i]
       inc i
 
-proc enclosingProc(b: Buffer): string =
+func enclosingProc(b: Buffer): string =
   ## name of the proc/func/method/iterator surrounding the cursor
   let ln = b.primary.head.line
   for l in countdown(ln, max(0, ln - 3000)):

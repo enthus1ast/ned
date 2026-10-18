@@ -58,26 +58,71 @@ const
   FBlockKw* = ["if", "elif", "else", "when", "while", "for", "of", "try", "except", "finally", "block", "defer", "static"]
   FSectionKw* = ["type", "const", "let", "var", "using"]
 
+func contains(a: openArray[string], s: string): bool {.inline.} =
+  ## `word in ["a", "b"]` as system's, the length and first character compared first (asked very often here)
+  let n = s.len
+  if n == 0:
+    for x in a:
+      if x.len == 0: return true
+    return false
+  let c = s[0]
+  for x in a:
+    if x.len == n and x[0] == c and x == s: return true
+  false
+
 proc fKwIndex*(): array['a' .. 'y', seq[int]] =
   for i, k in FKeywords: result[k[0]].add i
 
+proc fKwIndexLen*(): array['a' .. 'y', array[2 .. 9, seq[int]]] =
+  for i, k in FKeywords: result[k[0]][k.len].add i
+
 const
   FKwByFirst* = fKwIndex()
+  FKwByFirstLen* = fKwIndexLen()      # (by first letter and length: one or two to compare)
   FCommonOps* = ["=", "==", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/", "&", "$", "@", "..", "..<", "+=",
                 "-=", "*=", "&=", "->", "=>", "%", "|", "^", "!", "~", "::", "*:", "=~", "<<", ">>"]
 
-proc fKeywordAt*(text: string, i, j: int): int =
+func fKeywordAt*(text: string, i, j: int): int =
   ## the keyword text[i ..< j] is (its index in FKeywords), or -1 — without making a string
   let c = text[i]
-  if c notin {'a' .. 'y'} or j - i > 9: return -1
-  for k in FKwByFirst[c]:
+  let n = j - i
+  if c notin {'a' .. 'y'} or n < 2 or n > 9: return -1
+  for k in FKwByFirstLen[c][n]:
     let kw = FKeywords[k]
-    if kw.len == j - i and text.continuesWith(kw, i): return k
+    var same = true
+    for q in 1 ..< n:
+      if text[i + q] != kw[q]:
+        same = false
+        break
+    if same: return k
   -1
 
-proc fIsIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
+func fIsIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
 
-proc fPunct*(c: char): string {.inline.} =
+func fUniOpLen*(text: string, i: int): int =
+  ## the bytes of the Unicode operator character at i (∙ ∘ × ★ ⊗ ⊘ ⊙ ⊛ ⊠ ⊡ ∩ ∧ ⊓ ± ⊕ ⊖ ⊞ ⊟ ∪ ∨ ⊔ — Nim's lexer
+  ## reads them as operator characters, not as part of a name), else 0
+  if i + 1 >= text.len: return 0
+  case text[i]
+  of '\226':
+    if i + 2 >= text.len: return 0
+    let b = text[i + 1]
+    let c = text[i + 2]
+    if b == '\136' and c in {'\152', '\153', '\167', '\168', '\169', '\170'}: 3
+    elif b == '\138' and c in {'\147' .. '\153', '\155', '\158' .. '\161'}: 3
+    elif b == '\152' and c == '\133': 3
+    else: 0
+  of '\194': (if text[i + 1] == '\177': 2 else: 0)
+  of '\195': (if text[i + 1] == '\151': 2 else: 0)
+  else: 0
+
+func fIdentAt(text: string, j: int): bool {.inline.} =
+  ## text[j] continues a name (a number): not a Unicode operator
+  let c = text[j]
+  if c < '\x80': c in {'a'..'z', 'A'..'Z', '0'..'9', '_'}
+  else: not (c in {'\194', '\195', '\226'} and fUniOpLen(text, j) > 0)
+
+func fPunct*(c: char): string {.inline.} =
   case c
   of '(': "("
   of ')': ")"
@@ -103,10 +148,17 @@ proc fAccQuoted*(s: string): string =
       inc i
       continue
     var j = i
-    if fIsIdent(c):
-      while j < s.high and fIsIdent(s[j]): inc j
-    elif c in FOpChars or c in {'(', ')', '[', ']', '{', '}', '='}:
-      while j < s.high and (s[j] in FOpChars or s[j] in {'(', ')', '[', ']', '{', '}', '='}): inc j
+    if fIdentAt(s, i):
+      while j < s.high and fIdentAt(s, j): inc j
+      # (a number with a fraction, `0.99`, is one token for Nim: one part — `v0.99.99` → `v0 . 99.99`, like nph)
+      if c in {'0' .. '9'} and j + 1 < s.high and s[j] == '.' and s[j + 1] in {'0' .. '9'}:
+        inc j
+        while j < s.high and fIdentAt(s, j): inc j
+    elif c in FOpChars or c in {'(', ')', '[', ']', '{', '}', '='} or fUniOpLen(s, i) > 0:
+      while j < s.high:
+        if s[j] in FOpChars or s[j] in {'(', ')', '[', ']', '{', '}', '='}: inc j
+        elif fUniOpLen(s, j) > 0: j += fUniOpLen(s, j)      # (`⊙=`: one operator)
+        else: break
     else: return s                      # (anything else: as written)
     parts.add s[i ..< j]
     i = j
@@ -136,16 +188,17 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
       addT(k, a, fPunct(text[a]))           # a shared literal: no allocation
     else: addT(k, a, text[a ..< b])
   template addT(k: FKind, a: int, tt: string) =
-    let t = tt
+    var t = tt
     # only long strings and block comments can span lines
     let nlAt = if k in {fkStr, fkComment}: t.rfind('\n') else: -1
-    result.add FTok(kind: k, text: t, nl: not lineHasTok, col: col, sp: sp and lineHasTok, multi: nlAt >= 0,
+    let tlen = t.len
+    result.add FTok(kind: k, text: move(t), nl: not lineHasTok, col: col, sp: sp and lineHasTok, multi: nlAt >= 0,
                     blanks: (if not lineHasTok: blanks else: 0), pos: a)
     if not lineHasTok: blanks = 0
     lineHasTok = true
     sp = false
     # the column after a multi-line token is where its last line ends
-    col = if nlAt >= 0: t.len - nlAt - 1 else: col + t.len
+    col = if nlAt >= 0: tlen - nlAt - 1 else: col + tlen
   while i < n:
     let c = text[i]
     if c == '\n':
@@ -191,11 +244,13 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
         add(fkComment, st, e)
         i = j
       continue
-    if c == '"' or (fIsIdent(c) and not (c in {'0'..'9'})):
+    if c == '"' or c in {'a'..'z', 'A'..'Z', '_'} or (c >= '\x80' and fIdentAt(text, i)):
       var j = i
       var raw = false
       if c != '"':
-        while j < n and fIsIdent(text[j]): inc j
+        while j < n and text[j] in {'a'..'z', 'A'..'Z', '0'..'9', '_'}: inc j
+        if j < n and text[j] >= '\x80':                     # (rare: a name with other letters)
+          while j < n and fIdentAt(text, j): inc j
         if j >= n or text[j] != '"':
           let kw = fKeywordAt(text, i, j)
           if kw >= 0: addT(fkKw, st, FKeywords[kw])          # a shared literal: no allocation
@@ -228,7 +283,8 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
       continue
     if c in {'0'..'9'}:
       var j = i
-      while j < n and (fIsIdent(text[j]) or (text[j] == '.' and j + 1 < n and text[j + 1] in {'0'..'9'}) or
+      while j < n and (text[j] in {'a'..'z', 'A'..'Z', '0'..'9', '_'} or (text[j] >= '\x80' and fIdentAt(text, j)) or
+                       (text[j] == '.' and j + 1 < n and text[j + 1] in {'0'..'9'}) or
                        (text[j] in {'+', '-'} and j > i and text[j - 1] in {'e', 'E'} and
                         not (text[i] == '0' and i + 1 < n and text[i + 1] in {'x', 'X'}))):
         inc j
@@ -285,13 +341,16 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
       inc i
       continue
     else: discard
-    if c in FOpChars:
+    if c in FOpChars or (c in {'\194', '\195', '\226'} and fUniOpLen(text, i) > 0):
       if c == '.' and i + 1 < n and text[i + 1] == '}':
         add(fkPragClose, st, i + 2)
         i += 2
         continue
       var j = i
-      while j < n and text[j] in FOpChars: inc j
+      while j < n:
+        if text[j] in FOpChars: inc j
+        elif text[j] in {'\194', '\195', '\226'} and fUniOpLen(text, j) > 0: j += fUniOpLen(text, j)
+        else: break
       # `name*: T` — a colon ending an operator is the colon of a declaration
       if j - i > 1 and text[j - 1] == ':' and not (j - i == 2 and c == ':'): dec j
       if j - i == 1 and c == ':': add(fkColon, st, j)
@@ -310,19 +369,19 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
     ok = false       # a character Nim does not have
     return
 
-proc fWordOp*(t: FTok): bool {.inline.} = t.kind == fkKw and t.text in FWordOps
+func fWordOp*(t: FTok): bool {.inline.} = t.kind == fkKw and t.text in FWordOps
 
-proc fOperand*(t: FTok): bool {.inline.} =
+func fOperand*(t: FTok): bool {.inline.} =
   ## can this token end an operand (so an operator after it is binary)?
   t.kind in {fkIdent, fkNum, fkStr, fkChar, fkClose, fkPragClose} or
     (t.kind == fkKw and t.text in ["nil", "result"])
 
-proc fCallParen*(toks: openArray[FTok], k: int): bool =
+func fCallParen*(toks: openArray[FTok], k: int): bool =
   ## is the `(` at k a call's argument list (`f(x)`), not a parenthesized expression or tuple (`(x)`)?
   k > 0 and toks[k].text == "(" and not toks[k].sp and not toks[k].nl and
     toks[k - 1].kind in {fkIdent, fkClose}
 
-proc fNamesHead*(toks: openArray[FTok], colon: int, one = false): bool =
+func fNamesHead*(toks: openArray[FTok], colon: int, one = false): bool =
   ## `a, b*, c {.x.}:` — the names of a declaration before its type (more than one; with `one` one is enough)
   if colon < 1 or toks[0].kind != fkIdent: return false
   var d = 0
@@ -343,32 +402,86 @@ proc fNamesHead*(toks: openArray[FTok], colon: int, one = false): bool =
     else: return false
   (several or one) and d == 0
 
+func fTopColonAt*(toks: openArray[FTok]): int =
+  ## the first `:` outside brackets, or -1
+  var d = 0
+  for k, t in toks:
+    if t.kind in {fkOpen, fkPragOpen}: inc d
+    elif t.kind in {fkClose, fkPragClose}: dec d
+    elif d == 0 and t.kind == fkColon: return k
+  -1
+
 proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
   ## tokens → logical lines (a statement continued inside brackets or after an operator is one line)
   var cur: FLine
   var depth = 0
   var started = false
   var secInd = -1          # inside a var/let/const/type section: its indentation
+  var blockInd = -1        # (a member opening a block — `x = f:` — its indentation: what is under it is code)
+  result = newSeqOfCap[FLine](toks.len div 6 + 16)
   template noteSection() =
-    let ll = result[^1]
+    template ll: untyped = result[^1]
     if not ll.comment:
+      if blockInd >= 0 and ll.indent <= blockInd: blockInd = -1
       if ll.toks[0].kind == fkKw and ll.toks[0].text in ["var", "let", "const", "type"] and
          (ll.toks.len == 1 or ll.toks[1].kind == fkComment):
         secInd = ll.indent     # (`const ## doc` too)
+        blockInd = -1
       elif ll.toks.len > 1 and ll.toks[0].kind == fkKw and ll.toks[0].text == "type" and
            ll.toks[^1].kind == fkKw and ll.toks[^1].text in ["object", "tuple"]:
         secInd = ll.indent     # type X = object  ⏎  its fields are a section's members too
+        blockInd = -1
       elif ll.indent <= secInd: secInd = -1
-  for k, t in toks:
+      elif blockInd < 0:
+        var e = ll.toks.high
+        while e > 0 and ll.toks[e].kind == fkComment: dec e
+        if ll.toks[e].kind == fkColon or (ll.toks[e].kind == fkOp and ll.toks[e].text == "="): blockInd = ll.indent
+  for k in 0 ..< toks.len:
+    let t {.cursor.} = toks[k]
     if t.nl and started:
-      let last = cur.toks[^1]
+      let last {.cursor.} = cur.toks[^1]
       var cont = depth > 0
       if not cont and not cur.comment:
         if last.kind == fkComma and t.col < cur.indent:
           cont = false         # `a,` ⏎ (less indented): a trailing comma ends an enum's values, not the next type
         elif last.kind == fkComma or last.kind == fkDot or
            (last.kind == fkOp and last.text != "=" and (last.text != "*" or last.sp)) or
-           (fWordOp(last) and last.text notin ["of", "as"]):
+           (fWordOp(last) and last.text notin ["of", "as"] and
+            not (cur.toks.len >= 2 and cur.toks[^2].kind == fkDot)):     # (`x.not`: a call, not an operator)
+          cont = true
+        elif last.kind == fkComment and t.col >= cur.indent and (block:
+               # `x = a and # note` ⏎ `b`, `x = a and` ⏎ `# note` ⏎ `b`: a value goes on after an operator
+               # before the comments (an assignment's: laid out as nph does — fCommentValue)
+               var li = cur.toks.high
+               while li > 0 and cur.toks[li].kind == fkComment: dec li
+               let lc {.cursor.} = cur.toks[li]
+               var eq = false
+               var dd = 0
+               for q in 0 ..< li:
+                 let u {.cursor.} = cur.toks[q]
+                 if u.kind in {fkOpen, fkPragOpen}: inc dd
+                 elif u.kind in {fkClose, fkPragClose}: dec dd
+                 elif dd == 0 and u.kind == fkOp and u.text == "=": eq = true
+                 elif u.kind == fkKw and u.text in FRoutineKw: eq = false
+               # (deeper than the statement — or a value on the line after `x =`, deeper than that line; a
+               # condition's operands, written at the `if`'s column too: like nph — fCommentCond)
+               let cond = cur.toks[0].kind == fkKw and cur.toks[0].text in ["if", "elif", "while", "when"] and
+                          fTopColonAt(cur.toks) < 0
+               if cond: eq = true
+               elif eq: eq = t.col > cur.indent
+               elif not (cur.toks[0].kind == fkKw and (cur.toks[0].text in FBlockKw or
+                                                       cur.toks[0].text in ["case", "return", "discard"])):
+                 var p = result.high
+                 while p >= 0 and result[p].comment: dec p
+                 if p >= 0 and cur.indent > result[p].indent and t.col > result[p].indent:
+                   var e = result[p].toks.high
+                   while e > 0 and result[p].toks[e].kind == fkComment: dec e
+                   eq = result[p].toks[e].kind == fkOp and result[p].toks[e].text == "="
+                   # (not a routine's `=`: its body follows, statements)
+                   for u in result[p].toks:
+                     if u.kind == fkKw and u.text in FRoutineKw: eq = false
+               eq and ((lc.kind == fkOp and lc.text != "=" and (lc.text != "*" or lc.sp)) or
+                       (fWordOp(lc) and lc.text notin ["of", "as"]))):
           cont = true
         elif t.col > cur.indent and (t.kind == fkDot or (t.kind == fkKw and t.text in ["else", "elif"] and
              not (last.kind in {fkColon} or (last.kind == fkOp and last.text == "=")))):
@@ -380,6 +493,7 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
              cur.toks[0].text == "from":
           cont = true          # from a import   ⏎   b, c
         elif t.col > cur.indent and last.kind == fkColon and secInd >= 0 and cur.indent > secInd and
+             (blockInd < 0 or cur.indent <= blockInd) and
              fNamesHead(cur.toks, cur.toks.high, one = true):
           cont = true          # in a var/let/const/type section:  a, b*, c:   ⏎   seq[string] = @[]
         elif t.col > cur.indent and last.kind == fkColon and cur.toks.len > 2 and cur.toks[0].kind == fkKw and
@@ -405,7 +519,9 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
       noteSection()
       started = false
     if not started:
-      cur = FLine(toks: @[t], indent: t.col, blank: t.blanks > 0, comment: t.kind == fkComment, phys: 1)
+      cur = FLine(toks: newSeqOfCap[FTok](16), indent: t.col, blank: t.blanks > 0, comment: t.kind == fkComment,
+                  phys: 1)
+      cur.toks.add t
       started = true
     else:
       cur.toks.add t
@@ -420,19 +536,37 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
     var stmtAt = -1          # bracket depth where a statement-like construct started
     var stmtIf = false       # (it is an if/when: maybe an if-expression, `if a: x` ⏎ `else: y`)
     var lambdaAt = -1        # bracket depth of a `proc` that may be a lambda (until its `=`)
-    var prev: FTok = nil
+    var parenStmt = -1       # bracket depth of statements in parentheses (`(let a = f(); a > 0)`)
+    var brackets: seq[char]  # (the open brackets)
+    var prev {.cursor.}: FTok = nil
     for t in l.toks:
       if t.multi: l.verbatim = true
-      # (an if-expression's `elif`/`else` on the next line after an inline branch: not a block — a line break
-      # anywhere else after a statement started inside brackets is part of the code)
-      if t.nl and stmtAt >= 0 and not (stmtIf and d == stmtAt and t.kind == fkKw and t.text in ["elif", "else"] and
-                                       prev != nil and prev.kind != fkColon):
+      # (statements in parentheses a line apart, `(let a = f()` ⏎ `a > 0)`, no `;` between them: those line
+      # breaks are the code's — and any line in `(…)` or `{…}` starting an operand right after one, `{` ⏎
+      # `write(f, x)` ⏎ `write(f, y)` ⏎ `}` in a template's pattern)
+      if t.nl and parenStmt >= 0 and d == parenStmt and t.kind != fkClose and prev != nil and fOperand(prev):
+        l.verbatim = true
+      if t.nl and brackets.len > 0 and brackets[^1] in {'(', '{'} and prev != nil and fOperand(prev) and
+         (t.kind in {fkIdent, fkNum, fkStr, fkChar, fkOpen} or
+          (t.kind == fkKw and not fWordOp(t) and t.text notin ["elif", "else", "of", "except", "finally", "do"])):
+        l.verbatim = true
+      if t.kind in {fkOpen, fkPragOpen}: brackets.add t.text[0]
+      elif t.kind in {fkClose, fkPragClose} and brackets.len > 0: brackets.setLen(brackets.len - 1)
+      # (an if-expression's `elif`/`else` on the next line after an inline branch: not a block, nor the bracket
+      # that closes after it on a line of its own — a line break anywhere else after a statement started inside
+      # brackets is part of the code)
+      if t.nl and stmtAt >= 0 and
+         not (stmtIf and d == stmtAt and t.kind == fkKw and t.text in ["elif", "else"] and prev != nil and
+              prev.kind != fkColon) and
+         not (stmtIf and d == stmtAt and t.kind == fkClose and t.text in [")", "]"] and prev != nil and
+              prev.kind != fkColon):
         l.verbatim = true
       if t.kind in {fkOpen, fkPragOpen}: inc d
       elif t.kind in {fkClose, fkPragClose}:
         dec d
         if stmtAt > d: stmtAt = -1
         if lambdaAt > d: lambdaAt = -1
+        if parenStmt > d: parenStmt = -1
       elif t.kind == fkKw:
         if t.text == "do" and stmtAt < 0:
           stmtAt = d
@@ -444,6 +578,9 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
         elif d > 0 and t.text in ["block", "case", "try", "for", "while", "if", "when"] and stmtAt < 0:
           stmtAt = d
           stmtIf = t.text in ["if", "when"]
+        elif d > 0 and parenStmt < 0 and (t.text in ["let", "const"] or
+                                          (t.text == "var" and prev != nil and prev.kind in {fkOpen, fkSemi})):
+          parenStmt = d
       elif t.kind == fkOp and t.text == "=" and lambdaAt == d and stmtAt < 0:
         stmtAt = d
         stmtIf = false

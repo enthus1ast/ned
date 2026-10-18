@@ -1,4 +1,4 @@
-proc keyPrefix(s: string, toks: var seq[TokKind], sep: char): int =
+func keyPrefix(s: string, toks: var seq[TokKind], sep: char): int =
   ## marks a leading `key<sep>` (YAML/TOML/INI keys) as a property; returns where lexing continues
   var i = 0
   while i < s.len and s[i] in {' ', '\t'}: inc i
@@ -62,7 +62,7 @@ proc lexNimf(s: string, st: LexSt, toks: var seq[TokKind]): LexSt =
 
 const CsvColours = [tkKeyword, tkType, tkNumber, tkFunc, tkVariable, tkProperty, tkConst, tkTag, tkAttr, tkPreproc]
 
-proc csvSepOf(lang: Lang, s: string): char =
+func csvSepOf(lang: Lang, s: string): char =
   ## a CSV line's separator: the language's, or (plain .csv) , unless the line has more ; than , outside quotes
   if lang.csvSep != '\0': return lang.csvSep
   var commas, semis = 0
@@ -151,7 +151,7 @@ proc lexHost(lang: Lang, s: string, st: uint8, toks: var seq[TokKind], at = 0): 
       if c > 0 and (c + 1 >= s.len or s[c+1] != '='):
         for q in 0..<c: toks[q] = tkFunc
         return lexGeneric(lang, s, st, toks, c)
-    var r = lexGeneric(lang, s, st, toks, start)
+    let r = lexGeneric(lang, s, st, toks, start)
     var i = 0
     while i < s.len:
       if s[i] == '$' and i + 1 < s.len and s[i+1] in {'(', '{'}:

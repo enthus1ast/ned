@@ -139,7 +139,7 @@ proc drawPicker() =
   var pw = min(scrW - 2, 96)
   var px = (scrW - pw) div 2
   var py = if scrH > 24: 2 else: 1
-  var maxRows = max(1, min(14, scrH - py - 6))
+  let maxRows = max(1, min(14, scrH - py - 6))
   var n = min(maxRows, max(1, pickShown.len))
   var ph = n + 4
   if pickNear and edCaretX >= 0 and edCaretY >= 0 and scrW >= 60:
@@ -337,7 +337,8 @@ const HelpLines = [
   "Debug panel          Enter on ▸ shows fields/items · + add a watch · Alt+Enter on a test: debug it",
   "Palette ›            Run tests in file · Run all tests · Nim: test coverage · Nim: profile",
   "▶ by a test          Nim unittest and testament, pytest, go test, cargo test, PHPUnit, dotnet test, Gradle/Maven",
-  "Palette ›            Test coverage: run (Nim, Python, Go, Rust, JS/TS) · load an lcov file · hide",
+  "Palette ›            Test coverage: run (Nim, Python, Go, Rust, JS/TS) · summary by file · load an lcov file · hide",
+  "Test explorer › c    The selected Nim test file with coverage (◑ at the top: all the tests)",
   "Palette ›            Problems: all of them with their code — one editable multibuffer",
   "Run › Configurations Ways to run the project (main, arguments, env, defines) — Alt+R runs the chosen one",
   "F4 / Shift+F4        The last task again / pick a task: Makefile, package.json, justfile, Taskfile, cargo, go, nimble",

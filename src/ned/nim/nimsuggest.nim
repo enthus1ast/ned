@@ -136,7 +136,7 @@ proc nsRequest(b: Buffer, kind: NsKind, p: Pos, extra = ""): bool =
   nsPump(s)
   true
 
-proc skIcon(sk: string): int =
+func skIcon(sk: string): int =
   ## nimsuggest symbol kind → LSP completion kind (for icons/colours)
   case sk
   of "skProc", "skFunc", "skMethod", "skIterator", "skConverter": 3
@@ -148,7 +148,7 @@ proc skIcon(sk: string): int =
   of "skModule", "skPackage": 9
   else: 1
 
-proc skWord(sk: string): string =
+func skWord(sk: string): string =
   case sk
   of "skProc": "proc"
   of "skFunc": "func"
@@ -169,7 +169,7 @@ proc skWord(sk: string): string =
   of "skForVar": "for"
   else: sk.replace("sk", "").toLowerAscii
 
-proc nsSignature(sk, qname, typ: string): string =
+func nsSignature(sk, qname, typ: string): string =
   ## "proc main.greet(p: Person): string" from nimsuggest fields
   let short = qname
   if typ.startsWith("proc ") or typ.startsWith("proc("):

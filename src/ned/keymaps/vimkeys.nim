@@ -236,7 +236,7 @@ proc vimKey(k: Key): bool =
       if ch == 'g':
         vimPending = op & "g"
         return true
-      var key = $ch
+      let key = $ch
       if op.endsWith("g") and op.len == 2 and op[0] in {'d', 'c', 'y', '>', '<'}:
         discard
       let m = b.vimMotion(key, n, p)
@@ -460,7 +460,7 @@ proc vimKey(k: Key): bool =
       try:
         for _ in 0 ..< min(count, max(1, 200_000 div keys.len)):
           for kk in keys:
-            var k2 = kk
+            let k2 = kk
             if not vimKey(k2): editorKey(k2)
       finally:
         vimReplaying = false

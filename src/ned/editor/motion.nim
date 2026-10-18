@@ -2,21 +2,21 @@
 #  Cursor movement
 # ════════════════════════════════════════════════════════════════════════════
 
-proc charClass(c: char): int {.inline.} =
+func charClass(c: char): int {.inline.} =
   if c in {' ', '\t'}: 0 elif isWordByte(c): 1 else: 2
 
-proc posLeft(b: Buffer, p: Pos): Pos =
+func posLeft(b: Buffer, p: Pos): Pos =
   if p.col > 0: Pos(line: p.line, col: prevRune(b.lines[p.line], p.col))
   elif p.line > 0: Pos(line: p.line - 1, col: b.lines[p.line - 1].len)
   else: p
 
-proc posRight(b: Buffer, p: Pos): Pos =
+func posRight(b: Buffer, p: Pos): Pos =
   let s = b.lines[p.line]
   if p.col < s.len: Pos(line: p.line, col: nextRune(s, p.col))
   elif p.line + 1 < b.lines.len: Pos(line: p.line + 1, col: 0)
   else: p
 
-proc posWordRight(b: Buffer, p: Pos): Pos =
+func posWordRight(b: Buffer, p: Pos): Pos =
   let s = b.lines[p.line]
   var i = p.col
   if i >= s.len:
@@ -27,7 +27,7 @@ proc posWordRight(b: Buffer, p: Pos): Pos =
     while i < s.len and charClass(s[i]) == k: inc i
   Pos(line: p.line, col: i)
 
-proc posWordLeft(b: Buffer, p: Pos): Pos =
+func posWordLeft(b: Buffer, p: Pos): Pos =
   if p.col == 0:
     return (if p.line > 0: Pos(line: p.line - 1, col: b.lines[p.line - 1].len) else: p)
   let s = b.lines[p.line]
@@ -38,7 +38,7 @@ proc posWordLeft(b: Buffer, p: Pos): Pos =
     while i > 0 and charClass(s[i-1]) == k: dec i
   Pos(line: p.line, col: i)
 
-proc posHome(b: Buffer, p: Pos): Pos =
+func posHome(b: Buffer, p: Pos): Pos =
   let s = b.lines[p.line]
   let fnw = leadingWs(s).len
   Pos(line: p.line, col: (if p.col == fnw: 0 else: fnw))

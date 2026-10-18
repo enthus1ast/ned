@@ -92,7 +92,7 @@ proc nextWordStart(b: Buffer, p: Pos, big: bool): Pos =
     c = 0
     if b.lines[l].len == 0: return Pos(line: l, col: 0)
 
-proc prevWordStart(b: Buffer, p: Pos, big: bool): Pos =
+func prevWordStart(b: Buffer, p: Pos, big: bool): Pos =
   var l = p.line
   var c = min(p.col, b.lines[l].len) - 1
   while true:
@@ -121,7 +121,7 @@ proc wordEnd(b: Buffer, p: Pos, big: bool): Pos =
     inc l
     c = 0
 
-proc firstNonBlank(b: Buffer, l: int): Pos = Pos(line: l, col: leadingWs(b.lines[l]).len)
+func firstNonBlank(b: Buffer, l: int): Pos = Pos(line: l, col: leadingWs(b.lines[l]).len)
 
 proc paragraphMove(b: Buffer, p: Pos, d: int): Pos =
   var l = p.line + d
@@ -129,7 +129,7 @@ proc paragraphMove(b: Buffer, p: Pos, d: int): Pos =
   while l > 0 and l < b.lines.high and not isBlank(b.lines[l]): l += d
   Pos(line: clamp(l, 0, b.lines.high), col: 0)
 
-proc findChar(b: Buffer, p: Pos, cmd, ch: char): (bool, Pos) =
+func findChar(b: Buffer, p: Pos, cmd, ch: char): (bool, Pos) =
   let s = b.lines[p.line]
   let col = min(p.col, s.len)          # (a cursor past the end of a line that got shorter)
   case cmd

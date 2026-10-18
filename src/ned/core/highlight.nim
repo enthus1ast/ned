@@ -47,14 +47,14 @@ proc langForWord(w: string): Lang =
     if l != nil and l.id != "plaintext": result = l
   if result != nil and result.id == "plaintext": result = nil
 
-proc stTop(st: LexSt): int {.inline.} = int((st shr 8) and 0xFF)
-proc stInner(st: LexSt): LexSt {.inline.} = ((st shr 16) shl 8) or (st and 0xFF)
-proc stWrap(id: int, inner: LexSt): LexSt =
+func stTop(st: LexSt): int {.inline.} = int((st shr 8) and 0xFF)
+func stInner(st: LexSt): LexSt {.inline.} = ((st shr 16) shl 8) or (st and 0xFF)
+func stWrap(id: int, inner: LexSt): LexSt =
   ## inside embedding `id`, with the inner language in state `inner`
   if (inner shr 24) != 0: return LexSt(id) shl 8      # nested four deep: the innermost starts over
   (inner and 0xFF) or ((inner shr 8) shl 16) or (LexSt(id) shl 8)
 
-proc findNoCase(s, pat: string, start: int): int =
+func findNoCase(s, pat: string, start: int): int =
   for i in start .. s.len - pat.len:
     var ok = true
     for k in 0 ..< pat.len:
@@ -64,7 +64,7 @@ proc findNoCase(s, pat: string, start: int): int =
     if ok: return i
   -1
 
-proc sniffLang(t: string): string =
+func sniffLang(t: string): string =
   ## the language of a string's text, judged by how it starts ("" — plain text)
   let s = t.strip(trailing = false)
   if s.len >= 2 and s[0] == '<' and (s[1] in {'a'..'z', 'A'..'Z', '!', '/', '?'}): return "html"

@@ -101,7 +101,7 @@ proc heuristicSymbols(b: Buffer): seq[PickItem] =
     if b.lang.mode == lmNim and (first == "type" and (j == t.len or t[j] == ' ')):
       inType = true
       if j == t.len: continue
-    var isDef = first in b.lang.defWords
+    let isDef = first in b.lang.defWords
     let isCls = first in b.lang.classWords or (first == "type" and b.lang.mode != lmNim and j < t.len)
     if isDef or isCls or (b.lang.mode == lmNim and first == "type"):
       var k = j
@@ -324,7 +324,19 @@ proc nimImplementations(b: Buffer): bool =
     if refs.len == 0: return false
     let s0 = refs[0].sym
     let sc = nxScope(refs[0].file)
-    if s0.kind == nxType:
+    if s0.kind == nxType and nxIsConcept(s0):
+      # a concept: the types that satisfy it (the engine sure of each)
+      name = s0.name
+      let (yes, _, unsure, _) = nxConceptImpls(refs[0], nimSourceFiles(), f, 2000)
+      for (n, t) in yes:
+        if t.file == nil: continue
+        items.add PickItem(label: n, detail: nimShownPath(t.file.path) & ":" & $(t.sym.line + 1) & " · satisfies " &
+                           s0.name, icon: "T", path: t.file.path, line: t.sym.line, col: t.sym.col)
+      if items.len == 0:
+        info("No type of this project is known to satisfy " & name &
+             (if unsure > 0: " (" & $unsure & " the engine cannot tell)" else: ""))
+        return true
+    elif s0.kind == nxType:
       name = s0.name
       for (t, depth) in nimSubtypes(sc, s0.name):
         items.add nimTypeItem(t, repeat("  ", depth - 1) & t.sym.name)

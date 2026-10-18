@@ -31,14 +31,14 @@ proc lspNotify(s: LspServer, meth: string, params: JsonNode) =
 proc lspReply(s: LspServer, id: JsonNode, res: JsonNode) =
   s.lspSend(%*{"jsonrpc": "2.0", "id": id, "result": res})
 
-proc toU16(s: string, col: int): int =
+func toU16(s: string, col: int): int =
   var i = 0
   while i < col and i < s.len:
     let (cp, n) = runeAt(s, i)
     result += (if cp >= 0x10000: 2 else: 1)
     i += n
 
-proc fromU16(s: string, u: int): int =
+func fromU16(s: string, u: int): int =
   var i = 0
   var k = 0
   while i < s.len and k < u:
@@ -348,7 +348,7 @@ proc lspReady(b: Buffer): LspServer =
     return s
   nil
 
-proc stripSnippet(s: string): string =
+func stripSnippet(s: string): string =
   var i = 0
   while i < s.len:
     if s[i] == '\\' and i + 1 < s.len:
@@ -380,7 +380,7 @@ proc stripSnippet(s: string): string =
       result.add s[i]
       inc i
 
-proc dropMdImages(s: string): string =
+func dropMdImages(s: string): string =
   ## ![alt](url) — pictures a terminal cannot show (the HTML server's base64 "Baseline" badges): left out
   if "![" notin s: return s
   var i = 0
@@ -415,12 +415,12 @@ proc markupText(c: JsonNode): string =
 
 proc refilterComp()
 
-proc wordStart(b: Buffer, p: Pos): int =
+func wordStart(b: Buffer, p: Pos): int =
   let s = b.lines[p.line]
   result = p.col
   while result > 0 and isWordByte(s[result - 1]): dec result
 
-proc handleCompletion(s: LspServer, req: LspReq, res: JsonNode) =
+proc handleCompletion(req: LspReq, res: JsonNode) =
   let b = buf()
   if b.id != req.bufId or res == nil: return
   let items = if res.kind == JArray: res elif res.kind == JObject: res{"items"} else: nil
@@ -463,7 +463,7 @@ var
   callWaiting = 0
   callName = ""
 
-proc semKindOf(t: string): TokKind =
+func semKindOf(t: string): TokKind =
   case t
   of "function", "method", "decorator": tkFunc
   of "macro": tkPreproc
@@ -488,7 +488,7 @@ proc lspSemFor(b: Buffer): Table[int, seq[(int, int, TokKind)]] =
   discard s.lspRequest("textDocument/semanticTokens/full", %*{"textDocument": b.docId},
                        LspReq(kind: lrSemTokens, bufId: b.id, version: b.changeId))
 
-proc callItemOf(s: LspServer, it: JsonNode, arrow: string): PickItem =
+proc callItemOf(it: JsonNode, arrow: string): PickItem =
   let path = pathFromUri(it{"uri"}.getStr)
   let st = it{"selectionRange", "start"}
   PickItem(label: arrow & " " & it{"name"}.getStr, detail: relPath(path) & ":" & $(st{"line"}.getInt + 1) &
@@ -614,7 +614,7 @@ proc fixEditInfo(s: LspServer, edit: JsonNode): (int, string, string, string) =
     let p1 = fromLspPos(s, fb, tes[0][1]{"range", "end"})
     if p0 < p1 and p1.line < fb.lines.len: result[2] = fb.getText(p0, p1)
 
-proc fixShow(t: string): string =
+func fixShow(t: string): string =
   let x = t.strip.replace("\n", " ⏎ ")
   "'" & (if x.len > 32: x[0 ..< 31] & "…" else: x) & "'"
 
@@ -639,5 +639,5 @@ proc fixHint(d: Diag): string =
   ## what Alt+Enter does about this problem, shown after it ("" when the server sent no fixes with it)
   if d.fixes == nil or d.fixes.len == 0: return ""
   if d.fixes.len > 1: return "  — Alt+Enter: " & $d.fixes.len & " fixes"
-  var ca = d.fixes[0]
+  let ca = d.fixes[0]
   "  — Alt+Enter: " & fixLabel(nil, ca)[0]

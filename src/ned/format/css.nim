@@ -1,6 +1,6 @@
 # ── CSS (and SCSS / Less): one declaration per line, blocks indented, `prop: value;` ──
 
-proc cssSquash*(s: string): string =
+func cssSquash*(s: string): string =
   ## the text with whitespace outside strings and comments removed, ; before } dropped, for the safety check
   var i = 0
   while i < s.len:
@@ -196,7 +196,7 @@ proc fmtCss*(s: string, indent = 2, lineComments = false): (string, string) =
       cur.add c
     inc i
   if squashWs(cur).len > 0: o.flushDecl()
-  var res = o.strip(chars = {'\n'}) & "\n"
+  let res = o.strip(chars = {'\n'}) & "\n"
   if depth != 0: return (s, "the braces do not match")
   if cssSquash(res) != cssSquash(s): return (s, "the formatted text would differ (please report this file)")
   (res, "")

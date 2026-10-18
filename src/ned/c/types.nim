@@ -1,6 +1,6 @@
 # ── C type ↔ Nim type ──
 
-proc cNimFor(ctype: string): seq[string] =
+func cNimFor(ctype: string): seq[string] =
   ## the Nim types that match a C type that is not a pointer (empty: not one ned knows)
   let t = ctype.replace("signed ", "").replace(" int", "").strip
   case t
@@ -36,7 +36,7 @@ const NimPrimitives = ["int", "int8", "int16", "int32", "int64", "uint", "uint8"
   "clonglong", "culonglong", "cchar", "cschar", "cuchar", "cfloat", "cdouble", "clongdouble", "csize_t", "Natural",
   "Positive"]
 
-proc nimIsPointer(t: string): bool =
+func nimIsPointer(t: string): bool =
   let x = t.strip
   x.startsWith("ptr ") or x.startsWith("var ") or x == "pointer" or x == "cstring" or x == "cstringArray" or
     x.startsWith("ref ") or x.startsWith("proc") or x.startsWith("ptr[") or x.startsWith("UncheckedArray")

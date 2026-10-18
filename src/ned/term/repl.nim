@@ -102,7 +102,7 @@ proc replCellAt(b: Buffer, line: int): (int, int) =
 proc replStatementAt(b: Buffer, line: int): (int, int) =
   ## the statement at `line`: a block opener takes its block (deeper lines, else/elif/except/of …), a decorator
   ## its def, and an open bracket the lines up to its partner
-  var a = line
+  let a = line
   let ind = leadingWs(b.lines[a]).len
   var e = a
   var depth = 0

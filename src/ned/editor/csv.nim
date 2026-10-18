@@ -1,11 +1,11 @@
 # ── CSV tables: sort by a column, a column's summary ──
 
-proc csvCell(s: string, f: (int, int)): string =
+func csvCell(s: string, f: (int, int)): string =
   ## a field's value: its quotes taken off ("" is a quote)
   result = s[f[0] ..< f[1]].strip
   if result.len >= 2 and result[0] == '"' and result[^1] == '"': result = result[1 ..< ^1].replace("\"\"", "\"")
 
-proc csvNum(v: string): (bool, float) =
+func csvNum(v: string): (bool, float) =
   let t = v.strip.replace("_", "")
   if t.len == 0: return (false, 0.0)
   try: (true, parseFloat(t))

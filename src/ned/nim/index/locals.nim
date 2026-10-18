@@ -13,7 +13,7 @@ proc nxTypeArgs*(t: string): seq[string]
 
 var nxHeaderCache*: Table[string, seq[NxSym]]    # a nested routine's header → its declaration
 
-proc nxMacroParam*(typ: string): string =
+func nxMacroParam*(typ: string): string =
   ## a macro's parameter inside the macro: a syntax tree (NimNode) whatever type is written — `cf: ClCfg`,
   ## `nested = true`, `x: typed{nkSym}` — apart from static[T] and typedesc ones, which keep theirs
   let t = typ.replace(" ", "")
@@ -21,10 +21,14 @@ proc nxMacroParam*(typ: string): string =
   else: "NimNode"
 
 proc nxMultisyncParam*(typ: string): string =
-  ## a {.multisync.} routine's `HttpClient | AsyncHttpClient` parameter: the first, the synchronous one (the
-  ## routine is written as that, the async one is made from it)
+  ## a {.multisync.} routine's `HttpClient | AsyncHttpClient` parameter: the synchronous one (the routine is
+  ## written as that, the async one is made from it) — as the macro splits it: two alternatives, one of them with
+  ## "async" in its name; any other (`url: Uri | string`) stays what it is in both
   let alts = nxSplitTop(typ, {'|'})
-  if alts.len > 1: alts[0].strip else: typ
+  if alts.len != 2: return typ
+  let a0 = "async" in alts[0].toLowerAscii.replace("_", "")
+  let a1 = "async" in alts[1].toLowerAscii.replace("_", "")
+  if a0 == a1: typ elif a0: alts[1].strip else: alts[0].strip
 
 proc nxHeaderEnd*(lines: openArray[string], r: NxSym): int =
   ## the last line a routine's parameters can be on (its header may span many lines)
@@ -137,7 +141,7 @@ proc nxTemplateAround*(fl: NxLines, line: int): NxTplAround =
   let s = nxTemplateHeader(lines, l)
   if s.name.len > 0: result = NxTplAround(name: s.name, params: s.params, line: l, endLine: fl.tpls[best][1].int)
 
-proc nxInactiveLine*(f: NxFile, l: int): bool =
+func nxInactiveLine*(f: NxFile, l: int): bool =
   ## in a `when` branch left out here
   for (a, b) in f.inactive:
     if a <= l and l <= b: return true
@@ -511,8 +515,9 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
           let pt = c[k + 4 .. ^1].strip
           if pn.allCharsInSet(IdentChars) and pt.len > 0 and " " notin pt:
             for i in countdown(result.high, 0):
-              if result[i].kind == nxParam and result[i].name == pn:
-                result[i].typ = pt
+              if result[i].name == pn:
+                # (a parameter, or a loop variable: `for f in x.fields: when f is string:`)
+                if result[i].kind in {nxParam, nxForVar}: result[i].typ = pt
                 break
           break
         if tl == "else:":
@@ -546,7 +551,7 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
       if t[k] == ')': inc depthP
       elif t[k] == '(':
         if depthP == 0:
-          var e = k
+          let e = k
           var a2 = e
           while a2 > 0 and nxIsIdent(t[a2 - 1]): dec a2
           let tn = t[a2 ..< e]

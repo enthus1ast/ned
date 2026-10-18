@@ -99,7 +99,7 @@ proc stdNamesStarting(lp: string): seq[(string, seq[string])] =
     if name.len >= lp.len and name.toLowerAscii.startsWith(lp): result.add (name, ms)
   result.sort(proc(a, b: (string, seq[string])): int = cmp(a[0].len, b[0].len))
 
-proc quotedName(msg: string): string =
+func quotedName(msg: string): string =
   ## 'foo' in a compiler message
   let a = msg.find('\'')
   if a < 0: return ""
@@ -128,7 +128,7 @@ proc importStmts(b: Buffer): seq[(int, int)] =
       l = e + 1
     else: inc l
 
-proc importedModulesOf(b: Buffer, stmt: string): seq[string] =
+proc importedModulesOf(stmt: string): seq[string] =
   ## the modules one `import` statement names, as written (std/[a, b] → std/a, std/b)
   var t = stmt.strip
   if t.startsWith("import "): t = t[7 .. ^1]
@@ -153,7 +153,7 @@ proc importedModulesOf(b: Buffer, stmt: string): seq[string] =
   if prefix.strip.len > 0: flat.add prefix.strip
   flat
 
-proc isStdModule(b: Buffer, m: string): bool =
+proc isStdModule(m: string): bool =
   ## is a bare module name (os, strutils) one of the standard library's?
   let lib = nimLibDir()
   if lib.len == 0: return false

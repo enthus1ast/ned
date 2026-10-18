@@ -43,7 +43,7 @@ proc unformattedFiles(root: string, files: seq[string], all: bool): seq[(string,
     if bi >= 0 and bufs[bi].dirty: same = false          # (unsaved edits in ned: not written over)
     result.add (f, res, same)
 
-proc precommitTests(root: string, files: seq[string], then: proc(failed: seq[(string, seq[string])], skipped: int)) =
+proc precommitTests(files: seq[string], then: proc(failed: seq[(string, seq[string])], skipped: int)) =
   ## the test files that cover the files, run one after another; then(the ones that failed, how many could not run)
   var tests: seq[string]
   for f in files:
@@ -90,7 +90,7 @@ proc precommitChecks(root: string, all: bool, commit: proc()) =
     if cfgCommitChecks notin ["both", "tests"]:
       commit()
       return
-    precommitTests(root, files, proc(failed: seq[(string, seq[string])], skipped: int) =
+    precommitTests(files, proc(failed: seq[(string, seq[string])], skipped: int) =
       if failed.len == 0:
         if skipped > 0: info("Tests not run before the commit: the folder is not trusted, or nim is missing")
         commit()

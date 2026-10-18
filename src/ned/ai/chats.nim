@@ -29,7 +29,7 @@ proc saveChat() =
   if aiChatId.len == 0: aiChatId = $(epochTime() * 1000).int64
   var msgs = newJArray()
   for m in aiMsgs:
-    var calls = newJArray()
+    let calls = newJArray()
     for c in m.calls: calls.add callJson(c)
     msgs.add %*{"role": m.role, "text": m.text, "shown": m.shown, "calls": calls}
   let j = %*{"id": aiChatId, "title": chatTitle(), "root": rootDir, "provider": cfgAiProvider, "model": aiModel(),

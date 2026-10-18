@@ -11,7 +11,7 @@ proc hxSetMode(m: HxMode) =
   vimShape()
   needRender = true
 
-proc hxIsWordCh(c: char, big: bool): bool = (if big: c notin {' ', '\t'} else: c.isAlphaNumeric or c == '_' or ord(c) >= 0x80)
+func hxIsWordCh(c: char, big: bool): bool = (if big: c notin {' ', '\t'} else: c.isAlphaNumeric or c == '_' or ord(c) >= 0x80)
 
 proc hxWordFwd(b: Buffer, p: Pos, big, toEnd: bool): Pos =
   ## w: the start of the next word · e: the end of this/next word (positions between characters)
@@ -283,7 +283,7 @@ proc helixEditorKey(k: Key): bool =
   result = helixKey(k)
   vimShape()
 
-proc keymapAct(v: string): Action =
+func keymapAct(v: string): Action =
   proc() =
     setSetting("editor.keymap", %v)
     if v != "vim" and sBool("editor.vimMode"): setSetting("editor.vimMode", %false)

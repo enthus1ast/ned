@@ -24,7 +24,7 @@ proc htmlAutoClose(b: Buffer) =
 
 # ── HTML: renaming a tag renames its partner (linked editing) · Emmet abbreviations expand with Tab ──
 
-proc htmlTagNameAt(s: string, col: int): (int, int, bool) =
+func htmlTagNameAt(s: string, col: int): (int, int, bool) =
   ## the tag name the cursor is in or just after: (start, end, a closing tag?) — start -1 when none
   if col > s.len: return (-1, -1, false)
   var a = col
@@ -150,7 +150,7 @@ const EmTags = ["a", "abbr", "address", "article", "aside", "audio", "b", "block
   "section", "select", "small", "source", "span", "strong", "style", "sub", "summary", "sup", "svg", "table",
   "tbody", "td", "textarea", "tfoot", "th", "thead", "title", "tr", "ul", "video", "lorem"]
 
-proc emCount(s: string, i: var int): int =
+func emCount(s: string, i: var int): int =
   result = 1
   if i < s.len and s[i] == '*':
     inc i

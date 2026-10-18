@@ -15,7 +15,7 @@ type
 
 proc csystem(cmd: cstring): cint {.importc: "system", header: "<stdlib.h>".}
 
-proc closeFd(fd: var cint) =
+func closeFd(fd: var cint) =
   if fd >= 0:
     discard posix.close(fd)
     fd = -1
@@ -197,7 +197,7 @@ proc waitProc(p: var Proc, timeoutMs = 2000): int =
     os.sleep(3)
   p.code
 
-proc closeProc(p: var Proc) =
+func closeProc(p: var Proc) =
   closeFd(p.inFd)
   closeFd(p.outFd)
   closeFd(p.errFd)
@@ -226,7 +226,7 @@ proc startJob(kind: JobKind, cmd, cwd: string, onDone: proc(j: Job) {.closure.} 
       error("Cannot start: " & e.msg)
       result = nil
 
-proc stripAnsi(s: string): string =
+func stripAnsi(s: string): string =
   var i = 0
   while i < s.len:
     if s[i] == '\e' and i + 1 < s.len:
@@ -250,4 +250,4 @@ proc resolvePath(p, cwd: string): string =
   let q = if p.isAbsolute: p else: cwd / p
   if fileExists(q): normalizedPath(q) else: ""
 
-proc allDigits(s: string): bool = s.len > 0 and s.allCharsInSet(Digits)
+func allDigits(s: string): bool = s.len > 0 and s.allCharsInSet(Digits)

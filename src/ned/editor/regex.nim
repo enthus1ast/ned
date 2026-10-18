@@ -48,9 +48,9 @@ const ReSpace* = {' ', '\t', '\n', '\r', '\f', '\v'}
 proc reErr*(ps: var ReParser, msg: string) =
   if ps.re.err.len == 0: ps.re.err = msg & " at " & $ps.i
 
-proc reFold*(c: char, icase: bool): char {.inline.} = (if icase: toLowerAscii(c) else: c)
+func reFold*(c: char, icase: bool): char {.inline.} = (if icase: toLowerAscii(c) else: c)
 
-proc reAddClass*(ps: var ReParser, bits: set[char], neg: bool, cps: seq[(int, int)] = @[]): int =
+func reAddClass*(ps: var ReParser, bits: set[char], neg: bool, cps: seq[(int, int)] = @[]): int =
   var b = bits
   if ps.icase:
     for c in 'a'..'z':
@@ -60,7 +60,7 @@ proc reAddClass*(ps: var ReParser, bits: set[char], neg: bool, cps: seq[(int, in
   ps.re.classes.add ReClass(bits: b, cps: cps, neg: neg)
   ps.re.classes.high
 
-proc reDecode*(s: string, i: int): (int, int) =
+func reDecode*(s: string, i: int): (int, int) =
   ## (code point, bytes) of the UTF-8 character at i (invalid bytes decode as themselves)
   let c = ord(s[i])
   if c < 0x80: return (c, 1)
@@ -78,7 +78,7 @@ proc reDecode*(s: string, i: int): (int, int) =
 
 proc reParseAlt*(ps: var ReParser): ReNode
 
-proc reEscapeSet*(c: char): (bool, set[char], bool) =
+func reEscapeSet*(c: char): (bool, set[char], bool) =
   ## \d \w \s and their negations as byte sets: (isClass, bits, negated)
   case c
   of 'd': (true, ReDigit, false)
@@ -89,7 +89,7 @@ proc reEscapeSet*(c: char): (bool, set[char], bool) =
   of 'S': (true, ReSpace, true)
   else: (false, {}, false)
 
-proc reEscapeChar*(ps: var ReParser, c: char): char =
+func reEscapeChar*(ps: var ReParser, c: char): char =
   case c
   of 't': '\t'
   of 'n': '\n'
@@ -215,7 +215,7 @@ proc reParseAtom*(ps: var ReParser): ReNode =
     ReNode(kind: rnEmpty)
   else: ReNode(kind: rnLit, c: c)
 
-proc reParseNum*(ps: var ReParser): int =
+func reParseNum*(ps: var ReParser): int =
   result = -1
   while ps.i < ps.p.len and ps.p[ps.i] in ReDigit:
     result = max(0, result) * 10 + (ord(ps.p[ps.i]) - ord('0'))
@@ -267,11 +267,11 @@ proc reParseAlt*(ps: var ReParser): ReNode =
     inc ps.i
     result.kids.add reParseCat(ps)
 
-proc reEmit*(re: var Regex, op: ReOp, c = '\0', x = 0, y = 0): int =
+func reEmit*(re: var Regex, op: ReOp, c = '\0', x = 0, y = 0): int =
   re.prog.add ReInst(op: op, c: c, x: x, y: y)
   re.prog.high
 
-proc reCanEmpty*(n: ReNode): bool =
+func reCanEmpty*(n: ReNode): bool =
   case n.kind
   of rnLit, rnAny, rnClass: false
   of rnBol, rnEol, rnWordB, rnNotWordB, rnEmpty: true
@@ -286,7 +286,7 @@ proc reCanEmpty*(n: ReNode): bool =
   of rnRep: n.lo == 0 or reCanEmpty(n.kids[0])
   of rnGroup: reCanEmpty(n.kids[0])
 
-proc reCompile*(re: var Regex, n: ReNode) =
+func reCompile*(re: var Regex, n: ReNode) =
   if re.prog.len > 20000:
     if re.err.len == 0: re.err = "pattern too large"
     return
@@ -360,7 +360,7 @@ proc compileRegex*(pattern: string, icase = false): Regex =
   discard result.reEmit(roMatch)
   if result.prog.len > 1 and result.prog[1].op == roChar and not icase: result.firstLit = ord(result.prog[1].c)
 
-proc utf8Len*(c: char): int {.inline.} =
+func utf8Len*(c: char): int {.inline.} =
   let b = ord(c)
   if b < 0xC0: 1 elif b < 0xE0: 2 elif b < 0xF0: 3 else: 4
 

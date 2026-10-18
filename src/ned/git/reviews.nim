@@ -33,7 +33,7 @@ proc reviewNoteAt(path: string, line: int): string =
   for t in reviewThreadsAt(path, line):
     if t.resolved or t.comments.len == 0: continue
     let (who, body, _) = t.comments[0]
-    var first = body.strip.splitLines()
+    let first = body.strip.splitLines()
     let s = if first.len > 0: first[0] else: ""
     result = ic("comment") & " " & who & ": " & s & (if t.comments.len > 1: "  (+" & $(t.comments.len - 1) & ")" else: "")
     return

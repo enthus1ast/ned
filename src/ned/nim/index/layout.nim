@@ -54,13 +54,13 @@ type
   NxAcc = object
     off, maxAlign: int
 
-proc nxLayAlignUp(x, a: int): int {.inline.} = (if a <= 1: x else: (x + a - 1) and not (a - 1))
+func nxLayAlignUp(x, a: int): int {.inline.} = (if a <= 1: x else: (x + a - 1) and not (a - 1))
 
-proc nxLayAlign(a: var NxAcc, v: int) =
+func nxLayAlign(a: var NxAcc, v: int) =
   a.maxAlign = max(a.maxAlign, v)
   a.off = nxLayAlignUp(a.off, v)
 
-proc nxLayFinish(a: var NxAcc): int =
+func nxLayFinish(a: var NxAcc): int =
   result = nxLayAlignUp(a.off, a.maxAlign) - a.off
   a.off += result
 
@@ -257,7 +257,7 @@ proc nxLayLitType(env: NxLayEnv, e: string): string =
       found = t
   found
 
-proc nxLayProcSize(c: var NxLayCtx, env: NxLayEnv, t: string): NxSz =
+proc nxLayProcSize(c: var NxLayCtx, env: NxLayEnv, t: string): NxSz =  # ned: ignore[unused-param]
   ## a proc type: a closure (the default) is a pointer and its environment; another calling convention, a pointer
   let k = t.rfind("{.")
   var closure = true

@@ -7,7 +7,7 @@ proc engineWarm(b: Buffer) =
   try: discard nxScope(nxFileFor(b))
   except Exception as e: internalError("Nim index", e)
 
-proc nxKindIcon(k: NxKind): int =
+func nxKindIcon(k: NxKind): int =
   ## completion kind numbers (LSP's), for icons and colours
   case k
   of nxProc, nxFunc, nxIterator, nxConverter, nxTemplate, nxMacro: 3
@@ -19,7 +19,7 @@ proc nxKindIcon(k: NxKind): int =
   of nxLet, nxVar, nxParam, nxForVar, nxResult: 6
   of nxModule: 9
 
-proc nxIconText(k: NxKind): string =
+func nxIconText(k: NxKind): string =
   case k
   of NxRoutineKinds: "ƒ"
   of nxType: "T"
@@ -31,10 +31,10 @@ proc addImport(b: Buffer, module: string)
 proc importedModules(b: Buffer): HashSet[string]
 proc stdNamesStarting(lp: string): seq[(string, seq[string])]
 
-proc postfixVarName(recv, shape: string): string =
+func postfixVarName(recv, shape: string): string =
   ## the loop variable for `recv.for`: items → item, entries → entry, a string's c, else x
   if shape == "string": return "c"
-  var e = recv.len
+  let e = recv.len
   if e == 0 or recv[^1] in {')', ']', '"', '\''}: return "x"
   var a = e
   while a > 0 and nxIsIdent(recv[a - 1]): dec a
@@ -277,6 +277,8 @@ proc engineSignature(b: Buffer, p: Pos): bool =
   needRender = true
   true
 
+proc nimSourceFiles(): seq[string]
+
 proc engineHover(b: Buffer, p: Pos): string =
   try:
     let f = nxFileFor(b)
@@ -293,6 +295,12 @@ proc engineHover(b: Buffer, p: Pos): string =
           return "```nim\n" & ex & (if t.len > 0: ": " & t else: "") & (if v.len > 0: " " & v else: "") &
                  "\n```\nthe " & (if t.len > 0: "type" else: "value") & " of the selection"
     result = nxHover(f, b.lines, p.line, p.col)
+    if result.len > 0:
+      # a concept: the types that satisfy it; a type: the concepts it satisfies
+      let (refs, _, _) = nxTargets(f, b.lines, p.line, p.col)
+      if refs.len > 0 and refs[0].sym.kind == nxType:
+        let ch = nxConceptHover(refs[0], nimSourceFiles(), f)
+        if ch.len > 0: result.add "\n\n" & ch
   except Exception as e: internalError("Nim index", e)
 
 proc engineDefinition(b: Buffer, p: Pos): bool =
@@ -321,7 +329,7 @@ proc engineDefinition(b: Buffer, p: Pos): bool =
   openPicker(pickSymbol, "Definitions — " & $defs.len, items)
   true
 
-proc nxSameDecl(a, b: NxRef): bool =
+func nxSameDecl(a, b: NxRef): bool =
   a.file.path == b.file.path and a.sym.line == b.sym.line and a.sym.name == b.sym.name
 
 const

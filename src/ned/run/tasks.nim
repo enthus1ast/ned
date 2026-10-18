@@ -4,7 +4,7 @@
 type ProjTask = object
   name, cmd, cwd, source, detail: string
 
-proc taskKey(t: ProjTask): string = t.cwd & "|" & t.source & "|" & t.name
+func taskKey(t: ProjTask): string = t.cwd & "|" & t.source & "|" & t.name
 
 proc hasTaskFile(d: string): bool =
   for f in ["Makefile", "makefile", "GNUmakefile", "package.json", "justfile", "Justfile", ".justfile", "Cargo.toml",

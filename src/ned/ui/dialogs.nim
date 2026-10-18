@@ -88,12 +88,12 @@ proc parseConfirm(message: string): (string, seq[(string, char)]) =
     body = message[0 ..< message.len - 5].strip
     return (body, @[("Yes", 'y'), ("No", 'n')])
   var i = message.find(" (")
-  var dash = message.find(" — (")
+  let dash = message.find(" — (")
   if dash >= 0 and (i < 0 or dash < i): i = dash
   if i < 0:
     return (message, @[("OK", 'y'), ("Cancel", 'c')])
   body = message[0 ..< i].replace("—", "").strip(chars = {' ', '-'})
-  var rest = message[i .. ^1]
+  let rest = message[i .. ^1]
   var k = 0
   while k < rest.len:
     if rest[k] == '(' and k + 2 < rest.len and rest[k + 2] == ')':

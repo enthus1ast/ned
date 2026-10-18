@@ -56,7 +56,7 @@ const NimDocs* = [
   ("result", "implicit return variable of every proc with a return type"),
 ]
 
-proc nimDocFor*(word: string): string =
+func nimDocFor*(word: string): string =
   for (k, d) in NimDocs:
     if cmpIgnoreCase(k, word) == 0: return d
   ""
@@ -373,20 +373,137 @@ proc nxArgTypes(f: NxFile, sc: NxScope, locals: seq[NxSym], args: seq[string], l
       memo[t] = (if t.len == 0 or t.len > 200 or nxFindTop(t, '=') > 0: "" else: nxTypeOfExpr(f, sc, locals, t, line, 0).typ)
     result.add memo[t]
 
-proc nxArgElem(t: string): string =
+func nxArgElem(t: string): string =
   ## what one argument for a parameter of this type is: T for `varargs[T]`, T for `var T`
   let x = nxStripValMods(t)
   if x.startsWith("varargs[") and x.endsWith("]"): x[8 ..< ^1].strip else: x
 
+func nxUncommented(s: string): string =
+  ## a line without its comment (strings and characters kept, not stripped: columns stay)
+  var i = 0
+  while i < s.len:
+    let c = s[i]
+    if c == '\'' and nxCharEnd(s, i) > i:
+      i = nxCharEnd(s, i) + 1
+      continue
+    if c == '"':
+      inc i
+      while i < s.len and s[i] != '"':
+        if s[i] == '\\': inc i
+        inc i
+    elif c == '#': return s[0 ..< i]
+    inc i
+  s
+
+proc nxOpenParen*(lines: seq[string], line, col: int, back = 30): (int, int) =
+  ## the unclosed `(` that (line, col) is inside — on this line or on one of the `back` lines above, brackets in
+  ## strings, characters and comments not counted —; (-1, -1) when there is none, or an unclosed `[` / `{` comes first
+  var depth = 0
+  var l = line
+  var ev: seq[int]
+  while l >= 0 and line - l <= back:
+    let s = if l == line: nxUncommented(lines[l][0 ..< min(col, lines[l].len)]) else: nxUncommented(lines[l])
+    ev.setLen(0)
+    var i = 0
+    while i < s.len:
+      let c = s[i]
+      if c == '\'' and nxCharEnd(s, i) > i:
+        i = nxCharEnd(s, i) + 1
+        continue
+      if c == '"':
+        inc i
+        while i < s.len and s[i] != '"':
+          if s[i] == '\\': inc i
+          inc i
+      elif c in {'(', '[', '{', ')', ']', '}'}: ev.add i
+      inc i
+    for k in countdown(ev.high, 0):
+      if s[ev[k]] in {')', ']', '}'}: inc depth
+      elif depth > 0: dec depth
+      elif s[ev[k]] == '(': return (l, ev[k])
+      else: return (-1, -1)
+    dec l
+  (-1, -1)
+
+func nxJoinedFrom(lines: seq[string], pl, pc, line, col: int): string =
+  ## the code from just after (pl, pc) to (line, col), the lines joined by a space (comments dropped)
+  if pl == line: return lines[line][min(pc + 1, lines[line].len) ..< min(col, lines[line].len)]
+  result = nxUncommented(lines[pl])[min(pc + 1, lines[pl].len) .. ^1]
+  for l in pl + 1 ..< line: result.add " " & nxUncommented(lines[l]).strip
+  result.add " " & lines[line][0 ..< min(col, lines[line].len)].strip
+
+func nxHeaderKw(w: string): bool =
+  ## a word that starts a routine's header
+  # (a case, not `w in [a const array]`: such a const here made Nim 2.2.12 report consteval's `{ctInt, ctFloat}`
+  # as ambiguous)
+  case w
+  of "proc", "func", "method", "iterator", "converter", "template", "macro": true
+  else: false
+
+func nxHeaderParen(lines: seq[string], pl, pc: int): bool =
+  ## is the `(` at (pl, pc) the one of a routine's parameters: `proc p(`, `func q*[T](`, `` proc `+`( ``, `proc (`
+  # before the `(`: the keyword, the name (backquoted, exported), the generic parameters — or `proc(` alone
+  let code = nxUncommented(lines[pl])
+  if pc >= code.len: return                       # (a `(` in a comment)
+  var s = code[0 ..< pc].strip(leading = false)
+  if s.endsWith("]"):
+    var d = 0
+    var k = s.high
+    while k >= 0:
+      if s[k] == ']': inc d
+      elif s[k] == '[':
+        dec d
+        if d == 0: break
+      dec k
+    if k <= 0: return
+    s = s[0 ..< k].strip(leading = false)
+  if s.endsWith("*"): s = s[0 ..< ^1].strip(leading = false)
+  if s.endsWith("`"):
+    let k = s.rfind('`', last = s.high - 1)
+    if k < 0: return
+    s = s[0 ..< k].strip(leading = false)
+  else:
+    var k = s.len
+    while k > 0 and nxIsIdent(s[k - 1]): dec k
+    if k == s.len: return
+    if not nxHeaderKw(s[k ..< s.len]): s = s[0 ..< k].strip(leading = false)    # (a name: the keyword before it)
+  var w = s.len
+  while w > 0 and nxIsIdent(s[w - 1]): dec w
+  nxHeaderKw(s[w ..< s.len]) and (w == 0 or s[w - 1] in {' ', '(', '[', ',', '=', ':'})
+
+proc nxHeaderParamType(lines: seq[string], line, col: int): (bool, string) =
+  ## where a parameter's default starts in a routine's header — `proc p(a: int, c: Color = `, also over several
+  ## lines, `func q*[T](x: T; n = ` —: (true, the type written for it; "" none: the default makes it); (false, "")
+  ## when (line, col) is not in a routine's parameters
+  let (pl, pc) = nxOpenParen(lines, line, col)
+  if pl < 0 or not nxHeaderParen(lines, pl, pc): return
+  # the parameter being written: `names: T = ` → T
+  let cur = nxSplitTop(nxJoinedFrom(lines, pl, pc, line, col), {',', ';'})[^1].strip
+  if not cur.endsWith("="): return
+  let body = cur[0 ..< ^1].strip
+  let c = nxFindTop(body, ':')
+  result[0] = true
+  if c < 0: return
+  var t = nxStripPragma(body[c + 1 .. ^1])[0].strip
+  if t.startsWith("static[") and t.endsWith("]"): t = t[7 ..< ^1].strip
+  result[1] = t
+
 proc nxExpectedType*(f: NxFile, sc: NxScope, lines: seq[string], locals: seq[NxSym], line, col: int,
                      h: NxSigHelp): string =
   ## the type the code wants where a word starts at (line, col) — "" when it cannot be told: an argument of a
-  ## call where every overload that fits so far wants the same type there, a field in an object constructor,
-  ## `let x: T = `, `x = ` (x's type), `result = `, `return ` / `yield `, `==` / `!=` / `<` … against a typed operand
+  ## call where every overload that fits so far wants the same type there (the call may have started on a line
+  ## above), a field in an object constructor, a parameter's default in a routine's header, `let x: T = `, `x = `
+  ## (x's type), `result = `, `return ` / `yield `, `==` / `!=` / `<` … against a typed operand
   let text = lines[line]
   let b = text[0 ..< min(col, text.len)].strip(leading = false)
-  if b.len == 0: return
-  # the arguments written so far in the call around (on this line), and the name of this one if it has one
+  if b.len == 0 and h.overloads.len == 0: return
+  # a parameter's default in a routine's header: the parameter's type (none written: nothing expected)
+  if b.len > 1 and b[^1] == '=' and b[^2] notin {'<', '>', '!', '=', '+', '-', '*', '/', '&', '|', '^', '%', '~', '.',
+                                                  ':'}:
+    let (inHeader, pt) = nxHeaderParamType(lines, line, col)
+    if inHeader: return pt
+  # the arguments written so far in the call around (it may have started on a line above), and the name of this
+  # one if it has one
   var callArgs: seq[string]
   var argName = ""
   var argStart = false
@@ -402,8 +519,21 @@ proc nxExpectedType*(f: NxFile, sc: NxScope, lines: seq[string], locals: seq[NxS
         dec q
         while q >= 0 and b[q] != '"': dec q
       dec q
+    var inner = ""
+    var inCall = false
     if q >= 0 and b[q] == '(':
-      callArgs = nxSplitTop(b[q + 1 .. ^1] & " ", {','})
+      if nxHeaderParen(lines, line, q): return            # (a routine's own parameters: `proc p(a: int, b: `)
+      inner = b[q + 1 .. ^1]
+      inCall = true
+    elif q < 0:
+      # no bracket left open on this line: the call started on a line above — its arguments so far, joined
+      let (pl, pc) = nxOpenParen(lines, line, col)
+      if pl >= 0 and pl < line:
+        if nxHeaderParen(lines, pl, pc): return
+        inner = nxJoinedFrom(lines, pl, pc, line, col)
+        inCall = true
+    if inCall:
+      callArgs = nxSplitTop(inner & " ", {','})
       let cur = callArgs.pop.strip            # (the one being written)
       if cur.len == 0: argStart = true
       elif cur.len > 1 and cur[^1] in {'=', ':'} and cur[^2] notin NxOpChars:
@@ -463,6 +593,7 @@ proc nxExpectedType*(f: NxFile, sc: NxScope, lines: seq[string], locals: seq[NxS
       if want.len == 0: want = pt
       elif nxNorm(nxFlat(want).replace(" ", "")) != nxNorm(nxFlat(pt).replace(" ", "")): return   # (two types wanted)
     return (if any: want else: "")
+  if b.len == 0: return
   if b.endsWith("=") and not b.endsWith("==") and (b.len < 2 or b[^2] notin {'<', '>', '!', '=', '+', '-', '*', '/', '&',
                                                                               '|', '^', '%', '~', '.', ':'}):
     let lhs = b[0 ..< ^1].strip
@@ -715,7 +846,9 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
           if p.startsWith("typedesc") or p.startsWith("type "):
             let arg = if p.startsWith("typedesc[") and p.endsWith("]"): p[9 ..< ^1].strip else: ""
             if arg.len == 0 or arg == v.typeName or arg in nxGenericNames(s.generics) or
-               (arg.len <= 2 and arg[0] in {'A'..'Z'}):
+               (arg.len <= 2 and arg[0] in {'A'..'Z'}) or
+               ('[' in arg and nxNorm(nxBaseName(arg)) == nxNorm(nxBaseName(v.typeName)) and
+                nxCompat(sc, arg, s.generics, v.typeName) > 0):     # (typedesc[Future[T]] for Future[void])
               tprocs.add r
       nxAddRefs(result.items, f, tprocs, ufcs = true, recv = "typedesc[" & v.typeName & "]")
       return
@@ -749,7 +882,13 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
                                            local: NxSym(name: t, kind: nxType, typ: "converts to " & t))
       var numLike = conv.len > 0 and ra != "string" and ra != "cstring"
       var ownDistinct = ""
-      for r in nxLookup(sc, nxBaseName(st)):
+      var tsyms: seq[NxRef]
+      if '.' in st:
+        # posix.Time (another module's type named like one of this module's): that module's
+        let (r0, _) = nxObjectDef(sc, st)
+        if r0.file != nil: tsyms.add r0
+      else: tsyms = nxLookup(sc, nxBaseName(st))
+      for r in tsyms:
         if r.sym.kind == nxType and r.sym.typ.strip.startsWith("distinct "):
           ownDistinct = nxBaseName(r.sym.typ.strip[9 .. ^1])
           if conv.len == 0 and (nxResolveAlias(sc, ownDistinct) in NxInts or ownDistinct in NxInts):
@@ -810,6 +949,29 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     nxAddRefs(result.items, f, exact, ufcs = true, recv = typ)
     nxAddRefs(result.items, f, related, ufcs = true, rankBias = 1, recv = typ)
     nxAddRefs(result.items, f, generic, ufcs = true, rankBias = 2, recv = typ)
+    # a converter from this type (httpcore's HttpHeaderValues → string): what the type it makes takes, after
+    # the type's own (contentLengthHeader.parseInt)
+    # (one written for this very type: a converter from a type class or union — pixie's SomePaint, which strings
+    # are — would bring every routine of what it makes to every string)
+    var convTo: seq[string]
+    for r in exact:
+      if r.sym.kind == nxConverter and r.sym.ret.len > 0 and r.sym.generics.len == 0 and
+         nxNorm(nxBaseName(nxStripMods(r.sym.params[0].typ))) == nxNorm(nxBaseName(nxStripMods(typ))) and
+         nxNorm(nxStripMods(r.sym.ret)) != nxNorm(nxStripMods(typ)) and r.sym.ret notin convTo:
+        convTo.add r.sym.ret
+    if convTo.len > 0:
+      var have: HashSet[string]
+      for lst in [exact, related, generic]:
+        for r in lst: have.incl r.sym.name
+      for u in convTo[0 ..< min(convTo.len, 3)]:
+        var viaConv: seq[NxRef]
+        for r in sc.refs:
+          let s = r.sym
+          if s.kind notin NxRoutineKinds or s.kind == nxConverter or s.params.len == 0 or s.name in have: continue
+          if nxCompatP(sc, s.params[0], s.generics, u) >= 2:
+            viaConv.add r
+            have.incl s.name
+        nxAddRefs(result.items, f, viaConv, ufcs = true, rankBias = 2, recv = u)
     # a concept (x: Shape, or [T: Shape]): what it asks of its type comes first
     if result.known:
       let need = nxConceptNeeds(f, sc, lines, line, nxStripMods(typ))
@@ -825,7 +987,13 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     if result.known:
       let rs = ws - 1 - recv.len
       if rs >= 0 and joined == text[0 ..< ws - 1] and text[rs ..< ws - 1] == recv:
-        let before = text[0 ..< rs].strip(leading = false)
+        var before = text[0 ..< rs].strip(leading = false)
+        if before.len == 0 and line > 0:
+          # (an argument on a line of its own: what the line above ends with — `f(a,⏎  p.`)
+          var l2 = line - 1
+          while l2 > 0 and line - l2 < 5 and nxCodeOf(lines[l2]).len == 0: dec l2
+          let above = nxCodeOf(lines[l2])
+          if above.len > 0 and above[^1] in {'(', ','}: before = above
         if before.len > 0 and (before[^1] in {'(', ',', '=', ':', '<', '>'} or before.endsWith("return") or
                                before.endsWith("yield")):
           let h2 = if before[^1] in {'(', ',', '=', ':'}: nxSignatureHelp(f, lines, line, rs) else: NxSigHelp()

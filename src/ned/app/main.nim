@@ -528,7 +528,7 @@ proc projectRootOf(file: string): string =
     d = up
   ""
 
-proc argNum(s: string): int =
+func argNum(s: string): int =
   ## a line or column from the command line; absurd numbers become "the end"
   try: min(parseInt(s), 100_000_000)
   except ValueError: 100_000_000

@@ -7,7 +7,7 @@ proc nxExpandAlias*(sc: NxScope, t: string): string
 proc nxAlternatives*(t: string): seq[string]
 proc nxRangeText*(f: NxFile, t: string): string
 
-proc nxStripValMods*(t: string): string =
+func nxStripValMods*(t: string): string =
   ## "var Foo" / "sink Foo" / "lent Foo" → "Foo", but a ref or ptr stays: what a routine's result really is
   result = t.strip
   var changed = true
@@ -21,7 +21,7 @@ proc nxStripValMods*(t: string): string =
       result = result[6 ..< result.high].strip
       changed = true
 
-proc nxStripMods*(t: string): string =
+func nxStripMods*(t: string): string =
   ## "var seq[int]" → "seq[int]", "sink Foo" → "Foo", "ref Foo" → "Foo", "static[int]" → "int"
   result = t.strip
   var changed = result.len > 0 and result[0] in {'v', 's', 'l', 'r', 'p', 'o'}   # (most types: nothing to strip)
@@ -344,8 +344,8 @@ proc nxCompat*(sc: NxScope, paramType, generics, recv: string, depth = 0): int =
     # T.init(…): typedesc[Moment] is not typedesc[AsyncStreamWriterVtbl]
     let c = nxCompat(sc, p[9 ..< ^1], generics, recv[9 ..< ^1], depth + 1)
     return (if c == 0: 0 else: max(2, c))       # (typedesc[T] fits a type better than a bare T)
-  var pb = nxBaseName(p)
-  var rb = nxBaseName(recv)
+  let pb = nxBaseName(p)
+  let rb = nxBaseName(recv)
   if rb.len == 0: return 1
   if nxNorm(pb) == nxNorm(rb) or (pb in ["float", "float64"] and rb in ["float", "float64"]): return 3
   if pb.len > 0 and pb notin ["openArray", "varargs", "auto", "typed", "untyped", "any"] and
@@ -443,7 +443,7 @@ proc nxSubst*(t: string, b: Table[string, string]): string =
       result.add t[i]
       inc i
 
-proc nxLiteralType*(v: string): string =
+func nxLiteralType*(v: string): string =
   ## the type of a literal default value: 1 → int, 1.0 → float, "x" → string …
   let s = v.strip
   if s.len == 0: return ""
@@ -515,7 +515,7 @@ type NxVal* = object
 
 proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, depth: int): NxVal
 
-proc nxFindRange*(s: string): int =
+func nxFindRange*(s: string): int =
   ## a top-level `..` (a .. b, a ..< b), or -1
   var depth = 0
   var i = 0
@@ -569,7 +569,7 @@ proc nxIsGenericName*(t: string, generics: string): bool =
   let b = nxStripMods(t)
   b.len > 0 and b.find('[') < 0 and b in nxGenericNames(generics)
 
-proc nxArgsFit*(s: NxSym, nargs: int): bool =
+func nxArgsFit*(s: NxSym, nargs: int): bool =
   ## can `s` be called with `nargs` arguments (defaults and varargs counted; -1: not known)
   if nargs < 0: return true
   var req = 0
@@ -582,11 +582,103 @@ proc nxArgsFit*(s: NxSym, nargs: int): bool =
 proc nxInferAuto*(fp: NxFile, s: NxSym, depth: int): string
 proc nxVisible*(f: NxFile, r: NxRef): bool
 
+func nxAsyncPragma(pragmas: string): int =
+  ## where the `async` pragma stands in a routine's pragmas (`async`, `async: (raises: […])`), -1 none
+  var k = pragmas.find("async")
+  while k >= 0:
+    let e = k + 5
+    if (k == 0 or pragmas[k - 1] in {' ', ',', '\t'}) and (e >= pragmas.len or pragmas[e] in {' ', ',', ':', '\t'}):
+      return k
+    k = pragmas.find("async", k + 1)
+  -1
+
+proc nxAsyncParams(pragmas: string, k: int): seq[(string, string)] =
+  ## chronos' `async: (raises: [A, B], raw: true)` at pragmas[k]: its (name, value) pairs
+  var j = k + 5
+  while j < pragmas.len and pragmas[j] == ' ': inc j
+  if j >= pragmas.len or pragmas[j] != ':': return
+  inc j
+  while j < pragmas.len and pragmas[j] == ' ': inc j
+  if j >= pragmas.len or pragmas[j] != '(': return
+  let c = nxMatchClose(pragmas, j)
+  if c <= j: return
+  for part in nxSplitTop(pragmas[j + 1 ..< c], {','}):
+    let p = part.strip
+    let q = p.find(':')
+    if q > 0: result.add (p[0 ..< q].strip, p[q + 1 .. ^1].strip)
+
+proc nxAsyncResult*(ret, pragmas: string): string =
+  ## what calling a routine gives, with what its `async` macro makes of it: chronos' `{.async: (raises: [A]).}`
+  ## turns its Future[T] (none written: Future[void]) into an InternalRaisesFuture[T, (A,)] (`raises: []`:
+  ## InternalRaisesFuture[T, void]); a plain `{.async.}` with no result written returns a Future[void]
+  if pragmas.len == 0: return ret
+  let k = nxAsyncPragma(pragmas)
+  if k < 0: return ret
+  for (n, v) in nxAsyncParams(pragmas, k):
+    if n == "raises":
+      let r = nxStripMods(ret)
+      let t = if r.len == 0: "void"
+              elif nxBaseName(r) == "Future" and nxTypeArgs(r).len == 1: nxTypeArgs(r)[0]
+              else: ""
+      if t.len == 0: return ret
+      return "InternalRaisesFuture[" & t & ", " & nxRaisesTuple(v) & "]"
+  if ret.len == 0: "Future[void]" else: ret
+
+proc nxRawRaises(pragmas: string): bool =
+  ## chronos' `{.async: (raw: true, raises: […]).}`: its macro declares InternalRaisesFutureRaises in the body
+  if pragmas.len == 0: return false
+  let k = nxAsyncPragma(pragmas)
+  if k < 0: return false
+  var raw, raises = false
+  for (n, v) in nxAsyncParams(pragmas, k):
+    if n == "raw" and v == "true": raw = true
+    if n == "raises": raises = true
+  raw and raises
+
+proc nxNumConv(sc: NxScope, paramType, recv: string): bool =
+  ## a number of one type going where another is wanted (int32 → int, uint32 → int64, float32 → float): an integral
+  ## conversion, which Nim ranks below a generic parameter that takes the number as it is
+  proc canon(t: string): string =
+    ## (a subrange of int — Natural, Positive, range[…] — is an int; the C and Biggest names the types they are)
+    case t
+    of "Natural", "Positive", "range", "clong": "int"
+    of "byte": "uint8"
+    of "BiggestInt": "int64"
+    of "BiggestUInt": "uint64"
+    of "cint": "int32"
+    of "csize_t": "uint"
+    of "float64", "cdouble", "BiggestFloat": "float"
+    of "cfloat": "float32"
+    else: t
+  let pb = nxBaseName(nxStripMods(paramType))
+  let rb = nxBaseName(nxStripMods(recv))
+  if nxNorm(pb) == nxNorm(rb): return false
+  let pa = canon(nxBaseName(nxResolveAlias(sc, pb)))
+  let ra = canon(nxBaseName(nxResolveAlias(sc, rb)))
+  if pa == ra or pa == "Ordinal" or ra == "Ordinal" or canon(pb) == canon(rb): return false
+  (pa in NxInts or pa in NxFloats) and (ra in NxInts or ra in NxFloats)
+
+proc nxRestFit(f: NxFile, sc: NxScope, locals: seq[NxSym], s: NxSym, argExprs: seq[string], argT: var seq[string],
+               known: var seq[bool], line, depth: int): int =
+  ## how well routine `s` takes the arguments after the first (the sum of what nxCompat says), -1 when one whose
+  ## type is known does not fit (the types are worked out once, into argT)
+  for j in 0 ..< argExprs.len:
+    let e = argExprs[j]
+    if j + 1 >= s.params.len or nxFindTop(e, '=') >= 0: continue
+    if not known[j]:
+      known[j] = true
+      argT[j] = nxTypeOfExpr(f, sc, locals, e, line, depth + 1).typ
+    if argT[j].len == 0 or (argT[j].len <= 2 and argT[j][0] in {'A'..'Z'}): continue     # (unknown, or a T)
+    let c = nxCompatP(sc, s.params[j + 1], s.generics, argT[j])
+    if c == 0: return -1
+    result += c
+
 proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv: string, line, depth: int,
-                genArgs: seq[string] = @[], nargs = -1, argExprs: seq[string] = @[]): string =
+                genArgs: seq[string] = @[], nargs = -1, argExprs: seq[string] = @[], recvLit = false): string =
   ## the result type of calling `name`, with `recv` as its first argument when that is known (and `nargs`
   ## arguments in all, receiver included, when that is known: readLine(f) is not readLine(f, s)); `argExprs`, the
-  ## arguments after the first, tell overloads apart when the first does not: recv(sock, 10) is not recv(sock, buf, 10)
+  ## arguments after the first, tell overloads apart when the first does not: recv(sock, 10) is not recv(sock, buf, 10).
+  ## `recvLit`: the first argument is an integer literal (it goes into any number type: max(0, x) with x a float32)
   var recv = recv
   if recv.len > 0 and nxTypeArgs(nxStripMods(recv)).len == 0 and nxStripMods(recv) notin NxInts and
      nxStripMods(recv) notin NxFloats and nxStripMods(recv) notin ["string", "char", "bool", "cstring"]:
@@ -597,29 +689,42 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
     # a routine declared inside this one: what its header says
     let s = locals[k]
     if s.kind in NxRoutineKinds and nxNorm(s.name) == nxNorm(name) and s.line <= line:
-      if s.ret.len > 0 and s.ret notin ["auto", "untyped", "typed"] and s.generics.len == 0: return nxStripMods(s.ret)
+      let lr = nxAsyncResult(s.ret, s.pragmas)
+      if lr.len > 0 and lr notin ["auto", "untyped", "typed"] and s.generics.len == 0: return nxStripMods(lr)
       break
   var best: NxRef
   var bestScore = -1
+  var bestRaw = -1
   var rets: HashSet[string]
   var anyFits = false
   var cands: seq[(NxRef, int)]
+  template hasRet(s: NxSym): bool =
+    (s.ret.len > 0 or (s.pragmas.len > 0 and nxAsyncPragma(s.pragmas) >= 0))     # ({.async.}: a Future[void])
   for r in nxLookup(sc, name):
     let s = r.sym
-    if s.kind in NxRoutineKinds and s.kind != nxIterator and s.ret.len > 0 and nxArgsFit(s, nargs): anyFits = true
+    if s.kind in NxRoutineKinds and s.kind != nxIterator and hasRet(s) and nxArgsFit(s, nargs): anyFits = true
   for r in nxLookup(sc, name):
     let s = r.sym
-    if s.kind notin NxRoutineKinds or s.kind == nxIterator or s.ret.len == 0: continue
+    if s.kind notin NxRoutineKinds or s.kind == nxIterator or not hasRet(s): continue
     if anyFits and not nxArgsFit(s, nargs): continue
     rets.incl s.ret
     var score = 1
     if recv.len > 0: score = (if s.params.len == 0: 0 else: nxCompatP(sc, s.params[0], s.generics, recv))
+    if recvLit and score < 2 and s.params.len > 0:
+      let pa = nxResolveAlias(sc, nxBaseName(nxStripMods(s.params[0].typ)))
+      if pa in NxInts or pa in NxFloats: score = 2            # (an integer literal goes into any number type)
     let generic = s.ret in ["auto", "untyped", "typed"] or nxIsGenericName(s.ret, s.generics)
-    let total = score * 2 + (if generic: 0 else: 1)
+    let raw = score * 2 + (if generic: 0 else: 1)
+    var total = raw
+    if score == 2 and not recvLit and s.params.len > 0 and nxNumConv(sc, s.params[0].typ, recv):
+      total = 1             # (min(x, y: int) for a uint32: a conversion, after min[T](x, y: T) — Nim's order)
     cands.add (r, total)
     if total > bestScore:
       bestScore = total
+      bestRaw = raw         # (what the first argument says of it: how far the answer is trusted below)
       best = r
+  var argT = newSeq[string](argExprs.len)
+  var known = newSeq[bool](argExprs.len)
   if argExprs.len > 0 and cands.len > 1:
     # several overloads take the first argument: the others decide
     var tied: seq[NxRef]
@@ -629,29 +734,31 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
         tied.add r
         tiedRets.incl r.sym.ret
     if tied.len > 1 and tiedRets.len > 1:
-      var argT = newSeq[string](argExprs.len)
-      var known = newSeq[bool](argExprs.len)
       var best2 = -1
       for r in tied:
-        var sc2 = 0
-        var ok = true
-        for j in 0 ..< argExprs.len:
-          let e = argExprs[j]
-          if j + 1 >= r.sym.params.len or nxFindTop(e, '=') >= 0: continue
-          if not known[j]:
-            known[j] = true
-            argT[j] = nxTypeOfExpr(f, sc, locals, e, line, depth + 1).typ
-          if argT[j].len == 0: continue
-          let c = nxCompatP(sc, r.sym.params[j + 1], r.sym.generics, argT[j])
-          if c == 0:
-            ok = false
-            break
-          sc2 += c
-        if ok and sc2 > best2:
+        let sc2 = nxRestFit(f, sc, locals, r.sym, argExprs, argT, known, line, depth)
+        if sc2 >= 0 and sc2 > best2:
           best2 = sc2
           best = r
+    elif recvLit and best.file != nil and nxRestFit(f, sc, locals, best.sym, argExprs, argT, known, line, depth) < 0:
+      # an integer literal first, and the one it picked does not take the others (max(0, x) with x a float32 is
+      # not the int one): the best of those that do
+      var alt: NxRef
+      var altT = -1
+      var altFit = -1
+      for (r, t) in cands:
+        if t < altT: continue
+        let fit = nxRestFit(f, sc, locals, r.sym, argExprs, argT, known, line, depth)
+        if fit >= 0 and (t > altT or fit > altFit):
+          alt = r
+          altT = t
+          altFit = fit
+      if alt.file != nil and altT >= 2:
+        best = alt
+        bestScore = altT
+        bestRaw = altT
   if best.file == nil: return ""
-  if bestScore < 2:
+  if bestRaw < 2:
     # nothing accepts that argument (our guess about it may be off): trust only a result all overloads share
     if rets.len != 1: return ""
   let s = best.sym
@@ -683,7 +790,7 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
       if needs:
         let at = nxTypeOfExpr(f, sc, locals, e, line, depth + 1).typ
         if at.len > 0: nxUnify(pt, at, names, b)
-  var rt = nxStripValMods(nxSubst(s.ret, b))
+  var rt = nxStripValMods(nxSubst(nxAsyncResult(s.ret, s.pragmas), b))
   for kw in ["type(", "typeof("]:
     if rt.startsWith(kw) and rt.endsWith(")"):
       # proc dir*[T](at, to: GVec234[T]): type(to) — the type of that argument
@@ -714,13 +821,20 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
   if rt == "auto":
     rt = nxStripMods(nxSubst(nxInferAuto(best.file, s, depth + 1), b))
     if rt.len == 0: return ""
+    if s.kind == nxTemplate and nxNorm(s.name) == nxNorm("newFuture") and nxBaseName(rt) == "Future" and
+       nxTypeArgs(rt).len == 1 and f != nil:
+      # chronos' newFuture[T]() in a routine `{.async: (raw: true, raises: […]).}`, whose macro declares the
+      # InternalRaisesFutureRaises the template looks for: a future that carries the raises list
+      let ri = nxEnclosing(f, line)
+      if ri >= 0 and nxRawRaises(f.syms[ri].pragmas):
+        return "InternalRaisesFuture[" & nxTypeArgs(rt)[0] & ", InternalRaisesFutureRaises]"
   if rt in ["auto", "untyped", "typed", "typedesc"]: return ""
   if nxIsGenericName(rt, s.generics):
     # unbound `T`: the receiver's element is the usual answer (seq[T].pop)
     return (if recv.len > 0: nxElemType(recv) else: "")
   nxQualified(sc, best.file, rt)
 
-proc nxProcRet*(t: string): string =
+func nxProcRet*(t: string): string =
   ## what a proc type returns: "proc (x: int): string {.closure.}" → "string"
   let s = t.strip
   let a = s.find('(')
@@ -740,12 +854,13 @@ proc nxCommonRet*(sc: NxScope, name: string): string =
   for r in nxLookup(sc, name):
     let s = r.sym
     if s.kind notin NxRoutineKinds or s.kind == nxIterator: continue
-    if s.ret.len == 0 or s.ret in ["auto", "untyped", "typed"] or nxIsGenericName(nxStripMods(s.ret), s.generics): return ""
+    let ret = nxAsyncResult(s.ret, s.pragmas)
+    if ret.len == 0 or ret in ["auto", "untyped", "typed"] or nxIsGenericName(nxStripMods(ret), s.generics): return ""
     var hasGen = false
     for g in nxGenericNames(s.generics):
-      if s.ret.find(g) >= 0: hasGen = true
+      if ret.find(g) >= 0: hasGen = true
     if hasGen: return ""
-    rets.incl nxStripMods(s.ret)
+    rets.incl nxStripMods(ret)
   if rets.len == 1:
     for x in rets: return x
   ""
@@ -786,7 +901,7 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
       head = x[0 ..< j].strip
       args = x[j + 1 ..< x.high]
       called = true
-  var e = head.len
+  let e = head.len
   var a = e
   while a > 0 and nxIsIdent(head[a - 1]): dec a
   let name = head[a ..< e]
@@ -879,6 +994,22 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
       return (if slot < parts.len: parts[slot] else: "")
     return el
   of "countup", "countdown": return (if ct.len > 0: ct else: "int")
+  of "fields", "fieldPairs":
+    # system's magic iterators: each field in turn — one type when they all have it, else not known here (a
+    # `when f is string:` inside says it there; not the RootObj the iterator is declared with)
+    if ct.len == 0 or (called and nxSplitTop(args, {','}).len > 1): return ""
+    var ts: HashSet[string]
+    let st = nxStripMods(ct)
+    if st.startsWith("(") or st.startsWith("tuple["):
+      for t in nxTupleTypes(st): ts.incl nxStripMods(t)
+    else:
+      for fr in nxFields(sc, ct): ts.incl nxStripMods(fr.sym.typ)
+    var one = ""
+    if ts.len == 1:
+      for t in ts: one = t
+    if itName == "fields": return (if slots <= 1: one else: "")
+    if slots == 2: return (if slot == 0: "string" else: one)
+    return (if slots <= 1 and one.len > 0: "tuple[key: string, val: " & one & "]" else: "")
   of "":
     if slots >= 2:
       let (k, v) = kv
@@ -1136,7 +1267,7 @@ proc nxLambdaType*(f: NxFile, sc: NxScope, locals: seq[NxSym], fn, argT: string,
     return nxProcRet(sig)
   let arrow = t.find("=>")
   if arrow > 0:
-    var ps = t[0 ..< arrow].strip.strip(chars = {'(', ')'})
+    let ps = t[0 ..< arrow].strip.strip(chars = {'(', ')'})
     let body = t[arrow + 2 .. ^1].strip
     var loc = locals
     let names = nxSplitTop(ps, {','})
@@ -1257,10 +1388,14 @@ proc nxWhenIs(f: NxFile, sc: NxScope, locals: seq[NxSym], cond: string, line, de
   let xt = nxTypeOfName(f, sc, locals, x, line, depth + 1).typ
   if xt.len == 0 or '|' in xt: return
   if nxNorm(nxBaseName(nxStripMods(xt))) == nxNorm(nxBaseName(t)): return 1
-  # (not that type: only when both are types of their own, not a class like SomeInteger or `ref`)
+  if nxIsSubtype(sc, xt, t): return 1                   # (an object of a type inheriting from it)
+  # (not that type: only when both are types of their own — objects, refs to them (Socket, AsyncSocket), distinct
+  # types, enums — not a class like SomeInteger or `ref`)
   for ty in [t, xt]:
     let (r, def) = nxObjectDef(sc, ty)
-    if r.file == nil or not (def.contains("object") or def.startsWith("distinct") or def.startsWith("enum")): return
+    if r.file == nil or not (def.contains("object") or def.startsWith("distinct") or def.startsWith("enum") or
+                             ((def.startsWith("ref ") or def.startsWith("ptr ")) and ' ' notin def[4 .. ^1].strip)):
+      return
   result = 0
 
 proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, depth: int): NxVal =
@@ -1633,6 +1768,7 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
         v = NxVal(typ: tn)
       elif v.routine.len > 0:
         var recv = recvForCall
+        var recvLit = false
         let argText = s[i + 1 ..< ce]
         if recv.len == 0:
           # the first argument picks the overload and binds generic parameters:  some(5) → Option[int]
@@ -1641,6 +1777,10 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
             let a0 = nxTypeOfExpr(f, sc, locals, ps[0], line, depth + 1)
             recv = if a0.typ.len == 0 and a0.typeName.len > 0: "typedesc[" & a0.typeName & "]"   # high(int8)
                    else: a0.typ
+            # (an integer literal and more arguments: max(0, x) — the others say which number type)
+            let p0 = ps[0].strip
+            recvLit = ps.len > 1 and recv == "int" and p0.len > 0 and p0[0] in Digits and
+                      p0.allCharsInSet(Digits + {'_'})
         let (known, kt) = nxTemplateCall(f, sc, locals, v.routine, recvForCall, argText, line, depth)
         if known:
           v = NxVal(typ: kt)
@@ -1654,7 +1794,8 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
             if a.strip.len > 0:
               inc nargs
               if nargs > 1: rest.add a.strip
-          v = NxVal(typ: nxCallType(f, sc, locals, v.routine, recv, line, depth, genArgs, nargs, rest))
+          v = NxVal(typ: nxCallType(f, sc, locals, v.routine, recv, line, depth, genArgs, nargs, rest,
+                                    recvLit = recvLit and recvForCall.len == 0))
       elif v.typ.len > 0:
         # calling a proc-typed value (or an alias of a proc type): what it returns
         var pt = nxStripMods(v.typ)
@@ -1662,7 +1803,16 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
           for r in nxTypeSyms(sc, nxBaseName(pt)):
             if r.sym.typ.strip.startsWith("proc"): pt = r.sym.typ.strip
             break
-        v = NxVal(typ: (if pt.startsWith("proc"): nxProcRet(pt) else: ""))
+        var prt = if pt.startsWith("proc"): nxProcRet(pt) else: ""
+        if pt.startsWith("proc") and "async" in pt:
+          # (proc (…) {.async: (raises: […]).}: what chronos' macro makes of its result)
+          let pa = pt.find('(')
+          let pc = if pa >= 0: nxMatchClose(pt, pa) else: -1
+          let pp = if pc > 0: pt.find("{.", pc) else: -1
+          if pp > 0:
+            let pe = pt.find(".}", pp)
+            prt = nxAsyncResult(prt, pt[pp + 2 ..< (if pe > pp: pe else: pt.len)].strip)
+        v = NxVal(typ: prt)
       i = ce + 1
       recvForCall = ""
       genArgs.setLen(0)
@@ -1714,7 +1864,9 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
           if el.len == 0 and v.typ.len > 0:
             let ex = nxExpandAlias(sc, v.typ)
             if ex.len > 0: el = nxElemType(ex)
-          if el.len == 0 and v.typ.len > 0: el = nxCallType(f, sc, locals, "[]", v.typ, line, depth)   # its own `[]`
+          if el.len == 0 and v.typ.len > 0 and
+             nxStripMods(v.typ) notin ["seq", "openArray", "array", "varargs", "set", "UncheckedArray"]:
+            el = nxCallType(f, sc, locals, "[]", v.typ, line, depth)   # its own `[]` (a bare `seq`: not known)
           v = NxVal(typ: el)
       i = ce + 1
     elif c == '{':
@@ -1776,10 +1928,28 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
         var bt = v.typ
         if nxTypeArgs(nxStripMods(bt)).len == 0:
           let ex = nxExpandAlias(sc, bt)            # HttpClient = HttpClientBase[Socket]: socket is a Socket
-          if ex.len > 0: bt = ex
+          if ex.len > 0:
+            let xs = nxStripMods(ex)
+            if xs.startsWith("tuple[") and xs.endsWith("]"):
+              # Date = tuple[year, month: int]: d.month is that field (not a proc month(DateTime))
+              for p in nxParseParams(xs[6 ..< xs.high]):
+                if nxNorm(p.name) == nxNorm(m):
+                  v = NxVal(typ: p.typ)
+                  found = true
+                  break
+              if found:
+                continue
+            bt = ex
         for fr in nxFields(sc, bt):
           if nxNorm(fr.sym.name) == nxNorm(m) and nxVisible(f, fr):     # (a private field of another module: its proc)
-            v = NxVal(typ: nxSubst(fr.sym.typ, nxTypeBindings(sc, bt)))
+            var ft = nxSubst(fr.sym.typ, nxTypeBindings(sc, bt))
+            if ft.len in 1 .. 2 and ft[0] in {'A'..'Z'} and nxTypeArgs(nxStripMods(bt)).len > 0:
+              # Slice[int] = HSlice[int, int]: a generic alias's own arguments bind the type it stands for (b: U)
+              let ex = nxExpandAlias(sc, bt)
+              if ex.len > 0: ft = nxSubst(fr.sym.typ, nxTypeBindings(sc, ex))
+            # (a type named in another module, as that one means it: posix's Timespec.tv_sec is a posix.Time here
+            # in times, which has a Time of its own)
+            v = NxVal(typ: nxQualified(sc, fr.file, ft))
             found = true
             break
         if not found:

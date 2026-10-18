@@ -18,7 +18,7 @@ proc viewIcon(v: SideView): string =
   of svTimeline: ic("timeline")
   of svTodos: ic("todo")
 
-proc viewTitle(v: SideView): string =
+func viewTitle(v: SideView): string =
   case v
   of svFiles: "EXPLORER"
   of svSearch: "SEARCH"
@@ -30,7 +30,7 @@ proc viewTitle(v: SideView): string =
   of svTimeline: "TIMELINE"
   of svTodos: "TODOS"
 
-proc sideItem(text: string, role = 0, icon = "", detail = "", action: Action = nil, path = "", line = -1,
+func sideItem(text: string, role = 0, icon = "", detail = "", action: Action = nil, path = "", line = -1,
               depth = 0, data = ""): SideItem =
   SideItem(text: text, role: role, icon: icon, detail: detail, action: action, path: path, line: line,
            depth: depth, data: data)
@@ -165,7 +165,7 @@ proc buildProjectItems(): seq[SideItem] =
   result.add toolLine("rg", "pkg install ripgrep (fast search)")
   result.add toolLine("curl", "pkg install curl (AI assistant)")
 
-proc gitRole(c: char): int = (if c in {'A', '?'}: 5 elif c == 'D': 3 elif c == 'M': 4 else: 1)
+func gitRole(c: char): int = (if c in {'A', '?'}: 5 elif c == 'D': 3 elif c == 'M': 4 else: 1)
 
 proc gitPickRepoAct(root: string, quiet = false): Action =
   result = proc() =
@@ -324,7 +324,7 @@ proc refreshTimeline() =
     timelineLines = j.output.strip.splitLines
     needRender = true)
 
-proc commitAct(hash, path: string): Action =
+func commitAct(hash, path: string): Action =
   ## a version from the file's history: side by side with your file
   proc() =
     let root = findGitRoot(parentDir(path))
@@ -353,7 +353,7 @@ proc buildTimelineItems(): seq[SideItem] =
 
 # ── search view: the query lives in the dock, results grouped by file ──
 
-proc collapseAct(p: string): Action =
+func collapseAct(p: string): Action =
   proc() =
     if p in searchCollapsed: searchCollapsed.excl p else: searchCollapsed.incl p
 
@@ -370,6 +370,6 @@ proc buildSearchItems(): seq[SideItem] =
       result.add sideItem(relPath(h.path), 0, (if h.path in searchCollapsed: ic("chevR") else: ic("chevD")),
                           $counts[h.path], collapseAct(h.path), data = "file")
     if h.path in searchCollapsed: continue
-    var t = h.text.strip
+    let t = h.text.strip
     result.add sideItem(t, 0, "", $(h.line + 1), nil, h.path, h.line, 1, "hit")
     result[^1].col = h.col

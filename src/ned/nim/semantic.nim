@@ -24,7 +24,7 @@ const SemPauseMs = 350
 var semMaps: Table[int, SemMap]
 var semLastMs = 0.0                     # how long the last rebuild took
 
-proc semKindOfSym(k: NxKind): TokKind =
+func semKindOfSym(k: NxKind): TokKind =
   case k
   of nxProc, nxFunc, nxMethod, nxIterator, nxConverter: tkFunc
   of nxTemplate, nxMacro: tkPreproc

@@ -28,7 +28,7 @@ proc copyRoutines(b: Buffer): seq[ArcRoutine] =
       if not p.typ.strip.startsWith("sink"): ps.add p.name
     result.add ArcRoutine(name: s.name, line: s.line, endLine: max(s.line, s.endLine), params: ps)
 
-proc copyWhy(c: ArcCopy): string =
+func copyWhy(c: ArcCopy): string =
   let src = "`" & c.src & "`"
   let callee = if c.callee.len > 0: "`" & c.callee & "`" else: "this call"
   case c.kind
