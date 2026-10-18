@@ -140,6 +140,23 @@ proc ecUnreachable(lines: seq[string], code: seq[string], res: var seq[Diag]) =
     res.add Diag(line: j, col: nind, eline: j, ecol: lines[j].len, sev: 3, src: "ned", rule: "unreachable",
                  msg: "this code never runs: the `" & w & "` above it leaves the block first")
 
+proc ecBraceNames(raw: string, counts: var Table[string, int]) =
+  ## the names inside `{…}` on a line, strings included: what fmt"…", &"…" and the like interpolate (`{who}`,
+  ## `{n:>3}`, `{x=}`) is a use the code-only text does not show
+  var k = raw.find('{')
+  while k >= 0:
+    let e = raw.find('}', k + 1)
+    if e < 0: break
+    var q = k + 1
+    while q < e:
+      if nxIsIdent(raw[q]) and (q == k + 1 or not nxIsIdent(raw[q - 1])) and raw[q] notin {'0'..'9'}:
+        var z = q
+        while z < e and nxIsIdent(raw[z]): inc z
+        counts.mgetOrPut(nxNorm(raw[q ..< z]), 0) += 1
+        q = z
+      else: inc q
+    k = raw.find('{', e + 1)
+
 proc ecUnusedLocals(f: NxFile, lines: seq[string], code: seq[string], res: var seq[Diag]) =
   ## a `let`/`var` inside a routine that nothing after it mentions (style-insensitive, as Nim compares names)
   for ri in 0 ..< f.syms.len:
@@ -158,8 +175,11 @@ proc ecUnusedLocals(f: NxFile, lines: seq[string], code: seq[string], res: var s
           counts.mgetOrPut(nxNorm(s[k ..< e]), 0) += 1
           k = e
         else: inc k
-    # (names an emit or asm string uses: `name`)
-    for l in r.line .. r.endLine:
+    # (names an emit or asm string uses: `name`; a string's last lines may be past the routine's end)
+    var se = r.endLine
+    while se + 1 < code.len and code[se + 1].strip(chars = {' ', '\t', '0'}).len == 0 and lines[se + 1].strip.len > 0:
+      inc se                                     # (a string's text is 0s in the code-only lines)
+    for l in r.line .. se:
       let raw = lines[l]
       var k = raw.find('`')
       while k >= 0:
@@ -167,6 +187,7 @@ proc ecUnusedLocals(f: NxFile, lines: seq[string], code: seq[string], res: var s
         if e < 0: break
         counts.mgetOrPut(nxNorm(raw[k + 1 ..< e]), 0) += 1
         k = raw.find('`', e + 1)
+      ecBraceNames(raw, counts)                             # (names a format string interpolates: {who})
     # (sample code in runnableExamples: left alone)
     var examples: seq[(int, int)]
     for l in r.line .. r.endLine:
@@ -1230,7 +1251,10 @@ proc ecUnusedParams(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag])
         counts.mgetOrPut(nxNorm(bodyText[k ..< e]), 0) += 1
         k = e
       else: inc k
-    for l in r.line .. r.endLine:                         # (names in emit strings: `name`)
+    var se = r.endLine                                    # (a string's last lines may be past the routine's end)
+    while se + 1 < code.len and code[se + 1].strip(chars = {' ', '\t', '0'}).len == 0 and
+          b.lines[se + 1].strip.len > 0: inc se
+    for l in r.line .. se:                                # (names in emit strings: `name`)
       let raw = b.lines[l]
       var q = raw.find('`')
       while q >= 0:
@@ -1238,6 +1262,7 @@ proc ecUnusedParams(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag])
         if e < 0: break
         counts.mgetOrPut(nxNorm(raw[q + 1 ..< e]), 0) += 1
         q = raw.find('`', e + 1)
+      ecBraceNames(raw, counts)                             # (names a format string interpolates: {n})
     for p in r.params:
       let pn = p.name.strip(chars = {'`', ' ', '*'})
       if pn.len == 0 or pn == "_" or pn.startsWith("_") or not nxIsIdent(pn[0]): continue
