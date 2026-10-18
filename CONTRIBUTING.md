@@ -26,7 +26,8 @@ ned uses **only Nim's standard library** (not `std/re` either: it has its own re
 
 ## How the source is laid out
 
-`src/ned.nim` is the program: it imports the few real modules (`ned/core/text`, `ned/editor/regex`,
+`src/ned.nim` is the program (`src/nedfmt.nim`, the formatter on its own, and `src/nedls.nim`, the language
+server, are two more, built from the same sources): it imports the few real modules (`ned/core/text`, `ned/editor/regex`,
 `ned/format/formatters`, `ned/nim/index`) and **includes** everything else in order. An included file sees only
 what was included before it — when a file needs something defined later, it is declared ahead in
 `src/ned/app/forward.nim` or `src/ned/ui/actions.nim`.
@@ -40,6 +41,7 @@ what was included before it — when a file needs something defined later, it is
 | `format/` | the built-in formatters (Nim in nph's style, C, JSON, Markdown, CSS) — text in, text out |
 | `lsp/` `ai/` `git/` `debug/` `term/` `run/` `testing/` | what their names say |
 | `ui/` `app/` | drawing, docks, dialogs, menus, the palette, the main loop |
+| `nedls/` | the language server around the editor's code: JSON-RPC, documents, features, problems |
 
 ## Tests
 
@@ -49,6 +51,8 @@ Every release passes all of them; please run the ones near your change (and add 
 nimble test                                        # unit tests: the Nim and C engines, the formatters, the regexes
 python3 tests/ui/run.py ./ned t_63_format          # UI tests by name (--list shows them); all: nimble uitest
 python3 tests/themes/contrast.py                   # a theme's colours, checked for contrast
+nimble lsptest                                     # nedls, the language server, driven by a test client
+nimble parsecheck                                  # the Nim formatter on 463 files, checked by Nim's own parser
 ```
 
 The UI tests drive ned through tmux exactly like a person would — keys in, the screen read back

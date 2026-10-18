@@ -71,9 +71,10 @@ library, and builds to one binary of about 9 MB.
   and nedls' first answer comes sooner.
 - **A sharper engine** — the same answers as nimsuggest for 98.6% of type hints (94% in 6.7), 98.9% of
   definitions (95.5%), 98% of variable types (91%) and 98.6% of member completions (90.5%; nimsuggest's own:
-  74%). It now reads `when` branches left out on this platform with their own imports and types, unions and type
-  classes, names a template call declares and a template's parameters at its call, `quote do` interpolations,
-  forward declarations, `since` blocks, overloads of `[]` by their number of indices, and more.
+  74%; a name nimsuggest makes up itself, gensym'd, now counts as no answer). It now reads `when` branches left
+  out on this platform with their own imports and types, unions and type classes, names a template call declares
+  and a template's parameters at its call, `quote do` interpolations, forward declarations, `since` blocks,
+  overloads of `[]` by their number of indices, and more.
 - **Release binaries built with link-time optimisation** (`-d:lto`): 5–10% less time in the engine and the
   formatter, a 7% smaller binary.
 
@@ -128,9 +129,10 @@ Send to REPL with `# %%` cells; Emmet for HTML and CSS.
 **Nim IDE** — a built-in Nim engine (completion with documentation beside the list, hover, go to definition,
 signature help, references with counts beside each declaration (operators too), rename, type hierarchy, go to
 implementation, change signature, inline, move to another module, fill in a constructor's fields, outline, project symbols, the types of `let`s, `var`s and loop variables shown beside them,
-`include`d files and what templates declare understood) that needs no language server, a formatter in nph's style,
-errors while you type from the compiler itself (and misspelled names marked at once), `nim check` on save;
-nimlangserver if you prefer it;
+`include`d files and what templates and macros declare understood) that needs no language server — and serves
+other editors as one (`nedls`) — a formatter in nph's style (also on its own: `nedfmt`, with a pre-commit hook),
+errors while you type from the compiler itself and the engine's own checks at once (unused imports, field typos,
+argument counts, values not used), `nim check` on save; nimlangserver if you prefer it;
 macro/template expansion (Alt+M), ARC/ORC view, generated C, test explorer for `std/unittest`
 with ▶ run buttons in the gutter, project symbols, nimble tasks and the dependency tree, Atlas, Nimony, gdb
 debugging in the terminal (logpoints, stops when a value changes), a profiler that shows each proc's and line's
@@ -181,7 +183,7 @@ ned --check                                 # what ned found, and how to add the
 ned
 ```
 
-or, from the project folder: `nimble termux`.
+or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
 Recommended extras:
@@ -205,8 +207,8 @@ and the palette, and everything can be tapped.
 ```sh
 nim c -d:release --opt:speed -d:strip -o:ned src/ned.nim && sudo mv ned /usr/local/bin/
 # or
-nimble install            # builds and installs ~/.nimble/bin/ned
-nimble local              # builds into ~/.local/bin/ned
+nimble install            # builds and installs ~/.nimble/bin/ned (and nedfmt, nedls)
+nimble local              # builds into ~/.local/bin (ned, nedfmt, nedls)
 ```
 
 A terminal with true colour and mouse reporting (kitty, WezTerm, foot, Alacritty, GNOME Terminal,

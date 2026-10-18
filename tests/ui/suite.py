@@ -1939,10 +1939,11 @@ def t_510_repl():
     # Nim: inim, else nim secret
     setup()
     open(W + '/r.nim', 'w').write('proc twice(x: int): int =\n  x * 2\n\necho twice(21)\n')
-    start('r.nim', w=130, h=44, path=TOOLS + ':/usr/bin:/bin'); time.sleep(0.6)
+    inim_dir = os.path.dirname(which('inim') or '')         # (found on the runner's PATH: ned's too)
+    start('r.nim', w=130, h=44, path=TOOLS + (':' + inim_dir if inim_dir else '') + ':/usr/bin:/bin'); time.sleep(0.6)
     palette('REPL: send the whole file'); time.sleep(6)
     s = screen()
-    if which('inim'): check('510 REPL: inim runs a Nim file', '42' in s.split('TERMINAL')[-1] and 'INim' in s, s)
+    if inim_dir: check('510 REPL: inim runs a Nim file', '42' in s.split('TERMINAL')[-1] and 'INim' in s, s)
     setup()
     open(W + '/r.nim', 'w').write('proc twice(x: int): int =\n  x * 2\n\necho twice(21)\n')
     start('r.nim', w=130, h=44, path=no_nim_dir() + ':/usr/bin:/bin'); time.sleep(0.6)
@@ -3327,7 +3328,7 @@ def t_525_hints():
     s = screen()
     check('525 type hints: an array of objects, loop variables (one and two), multi-line if and case, command syntax, sets',
           ok and 'let people: array[2, Person] = [Person' in s and 'for p: Person in people' in s and
-          'for i: int, p: Person in people' in s and 'let lg2: int = if' in s and 'mask: BiggestUInt = BiggestUInt 1' in s and
+          'for i: range 0..1(int), p: Person in people' in s and 'let lg2: int = if' in s and 'mask: BiggestUInt = BiggestUInt 1' in s and
           'let k: string = case' in s and 'let d: set[char]' in s and 'const pre: array[3, char]' in s and
           'let half: int = result.len div 2' in s, s)
     keys('C-g'); text('7:8'); keys('Enter'); keys('M-q')

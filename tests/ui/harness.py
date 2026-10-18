@@ -229,20 +229,32 @@ def ned_single_file():
     done = set()
     def inline(path, out):
         base = os.path.dirname(path)
-        for line in open(path).read().split('\n'):
+        lines = open(path).read().split('\n')
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            i += 1
             t = line.strip()
             m = re.match(r'include\s+(\S+)$', t)
             if m and not line.startswith(' '):
                 inline(os.path.normpath(os.path.join(base, m.group(1) + '.nim')), out)
                 continue
-            m = re.match(r'import\s+(ned/\S.*|\.\./\S.*)$', t)
-            if m and not line.startswith(' '):
-                for mod in [x.strip() for x in m.group(1).split(',')]:
+            m = re.match(r'import\s+(ned/\S.*|\.\./\S.*|\w+)$', t)
+            if m and not line.startswith(' ') and (not re.match(r'^\w+$', m.group(1)) or
+                                                  os.path.exists(os.path.join(base, m.group(1) + '.nim'))):
+                spec = m.group(1)
+                while spec.rstrip().endswith(',') and i < len(lines):      # (the list goes on below)
+                    spec += ' ' + lines[i].strip()
+                    i += 1
+                for mod in [x.strip() for x in spec.split(',') if x.strip()]:
                     mp = os.path.normpath(os.path.join(base, mod + '.nim'))
                     if mp not in done:
                         done.add(mp)
                         inline(mp, out)
                 continue
+            # (a file read at compile time, next to its source: by its full path now)
+            line = re.sub(r'staticRead\("([^"/][^"]*)"\)', lambda mm: 'staticRead("' + os.path.abspath(os.path.join(base, mm.group(1))) + '")', line)
+            line = line.replace('currentSourcePath().parentDir', '"' + os.path.abspath(base) + '"')
             out.append(line)
     out = []
     inline(src + '/ned.nim', out)
