@@ -63,12 +63,17 @@ var
   cfgFolderTrust = "ask"       # security.folderTrust: ask (a folder's code runs once you trust it) | off
   cfgEmitClangd = true         # C in {.emit.} goes through clangd when it is installed
   cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
+  cfgFmtWidth = 88             # nim.format.lineLength (the setting; FmtWidth is the width in use)
+  cfgFmtWidthSet = false       # nim.format.lineLength written in a settings file — else .editorconfig's max_line_length
   cfgFormatVerify = false      # nim.format.verify: the built-in Nim formatter's result checked by Nim's own parser too
   cfgEngineChecks = true       # nim.engineChecks: the engine's own checks while typing (fields, arguments, dead code)
+  cfgEngineMoreChecks = true   # nim.engineHints: a var never changed, a parameter never used, a result never set
+  cfgNimMinVersion = ""        # nim.minVersion: the oldest Nim the code must build with ("" = the .nimble says, off)
   cfgMacroNames = true         # nim.macroNames: a module's top-level macro calls expanded by the compiler, once
   cfgCompilerAnswers = true    # nim.compilerAnswers: nimsuggest off — the compiler asked once where the engine has no answer
   cfgCSigHints = true          # nim.cSignatureHints: the C declaration dimmed after an importc wrapper
   cfgParamHints = "literals"   # nim.parameterHints: names before call arguments — literals | all | off
+  cfgRaisesHints = false       # nim.raisesHints: what a routine can raise, after its header (the engine's inference)
   cfgCEngine = "auto"          # c.engine: auto (ned's own when clangd is not installed) | builtin | clangd | both
   cSigHints: Table[int, Table[int, (int, string)]]   # buffer id → line → (column, the C signature shown there)
   copyMarks: Table[int, Table[int, seq[CopyMark]]]    # buffer id → line → where ARC/ORC copies on it

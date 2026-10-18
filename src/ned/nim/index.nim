@@ -16,6 +16,7 @@ include index/types
 include index/complete
 include index/resolve
 include index/consteval
+include index/layout
 include index/hover
 include index/expand
 include index/typos

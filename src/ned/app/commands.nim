@@ -301,11 +301,19 @@ proc nimServerStatus() =
     o.add "- engine: ned's built-in Nim index — completion, hover, definition, signatures, outline, references and " &
           "rename without a compiler\n"
     o.add "- standard library: " & (if nxLibFound.len > 0: nxLibFound else: "not found (is nim installed?)") & "\n"
-    o.add "- files indexed: " & $nxFiles.len & "\n"
+    if nimToolchainLine().len > 0:
+      o.add "- the Nim in use: " & nimToolchainLine() & (if tcProblem.len > 0: " — ⚠ " & tcProblem else: "") & "\n"
+    o.add "- files indexed: " & $nxFiles.len & " · their memory: " & $(nxFilesBytes div (1024 * 1024)) & " MB" &
+          (if nxIndexBudget > 0: " of " & $(nxIndexBudget div (1024 * 1024)) & " MB (nim.indexMemory)" else: "") &
+          (if nxDropped > 0: " · read again when needed: " & $nxDropped else: "") & "\n"
     o.add "- semantic colours: " & (if not cfgSemColors: "off (nim.semanticColors)"
                                    else: "the last update took " & formatFloat(semLastMs, ffDecimal, 1) & " ms") & "\n"
     o.add "- search paths: " & $nxSearchPaths.len & " · nimble packages: " & $nxPkgDirs.len & "\n"
     o.add "- project config read with `nim dump`: " & (if nxDumped.len == 0: "not yet" else: $nxDumped.len & " project(s)") & "\n"
+    let deps = engineDepLines(rootDir)
+    if deps.len > 0:
+      o.add "\n## the package versions this project builds with\n\n"
+      for d in deps: o.add "- " & d & "\n"
     var live = 0
     for s in nimSugs:
       if not s.dead: inc live

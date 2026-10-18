@@ -57,11 +57,15 @@ proc fmtCheckerExe(): string =
         error("Could not build the Nim parser check" & (if l.len > 0: ": " & truncTo(l[^1], 80) else: "")))
   ""
 
-proc nimFormatAll(text, path: string): (string, string) =
+proc nimFormatAll(text, path: string, ownWidth = true): (string, string) =
   ## ned's own Nim formatter on a whole file (checked by Nim's parser too with nim.format.verify), then the C in
-  ## its emits (nim.formatEmitC)
+  ## its emits (nim.formatEmitC); ownWidth: at the file's line length (nimLineLength — else FmtWidth as it is)
   var err = ""
-  var r = fFormat(text, err)
+  var r = ""
+  if ownWidth and path.len > 0:
+    withNimLineLength(path):
+      r = fFormat(text, err)
+  else: r = fFormat(text, err)
   if err.len > 0: return (text, err)
   if not fmtVerifyFromCli: fmtVerifyExe = fmtCheckerExe()
   let why = verifyNim(text, r)
@@ -120,10 +124,13 @@ proc formatLineRange(b: Buffer, l0, l1: int, quiet: bool): bool =
     let s = b.lines[l]
     src.add (if s.len >= ind: s[ind .. ^1] else: "") & "\n"
   var err = ""
+  let keepW = FmtWidth
+  FmtWidth = nimLineLength(b.path)
   FmtMax = max(40, FmtWidth - ind)
   var res = ""
   try: res = fFormat(src, err)
   except CatchableError, Defect: err = "the built-in formatter failed on this selection"
+  FmtWidth = keepW
   FmtMax = FmtWidth
   if err.len == 0:
     fmtVerifyExe = fmtCheckerExe()
@@ -401,7 +408,8 @@ proc formatOnSave0(b: Buffer)
 
 proc formatOnSave(b: Buffer) =
   ## the formatter on save — on the whole file, or (editor.formatOnSaveScope: changed) only where the lines
-  ## changed since git last saw the file are
+  ## changed since git last saw the file are. A Nim file the project's .nph.toml excludes is left as it is
+  if b.lang != nil and b.lang.mode == lmNim and b.path.len > 0 and nphExcluded(b.path): return
   if cfgFormatScope != "changed":
     formatOnSave0(b)
     return

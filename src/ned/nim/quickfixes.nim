@@ -16,6 +16,7 @@ proc nimProblemFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
         of "discard": "discard every unused result"
         of "bareExcept": "except CatchableError: everywhere"
         of "unusedImport": "remove every unused import"
+        of "varLet": "every var nothing changes made a let"
         else: "the new name everywhere it is used"), a)
   for d in ds:
     let m = d.msg
@@ -94,6 +95,13 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
     if caseInfo(b)[0] >= 0 and b.primary.head.line - caseInfo(b)[0] < 60:
       result.add act("Add the missing case branches", "one `of` per enum value", proc() = addMissingBranches())
     if typeAtCursor(b)[1] >= 0:
+      var rp: ReorderPlan
+      try: rp = reorderPlan(b)
+      except Exception as e: internalError("Nim index", e)
+      if rp.ok:
+        result.add act("Reorder fields to save " & $(rp.before - rp.after) & " bytes (" & $rp.before & " → " &
+                       $rp.after & " B)", "largest alignment first; comments move with their field",
+                       proc() = reorderFields())
       result.add act("Generate `$`, `==`, hash and a constructor", "for this object type", proc() = generateForType("all"))
       result.add act("Generate `$`", "", proc() = generateForType("$"))
       result.add act("Generate `==`", "", proc() = generateForType("=="))

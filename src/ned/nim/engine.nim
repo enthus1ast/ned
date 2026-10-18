@@ -89,6 +89,46 @@ proc isLibraryFile(path: string): bool =
     if r.len > 1 and path.startsWith(r & "/"): return true
   false
 
+proc nxDumpApply(proj, o: string) =
+  ## what `nim dump --dump.format:json` said of a project: its library, search paths, package folders, defines
+  let a = o.find('{')
+  let e = o.rfind('}')
+  if a < 0 or e <= a: return
+  try:
+    let js = parseJson(o[a .. e])
+    let lib = js{"libpath"}.getStr
+    if lib.len > 0 and fileExists(lib / "system.nim"): nxLibFound = normalizedPath(lib)
+    # (a package folder on the path — nimble.paths, atlas' nim.cfg — is this project's version of it: two
+    # projects may use two versions)
+    let root = nxRootFor(parentDir(proj))
+    var pkgPaths: seq[string]
+    for x in jitems(js{"lib_paths"}):
+      let p = normalizedPath(x.getStr)
+      if p.len == 0: continue
+      let own = p == root or (p.startsWith(root & "/") and not p.startsWith(root & "/nimbledeps/") and
+                              not p.startsWith(root & "/deps/"))
+      if root.len > 0 and nxIsPkgPath(p) and not own:
+        if p notin pkgPaths: pkgPaths.add p
+      elif p notin nxDumpSearch: nxDumpSearch.add p
+    if root.len > 0: nxProjectPaths[root] = pkgPaths
+    for x in jitems(js{"lazyPaths"}):
+      let p = normalizedPath(x.getStr)
+      if p.len > 0 and p notin nxDumpLazy: nxDumpLazy.add p
+    # what the project's config defines (-d:ssl, -d:nimPreviewSlimSystem …): `when defined(…)` follows it
+    var got = 0
+    for x in jitems(js{"defined_symbols"}):
+      if x.getStr.len > 0:
+        nxDefines.incl x.getStr
+        inc got
+    if got > 20 and not nxDefinesComplete:
+      # every symbol the project defines is known now: `when defined(vmathArrayBased)` is false, not maybe —
+      # the files read before this are read again
+      nxDefinesComplete = true
+      nxForgetFiles()
+    nxApplyToolchain()
+    needRender = true
+  except CatchableError: discard
+
 proc nxEnsureToolchain(b: Buffer) =
   ## guess the toolchain at once; ask `nim dump` (in the background, once per project) for the real
   ## search paths: config.nims / nim.cfg --path, nimble packages
@@ -108,34 +148,30 @@ proc nxEnsureToolchain(b: Buffer) =
                    parentDir(proj), proc(j: Job) =
     nxDumping.excl proj
     nxDumped.incl proj
-    let o = j.output
-    let a = o.find('{')
-    let e = o.rfind('}')
-    if a < 0 or e <= a: return
-    try:
-      let js = parseJson(o[a .. e])
-      let lib = js{"libpath"}.getStr
-      if lib.len > 0 and fileExists(lib / "system.nim"): nxLibFound = normalizedPath(lib)
-      for x in jitems(js{"lib_paths"}):
-        let p = normalizedPath(x.getStr)
-        if p.len > 0 and p notin nxDumpSearch: nxDumpSearch.add p
-      for x in jitems(js{"lazyPaths"}):
-        let p = normalizedPath(x.getStr)
-        if p.len > 0 and p notin nxDumpLazy: nxDumpLazy.add p
-      # what the project's config defines (-d:ssl, -d:nimPreviewSlimSystem …): `when defined(…)` follows it
-      var got = 0
-      for x in jitems(js{"defined_symbols"}):
-        if x.getStr.len > 0:
-          nxDefines.incl x.getStr
-          inc got
-      if got > 20 and not nxDefinesComplete:
-        # every symbol the project defines is known now: `when defined(vmathArrayBased)` is false, not maybe —
-        # the files read before this are read again
-        nxDefinesComplete = true
-        nxFiles.clear()
-      nxApplyToolchain()
-      needRender = true
-    except CatchableError: discard)
+    nxDumpApply(proj, j.output))
+
+proc engineDepOf(dir, name: string): NxDep =
+  ## the version of package `name` the project in `dir` builds with (dir: "" for an empty name: not one it uses)
+  let p = nxProjectAt(nxRootFor(dir))
+  for d in p.deps:
+    if cmpIgnoreCase(d.name, name) == 0: return d
+  for d in p.rest:
+    let (nm, ver) = nxPkgSplit(extractFilename(d))
+    if cmpIgnoreCase(nm, name) == 0: return NxDep(name: nm, version: ver, dir: d, why: "newest installed")
+
+proc engineDepNote(req: string): string =
+  ## what a requirement of the project's .nimble resolves to, for the Nim dock: "1.1.5 (nimble.lock)"
+  let (nm, _) = nxSplitRequire(req)
+  if nm.len == 0 or cmpIgnoreCase(nm, "nim") == 0: return ""
+  let d = engineDepOf(if nimble.dir.len > 0: nimble.dir else: rootDir, nm)
+  if d.name.len == 0: return "not installed"
+  let why = if d.why.startsWith("requires") or " requires" in d.why: "newest installed that meets it" else: d.why
+  (if d.version.len > 0: d.version & " " else: "") & "(" & why & ")"
+
+proc engineDepLines(dir: string): seq[string] =
+  ## the package versions the project in `dir` builds with, one line each: "jsony 1.1.5 (nimble.lock)"
+  for d in nxProjectAt(nxRootFor(dir)).deps:
+    result.add d.name & (if d.version.len > 0: " " & d.version else: "") & " (" & d.why & ")"
 
 proc nxBufStamp(path: string): string =
   let i = bufIndexByPath(path)
@@ -151,6 +187,7 @@ nxBufferLines = nxBufLines
 proc nxFileFor(b: Buffer): NxFile =
   ## the index's view of a buffer (parsed again only after it changed)
   nxEnsureToolchain(b)
+  nxSetActiveFile(b.path)              # (the package files it reaches: the versions its project builds with)
   if b.path.len > 0:
     result = nxLoad(b.path)
     if result != nil: return

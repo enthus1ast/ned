@@ -104,12 +104,19 @@ proc drawStatusBar() =
     if more.len > 0: lsTxt = (if lsTxt.len > 0: lsTxt & more else: ic("ok") & " " & more[3 .. ^1])
   elif nimEngineOn(b):
     let st = if nsUsable(b): nsStatus(b) else: ""
-    lsTxt = ic("ok") & " Nim" & (if st.len == 0: "" elif st == "nimsuggest": " + nimsuggest" else: " · " & st)
+    lsTxt = ic("ok") & " Nim" & (if tcVer.len > 0 and scrW >= 100: " " & tcVerText(tcVer) else: "") &
+            (if st.len == 0: "" elif st == "nimsuggest": " + nimsuggest" else: " · " & st)
   elif nsUsable(b):
     let st = nsStatus(b)
     lsTxt = if st.len == 0: "○ nimsuggest" elif st == "nimsuggest": ic("ok") & " nimsuggest" else: "○ " & st
   if lsTxt.len > 0 and scrW >= 60:
-    x = button(x, y, " " & lsTxt & " ", proc() = showSide(svProject), "Language intelligence", theme.dim, bg)
+    let tip = if b.lang.mode == lmNim and nimToolchainLine().len > 0: "Language intelligence · " & nimToolchainLine()
+              else: "Language intelligence"
+    x = button(x, y, " " & lsTxt & " ", proc() = showSide(svProject), tip, theme.dim, bg)
+  if b.lang.mode == lmNim and tcProblem.len > 0 and scrW >= 60:
+    # (the Nim in use is not what the project's .nimble asks for)
+    x = button(x, y, " " & (if cfgAccessible: "[!]" else: "⚠") & " Nim " & tcVerText(tcVer) & ": " & tcProblem & " ",
+               proc() = cmdChooseProjectNim(), "Choose the Nim for this project", theme.warn, bg)
   if remotes.len > 0 and remoteOf(rootDir) >= 0 and scrW >= 60:
     let rh = remotes[remoteOf(rootDir)].host
     x = button(x, y, " " & (if remotePushing > 0: "⇡ " else: "⇅ ") & rh & " ", proc() = runCmd("Remote: SSH menu…"),

@@ -140,9 +140,15 @@ proc cmdFormatAll(dir0 = "") =
   fmtAllQueue.setLen(0)
   fmtAllChanges.setLen(0)
   fmtAllLeft.setLen(0)
+  var nphOut = 0
   for p in fmtAllFiles(dir):
     let (how, _) = fmtHowFor(p)
-    if how.len > 0: fmtAllQueue.add p
+    if how.len == 0: continue
+    if p.endsWith(".nim") or p.endsWith(".nims") or p.endsWith(".nimble"):
+      if nphExcluded(p):                       # (the project's .nph.toml leaves it out)
+        inc nphOut
+        continue
+    fmtAllQueue.add p
   if fmtAllQueue.len == 0:
     info("Nothing to format in " & (if dir == rootDir: "the project" else: relPath(dir)) &
          " (ned formats Nim, JSON, Markdown and CSS itself; other languages need their formatter installed)")
@@ -151,7 +157,8 @@ proc cmdFormatAll(dir0 = "") =
   fmtAllTotal = fmtAllQueue.len
   fmtAllOn = true
   fmtAllQueue.reverse()                       # (taken from the end: the first file first)
-  info("Formatting " & $fmtAllTotal & " file(s) in " & (if dir == rootDir: "the project" else: relPath(dir)) & "…")
+  info("Formatting " & $fmtAllTotal & " file(s) in " & (if dir == rootDir: "the project" else: relPath(dir)) & "…" &
+       (if nphOut > 0: " (" & $nphOut & " left out by .nph.toml)" else: ""))
   needRender = true
 
 proc fmtAllPump(budgetMs: int) =

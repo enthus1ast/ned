@@ -630,9 +630,14 @@ proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): string =
 
 # ── inlay hints ──
 
+proc lsOpt(key: string): JsonNode
+
 proc lsInlayHints(params: JsonNode): JsonNode =
   let d = lsDocOf(params)
   result = newJArray()
+  block:
+    let v = lsOpt("raisesHints")              # (what routines can raise, after their header: the client's say)
+    if v != nil and v.kind == JBool: cfgRaisesHints = v.getBool
   if not lsEngineOn(d) or not cfgInlayHints or d.b.path.len == 0: return
   let b = d.b
   let r = params{"range"}
@@ -655,6 +660,11 @@ proc lsInlayHints(params: JsonNode): JsonNode =
   for l in ls:
     if l < lo or l > hi or l > b.lines.high: continue
     for (c, label) in b.inlays[l]:
+      if label.startsWith(" {.raises:"):
+        # what the routine can raise: no kind of LSP's (neither a type nor a parameter)
+        result.add %*{"position": lsPosIn(b.lines, l, min(c, b.lines[l].len)), "label": label.strip,
+                      "paddingLeft": true}
+        continue
       let isType = label.startsWith(":")
       var lab = label
       if not isType: lab = label.strip(leading = false)

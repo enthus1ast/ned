@@ -125,7 +125,7 @@ proc buildProjectItems(): seq[SideItem] =
       result.add sideItem(l, 7, "›", d, a)
     if nimble.requires.len > 0:
       result.add sideItem("DEPENDENCIES", 6)
-      for r in nimble.requires: result.add sideItem(r, 0, "·", action = proc() = discard openFile(nimble.file))
+      for r in nimble.requires: result.add sideItem(r, 0, "·", engineDepNote(r), proc() = discard openFile(nimble.file))
   result.add sideItem("NIM TOOLS", 6)
   result.add sideItem("Expand macro/template at cursor", 0, "μ", "Alt+M", proc() = cmdExpandMacro())
   result.add sideItem("Expand one level", 0, "μ", "", proc() = cmdExpandMacro("1"))
@@ -152,6 +152,9 @@ proc buildProjectItems(): seq[SideItem] =
   else:
     result.add sideItem("not installed (github.com/nim-lang/nimony)", 2, "·")
   result.add sideItem("TOOLCHAIN", 6)
+  if nimToolchainLine().len > 0:
+    result.add sideItem(nimToolchainLine(), (if tcProblem.len > 0: 2 else: 0), (if tcProblem.len > 0: "⚠" else: "◆"),
+                        (if tcProblem.len > 0: tcProblem else: "choose…"), proc() = cmdChooseProjectNim())
   result.add toolLine("nim", "pkg install nim")
   result.add toolLine("nimble", "pkg install nim")
   result.add toolLine("nimsuggest", "ships with nim (errors while typing, inlay hints)")

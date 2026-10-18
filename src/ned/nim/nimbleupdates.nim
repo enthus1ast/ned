@@ -78,7 +78,10 @@ proc packageUrls(): Table[string, string] =
     except CatchableError: discard
 
 proc installedVersion(name: string): string =
-  ## the newest installed version: the lock file, else nimbledeps/ or ~/.nimble/pkgs2 (name-1.2.3-<hash>)
+  ## the version the project builds with (the engine's choice: nimble.paths, nimble.lock, nimbledeps/, the newest
+  ## installed one that meets the requirement); else the lock file's, else the newest installed (name-1.2.3-<hash>)
+  let d = engineDepOf(nimble.dir, name)
+  if d.dir.len > 0 and d.version.len > 0: return d.version
   let lock = nimble.dir / "nimble.lock"
   if fileExists(lock):
     try:

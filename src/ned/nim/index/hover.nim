@@ -157,6 +157,18 @@ proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
       var ls = ex.splitLines
       if ls.len > 12: ls = ls[0 ..< 12] & @["…"]
       result.add "\n\n**Here it becomes:**\n```nim\n" & ls.join("\n") & "\n```"
+  if s0.kind == nxType and nxLayoutOn:
+    # its memory layout: offsets, sizes, padding (when the engine is sure of every field)
+    let lay = nxLayoutHover(f, lines, line, col, refs)
+    if lay.len > 0: result.add "\n\n" & lay
+  elif s0.kind in {nxProc, nxFunc, nxIterator, nxConverter}:
+    # what it can raise (when the engine is sure of every call in it)
+    var one = true
+    for x in refs:
+      if x.file.path != refs[0].file.path or x.sym.line != s0.line: one = false
+    if one:
+      let rh = nxRaisesHover(refs[0])
+      if rh.len > 0: result.add "\n\n" & rh
 
 proc nxDefinition*(f: NxFile, lines: seq[string], line, col: int): seq[(string, int, int, string)] =
   let (refs, locals, modPath) = nxTargets(f, lines, line, col)

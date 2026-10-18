@@ -268,6 +268,9 @@ proc initCommands() =
   add("Nim: language server status", "", nimServerStatus())
   add("Nim: use ned's built-in engine", "", setSetting("nim.ide", %"builtin"))
   add("Nim: use nimlangserver", "", setSetting("nim.ide", %"nimlangserver"))
+  add("Nim: choose the Nim for this project…", "for every tool: nim, nimble, nimsuggest, the terminal", cmdChooseProjectNim())
+  add("Nim: add a CI workflow (GitHub Actions)…", "build and test; ned's lint and format check", cmdAddCiWorkflow())
+  add("Nim: lint the project (the engine's checks)", "ned --lint over every file", cmdLintProject())
   add("Nim: format with ned's built-in formatter (nph style)", "", setSetting("nim.formatter", %"builtin"))
   add("Nim: format with nph", "", setSetting("nim.formatter", %"nph"))
   add("Nim: format with nimpretty", "", setSetting("nim.formatter", %"nimpretty"))
@@ -556,6 +559,8 @@ proc initCommands() =
   add("Toggle inlay hints", "", (block:
     toggleSetting("editor.inlayHints", "Inlay hints")
     for b in bufs: b.inlays.clear()))
+  add("Toggle exception hints", "what a Nim routine can raise, after its header",
+      toggleSetting("nim.raisesHints", "Exception hints"))
   add("Toggle code lens", "", toggleSetting("editor.codeLens", "Run buttons"))
   add("Toggle vim mode", "", (block:
     toggleSetting("editor.vimMode", "Vim mode")
