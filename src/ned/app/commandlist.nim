@@ -170,11 +170,18 @@ proc initCommands() =
       of "symbols": "symbols — drawn by ned (─→ ═⇒ ≠ ≤ ≥), the cursor's line as written"
       else: "off"))))
   add("View: toggle rulers", "", toggleRulers())
-  add("View: set ruler columns…", "", askText("Ruler columns (e.g. 80 or 80, 120 — empty: none)",
-      (if cfgRulers.len > 0: rulerList() else: "80"), proc(t: string) =
+  add("View: set ruler columns…", "", askText("Ruler columns (e.g. 80 or 80, 120, or lineLength: where the " &
+      "formatter wraps — empty: none)", (block:
+        var cur: seq[string]
+        for c in cfgRulers: cur.add $c
+        if cfgRulerAtLength: cur.add "lineLength"
+        if cur.len > 0: cur.join(", ") else: "lineLength"), proc(t: string) =
     var cols = newJArray()
     for p in t.split({',', ' ', ';'}):
       if p.strip.len > 0:
+        if p.strip.toLowerAscii in ["linelength", "format", "formatter"]:
+          cols.add %"lineLength"
+          continue
         try:
           let c = parseInt(p.strip)
           if c in 1 .. 2000: cols.add %c

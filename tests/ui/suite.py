@@ -1496,11 +1496,12 @@ def t_571_rulers():
     # off by default · View › Rulers: 80 · hide/show · columns 40, 60 · long lines tinted · colour override
     setup()
     open(W + '/src/long.nim', 'w').write('proc a() =\n  echo "short"\n  echo "this line is long enough to go past both rulers, quite a lot past them"\n')
-    start('src/long.nim', w=120, h=16); time.sleep(0.5)
+    start('src/long.nim', w=120, h=16); time.sleep(1.0)
     check('571 no rulers by default', '\u258f' not in screen(), screen())
-    palette('View: toggle rulers'); time.sleep(0.5)
+    palette('View: toggle rulers'); wait_for('\u258f', 3); time.sleep(0.3)
     s = screen()
-    check('571 View › Rulers puts one at column 80', s.splitlines()[3].find('\u258f') == 86 and '"editor.rulers"' in open(CFG + '/ned/config.json').read(), s)
+    check('571 View › Rulers puts one at the line length (a Nim file: nim.format.lineLength, 88)',
+          s.splitlines()[3].find('\u258f') == 94 and '"lineLength"' in open(CFG + '/ned/config.json').read(), s)
     palette('View: toggle rulers'); time.sleep(0.4)
     check('571 toggling hides them', '\u258f' not in screen(), screen())
     palette('View: toggle rulers'); time.sleep(0.4)
@@ -1512,6 +1513,18 @@ def t_571_rulers():
     a = tm('capture-pane', '-t', 'f', '-e', '-p').stdout
     check('571 the long line is tinted past the last ruler', '48;2;47;42;32' in a.splitlines()[5], a.splitlines()[5][-400:])
     check('571 short lines are not tinted', '48;2;47;42;32' not in a.splitlines()[4])
+    # the ruler follows the formatter's line length; another language: 80
+    setup({"editor.rulers": ["lineLength"], "nim.format.lineLength": 80})
+    open(W + '/notes.txt', 'w').write('x\ny\n')
+    start('src/long.nim', w=120, h=16); time.sleep(0.5)
+    s = screen()
+    check('571 "lineLength": the ruler moves with nim.format.lineLength (80)', s.splitlines()[3].find('\u258f') == 86, s)
+    tm('kill-server'); time.sleep(0.3)
+    setup({"editor.rulers": ["lineLength", 100], "nim.format.lineLength": 72})
+    start('src/long.nim', w=120, h=16); time.sleep(0.5)
+    s = screen()
+    check('571 "lineLength" beside a fixed column', s.splitlines()[3].find('\u258f') == 78 and s.splitlines()[3].count('\u258f') == 2, s)
+    tm('kill-server'); time.sleep(0.3)
     setup({"editor.rulers": [50], "theme.colors": {"ruler": "#ff0000"}})
     start('src/demo.nim', w=120, h=16); time.sleep(0.5)
     a = tm('capture-pane', '-t', 'f', '-e', '-p').stdout
@@ -5059,4 +5072,26 @@ def t_68_macro_names():
     keys('C-g'); text('6'); keys('Enter', 'End', 'C-space'); time.sleep(2)
     check('68 macro names off: not offered', 'getFoo' not in screen(), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names]
+def t_68_settings_panel():
+    # every setting ned reads is in the Settings panel — the 6.8 ones too, found by name or by words of their text
+    setup()
+    start('src/demo.nim', w=130, h=40)
+    for q, key in [('macroNames', 'nim.macroNames'), ('indexCache', 'nim.indexCache'), ('engineChecks', 'nim.engineChecks'),
+                   ('compilerAnswers', 'nim.compilerAnswers'), ('format.verify', 'nim.format.verify'),
+                   ('lineLength', 'nim.format.lineLength'), ('rulers', 'editor.rulers')]:
+        palette('Settings'); time.sleep(0.4)
+        text(q); time.sleep(0.5)
+        s = screen()
+        check('68 settings panel: ' + key, re.search(re.escape(key.split('.')[-1]), s, re.I) is not None, s[:1200])
+        keys('Escape'); time.sleep(0.2)
+    # (and none missing: each key the source reads has its entry — the unit-style check over the source)
+    import glob as _g
+    defs, used = set(), set()
+    for f in _g.glob(REPO + '/src/**/*.nim', recursive=True):
+        t = open(f).read()
+        defs |= set(re.findall(r'defS\(\s*"[^"]*",\s*"([^"]+)"', t))
+        used |= set(m[1] for m in re.findall(r'\b(sBool|sStr|sInt|sval|settingNode|setSetting)\(\s*"([A-Za-z0-9_.]+)"', t))
+    missing = sorted(k for k in used if k not in defs and not k.endswith('.'))
+    check('68 settings panel: every setting the source reads has an entry', not missing, repr(missing))
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel]

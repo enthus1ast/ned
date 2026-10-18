@@ -124,7 +124,9 @@ proc initSettingDefs() =
   defS("Editor", "editor.lineHighlight", %true, "Highlight the line with the cursor")
   defS("Editor", "editor.indentGuides", %true, "Vertical indentation guides")
   defS("Editor", "editor.rulers", newJArray(), "Vertical lines at these columns, like VS Code's rulers: [80] or " &
-       "[80, 120] (best per project, in .ned/settings.json) — View › Editor › Rulers hides and shows them")
+       "[80, 120] (best per project, in .ned/settings.json) — or \"lineLength\": where the file's formatter wraps " &
+       "(Nim: nim.format.lineLength; an .editorconfig max_line_length; else 80), so it moves with that setting. " &
+       "View › Editor › Rulers hides and shows them")
   defS("Editor", "editor.rulerTint", %true, "With rulers: tint the part of a line that goes past the last one")
   defS("Editor", "editor.languageServerHints", %true, "Opening Python, Rust, Go, C, JS/TS, Lua, Ruby, shell or CSS " &
        "with no language server installed: say once which one to install (with an Install button)")
@@ -673,7 +675,11 @@ proc applySettings() =
   cfgLineHl = sBool("editor.lineHighlight")
   cfgGuides = sBool("editor.indentGuides")
   cfgRulers.setLen(0)
+  cfgRulerAtLength = false
   for r in jitems(settingNode("editor.rulers")):
+    if r.kind == JString and r.getStr.toLowerAscii.replace(" ", "") in ["linelength", "format", "formatter"]:
+      cfgRulerAtLength = true
+      continue
     let c = if r.kind == JInt: r.getInt elif r.kind == JFloat: int(r.getFloat) else: 0
     if c in 1 .. 2000 and c notin cfgRulers: cfgRulers.add c
   cfgRulers.sort()
@@ -1192,15 +1198,39 @@ proc toggleSetting(key, label: string) =
   setSetting(key, %(not sBool(key)))
   info(label & (if sBool(key): " on" else: " off"))
 
+proc lineLengthFor(b: Buffer): int =
+  ## where a file's lines should end: its .editorconfig max_line_length, else for Nim the formatter's line length
+  ## (nim.format.lineLength; nph's 88, nimpretty's 80), else 80
+  if b != nil and b.ecMaxLine > 0: return b.ecMaxLine
+  if b != nil and b.lang != nil and b.lang.mode == lmNim:
+    return (case cfgNimFormatter
+            of "nph": 88
+            of "nimpretty": 80
+            else: FmtWidth)
+  80
+
+proc rulerColumns(b: Buffer): seq[int] =
+  ## the columns of a file's rulers (editor.rulers; "lineLength" where its formatter wraps)
+  if b != nil and b.ecMaxLine > 0: return @[b.ecMaxLine]       # (.editorconfig: the project's limit)
+  result = cfgRulers
+  if cfgRulerAtLength:
+    let c = lineLengthFor(b)
+    if c notin result: result.add c
+    result.sort()
+
+proc rulersSet(): bool = cfgRulers.len > 0 or cfgRulerAtLength
+
 proc rulerList(): string =
-  for i, c in cfgRulers: result.add (if i > 0: ", " else: "") & $c
+  for i, c in rulerColumns(buf()): result.add (if i > 0: ", " else: "") & $c
+  if cfgRulerAtLength: result.add " (the line length)"
 
 proc toggleRulers() =
-  ## View › Rulers: hide or show them; with none set yet, one at column 80
-  if cfgRulers.len == 0:
+  ## View › Rulers: hide or show them; with none set yet, one where the file's formatter wraps
+  if not rulersSet():
     rulersHidden = false
-    setSetting("editor.rulers", %[80])
-    info("Ruler at column 80 — other columns: settings › editor.rulers, e.g. [80, 120]")
+    setSetting("editor.rulers", %["lineLength"])
+    info("Ruler at the line length (" & $lineLengthFor(buf()) & ": nim.format.lineLength in Nim files) — " &
+         "other columns: settings › editor.rulers, e.g. [80, 120]")
   else:
     rulersHidden = not rulersHidden
     info(if rulersHidden: "Rulers hidden (View › Editor › Rulers shows them again)"
