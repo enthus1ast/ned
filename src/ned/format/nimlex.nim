@@ -91,6 +91,36 @@ proc fPunct*(c: char): string {.inline.} =
   of '.': "."
   else: $c
 
+proc fAccQuoted*(s: string): string =
+  ## an identifier in backticks as nph writes it: its parts (names, runs of operator characters) a space apart —
+  ## `|div|` → `| div |` — except `=destroy`, `'big`, `name=` (the parts make one identifier, spaced or not)
+  if s.len < 3: return s
+  var parts: seq[string]
+  var i = 1
+  while i < s.high:
+    let c = s[i]
+    if c in {' ', '\t'}:
+      inc i
+      continue
+    var j = i
+    if fIsIdent(c):
+      while j < s.high and fIsIdent(s[j]): inc j
+    elif c in FOpChars or c in {'(', ')', '[', ']', '{', '}', '='}:
+      while j < s.high and (s[j] in FOpChars or s[j] in {'(', ')', '[', ']', '{', '}', '='}): inc j
+    else: return s                      # (anything else: as written)
+    parts.add s[i ..< j]
+    i = j
+  if parts.len < 2: return s
+  proc alpha(p: string): bool = p.len > 0 and p[0] in {'a' .. 'z', 'A' .. 'Z'}
+  result = "`"
+  for k, p in parts:
+    var space = k > 0
+    if k == 1 and parts[0] in ["=", "'"]: space = not alpha(parts[1])
+    elif k == 1 and parts[1] == "=": space = not alpha(parts[0])
+    if space: result.add ' '
+    result.add p
+  result.add '`'
+
 proc fLex*(text: string, ok: var bool): seq[FTok] =
   ## Nim tokens with the layout around them
   ok = true
@@ -156,7 +186,8 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
         var j = i
         while j < n and text[j] != '\n': inc j
         var e = j
-        while e > i and text[e - 1] in {' ', '\t', '\r'}: dec e
+        # (its trailing spaces stay: nph keeps them)
+        while e > i and text[e - 1] == '\r': dec e
         add(fkComment, st, e)
         i = j
       continue
@@ -224,7 +255,8 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
       if e < 0:
         ok = false
         return
-      add(fkIdent, st, e + 1)
+      addT(fkIdent, st, fAccQuoted(text[st .. e]))
+      col += (e + 1 - st) - result[^1].text.len      # (columns go on from where it ends in the text)
       i = e + 1
       continue
     case c
@@ -290,8 +322,8 @@ proc fCallParen*(toks: openArray[FTok], k: int): bool =
   k > 0 and toks[k].text == "(" and not toks[k].sp and not toks[k].nl and
     toks[k - 1].kind in {fkIdent, fkClose}
 
-proc fNamesHead*(toks: openArray[FTok], colon: int): bool =
-  ## `a, b*, c {.x.}:` — the names of a declaration before its type (more than one, or exported)
+proc fNamesHead*(toks: openArray[FTok], colon: int, one = false): bool =
+  ## `a, b*, c {.x.}:` — the names of a declaration before its type (more than one; with `one` one is enough)
   if colon < 1 or toks[0].kind != fkIdent: return false
   var d = 0
   var several = false
@@ -309,7 +341,7 @@ proc fNamesHead*(toks: openArray[FTok], colon: int): bool =
       if prevIdent: return false            # `cmd a, b:` — a call with a block, not names
       prevIdent = true
     else: return false
-  several and d == 0
+  (several or one) and d == 0
 
 proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
   ## tokens → logical lines (a statement continued inside brackets or after an operator is one line)
@@ -348,8 +380,12 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
              cur.toks[0].text == "from":
           cont = true          # from a import   ⏎   b, c
         elif t.col > cur.indent and last.kind == fkColon and secInd >= 0 and cur.indent > secInd and
-             fNamesHead(cur.toks, cur.toks.high):
+             fNamesHead(cur.toks, cur.toks.high, one = true):
           cont = true          # in a var/let/const/type section:  a, b*, c:   ⏎   seq[string] = @[]
+        elif t.col > cur.indent and last.kind == fkColon and cur.toks.len > 2 and cur.toks[0].kind == fkKw and
+             cur.toks[0].text in ["var", "let", "const"] and cur.toks[1].kind == fkIdent and
+             fNamesHead(cur.toks.toOpenArray(1, cur.toks.high), cur.toks.high - 1, one = true):
+          cont = true          # var a, b:   ⏎   T   (its type under it, like nph)
         elif t.col > cur.indent and t.kind == fkPragOpen and not (last.kind == fkOp and last.text == "=") and
              last.kind != fkColon and (block:
                var r = false
