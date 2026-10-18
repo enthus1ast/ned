@@ -5,10 +5,10 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 
 | folder | what | how long | run |
 |---|---|---|---|
-| [`unit/`](unit) | the Nim index (compile-time values too, and kept on disk), the C index, the formatters and nedfmt, the regular expressions, where ARC/ORC copies — as libraries, without the editor | seconds | `nimble test` |
+| [`unit/`](unit) | the Nim index (compile-time values too, kept on disk, memory layouts and exception hints checked against the compiler, the package versions a build uses), the C index, the formatters and nedfmt, the regular expressions, where ARC/ORC copies, what each Nim release added — as libraries, without the editor | seconds | `nimble test` |
 | [`lsp/`](lsp) | nedls driven by a small LSP client: every feature, then 2000 random edits that must not put it out of step | a minute | `nimble lsptest` |
 | [`format/`](format) | the Nim formatter on 463 files of Nim's compiler and standard library, each checked by Nim's own parser | minutes | `nimble parsecheck` |
-| [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 950 checks | ~1 hour | `nimble uitest` |
+| [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 1000 checks | ~1 hour | `nimble uitest` |
 | [`fuzz/`](fuzz) | random keys, mouse events, pastes, palette commands and resizes; crashes, hangs and internal errors reported | as long as you like | `tests/fuzz/batch.sh 120 mixed vim palette` |
 | [`engine/`](engine) | ned's Nim engine against nimsuggest on the standard library, nimble packages and the compiler; its C engine against clangd | ~1 hour | `tests/engine/build.sh && tests/engine/corpus.sh /tmp/out` · `tests/engine/ccompare.py` |
 | [`build/`](build) | ned built for every target: gcc, clang, and with zig macOS (arm64, x86_64) and Android/Linux arm64 — nedfmt and nedls too | minutes | `tests/build/cross.sh` |

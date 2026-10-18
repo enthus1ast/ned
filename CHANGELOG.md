@@ -1,6 +1,46 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-68). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-69). Older releases:
+
+## What's new in 6.8
+
+![The engine's own checks while typing: an unused import, a literal of the wrong type, a value not used, a field typo, one argument too many, code after a return](screenshots/engine-checks-68.png)
+
+- **nedls: ned's Nim engine as a language server**, for VS Code, Neovim, Helix, Zed, Emacs, Kate and Sublime —
+  instead of nimlangserver or nimsuggest. Completion, hover, signature help, definitions, references, rename,
+  symbols, semantic colours, inlay hints, formatting, quick fixes and problems, from the same code the editor
+  runs; it starts at about 6 MB and answers a hover in a few milliseconds. See
+  [nedls](README.md#nedls-neds-engine-in-other-editors).
+- **nedfmt: the formatter on its own**, with nph's command line — `--check`, `--diff`, `--out`, `--outDir`,
+  `--stdin-name`, `--line-length`, `--include`, `--exclude`, `--extend-exclude`, `.nph.toml` — and a git pre-commit
+  hook in one step (`nedfmt --install-hook`). `ned --format` is the same program. The release binaries come with
+  `nedfmt` and `nedls` beside `ned`.
+- **The formatter checked by Nim's own parser** (`nim.format.verify`, `nedfmt --verify`): a small checker built once
+  from the compiler's sources compares the syntax tree before and after; a file it reads differently is left as it
+  was. On Nim's compiler and standard library (463 files): no difference (`nimble parsecheck`).
+- **The formatter closer to nph**: 99.0% of the lines of Nim's compiler and standard library come out as nph writes
+  them (98.0% in 6.7) — lambdas, `if` and `try` values among the arguments as blocks, a command's comma on a line
+  of its own, `f():` blocks without the parentheses, prefix operators on their bracket (`%*{…}`).
+- **The engine's own checks, at once**: an unused import, a value neither used nor discarded, a literal of the
+  wrong type, a field typo (*did you mean 'label'?*), the wrong number of arguments, code after a `return`, an
+  unused local — before the compiler's check, in the compiler's words (so its quick fixes apply), and only what
+  the engine is sure of.
+- **Names a macro makes**: the compiler expands a module's top-level macro calls once, in the background, and
+  completion, hover and *Go to definition* know `getConfig` from `makeGetters(Config)`.
+- **The compiler's answer, once**: where the engine has none (nimsuggest off), one nimsuggest run answers that hover
+  or *Go to definition* and quits.
+- **The index on disk**: the standard library and nimble packages are read once, not again in every session — ned's
+  and nedls' first answer comes sooner.
+- **A sharper engine** — the same answers as nimsuggest for 98.6% of type hints (94% in 6.7), 98.9% of
+  definitions (95.5%), 98% of variable types (91%) and 98.6% of member completions (90.5%; nimsuggest's own:
+  74%; a name nimsuggest makes up itself, gensym'd, now counts as no answer). It now reads `when` branches left
+  out on this platform with their own imports and types, unions and type classes, names a template call declares
+  and a template's parameters at its call, `quote do` interpolations, forward declarations, `since` blocks,
+  overloads of `[]` by their number of indices, and more.
+- **Release binaries built with link-time optimisation** (`-d:lto`): 5–10% less time in the engine and the
+  formatter, a 7% smaller binary.
+
+![Names a macro makes, in completion: getCache from makeGetters(Config, Cache, Client), and the call that made it](screenshots/macro-names-68.png)
 
 ## What's new in 6.7
 
