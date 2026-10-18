@@ -30,6 +30,7 @@ var
   cfgAutoComplete = true
   cfgGuides = true
   cfgRulers: seq[int]          # editor.rulers: columns with a vertical line (sorted)
+  cfgRulerAtLength = false     # editor.rulers has "lineLength": a ruler where the file's formatter wraps
   cfgFormatOnSaveLangs: seq[string]  # editor.formatOnSaveLanguages (empty: all)
   cfgCsvAlign = true           # csv.alignColumns: CSV and TSV columns lined up (virtual spaces; the file is unchanged)
   csvWidthCache: Table[int, (string, seq[int])]   # buffer → (its version and rows looked at, the column widths)

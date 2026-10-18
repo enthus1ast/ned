@@ -237,8 +237,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   let limX = x0 + w
   # rulers (editor.rulers): a thin line at fixed columns, only in empty cells so it never hides text;
   # what goes past the last one is tinted
-  let rulersOn = cfgRulers.len > 0 and not rulersHidden and not zenMode and b.id notin graphBufs
-  let rcols = if b.ecMaxLine > 0: @[b.ecMaxLine] else: cfgRulers   # .editorconfig max_line_length: the project's limit
+  let rulersOn = rulersSet() and not rulersHidden and not zenMode and b.id notin graphBufs
+  let rcols = rulerColumns(b)        # (.editorconfig max_line_length: the project's limit; "lineLength": the formatter's)
   let rulerX0 = tx0 - (if cfgWrap: 0 else: b.leftCol)          # where display column 0 is on the screen
   let tintFrom = if rulersOn and cfgRulerTint: rcols[^1] else: -1
   # the last profile's numbers for this file (none once it has changed)
