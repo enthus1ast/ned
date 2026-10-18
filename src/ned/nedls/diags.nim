@@ -170,7 +170,8 @@ proc lsPumpChecks() =
          cb.path notin typingChecks:
       if typingCheckUsable(cb): typingCheck(cb)           # the compiler, on the unsaved text
       else: cb.chkAt = cb.changeId
-    if cb.dirty and typoAt.getOrDefault(cb.id, -1) != cb.changeId and quiet > LsTyposPauseMs:
+    if (cb.dirty or engineChecksOnOpen(cb)) and typoAt.getOrDefault(cb.id, -1) != cb.changeId and
+       quiet > LsTyposPauseMs:
       # a misspelled name: looked for around the last edit (the editor looks around the screen)
       let keepTop = cb.topLine
       let keepH = textH
@@ -196,5 +197,5 @@ proc lsTimeToNextCheck(): int =
   let quiet = int(msSince(d.changedAt))
   if cb.chkAt != cb.changeId and cb.path notin typingChecks and (cb.dirty or cb.chkAt >= 0):
     result = min(result, max(10, LsTypingPauseMs - quiet + 5))
-  if cb.dirty and typoAt.getOrDefault(cb.id, -1) != cb.changeId:
+  if (cb.dirty or engineChecksOnOpen(cb)) and typoAt.getOrDefault(cb.id, -1) != cb.changeId:
     result = min(result, max(10, LsTyposPauseMs - quiet + 5))

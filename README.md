@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.8](#whats-new-in-68) · [6.7](CHANGELOG.md#whats-new-in-67) · [older releases](CHANGELOG.md)
+- [What's new in 6.9](#whats-new-in-69) · [6.8](CHANGELOG.md#whats-new-in-68) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,50 +40,54 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.8
+## What's new in 6.9
 
-![The engine's own checks while typing: an unused import, a literal of the wrong type, a value not used, a field typo, one argument too many, code after a return](screenshots/engine-checks-68.png)
+![The engine's hints: a var that can be a let, a parameter never used, a routine that never sets its result, a deprecated name, a library name newer than the package's Nim](screenshots/engine-hints-69.png)
 
-- **nedls: ned's Nim engine as a language server**, for VS Code, Neovim, Helix, Zed, Emacs, Kate and Sublime —
-  instead of nimlangserver or nimsuggest. Completion, hover, signature help, definitions, references, rename,
-  symbols, semantic colours, inlay hints, formatting, quick fixes and problems, from the same code the editor
-  runs; it starts at about 6 MB and answers a hover in a few milliseconds. See
-  [nedls](#nedls-neds-engine-in-other-editors).
-- **nedfmt: the formatter on its own**, with nph's command line — `--check`, `--diff`, `--out`, `--outDir`,
-  `--stdin-name`, `--line-length`, `--include`, `--exclude`, `--extend-exclude`, `.nph.toml` — and a git pre-commit
-  hook in one step (`nedfmt --install-hook`). `ned --format` is the same program. The release binaries come with
-  `nedfmt` and `nedls` beside `ned`.
-- **The formatter checked by Nim's own parser** (`nim.format.verify`, `nedfmt --verify`): a small checker built once
-  from the compiler's sources compares the syntax tree before and after; a file it reads differently is left as it
-  was. On Nim's compiler and standard library (463 files): no difference (`nimble parsecheck`).
-- **The formatter closer to nph**: 99.0% of the lines of Nim's compiler and standard library come out as nph writes
-  them (98.0% in 6.7) — lambdas, `if` and `try` values among the arguments as blocks, a command's comma on a line
-  of its own, `f():` blocks without the parentheses, prefix operators on their bracket (`%*{…}`).
-- **The engine's own checks, at once**: an unused import, a value neither used nor discarded, a literal of the
-  wrong type, a field typo (*did you mean 'label'?*), the wrong number of arguments, code after a `return`, an
-  unused local — before the compiler's check, in the compiler's words (so its quick fixes apply), and only what
-  the engine is sure of.
-- **Names a macro makes**: the compiler expands a module's top-level macro calls once, in the background, and
-  completion, hover and *Go to definition* know `getConfig` from `makeGetters(Config)`.
-- **The compiler's answer, once**: where the engine has none (nimsuggest off), one nimsuggest run answers that hover
-  or *Go to definition* and quits.
-- **The index on disk**: the standard library and nimble packages are read once, not again in every session — ned's
-  and nedls' first answer comes sooner.
-- **A sharper engine** — the same answers as nimsuggest for 98.6% of type hints (94% in 6.7), 98.9% of
-  definitions (95.5%), 98% of variable types (91%) and 98.6% of member completions (90.5%; nimsuggest's own:
-  74%; a name nimsuggest makes up itself, gensym'd, now counts as no answer). It now reads `when` branches left
-  out on this platform with their own imports and types, unions and type classes, names a template call declares
-  and a template's parameters at its call, `quote do` interpolations, forward declarations, `since` blocks,
-  overloads of `[]` by their number of indices, and more.
-- **Release binaries built with link-time optimisation** (`-d:lto`): 5–10% less time in the engine and the
-  formatter, a 7% smaller binary.
+- **More of what the compiler does not tell you, while you type**: a `var` nothing changes (*it can be a let* —
+  Alt+Enter makes it one, or every one in the file), a parameter a routine never uses, a routine that never sets
+  its result, a name only a deprecated declaration has (the compiler's words, so *Use newSum instead* applies),
+  and a standard-library name or module newer than the Nim your .nimble asks for (`requires "nim >= 1.6.0"` and
+  `minmax`: *not in Nim 1.6.20 or older*) — from `{.since.}` and a table of what every release from 1.0 to 2.2.12
+  added, not inside a `when` that asks which Nim this is. On Nim's compiler and standard library, each of the 992
+  vars it calls lets was made one and compiled again: no new error.
+- **Memory layout on hover**: a type's fields with their offsets, sizes and padding, its size and alignment, as
+  the compiler lays it out (64- and 32-bit) — the same as the compiler's `sizeof`, `alignof` and `offsetOf` for
+  all 1,312 types compared. When sorting the fields would make it smaller, Alt+Enter reorders them.
+- **Exception hints** (`nim.raisesHints`, View › Editor): what a routine can raise, after its header —
+  `{.raises: [IOError, OSError].}` — and on hover; for 1,420 routines compared, the compiler's effects agree.
+- **The package versions your build uses**: nimble.lock, nimble.paths, atlas, `nimbledeps/`, then the newest
+  installed version that meets the `requires` — per project; the Nim dock shows each one and why
+  (`jsony 1.1.5 (nimble.lock)`).
+- **Completion by the expected type**: in a call argument, `let x: T =`, `x =`, `result =`, `return` or a
+  comparison, what has that type comes first — values, enum values, fields, routines returning it.
+- **The formatter at 99.6% of nph** (99.0% in 6.8): long statements laid out as nph's parser reads them — calls,
+  chains, conditions, commands, strings over several lines, routine headers, comments in lists and branches.
+- **One line length everywhere**: with `nim.format.lineLength` not set in a settings file, a file's
+  `.editorconfig` `max_line_length` is where the formatter wraps and the ruler stands — in ned, `nedfmt`,
+  `ned --format` and nedls alike. A file the project's `.nph.toml` excludes is not formatted on save or by
+  *Format: every file in the project*.
+- **The index's memory, capped** (`nim.indexMemory`, 64 MB): above it, the files needed least recently are read
+  again when needed — on the whole Nim repository, 16 MB holds ned at 23 MB instead of 40.
+- **One Nim per project** (`nim.toolchain`): the Nim a project builds with is first on PATH for every tool ned
+  starts — nim, nimble, nimsuggest, nimlangserver, the terminal. `auto` (the default) keeps PATH's unless the
+  .nimble asks for one it is not and choosenim or grabnim installed one that is; or a version, or a folder. The
+  status bar shows the version, and warns when the Nim in use is not what the .nimble asks for, or when
+  nimsuggest is another Nim's. *Nim: choose the Nim for this project…*
+- **`ned --lint`** (and `nedls --lint`): the engine's checks over files or a whole project without the compiler —
+  plain lines, GitHub annotations (`--format:github`, by itself under GitHub Actions) or JSON, `--staged`, and a
+  git pre-commit hook (`--install-hook`, beside nedfmt's). Ned's own 259 files take under 5 seconds.
+- **Nim: add a CI workflow**: `.github/workflows/ci.yml` for the project — its dependencies, build and tests on
+  Linux and macOS with the oldest Nim the .nimble allows and the newest; with ned's lint and nedfmt's check when you
+  ask, ned built from the repository you give.
 
-![Names a macro makes, in completion: getCache from makeGetters(Config, Cache, Client), and the call that made it](screenshots/macro-names-68.png)
+![Memory layout on hover: each field's offset, size and padding — sorted by alignment the object would take 16 bytes instead of 32](screenshots/memory-layout-69.png)
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.7](CHANGELOG.md#whats-new-in-67) signed in to GitHub without
-a password and brought AI that knows your code, [6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies,
-ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one
-parameter a line, [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures,
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.8](CHANGELOG.md#whats-new-in-68) brought nedls and
+nedfmt, the engine's own checks at once and names a macro makes, [6.7](CHANGELOG.md#whats-new-in-67) signed in to
+GitHub without a password and brought AI that knows your code, [6.6](CHANGELOG.md#whats-new-in-66) showed where
+ARC/ORC copies, ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C
+wrappers written one parameter a line, [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures,
 [6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's instance, organize
 imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your settings,
 [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours,
@@ -112,7 +116,7 @@ comment, folding, snippets for Nim, Python, C, C++, JS/TS, Rust, Go, HTML and sh
 completion, auto-pairs, smart indentation, soft wrap, split editor, bookmarks, regex find/replace, sort/join/
 case transforms, line-ending and indentation conversion, format on save (built in for Nim, JSON, Markdown, CSS,
 YAML and TOML; a whole project at once; or only the lines you changed, and a preview first),
-rulers at the columns you choose or where the formatter wraps (`"editor.rulers": ["lineLength"]`; long lines tinted), colour swatches, `.editorconfig` support, spell check,
+rulers at the columns you choose or where the formatter wraps (`"editor.rulers": ["lineLength"]`; long lines tinted), colour swatches, `.editorconfig` support (its `max_line_length` is the formatter's too), spell check,
 CSV and TSV files as tables (columns lined up, sort by a column, a column's sum and mean), large-file mode, a 3-pane merge editor, keyboard macros, vim, Emacs and Helix key bindings, operator ligatures
 (`editor.fontLigatures`: drawn by ned in any terminal — `─→ ═⇒ ≠ ≤ ≥` — or kept whole for a ligature font).
 
@@ -132,7 +136,11 @@ implementation, change signature, inline, move to another module, fill in a cons
 `include`d files and what templates and macros declare understood) that needs no language server — and serves
 other editors as one (`nedls`) — a formatter in nph's style (also on its own: `nedfmt`, with a pre-commit hook),
 errors while you type from the compiler itself and the engine's own checks at once (unused imports, field typos,
-argument counts, values not used), `nim check` on save; nimlangserver if you prefer it;
+argument counts, values not used, a var that can be a let, unused parameters, deprecated names and library names
+newer than the package's Nim) — also from the command line and in CI (`ned --lint`, GitHub annotations, a
+pre-commit hook, *Nim: add a CI workflow*) — `nim check` on save; a type's memory layout on hover (and the field
+order that saves bytes), what a routine can raise, the package versions the build uses (nimble.lock, nimble.paths,
+atlas), one Nim per project for every tool (`nim.toolchain`); nimlangserver if you prefer it;
 macro/template expansion (Alt+M), ARC/ORC view, generated C, test explorer for `std/unittest`
 with ▶ run buttons in the gutter, project symbols, nimble tasks and the dependency tree, Atlas, Nimony, gdb
 debugging in the terminal (logpoints, stops when a value changes), a profiler that shows each proc's and line's
@@ -475,6 +483,57 @@ call without naming it, not in `when` branches left out. On Nim's own compiler a
 code nothing instantiates, which the compiler never looks at; the compiler's word wins on any line where both say
 something.
 
+**Hints the compiler does not give** (`nim.engineHints`, on by default, with `nim.engineChecks`): a `var` nothing
+changes afterwards — not assigned, not given to a `var` parameter, its address not taken, not touched by a template
+or macro it is given to — *'limit' is never changed: it can be a let* (Alt+Enter makes it one, or every one in the
+file); a parameter a routine of this module never uses (not an exported routine, a hook, an operator, an `importc`
+or `exportc` one, a callback passed around, a stub, a typedesc that only picks the overload); a routine that never
+sets its result, never returns a value and does not end in one (*it always returns the default value*); and a name
+whose every declaration in scope is `{.deprecated.}`, in the compiler's own words so its quick fix (*Use newSum
+instead*) applies. The var hints were checked on Nim's compiler and standard library: each of the 992 was made a
+`let` and the file compiled again, with no new error (the few in files that do not compile on their own were read
+by hand) — one of them is a loop in the standard library that never moves on.
+
+**Library names newer than your Nim** (`nim.minVersion`; empty: what the .nimble asks for). With `requires "nim >=
+1.6.0"`, a standard-library name or module that Nim 1.6 does not have is marked: *'minmax' is not in Nim 1.6.20 or
+older (Nim 2.0.0 has it)*, *module paths is not in Nim 1.6.20 or older*. It knows from a name's `{.since.}` and
+from a table of what each release from 1.0 to 2.2.12 added (`.github/ci/nimapis.py` makes it from the releases'
+libraries). Code inside a `when` that asks which Nim this is — `NimMajor`, `NimVersion`, `declared(…)`,
+`compiles(…)` — is left alone. `"off"` turns it off.
+
+**Memory layout** (`nim.memoryLayout`, on by default). Hover a type's name — where it is declared or where it is
+used — and ned shows how it lies in memory: each field's offset, size and the padding after it, the total size and
+alignment, as Nim's C code generator lays it out here (64-bit; 32-bit on i386 and ARM). Inheritance, case objects,
+`{.packed.}`, `{.union.}`, `{.align.}` and generics given their arguments are followed; when ned cannot be sure
+(importc types, unknown names, a `when` it cannot decide) it shows nothing. It matches the compiler's `sizeof`,
+`alignof` and `offsetOf` for every one of 1,312 types of the standard library, the compiler and 19 packages. When
+sorting an object's fields by alignment would make it smaller, Alt+Enter on its line reorders them, comments moving
+with their field (*Reorder fields to save 8 bytes (32 → 24 B)*).
+
+**Exception hints** (`nim.raisesHints`, off by default; View › Editor › Exception hints). A routine without a
+`{.raises.}` of its own shows what it can raise before the `=` of its header — `{.raises: [IOError, OSError].}` —
+as the engine works it out: its `raise` statements and the routines it calls, less what its `try … except`
+catches. A hint appears only when the engine is sure of every call in the body; Defects are not listed, as in the
+compiler's effects. Hovering a routine, or a call of it, shows the same list. For 1,420 routines compared with the
+compiler's `{.effects.}`, they agree.
+
+**The package versions your build uses.** The engine reads each nimble package in the version your project builds
+with: the package folders your config puts on the path (nimble.paths, atlas' nim.cfg), then the versions
+nimble.lock pins, a local `nimbledeps/` or atlas `deps/`, then the newest installed version that meets the
+`requires` of your .nimble and of those packages in turn. Only a package nothing asks for uses the newest
+installed. Each open project has its own versions, and the Nim dock shows each requirement's version and why, e.g.
+`jsony 1.1.5 (nimble.lock)` (also *Nim: language server status*).
+
+**Completion by the expected type.** Where the code expects a type — a call argument, `let x: T = `, `x = `,
+`result = `, `return `, a comparison, a field in `Foo(name: …)` — completion lists what has that type first:
+values, enum values, fields and routines returning it, subtypes and numbers that convert without a cast included.
+The rest stays in the list behind them. After `p.` in such a place, p's members of that type come first.
+
+**The index's memory** (`nim.indexMemory`, 64 MB by default, 0 for no limit). The engine counts what its parsed
+files take and keeps them under the budget: above it, the files asked about least recently and not open are
+dropped and read again when needed (a library file comes back from the index cache in a few ms). On the whole Nim
+repository, a 16 MB budget holds the process at 23 MB instead of 40 MB.
+
 **The compiler's answer, once** (`nim.compilerAnswers`, on by default). With nimsuggest off (the default), a
 hover or *Go to definition* the engine has no answer for — a name a macro makes, say — asks the compiler once: one
 nimsuggest run for that question, which then quits, so its memory goes with it. The answer is kept until the file
@@ -546,8 +605,10 @@ It starts at about 6 MB, holds a big file with its imports in about 16 MB, and a
 milliseconds and a completion in about 20.
 
 Settings (in the editor's `initializationOptions`, or under `nedls` in its settings): `inlayHints` (true),
-`parameterHints` (`literals`, `all`, `off`), `checkOnSave` (true), `liveDiagnostics` (true),
-`formatLineLength` (88), `nedSettings` (true: your ned settings apply too).
+`parameterHints` (`literals`, `all`, `off`), `raisesHints` (false: what a routine can raise, after its header),
+`checkOnSave` (true), `liveDiagnostics` (true), `formatLineLength` (not given: `nim.format.lineLength`, else the
+file's `.editorconfig`), `nedSettings` (true: your ned settings apply too). `nedls --lint` checks files from the
+command line, as `ned --lint` does.
 
 ```lua
 -- Neovim 0.11+
@@ -577,6 +638,44 @@ language-servers = ["nedls"]
 nedls trusts the folder it is given (it runs `nim dump` and `nim check`, which run the project's `config.nims`):
 editors ask about trusting a workspace themselves. `nimble lsptest` drives it with a test client (every feature,
 and 2000 random edits that must not put it out of step).
+
+### One Nim per project
+
+`nim.toolchain` (Nim settings; best in the project's `.ned/settings.json`, or *Nim: choose the Nim for this
+project…*) is the Nim a project builds with, for every program ned starts — nim, nimble, nimsuggest,
+nimlangserver, testament, the terminal: its `bin` folder goes first on PATH. `auto`, the default, keeps the `nim`
+on PATH unless the project's .nimble asks for a Nim it is not (`requires "nim >= 2.2"`) and choosenim or grabnim
+installed one that is; `path` always keeps PATH's; a version (`"2.0.16"`) or a Nim folder picks one. The status
+bar shows the version (`✓ Nim 2.2.12`), and warns — *⚠ Nim 2.0.16: needs nim >= 2.2* — when the Nim in use is not
+what the .nimble asks for; a nimsuggest from another Nim than `nim` is a warning too. A project's own
+`nim.toolchain` takes effect only in a folder you trust.
+
+### Lint: the engine's checks from the command line and in CI
+
+`ned --lint` runs the engine's checks — a misspelled name, a field that is not there, a wrong number of arguments,
+a value neither used nor discarded, an unused import or local, code that never runs, the hints above, deprecated
+and too-new library names — over files or folders, without the compiler or a build (`nedls --lint` is the same):
+
+```sh
+ned --lint                          # this folder: the files git knows; path:line:col: warning: … [ned]
+ned --lint --format:github src/     # GitHub annotations on the pull request (by itself under GitHub Actions)
+ned --lint --format:json x.nim      # a JSON array
+ned --lint --severity:hint          # the hints too (var → let, unused parameters); default: warnings and errors
+ned --lint --fail-on:error          # exit 1 only for errors (default: warnings too; never)
+ned --lint --staged                 # the Nim files staged in git, as staged
+ned --lint --install-hook           # a git pre-commit hook running that (beside nedfmt's, in one file)
+```
+
+It reads the project's paths with `nim dump` once (`--no-config`: not, since that reads `config.nims`); ned's own
+259 files take under 5 seconds. Why not in `nedfmt`: nedfmt is the formatter alone (1 MB; ned is 13), while the
+checks need the whole engine — so they come with `ned` and `nedls`, which have it. *Nim: lint the project* shows the
+same list in the output panel, each problem a link.
+
+**Nim: add a CI workflow (GitHub Actions)…** writes `.github/workflows/ci.yml`: the project's dependencies
+(`nimble install --depsOnly`), build and tests on Linux and macOS with the oldest Nim the .nimble allows and the
+newest. Two more choices add a job that builds ned from the repository you give (`nim.ciNedRepository`, asked
+once; a link with a login in it is refused) and runs `ned --lint --format:github` — and `nedfmt --check`. The file
+is written, not committed: read it, then commit and push.
 
 ### Using nimlangserver instead
 
@@ -632,7 +731,7 @@ Its layout is yours to choose (settings, Nim section):
 
 | setting | default | |
 |---|---|---|
-| `nim.format.lineLength` | 88 | where lines wrap (80 and 100 are common too) |
+| `nim.format.lineLength` | 88 | where lines wrap (80 and 100 are common too); not written in your settings or the project's: a file's `.editorconfig` `max_line_length` |
 | `nim.format.params` | `fit` | a routine's parameters: `fit` — on one line, else all on the next line or one per line (nph) · `onePerLine` — one per line when too long · `always` — one per line when there are two or more · `keep` — your line breaks |
 | `nim.format.arguments` | `fit` | a call's arguments: the same four (`fit` packs them on the next lines) |
 | `nim.format.collections` | `fit` | array, seq, table, set and tuple literals: the same four |
@@ -664,7 +763,9 @@ nedfmt --verify src/               # check every Nim result with Nim's own parse
 `--exclude`, `--extend-exclude` and `--include` take regular expressions, and nph's `.nph.toml` (exclude,
 extend-exclude, include) is read too, so a project set up for nph needs nothing new; files named on the command
 line are always taken. The layout settings (`nim.format.*`) come from your settings and the project's
-`.ned/settings.json`. Exit status: 0 done, 1 `--check` found files to change, 2 a file was left alone (the
+`.ned/settings.json`; where neither sets the line length, a file's `.editorconfig` `max_line_length` does — as in
+the editor, where `.nph.toml`'s excludes also keep a file from being formatted on save or by *Format: every file in
+the project*. Exit status: 0 done, 1 `--check` found files to change, 2 a file was left alone (the
 formatter was not sure of it) or could not be read, 3 wrong arguments. The hook checks what is staged, not your
 working copy; a file the formatter is not sure of does not stop the commit, and `git commit --no-verify` skips it.
 *Format: every file in the project…* does it from the editor, with a review first (see the 5.24 notes).
@@ -686,7 +787,7 @@ How it compares with nph, on Nim's compiler and standard library:
 
 | | built-in | nph |
 |---|---|---|
-| lines identical to nph's output | 99.0% of 198 000 | — |
+| lines identical to nph's output | 99.6% of 198 000 | — |
 | same code for Nim's parser (463 files) | all | all |
 | semexprs.nim, 3 598 lines | 23 ms | 33 ms |
 | strutils.nim, 3 069 lines | 12.5 ms | 16 ms |
@@ -694,8 +795,9 @@ How it compares with nph, on Nim's compiler and standard library:
 | json.nim, already formatted | 4 ms | 9.5 ms |
 
 Both measured on the same (slow) machine; nph's times include starting the program, which ned also has to do when
-it runs nph. Where the two still differ — one line in a hundred — it is mostly a comment nph joins to the line
-above, a long condition broken at another operator, or arguments packed differently.
+it runs nph. Where the two still differ — four lines in a thousand — it is mostly a token nph rewrites (a `tuple`
+with comments, `s.fromHex[:int16]`), a lambda with a body of several lines among a call's arguments, or a comment
+inside an expression that nph attaches its own way.
 
 To use nph or nimpretty instead, set `"nim.formatter": "nph"` (or `"nimpretty"`), or pick *Nim: format with nph*
 in the palette. Your own `formatters` entry for `nim` always wins.
@@ -1012,7 +1114,7 @@ notes); CI checks those numbers on every push.
 
 ### The source
 
-ned is one program in about 215 files, standard library only:
+ned is one program in about 260 files, standard library only:
 
 ```
 src/ned.nim            the program: the parts below, in the order they build on each other
@@ -1030,8 +1132,9 @@ tests/                 unit tests, the UI suite, the fuzzer, the engine comparis
 ```
 
 Most files are parts of the program (`include`d in order: each sees the ones before it). The Nim index, the
-formatters, the regular expressions and `core/text` are modules: they compile on their own, in parallel, and
-other programs can import them (`import ned/nim/index`). The tests are described in
+formatters, the regular expressions, `core/text` and `core/editorconfig` are modules: they compile on their own, in
+parallel, and other programs can import them (`import ned/nim/index`). `nim/nimapis.nim` — what each Nim release
+added to the standard library — is made by `.github/ci/nimapis.py` from the releases' libraries. The tests are described in
 [tests/README.md](tests/README.md); GitHub runs them on every push.
 
 ## Troubleshooting

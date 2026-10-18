@@ -313,9 +313,9 @@ proc mainLoop() =
       if cfgLiveCheck and cEngineOn(cb) and cb.dirty and cb.chkAt != cb.changeId and msSince(cb.lspChangeAt) > 1000 and
          not lspActiveFor(cb):
         cTypingCheck(cb)                                    # C: the compiler on the unsaved text
-      if cfgLiveCheck and cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
-         typoAt.getOrDefault(cb.id, -1) != cb.changeId and msSince(cb.lspChangeAt) > 500:
-        engineTypos(cb)                                     # a misspelled name: at once
+      if cfgLiveCheck and cb.lang != nil and cb.lang.mode == lmNim and typoAt.getOrDefault(cb.id, -1) != cb.changeId and
+         msSince(cb.lspChangeAt) > 500 and (cb.dirty or engineChecksOnOpen(cb)):
+        engineTypos(cb)                                     # a misspelled name, the engine's checks: at once
       if cfgMacroNames and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
          msSince(cb.lspChangeAt) > 1500:
         macroNamesFor(cb)                                   # names its macro calls make: from the compiler, once

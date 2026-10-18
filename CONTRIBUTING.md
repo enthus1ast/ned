@@ -27,7 +27,7 @@ ned uses **only Nim's standard library** (not `std/re` either: it has its own re
 ## How the source is laid out
 
 `src/ned.nim` is the program (`src/nedfmt.nim`, the formatter on its own, and `src/nedls.nim`, the language
-server, are two more, built from the same sources): it imports the few real modules (`ned/core/text`, `ned/editor/regex`,
+server, are two more, built from the same sources): it imports the few real modules (`ned/core/text`, `ned/core/editorconfig`, `ned/editor/regex`,
 `ned/format/formatters`, `ned/nim/index`) and **includes** everything else in order. An included file sees only
 what was included before it — when a file needs something defined later, it is declared ahead in
 `src/ned/app/forward.nim` or `src/ned/ui/actions.nim`.
@@ -42,6 +42,10 @@ what was included before it — when a file needs something defined later, it is
 | `lsp/` `ai/` `git/` `debug/` `term/` `run/` `testing/` | what their names say |
 | `ui/` `app/` | drawing, docks, dialogs, menus, the palette, the main loop |
 | `nedls/` | the language server around the editor's code: JSON-RPC, documents, features, problems |
+
+`src/ned/nim/nimapis.nim` (what each Nim release added to the standard library, for the "newer than your Nim"
+check) is generated: after a Nim release, run `.github/ci/nimapis.py` with every release's `lib` folder, oldest
+first (its docstring says how to get them), and check the diff.
 
 ## Tests
 

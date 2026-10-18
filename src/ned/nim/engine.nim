@@ -204,6 +204,12 @@ var typoAt: Table[int, int]          # buffer id → the change its misspelled n
 
 proc engineChecksFor(b: Buffer): seq[Diag]
 
+proc engineChecksOnOpen(b: Buffer): bool =
+  ## a project file just opened, not looked at yet: its problems without waiting for an edit (not a library's,
+  ## not a file outside the project)
+  typoAt.getOrDefault(b.id, -1) == -1 and b.path.len > 0 and rootDir.len > 0 and b.path.startsWith(rootDir & "/") and
+    not isLibraryFile(b.path)
+
 proc engineTypos(b: Buffer) =
   ## a misspelled name marked at once, and what the engine's own checks find (nim.engineChecks: a field that is
   ## not there, a wrong number of arguments, code that never runs, an unused local) — the compiler's check, a
