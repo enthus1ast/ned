@@ -112,7 +112,7 @@ comment, folding, snippets for Nim, Python, C, C++, JS/TS, Rust, Go, HTML and sh
 completion, auto-pairs, smart indentation, soft wrap, split editor, bookmarks, regex find/replace, sort/join/
 case transforms, line-ending and indentation conversion, format on save (built in for Nim, JSON, Markdown, CSS,
 YAML and TOML; a whole project at once; or only the lines you changed, and a preview first),
-rulers at the columns you choose (long lines tinted), colour swatches, `.editorconfig` support, spell check,
+rulers at the columns you choose or where the formatter wraps (`"editor.rulers": ["lineLength"]`; long lines tinted), colour swatches, `.editorconfig` support, spell check,
 CSV and TSV files as tables (columns lined up, sort by a column, a column's sum and mean), large-file mode, a 3-pane merge editor, keyboard macros, vim, Emacs and Helix key bindings, operator ligatures
 (`editor.fontLigatures`: drawn by ned in any terminal — `─→ ═⇒ ≠ ≤ ≥` — or kept whole for a ligature font).
 
