@@ -1,6 +1,41 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-611). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-6111). Older releases:
+
+## What's new in 6.11
+
+6.11 is about speed on a phone: what each frame sends to the terminal, and what keeps ned from answering a swipe.
+
+- **Scrolling sends only the new lines**: the terminal moves what is already on the screen (a scroll region) and ned
+  draws the lines that came in, its colours carried along a row and unchanged stretches skipped. On a 120×40 screen
+  with the minimap a wheel step sends 4.7 KB instead of 24, a Down at the bottom 2.5 KB instead of 11, and a fast
+  swipe through an 80×45 Termux screen 86 KB instead of 280. `"ui.terminalScroll": false` draws every line as
+  before, for a terminal that gets scroll regions wrong.
+- **Checks that no longer hold up the screen** (the slowdown 6.10 brought with big files): *can be a func* went on in
+  short rounds, but each round ran every other check again — up to 40 times after an edit; now they run once per
+  text. The engine's checks also wait for a pause in typing and scrolling, the imported modules are read a file at a
+  time in quiet moments instead of a dozen at once when the first check walks into them, the file you edit keeps
+  what its imports bring from one edit to the next, and names a macro makes are worked out again only when a macro
+  call changes — and when they come out the same, nothing is thrown away. On
+  [examples/showcase.nim](examples/showcase.nim) the checks after an edit take 10–20 ms on a laptop and the first
+  ones 40 (130 before), and in a session of edits and swipes no moment of work kept ned from input for 50 ms.
+- **Background work steps aside**: the compiler's checks run at a lower priority than ned, language servers too;
+  the servers for code in strings and clangd for `{.emit.}` start one at a time once you stop for a moment; type
+  hints are worked out for a page above and two below what you see, and for what scrolled in once a swipe stops;
+  reference counts and macro names wait until scrolling stops.
+- **Help › Performance…** (palette: *Performance report*): how long frames take to make, how many bytes each sends
+  and how long the terminal takes to draw them, how fast the terminal is, how often ned could not read input for over
+  50 ms and what kept it busy, the engine's timings, memory, what runs in the background — and the settings that
+  would make it lighter. `NED_PERF_LOG=file ned …` writes the same report when ned exits.
+- **A slow terminal is noticed**: when frames take the terminal long to draw, the minimap (`"ui.minimap": "auto"`)
+  steps aside so each frame sends less.
+- **The screen redrawn when you come back**: switching back to Termux (or any terminal that reports focus) repaints
+  everything, in case another app left marks on it; *Redraw the screen* in the palette does it any time.
+- **`ned --bench` counts bytes**: each kind of frame with the bytes it sends, and CI checks them against a budget.
+- **[examples/showcase.nim](examples/showcase.nim)**: one Nim file that tours what ned does for Nim, the C in an
+  `{.emit.}` included — each section says what to try.
+- Fixed: names used only in a format string (`fmt"{who}"`, `&"{n}"`, a `fmt"""…"""` over several lines) were
+  reported as never used (since 6.8).
 
 ## What's new in 6.10
 

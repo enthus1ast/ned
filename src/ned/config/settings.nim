@@ -303,6 +303,10 @@ proc initSettingDefs() =
        "const / let / var section members")
   defS("Nim", "nim.format.reflowDocComments", %false, "Built-in formatter: a ## doc comment paragraph with a line " &
        "longer than nim.format.lineLength is re-wrapped to fit (lists, code and tables stay as they are)")
+  defS("Nim", "nim.format.reflowComments", %false, "Built-in formatter: a paragraph of # comments with a line longer " &
+       "than nim.format.lineLength is re-wrapped to fit, as reflowDocComments does for ## — prose only: what reads as " &
+       "commented-out code, banners, lists, TODOs and `# ned:` directives stay as they are (nph never re-wraps " &
+       "comments)")
   defS("Nim", "nim.format.maxBlankLines", %1, "Built-in formatter: empty lines kept in a row (1–3)")
   defS("Nim", "nim.format.verify", %false, "Built-in formatter: check each result with Nim's own parser as well (the " &
        "formatter checks its tokens and blocks anyway). Needs the compiler sources — choosenim and source builds have " &
@@ -850,6 +854,7 @@ proc applySettings() =
                else: 0
   FmtAlign = sBool("nim.format.align")
   FmtReflow = sBool("nim.format.reflowDocComments")
+  FmtReflowPlain = sBool("nim.format.reflowComments")
   FmtBlank = clamp(sInt("nim.format.maxBlankLines"), 1, 3)
   cfgNimFlags = sStr("nim.extraFlags")
   cfgNimTestFlags = sStr("nim.testFlags")

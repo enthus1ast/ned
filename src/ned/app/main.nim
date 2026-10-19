@@ -165,8 +165,7 @@ proc mainLoop() =
     if cfgTooltips and not tipShown and mouseX >= 0 and msSince(mouseMovedAt) < 700:
       timeout = min(timeout, max(1, 660 - int(msSince(mouseMovedAt))))
     if (cfgInlayHints or cb0.lang.mode == lmCsv) and cb0.inlayAt != cb0.changeId and cb0.path.len > 0: timeout = min(timeout, 400)
-    if cfgInlayHints and cb0.path.len > 0 and msSince(lastInputAt) < 600 and not inlayCovered(cb0):
-      timeout = min(timeout, 160)                     # (the hints of what scrolled in, once the swipe stops)
+    if cfgInlayHints and ihPending: timeout = min(timeout, 15)   # (the hints around the screen, a chunk at a time)
     if cb0.gitHasBase and cb0.gitAt != cb0.changeId: timeout = min(timeout, 250)
     if lspRestartAt.len > 0 or lspHoldAttach.len > 0: timeout = min(timeout, 100)
     if cfgGhostOn and cb0.dirty and cb0.changeId != ghostAskedChange:

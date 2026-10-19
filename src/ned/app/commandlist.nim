@@ -560,7 +560,9 @@ proc initCommands() =
     info("Icons: " & nx & (if nx == "nerd": " (needs a Nerd Font)" else: ""))))
   add("Toggle inlay hints", "", (block:
     toggleSetting("editor.inlayHints", "Inlay hints")
-    for b in bufs: b.inlays.clear()))
+    for b in bufs:
+      b.inlays.clear()
+      b.inlayAt = -1))
   add("Toggle exception hints", "what a Nim routine can raise, after its header",
       toggleSetting("nim.raisesHints", "Exception hints"))
   add("Toggle code lens", "", toggleSetting("editor.codeLens", "Run buttons"))

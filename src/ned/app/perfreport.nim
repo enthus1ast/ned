@@ -47,7 +47,7 @@ proc perfReport(): string =
     for (mx, what, n) in rows: result.add "    " & what & " — " & $n & "×, the longest " & ms(mx) & "\n"
   result.add "\n"
   result.add "Engine (the Nim file in front)\n"
-  result.add "  type and parameter hints: " & (if lastInlayMs >= 0: $lastInlayMs & " ms for the last window" else: "-") & "\n"
+  result.add "  type and parameter hints: " & (if lastInlayMs >= 0: $lastInlayMs & " ms the last round" else: "-") & "\n"
   result.add "  its own checks:           " & (if lastChecksMs >= 0: $lastChecksMs & " ms the last time" else: "-") & "\n"
   result.add "  index: " & $(nxFilesBytes div 1048576) & " MB of parsed files (nim.indexMemory: " &
              $(nxIndexBudget div 1048576) & " MB)\n\n"

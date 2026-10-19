@@ -3670,6 +3670,31 @@ func fSameWords*(a, b: string): bool =
       inc j
     if (i < a.len and a[i] notin Whitespace) or (j < b.len and b[j] notin Whitespace): return false
 
+func fCommentMark*(t: string): string =
+  ## "##" for a line of a doc comment, "#" for one of a plain comment, "" for anything else (a block comment
+  ## `#[ … ]#`, `###`, a shebang, a source filter)
+  if t.startsWith("##"):
+    if t.startsWith("##[") or t.startsWith("###"): "" else: "##"
+  elif t.startsWith("#"):
+    if t.len > 1 and t[1] in {'[', '!', '?'}: "" else: "#"
+  else: ""
+
+func fRuleTail*(t: string): (string, int) =
+  ## a comment line that ends in a rule (`# ── Section ─────`): (the rule's character, where the rule starts) —
+  ## ("", -1) when it does not end in 3 or more of one of ─ ═ - = * ~ _ #
+  for r in ["─", "═", "-", "=", "*", "~", "_", "#"]:
+    if t.endsWith(r & r & r):
+      var k = t.len
+      while k >= r.len and t[k - r.len ..< k] == r: k -= r.len
+      return (r, k)
+  ("", -1)
+
+func fSameButRule*(a, b: string): bool =
+  ## two comment lines the same but for how long the rule at their end is (a banner cut to the line length)
+  let (ra, ka) = fRuleTail(a)
+  let (rb, kb) = fRuleTail(b)
+  ra.len > 0 and ra == rb and fSameWords(a[0 ..< ka], b[0 ..< kb])
+
 func fPrefixLike*(toks: seq[FTok], k: int): bool =
   ## an operator after an operand, with a space before it and none after: Nim reads it as a prefix
   ## (`echo -1` is echo(-1)) — the formatter must never change that
@@ -3713,24 +3738,23 @@ proc fSameTokensMap(a, b: seq[FTok], map: var seq[int32]): bool =
     if tx.kind == fkComment or ty.kind == fkComment:
       # doc comments: the same words (a block one may move with its statement)
       if tx.kind != ty.kind: return false
-      if not fSameWords(tx.text, ty.text):
-        # a doc paragraph re-wrapped (nim.format.reflowDocComments): the same words over its lines
-        proc docWords(t: string): seq[string] =
-          if t.startsWith("##") and not t.startsWith("##["): t[2 .. ^1].splitWhitespace else: @[t]
-        var wa = docWords(tx.text)
-        var wb = docWords(ty.text)
-        if not tx.text.startsWith("##") or tx.text.startsWith("##[") or wa.len == 0 or wb.len == 0: return false
+      if not fSameWords(tx.text, ty.text) and not fSameButRule(tx.text, ty.text):
+        # a comment paragraph re-wrapped (nim.format.reflowDocComments, reflowComments): the same words over its
+        # lines, all of them comments of the same kind
+        let mark = fCommentMark(tx.text)
+        if mark.len == 0 or fCommentMark(ty.text) != mark: return false
+        var wa = tx.text[mark.len .. ^1].splitWhitespace
+        var wb = ty.text[mark.len .. ^1].splitWhitespace
+        if wa.len == 0 or wb.len == 0: return false
         while wa != wb:
           if wa.len < wb.len and wb[0 ..< wa.len] == wa:
             let nx = fCmpNext(a, sa)
-            if nx < 0 or a[nx].kind != fkComment or not a[nx].text.startsWith("##") or a[nx].text.startsWith("##["):
-              return false
-            wa.add docWords(a[nx].text)
+            if nx < 0 or a[nx].kind != fkComment or fCommentMark(a[nx].text) != mark: return false
+            wa.add a[nx].text[mark.len .. ^1].splitWhitespace
           elif wb.len < wa.len and wa[0 ..< wb.len] == wb:
             let ny = fCmpNext(b, sb)
-            if ny < 0 or b[ny].kind != fkComment or not b[ny].text.startsWith("##") or b[ny].text.startsWith("##["):
-              return false
-            wb.add docWords(b[ny].text)
+            if ny < 0 or b[ny].kind != fkComment or fCommentMark(b[ny].text) != mark: return false
+            wb.add b[ny].text[mark.len .. ^1].splitWhitespace
           else: return false
     elif tx.text != ty.text:
       if tx.kind == fkOp and ty.kind == fkOp and fInImport(a, x) and fInImport(b, y):
@@ -4190,41 +4214,111 @@ proc fImports*(lines: var seq[FLine]) =
     i = j
   lines = move(res)
 
-proc fReflowDocs*(entries: var seq[FOut]) =
-  ## nim.format.reflowDocComments: a `##` paragraph with a line longer than the line length re-wrapped to it —
-  ## lists, code, tables, headings and directives stay as they are
+func fRuneLen(s: string): int =
+  ## the columns `s` takes (characters, not bytes: `·` and `—` are one each)
+  for c in s:
+    if (ord(c) and 0xC0) != 0x80: inc result
+
+const FTodoTags = ["TODO", "FIXME", "NOTE", "XXX", "HACK", "BUG", "OPTIMIZE", "REVIEW", "SAFETY"]
+
+func fProseLine(c: string, plain: bool): bool =
+  ## a line of prose in a comment, which may be re-wrapped with the lines around it — not a list item, a table, a
+  ## heading, a directive, code (an RST block, a fenced or indented one; in a # comment, also what reads as
+  ## commented-out code), a banner, a TODO
+  if c.len == 0 or c[0] in {' ', '\t', '|', '>', '#', '='}: return false
+  if c.startsWith("```") or c.startsWith(".."): return false              # (a fence, an RST directive)
+  if c[0] in {'-', '*', '+'} and (c.len == 1 or c[1] == ' ' or c[1] == c[0]): return false   # (a list item, a rule)
+  if c[0] == ':' and c.len > 1 and c[1] in IdentChars: return false     # (an RST field: `:param x:`)
+  var d = 0
+  while d < c.len and c[d] in Digits: inc d
+  if d > 0 and d < c.len and c[d] in {'.', ')'}: return false            # (a numbered list)
+  for bar in ["───", "═══", "---", "===", "***", "~~~", "___", "###", "///", "+++"]:
+    if bar in c: return false                                            # (a banner or a rule)
+  if c.startsWith("[^") or c.startsWith("http://") or c.startsWith("https://"): return false   # (a footnote, a link)
+  if " # " in c: return false                     # (an example with a comment of its own: `foo(x) # why`)
+  if c[0] == '[':
+    let rb = c.find(']')
+    if rb > 0 and rb + 1 < c.len and c[rb + 1] == ':': return false       # (a link's definition: `[name]: url`)
+  if not plain: return true
+  # (a # comment: directives, TODOs and what reads as commented-out code stay as they are)
+  for dir in ["ned:", "nim:", "noqa", "nolint", "pragma", "type:"]:
+    if c.startsWith(dir): return false
+  for op in [" == ", " != ", " += ", " -= ", " *= ", " &= ", " := ", " >= ", " <= "]:
+    if op in c: return false                                            # (an expression, not a sentence)
+  var w = 0
+  while w < c.len and c[w] in IdentChars: inc w
+  let first = c[0 ..< w]
+  if first in FTodoTags and (w == c.len or c[w] in {':', ' ', '('}): return false
+  let t = c.strip(leading = false)
+  if t[^1] in {'=', '(', '[', '{', '\\'}: return false
+  if t[^1] == ':' and first in ["if", "elif", "else", "when", "while", "for", "case", "of", "try", "except",
+                                 "finally", "block", "defer", "static", "using"]:
+    return false                                                      # `for x in y:`, `of 1:`
+  if w < c.len and first.len > 0:
+    if c[w] in {'(', '[', '{', '='}: return false                       # `foo(x)`, `a[0]`, `x=1`
+    if c[w] == '.' and first.len >= 2 and w + 1 < c.len and c[w + 1] in IdentStartChars: return false   # `x.y`
+  if w + 2 < c.len and c[w] == ' ' and c[w + 1] in {'=', ':'} and c[w + 2] == ' ': return false   # `x = 1`
+  let ws = c.splitWhitespace
+  if first in ["let", "var", "const", "proc", "func", "iterator", "method", "template", "macro", "converter",
+               "type"] and ws.len >= 2:
+    # `let x = 1`, `proc foo(…)`, `type T = object`: a name, then what follows a declared name
+    let rest = c[w .. ^1].strip
+    var k = 0
+    while k < rest.len and rest[k] in IdentChars: inc k
+    if k > 0 and (k == rest.len or rest[k] in {'*', '(', '[', ':', '{'} or rest[k .. ^1].startsWith(" =")):
+      return false
+  if first in ["import", "include", "export"] and (ws.len <= 3 or '/' in c or '[' in c): return false
+  if first == "from" and " import " in c: return false
+  if first in ["echo", "discard", "return", "yield", "raise", "assert", "doAssert"] and
+     (ws.len <= 2 or '"' in c or ',' in c): return false
+  # an identifier right before `(` outside `backticks`: a call written as code
+  var inTick = false
+  for k in 0 ..< c.len:
+    if c[k] == '`': inTick = not inTick
+    elif not inTick and c[k] == '(' and k > 0 and c[k - 1] in IdentChars: return false
+  true
+
+proc fReflowComments*(entries: var seq[FOut]) =
+  ## nim.format.reflowDocComments (and reflowComments): a `##` paragraph (a `#` one) with a line longer than the
+  ## line length re-wrapped to it — lists, code, tables, headings, directives and banners stay as they are
   var res: seq[FOut]
   var fence = false
   var i = 0
-  proc docText(o: FOut): (bool, string) =
-    if not o.comment or o.toks.len != 1: return (false, "")
+  proc textOf(o: FOut): (string, string) =
+    ## (its mark, the text after it) — mark "" when it is no comment line of its own
+    if not o.comment or o.toks.len != 1: return ("", "")
     let t = o.toks[0].text
-    if not t.startsWith("##") or t.startsWith("##[") or t.startsWith("###"): return (false, "")
-    var c = t[2 .. ^1]
+    let m = fCommentMark(t)
+    if m.len == 0 or (m == "##" and not FmtReflow) or (m == "#" and not FmtReflowPlain): return ("", "")
+    var c = t[m.len .. ^1]
+    if m == "#" and c.len > 0 and c[0] != ' ': return ("#", "")     # (`#code`: commented out — as it is)
     if c.startsWith(" "): c = c[1 .. ^1]
-    (true, c)
-  proc plainLine(c: string): bool =
-    if c.len == 0 or c[0] in {' ', '\t', '-', '*', '+', '#', '|', '>', ':', '=', '`', '.'}: return false
-    var d = 0
-    while d < c.len and c[d] in Digits: inc d
-    if d > 0 and d < c.len and c[d] in {'.', ')'}: return false
-    true
+    (m, c)
   while i < entries.len:
-    let (isDoc, c0) = docText(entries[i])
-    if not isDoc:
+    let (mark, c0) = textOf(entries[i])
+    if mark.len == 0:
       fence = false
       res.add move(entries[i])
       inc i
       continue
     if c0.startsWith("```"): fence = not fence
-    if fence or not plainLine(c0):
+    if fence or not fProseLine(c0, mark == "#"):
+      # (a banner — `# ── Section ──────` — longer than the line: its rule cut to fit, three at least)
+      let t = entries[i].toks[0].text
+      let over = entries[i].depth * 2 + fRuneLen(t) - FmtMax
+      let (r, k) = fRuleTail(t)
+      if not fence and over > 0 and r.len > 0:
+        let n = (t.len - k) div r.len
+        let keep = max(3, n - over)
+        if keep < n:
+          entries[i].toks[0].text = t[0 ..< k] & r.repeat(keep)
       res.add move(entries[i])
       inc i
       continue
-    # only a doc block of its own — the module's, a routine's or type's under its header, or between statements —
-    # not one under a field or an enum value (that one moves with it as its trailing comment)
+    # only a comment block of its own — the module's, a routine's or type's under its header, or between
+    # statements — not one under a field or an enum value (that one moves with it as its trailing comment)
     var pc = i - 1
-    while pc >= 0 and entries[pc].comment: dec pc
+    while pc >= 0 and (entries[pc].comment or entries[pc].toks.len == 0): dec pc     # (an empty one: a blank line)
     if pc >= 0 and entries[pc].depth < entries[i].depth:
       let fl = FLine(toks: entries[pc].toks)
       if not fOpensBlock(fl):
@@ -4234,29 +4328,38 @@ proc fReflowDocs*(entries: var seq[FOut]) =
     var j = i
     var words: seq[string]
     var long = false
-    while j < entries.len and entries[j].depth == entries[i].depth and (j == i or not entries[j].blank):
-      let (d2, c) = docText(entries[j])
-      if not d2 or not plainLine(c): break
-      if entries[j].depth * 2 + entries[j].toks[0].text.len > FmtMax: long = true
+    while j < entries.len and entries[j].depth == entries[i].depth and (j == i or not entries[j].blank) and
+          entries[j].toks.len == 1 and entries[j].toks[0].col == entries[i].toks[0].col:
+      let (m2, c) = textOf(entries[j])
+      if m2 != mark or not fProseLine(c, mark == "#"): break
+      if entries[j].depth * 2 + fRuneLen(entries[j].toks[0].text) > FmtMax: long = true
       words.add c.splitWhitespace
       inc j
     if not long:
       for k in i ..< j: res.add move(entries[k])
       i = j
       continue
-    let width = FmtMax - entries[i].depth * 2 - 3
+    let width = FmtMax - entries[i].depth * 2 - mark.len - 1
     var cur = ""
+    var curLen = 0
     var outp: seq[string]
     for w in words:
-      if cur.len > 0 and cur.len + 1 + w.len > width:
+      let wl = fRuneLen(w)
+      if curLen > 0 and curLen + 1 + wl > width:
         outp.add cur
         cur = w
-      else: cur.add (if cur.len > 0: " " else: "") & w
+        curLen = wl
+      else:
+        if curLen > 0:
+          cur.add ' '
+          inc curLen
+        cur.add w
+        curLen += wl
     if cur.len > 0: outp.add cur
     let first = entries[i]
     for k, o in outp:
       var ne = first
-      ne.toks = @[FTok(kind: fkComment, text: "## " & o, nl: true, col: first.toks[0].col,
+      ne.toks = @[FTok(kind: fkComment, text: mark & " " & o, nl: true, col: first.toks[0].col,
                        blanks: (if k == 0: first.toks[0].blanks else: 0), pos: first.toks[0].pos)]
       ne.blank = first.blank and k == 0
       res.add ne
@@ -4369,7 +4472,7 @@ proc fFormat*(text: string, err: var string): string =
       k += l.toks.len
     for k in 0 ..< normToks.len: normNl[k] = normToks[k].nl
   var entries = fTransform(lines)
-  if FmtReflow: fReflowDocs(entries)
+  if FmtReflow or FmtReflowPlain: fReflowComments(entries)
   var res: seq[string]
   var prevDepth = -1
   var firstLine = newSeq[int](entries.len)      # (for lining up: where each entry's first line went,

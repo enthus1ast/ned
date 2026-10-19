@@ -324,6 +324,8 @@ proc applySettingsFile(p: string) =
   if n != nil and n.kind == JBool: FmtAlign = n.getBool
   n = settingOf(j, "nim.format.reflowDocComments")
   if n != nil and n.kind == JBool: FmtReflow = n.getBool
+  n = settingOf(j, "nim.format.reflowComments")
+  if n != nil and n.kind == JBool: FmtReflowPlain = n.getBool
   n = settingOf(j, "nim.format.maxBlankLines")
   if n != nil and n.kind == JInt: FmtBlank = clamp(n.getInt, 1, 3)
   n = settingOf(j, "nim.format.verify")
@@ -356,6 +358,7 @@ proc applySettingsFor*(path: string) =
   FmtImports = 0
   FmtAlign = false
   FmtReflow = false
+  FmtReflowPlain = false
   FmtBlank = 1
   fmtEmitC = true
   fmtEmitCpp = false

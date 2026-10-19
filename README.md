@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.11](#whats-new-in-611) · [6.10](CHANGELOG.md#whats-new-in-610) · [older releases](CHANGELOG.md)
+- [What's new in 6.11.1](#whats-new-in-6111) · [6.11](CHANGELOG.md#whats-new-in-611) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,52 +40,40 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.11
+## What's new in 6.11.1
 
-6.11 is about speed on a phone: what each frame sends to the terminal, and what keeps ned from answering a swipe.
+- **Type hints that keep up with scrolling**: they are worked out 16 lines at a time — what is on screen first, then
+  two screens ahead in the direction you scroll and one behind — a few milliseconds a round (4 while you swipe), and
+  each chunk once for a text, so scrolling back works nothing out again. The lines that scroll in have their hints
+  already; with hints on, scrolling costs about what it costs with them off (6.10 worked out a whole window again at
+  every step: twice the work).
+- **Long comments wrapped to the line length**: `nim.format.reflowComments` re-wraps `#` comments of prose the way
+  `nim.format.reflowDocComments` does `##` ones — what reads as commented-out code (`# let x = f(a)`, `#echo x`,
+  `# a == b`), examples with a comment of their own, lists, links, TODOs and `# ned:` directives stay as they are —
+  and a banner's rule (`# ── Section ─────`) is cut to the line length. The formatter checks the result as always:
+  the same code, the same words in the same order. Over the 463 files of Nim's compiler and standard library at 80
+  columns, it changed comment lines only, and Nim's parser reads every result as the original.
+- Fixed in doc comment re-wrapping: a doc comment inside a routine or a type was never re-wrapped; a line that starts
+  with `inline code` or *emphasis* ended the paragraph; widths were counted in bytes, so a line with `·` or `—`
+  wrapped too early.
 
-- **Scrolling sends only the new lines**: the terminal moves what is already on the screen (a scroll region) and ned
-  draws the lines that came in, its colours carried along a row and unchanged stretches skipped. On a 120×40 screen
-  with the minimap a wheel step sends 4.7 KB instead of 24, a Down at the bottom 2.5 KB instead of 11, and a fast
-  swipe through an 80×45 Termux screen 86 KB instead of 280. `"ui.terminalScroll": false` draws every line as
-  before, for a terminal that gets scroll regions wrong.
-- **Checks that no longer hold up the screen** (the slowdown 6.10 brought with big files): *can be a func* went on in
-  short rounds, but each round ran every other check again — up to 40 times after an edit; now they run once per
-  text. The engine's checks also wait for a pause in typing and scrolling, the imported modules are read a file at a
-  time in quiet moments instead of a dozen at once when the first check walks into them, the file you edit keeps
-  what its imports bring from one edit to the next, and names a macro makes are worked out again only when a macro
-  call changes — and when they come out the same, nothing is thrown away. On
-  [examples/showcase.nim](examples/showcase.nim) the checks after an edit take 10–20 ms on a laptop and the first
-  ones 40 (130 before), and in a session of edits and swipes no moment of work kept ned from input for 50 ms.
-- **Background work steps aside**: the compiler's checks run at a lower priority than ned, language servers too;
-  the servers for code in strings and clangd for `{.emit.}` start one at a time once you stop for a moment; type
-  hints are worked out for a page above and two below what you see, and for what scrolled in once a swipe stops;
-  reference counts and macro names wait until scrolling stops.
-- **Help › Performance…** (palette: *Performance report*): how long frames take to make, how many bytes each sends
-  and how long the terminal takes to draw them, how fast the terminal is, how often ned could not read input for over
-  50 ms and what kept it busy, the engine's timings, memory, what runs in the background — and the settings that
-  would make it lighter. `NED_PERF_LOG=file ned …` writes the same report when ned exits.
-- **A slow terminal is noticed**: when frames take the terminal long to draw, the minimap (`"ui.minimap": "auto"`)
-  steps aside so each frame sends less.
-- **The screen redrawn when you come back**: switching back to Termux (or any terminal that reports focus) repaints
-  everything, in case another app left marks on it; *Redraw the screen* in the palette does it any time.
-- **`ned --bench` counts bytes**: each kind of frame with the bytes it sends, and CI checks them against a budget.
-- **[examples/showcase.nim](examples/showcase.nim)**: one Nim file that tours what ned does for Nim, the C in an
-  `{.emit.}` included — each section says what to try.
-- Fixed: names used only in a format string (`fmt"{who}"`, `&"{n}"`, a `fmt"""…"""` over several lines) were
-  reported as never used (since 6.8).
+Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
+ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
+ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.10](CHANGELOG.md#whats-new-in-610) brought lint rules and
-`--fix`, *can be a func*, the project's own checks and Nim test coverage, [6.9](CHANGELOG.md#whats-new-in-69) hints
-the compiler does not give, memory layout on hover and `ned --lint`, [6.8](CHANGELOG.md#whats-new-in-68) nedls and
-nedfmt, the engine's own checks at once and names a macro makes, [6.7](CHANGELOG.md#whats-new-in-67) signed in to
-GitHub without a password and brought AI that knows your code, [6.6](CHANGELOG.md#whats-new-in-66) showed where
-ARC/ORC copies, ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C
-wrappers written one parameter a line, [6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures,
-[6.4](CHANGELOG.md#whats-new-in-64) took the Nim engine further (parameter names, a generic's instance, organize
-imports), [6.3](CHANGELOG.md#whats-new-in-63) explained C from Nim and gave the formatter your settings,
-[6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours,
-[6.0](CHANGELOG.md#whats-new-in-60) split ned into a project with its tests.
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.11](CHANGELOG.md#whats-new-in-611) made scrolling send only the
+new lines and the engine's checks wait for a pause, with Help › Performance, [6.10](CHANGELOG.md#whats-new-in-610)
+brought lint rules and `--fix`, *can be a func*, the project's own checks and Nim test coverage,
+[6.9](CHANGELOG.md#whats-new-in-69) hints the compiler does not give, memory layout on hover and `ned --lint`,
+[6.8](CHANGELOG.md#whats-new-in-68) nedls and nedfmt, the engine's own checks at once and names a macro makes,
+[6.7](CHANGELOG.md#whats-new-in-67) signed in to GitHub without a password and brought AI that knows your code,
+[6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies, ran tests on save and added postfix completion,
+[6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one parameter a line,
+[6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures, [6.4](CHANGELOG.md#whats-new-in-64) took
+the Nim engine further (parameter names, a generic's instance, organize imports), [6.3](CHANGELOG.md#whats-new-in-63)
+explained C from Nim and gave the formatter your settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like
+look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a
+project with its tests.
 
 ---
 
@@ -431,7 +419,9 @@ aliases (`Vec2 = GVec2[float32]`, so `v.x` is a `float32`). It also handles:
   generic routine's instance on hover (`T = int`), what a concept asks of a value of its type, statements after `;`.
 
 **Type hints.** A `let`, `var` or `const` written without a type shows it after its name, in grey:
-`let n: int = parseInt(s)`. The engine works them out for the lines on screen as you scroll and edit. Calls show
+`let n: int = parseInt(s)`. The engine works them out 16 lines at a time, those on screen first, then ahead of
+where you scroll — in a few milliseconds a round, so they are there when the lines come in — and once for each
+version of the text: scrolling back works nothing out again. Calls show
 their parameters' names before literal arguments — `draw(width: 10, height: 20, filled: true)` (`nim.parameterHints`:
 `literals`, `all` or `off`).
 `"nim.typeHints": "nimsuggest"` asks nimsuggest instead (when it is turned on); `"editor.inlayHints": false` turns them off.
@@ -790,7 +780,8 @@ Its layout is yours to choose (settings, Nim section):
 | `nim.format.collections` | `fit` | array, seq, table, set and tuple literals: the same four |
 | `nim.format.imports` | `keep` | `sort` — std/, pkg/, others, ./relative · `merge` — sorted, and `std/a` + `std/b` → `std/[a, b]` (module initialisation follows import order: keep it if that matters) |
 | `nim.format.align` | off | line up object field types and the `=` of const / let / var members |
-| `nim.format.reflowDocComments` | off | re-wrap a `##` paragraph with a line longer than the line length (lists and code stay) |
+| `nim.format.reflowDocComments` | off | re-wrap a `##` paragraph with a line longer than the line length (lists, tables and code stay) |
+| `nim.format.reflowComments` | off | the same for `#` paragraphs of prose — what reads as commented-out code, lists, TODOs and `# ned:` directives stay; a banner's rule (`# ── Section ────`) is cut to fit |
 | `nim.format.maxBlankLines` | 1 | empty lines kept in a row (up to 3) |
 | `nim.formatEmitC` | on | the C in `{.emit: """…""".}` formatted too: clang-format (your `.clang-format`), else ned's own C formatter |
 | `editor.formatOnPaste` | `indent` | pasted lines take the indentation of where they go · `format` — and pasted Nim is formatted · `off` |
