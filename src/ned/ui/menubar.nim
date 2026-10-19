@@ -265,7 +265,7 @@ proc menuItems(i: int): seq[MenuItem] =
   else:
     @[mc("Key bindings"), mc("Keyboard shortcuts…", "Change keyboard shortcuts…"), mc("Show recent messages", "Recent messages"),
       mc("Welcome page"), mc("Tips"), msep(), mc("Check setup", "Check setup…"),
-      mc("Copy info for bug report"), msep(), mc("About ned")]
+      mc("Performance report", "Performance…"), mc("Copy info for bug report"), msep(), mc("About ned")]
 
 proc openMenuBar(i: int) =
   let n = MenuNames.len

@@ -727,7 +727,7 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
         anyRoutine = true                     # (a template without parameters is called without them)
     if any and not anyRoutine: return NxRaises(known: true)
   inc c.steps
-  if c.steps > c.limit or ((c.steps and 15) == 0 and getMonoTime() > c.deadline):
+  if c.steps > c.limit or getMonoTime() > c.deadline:     # (a step may read a module: the clock every step)
     c.cut = true
     return nxRsFail("out of time")
   if name == "system" and next == '.': return NxRaises(known: true)       # (system.foo: the module)

@@ -123,6 +123,9 @@ proc engineRaisesHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, 
     if list.len > 60: list = list[0 ..< 59] & "…"
     hints.mgetOrPut(l, @[]).add (c, " {.raises: [" & list & "].}")
 
+var inlayBase: Table[int, (string, Table[int, seq[(int, string)]])]   # buffer → (for what, its type and
+                                                                       # parameter hints)
+
 proc engineInlays(b: Buffer, lo, hi: int) =
   ## the types of lets, vars and consts written without one, worked out by ned's own engine (no nimsuggest)
   let f = nxFileFor(b)
@@ -147,47 +150,55 @@ proc engineInlays(b: Buffer, lo, hi: int) =
     for (c0, _) in row[]:
       if c0 == c: return                 # (a routine inside a routine: its lines are looked at twice)
     row[].add (c, ": " & t)
-  try:
-    # module level
-    for s in f.syms:
-      if s.kind in {nxLet, nxVar, nxConst} and s.typ.len == 0 and s.value.len > 0 and s.line >= lo and s.line <= hi:
-        if msSince(t0) > engineInlayBudget:
-          cut = true
-          break
-        let v = nxTypeOfExpr(f, sc, @[], s.value, s.line, 0)
-        if s.slots < 0:
-          let parts = nxTupleTypes(v.typ)
-          if s.slot < parts.len: hintFor(s, parts[s.slot])
-        else: hintFor(s, v.typ)
-    # inside the routines on screen, and in top-level statements (a `for` loop's variables, the lets in its body)
-    var done, doneTop: HashSet[int]
-    proc hintLocals(last: int) =
-      for s in nxLocals(f, b.lines, last, high(int) div 2, everything = true):
-        if msSince(t0) > engineInlayBudget:
-          cut = true
-          break
-        if s.kind notin {nxLet, nxVar, nxConst, nxForVar} or s.typ.len > 0 or s.value.len == 0 or s.line < lo or
-           s.line > hi: continue
-        let locs = nxLocals(f, b.lines, s.line, s.col)
-        hintFor(s, nxTypeOfName(f, sc, locs, s.name, s.line, 0).typ)
-    for l in lo .. hi:
-      let ri = nxEnclosing(f, l)
-      if ri >= 0:
-        if ri in done: continue
-        done.incl ri
-        hintLocals(min(hi, f.syms[ri].endLine))
-      else:
-        var s0 = l
-        while s0 > 0 and (b.lines[s0].len == 0 or b.lines[s0][0] in {' ', '\t', '#', ')', ']', '}'}): dec s0
-        if s0 in doneTop or nxEnclosing(f, s0) >= 0: continue
-        doneTop.incl s0
-        var e = s0 + 1
-        while e <= b.lines.high and (b.lines[e].len == 0 or b.lines[e][0] in {' ', '\t', '#', ')', ']', '}'}): inc e
-        if e - 1 > s0: hintLocals(min(hi, e - 1))
-  except Exception as e: internalError("type hints", e)
-  if cfgParamHints != "off" and not cut:
-    try: engineParamHints(b, f, lo, hi, hints, t0)
-    except Exception as e: internalError("parameter hints", e)
+  # (a round for the same text and lines — the exception hints going on: the type and parameter hints as they were)
+  let key = $b.changeId & "/" & $nxGen & "/" & $lo & "/" & $hi & "/" & cfgParamHints
+  let base = inlayBase.getOrDefault(b.id)
+  if base[0] == key: hints = base[1]
+  else:
+    try:
+      # module level
+      for s in f.syms:
+        if s.kind in {nxLet, nxVar, nxConst} and s.typ.len == 0 and s.value.len > 0 and s.line >= lo and s.line <= hi:
+          if msSince(t0) > engineInlayBudget:
+            cut = true
+            break
+          let v = nxTypeOfExpr(f, sc, @[], s.value, s.line, 0)
+          if s.slots < 0:
+            let parts = nxTupleTypes(v.typ)
+            if s.slot < parts.len: hintFor(s, parts[s.slot])
+          else: hintFor(s, v.typ)
+      # inside the routines on screen, and in top-level statements (a `for` loop's variables, the lets in its body)
+      var done, doneTop: HashSet[int]
+      proc hintLocals(last: int) =
+        for s in nxLocals(f, b.lines, last, high(int) div 2, everything = true):
+          if msSince(t0) > engineInlayBudget:
+            cut = true
+            break
+          if s.kind notin {nxLet, nxVar, nxConst, nxForVar} or s.typ.len > 0 or s.value.len == 0 or s.line < lo or
+             s.line > hi: continue
+          let locs = nxLocals(f, b.lines, s.line, s.col)
+          hintFor(s, nxTypeOfName(f, sc, locs, s.name, s.line, 0).typ)
+      for l in lo .. hi:
+        let ri = nxEnclosing(f, l)
+        if ri >= 0:
+          if ri in done: continue
+          done.incl ri
+          hintLocals(min(hi, f.syms[ri].endLine))
+        else:
+          var s0 = l
+          while s0 > 0 and (b.lines[s0].len == 0 or b.lines[s0][0] in {' ', '\t', '#', ')', ']', '}'}): dec s0
+          if s0 in doneTop or nxEnclosing(f, s0) >= 0: continue
+          doneTop.incl s0
+          var e = s0 + 1
+          while e <= b.lines.high and (b.lines[e].len == 0 or b.lines[e][0] in {' ', '\t', '#', ')', ']', '}'}): inc e
+          if e - 1 > s0: hintLocals(min(hi, e - 1))
+    except Exception as e: internalError("type hints", e)
+    if cfgParamHints != "off" and not cut:
+      try: engineParamHints(b, f, lo, hi, hints, t0)
+      except Exception as e: internalError("parameter hints", e)
+    if not cut:
+      if inlayBase.len > 50: inlayBase.clear()
+      inlayBase[b.id] = (key, hints)
   if cfgRaisesHints and not cut:
     try:
       cut = not engineRaisesHints(b, f, lo, hi, hints, t0)
@@ -208,6 +219,7 @@ proc engineInlays(b: Buffer, lo, hi: int) =
     let n = if rc == b.changeId: rn + 1 else: 1
     inlayRetries[b.id] = (b.changeId, n)
     if n <= (if raisesCut: 16 else: 4): b.inlayAt = -1    # (the modules a routine calls into: read once, then kept)
+  lastInlayMs = int(msSince(t0))
   needRender = true
 
 proc csvInlays(b: Buffer, lo, hi: int) =
@@ -252,31 +264,42 @@ proc csvInlays(b: Buffer, lo, hi: int) =
   b.inlayHi = hi
   needRender = true
 
+proc inlayCovered(b: Buffer): bool =
+  ## are the hints of the lines on screen (and a few around them) worked out for this text already? Scrolling within
+  ## what was worked out costs nothing; past it, the next window is worked out — a screen above, two below
+  if b.inlayAt != b.changeId: return false
+  let vlo = max(0, b.topLine - 5)
+  let vhi = min(b.lines.high, b.topLine + max(textH, 20) + 5)
+  vlo >= b.inlayLo and vhi <= b.inlayHi
+
+proc inlayWindow(b: Buffer): (int, int) =
+  let page = max(textH, 20)
+  (clamp(b.topLine - page, 0, b.lines.high), min(b.lines.high, b.topLine + 2 * page + 20))
+
 proc requestInlays(b: Buffer) =
   if b.lang.mode == lmCsv:
     if not cfgCsvAlign or b.largeOn:
       if b.inlays.len > 0: b.inlays.clear()
       return
-    let lo = clamp(b.topLine - 30, 0, b.lines.high)
-    let hi = min(b.lines.high, b.topLine + max(textH, 20) + 60)
-    if b.inlayAt == b.changeId and lo >= b.inlayLo and hi <= b.inlayHi: return
+    let (lo, hi) = inlayWindow(b)
+    if inlayCovered(b): return
     csvInlays(b, lo, hi)
     return
   if not cfgInlayHints or b.path.len == 0: return
   if nimEngineOn(b) and sStr("nim.typeHints") != "nimsuggest":
     # ned's own engine: at once, without nimsuggest
-    let lo = clamp(b.topLine - 30, 0, b.lines.high)
-    let hi = min(b.lines.high, b.topLine + max(textH, 20) + 60)
-    if b.inlayAt == b.changeId and lo >= b.inlayLo and hi <= b.inlayHi: return
+    let (lo, hi) = inlayWindow(b)
+    if inlayCovered(b): return
     if msSince(b.lspChangeAt) < 400: return
+    # (worked out here, up to 60 ms: not in the middle of a swipe — the hints come when it stops)
+    if msSince(lastInputAt) < 150: return
     engineInlays(b, lo, hi)
     return
   if nimEngineOn(b):
     # nimsuggest (protocol 4) knows the types of lets and vars
     if not nsUsable(b) or nsProtoVer == 3: return
-    let lo = clamp(b.topLine - 30, 0, b.lines.high)
-    let hi = min(b.lines.high, b.topLine + max(textH, 20) + 60)
-    if b.inlayAt == b.changeId and lo >= b.inlayLo and hi <= b.inlayHi: return
+    let (lo, hi) = inlayWindow(b)
+    if inlayCovered(b): return
     if msSince(b.inlayReqTime) < 900 or msSince(b.lspChangeAt) < 600: return
     b.inlayReqTime = getMonoTime()
     discard nsRequest(b, nsInlay, Pos(line: lo), $lo & "/" & $hi & "/" & $b.changeId)
@@ -284,9 +307,8 @@ proc requestInlays(b: Buffer) =
   let s = lspReady(b)
   if s == nil or s.caps == nil or s.caps{"inlayHintProvider"} == nil: return
   if s.caps{"inlayHintProvider"}.kind == JBool and not s.caps["inlayHintProvider"].getBool: return
-  let lo = clamp(b.topLine - 30, 0, b.lines.high)
-  let hi = min(b.lines.high, b.topLine + max(textH, 20) + 60)
-  if b.inlayAt == b.changeId and lo >= b.inlayLo and hi <= b.inlayHi: return
+  let (lo, hi) = inlayWindow(b)
+  if inlayCovered(b): return
   if msSince(b.inlayReqTime) < 350: return
   b.inlayReqTime = getMonoTime()
   lspSync(b)

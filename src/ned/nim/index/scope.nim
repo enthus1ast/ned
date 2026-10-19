@@ -11,6 +11,7 @@ type
                                            # memory where a table of names would be thousands of strings
     modules*: Table[string, string]        # module name or alias → path
     stamp*: string
+    ikey*: string                          # what it depends on besides its own text (the toolchain, its imports)
     own*: NxFile                           # the parsed file this scope was built for
     anc*: Table[string, seq[string]]       # type → its ancestors (normalized base names), memoized
     deps*: seq[(string, string)]           # (path, stamp) of every other file it took symbols from
@@ -747,7 +748,8 @@ proc nxExports*(path: string, depth: int, seen: var HashSet[string], res: var se
 
 var
   nxIncFiles*: Table[string, (string, seq[string])]          # a file → (its stamp, the files it `include`s)
-  nxIncDirs*: Table[string, (float, Table[string, string])]  # folder → (when looked, included file → includer)
+  nxIncDirs*: Table[string, (float, Table[string, string], bool)]  # folder → (when looked, included file →
+                                                                   # includer, a package's top: none above it)
   nxScopeBuilding*: HashSet[string]                           # (scopes being built: an include loop stops here)
 
 proc nxIncludesOf*(p: string): seq[string] =
@@ -780,21 +782,28 @@ proc nxIncluderOf*(path: string): string =
   ## its imports and its other include files are this file's too
   if path.len == 0 or not path.endsWith(".nim"): return ""
   let now = epochTime()
-  var dirs = @[parentDir(path)]
-  # (and up to three folders above: a project's src/app.nim can include src/app/ui/menus.nim)
-  while dirs.len < 4 and parentDir(dirs[^1]).len > 1 and parentDir(dirs[^1]) != dirs[^1]: dirs.add parentDir(dirs[^1])
-  for d in dirs:
+  var d = parentDir(path)
+  # (and up to three folders above: a project's src/app.nim can include src/app/ui/menus.nim — but not above the
+  # standard library or a package's top folder, the one with its .nimble: the files there are not its)
+  for _ in 0 ..< 4:
     if d notin nxIncDirs or now - nxIncDirs[d][0] > 10:
       var m: Table[string, string]
+      var top = d == nxLibDir or d.endsWith("/pkgs2") or d.endsWith("/pkgs")
       try:
         for kind, p in walkDir(d):
-          if kind in {pcFile, pcLinkToFile} and p.endsWith(".nim"):
+          if kind notin {pcFile, pcLinkToFile}: continue
+          if p.endsWith(".nimble"): top = true
+          elif p.endsWith(".nim"):
             for inc in nxIncludesOf(p):
               if inc notin m: m[inc] = p
       except CatchableError: discard
-      nxIncDirs[d] = (now, m)
+      nxIncDirs[d] = (now, m, top)
     let h = nxIncDirs[d][1].getOrDefault(path)
     if h.len > 0 and h != path: return h
+    if nxIncDirs[d][2]: break
+    let up = parentDir(d)
+    if up.len <= 1 or up == d: break
+    d = up
   ""
 
 proc nxTopIncluder*(path: string): string =
@@ -815,7 +824,9 @@ proc nxIndexNames(sc: NxScope) =
   sc.byHash.sort(proc(x, y: (uint32, int32)): int = cmp(x[0], y[0]))
 
 var
-  nxScopeMax* = 12                     # scopes kept: the files asked about most recently (each holds thousands of refs)
+  nxScopeMax* = 48                     # scopes kept: the files asked about most recently (each holds thousands of
+                                       # refs; a check of one proc walks a dozen library modules: fewer and an edit
+                                       # made them all again) — and no more than a quarter of nim.indexMemory
   nxScopeUsed: Table[string, int]      # path → when its scope was asked for last (nxTick)
 
 proc nxKeepScope(path: string, sc: NxScope) =
@@ -823,7 +834,10 @@ proc nxKeepScope(path: string, sc: NxScope) =
   inc nxTick
   nxScopeUsed[path] = nxTick
   nxScopes[path] = sc
-  while nxScopes.len > nxScopeMax:
+  var refs = 0
+  for _, x in nxScopes: refs += x.refs.len
+  while nxScopes.len > nxScopeMax or
+        (nxScopes.len > 12 and nxIndexBudget > 0 and refs * (sizeof(NxRef) + 8) > nxIndexBudget div 4):
     var oldest = ""
     var t = high(int)
     for p, _ in nxScopes:
@@ -832,8 +846,29 @@ proc nxKeepScope(path: string, sc: NxScope) =
         t = u
         oldest = p
     if oldest.len == 0: break
+    refs -= nxScopes[oldest].refs.len
     nxScopes.del oldest
     nxScopeUsed.del oldest
+
+proc nxForgetScopesOf*(path: string) =
+  ## the names of `path` changed without its text changing (what its macro calls make): the scopes that see it go
+  var dead: seq[string]
+  for k, sc in nxScopes:
+    var hit = sc.own != nil and sc.own.path == path
+    if not hit:
+      for (p, _) in sc.deps:
+        if p == path:
+          hit = true
+          break
+    if not hit:
+      for _, p in sc.modules:              # (a module it imports that had nothing it could see, until now)
+        if p == path:
+          hit = true
+          break
+    if hit: dead.add k
+  for k in dead:
+    nxScopes.del k
+    nxScopeUsed.del k
 
 func skey(f: NxFile): string {.inline.} =
   ## the key a file's scope is kept under (its path; the file as a left-out `when` branch sees it: its own)
@@ -881,10 +916,17 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
   if host.path notin seenP: result.deps.add (host.path, host.stamp)
   nxKeepScope(f.skey, result)
 
+proc nxScopeImports(f: NxFile): string =
+  ## what a module's scope depends on besides its own text and the files it reads: its imports, the package
+  ## versions it is read with (a new toolchain forgets every scope; new names a macro makes, those that see them)
+  result = nxProjectOf(f.path).key
+  for im in f.imports:
+    result.add "|" & im.spec & ":" & im.alias & ":" & im.only.join(",") & ":" & im.excepts.join(",") &
+               (if im.isInclude: ":i" else: "")
+
 proc nxScopeStamp(f: NxFile): string =
   ## what a module's scope depends on besides the files it reads: its text, the toolchain, its imports
-  result = f.stamp & "/" & $nxGen & "/" & nxProjectOf(f.path).key     # (the package versions it is read with)
-  for im in f.imports: result.add "|" & im.spec & ":" & $im.only.len & ":" & $im.excepts.len
+  f.stamp & "/" & nxScopeImports(f)
 
 proc nxScope*(f: NxFile): NxScope =
   ## what `f` can see: its own declarations, system, and its imports (a file another one `include`s: what that
@@ -908,7 +950,8 @@ proc nxScope*(f: NxFile): NxScope =
         try: result = nxIncludedScope(f, hf)
         finally: nxScopeBuilding.excl f.path
         return
-  let stamp = nxScopeStamp(f)
+  let ikey = nxScopeImports(f)
+  let stamp = f.stamp & "/" & ikey
   var old = nxScopes.getOrDefault(f.skey)
   if old != nil:
     # another file it sees was edited (or saved): start over
@@ -920,16 +963,18 @@ proc nxScope*(f: NxFile): NxScope =
     inc nxTick
     nxScopeUsed[f.skey] = nxTick
     return old
-  if old != nil and old.stamp == stamp:
-    # own symbols change with every edit; imports rarely do
-    var sc = NxScope(refs: @[], stamp: stamp, modules: old.modules, own: f, deps: old.deps)
+  if old != nil and old.ikey == ikey and old.own != nil and old.own.path == f.path:
+    # own symbols change with every edit; imports rarely do: what the imports bring is kept (system's and the
+    # imports' thousands of names: an edit no longer gathers them all again)
+    var sc = NxScope(refs: newSeqOfCap[NxRef](old.refs.len + 16), stamp: stamp, ikey: ikey, modules: old.modules,
+                     own: f, deps: old.deps)
     for i in 0 ..< f.syms.len: sc.refs.add NxRef(file: f, idx: int32(i), origin: 1)
     for r in old.refs:
-      if r.file != f and r.file.path != f.path: sc.refs.add r
+      if r.file != old.own and r.file != f and r.file.path != f.path: sc.refs.add r
     nxIndexNames(sc)
     nxKeepScope(f.skey, sc)
     return sc
-  result = NxScope(stamp: stamp, own: f)
+  result = NxScope(stamp: stamp, ikey: ikey, own: f)
   for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
   for g in nxIncluded(f):
     for i in 0 ..< g.syms.len: result.refs.add NxRef(file: g, idx: int32(i), origin: 1)
@@ -1034,7 +1079,7 @@ proc nxAt*(f: NxFile, lines: openArray[string], line: int): NxFile =
     # its scope: the file's own one with these declarations in place of its, and what the left-out branches import
     # (made from the file's scope rather than read again from all the imports: a branch is entered in a few ms)
     let base = nxScope(f)
-    let sc = NxScope(stamp: nxScopeStamp(g), own: g, modules: base.modules, deps: base.deps)
+    let sc = NxScope(stamp: nxScopeStamp(g), ikey: "-", own: g, modules: base.modules, deps: base.deps)
     for i in 0 ..< g.syms.len: sc.refs.add NxRef(file: g, idx: int32(i), origin: 1)
     for r in base.refs:
       if r.file.path != f.path: sc.refs.add r

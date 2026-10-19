@@ -83,7 +83,11 @@ proc initSettingDefs() =
        "The touch bar's keys, in order: esc tab enter left right up down home end pgup pgdn undo redo save find " &
        "palette copy cut paste, a key like \"ctrl+p\" or \"alt+r\", or \"Label=command\" for any palette command " &
        "(e.g. \"Run=Run file\")")
-  defS("Appearance", "ui.minimap", %"auto", "Code minimap at the right edge ('auto' = when the editor is wide)",
+  defS("Appearance", "ui.terminalScroll", %true, "When the text moves up or down, let the terminal move the lines " &
+       "it shows and send only the new ones (much less to draw: smoother on Termux and over SSH). Turn it off if a " &
+       "terminal draws scrolled text in the wrong place")
+  defS("Appearance", "ui.minimap", %"auto", "Code minimap at the right edge ('auto' = when the editor is wide " &
+       "and the terminal draws fast enough)",
        @["auto", "on", "off"])
   defS("Appearance", "ui.scrollbar", %true, "Scrollbar with diagnostic marks (click or drag it to scroll)")
   defS("Appearance", "ui.longPressMenu", %true,
@@ -670,6 +674,7 @@ proc applySettings() =
   cfgSemColors = sBool("nim.semanticColors")
   cfgRichColors = sBool("nim.richColors")
   cfgMinimap = sStr("ui.minimap")
+  cfgTermScroll = sBool("ui.terminalScroll")
   cfgScrollbar = sBool("ui.scrollbar")
   cfgTodoHl = sBool("todo.highlight")
   cfgTodoName = sBool("todo.withName")

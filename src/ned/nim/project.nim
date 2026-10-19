@@ -116,8 +116,20 @@ proc nimMainModule(dir: string): string =
   if tops.len == 1: return tops[0]
   ""
 
+var projFileMemo: Table[string, (string, MonoTime)]   # file → (its project's main module, when worked out)
+
+proc nimProjectFile0(b: Buffer): string
+
 proc nimProjectFile(b: Buffer): string =
-  ## the module nimsuggest/the compiler should treat as project root for `b`
+  ## the module nimsuggest/the compiler should treat as project root for `b` (worked out again after 2 s: the engine
+  ## asks for it on every question, and the .nimble is read from disk for it)
+  let m = projFileMemo.getOrDefault(b.path, ("", MonoTime()))
+  if m[0].len > 0 and msSince(m[1]) < 2000: return m[0]
+  result = nimProjectFile0(b)
+  if projFileMemo.len > 500: projFileMemo.clear()
+  projFileMemo[b.path] = (result, getMonoTime())
+
+proc nimProjectFile0(b: Buffer): string =
   let nf = findNimbleFile(parentDir(b.path))
   if nf.len > 0:
     let info = parseNimble(nf)

@@ -59,11 +59,13 @@ BIG = big_file()
 
 def frames():
     r = subprocess.run([NED, '--bench', BIG], cwd=REPO, capture_output=True, text=True, timeout=300)
-    out = {}
+    out, sizes = {}, {}
     for l in r.stderr.splitlines():
         m = re.match(r'(\S.*?)\s{2,}([\d.]+) ms', l)
         if m: out[m.group(1)] = float(m.group(2))
-    return out
+        m = re.search(r'(\S.*?)\s{2,}[\d.]+ ms/frame\s+(\d+) bytes/frame', l)
+        if m: sizes[m.group(1)] = int(m.group(2))
+    return out, sizes
 
 empty = tempfile.mkdtemp(prefix='ned-bench-empty-')
 cases = [('empty folder', empty, []), ('this repository', REPO, []), ('a big file (ned in one)', REPO, [BIG])]
@@ -77,11 +79,18 @@ for name, cwd, args in cases:
         bad = lim is not None and v > lim
         if bad: over.append('%s: %s = %.1f (budget %s)' % (name, k, v, lim))
         rows.append((name, k, v, lim, bad))
-for k, v in frames().items():
+times, sizes = frames()
+for k, v in times.items():
     lim = BUDGET['frame_ms'].get(k)
     bad = lim is not None and v > lim
     if bad: over.append('frame: %s = %.3f ms (budget %s)' % (k, v, lim))
     rows.append(('ned --bench (big file)', k + ' ms/frame', v, lim, bad))
+for k, v in sizes.items():
+    # (what a frame sends to the terminal: what a phone's terminal has to draw)
+    lim = BUDGET.get('frame_bytes', {}).get(k)
+    bad = lim is not None and v > lim
+    if bad: over.append('frame: %s = %d bytes (budget %s)' % (k, v, lim))
+    rows.append(('ned --bench (big file)', k + ' bytes/frame', v, lim, bad))
 shutil.rmtree(empty, ignore_errors=True)
 os.remove(BIG)
 

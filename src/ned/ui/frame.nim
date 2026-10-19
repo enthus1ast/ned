@@ -16,7 +16,10 @@ proc updatePointer() =
     pointerShape = want
     writeAll("\e]22;" & want & "\a")
 
+var lastDrawnBuf, lastDrawnTop = -1          # (the editor drawn last frame: did its text move?)
+
 proc render() =
+  let renderT0 = getMonoTime()
   if bufs.len > 0:
     tabW = buf().tabOf
     cfgWrap = wrapFor(buf())
@@ -58,6 +61,12 @@ proc render() =
       drawZenInfo(b)
     else:
       drawEditor(b, lay.edX, lay.textY, lay.edW - mm, lay.textH, focus == fEditor)
+      # (the text moved up or down — by scrolling, or drawing kept the cursor in view: the terminal may move what
+      # it shows; flushScreen decides)
+      if b.id == lastDrawnBuf and b.topLine != lastDrawnTop:
+        scrollHint = (true, lay.textY, lay.textY + lay.textH - 1, lay.edX, lay.edX + lay.edW - mm - 1)
+      lastDrawnBuf = b.id
+      lastDrawnTop = b.topLine
     if mm > 0: drawMinimap(b, lay.edX + lay.edW - mm, lay.textY, mm, lay.textH)
     if lay.panelH > 0: drawBottomPanel(lay.edX, lay.panelY, lay.edW, lay.panelH)
   panelTopY = if lay.panelH > 0 and not editorHidden: lay.panelY else: -1
@@ -92,5 +101,6 @@ proc render() =
        not (focus == fTree and sideView == svSearch) and not (focus == fRight and rightView == svAssistant) and
        not (focus == fPanel and panelKind == pkTerminal):
     cursorX = -1
+  frameBuildUs = int((getMonoTime() - renderT0).inMicroseconds)
   flushScreen()
   updatePointer()

@@ -270,6 +270,7 @@ include ned/editor/recovery
 include ned/git/marks
 include ned/app/keyboard
 include ned/app/setupcheck
+include ned/app/perfreport
 include ned/git/commands
 include ned/git/setup
 include ned/nim/ciworkflow

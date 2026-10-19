@@ -1817,8 +1817,12 @@ proc lintApply*(path: string, lines: openArray[string], ds: var seq[Diag]) =
 proc pcImportsNotRequired*(f: NxFile, b: Buffer, code: seq[string]): seq[Diag]
 proc pcNimbleChecks*(b: Buffer): seq[Diag]
 
+var ecLast: Table[int, (string, seq[Diag])]   # open buffer → (its text and what the engine knew, the checks but
+                                              # can-be-func found then): a can-be-func round reuses them
+
 proc engineChecksFor(b: Buffer): seq[Diag] =
-  ## the engine's own checks of a Nim buffer as it is now
+  ## the engine's own checks of a Nim buffer as it is now. In an open file "can be a func" may take several rounds
+  ## (a few ms each, so typing and scrolling go on): the other checks are made once per text, not every round
   if b == nil or b.lang == nil or b.lang.mode != lmNim or b.lines.len > 20000 or b.largeOn: return
   let f = try: nxFileFor(b) except CatchableError: nil
   if f == nil: return
@@ -1834,23 +1838,38 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
   let lc = lintCfgFor(f.path)
   template on(rule: string): bool =
     (let sv = lc.sev.getOrDefault(rule, nedRuleSev(rule)); sv != 0 and sv <= ecWantSev)
-  try:
-    if on("unreachable"): ecUnreachable(b.lines, code, result)
-    if on("unused-local"): ecUnusedLocals(f, b.lines, code, result)
-    if on("field-typo"): ecMembers(f, b, code, result)
-    if on("arg-count"): ecArgCounts(f, b, code, result)
-    if on("discarded"): ecDiscarded(f, b, code, result)
-    if on("literal-type"): ecLiteralTypes(f, b, code, result)
-    if on("unused-import"): ecUnusedImports(f, b, code, result)
-    if cfgEngineMoreChecks:
-      if on("var-let"): ecVarsNeverChanged(f, b, code, result)
-      if on("unused-param"): ecUnusedParams(f, b, code, result)
-      if on("result-unset"): ecResultNeverSet(f, b, code, result)
-      if on("can-be-func"): ecCanBeFunc(f, b, result)
-    if on("deprecated") or on("newer-api") or on("newer-module"): ecDeprecatedAndNewer(f, b, code, result)
-    if on("import-not-required"): result.add pcImportsNotRequired(f, b, code)   # (the project's .nimble: its requires)
-    if b.path.endsWith(".nimble") and on("nimble"): result.add pcNimbleChecks(b)
-  except CatchableError, Defect: discard
+  let live = bufById(b.id) == b
+  let key = $b.changeId & "/" & $nxGen & "/" & lc.dir & "/" & $lc.sev & "/" & $ecWantSev & "/" & $cfgEngineMoreChecks
+  if live and ecLast.getOrDefault(b.id)[0] == key:
+    result = ecLast[b.id][1]                          # (the same text: only can-be-func goes on)
+    try:
+      if cfgEngineMoreChecks and on("can-be-func"): ecCanBeFunc(f, b, result)
+    except CatchableError, Defect: discard
+  else:
+    try:
+      if on("unreachable"): ecUnreachable(b.lines, code, result)
+      if on("unused-local"): ecUnusedLocals(f, b.lines, code, result)
+      if on("field-typo"): ecMembers(f, b, code, result)
+      if on("arg-count"): ecArgCounts(f, b, code, result)
+      if on("discarded"): ecDiscarded(f, b, code, result)
+      if on("literal-type"): ecLiteralTypes(f, b, code, result)
+      if on("unused-import"): ecUnusedImports(f, b, code, result)
+      if cfgEngineMoreChecks:
+        if on("var-let"): ecVarsNeverChanged(f, b, code, result)
+        if on("unused-param"): ecUnusedParams(f, b, code, result)
+        if on("result-unset"): ecResultNeverSet(f, b, code, result)
+        if on("can-be-func"): ecCanBeFunc(f, b, result)
+      if on("deprecated") or on("newer-api") or on("newer-module"): ecDeprecatedAndNewer(f, b, code, result)
+      # (the project's .nimble: its requires)
+      if on("import-not-required"): result.add pcImportsNotRequired(f, b, code)
+      if b.path.endsWith(".nimble") and on("nimble"): result.add pcNimbleChecks(b)
+    except CatchableError, Defect: discard
+    if live:
+      var others: seq[Diag]
+      for d in result:
+        if d.rule != "can-be-func": others.add d
+      if ecLast.len > 50: ecLast.clear()
+      ecLast[b.id] = (key, others)
   var keep: seq[Diag]
   for d in result:
     var inactive = false

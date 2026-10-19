@@ -99,6 +99,9 @@ var
   navBuf = -1
   navChange = -1
   navAt: MonoTime
+  lastInlayMs = -1                  # (Help › Performance: the last type-hint window, the engine's last checks)
+  lastChecksMs = -1
+  lastInputAt: MonoTime             # a key, a click, a wheel turn: when the last one came (background work waits)
   autoHoverFired = true
   hoverIsAuto = false
   breakpoints: Table[string, HashSet[int]]     # debugger: file → lines (0-based), kept with the session

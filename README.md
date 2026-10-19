@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.10](#whats-new-in-610) · [6.9](CHANGELOG.md#whats-new-in-69) · [older releases](CHANGELOG.md)
+- [What's new in 6.11](#whats-new-in-611) · [6.10](CHANGELOG.md#whats-new-in-610) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,54 +40,44 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.10
+## What's new in 6.11
 
-![Ned's checks with their rules: Alt+Enter on a hint offers its fix, silencing the rule on that line, or turning it off for the project; the problems name each rule](screenshots/lint-rules-610.png)
+6.11 is about speed on a phone: what each frame sends to the terminal, and what keeps ned from answering a swipe.
 
-- **Every check has a rule, and the project decides**: `.ned/lint.json` turns a rule off or sets how serious it is
-  (`{"rules": {"var-let": "off", "deprecated": "error"}, "exclude": ["generated/"]}`), in the editor, nedls and
-  `ned --lint` alike. `# ned: ignore[var-let]` silences a line (`ignore-next-line`, `ignore-file` too); Alt+Enter on a
-  problem offers *Silence var-let on this line* and *Turn off var-let for this project*. The Problems panel and nedls
-  name each problem's rule. See [Lint](#lint-the-engines-checks-from-the-command-line-and-in-ci).
-- **`ned --lint --fix`**: what has a safe fix is fixed in place — var → let, deprecated names, unused imports, proc →
-  func, a missing `requires` — or shown first with `--diff`. `--format:sarif` writes SARIF 2.1.0 for GitHub code
-  scanning; `--rules` lists the rules.
-- **Can be a func**: a proc with no side effects, as the compiler infers it, is marked and Alt+Enter makes it a
-  func (or every one in the file). Each of the 1,797 hints on Nim's compiler, standard library and 19 packages that
-  could be checked was made a func and compiled again: no new error.
-- **The project's own checks**: an `import` of a package the .nimble does not require (Alt+Enter adds the
-  `requires`, with the version the project builds with), a requirement nothing imports, an exported routine nothing in
-  a program uses, and the .nimble itself — a `requires` nimble cannot read or written twice, a version nothing
-  installed meets, a `srcDir` or `bin` that is not there, a Nim it asks for that is not the one in use.
-- **Nim test coverage in the gutter**: *Test coverage: run* builds and runs the project's tests and colours the line
-  numbers — green ran, red never did — exact per Nim line (gcc: ned rewrites the generated C so a statement's extra
-  C lines stay on it; clang, as on Termux and macOS: clang's source-based coverage mapped back through `#line`).
-  Procs no test calls are red and named in the summary by file. A second run takes a moment.
-- **Concepts**: the hover of a concept lists the project's types that satisfy it, the hover of a type the concepts it
-  satisfies, and *Go to implementation* on a concept lists them — for 700 answers compared with the compiler's
-  `T is C`, they agree.
-- **The dependency tree shows what the build uses**: each package in the version nimble.lock, nimble.paths, atlas or
-  `nimbledeps/` gives it, and why (`1.0.0 ✓ (nimble.lock)`), with what that version requires under it.
-- **The engine closer to nimsuggest**: type hints the same as nimsuggest's for 99.3% (98.6% in 6.9), a variable's
-  type 98.6% (98.0%), member completion 98.9% (98.6%). chronos' futures that carry what they raise
-  (`InternalRaisesFuture[T, (A, B)]`), completion by the expected type in a call written over several lines and in
-  a parameter's default, converters in exception hints, and a folder read as a package only when nimble or atlas made
-  it.
-- **The formatter at 99.8% of nph** (99.6% in 6.9), and about 30% faster: lambdas with bodies and blocks among a
-  call's arguments, comments among an expression's operators, and statements in parentheses laid out as nph does
-  them. **Safer**: every result is also checked for line breaks only where Nim reads a line on, and every layout
-  setting was checked with Nim's own parser over 3,800 files — `keep` could break a long routine header after its
-  `*` (`proc bindAddr *` ⏎ `(…)`), and 6.9 could change what code means in a few rarer cases (statements in
-  parentheses a line apart, nph's own layout; `x.not` at the end of a line; `posix.raise(x)`; Unicode operators).
-- **ned's own source, checked by ned**: `ned --lint --fix` made 447 procs funcs and 87 vars lets, and the unused
-  parameters and locals it found are gone; it compiles as before and every test passes. `ned --lint` also reads each
-  file's time and size once per run (8.5 million times before, on ned's own source: 15 s became 7), and in the editor
-  a question to the engine reads them once per file.
+- **Scrolling sends only the new lines**: the terminal moves what is already on the screen (a scroll region) and ned
+  draws the lines that came in, its colours carried along a row and unchanged stretches skipped. On a 120×40 screen
+  with the minimap a wheel step sends 4.7 KB instead of 24, a Down at the bottom 2.5 KB instead of 11, and a fast
+  swipe through an 80×45 Termux screen 86 KB instead of 280. `"ui.terminalScroll": false` draws every line as
+  before, for a terminal that gets scroll regions wrong.
+- **Checks that no longer hold up the screen** (the slowdown 6.10 brought with big files): *can be a func* went on in
+  short rounds, but each round ran every other check again — up to 40 times after an edit; now they run once per
+  text. The engine's checks also wait for a pause in typing and scrolling, the imported modules are read a file at a
+  time in quiet moments instead of a dozen at once when the first check walks into them, the file you edit keeps
+  what its imports bring from one edit to the next, and names a macro makes are worked out again only when a macro
+  call changes — and when they come out the same, nothing is thrown away. On
+  [examples/showcase.nim](examples/showcase.nim) the checks after an edit take 10–20 ms on a laptop and the first
+  ones 40 (130 before), and in a session of edits and swipes no moment of work kept ned from input for 50 ms.
+- **Background work steps aside**: the compiler's checks run at a lower priority than ned, language servers too;
+  the servers for code in strings and clangd for `{.emit.}` start one at a time once you stop for a moment; type
+  hints are worked out for a page above and two below what you see, and for what scrolled in once a swipe stops;
+  reference counts and macro names wait until scrolling stops.
+- **Help › Performance…** (palette: *Performance report*): how long frames take to make, how many bytes each sends
+  and how long the terminal takes to draw them, how fast the terminal is, how often ned could not read input for over
+  50 ms and what kept it busy, the engine's timings, memory, what runs in the background — and the settings that
+  would make it lighter. `NED_PERF_LOG=file ned …` writes the same report when ned exits.
+- **A slow terminal is noticed**: when frames take the terminal long to draw, the minimap (`"ui.minimap": "auto"`)
+  steps aside so each frame sends less.
+- **The screen redrawn when you come back**: switching back to Termux (or any terminal that reports focus) repaints
+  everything, in case another app left marks on it; *Redraw the screen* in the palette does it any time.
+- **`ned --bench` counts bytes**: each kind of frame with the bytes it sends, and CI checks them against a budget.
+- **[examples/showcase.nim](examples/showcase.nim)**: one Nim file that tours what ned does for Nim, the C in an
+  `{.emit.}` included — each section says what to try.
+- Fixed: names used only in a format string (`fmt"{who}"`, `&"{n}"`, a `fmt"""…"""` over several lines) were
+  reported as never used (since 6.8).
 
-![Nim test coverage: the line numbers that ran in green, those that never did in red, the summary by file with the procs no test reaches](screenshots/nim-coverage-610.png)
-
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.9](CHANGELOG.md#whats-new-in-69) brought hints the compiler
-does not give, memory layout on hover and `ned --lint`, [6.8](CHANGELOG.md#whats-new-in-68) nedls and
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.10](CHANGELOG.md#whats-new-in-610) brought lint rules and
+`--fix`, *can be a func*, the project's own checks and Nim test coverage, [6.9](CHANGELOG.md#whats-new-in-69) hints
+the compiler does not give, memory layout on hover and `ned --lint`, [6.8](CHANGELOG.md#whats-new-in-68) nedls and
 nedfmt, the engine's own checks at once and names a macro makes, [6.7](CHANGELOG.md#whats-new-in-67) signed in to
 GitHub without a password and brought AI that knows your code, [6.6](CHANGELOG.md#whats-new-in-66) showed where
 ARC/ORC copies, ran tests on save and added postfix completion, [6.5.1](CHANGELOG.md#whats-new-in-651) fixed C
@@ -1175,7 +1165,7 @@ tasks:
 | `nimble android` | verify it compiles for Android/arm64 (C generation only) |
 | `nimble test` | the unit tests: the Nim and C indexes, the formatters, the regular expressions, ARC/ORC copies |
 | `nimble uitest` | the whole editor driven through tmux (needs tmux; see [tests/README.md](tests/README.md)) |
-| `nimble bench` | render a 200 000-line file off-screen and print frame timings |
+| `nimble bench` | render a 200 000-line file off-screen and print frame timings and bytes |
 | `nimble perf` | startup time, memory and frame times, checked against the CI budget (needs python3) |
 | `nimble smoke` | build and run the non-interactive checks |
 | `nimble nedfmt` · `nimble nedls` | build the formatter and the language server on their own |
@@ -1184,13 +1174,19 @@ tasks:
 | `nimble tools` | install nimlangserver, nph and inim |
 
 Why it is fast: a cell grid with per-cell diffing (only changed cells are sent, inside synchronized-output
-frames), incremental per-line highlighting with a background pass, nothing done per frame that depends on file
-size, file indexing and project search in the background, language servers and git in separate processes with
-non-blocking pipes, and zero CPU while idle. Files over 40 000 lines skip the language server so typing stays
+frames, colours carried along a row and unchanged stretches skipped), scrolling done by the terminal itself (a
+scroll region: only the new lines are sent), incremental per-line highlighting with a background pass, nothing done
+per frame that depends on file size, file indexing and project search in the background, the engine's checks in
+the pauses between keys and swipes, language servers and git in separate processes with non-blocking pipes and a
+lower priority than ned, and zero CPU while idle. Files over 40 000 lines skip the language server so typing stays
 instant; a 1-million-line file scrolls and edits normally.
 
-`ned --startup-time [file …]` shows where the time goes when ned starts, and the memory it uses (see the 5.22
-notes); CI checks those numbers on every push.
+*Help › Performance…* shows how ned does on your device: frames (made in, bytes sent, how long the terminal took),
+the terminal's speed, the moments ned could not read input and what kept it busy, the engine's timings, memory and
+what runs in the background, with the settings that would make it lighter. `NED_PERF_LOG=file` writes it when ned
+exits. `ned --bench FILE` gives the time and bytes per frame without a terminal, and
+`ned --startup-time [file …]` where the time goes when ned starts, and the memory it uses (see the 5.22 notes); CI
+checks those numbers on every push.
 
 ### The source
 
@@ -1209,6 +1205,7 @@ src/ned/
   ai/                  the assistant: requests, agent tools, MCP, chats, inline suggestions
   git/  term/  debug/  c/  run/  testing/  project/  config/  keymaps/  app/
 tests/                 unit tests, the UI suite, the fuzzer, the engine comparison, cross builds
+examples/showcase.nim  one Nim file that tours what ned does for Nim
 ```
 
 Most files are parts of the program (`include`d in order: each sees the ones before it). The Nim index, the
@@ -1240,6 +1237,10 @@ added to the standard library — is made by `.github/ci/nimapis.py` from the re
 - **Alt keys don't work** — in Termux add ALT to the extra-keys row (`~/.termux/termux.properties`); on macOS
   terminals enable "Option as Meta". Every command is also in the menus (F10) and the palette (Ctrl+E).
 - **Can't select text with the mouse in Termux** — Alt+U turns ned's mouse support off for a moment.
+- **Slow on a phone** — *Help › Performance…* says what takes the time and which settings would help (often
+  `"ui.minimap": "off"` on a slow terminal, or `"nim.engineHints": false` on a big file).
+- **Lines left behind or out of place after scrolling** — the terminal does not handle scroll regions as ned
+  expects: set `"ui.terminalScroll": false` (and *Redraw the screen* from the palette clears it at once).
 - **Colours look wrong** — set `"ui.trueColor": "on"` or `"off"` (256 colours).
 - **Comments look odd or garbled** — italics are off by default. Turn them on with `"ui.italics": true`
   only if your terminal font has an italic face.

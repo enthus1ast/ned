@@ -79,11 +79,24 @@ proc mnParse(output: string): seq[(int, string)] =
       cur = -1
     else: acc.add raw
 
+func mnSame(a, b: seq[NxMacroCall]): bool =
+  ## the same calls making the same names (the lines they are on aside)
+  if a.len != b.len: return false
+  for i in 0 ..< a.len:
+    if a[i].text != b[i].text or a[i].syms.len != b[i].syms.len: return false
+    for k in 0 ..< a[i].syms.len:
+      var x = a[i].syms[k]
+      var y = b[i].syms[k]
+      x.line = 0; x.col = 0; x.endLine = 0
+      y.line = 0; y.col = 0; y.endLine = 0
+      if x != y: return false
+  true
+
 proc mnForget(path: string) =
   if path in nxMacroSyms:
     nxMacroSyms.del path
     nxFiles.del path
-    nxScopes.clear()
+    nxForgetScopesOf(path)
     inc nxGen
 
 proc mnNext()
@@ -95,7 +108,8 @@ proc mnExpand(path: string) =
   let f = nxLoad(path)
   let calls = mnCalls(f, lines)
   var sig = ""
-  for (l, _) in calls: sig.add $l & ":" & lines[l] & "\n"
+  for (l, _) in calls: sig.add lines[l] & "\n"     # (the calls as written: a line typed above them moves them, and
+                                                  # what they make is found at the call wherever it is now)
   if mnDone.getOrDefault(path, "\x00") == sig: return
   mnDone[path] = sig
   if calls.len == 0:
@@ -151,12 +165,15 @@ proc mnExpand(path: string) =
         break
     # (nothing expanded — the text does not compile now, say: what the calls made before stays)
     if made.len > 0 or j.code == 0:
-      nxMacroSyms[path] = made
-      if made.len == 0: nxMacroSyms.del path
-      nxFiles.del path
-      nxScopes.clear()
-      inc nxGen
-      needRender = true
+      if mnSame(nxMacroSyms.getOrDefault(path), made):
+        if made.len > 0: nxMacroSyms[path] = made      # (the same names: where the calls are now, nothing to redo)
+      else:
+        nxMacroSyms[path] = made
+        if made.len == 0: nxMacroSyms.del path
+        nxFiles.del path
+        nxForgetScopesOf(path)                     # (what sees this file: the others are kept)
+        inc nxGen
+        needRender = true
     mnNext())
   if job != nil: job.deadlineMs = 60_000       # (a macro that never ends: stopped)
 

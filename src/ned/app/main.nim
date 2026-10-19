@@ -21,10 +21,16 @@ proc processInput(force: bool) =
     except Exception as e:
       internalError("key " & $k.kind, e)
     inc n
+    lastInputAt = getMonoTime()
     if (n and 15) == 0 and msSince(t0) > 50:
       inputBacklog = true          # a big burst (pasted keys, a stuck key): show progress, stay responsive
       break
   compactInput()
+
+proc compilerRunning(): bool =
+  ## is the compiler checking something now? (background compiler runs go one at a time)
+  for j in jobs:
+    if j.kind == jkCheck and not j.done: return true
 
 proc pumpJobs(ready: HashSet[cint]) =
   let snapshot = jobs
@@ -43,7 +49,7 @@ proc pumpJobs(ready: HashSet[cint]) =
         else:
           if errno notin [EAGAIN, EINTR]: j.eof = true
           break
-    if j.kind == jkAux and not j.done and msSince(j.started) > 4000:
+    if j.kind == jkAux and j.deadlineMs == 0 and not j.done and msSince(j.started) > 4000:
       killProc(j.pr, SIGKILL)
       j.eof = true
     if j.deadlineMs > 0 and not j.done and not j.eof and msSince(j.started) > j.deadlineMs:
@@ -67,6 +73,7 @@ var privSwept = false
 
 proc mainLoop() =
   lastFileCheck = getMonoTime()
+  var busyFrom = getMonoTime()
   while not quitting:
     if ttyGone and termSignal == 0: termSignal = SIGHUP.int    # no terminal left to draw on or read from
     if termSignal != 0:
@@ -85,7 +92,8 @@ proc mainLoop() =
       needRender = true
     if needRender:
       needRender = false
-      try: render()
+      try:
+        timedWork("drawing the screen"): render()
       except Exception as e:
         internalError("render", e)
       if startTrace and startRss.len == 0:
@@ -152,9 +160,13 @@ proc mainLoop() =
     if reapPids.len > 0: timeout = min(timeout, 500)
     if startTrace: timeout = min(timeout, 20)
     if cfgRefCounts and not refComplete and refFiles.len > 0: timeout = min(timeout, 20)   # the project's words
+    if cfgRefCounts and msSince(lastInputAt) < 450: timeout = min(timeout, 250)          # (the counts after scrolling)
+    if nxWarmMods.len > 0: timeout = min(timeout, 60)          # (the imports' scopes, a few at a time while quiet)
     if cfgTooltips and not tipShown and mouseX >= 0 and msSince(mouseMovedAt) < 700:
       timeout = min(timeout, max(1, 660 - int(msSince(mouseMovedAt))))
     if (cfgInlayHints or cb0.lang.mode == lmCsv) and cb0.inlayAt != cb0.changeId and cb0.path.len > 0: timeout = min(timeout, 400)
+    if cfgInlayHints and cb0.path.len > 0 and msSince(lastInputAt) < 600 and not inlayCovered(cb0):
+      timeout = min(timeout, 160)                     # (the hints of what scrolled in, once the swipe stops)
     if cb0.gitHasBase and cb0.gitAt != cb0.changeId: timeout = min(timeout, 250)
     if lspRestartAt.len > 0 or lspHoldAttach.len > 0: timeout = min(timeout, 100)
     if cfgGhostOn and cb0.dirty and cb0.changeId != ghostAskedChange:
@@ -164,7 +176,10 @@ proc mainLoop() =
     for b in bufs:
       if b.changeId != b.swapAt and b.dirty: anySwap = true
     if anySwap: timeout = min(timeout, 1000)
+    # (how long the round before took — a long one is a moment ned did not answer keys or the mouse)
+    noteBusy(int((getMonoTime() - busyFrom).inMicroseconds))
     let r = poll(addr fds[0], fds.len.Tnfds, timeout.cint)
+    busyFrom = getMonoTime()
     if r < 0:
       if errno == EINTR: continue
       os.sleep(10)
@@ -184,7 +199,7 @@ proc mainLoop() =
       ttyGone = true
     if 0.cint in ready:
       discard readInput()
-      processInput(false)
+      timedWork("keys and mouse"): processInput(false)
     elif inputBacklog:
       processInput(false)
     elif inBuf.len > 0:
@@ -215,7 +230,7 @@ proc mainLoop() =
         if rightOpen and rightView == svTodos and msSince(todoScanAt) > 30_000: todoScanProject()
       if oscBgReply.len > 0: handleTermBg()
       if ciDue and getMonoTime() >= ciDueAt: ciRefresh()
-      pumpJobs(ready)
+      timedWork("results of programs (checks, git …)"): pumpJobs(ready)
       pumpTerms(ready)
       if reapPids.len > 0: reapPending()
       if mcpServers.len > 0: mcpPump(ready)
@@ -233,10 +248,10 @@ proc mainLoop() =
          msSince(mouseMovedAt) < 2000:
         let ri = hitRegion(mouseX, mouseY)
         if ri >= 0 and regions[ri].tip.len > 0: needRender = true
-      if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0: requestInlays(buf())
+      if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0: timedWork("type and parameter hints"): requestInlays(buf())
       if cfgCSigHints and inBuf.len == 0: cSigHintsUpdate(buf())
-      if inBuf.len == 0: lspExtras(buf())
-      if inBuf.len == 0: engineWarm(buf())
+      if inBuf.len == 0: timedWork("language server requests"): lspExtras(buf())
+      if inBuf.len == 0: timedWork("the engine reading imports"): engineWarm(buf())
       if inBuf.len == 0: ghostTick()
       if inBuf.len == 0:
         let gb = buf()
@@ -292,14 +307,14 @@ proc mainLoop() =
          pickKind == pickNone and promptKind == pNone and not compOpen and not hoverOpen and not helpOpen and
          not dialogOpen() and not menuOpen() and not replaceActive and inBuf.len == 0 and not mouseDragging:
         autoHoverFired = true
-        cmdHover(auto = true)
+        timedWork("hover"): cmdHover(auto = true)
       # live diagnostics through nimsuggest
-      emitPump(cb)                         # clangd's copy of the C this Nim file emits
-      embPump(cb)                          # the servers' copies of the HTML, CSS, SQL, JSON in its strings
-      refLensPump(cb)                      # "3 references" beside the declarations on screen
+      timedWork("clangd for the emitted C"): emitPump(cb)
+      timedWork("servers for the languages in strings"): embPump(cb)
+      timedWork("reference counts"): refLensPump(cb)
       remoteAutoSync()                     # a remote folder: what changed on the server
       if cfgLiveCheck and cb.chkAt == 0 and not cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
-         msSince(cb.lspChangeAt) > 1200 and cb.path notin typingChecks:
+         msSince(cb.lspChangeAt) > 1200 and cb.path notin typingChecks and msSince(lastInputAt) > 800:
         # a project file just opened: its errors, without waiting for an edit or a save
         if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb): typingCheck(cb)
         else: cb.chkAt = -1
@@ -314,11 +329,15 @@ proc mainLoop() =
          not lspActiveFor(cb):
         cTypingCheck(cb)                                    # C: the compiler on the unsaved text
       if cfgLiveCheck and cb.lang != nil and cb.lang.mode == lmNim and typoAt.getOrDefault(cb.id, -1) != cb.changeId and
-         msSince(cb.lspChangeAt) > 500 and (cb.dirty or engineChecksOnOpen(cb)):
-        engineTypos(cb)                                     # a misspelled name, the engine's checks: at once
+         msSince(cb.lspChangeAt) > 500 and msSince(lastInputAt) > 300 and nxWarmMods.len == 0 and
+         (cb.dirty or engineChecksOnOpen(cb)):
+        # (a pause in typing and in scrolling: on a phone the checks of a big file take a moment; the imports read
+        # first, a few at a time)
+        timedWork("the engine's checks"): engineTypos(cb)
       if cfgMacroNames and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
-         msSince(cb.lspChangeAt) > 1500:
-        macroNamesFor(cb)                                   # names its macro calls make: from the compiler, once
+         msSince(cb.lspChangeAt) > 1500 and msSince(lastInputAt) > 1000 and not compilerRunning():
+        # (one compiler at a time, and not while you scroll or type: a phone has the CPU for one)
+        timedWork("names macros make"): macroNamesFor(cb)
       if cfgGitAutoRefresh and (treeOpen and sideView in {svGit, svFiles}) and msSince(gitStatusAt) > 5000:
         refreshGitStatus()
       if wsRoots.len > 0 and cb.path.len > 0 and cb.path != gitFollowPath:
@@ -481,11 +500,14 @@ proc runBench(path: string) =
   if b == nil: quit "cannot open " & path
   proc bench(name: string, n: int, step: proc()) =
     let t0 = getMonoTime()
+    let bytes0 = frameBytesTotal
     for i in 0 ..< n:
       step()
       render()
     let dt = float((getMonoTime() - t0).inMicroseconds) / 1000.0
-    stderr.writeLine(alignLeft(name, 22) & formatFloat(dt / float(n), ffDecimal, 3) & " ms/frame")
+    # (and what each frame sent to the terminal: on a phone, what the terminal has to draw is what you wait for)
+    stderr.writeLine(alignLeft(name, 22) & formatFloat(dt / float(n), ffDecimal, 3) & " ms/frame  " &
+                     $((frameBytesTotal - bytes0) div n) & " bytes/frame")
   render()
   bench("scroll", 400, proc() = buf().scrollBy(1))
   bench("cursor down", 400, proc() = cmdMove(kDown, false, false))
@@ -707,7 +729,13 @@ proc main() =
   if gitRepoRoots().len > 0: refreshGitStatus()
   smark("git status started")
   try:
+    lastInputAt = getMonoTime()     # (what starts in the background waits for the first frame and a moment of calm)
     mainLoop()
+    # (NED_PERF_LOG=file: the performance report written there on the way out — for measuring, and tests)
+    let perfLog = getEnv("NED_PERF_LOG")
+    if perfLog.len > 0:
+      try: writeFile(perfLog, perfReport())
+      except CatchableError: discard
   except Exception as e:
     leaveRaw()
     cleanProjectTemps()

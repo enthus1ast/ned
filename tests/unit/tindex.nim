@@ -657,4 +657,33 @@ suite "engine fixes against nimsuggest (6.10)":
     check l2.len == 1 and l2[0].typ == "string | int"
     check typeAt(f, ls, 9, "v") == "string"
 
+suite "the scope of a file being edited":
+  test "an edit keeps what the imports bring and has its own names as they are now; new imports, new names":
+    let p = dir / "edited.nim"
+    writeFile(p, "")
+    var text = "from std/strutils import toUpperAscii\nproc first(x: int): int = x\n"
+    var stamp = 1
+    nxBufferStamp = proc(q: string): string = (if q == p: "buf" & $stamp else: "")
+    nxBufferLines = proc(q: string): seq[string] = (if q == p: text.split('\n') else: @[])
+    let sc1 = nxScope(nxLoad(p))
+    check nxLookup(sc1, "first").len == 1 and nxLookup(sc1, "toUpperAscii").len > 0
+    check nxLookup(sc1, "toLowerAscii").len == 0
+    # (an edit: another proc, the same imports — the imported names kept as they were)
+    text = "from std/strutils import toUpperAscii\nproc second(x: int): int = x\n"
+    inc stamp
+    let sc2 = nxScope(nxLoad(p))
+    check sc2 != sc1 and sc2.ikey == sc1.ikey
+    check nxLookup(sc2, "second").len == 1 and nxLookup(sc2, "first").len == 0
+    check nxLookup(sc2, "toUpperAscii").len > 0 and nxLookup(sc2, "toLowerAscii").len == 0
+    # (the same number of names imported, other ones: made again)
+    text = "from std/strutils import toLowerAscii\nproc second(x: int): int = x\n"
+    inc stamp
+    let sc3 = nxScope(nxLoad(p))
+    check sc3.ikey != sc2.ikey
+    check nxLookup(sc3, "toLowerAscii").len > 0 and nxLookup(sc3, "toUpperAscii").len == 0
+    # (the same text asked again: the same scope)
+    check nxScope(nxLoad(p)) == sc3
+    nxBufferStamp = nil
+    nxBufferLines = nil
+
 removeDir(dir)

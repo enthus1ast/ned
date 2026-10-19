@@ -130,7 +130,7 @@ proc emitFlags(b: Buffer, langId, shadowPath: string): seq[string] =
   for h in hs: result.add ["-include", h]
   result.add shadowPath
 
-proc emitLsp(b: Buffer): (LspServer, Buffer) =
+proc emitLsp(b: Buffer, start = true): (LspServer, Buffer) =
   ## clangd for the C this Nim file emits — its hidden document up to date and its flags sent; (nil, nil)
   ## when there is none (clangd not installed or not ready yet, nim.emitClangd off, no C emitted)
   if not cfgEmitClangd or b == nil or b.lang == nil or b.lang.mode != lmNim or b.path.len == 0 or b.largeOn or
@@ -161,7 +161,7 @@ proc emitLsp(b: Buffer): (LspServer, Buffer) =
     if sh.lines.len == 0: sh.lines = @[""]
     sh.lspDirty = true
     shadowChange[b.id] = b.changeId
-  let s = lspFor(sh)
+  let s = lspFor(sh, start)
   if s == nil or not s.ready or s.dead: return
   if shadowSrv.getOrDefault(b.id) != s:          # a new (or restarted) clangd: open it there
     sh.lspOpen = false
@@ -211,7 +211,7 @@ proc emitPump(b: Buffer) =
   let sh = emitShadow.getOrDefault(b.id)
   if shadowChange.getOrDefault(b.id, -1) == b.changeId and (sh == nil or (sh.lspOpen and not sh.lspDirty)): return
   emitPumpAt[b.id] = getMonoTime()
-  discard emitLsp(b)
+  discard emitLsp(b, start = bgServerStartOk())      # (clangd starts when you pause — or when you ask in the C)
 
 proc realPathOf(path: string): string =
   ## a hidden emit document's path → its Nim file (definitions found by clangd open the .nim)

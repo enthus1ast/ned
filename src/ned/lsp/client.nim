@@ -110,7 +110,7 @@ proc lspInstallToast(langName: string, cands: seq[seq[string]]) =
 proc lspSpawn(id: string, c: seq[string], secondary: bool): LspServer =
   ## start one language server (its `initialize` sent); nil when it cannot start
   try:
-    var p = spawnProc(c, rootDir, siPipe, erPipe)
+    var p = spawnProc(c, rootDir, siPipe, erPipe, 5)
     let shown = if c.len > 1 and extractFilename(c[0]) in ["python", "python3", "node", "sh", "bash", "ruby"]:
                   extractFilename(c[1]) else: extractFilename(c[0])
     let s = LspServer(langId: id, name: shown, cmd: c, pr: p, inFd: p.inFd, uid: lspUidNext, secondary: secondary,
@@ -180,6 +180,15 @@ proc lspSpawn(id: string, c: seq[string], secondary: bool): LspServer =
 
 proc lspPullDiags(s: LspServer, b: Buffer)      # (doclinks.nim) pull diagnostics: the server's problems, asked for
 proc lspLinksAsk(s: LspServer, b: Buffer)       # … the file's links (#include, @import, URLs)
+
+proc bgServerStartOk(): bool =
+  ## may a server that nothing asked for yet (clangd for an emit, HTML or SQL in strings) start now? Not while you
+  ## scroll or type, and one after another: a phone starting four at once is a phone that stops answering
+  if msSince(lastInputAt) < 1500: return false
+  for s in servers:
+    # (one starting that never answers: not waited for)
+    if not s.dead and not s.ready and msSince(s.startedAt) < 20_000: return false
+  true
 
 proc lspFor(b: Buffer, start = true): LspServer =
   if b.path.len == 0 or b.lines.len > 40000 or b.largeOn: return nil   # huge files: keep typing instant
