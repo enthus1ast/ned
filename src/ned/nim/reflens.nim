@@ -160,6 +160,7 @@ proc refLensPump(b: Buffer, budgetMs = 25) =
   ## counts for the declarations on screen, a few at a time (after typing has paused)
   if not cfgRefCounts or b.lang.mode != lmNim or b.path.len == 0 or not nimEngineOn(b) or b.lines.len > 20000: return
   if msSince(b.lspChangeAt) < 700: return
+  if msSince(lastInputAt) < 200: return        # (while you scroll: the counts come when you stop, not between frames)
   if refFiles.len == 0 or msSince(refFilesAt) > 10_000:
     refFiles = nimSourceFiles()
     refFilesAt = getMonoTime()

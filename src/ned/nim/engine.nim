@@ -217,19 +217,30 @@ proc engineChecksOnOpen(b: Buffer): bool =
   typoAt.getOrDefault(b.id, -1) == -1 and b.path.len > 0 and rootDir.len > 0 and b.path.startsWith(rootDir & "/") and
     not isLibraryFile(b.path)
 
+var typosLast: Table[int, (string, seq[(int, int, string, string)])]   # buffer → (what it was worked out for, typos)
+
 proc engineTypos(b: Buffer) =
   ## a misspelled name marked at once, and what the engine's own checks find (nim.engineChecks: a field that is
   ## not there, a wrong number of arguments, code that never runs, an unused local) — the compiler's check, a
   ## moment later, has the last word
   typoAt[b.id] = b.changeId
   if b.path.len == 0 or b.lines.len > 15_000 or not nimEngineOn(b): return
+  let checksT0 = getMonoTime()
+  defer: lastChecksMs = int(msSince(checksT0))
   let f = nxFileFor(b)
   if f == nil: return
   let lo = max(0, b.topLine - 100)
   let hi = min(b.lines.high, b.topLine + max(textH, 20) + 100)
   var found: seq[(int, int, string, string)]
-  try: found = nxTypos(f, b.lines, lo, hi, (b.primary.head.line, b.primary.head.col))
-  except CatchableError: return
+  # (the same text, screen and cursor as last time — a can-be-func round, say: the same typos)
+  let tkey = $b.changeId & "/" & $nxGen & "/" & $lo & "/" & $hi & "/" & $b.primary.head.line & "/" & $b.primary.head.col
+  let last = typosLast.getOrDefault(b.id)
+  if last[0] == tkey: found = last[1]
+  else:
+    try: found = nxTypos(f, b.lines, lo, hi, (b.primary.head.line, b.primary.head.col))
+    except CatchableError: return
+    if typosLast.len > 50: typosLast.clear()
+    typosLast[b.id] = (tkey, found)
   var ds: seq[Diag]
   for d in diagsBuild.getOrDefault(b.path):
     if d.src != "ned": ds.add d

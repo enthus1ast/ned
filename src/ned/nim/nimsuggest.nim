@@ -51,7 +51,7 @@ proc nsGet(b: Buffer, start = true): NimSug =
       except ValueError: discard
   try:
     let ver = if nsProtoVer >= 4: "--v4" else: "--v3"
-    var p = spawnProc(@["nimsuggest", "--stdin", ver, "--maxresults:500", proj], parentDir(proj), siPipe, erNull)
+    var p = spawnProc(@["nimsuggest", "--stdin", ver, "--maxresults:500", proj], parentDir(proj), siPipe, erNull, 5)
     setNonBlock(p.outFd)
     result = NimSug(project: proj, cwd: parentDir(proj), pr: p, started: getMonoTime())
     nimSugs.add result

@@ -1,11 +1,75 @@
 var nxWarm: HashSet[int]                 # buffers whose imports the index has already read
 
+var nxWarmMods: seq[(string, int)]      # modules the open file imports (and theirs) whose own scopes are still to be
+var nxWarmedMods: HashSet[string]       #   made: (path, how far from the file)
+var nxWarmBad: HashSet[string]          # files that would not stay read (unreadable, or the index over its memory)
+var nxWarmGen = -1                      # the index generation they were made for (`nim dump` came back: again)
+var nxWarmLeft = 0                      # how many more modules the file opened last may have warmed (40)
+
 proc engineWarm(b: Buffer) =
-  ## read a Nim file's imports while you are not typing, so the first completion is instant
-  if b.id in nxWarm or not nimEngineOn(b): return
-  nxWarm.incl b.id
-  try: discard nxScope(nxFileFor(b))
-  except Exception as e: internalError("Nim index", e)
+  ## read a Nim file's imports while you are not typing, so the first completion is instant — then, in quiet
+  ## moments, what those modules (and the ones they import) see themselves: the checks walk into them, and on a
+  ## phone a dozen made at once would hold up the screen. A file read or a scope made at a time, 8 ms a round
+  if not nimEngineOn(b): return
+  if nxWarmGen != nxGen:
+    # (a new toolchain, other defines, names a macro makes: what was made may be gone — the open file starts over)
+    nxWarmGen = nxGen
+    nxWarm.clear()
+    nxWarmedMods.clear()
+    nxWarmMods.setLen(0)
+  template queue(f: NxFile, depth: int) =
+    if f != nil:
+      for im in f.imports:
+        if im.isInclude: continue
+        let p = nxResolve(f.path, im.spec)
+        if p.len > 0 and p notin nxWarmedMods and nxWarmLeft > 0:
+          var dup = false
+          for (q, _) in nxWarmMods:
+            if q == p: dup = true
+          if not dup:
+            nxWarmMods.add (p, depth)
+            dec nxWarmLeft
+  if b.id notin nxWarm:
+    nxWarm.incl b.id
+    nxWarmLeft = 40
+    try:
+      let f = nxFileFor(b)
+      discard nxScope(f)
+      queue(f, 1)
+    except Exception as e: internalError("Nim index", e)
+    return
+  if nxWarmMods.len == 0 or msSince(lastInputAt) < 400: return
+  let t0 = getMonoTime()
+  while nxWarmMods.len > 0 and msSince(t0) < 8:
+    let (p, depth) = nxWarmMods[0]
+    try:
+      if p notin nxFiles:
+        discard nxLoad(p)                    # (the module read: a round of its own)
+        if nxFiles.getOrDefault(p) == nil:
+          nxWarmMods.delete(0)
+        continue
+      # the files it imports read one by one, then what it sees made
+      let g = nxFiles[p]
+      var pending = ""
+      for im in g.imports:
+        if im.isInclude: continue
+        let q = nxResolve(p, im.spec)
+        if q.len > 0 and q notin nxFiles and q notin nxWarmBad:
+          pending = q
+          break
+      if pending.len > 0:
+        discard nxLoad(pending)
+        if pending notin nxFiles: nxWarmBad.incl pending        # (not again)
+        continue
+      nxWarmMods.delete(0)
+      nxWarmedMods.incl p
+      discard nxScope(g)
+      if depth < 2: queue(g, depth + 1)
+    except Exception as e:
+      if nxWarmMods.len > 0 and nxWarmMods[0][0] == p: nxWarmMods.delete(0)
+      internalError("Nim index", e)
+  if nxWarmedMods.len > 400: nxWarmedMods.clear()
+  if nxWarmBad.len > 400: nxWarmBad.clear()
 
 func nxKindIcon(k: NxKind): int =
   ## completion kind numbers (LSP's), for icons and colours

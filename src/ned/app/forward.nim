@@ -35,7 +35,7 @@ proc emitLspDefinition(b: Buffer, p: Pos): bool
 proc emitPump(b: Buffer)
 proc realPathOf(path: string): string
 proc emitIsC(b: Buffer, p: Pos): bool
-proc emitLsp(b: Buffer): (LspServer, Buffer)
+proc emitLsp(b: Buffer, start = true): (LspServer, Buffer)
 proc embComplete(b: Buffer, p: Pos, manual: bool): bool
 proc embHover(b: Buffer, p: Pos, auto: bool): bool
 proc embPump(b: Buffer)

@@ -44,6 +44,10 @@ Some tests use optional tools; when one is missing, the test is skipped and says
 | an en_US hunspell dictionary (`hunspell-en-us`) | spell checking |
 | an SSH server | remote folders over SSH: run [`ui/ssh-setup.sh`](ui/ssh-setup.sh) on a throwaway machine (it adds hosts to `~/.ssh/config`), then `NED_TEST_SSH=1` |
 
+What ned sends to the terminal is checked too: [`ui/vt.py`](ui/vt.py), a small terminal model, reads every byte of
+a session (scroll regions, colours carried along a row, skipped cells) and the screen it ends up with must be the one
+a full redraw draws.
+
 `NED_TEST_PATH` puts more folders on the tests' PATH (where your language servers are, say).
 `NED_TEST_DICT` names a dictionary. `--shard 2/4` runs a quarter of the tests (CI runs four parts at once).
 A run that fails keeps its scratch folder and says where it is.

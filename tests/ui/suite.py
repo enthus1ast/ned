@@ -1118,9 +1118,10 @@ p { font-weigth: bold; }
     start('p.nim', w=120, h=34, path=PATHL); time.sleep(3)
     ok = wait_for(r"9 .*HTML: Unknown property: 'colr'", 20)
     check('515 CSS in an HTML string: the HTML server\'s warning on the Nim line ({title.len} is not an error)', ok, screen())
-    check('515 SQL in a sql"…" string: its syntax error', re.search(r'18 .*SQL: Expected', screen()), screen())
+    # (6.11: the servers start one after another, when you pause: each in turn)
+    check('515 SQL in a sql"…" string: its syntax error', wait_for(r'18 .*SQL: Expected', 25), screen())
     check('515 the multi-line SQL string is fine', not re.search(r'2[0-3] .*SQL:', screen()), screen())
-    check('515 JSON in parseJson: its error', re.search(r'25 .*JSON: Value expected', screen()), screen())
+    check('515 JSON in parseJson: its error', wait_for(r'25 .*JSON: Value expected', 25), screen())
     check('515 a #[css]# string: the CSS server\'s warning', re.search(r"27 .*CSS: Unknown property: 'font-weigth'", screen()), screen())
     keys('C-g'); text('14'); keys('Enter'); keys('End'); hx('  <di')
     check('515 HTML completion in a string', wait_for(r'div +The div element', 10), screen())
@@ -5780,4 +5781,148 @@ def t_610_fmt_uses():
     check("610 lint: … and a local nothing uses is still found", "'unused' is declared but not used" in out,
           out + r.stderr)
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses]
+def t_611_terminal_scroll():
+    # 6.11: scrolling moves what the terminal shows (a scroll region) and sends only the new lines — what is on the
+    # screen afterwards is exactly what a full redraw draws, scrolling down, up, by the wheel and by the cursor
+    setup({"nim.nimsuggest": False, "editor.autoHover": False})
+    shutil.copy(FIX + '/showcase.nim', W + '/src/showcase.nim')
+    start('src/showcase.nim', w=130, h=40); time.sleep(2)
+    def cells(cap):
+        """each row as (character, its colour unless it is a space, background, attributes): what one sees"""
+        rows = []
+        fg, bg, at = None, None, frozenset()     # (tmux's capture carries the colours over from the line above)
+        for line in cap.split('\n'):
+            row = []
+            for m in re.finditer(r'\x1b\[([0-9;]*)m|([^\x1b])', line):
+                if m.group(1) is not None:
+                    ps = [int(x) if x else 0 for x in m.group(1).split(';')]
+                    k = 0
+                    while k < len(ps):
+                        v = ps[k]
+                        if v == 0: fg, bg, at = None, None, frozenset()
+                        elif v in (38, 48) and k + 4 < len(ps) and ps[k + 1] == 2:
+                            if v == 38: fg = tuple(ps[k + 2:k + 5])
+                            else: bg = tuple(ps[k + 2:k + 5])
+                            k += 4
+                        elif v in (38, 48) and k + 2 < len(ps) and ps[k + 1] == 5:
+                            if v == 38: fg = ps[k + 2]
+                            else: bg = ps[k + 2]
+                            k += 2
+                        elif v == 39: fg = None
+                        elif v == 49: bg = None
+                        elif v in (1, 2, 3, 4, 7, 9): at = at | {v}
+                        elif v in (22, 23, 24, 27, 29): at = at - {{22: 1, 23: 3, 24: 4, 27: 7, 29: 9}[v]} - ({2} if v == 22 else set())
+                        k += 1
+                else:
+                    c = m.group(2)
+                    shows = at & {4, 7, 9}
+                    row.append((c, fg if c != ' ' or shows else None, bg, at if c != ' ' else frozenset(shows)))
+            rows.append(row)
+        return rows
+    def same(label):
+        time.sleep(0.6)
+        a = tm('capture-pane', '-t', 'f', '-e', '-p').stdout
+        ta0 = tm('capture-pane', '-t', 'f', '-p').stdout.splitlines()
+        tm('send-keys', '-t', 'f', '-l', '\x1b[I'); time.sleep(0.8)      # (focus back: ned draws everything again)
+        b = tm('capture-pane', '-t', 'f', '-e', '-p').stdout
+        ca, cb = cells(a), cells(b)
+        ta = tm('capture-pane', '-t', 'f', '-p').stdout.splitlines()       # (the text: exact)
+        # (the colours as far as tmux shows each row: it leaves out blank cells at the end of a row)
+        bad = [i for i, (x, y) in enumerate(zip(ca, cb)) if x[:min(len(x), len(y))] != y[:min(len(x), len(y))]]
+        check('611 terminal scroll: ' + label + ' — the screen is what a full redraw draws',
+              not bad and len(ca) == len(cb) and ta0 == ta,
+              '\n'.join('row %d:\n  %s\n  %s' % (i, a.splitlines()[i][:300], b.splitlines()[i][:300]) for i in bad[:4]))
+    for i in range(12):
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<65;60;20M'); time.sleep(0.05)
+    same('the wheel, down')
+    for i in range(5):
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<64;60;20M'); time.sleep(0.05)
+    same('the wheel, up')
+    keys('C-g'); text('120'); keys('Enter'); time.sleep(0.3)
+    for i in range(25): keys('Down')
+    same('the cursor going down past the bottom')
+    for i in range(45): keys('Up')
+    same('… and up past the top')
+    keys('PageDown'); keys('PageDown')
+    same('page down')
+
+def t_611_frames_vt():
+    # 6.11: every frame ned sends — scrolled by the terminal, colours only where they change, unchanged cells
+    # stepped over — read by a plain VT100-style terminal model gives exactly the screen a full redraw gives, step
+    # after step (cursor, wheel, page)
+    import pty, select, struct, fcntl, termios
+    sys.path.insert(0, HERE)
+    from vt import VT
+    setup({"nim.nimsuggest": False, "editor.autoHover": False, "ui.tooltips": False})
+    shutil.copy(FIX + '/showcase.nim', W + '/src/showcase.nim')
+    Wd, Hd = 130, 40
+    env = dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor', XDG_CONFIG_HOME=CFG, XDG_STATE_HOME=STATE)
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.chdir(W)
+        os.execvpe(BIN, [BIN, 'src/showcase.nim'], env)
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', Hd, Wd, 0, 0))
+    vt = VT(Wd, Hd)
+    def drain(t):
+        end = time.time() + t; got = b''
+        while True:
+            r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
+            if not r: break
+            try: d = os.read(fd, 65536)
+            except OSError: break
+            got += d
+            if b'\x1b[6n' in d: os.write(fd, b'\x1b[1;1R')
+        vt.feed(got)
+    def send(b, t): os.write(fd, b); drain(t)
+    try:
+        drain(4)
+        send(b'\x07', 0.4)
+        for ch in '120': send(ch.encode(), 0.05)
+        send(b'\r', 0.5)
+        send(b'\x1b[I', 0.8)
+        seqs = {'up': b'\x1b[A', 'down': b'\x1b[B', 'wheel-down': b'\x1b[<65;60;20M', 'wheel-up': b'\x1b[<64;60;20M',
+                'pgdn': b'\x1b[6~', 'pgup': b'\x1b[5~'}
+        plan = ['down'] * 25 + ['up'] * 45 + ['wheel-down'] * 8 + ['wheel-up'] * 8 + ['pgdn'] * 3 + ['pgup'] * 2
+        first_bad = None
+        for step, k in enumerate(plan):
+            send(seqs[k], 0.6)
+            a = vt.visible()
+            send(b'\x1b[I', 0.6)                        # (focus back: a full redraw)
+            b = vt.visible()
+            if a != b and first_bad is None:
+                rows = [i for i, (x, y) in enumerate(zip(a, b)) if x != y]
+                first_bad = '%d %s rows %s\n%s\n%s' % (step, k, rows[:6], ''.join(c[0] for c in a[rows[0]]),
+                                                        ''.join(c[0] for c in b[rows[0]]))
+        check('611 frames read by a terminal model: the same screen as a full redraw, %d steps' % len(plan),
+              first_bad is None, first_bad)
+    finally:
+        os.write(fd, b'\x11'); time.sleep(0.3)
+        try: os.kill(pid, 9)
+        except OSError: pass
+
+def t_611_perf_report():
+    # 6.11: Help › Performance report — frames, what they send, the terminal's speed, rounds that kept ned busy,
+    # what runs in the background, memory, what would make it lighter; NED_PERF_LOG writes it on the way out
+    setup({"nim.nimsuggest": False})
+    shutil.copy(FIX + '/showcase.nim', W + '/src/showcase.nim')
+    log = TMP + '/perf.txt'
+    if os.path.exists(log): os.remove(log)
+    start('src/showcase.nim', w=130, h=40, env_extra='NED_PERF_LOG=' + log); time.sleep(1.5)
+    for i in range(10):
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<65;60;20M'); time.sleep(0.05)
+    time.sleep(0.5)
+    palette('Performance report'); time.sleep(1)
+    s = screen()
+    check('611 performance report: frames, bytes, the terminal, busy rounds, background, memory',
+          'made in' in s and 'bytes on average' in s and 'scrolled by the terminal' in s and
+          'Answering keys and the mouse' in s and 'Running in the background' in s and 'Memory: ned' in s, s)
+    keys('C-q'); time.sleep(1.0)
+    for k in ('Escape', 'n', 'Enter'):
+        if os.path.exists(log): break
+        keys(k); time.sleep(0.6)
+    t = open(log).read() if os.path.exists(log) else ''
+    m = re.search(r'scrolled by the terminal \(only the new lines sent\): (\d+)', t)
+    check('611 NED_PERF_LOG: the report on the way out, the wheel scrolls done by the terminal', m and int(m.group(1)) >= 3,
+          t[:1500])
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report]

@@ -656,6 +656,10 @@ proc initCommands() =
     for x in Tips: t.add "• " & x & "\n"
     discard openScratch("tips", t, langByName("Markdown"))))
   add("Check setup", "", cmdCheckSetup())
+  add("Performance report", "frame time, what the terminal is sent, background work, memory", cmdPerfReport())
+  add("Redraw the screen", "everything sent to the terminal again (if it shows something out of place)", (block:
+    prevGrid.setLen(0)
+    needRender = true))
   add("Copy info for bug report", "", cmdCopyBugInfo())
   add("About ned", "", openDialog("About ned", "ned " & Version & " — a fast, safe code editor for Termux " &
     "and Linux, written in Nim. Desktop-style UI in the terminal, Nim IDE features, integrated terminal, AI assistant, " &

@@ -8,7 +8,7 @@ proc minimapWidth(w: int): int =
   case cfgMinimap
   of "off": 0
   of "on": (if w >= 40: 10 else: 0)
-  else: (if w >= 100 and not lay.overlay: 10 else: 0)
+  else: (if w >= 100 and not lay.overlay and not slowTerminal(): 10 else: 0)   # (auto: not on a slow terminal)
 
 proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
   let bg = theme.bg

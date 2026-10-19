@@ -100,9 +100,12 @@ proc runsProjectCode(argv: seq[string], depth = 0): bool =
       return true
   false
 
-proc spawnProc(argv: seq[string], cwd: string, sin = siNull, serr = erMerge): Proc =
+proc c_setpriority(which, who, prio: cint): cint {.importc: "setpriority", header: "<sys/resource.h>".}
+
+proc spawnProc(argv: seq[string], cwd: string, sin = siNull, serr = erMerge, niceness = 0): Proc =
   ## starts `argv` (PATH lookup) in its own session and process group; raises OSError on failure — and when it would
-  ## run the code of a folder you have not trusted (security.folderTrust)
+  ## run the code of a folder you have not trusted (security.folderTrust). `niceness`: how much it yields the CPU
+  ## (background checks, language servers: ned and your terminal first — on a phone that is what keeps it smooth)
   result = Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1)
   if argv.len == 0: raise newException(OSError, "empty command")
   if cfgFolderTrust == "ask" and runsProjectCode(argv):
@@ -140,6 +143,7 @@ proc spawnProc(argv: seq[string], cwd: string, sin = siNull, serr = erMerge): Pr
     of erPipe: discard dup2(perr[1], 2)
     of erNull: discard dup2(devnull, 2)
     if cwd.len > 0: discard chdir(ccwd)
+    if niceness > 0: discard c_setpriority(0, 0, niceness.cint)     # (PRIO_PROCESS, this process)
     discard execvp(args[0], args)
     exitnow(127)
   deallocCStringArray(args)
@@ -208,7 +212,12 @@ proc startJob(kind: JobKind, cmd, cwd: string, onDone: proc(j: Job) {.closure.} 
   # git for a remote folder runs on the server (its repository is the real one)
   let run = if remotes.len > 0 and (kind == jkGit or cmd.startsWith("git ")): gitWrap(cmd, cwd) else: cmd
   try:
-    var p = spawnProc(@["sh", "-c", run], cwd, siNull, erMerge)
+    # (background work yields the CPU to ned and the terminal; what you run yourself does not)
+    let niceness = case kind
+                   of jkRun: 0
+                   of jkCheck, jkAux: 10
+                   else: 5
+    var p = spawnProc(@["sh", "-c", run], cwd, siNull, erMerge, niceness)
     let fd = p.outFd
     p.outFd = -1
     result = Job(kind: kind, pr: p, outFd: fd, errFd: -1, started: getMonoTime(),

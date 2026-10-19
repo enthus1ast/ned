@@ -120,6 +120,11 @@ proc parseKey(force: bool, k: var Key): bool =
       of 'P'..'S': k.kind = kFn; k.fn = ord(fin) - ord('P') + 1
       of 'I', 'O':
         k.kind = kNone           # focus in/out
+        if fin == 'I':
+          # (back in the terminal: everything drawn again — whatever happened to the screen meanwhile, say an app
+          # switch on Android, it is right again)
+          prevGrid.setLen(0)
+          needRender = true
         return true
       of '~':
         case p1

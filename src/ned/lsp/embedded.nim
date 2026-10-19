@@ -136,7 +136,7 @@ proc embCloseDoc(sh: Buffer) =
     diagsByShadow.del sh.path
     if nimPath.len > 0: mergeShadowDiags(nimPath)
 
-proc embSync(b: Buffer) =
+proc embSync(b: Buffer, start = true) =
   ## this file's hidden documents up to date, and open in their servers (started when needed)
   if b == nil or b.lang == nil or b.lang.mode != lmNim or b.path.len == 0 or b.largeOn: return
   var docs = embDocs.getOrDefault(b.id)
@@ -168,8 +168,12 @@ proc embSync(b: Buffer) =
       docs.del k
     if docs.len > 0: embDocs[b.id] = docs
     elif b.id in embDocs: embDocs.del b.id
+  var started = false
   for k, sh in docs:
-    let s = lspFor(sh)
+    var s = lspFor(sh, start = false)
+    if s == nil and start and not started:
+      s = lspFor(sh)                                # (one new server at a time)
+      started = s != nil
     if s == nil or not s.ready or s.dead: continue
     if embSrv.getOrDefault(sh.path) != s:
       sh.lspOpen = false
@@ -194,7 +198,7 @@ proc embPump(b: Buffer) =
       if not sh.lspOpen or sh.lspDirty: settled = false
     if settled: return
   embPumpAt[b.id] = getMonoTime()
-  embSync(b)
+  embSync(b, start = bgServerStartOk())             # (their servers start when you pause — or when you ask in one)
 
 proc embDocAt(b: Buffer, p: Pos): (LspServer, Buffer) =
   ## the hidden document (and its server) for the string code at p
