@@ -427,6 +427,17 @@ suite "Nim: code whose meaning the layout must keep (6.10)":
     let src = "proc p() =\n  check (a <=\n    b).not\n\n  block: # next\n    discard 1\n"
     check nimFmt(src) == "proc p() =\n  check (a <= b).not\n\n  block: # next\n    discard 1\n"
 
+  test "a `using` parameter after one with a type or default: formatted (`;` → `,` there), not left alone":
+    let pre = "using\n  c: int\n  y: float\n  z: int\n\n"
+    check nimFmt(pre & "proc d(c = 1; y; z: int) = discard\n") == pre & "proc d(c = 1, y; z: int) =\n  discard\n"
+    check nimFmt(pre & "proc g(c; y = 2; z) = discard\n") == pre & "proc g(c; y = 2, z) =\n  discard\n"
+
+  test "comment lines inside one parenthesized expression: still one expression (no trailing comma: no tuple)":
+    var err = ""
+    let r = fFormat("let x = (a or\n  b or   # c1\n  # c2\n  d)\n", err)
+    check err == ""
+    check "d," notin r and "# c2" in r
+
   test "a keyword after a dot is a name: `posix.raise(x)` gets no space":
     check nimFmt("proc p() =\n  discard posix.raise(signal)\n") == "proc p() =\n  discard posix.raise(signal)\n"
 
@@ -483,6 +494,20 @@ suite "Nim: code whose meaning the layout must keep (6.10)":
     let r = fFormat(src, err)
     check "(discard echo" notin r
     check r == src or "\n" in r[r.find("discard") .. r.find("echo")]
+
+suite "Nim 3 (Nimony) code (6.11.2)":
+  # (over the 1684 files of Nimony — its library, its tests and its compiler — the formatter leaves 2 alone)
+  test "a keyword as a routine's name (`func addr*[T](x: T)`): a name, not the operator":
+    check nimFmt("func addr*[T](x: T): ptr T {.magic: \"Addr\".}\n") == "func addr*[T](x: T): ptr T {.magic: \"Addr\".}\n"
+
+  test "a parameter with a pragma of its own (`r {.register: \"rdi\".}: Words`): `;` → `,` as for any other":
+    check nimFmt("proc add2(r {.register: \"rdi\".}: Words; a {.register: \"rsi\".}: Words) {.assembler.} =\n  discard\n") ==
+      "proc add2(r {.register: \"rdi\".}: Words, a {.register: \"rsi\".}: Words) {.assembler.} =\n  discard\n"
+
+  test "a `;` after the last parameter (`(q: var Queue;)`): formatted, not left alone":
+    var err = ""
+    discard fFormat("proc f*(q: var Queue;): int =\n  1\n", err)
+    check err == ""
 
 suite "Nim layout settings (nim.format.*)":
   setup:

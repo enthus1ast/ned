@@ -26,12 +26,21 @@ proc runExamples(b: Buffer, line: int) =
   if not codeTrusted(parentDir(b.path)):
     askTrust(parentDir(b.path))
     return
+  # the block the ▶ stands beside, by its place among the file's blocks: saving may format the file first, and a
+  # comment above it wrapped into more lines moves it down (its old line would then hold no block)
+  var nth = -1
+  if line >= 0:
+    for i, (a, _) in b.exampleBlocks():
+      if a == line: nth = i
+    if nth < 0:
+      info("No runnableExamples on this line")
+      return
   if not saveForTool(b): return
   var blocks: seq[(int, int)]
-  for (a, e) in b.exampleBlocks():
-    if line < 0 or a == line: blocks.add (a, e)
+  for i, (a, e) in b.exampleBlocks():
+    if line < 0 or i == nth: blocks.add (a, e)
   if blocks.len == 0:
-    info("No runnableExamples " & (if line < 0: "in this file" else: "on this line"))
+    info("No runnableExamples " & (if line < 0: "in this file" else: "here any more"))
     return
   let wrap = blocks.len > 1                     # several blocks: each in its own block: so names do not clash
   var outp: seq[(string, int, int)]             # (text, source line, column shift)
@@ -75,7 +84,7 @@ proc runExamples(b: Buffer, line: int) =
   for (a, _) in blocks: keys.add b.path & ":" & $a
   for k in keys: exampleStatus[k] = 3                       # running
   let what = if line < 0: $blocks.len & " example block(s) of " & extractFilename(b.path)
-             else: "the examples on line " & $(line + 1)
+             else: "the examples on line " & $(blocks[0][0] + 1)
   info("Running " & what & "…")
   let path = b.path
   var flagStr = ""

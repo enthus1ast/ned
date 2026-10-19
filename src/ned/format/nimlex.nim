@@ -254,7 +254,10 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
           while j < n and fIdentAt(text, j): inc j
         if j >= n or text[j] != '"':
           let kw = fKeywordAt(text, i, j)
-          if kw >= 0: addT(fkKw, st, FKeywords[kw])          # a shared literal: no allocation
+          if kw >= 0 and result.len > 0 and result[^1].kind == fkKw and result[^1].text in FRoutineKw and
+             lineHasTok and (j >= n or text[j] in {'*', '[', '('}):
+            addT(fkIdent, st, text[i ..< j])                # (Nim 3: `func addr*[T](x: T)` — a routine's name)
+          elif kw >= 0: addT(fkKw, st, FKeywords[kw])        # a shared literal: no allocation
           else: addT(fkIdent, st, text[i ..< j])
           i = j
           continue

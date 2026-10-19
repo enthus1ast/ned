@@ -57,8 +57,28 @@ def big_file():
 
 BIG = big_file()
 
-def frames():
-    r = subprocess.run([NED, '--bench', BIG], cwd=REPO, capture_output=True, text=True, timeout=300)
+def long_line():
+    """a minified JSON file: one line of 5 MB"""
+    p = os.path.join(tempfile.gettempdir(), 'ned-bench-line-%d.json' % os.getpid())
+    items = ['{"id":%d,"name":"item %d","tags":["a","b","c"],"price":%.1f,"ok":%s}' % (i, i, i * 1.5, 'true' if i % 2 == 0 else 'false')
+             for i in range(62000)]
+    open(p, 'w').write('[' + ','.join(items) + ']')
+    return p
+
+def huge_log():
+    """a log of 80 MB: a million lines"""
+    p = os.path.join(tempfile.gettempdir(), 'ned-bench-log-%d.log' % os.getpid())
+    with open(p, 'w') as f:
+        for i in range(1000000):
+            f.write('2026-10-19 12:%02d:%02d INFO request id=%d path=/api/v1/items/%d took=%dms\n' %
+                    (i // 60 % 60, i % 60, i, (i * 7919) % 1000003, (i * 31) % 900))
+    return p
+
+LINE = long_line()
+LOG = huge_log()
+
+def frames(path):
+    r = subprocess.run([NED, '--bench', path], cwd=REPO, capture_output=True, text=True, timeout=300)
     out, sizes = {}, {}
     for l in r.stderr.splitlines():
         m = re.match(r'(\S.*?)\s{2,}([\d.]+) ms', l)
@@ -68,7 +88,8 @@ def frames():
     return out, sizes
 
 empty = tempfile.mkdtemp(prefix='ned-bench-empty-')
-cases = [('empty folder', empty, []), ('this repository', REPO, []), ('a big file (ned in one)', REPO, [BIG])]
+cases = [('empty folder', empty, []), ('this repository', REPO, []), ('a big file (ned in one)', REPO, [BIG]),
+         ('an 80 MB log', REPO, [LOG])]
 rows, over = [], []
 for name, cwd, args in cases:
     runs = [startup(cwd, args) for _ in range(RUNS)]
@@ -79,20 +100,28 @@ for name, cwd, args in cases:
         bad = lim is not None and v > lim
         if bad: over.append('%s: %s = %.1f (budget %s)' % (name, k, v, lim))
         rows.append((name, k, v, lim, bad))
-times, sizes = frames()
-for k, v in times.items():
-    lim = BUDGET['frame_ms'].get(k)
-    bad = lim is not None and v > lim
-    if bad: over.append('frame: %s = %.3f ms (budget %s)' % (k, v, lim))
-    rows.append(('ned --bench (big file)', k + ' ms/frame', v, lim, bad))
-for k, v in sizes.items():
-    # (what a frame sends to the terminal: what a phone's terminal has to draw)
-    lim = BUDGET.get('frame_bytes', {}).get(k)
-    bad = lim is not None and v > lim
-    if bad: over.append('frame: %s = %d bytes (budget %s)' % (k, v, lim))
-    rows.append(('ned --bench (big file)', k + ' bytes/frame', v, lim, bad))
+for case, path in [('ned --bench (big file)', BIG), ('ned --bench (5 MB line)', LINE)]:
+    times, sizes = frames(path)
+    for k, v in times.items():
+        if k == 'terminal flood':
+            if path != BIG: continue
+            lim = BUDGET.get('terminal_ms_per_100k_lines')
+            bad = lim is not None and v > lim
+            if bad: over.append('terminal flood = %.1f ms per 100 000 lines (budget %s)' % (v, lim))
+            rows.append(('built-in terminal', 'flood ms/100k lines', v, lim, bad))
+            continue
+        lim = BUDGET['frame_ms'].get(k)
+        bad = lim is not None and v > lim
+        if bad: over.append('%s: %s = %.3f ms (budget %s)' % (case, k, v, lim))
+        rows.append((case, k + ' ms/frame', v, lim, bad))
+    for k, v in sizes.items():
+        # (what a frame sends to the terminal: what a phone's terminal has to draw)
+        lim = BUDGET.get('frame_bytes', {}).get(k)
+        bad = lim is not None and v > lim
+        if bad: over.append('%s: %s = %d bytes (budget %s)' % (case, k, v, lim))
+        rows.append((case, k + ' bytes/frame', v, lim, bad))
 shutil.rmtree(empty, ignore_errors=True)
-os.remove(BIG)
+for p in (BIG, LINE, LOG): os.remove(p)
 
 w = max(len(r[0]) for r in rows) + 2
 print('%s%-28s %10s %10s' % ('case'.ljust(w), 'measure', 'median', 'budget'))

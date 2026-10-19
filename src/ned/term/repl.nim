@@ -79,9 +79,10 @@ proc replSend(lang: Lang, code: string): bool =
 
 proc replMarker(s: string): bool =
   ## a cell boundary: # %% (Python, Nim, shell, Ruby) · // %% (JavaScript, TypeScript) · -- %% (Lua)
-  let t = s.strip(trailing = false)
+  var k = 0                           # (no copy of the line: it may be megabytes long)
+  while k < s.len and s[k] in Whitespace: inc k
   for m in ["# %%", "#%%", "## %%", "// %%", "//%%", "-- %%", "--%%"]:
-    if t.startsWith(m): return true
+    if s.startsAt(m, k): return true
   false
 
 proc replHasCells(b: Buffer): bool =

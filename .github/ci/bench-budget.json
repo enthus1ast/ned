@@ -1,10 +1,12 @@
 {
-  "_": "Limits for .github/ci/bench.py, roomy enough for a busy CI machine (a few times what a laptop measures). ms: milliseconds since ned started; mb: resident memory; frame_bytes: what one frame sends to the terminal (160 columns × 50 rows).",
+  "_": "Limits for .github/ci/bench.py, roomy enough for a busy CI machine (a few times what a laptop measures). ms: milliseconds since ned started; mb: resident memory; frame_bytes: what one frame sends to the terminal (160 columns × 50 rows). The 80 MB log and the 5 MB line: memory and frames that must not grow with the file; terminal flood: seq 1 200000 through the built-in terminal with 20 000 lines of scrollback.",
   "startup": {
     "empty folder": {"first_frame_ms": 150, "rss_first_frame_mb": 40, "rss_settled_mb": 40},
     "this repository": {"first_frame_ms": 200, "rss_first_frame_mb": 40, "rss_settled_mb": 60},
-    "a big file (ned in one)": {"first_frame_ms": 300, "rss_first_frame_mb": 60, "rss_settled_mb": 100}
+    "a big file (ned in one)": {"first_frame_ms": 300, "rss_first_frame_mb": 60, "rss_settled_mb": 100},
+    "an 80 MB log": {"first_frame_ms": 1500, "rss_settled_mb": 260}
   },
   "frame_ms": {"scroll": 10, "cursor down": 10, "type": 10, "idle redraw": 10, "far jump": 10},
-  "frame_bytes": {"scroll": 4000, "cursor down": 6000, "type": 1500, "idle redraw": 200, "far jump": 30000}
+  "frame_bytes": {"scroll": 4000, "cursor down": 6000, "type": 1500, "idle redraw": 200, "far jump": 30000},
+  "terminal_ms_per_100k_lines": 400
 }

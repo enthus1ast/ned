@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.11.1](#whats-new-in-6111) · [6.11](CHANGELOG.md#whats-new-in-611) · [older releases](CHANGELOG.md)
+- [What's new in 6.11.2](#whats-new-in-6112) · [6.11.1](CHANGELOG.md#whats-new-in-6111) · [6.11](CHANGELOG.md#whats-new-in-611) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,30 +40,34 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.11.1
+## What's new in 6.11.2
 
-- **Type hints that keep up with scrolling**: they are worked out 16 lines at a time — what is on screen first, then
-  two screens ahead in the direction you scroll and one behind — a few milliseconds a round (4 while you swipe), and
-  each chunk once for a text, so scrolling back works nothing out again. The lines that scroll in have their hints
-  already; with hints on, scrolling costs about what it costs with them off (6.10 worked out a whole window again at
-  every step: twice the work).
-- **Long comments wrapped to the line length**: `nim.format.reflowComments` re-wraps `#` comments of prose the way
-  `nim.format.reflowDocComments` does `##` ones — what reads as commented-out code (`# let x = f(a)`, `#echo x`,
-  `# a == b`), examples with a comment of their own, lists, links, TODOs and `# ned:` directives stay as they are —
-  and a banner's rule (`# ── Section ─────`) is cut to the line length. The formatter checks the result as always:
-  the same code, the same words in the same order. Over the 463 files of Nim's compiler and standard library at 80
-  columns, it changed comment lines only, and Nim's parser reads every result as the original.
-- Fixed in doc comment re-wrapping: a doc comment inside a routine or a type was never re-wrapped; a line that starts
-  with `inline code` or *emphasis* ended the paragraph; widths were counted in bytes, so a line with `·` or `—`
-  wrapped too early.
+- **The ▶ on `runnableExamples` runs them again after a format on save**: it saves the file first, and when the
+  save re-wrapped a comment above the block (since 6.11.1 a doc comment inside a proc is re-wrapped), the block moved
+  and the ▶ found nothing on its old line — so nothing ran and no popup came. It now goes by which block it is.
+- **The built-in terminal keeps up with a flood of output**: the oldest scrollback lines are dropped a chunk at a time
+  instead of the whole scrollback being shifted for every new line. `seq 1 200000` took 1.1 s with the default 3000
+  lines of scrollback and 6.3 s with 20 000 (tmux: 0.25 s); now 0.16 s whatever is kept.
+- **Very long lines are as fast as short ones** (minified JSON, JS and CSS, a log on one line): each frame works on
+  what is on the screen — the cursor's column and the first character shown come from marks along the line, kept
+  until it changes, and the bracket pair, links and colours are not looked for across megabytes. On a 5 MB line a
+  frame took 22–27 ms, now 0.06 ms (a keystroke 2.7 ms).
+- **The formatter leaves fewer files alone**: a `using` parameter after one with a default (`proc d(c = 1; y; z: int)`),
+  comment lines inside a parenthesized expression (it made it a tuple, so the check refused the whole file — ned's own
+  source tripped on it), a `;` after the last parameter, and Nim 3's code: a keyword as a routine's name
+  (`func addr*[T](x: T)`) and a parameter with a pragma of its own (`r {.register: "rdi".}: Words`). Of the 1,684 files
+  of Nimony it now formats all but two.
+- **`ned --bench` and CI measure these too**: a 5 MB line's frames, an 80 MB log's start and memory, and a flood of
+  terminal output, each with a limit.
 
 Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
 ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
 ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.11](CHANGELOG.md#whats-new-in-611) made scrolling send only the
-new lines and the engine's checks wait for a pause, with Help › Performance, [6.10](CHANGELOG.md#whats-new-in-610)
-brought lint rules and `--fix`, *can be a func*, the project's own checks and Nim test coverage,
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.11.1](CHANGELOG.md#whats-new-in-6111) wrapped long comments and
+kept type hints ahead of scrolling, [6.11](CHANGELOG.md#whats-new-in-611) made scrolling send only the new lines and
+the engine's checks wait for a pause, with Help › Performance, [6.10](CHANGELOG.md#whats-new-in-610) brought lint
+rules and `--fix`, *can be a func*, the project's own checks and Nim test coverage,
 [6.9](CHANGELOG.md#whats-new-in-69) hints the compiler does not give, memory layout on hover and `ned --lint`,
 [6.8](CHANGELOG.md#whats-new-in-68) nedls and nedfmt, the engine's own checks at once and names a macro makes,
 [6.7](CHANGELOG.md#whats-new-in-67) signed in to GitHub without a password and brought AI that knows your code,
