@@ -62,6 +62,17 @@ proc ansiColor(n: int): Rgb =
   let g = 8 + (n - 232) * 10
   Rgb((g shl 16) or (g shl 8) or g)
 
+proc trimScrollback(t: Term) =
+  ## the oldest lines past terminal.scrollback, dropped a chunk at a time: one shift of the scrollback per chunk
+  ## (it used to shift all of it for every new line — a flood of output, 200 000 lines, took 1 s with 3000
+  ## lines kept and 6 s with 20 000; now about 0.1 s whatever is kept)
+  if t.sb.len > cfgTermScrollback + max(64, cfgTermScrollback div 8):
+    let n = t.sb.len - cfgTermScrollback
+    for i in 0 ..< t.sb.len - n: t.sb[i] = move(t.sb[i + n])
+    t.sb.setLen(t.sb.len - n)
+    t.sbDropped += n
+    t.view = min(t.view, t.sb.len)
+
 proc resize(t: Term, w, h: int) =
   let w = max(10, w)
   let h = max(2, h)
@@ -79,7 +90,9 @@ proc resize(t: Term, w, h: int) =
   while t.scr.len > h:
     if t.cy > 0 or t.scr.len - 1 > t.cy:
       if t.cy >= h:
-        if not t.altActive: t.sb.add t.scr[0]
+        if not t.altActive:
+          t.sb.add move(t.scr[0])
+          t.trimScrollback()
         t.scr.delete(0)
         dec t.cy
       else: t.scr.setLen(t.scr.len - 1)
@@ -96,10 +109,8 @@ proc resize(t: Term, w, h: int) =
 proc scrollUp(t: Term, n = 1) =
   for _ in 0 ..< n:
     if t.top == 0 and not t.altActive:
-      t.sb.add t.scr[0]
-      while t.sb.len > cfgTermScrollback:
-        t.sb.delete(0)
-        inc t.sbDropped
+      t.sb.add move(t.scr[0])                  # (moved, not copied: the row leaves the screen just below)
+      t.trimScrollback()
       if t.view > 0: t.view = min(t.view + 1, t.sb.len)
     t.scr.delete(t.top)
     t.scr.insert(t.blankRow, t.bot)

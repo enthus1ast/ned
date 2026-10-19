@@ -194,7 +194,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     if wd.len >= 2 and not wd[0].isDigit:
       findQ = wd
       fWord = true
-  let (bm, ba, bb) = b.matchBracket(ph)
+  let (bm, ba, bb) = b.matchBracketKept(ph)
   let vimVis = cfgVim and vimMode in {vmVisual, vmVLine}
   let unit = b.indentW()
   # the active indent guide: the one of the block the cursor is in, a little brighter (like VS Code)
@@ -276,12 +276,11 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           grid[gi].ch = 0x258F                                   # ▏ on the cell's left edge: the column boundary
           grid[gi].fg = theme.ruler
   while row < h and line < b.lines.len:
-    let s = b.lines[line]
+    let s {.cursor.} = b.lines[line]      # (the line itself, not a copy: nothing here changes the text)
     var endSt = st
     var toksUnfaded: seq[TokKind]
     if s.len > 20000:
-      toks.setLen(s.len)
-      for q in 0 ..< s.len: toks[q] = tkText
+      toks.setLen(0)                      # (a very long line is plain text: no colours to fill in for each byte)
     else:
       endSt = lexLine(b.lang, s, st, toks)
       # code of another language in this line (C in an emit, HTML in a string): the Nim name colours stay out
@@ -367,7 +366,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           if d.line == line: lineDiag = di
     if spellOnHere and s.len <= 4000:
       for (a, e) in b.spellErrors(s, toks): diagR.add (a, e, 9)        # misspelled: underlined, colour kept
-    if b.path.len > 0 and b.id notin diffViews and ("://" in s or b.id in docLinks):
+    if b.path.len > 0 and b.id notin diffViews and s.len <= 20000 and ("://" in s or b.id in docLinks):
       for (a, e) in linkRangesOn(b, line): diagR.add (a, e, 9)        # a link: underlined (F12 or Ctrl+click opens it)
     let isCurLine = line == ph.line and not primSel
     var rowBg = if isCurLine and active and cfgLineHl: theme.curLine else: theme.bg
@@ -501,6 +500,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         while hk < hints.len and hints[hk][0] < segStart: inc hk
       else:
         baseVc = b.leftCol
+        if b.leftCol > 0 and s.len >= VcLongLine:
+          (i, vc) = b.vcMarkBefore(line, b.leftCol)      # (scrolled far right on a long line: from the nearest mark)
         while i < s.len:
           if s[i] in {' ' .. '~'}:
             if vc + 1 > b.leftCol: break
@@ -718,7 +719,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         var hshift = 0
         for (hc, lb) in hints:
           if hc < hp.col and (not cfgWrap or hc >= segStart): hshift += strWidth(lb)
-        let cx = tx0 + visColOf(s, hp.col) - baseVc + rowOff + hshift
+        let cx = tx0 + b.visColAt(line, hp.col) - baseVc + rowOff + hshift
         if cx < tx0 or cx >= limX: continue
         if ci == b.prim:
           if active and focus == fEditor:

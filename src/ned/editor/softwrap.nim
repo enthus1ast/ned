@@ -2,6 +2,68 @@
 #  Visual layout helpers (soft wrap)
 # ════════════════════════════════════════════════════════════════════════════
 
+# ── very long lines (minified JSON, JS, CSS; a log on one line): where each 16 KB of the line starts on the screen,
+#    kept for each such line until the text changes. The cursor's column (the status bar, drawing it, keeping it in
+#    view) and the first character shown when scrolled to the right are found from the nearest mark instead of from
+#    the start of the line — a frame of a 5 MB line took 22 ms, most of it counting columns from the start ──
+
+const
+  VcLongLine = 32_768                  # lines this long get marks
+  VcStep = 16_384                      # (about) bytes between two marks
+
+type VcMarks = object
+  change, tab: int                     # the buffer's changeId and the tab width they were made for
+  lines: Table[int, seq[(int, int)]]   # line → (byte, visual column) at character boundaries, the first (0, 0)
+
+var vcMarks: Table[int, VcMarks]       # buffer id → its long lines' marks
+
+proc vcBuild(s: string): seq[(int, int)] =
+  result = @[(0, 0)]
+  var i = 0
+  var vc = 0
+  var next = VcStep
+  while i < s.len:
+    if i >= next:
+      result.add (i, vc)
+      next = i + VcStep
+    if i + 8 <= s.len and printable8(s, i):
+      vc += 8
+      i += 8
+      continue
+    let (w, n) = charWidthAt(s, i, vc)
+    vc += w
+    i += n
+
+proc vcMarksOf(b: Buffer, line: int): seq[(int, int)] =
+  if b.id notin vcMarks or vcMarks[b.id].change != b.changeId or vcMarks[b.id].tab != tabW:
+    vcMarks[b.id] = VcMarks(change: b.changeId, tab: tabW)
+  vcMarks[b.id].lines.withValue(line, m):
+    return m[]
+  result = vcBuild(b.lines[line])
+  vcMarks[b.id].lines[line] = result
+
+proc visColAt(b: Buffer, line, col: int): int =
+  ## the visual column of byte `col` of a line (on a very long line: counted from the nearest mark)
+  if line < 0 or line >= b.lines.len: return 0
+  if b.lines[line].len < VcLongLine: return visColOf(b.lines[line], col)
+  let m = b.vcMarksOf(line)
+  var lo = 0
+  var hi = m.high
+  while lo < hi:                          # (the last mark at or before col)
+    let mid = (lo + hi + 1) div 2
+    if m[mid][0] <= col: lo = mid else: hi = mid - 1
+  visColFrom(b.lines[line], col, m[lo][0], m[lo][1])
+
+proc vcMarkBefore(b: Buffer, line, vcol: int): (int, int) =
+  ## the last mark of a long line at or before visual column `vcol`: (byte, visual column)
+  let m = b.vcMarksOf(line)
+  var lo = 0
+  var hi = m.high
+  while lo < hi:
+    let mid = (lo + hi + 1) div 2
+    if m[mid][1] <= vcol: lo = mid else: hi = mid - 1
+  m[lo]
+
 proc contIndent(s: string, width: int): int =
   ## hanging indent for wrapped continuation rows
   if not cfgWrap: return 0
@@ -101,7 +163,7 @@ proc ensureVisible(b: Buffer) =
     if d > h - 1 - so or d < 0:
       (b.topLine, b.topSub) = b.stepBack(c.line, sub, h - 1 - so)
   if not cfgWrap:
-    let vx = visColOf(b.lines[c.line], c.col)
+    let vx = b.visColAt(c.line, c.col)
     let margin = min(4, textW div 4)
     if vx < b.leftCol + margin: b.leftCol = max(0, vx - margin)
     elif vx >= b.leftCol + textW - margin: b.leftCol = vx - textW + margin + 1

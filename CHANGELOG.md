@@ -1,6 +1,27 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-6111). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-6112). Older releases:
+
+## What's new in 6.11.1
+
+- **Type hints that keep up with scrolling**: they are worked out 16 lines at a time — what is on screen first, then
+  two screens ahead in the direction you scroll and one behind — a few milliseconds a round (4 while you swipe), and
+  each chunk once for a text, so scrolling back works nothing out again. The lines that scroll in have their hints
+  already; with hints on, scrolling costs about what it costs with them off (6.10 worked out a whole window again at
+  every step: twice the work).
+- **Long comments wrapped to the line length**: `nim.format.reflowComments` re-wraps `#` comments of prose the way
+  `nim.format.reflowDocComments` does `##` ones — what reads as commented-out code (`# let x = f(a)`, `#echo x`,
+  `# a == b`), examples with a comment of their own, lists, links, TODOs and `# ned:` directives stay as they are —
+  and a banner's rule (`# ── Section ─────`) is cut to the line length. The formatter checks the result as always:
+  the same code, the same words in the same order. Over the 463 files of Nim's compiler and standard library at 80
+  columns, it changed comment lines only, and Nim's parser reads every result as the original.
+- Fixed in doc comment re-wrapping: a doc comment inside a routine or a type was never re-wrapped; a line that starts
+  with `inline code` or *emphasis* ended the paragraph; widths were counted in bytes, so a line with `·` or `—`
+  wrapped too early.
+
+Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
+ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
+ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
 
 ## What's new in 6.11
 

@@ -1351,7 +1351,7 @@ proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: in
   var hasComment = false
   var typed = false
   var postfix: seq[int]              # comment lines that belong to the element before them
-  for t in inner:
+  for ti, t in inner:
     if t.kind in {fkOpen, fkPragOpen}: inc d
     elif t.kind in {fkClose, fkPragClose}: dec d
     if d == 0 and (t.kind == fkColon or (t.kind == fkOp and t.text == "=")): typed = true
@@ -1367,7 +1367,12 @@ proc fWrapGroup*(prefix: seq[FTok], inner: seq[FTok], suffix: seq[FTok], ind: in
     elif t.kind == fkComment and d == 0 and (cur.len == 0 or (t.nl and cur[^1].kind == fkComment)):
       if cur.len > 0:
         # (a comment line after an element's trailing comment, before its comma: a line of its own — not on that
-        # comment's line, where it would be part of it)
+        # comment's line, where it would be part of it. But when the element goes on after the comment lines —
+        # `(a or # c1` ⏎ `# c2` ⏎ `b)`, no comma — it is one element, laid out as written: split there, `(…)`
+        # would get a trailing comma and become a tuple)
+        var nx = ti + 1
+        while nx < inner.len and inner[nx].kind == fkComment: inc nx
+        if nx < inner.len and inner[nx].kind notin {fkComma, fkSemi}: return @[]
         elems.add cur
         cur = @[]
       hasComment = true
@@ -3647,15 +3652,40 @@ proc fCmpNext*(toks: seq[FTok], st: var FCmpState): int =
     return st.k - 1
   -1
 
+func fTypedBefore(toks: seq[FTok], k: int): bool =
+  ## has the element before the separator at k a type or a default (`c: T`, `c = 1`) — which ends its group, so
+  ## that `;` and `,` after it mean the same?
+  var d = 0
+  var m = k - 1
+  while m >= 0:
+    let t = toks[m]
+    if t.kind in {fkClose, fkPragClose}: inc d
+    elif t.kind in {fkOpen, fkPragOpen}:
+      if d == 0: return false
+      dec d
+    elif d == 0 and t.kind in {fkComma, fkSemi}: return false
+    elif d == 0 and (t.kind == fkColon or (t.kind == fkOp and t.text == "=")): return true
+    dec m
+  false
+
 func fParamSep*(toks: seq[FTok], k: int): bool =
   ## does a parameter (`name: T`, `a, b: T`, `name = x`) follow the separator at k?
   var m = k + 1
   while m + 1 < toks.len and toks[m].kind == fkComment: inc m
   while m + 1 < toks.len and toks[m].kind == fkIdent and toks[m + 1].kind == fkComma: m += 2
   if m < toks.len and toks[m].kind == fkClose and m > k + 1 and toks[m - 1].kind == fkComma: return true  # `a, b,)`
+  if m < toks.len and toks[m].kind == fkClose and m == k + 1 and fTypedBefore(toks, k): return true  # `(q: T;)`
+  if m + 2 < toks.len and toks[m].kind == fkIdent and toks[m + 1].kind == fkPragOpen:
+    # (Nim 3: `r {.register: "rdi".}: Words` — a parameter with a pragma of its own: the pragma is skipped)
+    var e = m + 2
+    while e < toks.len and toks[e].kind != fkPragClose: inc e
+    if e + 1 < toks.len and toks[e + 1].kind == fkColon: return true
   m + 1 < toks.len and toks[m].kind == fkIdent and
     (toks[m + 1].kind in {fkColon, fkClose} or (toks[m + 1].kind == fkOp and toks[m + 1].text == "=") or
-     (toks[m + 1].kind == fkSemi and m + 2 < toks.len and toks[m + 2].kind == fkClose))     # (`def;` ⏎ `)`, nph's)
+     (toks[m + 1].kind == fkSemi and m + 2 < toks.len and toks[m + 2].kind == fkClose) or   # (`def;` ⏎ `)`, nph's)
+     # (`c = 1; y; z: int` → `c = 1, y; z: int`: a `using` parameter after one with a default — that one's group
+     # has ended, so `y` stays on its own either way)
+     (toks[m + 1].kind == fkSemi and fTypedBefore(toks, k)))
 
 func fSameWords*(a, b: string): bool =
   ## the same words, however they are spaced

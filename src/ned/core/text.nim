@@ -76,16 +76,36 @@ proc charWidthAt*(s: string, i: int, vc: int): (int, int) {.inline.} =
   let (cp, n) = runeAt(s, i)
   (runeWidth(cp), n)
 
-proc visColOf*(s: string, col: int): int =
-  var i = 0
-  while i < col and i < s.len:
-    if s[i] in {' ' .. '~'}:              # plain ASCII: one column (the common case, fast on long lines)
+func printable8*(s: string, i: int): bool {.inline.} =
+  ## are the 8 bytes at i all plain printable ASCII (' ' .. '~'), one column each? (8 at a time: long lines)
+  var w: uint64
+  copyMem(addr w, unsafeAddr s[i], 8)
+  const ones = 0x0101010101010101'u64
+  const high = 0x8080808080808080'u64
+  if (w and high) != 0: return false                                  # (UTF-8)
+  if ((w - 0x20'u64 * ones) and not w and high) != 0: return false     # (a control character or a tab)
+  let d = w xor (0x7F'u64 * ones)
+  ((d - ones) and not d and high) == 0                                 # (DEL)
+
+proc visColFrom*(s: string, col, start, startVc: int): int =
+  ## visColOf from a known point: byte `start` at visual column `startVc`
+  var i = start
+  result = startVc
+  let e = min(col, s.len)
+  while i < e:
+    if i + 8 <= e and printable8(s, i):
+      result += 8
+      i += 8
+      continue
+    if s[i] in {' ' .. '~'}:              # plain ASCII: one column (the common case)
       inc result
       inc i
       continue
     let (w, n) = charWidthAt(s, i, result)
     result += w
     i += n
+
+proc visColOf*(s: string, col: int): int = visColFrom(s, col, 0, 0)
 
 proc colAtVis*(s: string, target: int, start = 0, startVc = 0): int =
   ## byte index of the char covering visual column `target` (s.len if beyond)

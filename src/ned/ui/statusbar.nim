@@ -141,7 +141,7 @@ proc drawStatusBar() =
   # ── right ──
   var right: seq[(string, Rgb, Action, string)]
   let p = b.primary.head
-  var pos = "Ln " & $(p.line + 1) & ", Col " & $(visColOf(b.lines[p.line], p.col) + 1)
+  var pos = "Ln " & $(p.line + 1) & ", Col " & $(b.visColAt(p.line, p.col) + 1)
   if b.cursors.len > 1: pos.add " (" & $b.cursors.len & " cursors)"
   elif b.primary.hasSel:
     let (a, e) = b.primary.range

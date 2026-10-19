@@ -521,6 +521,25 @@ proc runBench(path: string) =
   bench("far jump", 100, proc() =
     let bb = buf()
     bb.centerOn(Pos(line: (bb.topLine + 9973) mod bb.lines.len, col: 0)))
+  block:
+    # the built-in terminal taking a flood of output (seq 1 200000) with 20 000 lines of scrollback kept: what it
+    # does with each line, no process and no drawing
+    let keep = cfgTermScrollback
+    cfgTermScrollback = 20000
+    let t = Term(w: 160, h: 40, fd: -1, autoWrap: true, cursorVisible: true, fg: NoColor, bg: NoColor, navCmd: -1)
+    t.bot = t.h - 1
+    for _ in 0 ..< t.h: t.scr.add t.blankRow
+    var chunk = ""
+    let t0 = getMonoTime()
+    for n in 1 .. 200_000:
+      chunk.add $n & "\r\n"
+      if chunk.len >= 4096:
+        t.feed(chunk)
+        chunk.setLen(0)
+    t.feed(chunk)
+    stderr.writeLine("terminal flood        " &
+                     formatFloat(float((getMonoTime() - t0).inMicroseconds) / 2000.0, ffDecimal, 3) & " ms/100k lines")
+    cfgTermScrollback = keep
   quit 0
 
 proc formatFiles(args: seq[string]) =

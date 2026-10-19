@@ -145,7 +145,7 @@ func matchBracket(b: Buffer, p: Pos): (bool, Pos, Pos) =
   ## bracket at/before p and its partner
   const opens = "([{"
   const closes = ")]}"
-  let s = b.lines[p.line]
+  template s: untyped = b.lines[p.line]
   var at = -1
   if p.col < s.len and (s[p.col] in opens or s[p.col] in closes): at = p.col
   elif p.col > 0 and (s[p.col-1] in opens or s[p.col-1] in closes): at = p.col - 1
@@ -159,26 +159,42 @@ func matchBracket(b: Buffer, p: Pos): (bool, Pos, Pos) =
   var l = p.line
   var i = at
   var scanned = 0
+  var budget = 2_000_000              # (bytes: a partner further away is not looked for — a minified file's `[`)
   while l >= 0 and l < b.lines.len and scanned < 5000:
-    let t = b.lines[l]
+    template t: untyped = b.lines[l]
     if forward:
-      while i < t.len:
+      let stop = min(t.len, i + budget)
+      budget -= stop - i
+      while i < stop:
         if t[i] == mine: inc depth
         elif t[i] == other:
           dec depth
           if depth == 0: return (true, Pos(line: p.line, col: at), Pos(line: l, col: i))
         inc i
+      if budget <= 0: break
       inc l
       i = 0
     else:
-      while i >= 0:
+      let stop = max(-1, i - budget)
+      budget -= i - stop
+      while i > stop:
         if i < t.len:
           if t[i] == mine: inc depth
           elif t[i] == other:
             dec depth
             if depth == 0: return (true, Pos(line: p.line, col: at), Pos(line: l, col: i))
         dec i
+      if budget <= 0: break
       dec l
       if l >= 0: i = b.lines[l].len - 1
     inc scanned
   (false, p, p)
+
+var bracketKept: Table[int, (int, Pos, (bool, Pos, Pos))]   # buffer id → (changeId, position, its answer)
+
+proc matchBracketKept(b: Buffer, p: Pos): (bool, Pos, Pos) =
+  ## matchBracket, asked again only when the cursor or the text has changed (not for every frame)
+  bracketKept.withValue(b.id, k):
+    if k[0] == b.changeId and k[1] == p: return k[2]
+  result = b.matchBracket(p)
+  bracketKept[b.id] = (b.changeId, p, result)
