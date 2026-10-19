@@ -44,6 +44,7 @@ var
   FmtImports* = 0      # 0 as written · 1 sorted · 2 sorted, std modules merged into std/[a, b]
   FmtAlign* = false    # object field types and the `=` of const/let/var sections lined up
   FmtReflow* = false   # long ## doc comments re-wrapped at the line length
+  FmtReflowPlain* = false   # … and long # comments of prose (not commented-out code, banners or directives)
 
 const
   FKeywords* = ["addr", "and", "as", "asm", "bind", "block", "break", "case", "cast", "concept", "const",

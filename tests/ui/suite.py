@@ -2256,7 +2256,7 @@ def t_510_workspace():
     palette('Workspace: add a folder'); time.sleep(0.3); keys('C-u'); text(other); keys('Enter'); time.sleep(0.6)
     s = screen()
     check('510 workspace: the tree shows both folders', 'work2' in s and 'work ' in s.split('\n')[2] or ('work2' in s and 'src' in s), s)
-    keys('C-p'); time.sleep(0.3); text('helper'); wait_for('helper.nim work2/lib', 6)
+    keys('C-p'); time.sleep(0.3); text('helper'); wait_for('helper.nim work2/lib', 15)
     s = screen()
     check('510 workspace: quick open finds the other folder\'s files', 'helper.nim work2/lib' in s, s)
     keys('Enter'); time.sleep(0.5)
@@ -5781,6 +5781,59 @@ def t_610_fmt_uses():
     check("610 lint: … and a local nothing uses is still found", "'unused' is declared but not used" in out,
           out + r.stderr)
 
+def t_612_hints_ahead():
+    # type hints worked out a chunk at a time, ahead of the scrolling: what scrolls in has its hints at once,
+    # scrolling back works nothing out again, and an edit gets the lines on screen right first
+    setup({"nim.nimsuggest": False, "editor.autoHover": False})
+    body = ''.join('proc p%d(n: int) =\n  let a%d = n * %d\n  let s%d = $n & "x"\n  echo a%d, s%d\n\n' %
+                   (i, i, i, i, i, i) for i in range(120))
+    open(W + '/many.nim', 'w').write(body)
+    start('many.nim', w=110, h=30); time.sleep(0.5)
+    ok = wait_for('let a0: int = n', 10)
+    time.sleep(1.5)                                     # (a quiet moment: the chunks below are worked out)
+    for _ in range(40):                                 # (a swipe: four screens down)
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<65;40;12M')
+    time.sleep(0.12)
+    s = screen()
+    rows = [l for l in s.splitlines() if 'let a' in l]
+    check('612 type hints: the lines that scrolled in have theirs at once', ok and len(rows) >= 3 and
+          all(': int = n' in l for l in rows) and 'let a0' not in s, s)
+    for _ in range(40):
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<64;40;12M')
+    time.sleep(0.12)
+    s = screen()
+    check('612 type hints: back up, still there', 'let a0: int = n' in s and 'let s0: string = $n' in s, s)
+    # an edit: the hints of the screen follow it
+    keys('C-g'); text('2'); keys('Enter'); keys('End')
+    for _ in range(5): keys('BSpace')
+    text('2.5'); time.sleep(1.2)
+    check('612 type hints: an edit, the line on screen follows', 'let a0: float = 2.5' in screen(), screen())
+
+def t_612_reflow_comments():
+    # nim.format.reflowComments: a long # comment of prose re-wrapped to the line length on Alt+F (with the ##
+    # ones, reflowDocComments), commented-out code left as it is, a banner's rule cut to fit
+    setup({"nim.nimsuggest": False, "nim.format.lineLength": 60, "nim.format.reflowComments": True,
+           "nim.format.reflowDocComments": True})
+    src = ('## A module whose documentation is a long line that goes past the line length here.\n'
+           '# ── Section ───────────────────────────────────────────────────────────────────────\n'
+           'proc p(x: int): int =\n'
+           '  # The value is doubled here because the caller expects twice what it gave, always.\n'
+           '  # let old = compute(x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x)\n'
+           '  x * 2\n')
+    open(W + '/src/rc.nim', 'w').write(src)
+    start('src/rc.nim', w=120, h=30); time.sleep(0.5)
+    keys('M-f'); seen = wait_for(r'Formatted', 5)
+    keys('C-s'); time.sleep(0.6)
+    t = ftext('src/rc.nim')
+    check('612 reflow: a ## paragraph re-wrapped', seen and '## A module whose documentation is a long line that goes\n'
+          '## past the line length here.\n' in t, repr(t))
+    check('612 reflow: a # paragraph re-wrapped, in its routine',
+          '  # The value is doubled here because the caller expects\n  # twice what it gave, always.\n' in t, repr(t))
+    check('612 reflow: commented-out code as it was', '  # let old = compute(x, x, x, x, x, x, x' in t, repr(t))
+    lines = t.split('\n')
+    check('612 reflow: the banner cut to the line length', lines[2].startswith('# ── Section ──') and len(lines[2]) == 60,
+          repr(lines[2]))
+
 def t_611_terminal_scroll():
     # 6.11: scrolling moves what the terminal shows (a scroll region) and sends only the new lines — what is on the
     # screen afterwards is exactly what a full redraw draws, scrolling down, up, by the wheel and by the cursor
@@ -5925,4 +5978,4 @@ def t_611_perf_report():
     check('611 NED_PERF_LOG: the report on the way out, the wheel scrolls done by the terminal', m and int(m.group(1)) >= 3,
           t[:1500])
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report]
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments]

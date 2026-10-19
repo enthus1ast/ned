@@ -123,18 +123,14 @@ proc engineRaisesHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, 
     if list.len > 60: list = list[0 ..< 59] & "…"
     hints.mgetOrPut(l, @[]).add (c, " {.raises: [" & list & "].}")
 
-var inlayBase: Table[int, (string, Table[int, seq[(int, string)]])]   # buffer → (for what, its type and
-                                                                       # parameter hints)
-
-proc engineInlays(b: Buffer, lo, hi: int) =
-  ## the types of lets, vars and consts written without one, worked out by ned's own engine (no nimsuggest)
-  let f = nxFileFor(b)
-  if f == nil: return
-  let sc = nxScope(f)
-  let t0 = getMonoTime()
-  var cut = false                          # (out of time: the rest on the next round)
-  var raisesCut = false                    # (… because of what routines raise: more rounds for that)
-  var hints: Table[int, seq[(int, string)]]
+proc engineTypeHints(b: Buffer, f: NxFile, sc: NxScope, lo, hi: int, hints: var Table[int, seq[(int, string)]],
+                     t0: MonoTime): bool =
+  ## the types of lets, vars and consts written without one on lines lo..hi, worked out by ned's own engine (no
+  ## nimsuggest) — false: out of time (engineInlayBudget ms from t0)
+  result = true
+  var got: Table[int, seq[(int, string)]]       # (a closure cannot hold on to `hints`: they go there at the end)
+  defer:
+    for l, v in got: hints.mgetOrPut(l, @[]).add v
   proc hintFor(s: NxSym, typ: string) =
     var t = typ.strip.replace("system.", "")
     if t.len == 0 or t in ["untyped", "typed", "auto", "void"] or s.line >= b.lines.len: return
@@ -146,59 +142,62 @@ proc engineInlays(b: Buffer, lo, hi: int) =
       if c < 0: return
       c += s.name.len
     if c < line.len and line[c] == '*': inc c
-    let row = addr hints.mgetOrPut(s.line, @[])
+    let row = addr got.mgetOrPut(s.line, @[])
     for (c0, _) in row[]:
       if c0 == c: return                 # (a routine inside a routine: its lines are looked at twice)
     row[].add (c, ": " & t)
-  # (a round for the same text and lines — the exception hints going on: the type and parameter hints as they were)
-  let key = $b.changeId & "/" & $nxGen & "/" & $lo & "/" & $hi & "/" & cfgParamHints
-  let base = inlayBase.getOrDefault(b.id)
-  if base[0] == key: hints = base[1]
-  else:
-    try:
-      # module level
-      for s in f.syms:
-        if s.kind in {nxLet, nxVar, nxConst} and s.typ.len == 0 and s.value.len > 0 and s.line >= lo and s.line <= hi:
-          if msSince(t0) > engineInlayBudget:
-            cut = true
-            break
-          let v = nxTypeOfExpr(f, sc, @[], s.value, s.line, 0)
-          if s.slots < 0:
-            let parts = nxTupleTypes(v.typ)
-            if s.slot < parts.len: hintFor(s, parts[s.slot])
-          else: hintFor(s, v.typ)
-      # inside the routines on screen, and in top-level statements (a `for` loop's variables, the lets in its body)
-      var done, doneTop: HashSet[int]
-      proc hintLocals(last: int) =
-        for s in nxLocals(f, b.lines, last, high(int) div 2, everything = true):
-          if msSince(t0) > engineInlayBudget:
-            cut = true
-            break
-          if s.kind notin {nxLet, nxVar, nxConst, nxForVar} or s.typ.len > 0 or s.value.len == 0 or s.line < lo or
-             s.line > hi: continue
-          let locs = nxLocals(f, b.lines, s.line, s.col)
-          hintFor(s, nxTypeOfName(f, sc, locs, s.name, s.line, 0).typ)
-      for l in lo .. hi:
-        let ri = nxEnclosing(f, l)
-        if ri >= 0:
-          if ri in done: continue
-          done.incl ri
-          hintLocals(min(hi, f.syms[ri].endLine))
-        else:
-          var s0 = l
-          while s0 > 0 and (b.lines[s0].len == 0 or b.lines[s0][0] in {' ', '\t', '#', ')', ']', '}'}): dec s0
-          if s0 in doneTop or nxEnclosing(f, s0) >= 0: continue
-          doneTop.incl s0
-          var e = s0 + 1
-          while e <= b.lines.high and (b.lines[e].len == 0 or b.lines[e][0] in {' ', '\t', '#', ')', ']', '}'}): inc e
-          if e - 1 > s0: hintLocals(min(hi, e - 1))
-    except Exception as e: internalError("type hints", e)
-    if cfgParamHints != "off" and not cut:
-      try: engineParamHints(b, f, lo, hi, hints, t0)
-      except Exception as e: internalError("parameter hints", e)
-    if not cut:
-      if inlayBase.len > 50: inlayBase.clear()
-      inlayBase[b.id] = (key, hints)
+  try:
+    # module level
+    for s in f.syms:
+      if s.kind in {nxLet, nxVar, nxConst} and s.typ.len == 0 and s.value.len > 0 and s.line >= lo and s.line <= hi:
+        if msSince(t0) > engineInlayBudget: return false
+        let v = nxTypeOfExpr(f, sc, @[], s.value, s.line, 0)
+        if s.slots < 0:
+          let parts = nxTupleTypes(v.typ)
+          if s.slot < parts.len: hintFor(s, parts[s.slot])
+        else: hintFor(s, v.typ)
+    # inside the routines on screen, and in top-level statements (a `for` loop's variables, the lets in its body)
+    var done, doneTop: HashSet[int]
+    var cut = false
+    proc hintLocals(last: int) =
+      for s in nxLocals(f, b.lines, last, high(int) div 2, everything = true):
+        if msSince(t0) > engineInlayBudget:
+          cut = true
+          break
+        if s.kind notin {nxLet, nxVar, nxConst, nxForVar} or s.typ.len > 0 or s.value.len == 0 or s.line < lo or
+           s.line > hi: continue
+        let locs = nxLocals(f, b.lines, s.line, s.col)
+        hintFor(s, nxTypeOfName(f, sc, locs, s.name, s.line, 0).typ)
+    for l in lo .. hi:
+      if cut: return false
+      let ri = nxEnclosing(f, l)
+      if ri >= 0:
+        if ri in done: continue
+        done.incl ri
+        hintLocals(min(hi, f.syms[ri].endLine))
+      else:
+        var s0 = l
+        while s0 > 0 and (b.lines[s0].len == 0 or b.lines[s0][0] in {' ', '\t', '#', ')', ']', '}'}): dec s0
+        if s0 in doneTop or nxEnclosing(f, s0) >= 0: continue
+        doneTop.incl s0
+        var e = s0 + 1
+        while e <= b.lines.high and (b.lines[e].len == 0 or b.lines[e][0] in {' ', '\t', '#', ')', ']', '}'}): inc e
+        if e - 1 > s0: hintLocals(min(hi, e - 1))
+    if cut: return false
+  except Exception as e: internalError("type hints", e)
+
+proc engineInlays(b: Buffer, lo, hi: int) =
+  ## the hints of lines lo..hi at once (nedls asks for a range): types, parameter names, what routines raise
+  let f = nxFileFor(b)
+  if f == nil: return
+  let sc = nxScope(f)
+  let t0 = getMonoTime()
+  var hints: Table[int, seq[(int, string)]]
+  var cut = not engineTypeHints(b, f, sc, lo, hi, hints, t0)       # (out of time: the rest on the next round)
+  var raisesCut = false                    # (… because of what routines raise: more rounds for that)
+  if cfgParamHints != "off" and not cut:
+    try: engineParamHints(b, f, lo, hi, hints, t0)
+    except Exception as e: internalError("parameter hints", e)
   if cfgRaisesHints and not cut:
     try:
       cut = not engineRaisesHints(b, f, lo, hi, hints, t0)
@@ -221,6 +220,121 @@ proc engineInlays(b: Buffer, lo, hi: int) =
     if n <= (if raisesCut: 16 else: 4): b.inlayAt = -1    # (the modules a routine calls into: read once, then kept)
   lastInlayMs = int(msSince(t0))
   needRender = true
+
+# ── in the editor: a chunk at a time ──
+# The hints of 16 lines are worked out together, each chunk once for a text: what is on screen first, then ahead in
+# the direction you scroll (two screens), then behind (one). A round takes a few ms — 4 while you swipe — so the
+# hints are there by the time the lines scroll in, and scrolling back works nothing out again.
+
+const IhChunk = 16
+
+type IhState = object
+  key: string                    # the text, index and settings the chunks below were worked out for
+  done: HashSet[int]             # chunks (IhChunk lines from chunk * IhChunk) worked out
+  tries: Table[int, int]         # chunks that ran out of time: how often (the next try has more)
+  lastTop: int                   # where the view was (which way it scrolls)
+  down: bool
+
+var ihStates: Table[int, IhState]
+var ihPending = false            # chunks around the screen still to do: the main loop comes back soon
+
+proc engineInlayStep(b: Buffer) =
+  ihPending = false
+  let f = nxFileFor(b)
+  if f == nil or b.lines.len == 0: return
+  let key = $b.changeId & "/" & $nxGen & "/" & cfgParamHints & "/" & $cfgRaisesHints
+  let st = addr ihStates.mgetOrPut(b.id, IhState(lastTop: b.topLine, down: true))
+  let page = max(textH, 20)
+  if b.inlayAt == -1:
+    # (the hints were cleared — a setting, another engine: all of them again)
+    st.key = ""
+    b.inlayAt = -2
+  if st.key != key:
+    if st.key.len > 0:
+      # another text: what is far from the screen goes (moved with its lines, it may no longer be right); what is
+      # near stays shown until its chunk is worked out again
+      var far: seq[int]
+      for l in b.inlays.keys:
+        if l < b.topLine - 3 * page or l > b.topLine + 4 * page: far.add l
+      for l in far: b.inlays.del l
+    st.key = key
+    st.done.clear()
+    st.tries.clear()
+  if b.topLine != st.lastTop:
+    st.down = b.topLine > st.lastTop
+    st.lastTop = b.topLine
+  let last = b.lines.high
+  let visA = b.topLine div IhChunk
+  let visB = min(last, b.topLine + textH) div IhChunk
+  let below = min(last, b.topLine + textH + (if st.down: 2 * page else: page)) div IhChunk
+  let above = max(0, b.topLine - (if st.down: page else: 2 * page)) div IhChunk
+  var order: seq[int]
+  for c in visA .. visB: order.add c
+  if st.down:
+    for c in visB + 1 .. below: order.add c
+    for c in countdown(visA - 1, above): order.add c
+  else:
+    for c in countdown(visA - 1, above): order.add c
+    for c in visB + 1 .. below: order.add c
+  let quiet = msSince(lastInputAt) >= 150
+  let slice = if quiet: 16 else: 4
+  let t0 = getMonoTime()
+  var sc: NxScope = nil
+  var changed = false
+  var visibleDone = true
+  for c in order:
+    if c in st.done: continue
+    let el = int(msSince(t0))
+    if el >= slice:
+      ihPending = true
+      if c >= visA and c <= visB: visibleDone = false
+      break
+    let tries = st.tries.getOrDefault(c)
+    if tries > 0 and not quiet:
+      # (one that ran out of time before: when you stop scrolling, with more time)
+      ihPending = true
+      if c >= visA and c <= visB: visibleDone = false
+      continue
+    if sc == nil: sc = nxScope(f)
+    let budget = if tries == 0: max(slice - el, 3) else: min(60, 15 * (tries + 1))
+    let a = c * IhChunk
+    let e = min(last, a + IhChunk - 1)
+    var hints: Table[int, seq[(int, string)]]
+    let keep = engineInlayBudget
+    engineInlayBudget = budget
+    let ct0 = getMonoTime()
+    var cut = not engineTypeHints(b, f, sc, a, e, hints, ct0)
+    if not cut and cfgParamHints != "off":
+      try: engineParamHints(b, f, a, e, hints, ct0)
+      except Exception as ex: internalError("parameter hints", ex)
+      cut = msSince(ct0) > budget
+    if not cut and cfgRaisesHints:
+      try: cut = not engineRaisesHints(b, f, a, e, hints, ct0)
+      except Exception as ex: internalError("exception hints", ex)
+    engineInlayBudget = keep
+    if cut and tries + 1 < 6:
+      st.tries[c] = tries + 1
+      ihPending = true
+      if c >= visA and c <= visB: visibleDone = false
+      continue
+    # this chunk's lines: these hints now (after six tries, what it got)
+    for l in a .. e:
+      var nw = hints.getOrDefault(l)
+      nw.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
+      if nw != b.inlays.getOrDefault(l):
+        if nw.len == 0: b.inlays.del l
+        else: b.inlays[l] = nw
+        changed = true
+    st.done.incl c
+  if visibleDone: b.inlayAt = b.changeId
+  if ihStates.len > 64:
+    var gone: seq[int]
+    for id in ihStates.keys:
+      if bufById(id) == nil: gone.add id
+    for id in gone: ihStates.del id
+  let used = int(msSince(t0))
+  if used > 0: lastInlayMs = used
+  if changed: needRender = true
 
 proc csvInlays(b: Buffer, lo, hi: int) =
   ## a CSV table lined up: virtual spaces after each separator so every column starts at the same place (the
@@ -288,12 +402,8 @@ proc requestInlays(b: Buffer) =
   if not cfgInlayHints or b.path.len == 0: return
   if nimEngineOn(b) and sStr("nim.typeHints") != "nimsuggest":
     # ned's own engine: at once, without nimsuggest
-    let (lo, hi) = inlayWindow(b)
-    if inlayCovered(b): return
-    if msSince(b.lspChangeAt) < 400: return
-    # (worked out here, up to 60 ms: not in the middle of a swipe — the hints come when it stops)
-    if msSince(lastInputAt) < 150: return
-    engineInlays(b, lo, hi)
+    if msSince(b.lspChangeAt) < 400: return      # (typing: the hints there move with the text meanwhile)
+    engineInlayStep(b)
     return
   if nimEngineOn(b):
     # nimsuggest (protocol 4) knows the types of lets and vars

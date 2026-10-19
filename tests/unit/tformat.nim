@@ -575,6 +575,45 @@ suite "Nim layout settings (nim.format.*)":
     check nimFmt("## one two three four five six seven eight nine ten eleven\n## - a list item that is long enough to cross\n") ==
           "## one two three four five six seven\n## eight nine ten eleven\n## - a list item that is long enough to cross\n"
 
+  test "long # comments re-wrapped (reflowComments), prose only — code, banners, TODOs and directives as they are":
+    FmtReflow = false
+    FmtReflowPlain = true
+    FmtMax = 40
+    let src = "# one two three four five six seven eight nine ten eleven\n# twelve\nlet a = 1\n"
+    let want = "# one two three four five six seven\n# eight nine ten eleven twelve\nlet a = 1\n"
+    check nimFmt(src) == want
+    check nimFmt(want) == want                                   # (a second run changes nothing)
+    # commented-out code, a banner, a TODO, a directive: left as they are, however long
+    for keep in ["# let total = compute(alpha, beta, gamma, delta)\n",
+                 "# echo \"a long line of output that goes on\", x\n",
+                 "# TODO: a long thing to do some day, when there is time\n",
+                 "# ned: ignore[unused-import] because the reason is long\n",
+                 "# foo(bar) is called here with a long explanation after\n"]:
+      check nimFmt(keep & "let a = 1\n") == keep & "let a = 1\n"
+    # a banner longer than the line: its rule cut to fit
+    check nimFmt("# ── section " & "─".repeat(36) & "\nlet a = 1\n") == "# ── section " & "─".repeat(27) & "\nlet a = 1\n"
+    check nimFmt("# short ──────\n") == "# short ──────\n"
+    # a ## doc comment is not touched by this one
+    let doc = "## one two three four five six seven eight nine ten eleven\n"
+    check nimFmt(doc) == doc
+    # indented: the width counts the indentation; characters, not bytes
+    check nimFmt("proc p() =\n  # aaa · bbb · ccc · ddd · eee · fff · ggg · hhh\n  discard\n") ==
+          "proc p() =\n  # aaa · bbb · ccc · ddd · eee · fff ·\n  # ggg · hhh\n  discard\n"
+    FmtReflowPlain = false
+    check nimFmt(src) == src
+
+  test "doc comments: a line that starts with inline code or emphasis is prose too; the width in characters":
+    FmtReflow = true
+    FmtMax = 40
+    check nimFmt("## run `ned --lint --fix` and then see what it changed\n## `x` is used here too\n") ==
+          "## run `ned --lint --fix` and then see\n## what it changed `x` is used here too\n"
+    check nimFmt("## *emphasis* then words that make it too long a line\n") ==
+          "## *emphasis* then words that make it\n## too long a line\n"
+    # a list, an RST directive: as they are
+    let lst = "## * one item of a list that is long enough to wrap it\n## .. code-block:: nim\n"
+    check nimFmt(lst) == lst
+    FmtReflow = false
+
   test "blank lines: up to maxBlankLines":
     FmtBlank = 2
     check nimFmt("let a = 1\n\n\n\nlet b = 2\n") == "let a = 1\n\n\nlet b = 2\n"
