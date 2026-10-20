@@ -302,7 +302,7 @@ proc dockListKey(dl: var DockList, v: SideView, k: Key) =
         of 'u':
           if it.path.len > 0: gitRun(@["restore", "--staged", "--", rel], "Unstaged " & rel)
         of 'd':
-          if it.path.len > 0: gitDiffView(rel, it.data == "staged")
+          if it.path.len > 0 and it.data != "untracked-dir": gitDiffView(rel, it.data == "staged")
         of 'x':
           if it.path.len > 0:
             let items = gitItemMenu(it)

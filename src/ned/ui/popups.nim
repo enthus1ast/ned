@@ -135,6 +135,75 @@ proc drawHover() =
     let more = if hoverScroll + rows < lines.len: " ↓ " & $(lines.len - rows - hoverScroll) & " more · Alt+H " else: " ↑ "
     discard putStr(x + w - 1 - strWidth(more), y + h - 1, more, theme.dim, theme.popupBg, {}, x + w - 1)
 
+# ── the picker's preview: the selected file, symbol or buffer beside the list (editor.pickerPreview) ──
+
+var pickPrevBufs: seq[(string, times.Time, Buffer)]     # files read for the preview (a few, newest last)
+
+proc pickPreviewTarget(): (string, int, Buffer) =
+  ## what the selected item shows: (its file, the line to show, the open buffer when it is one) — "" for none
+  if pickShown.len == 0 or pickSel < 0 or pickSel >= pickShown.len: return ("", -1, nil)
+  let it = pickItems[pickShown[pickSel]]
+  case pickKind
+  of pickFile:
+    if pickQuery.len > 0 and pickQuery[0] in {':', '@', '>', '#'}: return ("", -1, nil)
+    result = (pickPath(it), it.line, nil)
+  of pickSymbol, pickRecent: result = (pickPath(it), it.line, nil)
+  of pickBuffer:
+    if it.idx >= 0 and it.idx < bufs.len:
+      let b = bufs[it.idx]
+      return (b.path, b.primary.head.line, b)
+  else: return ("", -1, nil)
+  for b in bufs:
+    if b.path == result[0] and b.path.len > 0: return (result[0], result[1], b)
+
+proc pickPreviewBuffer(path: string): Buffer =
+  ## a file as the preview shows it (read once, again when it changed; nil: not a text file)
+  var t: times.Time
+  try:
+    t = getLastModificationTime(path)
+    if not fileExists(path) or getFileSize(path) > 4_000_000: return nil
+  except CatchableError: return nil
+  for (p, pt, b) in pickPrevBufs:
+    if p == path and pt == t: return b
+  var text = ""
+  try: text = readFile(path)
+  except CatchableError: return nil
+  if '\0' in text[0 ..< min(text.len, 8000)]: return nil
+  let b = newBuffer()
+  dec nextBufId                      # (not an editor buffer: its id stays free)
+  b.id = -100 - pickPrevBufs.len
+  b.path = path
+  b.lines = text.replace("\r\n", "\n").split('\n')
+  if b.lines.len > 1 and b.lines[^1].len == 0: b.lines.setLen(b.lines.len - 1)
+  b.lang = detectLang(path, (if b.lines.len > 0: b.lines[0] else: ""))
+  b.hlStart = @[0'u32]
+  b.hlValid = 0
+  pickPrevBufs.add (path, t, b)
+  if pickPrevBufs.len > 4: pickPrevBufs.delete(0)
+  b
+
+proc drawPickPreview(x, y, w, h: int) =
+  let (path, line, open) = pickPreviewTarget()
+  if path.len == 0 and open == nil: return
+  let b = if open != nil: open else: pickPreviewBuffer(path)
+  drawBox(x, y, w, h, (if path.len > 0: truncTo(relPath(path), max(8, w - 6)) else: "untitled"))
+  if b == nil:
+    discard putStr(x + 2, y + 1, "(not a text file)", theme.dim, theme.popupBg, {aItalic}, x + w - 1)
+    return
+  let rows = h - 2
+  let target = clamp(line, 0, max(0, b.lines.high))
+  let top = if line < 0: 0 else: clamp(target - rows div 3, 0, max(0, b.lines.len - rows))
+  let numW = len($(min(b.lines.len, top + rows))) + 1
+  for r in 0 ..< rows:
+    let l = top + r
+    let yy = y + 1 + r
+    let isT = line >= 0 and l == target
+    let bg = if isT: blend(theme.popupBg, theme.accent, 0.16) else: theme.popupBg
+    fillRect(x + 1, yy, w - 2, 1, theme.fg, bg)
+    if l >= b.lines.len: continue
+    discard putStr(x + 1, yy, align($(l + 1), numW), (if isT: theme.accent else: theme.dim), bg)
+    if b.lines[l].len <= 4000: drawCodeLine(b, l, x + 2 + numW, yy, x + w - 1, bg)
+
 proc drawPicker() =
   var pw = min(scrW - 2, 96)
   var px = (scrW - pw) div 2
@@ -142,6 +211,15 @@ proc drawPicker() =
   let maxRows = max(1, min(14, scrH - py - 6))
   var n = min(maxRows, max(1, pickShown.len))
   var ph = n + 4
+  # a preview beside it, when there is room (files, symbols, buffers)
+  let preview = cfgPickerPreview and not pickNear and scrW >= 110 and scrH >= 16 and
+                pickKind in {pickFile, pickSymbol, pickBuffer, pickRecent}
+  if preview:
+    pw = clamp((scrW - 3) * 11 div 20, 50, 96)      # (the list keeps room for its details; the rest previews)
+    px = 1
+    n = maxRows
+    ph = n + 4
+    drawPickPreview(px + pw + 1, py, scrW - (px + pw + 1) - 1, max(ph, min(scrH - py - 2, ph + 6)))
   if pickNear and edCaretX >= 0 and edCaretY >= 0 and scrW >= 60:
     # quick fixes: a box as wide as its items, under the line they fix (or over it), so the problem stays in view
     var w = strWidth(pickTitle) + 8
@@ -272,6 +350,7 @@ const HelpLines = [
   "Alt+F12              Peek definition (a popup)   Alt+Shift+F12  peek references",
   "Go menu              Type definition · implementation · type hierarchy (with a language server; Nim: built in)",
   "Alt+Shift+T          Reopen the last closed tab",
+  "Alt+Shift+J          Jump labels: a letter over every word on screen — type it to go there",
   "Palette ›            Call hierarchy · Go to symbol (language server) · File: rename or move (imports follow)",
   "Alt+Q / Shift+F12    Find all references",
   "Alt+H                Hover info (also automatic — settings › editor.autoHover)",

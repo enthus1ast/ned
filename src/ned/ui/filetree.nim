@@ -90,7 +90,7 @@ proc drawTree(x0, y0, w, h: int) =
     for d in 0 ..< n.depth:
       setCell(x0 + 2 + d * 2, y, Cell(ch: 0x2502, fg: blend(bg0, theme.fg, 0.14), bg: bg))
     var x = x0 + 1 + n.depth * 2 + 1
-    let st = gitFileStatus.getOrDefault(n.path, ' ')
+    let st = gitStatusOf(n.path)
     let stFg = case st
       of 'M', 'R': theme.warn
       of 'A', 'U', '?': theme.gitAdd

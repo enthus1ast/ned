@@ -8,6 +8,10 @@ proc onWinch(sig: cint) {.noconv.} =
   gResized = true
 
 var inputBacklog = false   # processInput stopped early to draw a frame; more keys are waiting
+var workDeferred = false   # (a round had no room for all its background work: the next one comes at once)
+var
+  frameAt: MonoTime            # when the last frame was drawn
+  frameHeld = false            # a frame waits (frames not asked for by input are paced)
 
 proc processInput(force: bool) =
   var k: Key
@@ -90,8 +94,13 @@ proc mainLoop() =
       gridResize()
       for b in bufs: b.lastChange = -1      # keep the cursor visible when the keyboard opens/closes
       needRender = true
-    if needRender:
+    # (frames no key or click asked for — a streaming answer, a terminal's or a job's output — 60 a second at most,
+    # 30 on a slow terminal: a fast model's tokens were a frame each)
+    frameHeld = needRender and lastInputAt < frameAt and not inputBacklog and
+                msSince(frameAt) < (if slowTerminal(): 33 else: 16)
+    if needRender and not frameHeld:
       needRender = false
+      frameAt = getMonoTime()
       try:
         timedWork("drawing the screen"): render()
       except Exception as e:
@@ -170,11 +179,18 @@ proc mainLoop() =
       if t.replQ.len > 0: timeout = min(timeout, 250)
     if reapPids.len > 0: timeout = min(timeout, 500)
     if startTrace: timeout = min(timeout, 20)
+    if workDeferred: timeout = min(timeout, 5)
+    if frameHeld: timeout = min(timeout, max(1, (if slowTerminal(): 33 else: 16) - int(msSince(frameAt))))
+    if cfgWebEngine != "off" and cb0.path.len > 0 and cb0.lang != nil and
+       (webFamily(cb0.lang.id).len > 0 or cb0.lang.mode == lmNim) and webChkAt.getOrDefault(cb0.id, -1) != cb0.changeId:
+      timeout = min(timeout, 420)                              # (ned's own CSS, HTML and SQL checks after a pause)
     if landBuf >= 0: timeout = min(timeout, 40)              # (the line a jump landed on, fading)
     if progressAnimating() or (progWas and msSince(progSince) < 600): timeout = min(timeout, 80)   # (the progress band)
     if cfgRefCounts and not refComplete and refFiles.len > 0: timeout = min(timeout, 20)   # the project's words
     if cfgRefCounts and msSince(lastInputAt) < 450: timeout = min(timeout, 250)          # (the counts after scrolling)
     if nxWarmMods.len > 0: timeout = min(timeout, 60)          # (the imports' scopes, a few at a time while quiet)
+    if nxPreload.len > 0 or (nimEngineOn(cb0) and cb0.path.len > 0 and cb0.id notin nxPreloaded):
+      timeout = min(timeout, 10)                               # (the files the open file's scope is made of)
     if cfgTooltips and not tipShown and mouseX >= 0 and msSince(mouseMovedAt) < 700:
       timeout = min(timeout, max(1, 660 - int(msSince(mouseMovedAt))))
     if (cfgInlayHints or cb0.lang.mode == lmCsv) and cb0.inlayAt != cb0.changeId and cb0.path.len > 0: timeout = min(timeout, 400)
@@ -266,10 +282,16 @@ proc mainLoop() =
         needRender = true
         if msSince(landAt) > JumpHlMs: landBuf = -1
       if progressAnimating() or progressStarting(): needRender = true      # (the progress band, or its first frame)
+      # (one heavy piece of work a round: hints, the engine's checks, reading imports, counts and macro names each
+      # take up to a few dozen ms on a phone — two in one round and a key waits for both)
+      let roundT0 = getMonoTime()
+      workDeferred = false
+      template roomLeft(): bool =
+        (if msSince(roundT0) < 15: true else: (workDeferred = true; false))
       if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0 and not away: timedWork("type and parameter hints"): requestInlays(buf())
       if cfgCSigHints and inBuf.len == 0 and not away: cSigHintsUpdate(buf())
       if inBuf.len == 0 and not away: timedWork("language server requests"): lspExtras(buf())
-      if inBuf.len == 0 and not away: timedWork("the engine reading imports"): engineWarm(buf())
+      if inBuf.len == 0 and not away and roomLeft(): timedWork("the engine reading imports"): engineWarm(buf())
       if inBuf.len == 0 and not away: ghostTick()
       if inBuf.len == 0 and not away:
         let gb = buf()
@@ -330,7 +352,7 @@ proc mainLoop() =
       if not away:
         timedWork("clangd for the emitted C"): emitPump(cb)
         timedWork("servers for the languages in strings"): embPump(cb)
-        timedWork("reference counts"): refLensPump(cb)
+        if roomLeft(): timedWork("reference counts"): refLensPump(cb)
       remoteAutoSync()                     # a remote folder: what changed on the server
       if away: discard                     # (checks of what you look at: when you are back)
       elif cfgLiveCheck and cb.chkAt == 0 and not cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
@@ -353,12 +375,17 @@ proc mainLoop() =
          (cb.dirty or engineChecksOnOpen(cb)):
         # (a pause in typing and in scrolling: on a phone the checks of a big file take a moment; the imports read
         # first, a few at a time)
-        timedWork("the engine's checks"): engineTypos(cb)
+        if roomLeft(): timedWork("the engine's checks"): engineTypos(cb)
       if cfgMacroNames and not away and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
          msSince(cb.lspChangeAt) > 1500 and msSince(lastInputAt) > 1000 and not compilerRunning():
         # (one compiler at a time, and not while you scroll or type: a phone has the CPU for one)
-        timedWork("names macros make"): macroNamesFor(cb)
-      if cfgGitAutoRefresh and (treeOpen and sideView in {svGit, svFiles}) and msSince(gitStatusAt) > 5000:
+        if roomLeft(): timedWork("names macros make"): macroNamesFor(cb)
+      if cfgWebEngine != "off" and not away and inBuf.len == 0 and roomLeft():
+        timedWork("CSS, HTML and SQL checks"): webChecksPump(cb)        # ned's own (web.engine)
+      # (every 5 s while the Git or Files dock shows it — less often in a repository git takes long over, and not
+      # while you are away)
+      if cfgGitAutoRefresh and not away and (treeOpen and sideView in {svGit, svFiles}) and
+         msSince(gitStatusAt) > max(5000, 20 * gitStatusTook):
         refreshGitStatus()
       if wsRoots.len > 0 and cb.path.len > 0 and cb.path != gitFollowPath:
         # a workspace: the Git dock follows the open file to its folder's repository

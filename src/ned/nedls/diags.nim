@@ -87,6 +87,7 @@ proc lsPublishAll(force = false) =
   for p in unusedHints.keys: want(p)
   for p in diagsFfi.keys: want(p)
   for p in diagsEmit.keys: want(p)
+  for p in diagsWeb.keys: want(p)
   for p in lsPublished.keys: want(p)
   for p in paths:
     var ds: JsonNode

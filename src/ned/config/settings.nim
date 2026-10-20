@@ -140,6 +140,8 @@ proc initSettingDefs() =
        "C-x C-s, C-k / C-y, C-SPC mark, M-x …) · helix (select then act: w x d c y p, space mode, g goto)",
        @["default", "vim", "emacs", "helix"])
   defS("Editor", "editor.softWrap", %true, "Wrap long lines at the window edge (Alt+W)")
+  defS("Editor", "editor.pickerPreview", %true, "Open file, Go to symbol and the buffer list show the selected " &
+       "file, symbol or buffer beside the list (on a screen 110 columns wide or more)")
   defS("Editor", "editor.largeFileSize", %16,
        "Large-file mode for files of this many MB or more: no soft wrap, language server, Nim engine, minimap or " &
        "word highlight, so scrolling and typing stay instant (palette › Large file mode turns it off for one file)")
@@ -267,6 +269,9 @@ proc initSettingDefs() =
   # ── Git ──
   defS("Git", "git.gutter", %true, "Added/modified/deleted marks next to line numbers")
   defS("Git", "git.autoRefresh", %true, "Refresh the git panel periodically while it is open")
+  defS("Git", "git.untrackedFiles", %"folders", "New files in a new folder: folders = the folder as one line (with " &
+       "how many files it holds — git does not walk a folder of thousands) · all = every file on its own line",
+       @["folders", "all"])
   defS("Git", "git.inlineBlame", %false, "Show who last changed the current line, and when, at its end")
   # ── Nim ──
   defS("Nim", "nim.ide", %"builtin",
@@ -412,6 +417,9 @@ proc initSettingDefs() =
   defS("Nim", "nim.indexCache", %true, "Keep the engine's reading of the standard library and nimble packages on " &
        "disk (~/.cache/ned/index), so a new session answers at once instead of reading them again. An entry is used " &
        "only for the very text it was made from")
+  defS("Nim", "nim.indexCacheProject", %true, "The project's own files in the index cache too, as they are on " &
+       "disk: reopening a project of hundreds of files reads them instead of parsing them (a changed file is " &
+       "parsed again)")
   defS("Nim", "nim.indexMemory", %64, "Megabytes the engine's parsed files may take (0: no limit). Above it the " &
        "files asked about least recently, and not open, are dropped; one is read again when needed (a library file " &
        "from the index cache, in a few ms)")
@@ -467,6 +475,9 @@ proc initSettingDefs() =
   defS("AI", "ai.systemPrompt", %"", "Extra instructions added to the system prompt")
   defS("AI", "ai.projectInstructions", %true, "Send AGENTS.md / CLAUDE.md / NED.md from the project with each request")
   defS("AI", "ai.promptCaching", %true, "Anthropic prompt caching: repeated context costs ~10% and answers start sooner")
+  defS("AI", "ai.trimOldResults", %true, "Long tool outputs (a file read, a command's output) of earlier questions are " &
+       "sent cut to their start and end — those of the question being answered in full: fewer tokens each step, " &
+       "answers sooner. The assistant can run the tool again")
   defS("AI", "ai.inlineCompletion", %false, "Grey inline suggestions while you type (Tab accepts) — sends code on every pause")
   defS("AI", "ai.inlineCompletionDelay", %700, "Pause in ms before an inline suggestion is requested")
   defS("AI", "ai.checkSuggestions", %true,
@@ -491,6 +502,11 @@ proc initSettingDefs() =
        "it asks for (a closing }, ;, a new line) — servers that offer it: clangd, gopls, rust-analyzer …")
   defS("Languages", "lsp.linters", %true, "Also run a linter's language server when it is installed — Python: ruff, " &
        "Go: golangci-lint-langserver, Markdown: harper-ls — its problems and fixes next to the main server's")
+  defS("Languages", "web.engine", %"auto", "ned's own CSS, HTML and SQL — completion (properties and values, " &
+       "elements and attributes, your tables and columns), hover and problems (an unknown property, a missing `;`, a " &
+       "closing tag that closes the wrong element, a table no CREATE TABLE makes, a query given more values than its " &
+       "`?`), in their files and in Nim strings: auto = when no language server does it · on · off",
+       @["auto", "on", "off"])
   defS("Languages", "formatters", newJObject(), "Formatter command per language id (stdin → stdout), e.g. {\"nim\": \"nph -\"}")
   defS("Languages", "run", newJObject(), "Run command per language id ($file, $dir, $name), e.g. {\"python\": \"python3 $file\"}")
   defS("Languages", "languages", newJObject(), "Your own languages (or changes to built-in ones): {\"zig\": " &
@@ -799,6 +815,7 @@ proc applySettings() =
   cfgCodeLens = sBool("editor.codeLens")
   cfgRefCounts = sBool("nim.referenceCounts")
   cfgAiCheckEdits = sBool("ai.checkEdits")
+  cfgAiTrimOld = sBool("ai.trimOldResults")
   cfgFolding = sBool("editor.folding")
   cfgFormatOnSave = sBool("editor.formatOnSave")
   cfgFormatScope = sStr("editor.formatOnSaveScope")
@@ -837,6 +854,7 @@ proc applySettings() =
   cfgTermIntegration = sBool("terminal.shellIntegration")
   cfgGitGutter = sBool("git.gutter")
   cfgGitAutoRefresh = sBool("git.autoRefresh")
+  cfgGitUntrackedAll = sStr("git.untrackedFiles") == "all"
   cfgBlame = sBool("git.inlineBlame")
   cfgGhostOn = sBool("ai.inlineCompletion")
   cfgNimIde = sStr("nim.ide")
@@ -873,6 +891,7 @@ proc applySettings() =
   cfgEngineChecks = sBool("nim.engineChecks")
   cfgCompilerAnswers = sBool("nim.compilerAnswers")
   nxDiskCache = sBool("nim.indexCache")
+  nxCacheProject = sBool("nim.indexCacheProject")
   nxIndexBudget = max(0, sInt("nim.indexMemory")) * 1048576
   cfgMacroNames = sBool("nim.macroNames")
   cfgEngineMoreChecks = sBool("nim.engineHints")
@@ -940,6 +959,8 @@ proc applySettings() =
     elif v.kind == JString and v.getStr.strip.len > 0: cmds.add v.getStr.splitWhitespace
     if cmds.len > 0: cfgLspAlso[k] = cmds
   cfgLspLinters = sBool("lsp.linters")
+  cfgWebEngine = sStr("web.engine")
+  cfgPickerPreview = sBool("editor.pickerPreview")
   cfgFormatOnType = sBool("editor.formatOnType")
   cfgUserFmt.clear()
   for k, v in sval("formatters"): cfgUserFmt[k] = v.getStr

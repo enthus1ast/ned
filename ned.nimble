@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.13.0"
+version       = "6.14.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
@@ -79,11 +79,12 @@ task android, "Check that ned compiles for Android (arm64) — generates C only"
   exec "nim c --os:android --cpu:arm64 -d:release --compileOnly --hints:off --nimcache:" &
        tmpDir() & "ned_android " & main
 
-task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies":
+task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies, the CSS / HTML / SQL engines":
   for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim",
             "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim", "tests/unit/tdiskcache.nim", "tests/unit/tversions.nim",
             "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim", "tests/unit/tgcov.nim",
-            "tests/unit/teffects.nim", "tests/unit/ttext.nim", "tests/unit/tbinfmt.nim"]:
+            "tests/unit/teffects.nim", "tests/unit/ttext.nim", "tests/unit/tbinfmt.nim", "tests/unit/twebdata.nim",
+            "tests/unit/tweb.nim", "tests/unit/twebfmt.nim"]:
     exec "nim r -d:release --hints:off " & t
 
 task lsptest, "nedls driven by a test client: every feature, and 2000 random edits (needs python3)":

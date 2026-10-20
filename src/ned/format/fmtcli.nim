@@ -17,7 +17,8 @@ const
   HookMark = "# nedfmt --install-hook wrote this"
 
 func fmtKindOf*(path: string): string =
-  ## which of ned's formatters fits a file: "nim", "json", "markdown", "css", "scss", "c", "yaml", "toml" or ""
+  ## which of ned's formatters fits a file: "nim", "json", "markdown", "css", "scss", "c", "yaml", "toml", "html",
+  ## "sql" or ""
   let ext = splitFile(path).ext.toLowerAscii
   case ext
   of ".nim", ".nims", ".nimble": "nim"
@@ -28,6 +29,8 @@ func fmtKindOf*(path: string): string =
   of ".c", ".h": "c"
   of ".yaml", ".yml": "yaml"
   of ".toml": "toml"
+  of ".html", ".htm", ".xhtml": "html"
+  of ".sql", ".psql", ".pgsql", ".mysql": "sql"
   else: ""
 
 func looksCppText(text: string): bool =
@@ -244,6 +247,8 @@ proc fmtTextOf*(kind, text, path: string, nimFmt: FmtFn = nil): (string, string)
     of "scss": fmtCss(text, 2, lineComments = true)
     of "yaml": fmtYaml(text, 2)
     of "toml": fmtToml(text)
+    of "html": fmtHtml(text, 2)
+    of "sql": fmtSql(text, 2)
     else: (text, "no formatter for this kind of file")
   except CatchableError, Defect:
     (text, "the formatter failed on this file (please report it)")
@@ -706,7 +711,7 @@ proc nphExcluded*(path: string): bool =
 
 func usageText(prog, version: string): string =
   prog & " " & version & " — ned's formatters: Nim (nph's style, checked), JSON, Markdown tables, CSS/SCSS, C, YAML, " &
-  "TOML\n\n" &
+  "TOML, HTML, SQL\n\n" &
   "Usage: " & prog & " [options] FILE|FOLDER…     " & prog & " [options] -   (stdin → stdout)\n\n" &
   "  --check               change nothing; exit 1 when a file would change (CI, hooks)\n" &
   "  --diff                show what would change (a unified diff), change nothing (with --check: exit 1)\n" &

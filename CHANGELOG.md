@@ -1,6 +1,68 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-613). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-614). Older releases:
+
+## What's new in 6.13
+
+6.13 is about ned and the terminal it runs in: what the terminal can do is asked of it, not guessed from its name —
+and the ned that is running can be reached from outside it: from its own terminal, from git, from scripts.
+
+**`ned FILE` in ned's terminal opens FILE in this ned.** ned answers on a socket only you can reach (in its private
+folder), and its terminal knows where (`$NED_SOCKET`):
+
+- `ned app.nim:42` there opens the file at that line in a tab — no ned inside ned; `git log | ned` opens the log in a
+  tab. `ned --new` starts another ned when that is what you want.
+- **git's editor is this ned** in its terminal (`terminal.editorEnv`): `git commit` opens the message in a tab and git
+  waits; save and close the tab (Ctrl+S, Ctrl+W) and git goes on, the terminal has the focus again. `git rebase -i`
+  and whatever runs `$EDITOR` work the same way (where you have not set `GIT_EDITOR` or `EDITOR` yourself). Anywhere
+  else, `ned --wait FILE` does the same: `GIT_EDITOR="ned --wait"`.
+- **Scripts** reach the running ned — the one whose project holds the file, else the one started last:
+
+  ```sh
+  ned --remote src/app.nim:120                # open it there
+  ned --remote-command "Format document"      # a command of the palette
+  ned --remote-message "deploy finished"
+  make 2>&1 | ned --remote-problems build     # file:line: lines become problems (sent again: replaced)
+  ned --remote-get selection                  # file, line, col, selection, word, root, files, text
+  ned --remote-list                           # the neds running: process, project, files
+  ```
+
+![git commit typed in ned's terminal: the message opens in a tab of this ned, and git waits for it](screenshots/remote-commit-613.png)
+
+**What the terminal can do, asked of it** when ned starts (*Help › Check setup* shows what it answered):
+
+- **The kitty keyboard protocol** (kitty, WezTerm, Ghostty, foot, Alacritty, iTerm2 …): Ctrl+Shift+letters can have
+  key bindings of their own, Ctrl+I is not Tab, Ctrl+Enter and Shift+Enter work, Alt+key comes without the Esc
+  delay — and the keys you had arrive as they did (Ctrl+[ is Esc, Alt+Shift+T is still Alt+Shift+T).
+  `ui.kittyKeyboard`.
+- **24-bit colour, by asking** — not only from `COLORTERM`, which SSH, mosh, `sudo` and tmux often lose.
+- **Curly underlines in the problem's colour** where the terminal draws them: an error a red squiggle, a warning a
+  yellow one, a misspelled word a blue one, and the text keeps its own colour. `ui.undercurl`.
+- **Light and dark follow the system**: with `"theme": "auto"`, a terminal that tells about the switch (mode 2031:
+  kitty, Ghostty, Contour …) changes ned's theme the moment the phone or the desktop goes dark.
+- **The focus**: back in the terminal, files that changed meanwhile are looked at at once; away for a while, what
+  only serves the screen waits — type hints, the engine's checks, AI suggestions: battery on a phone
+  (`ui.pauseWhenAway`) — and `editor.saveOnFocusLost` saves when you switch to another window or app.
+
+**Emoji and accents as wide as the terminal draws them.** Widths come from Unicode 15.1 now — what glibc's `wcwidth`
+and the terminals use: ✅ ⭐ ⌚ 🫠 take two columns (ned counted one, and on a line with them the cursor drifted off
+its character). A letter with its accent (e + ◌́) is one character, drawn whole. Where the terminal joins emoji
+sequences (mode 2027: WezTerm, Ghostty, Contour, foot …) 👨‍👩‍👧, 👍🏽, 🇴🇲 and 1️⃣ are one character two columns wide;
+anywhere, the cursor steps over one at once and Backspace takes it whole. `ui.graphemes`.
+
+**Smaller things:**
+
+- the line a jump lands on — go to definition, a search result, Ctrl+G, a problem — lights up and fades
+  (`ui.jumpHighlight`);
+- long jobs — a run or a build, formatting a folder, a project search, the assistant — fill the status bar as they go,
+  and Windows Terminal and Ghostty show it on the tab too (`ui.progressBar`);
+- the terminal's title is the file and the project, ● while it is unsaved; the old title comes back when ned quits
+  (`ui.terminalTitle`);
+- `ui.transparentBackground` leaves the editor's background to the terminal, for its see-through or blurred window;
+- *Edit: put the selection through a command…* — `sort`, `jq .`, `column -t`; the whole file when nothing is
+  selected; one undo step — and in Vim mode `:%!sort`, `:'<,'>!cmd`, `:N,M!cmd` and `:!cmd` (`%` is the file);
+- your own commands (`commands` in settings) can send what they print to Problems: with `"output": "problems"` a
+  linter's `file:line:col: message` lines become problems.
 
 ## What's new in 6.12
 

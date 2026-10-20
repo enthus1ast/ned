@@ -163,6 +163,7 @@ proc rawReplace(b: Buffer, a, c: Pos, text: string): Pos =
     shiftDiagTable(diagsBuild, b.path, a.line, c.line, dl)
     shiftDiagTable(diagsFfi, b.path, a.line, c.line, dl)
     shiftDiagTable(diagsEmit, b.path, a.line, c.line, dl)
+    shiftDiagTable(diagsWeb, b.path, a.line, c.line, dl)
   if b.inGit:
     for l in a.line .. min(result.line, b.git.high):
       if b.git[l] == 0: b.git[l] = (if dl > 0 and l > a.line: 1'u8 else: 2'u8)

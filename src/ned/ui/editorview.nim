@@ -728,6 +728,18 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
             else: inc k
           if shown.len > 0:
             discard putStr(ex + 2, y, shown.join("  "), blend(theme.warn, rowBg, 0.25), rowBg, {aItalic}, limX)
+      if jumpCollect and active and b.id == jumpBufId and s.len <= 4000:
+        # jump labels: the words this row shows
+        var k = segStart
+        while k < min(segEnd, s.len):
+          if s[k] in IdentChars and (k == 0 or s[k - 1] notin IdentChars):
+            var hshift = 0
+            for (hc, lb) in hints:
+              if hc < k and (not cfgWrap or hc >= segStart): hshift += strWidth(lb)
+            let cx = tx0 + b.visColAt(line, k) - baseVc + rowOff + hshift
+            if cx >= tx0 and cx + 1 < limX: jumpVis.add (Pos(line: line, col: k), cx, y)
+            while k < s.len and s[k] in IdentChars: inc k
+          else: inc k
       for ci, c in b.cursors:
         let hp = c.head
         if hp.line != line or hp.col < segStart or hp.col > segEnd: continue
@@ -784,6 +796,14 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     else: inc line
   if rulersOn:
     for r2 in row ..< h: rulerRow(y0 + r2)                        # past the end of the file too
+  if jumpOn and active and b.id == jumpBufId:
+    if jumpCollect:
+      jumpCollect = false
+      jumpAssign(b.primary.head)
+      if jumpTargets.len == 0:
+        jumpOn = false
+        info("No words on screen to jump to")
+    if jumpOn: jumpPaint(tx0, y0, limX - tx0, h)
   # sticky scroll: enclosing headers stay visible at the top
   if cfgSticky and h >= 10 and b.topLine > 0:
     let maxN = if h >= 26: 3 elif h >= 15: 2 else: 1

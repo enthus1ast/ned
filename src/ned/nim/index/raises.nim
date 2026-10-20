@@ -1669,7 +1669,7 @@ proc nxRsGenericParams(sc: NxScope, s: NxSym): seq[string] =
 
 proc nxRsAnalyse(c: var NxRsCtx, r: NxRef, lr: NxLinesRef): NxRaises =
   ## what the body of routine `r` raises
-  let s = r.sym
+  template s: untyped = r.sym
   template lines: untyped = lr.lines
   let (bl, bc) = nxRsBodyStart(lines, s)
   if bl < 0: return nxRsFail("no body")
@@ -1784,7 +1784,7 @@ proc nxRsRewrites(sc: NxScope, prag: string): string =
 
 proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxRaises =
   ## what a call of routine `r` (from callPath:callLine) raises
-  let s = r.sym
+  template s: untyped = r.sym
   let ru = nxRsUnit(c, r.file, s.line)
   nxRsDep(c, if ru.len > 0: ru else: r.file.path)
   let lr = nxLayLinesRef(r.file.path)

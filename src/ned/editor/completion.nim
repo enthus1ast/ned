@@ -105,6 +105,7 @@ proc startCompletion(manual: bool) =
   if b.lang.mode == lmNim and cWrapperComplete(b, p, manual): return  # proc ⟨C function⟩: the whole wrapper
   if b.lang.mode == lmNim and emitComplete(b, p, manual): return      # C in an emit
   if b.lang.mode == lmNim and embComplete(b, p, manual): return       # HTML, CSS, SQL … in a string
+  if webComplete(b, p, manual): return                                # … ned's own (no language server for it)
   if cEngineOn(b) and cEngComplete(b, p, manual): return              # C: ned's own engine
   if nimEngineOn(b) and engineComplete(b, manual): return
   let s = lspReady(b)
@@ -155,11 +156,19 @@ proc afterType(ch: int) =
       discard cEngComplete(b, p, false)
     else: closeComp()
     return
+  if not long and b.lang.mode != lmNim and webFamily(b.lang.id).len > 0 and webEngineOn(b, p):
+    # ned's own CSS, HTML, SQL: after `<`, `:`, `.`, a space in a tag, a word's first letter — the list then
+    # narrows as you type (an attribute's value too, which the colours call a string)
+    let c = if ch < 128: char(ch) else: 'a'
+    if c in {'<', '/', ':', '@', '!', '.', '#', ' ', '=', '"', '\'', '('} or isWordByte(c) or c == '-':
+      if not webComplete(b, p, false): closeComp()
+    else: closeComp()
+    return
   let tk = if long: tkText else: b.tokenAt(Pos(line: p.line, col: p.col - 1))
   if tk in {tkString, tkPragma} and not long and b.lang.mode == lmNim and pragmaStringComplete(b, p, false): return
   if tk in {tkComment, tkDoc, tkString} or (not long and foreignAt(p.col - 1)):
     if tk notin {tkComment, tkDoc, tkString} and not long and b.lang.mode == lmNim and
-       (emitComplete(b, p, false) or embComplete(b, p, false)):
+       (emitComplete(b, p, false) or embComplete(b, p, false) or webComplete(b, p, false)):
       return                                                  # C in an emit, HTML/CSS/SQL in a string
     closeComp()
     return

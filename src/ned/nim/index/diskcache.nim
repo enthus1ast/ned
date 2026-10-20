@@ -25,19 +25,30 @@ proc nxCacheDir(): string =
   if nxDiskCacheDir.len > 0: return nxDiskCacheDir
   getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "ned" / "index"
 
+var nxDkMemo: (int, Hash, bool, string)   # (how many, their hash, complete, the key): asked for each file read
+
 proc nxDefinesKey(): string =
+  var hx: Hash = 0
+  for d in nxDefines: hx = hx xor hash(d)
+  if nxDkMemo[3].len > 0 and nxDkMemo[0] == nxDefines.len and nxDkMemo[1] == hx and nxDkMemo[2] == nxDefinesComplete:
+    return nxDkMemo[3]
   var ds: seq[string]
   for d in nxDefines: ds.add d
   ds.sort()
-  ds.join(",") & (if nxDefinesComplete: "|complete" else: "|guessed")
+  result = ds.join(",") & (if nxDefinesComplete: "|complete" else: "|guessed")
+  nxDkMemo = (nxDefines.len, hx, nxDefinesComplete, result)
+
+var nxCacheProject* = true   # (nim.indexCacheProject) the project's own files too, as they are on disk
 
 proc nxCacheable*(path: string): bool =
-  ## a library or package file (the project's own files change too often to be worth it)
+  ## a library or package file — and the project's own files as they are on disk (an entry is for one text: one
+  ## that changed is parsed again; reopening a project of hundreds of files reads them instead of parsing them)
   if not nxDiskCache or path.len == 0: return false
   if nxLibDir.len > 0 and path.startsWith(nxLibDir & "/"): return true
   for d in nxPkgDirs:
     if path.startsWith(d & "/"): return true
-  "/pkgs2/" in path or "/pkgs/" in path
+  if "/pkgs2/" in path or "/pkgs/" in path: return true
+  nxCacheProject and path.endsWith(".nim") and "/untitled-" notin path
 
 # (integers as zigzag varints, strings and lists with their length first)
 func nxPut(s: var string, x: int64) =

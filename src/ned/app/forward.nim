@@ -39,6 +39,10 @@ proc realPathOf(path: string): string
 proc emitIsC(b: Buffer, p: Pos): bool
 proc emitLsp(b: Buffer, start = true): (LspServer, Buffer)
 proc embComplete(b: Buffer, p: Pos, manual: bool): bool
+proc webComplete(b: Buffer, p: Pos, manual: bool): bool
+proc webEngineOn(b: Buffer, p: Pos): bool
+proc webHoverInfo(b: Buffer, p: Pos): string
+proc webChecksPump(b: Buffer)
 proc embHover(b: Buffer, p: Pos, auto: bool): bool
 proc embPump(b: Buffer)
 proc embClose(b: Buffer)

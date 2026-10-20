@@ -4614,3 +4614,100 @@ proc fFormat*(text: string, err: var string): string =
   if fStructureOf(lines) != fStructureOf(lines2):
     err = "the built-in formatter would change the block structure, so nothing was changed (please report this file)"
     return text
+
+# ── formatting only what changed: a file cut into its top-level statements where an empty line comes before one,
+#    each piece formatted on its own and kept (the same text, the same settings: the same result), so formatting
+#    a big file again costs only the statements that changed. Cut only where the whole-file formatter writes
+#    exactly the empty lines that were there: in front of a statement at column 0, outside brackets, that does
+#    not continue the line before it nor is a branch (else, of …) ──
+
+var
+  fChunkMemo: Table[string, string]    # settings & "\0" & a piece's text → the piece formatted
+  fChunkMemoBytes = 0
+  fChunkUsed: HashSet[string]          # (the pieces of the last file formatted: kept when the memo is trimmed)
+const FChunkMemoMax = 24 * 1048576
+
+proc fSettingsKey(): string =
+  $FmtWidth & "," & $FmtMax & "," & $FmtParams & "," & $FmtArgs & "," & $FmtColl & "," & $FmtBlank & "," &
+    $FmtImports & "," & $FmtAlign & "," & $FmtReflow & "," & $FmtReflowPlain & "," & $fNoCheck
+
+proc fChunkStarts*(toks: seq[FTok]): seq[int] =
+  ## the tokens where a piece may start (each first on its line, column 0, after an empty line)
+  const contKw = ["and", "or", "xor", "not", "in", "notin", "is", "isnot", "of", "div", "mod", "shl", "shr", "as",
+                  "addr", "ptr", "ref", "var", "out", "distinct", "static", "type", "proc", "iterator", "func"]
+  var depth = 0
+  var lastCode = -1                    # (the last token not a comment)
+  for k, t in toks:
+    if k > 0 and t.nl and t.col == 0 and depth == 0 and t.blanks > 0 and t.kind != fkComment and
+       not (t.kind == fkKw and t.text in ["of", "elif", "else", "except", "finally", "do"]) and lastCode >= 0:
+      let p = toks[lastCode]
+      if p.kind notin {fkOp, fkComma, fkColon, fkDot, fkSemi, fkOpen, fkPragOpen} and
+         not (p.kind == fkKw and p.text in contKw):
+        result.add k
+    if t.kind in {fkOpen, fkPragOpen}: inc depth
+    elif t.kind in {fkClose, fkPragClose}: depth = max(0, depth - 1)
+    if t.kind != fkComment: lastCode = k
+
+proc fFormatPieces*(text: string, err: var string, fresh: var seq[(string, string)]): string =
+  ## fFormat's result, made piece by piece and remembered (fresh: the pieces formatted this time, for a second
+  ## check). Settings that look across statements (imports sorted, lining up) format the whole file
+  if FmtImports > 0 or FmtAlign or text.len < 4096:
+    result = fFormat(text, err)
+    if err.len == 0 and result != text: fresh.add (text, result)
+    return
+  var ok = true
+  let toks = fLex(text, ok)
+  if not ok:
+    err = "cannot read this file (an unclosed string or comment?)"
+    return text
+  let starts = fChunkStarts(toks)
+  if starts.len == 0:
+    result = fFormat(text, err)
+    if err.len == 0 and result != text: fresh.add (text, result)
+    return
+  let sk = fSettingsKey() & "\0"
+  var used: HashSet[string]
+  var outp = newStringOfCap(text.len + text.len div 8)
+  var at = 0
+  for n in 0 .. starts.len:
+    let stop = if n < starts.len: toks[starts[n]].pos else: text.len
+    let piece = text[at ..< stop]
+    let key = sk & piece
+    var r = fChunkMemo.getOrDefault(key)
+    if r.len == 0:
+      var e = ""
+      r = fFormat(piece, e)
+      if e.len > 0:
+        # (a piece the formatter is not sure of: the whole file, as it would say it)
+        fChunkUsed = used
+        return fFormat(text, err)
+      if r != piece: fresh.add (piece, r)
+      if fChunkMemoBytes > FChunkMemoMax:
+        var keep: Table[string, string]
+        var bytes = 0
+        for k2, v in fChunkMemo:
+          if k2 in used or k2 in fChunkUsed:
+            keep[k2] = v
+            bytes += k2.len + v.len
+        fChunkMemo = keep
+        fChunkMemoBytes = bytes
+      fChunkMemo[key] = r
+      fChunkMemoBytes += key.len + r.len
+    used.incl key
+    if n > 0:
+      let bl = toks[starts[n - 1]].blanks
+      let gaps = if FmtBlank > 1: clamp(bl, 1, FmtBlank) else: 1
+      for _ in 1 .. gaps: outp.add '\n'
+    outp.add r
+    at = stop
+  fChunkUsed = used
+  result = outp
+
+proc fForgetPieces*(fresh: seq[(string, string)]) =
+  ## pieces a second check refused: not remembered
+  let sk = fSettingsKey() & "\0"
+  for (p, _) in fresh:
+    let key = sk & p
+    if key in fChunkMemo:
+      fChunkMemoBytes -= key.len + fChunkMemo[key].len
+      fChunkMemo.del key

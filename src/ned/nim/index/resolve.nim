@@ -252,7 +252,7 @@ proc nxTupleFieldOf*(f: NxFile, sc: NxScope, typ, w: string): seq[NxRef] =
   ## a field of an anonymous tuple a routine returns (splitFile(p).name: `tuple[dir, name, ext: string]`):
   ## where that routine writes it
   for r in sc.refs:
-    let s = r.sym
+    template s: untyped = r.sym
     if s.kind notin NxRoutineKinds or s.ret.len == 0 or nxStripMods(s.ret) != typ: continue
     let ls = nxFileLines(r.file.path)
     for p in nxParseParams(typ[6 ..< ^1]):

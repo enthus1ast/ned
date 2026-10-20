@@ -104,6 +104,7 @@ proc initCommands() =
   add("Select next occurrence", "Ctrl+D", buf().selectNextOccurrence())
   add("Select all occurrences", "Alt+A", buf().selectAllOccurrences())
   add("Add cursor below", "Alt+J", buf().addCursorVert(1))
+  add("Jump to a word on screen (labels)", "Alt+Shift+J", cmdJumpLabels())
   add("Add cursor above", "Alt+K", buf().addCursorVert(-1))
   add("Go to matching bracket", "Ctrl+]", (block:
     let b = buf()

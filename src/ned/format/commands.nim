@@ -9,6 +9,8 @@ func builtinFmtKind(path, langId: string): string =
   if ext in [".c", ".h"] or langId == "c": return "c"
   if ext in [".yaml", ".yml"]: return "yaml"
   if ext == ".toml": return "toml"                  # (not .ini, .cfg …: TOML's colours, not its rules)
+  if ext in [".html", ".htm", ".xhtml"]: return "html"
+  if ext in [".sql", ".psql", ".pgsql", ".mysql"] or langId == "sql": return "sql"
   ""
 
 func looksCpp(text: string): bool =
@@ -16,14 +18,36 @@ func looksCpp(text: string): bool =
   for w in ["template<", "template <", "namespace ", "std::", "class ", "public:", "private:", "nullptr"]:
     if w in text: return true
 
+var emitClangMemo: Table[string, string]   # (.clang-format and its time, the block) → clang-format's answer
+
+proc clangStyleKey(dir: string): string =
+  ## the .clang-format clang-format would use from dir, and when it changed ("" none)
+  var d = dir
+  for _ in 0 .. 40:
+    for n in [".clang-format", "_clang-format"]:
+      let p = d / n
+      if fileExists(p):
+        try: return p & "@" & $getLastModificationTime(p).toUnix
+        except CatchableError: return p
+    let up = parentDir(d)
+    if up.len == 0 or up == d: break
+    d = up
+  ""
+
 proc formatEmitBlocks(text, path: string): (string, int, string) =
   ## the C in each {.emit: """…""".} of a Nim file formatted (nim.formatEmitC): clang-format when it is installed
-  ## (your .clang-format applies), else ned's own C formatter — (new text, blocks changed, what formatted them)
+  ## (your .clang-format applies), else ned's own C formatter — (new text, blocks changed, what formatted them).
+  ## A block clang-format answered for before, with the same style file, is not sent again
   if not cfgFormatEmitC or "emit" notin text: return (text, 0, "")
   let clang: ClangFn = if haveExe("clang-format"):
       proc(c, fake, dir: string): string =
+        let key = clangStyleKey(dir) & "\0" & fake & "\0" & c
+        if key in emitClangMemo: return emitClangMemo[key]
         let (ok, o, _) = runFilter("clang-format --sort-includes=false --assume-filename=" & quoteShell(fake), c, dir, 5000)
-        if ok: o else: ""
+        result = if ok: o else: ""
+        if ok:
+          if emitClangMemo.len > 2000: emitClangMemo.clear()
+          emitClangMemo[key] = result
     else: nil
   formatEmitC(text, path, cfgNimTarget == "cpp", clang, rootDir)
 
@@ -62,14 +86,19 @@ proc nimFormatAll(text, path: string, ownWidth = true): (string, string) =
   ## its emits (nim.formatEmitC); ownWidth: at the file's line length (nimLineLength — else FmtWidth as it is)
   var err = ""
   var r = ""
+  var fresh: seq[(string, string)]       # (the statements formatted this time: the rest are remembered)
   if ownWidth and path.len > 0:
     withNimLineLength(path):
-      r = fFormat(text, err)
-  else: r = fFormat(text, err)
+      r = fFormatPieces(text, err, fresh)
+  else: r = fFormatPieces(text, err, fresh)
   if err.len > 0: return (text, err)
   if not fmtVerifyFromCli: fmtVerifyExe = fmtCheckerExe()
   let why = verifyNim(text, r)
-  if why.len > 0: return (text, why)
+  if why.len > 0:
+    if ownWidth and path.len > 0:
+      withNimLineLength(path): fForgetPieces(fresh)
+    else: fForgetPieces(fresh)
+    return (text, why)
   r = formatEmitBlocks(r, path)[0]
   (r, "")
 
@@ -85,6 +114,8 @@ proc builtinFormatText(kind, text: string, indentW = 2, path = ""): (string, str
     of "scss": fmtCss(text, max(1, indentW), lineComments = true)
     of "yaml": fmtYaml(text, max(1, indentW))
     of "toml": fmtToml(text)
+    of "html": fmtHtml(text, max(1, indentW))
+    of "sql": fmtSql(text, max(1, indentW))
     else: (text, "no built-in formatter")
   except CatchableError, Defect: (text, "the built-in formatter failed on this file (please report it)")
 
@@ -251,7 +282,7 @@ proc formatBuffer(b: Buffer) =
       "options": {"tabSize": b.indentW(), "insertSpaces": b.indent != "\t"}},
       LspReq(kind: lrFormat, bufId: b.id))
     return
-  if bk in ["markdown", "css", "scss", "c", "yaml", "toml"]:
+  if bk in ["markdown", "css", "scss", "c", "yaml", "toml", "html", "sql"]:
     builtin(b)
     return
   let hint = if b.lang.fmt.len > 0: " (install " & b.lang.fmt[0].firstWord & ")" else: ""
@@ -308,6 +339,13 @@ proc formatEmbedded(b: Buffer): bool =
   let bk = case lg.id
            of "json": "json"
            of "css": "css"
+           of "scss", "less": "scss"
+           of "c", "cpp": "c"             # (C in an emit: clang-format when installed, else ned's own)
+           of "yaml": "yaml"
+           of "toml": "toml"
+           of "markdown": "markdown"
+           of "html": "html"
+           of "sql": "sql"
            else: ""
   # a formatter of your own or the language's tool first, then ned's own
   var cmd = ""
@@ -448,7 +486,7 @@ proc formatOnSave0(b: Buffer) =
       return
   # ned's own JSON, Markdown and CSS formatters (quietly: a file it is not sure about stays as it is)
   let bk = builtinFmtKind(b.path, b.lang.id)
-  if bk in ["json", "markdown", "css", "scss", "c", "yaml", "toml"]:
+  if bk in ["json", "markdown", "css", "scss", "c", "yaml", "toml", "html", "sql"]:
     let text = b.allText & "\n"
     let (res, err) = builtinFormatText(bk, text, b.indentW(), b.path)
     if err.len == 0 and res != text: b.setTextMinimal(res)

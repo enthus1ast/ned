@@ -169,7 +169,7 @@ proc lsSignatureHelp(params: JsonNode): JsonNode =
     pick = 0
   else:
     for i, r in ordered:
-      let s = r.sym
+      template s: untyped = r.sym
       let binds = if h.ufcs and h.recv.len > 0: nxBindings(s, h.recv) else: initTable[string, string]()
       let (lbl, spans) = nxSigLabel(s, h.ufcs, binds)
       var act = -1
@@ -222,7 +222,7 @@ proc lsTypeDefinition(params: JsonNode): JsonNode =
     if t.len == 0: t = nxTypeOfName(f, sc, nxLocals(f, b.lines, p.line, p.col), locals[0].name, p.line, 0).typ
   elif refs.len > 0:
     let r = refs[0]
-    let s = r.sym
+    template s: untyped = r.sym
     tf = r.file
     case s.kind
     of nxType: t = s.name

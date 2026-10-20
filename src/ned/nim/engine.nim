@@ -209,6 +209,7 @@ proc nxFileFor(b: Buffer): NxFile =
   ## the index's view of a buffer (parsed again only after it changed)
   nxEnsureToolchain(b)
   nxSetActiveFile(b.path)              # (the package files it reaches: the versions its project builds with)
+  if curBuf >= 0 and curBuf < bufs.len and b == bufs[curBuf]: nxFocusPath = b.path   # (the file in front: its own scope)
   if b.path.len > 0:
     result = nxLoad(b.path)
     if result != nil: return
@@ -240,10 +241,13 @@ proc engineChecksOnOpen(b: Buffer): bool =
 
 var typosLast: Table[int, (string, seq[(int, int, string, string)])]   # buffer → (what it was worked out for, typos)
 
+proc engineReady(b: Buffer): bool
+
 proc engineTypos(b: Buffer) =
   ## a misspelled name marked at once, and what the engine's own checks find (nim.engineChecks: a field that is
   ## not there, a wrong number of arguments, code that never runs, an unused local) — the compiler's check, a
   ## moment later, has the last word
+  if not engineReady(b): return                  # (the files it needs are being read: asked again then)
   typoAt[b.id] = b.changeId
   if b.path.len == 0 or b.lines.len > 15_000 or not nimEngineOn(b): return
   let checksT0 = getMonoTime()

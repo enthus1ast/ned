@@ -15,8 +15,9 @@ run() { # name, extra PATH (or ""), nim flags…  (SRC=nedfmt.nim run …: anoth
   local t0=$(date +%s)
   if PATH=${pre:+$pre:}$PATH nim c -d:release --hints:off --nimcache:"$out/cache-$name" "$@" "$root/src/$src" > "$out/$name.log" 2>&1; then
     echo "$name OK $(( $(date +%s) - t0 ))s"
-  elif grep -q "exit code: 134" "$out/$name.log" && PATH=${pre:+$pre:}$PATH nim c -d:release --hints:off --nimcache:"$out/cache-$name" "$@" "$root/src/$src" > "$out/$name.log" 2>&1; then
-    echo "$name OK $(( $(date +%s) - t0 ))s (zig aborted once: built again)"
+  elif grep -q "exit code: 134" "$out/$name.log" && PATH=${pre:+$pre:}$PATH nim c -d:release --hints:off --parallelBuild:1 --nimcache:"$out/cache-$name" "$@" "$root/src/$src" > "$out/$name.log" 2>&1; then
+    # (zig's clang aborts when several big C files are compiled at once and memory runs short: one at a time)
+    echo "$name OK $(( $(date +%s) - t0 ))s (zig aborted once: built again, one C file at a time)"
   else
     echo "$name FAILED (see $out/$name.log)"; fails=1
   fi

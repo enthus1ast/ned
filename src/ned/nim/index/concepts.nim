@@ -44,7 +44,7 @@ func nxIsConcept*(s: NxSym): bool =
 
 proc nxConceptOf*(r: NxRef): NxConcept =
   ## a concept's requirements, read from its declaration
-  let s = r.sym
+  template s: untyped = r.sym
   result.name = s.name
   result.file = r.file
   if not nxIsConcept(s): return NxConcept(why: "not a concept")

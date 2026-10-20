@@ -240,9 +240,10 @@ def ned_single_file():
             if m and not line.startswith(' '):
                 inline(os.path.normpath(os.path.join(base, m.group(1) + '.nim')), out)
                 continue
-            m = re.match(r'import\s+(ned/\S.*|\.\./\S.*|\w+)$', t)
-            if m and not line.startswith(' ') and (not re.match(r'^\w+$', m.group(1)) or
-                                                  os.path.exists(os.path.join(base, m.group(1) + '.nim'))):
+            m = re.match(r'import\s+(ned/\S.*|\.\./\S.*|\w+(?:\s*,\s*\w+)*)$', t)
+            if m and not line.startswith(' ') and (not re.match(r'^\w+(\s*,\s*\w+)*$', m.group(1)) or
+                                                  all(os.path.exists(os.path.join(base, x.strip() + '.nim'))
+                                                      for x in m.group(1).split(','))):
                 spec = m.group(1)
                 while spec.rstrip().endswith(',') and i < len(lines):      # (the list goes on below)
                     spec += ' ' + lines[i].strip()
@@ -252,6 +253,11 @@ def ned_single_file():
                     if mp not in done:
                         done.add(mp)
                         inline(mp, out)
+                continue
+            # (`export a, b` of modules put in place: nothing to export any more)
+            m = re.match(r'export\s+(\w+(?:\s*,\s*\w+)*)$', t)
+            if m and not line.startswith(' ') and all(os.path.exists(os.path.join(base, x.strip() + '.nim'))
+                                                      for x in m.group(1).split(',')):
                 continue
             # (a file read at compile time, next to its source: by its full path now)
             line = re.sub(r'staticRead\("([^"/][^"]*)"\)', lambda mm: 'staticRead("' + os.path.abspath(os.path.join(base, mm.group(1))) + '")', line)

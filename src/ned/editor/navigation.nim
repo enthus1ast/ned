@@ -50,6 +50,7 @@ proc gotoDiag(dir: int) =
   for path in diagsAi.keys: paths.incl path
   for path in diagsFfi.keys: paths.incl path
   for path in diagsEmit.keys: paths.incl path
+  for path in diagsWeb.keys: paths.incl path
   for path in diagsExt.keys: paths.incl path
   for path in paths:
     for d in diagsFor(path): all.add (path, d)
@@ -565,6 +566,10 @@ proc cmdHover(auto = false) =
     if embHover(b, p, auto):                     # HTML, CSS, SQL … in a string: its server's hover
       if lines.len > 0: showHoverAuto(hoverPrefix, auto)
       return
+    let wh = webHoverInfo(b, p)                  # … ned's own
+    if wh.len > 0:
+      showHoverAuto(hoverPrefix & wh, auto)
+      return
     if emitLspHover(b, p, auto):                 # C in an emit: clangd's hover, when installed
       if lines.len > 0: showHoverAuto(hoverPrefix, auto)
       return
@@ -586,6 +591,11 @@ proc cmdHover(auto = false) =
     let ch = cEngHover(b, p)                     # C: ned's own engine
     if ch.len > 0:
       showHoverAuto(hoverPrefix & ch, auto)
+      return
+  if b.lang.mode != lmNim and webFamily(b.lang.id).len > 0:
+    let wh = webHoverInfo(b, p)                  # CSS, HTML, SQL: ned's own (no language server for it)
+    if wh.len > 0:
+      showHoverAuto(hoverPrefix & wh, auto)
       return
   let s = lspReady(b)
   let cInfo = if onSymbol and b.lang.mode == lmNim: cHoverInfo(b, p) else: ""

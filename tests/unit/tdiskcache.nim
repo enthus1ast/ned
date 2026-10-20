@@ -43,12 +43,24 @@ suite "the index on disk":
       check again.syms.len == fresh.syms.len
     check cacheFiles().len >= 50
 
-  test "only library and package files are kept":
+  test "project files are kept unless nim.indexCacheProject is off; untitled buffers never":
     let mine = tmp / "project" / "mine.nim"
     createDir(mine.parentDir)
     writeFile(mine, "proc mine*() = discard\n")
-    let before = cacheFiles().len
+    nxCacheProject = false
+    var before = cacheFiles().len
     check nxParseDisk(mine).syms.len == 1
+    check cacheFiles().len == before
+    nxCacheProject = true
+    check nxParseDisk(mine).syms.len == 1
+    check cacheFiles().len == before + 1
+    check nxParseDisk(mine).syms[0].name == "mine"     # (read back)
+    writeFile(mine, "proc mine2*() = discard\n")
+    check nxParseDisk(mine).syms[0].name == "mine2"    # (a changed file is parsed again)
+    let untitled = tmp / "project" / "untitled-1.nim"
+    writeFile(untitled, "proc u*() = discard\n")
+    before = cacheFiles().len
+    check nxParseDisk(untitled).syms.len == 1
     check cacheFiles().len == before
 
   test "a changed text is parsed again, even of the same length":
