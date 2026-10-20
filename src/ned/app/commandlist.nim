@@ -377,6 +377,7 @@ proc initCommands() =
   add("Nimony: check file", "", cmdNimony(false))
   add("Nimony: run file", "", cmdNimony(true))
   add("Nim 3: what this file needs (porting problems)", "", cmdNim3Problems())
+  add("Edit: put the selection through a command…", "", cmdPipeSelection())
   add("Hex: symbols…", "", cmdHexSymbols())
   add("Hex: sections…", "", cmdHexSections())
   add("Hex: Nim modules by size", "", cmdHexNimSizes())

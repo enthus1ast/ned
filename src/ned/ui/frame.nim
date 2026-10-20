@@ -18,8 +18,35 @@ proc updatePointer() =
 
 var lastDrawnBuf, lastDrawnTop = -1          # (the editor drawn last frame: did its text move?)
 
+var titleSent = ""
+
+proc termTitle() =
+  ## ui.terminalTitle: the file and the project in the terminal's title (● unsaved) — set when it changes
+  if not cfgTermTitle:
+    if titleSent.len > 0:
+      writeAll("\e[23;0t\e[22;0t")         # (the title from before ned, and kept again for when it leaves)
+      titleSent = ""
+    return
+  if titleReset:
+    titleReset = false
+    titleSent = ""
+  let b = buf()
+  let name = if b.path.len > 0: extractFilename(b.path) elif b.title.len > 0: b.title
+             elif b.isWelcome(): "ned" else: "untitled"
+  var t = (if b.dirty: "● " else: "") & name
+  if rootDir.len > 1 and name != "ned": t.add " — " & extractFilename(rootDir)
+  var clean = ""
+  for c in t:
+    if c.uint8 >= 32 and c != '\x7f': clean.add c
+  if clean != titleSent:
+    titleSent = clean
+    writeAll("\e]2;" & clean & "\a")
+
 proc render() =
   let renderT0 = getMonoTime()
+  if cellPool.len > 50_000:
+    resetCellPool()                 # (characters of several code points pile up: start the pool again)
+    prevGrid.setLen(0)
   if bufs.len > 0:
     tabW = buf().tabOf
     cfgWrap = wrapFor(buf())
@@ -104,3 +131,6 @@ proc render() =
   frameBuildUs = int((getMonoTime() - renderT0).inMicroseconds)
   flushScreen()
   updatePointer()
+  if gRaw:
+    termTitle()
+    termProgress()

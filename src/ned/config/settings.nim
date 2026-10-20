@@ -107,7 +107,29 @@ proc initSettingDefs() =
   defS("Appearance", "ui.tooltips", %true, "Tooltips when the pointer rests on a button")
   defS("Appearance", "ui.mouse", %true, "Mouse and touch support (Alt+U toggles it so Termux text selection works)")
   defS("Appearance", "ui.cursorStyle", %"bar", "Text cursor shape", @["bar", "block", "underline"])
-  defS("Appearance", "ui.trueColor", %"auto", "24-bit colour ('off' uses the 256-colour palette)", @["auto", "on", "off"])
+  defS("Appearance", "ui.trueColor", %"auto", "24-bit colour ('off' uses the 256-colour palette; 'auto' also asks the " &
+       "terminal, so it is right over SSH and in tmux, where COLORTERM is often lost)", @["auto", "on", "off"])
+  defS("Appearance", "ui.kittyKeyboard", %"auto", "The kitty keyboard protocol, where the terminal has it (kitty, " &
+       "WezTerm, Ghostty, foot, Alacritty, iTerm2 …): Ctrl+Shift+letters can be bound, Ctrl+I is not Tab, Ctrl+Enter " &
+       "and Shift+Enter work, Alt+key has no delay", @["auto", "off"])
+  defS("Appearance", "ui.graphemes", %"auto", "Emoji sequences — 👨‍👩‍👧, 👍🏽, flags, 1️⃣ — as one character two " &
+       "columns wide. 'auto': when the terminal says it joins them (mode 2027: WezTerm, Ghostty, Contour, foot …); " &
+       "'on' for one that joins them without saying so; 'off': each emoji apart, as most terminals show them",
+       @["auto", "on", "off"])
+  defS("Appearance", "ui.undercurl", %"auto", "Errors and warnings get a curly underline in their colour and the " &
+       "text keeps its own. 'auto': terminals that draw them (kitty, WezTerm, Ghostty, foot, Alacritty, GNOME " &
+       "Terminal, VS Code, tmux …); elsewhere a straight underline, the text in the problem's colour",
+       @["auto", "on", "off"])
+  defS("Appearance", "ui.terminalTitle", %true, "Show the file and the project in the terminal's title (● when it " &
+       "has unsaved changes); the old title comes back when ned quits")
+  defS("Appearance", "ui.transparentBackground", %false, "Leave the editor's background to the terminal, so its " &
+       "own see-through or blurred window shows through (the theme's other colours stay)")
+  defS("Appearance", "ui.jumpHighlight", %true, "After a jump — go to definition, a search result, Ctrl+G, a " &
+       "problem — the line you land on lights up for a moment")
+  defS("Appearance", "ui.progressBar", %true, "Long jobs — a run or build, formatting a folder, a project search, " &
+       "the assistant — fill the status bar as they go (Windows Terminal and Ghostty also show it on the tab)")
+  defS("Appearance", "ui.pauseWhenAway", %true, "When the terminal loses the focus, background work for what is on " &
+       "the screen (type hints, the engine's checks, AI suggestions) waits until you are back — battery on a phone")
   defS("Appearance", "ui.leftDockWidth", %0, "Left dock width in columns (0 = automatic)")
   defS("Appearance", "ui.rightDockWidth", %0, "Right dock width in columns (0 = automatic)")
   defS("Appearance", "ui.panelHeight", %0, "Bottom panel height in rows (0 = automatic)")
@@ -192,6 +214,8 @@ proc initSettingDefs() =
   defS("Editor", "editor.editorConfig", %true, "Follow a project's .editorconfig: indentation, tab width, line ends of " &
        "new files, trailing whitespace, final newline, max_line_length for the ruler (it wins over these settings)")
   defS("Editor", "editor.autoSave", %false, "Save automatically when you switch tabs or leave ned")
+  defS("Editor", "editor.saveOnFocusLost", %false, "Save the changed files when the terminal loses the focus — you " &
+       "switch to another window or app (terminals that report it: most do)")
   defS("Editor", "editor.vimMode", %false, "Vim keybindings (normal/insert/visual modes, :w :q …)")
   # ── Zen ──
   defS("Zen mode", "zen.width", %90, "Text column width in zen mode (Alt+Z); the column is centred")
@@ -234,6 +258,9 @@ proc initSettingDefs() =
   # ── Terminal ──
   defS("Terminal", "terminal.shell", %"", "Shell for the integrated terminal (empty = $SHELL, then bash/sh)")
   defS("Terminal", "terminal.scrollback", %3000, "Lines of scrollback in the integrated terminal")
+  defS("Terminal", "terminal.editorEnv", %true, "In ned's terminal, ned is git's editor (GIT_EDITOR) — and EDITOR " &
+       "and VISUAL where they are not set: `git commit` opens its message in a tab of this ned and waits until you " &
+       "close it; `ned FILE` there opens the file here (ned --new starts another ned)")
   defS("Terminal", "terminal.cwd", %"project", "Where new terminals start", @["project", "file"])
   defS("Terminal", "terminal.shellIntegration", %true, "bash, zsh and fish mark each command (OSC 133): Ctrl+↑/↓ " &
        "jumps between them, failed ones are marked, and a command's output can be copied or the command run again")
@@ -697,6 +724,25 @@ proc applySettings() =
   cfgTooltips = sBool("ui.tooltips")
   cfgMouse = sBool("ui.mouse")
   cfgCursorStyle = sStr("ui.cursorStyle")
+  cfgKittyKeys = sStr("ui.kittyKeyboard")
+  if cfgKittyKeys == "off" and tcKittyOn:
+    writeAll("\e[<u")
+    tcKittyOn = false
+  cfgGraphemes = sStr("ui.graphemes")
+  cfgUndercurl = sStr("ui.undercurl")
+  cfgTrueColorSet = sStr("ui.trueColor")
+  if gRaw:
+    applyGraphemes()
+    applyUndercurl()
+  cfgTermTitle = sBool("ui.terminalTitle")
+  let transp = sBool("ui.transparentBackground")
+  if transp != cfgTransparentBg: prevGrid.setLen(0)
+  cfgTransparentBg = transp
+  cfgJumpHl = sBool("ui.jumpHighlight")
+  cfgProgressBar = sBool("ui.progressBar")
+  cfgPauseAway = sBool("ui.pauseWhenAway")
+  cfgSaveOnBlur = sBool("editor.saveOnFocusLost")
+  cfgEditorEnv = sBool("terminal.editorEnv")
   cfgLeftW = sInt("ui.leftDockWidth")
   cfgRightW = sInt("ui.rightDockWidth")
   cfgPanelH = sInt("ui.panelHeight")

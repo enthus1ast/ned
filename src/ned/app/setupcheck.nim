@@ -60,6 +60,21 @@ proc setupRows(inEditor: bool): seq[SetupRow] =
   rows.add ("System", "system", 3, "", osLine(), "")
   rows.add ("System", "terminal", 3, "", termLine(inEditor),
             (if inEditor and not trueColor: "colours look off? set COLORTERM=truecolor or \"ui.trueColor\": \"on\"" else: ""))
+  if inEditor:
+    # what the terminal said it can do (termcaps), and what ned does with it
+    var said = if tcAnswers.len > 0: tcAnswers.join(", ") else: "nothing to ned's questions"
+    rows.add ("System", "terminal answers", 3, "", said, "")
+    rows.add ("System", "keys", 3, "",
+              (if tcKittyOn: "kitty keyboard protocol: Ctrl+Shift+letters, Ctrl+I, Ctrl+Enter, Shift+Enter"
+               elif tcKitty: "kitty keyboard protocol off (ui.kittyKeyboard)"
+               else: "the classic way (Ctrl+Shift+F arrives as Ctrl+F; Ctrl+I as Tab)"), "")
+    rows.add ("System", "emoji", 3, "",
+              (if graphemes: "emoji sequences as one character (👨‍👩‍👧, flags, skin tones)"
+               else: "each emoji apart (ui.graphemes: \"on\" for a terminal that joins them)"), "")
+    rows.add ("System", "underlines", 3, "",
+              (if ulStyled: "curly underlines in the problem's colour" else: "straight underlines (ui.undercurl)"), "")
+    if getEnv("NED_SOCKET").len > 0:
+      rows.add ("System", "remote", 0, "", "ned --remote … and `ned FILE` in its terminal reach this ned", "")
   let cf = configFile()
   if fileExists(cf): rows.add ("System", "settings", 0, "", cf, "")
   else: rows.add ("System", "settings", 3, "", "not created yet — the defaults are in use", "palette (Ctrl+E) › Open settings file")

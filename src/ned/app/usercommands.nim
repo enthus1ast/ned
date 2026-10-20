@@ -2,6 +2,25 @@
 
 const UserCmdMark = "your command"
 
+proc problemsFromText(source, text, cwd: string): int =
+  ## a build's or a linter's output → Problems, under `source` (what it sent before goes): file:line:col: msg,
+  ## Nim's file(line, col) Error: …, Python's tracebacks … — the lines the Output panel links too
+  let src = if source.len > 0: source else: "script"
+  var keep = initTable[string, seq[Diag]]()
+  for p, ds in diagsExt:
+    var rest: seq[Diag]
+    for d in ds:
+      if d.src != src: rest.add d
+    if rest.len > 0: keep[p] = rest
+  diagsExt = keep
+  for raw in text.splitLines:
+    let (ok, path, l, c, sev, m) = parseErrLine(stripAnsi(raw), (if cwd.len > 0: cwd else: rootDir))
+    if ok and path.len > 0:
+      diagsExt.mgetOrPut(path, @[]).add Diag(line: l, col: c, eline: l, ecol: -1, sev: max(1, sev), msg: m, src: src)
+      inc result
+  rebuildProblems()
+  needRender = true
+
 proc runUserCommand(name: string, spec: JsonNode) =
   let b = buf()
   let run = if spec.kind == JString: spec.getStr else: spec{"run"}.getStr
@@ -37,7 +56,7 @@ proc runUserCommand(name: string, spec: JsonNode) =
     let wholeDoc = output == "replace" and sel.len == 0
     discard startJob(jkTool, cmd, dir, proc(j: Job) =
       var o = j.output
-      if j.code != 0:
+      if j.code != 0 and output != "problems":
         error(name & " failed (exit " & $j.code & ")" & (if o.strip.len > 0: ":\n" & o.strip else: ""))
         return
       let tb = bufById(id)
@@ -54,6 +73,12 @@ proc runUserCommand(name: string, spec: JsonNode) =
           tb.endEdit()
         info(name & ": done")
       of "popup": showHover("**" & name & "**\n```\n" & (if o.strip.len > 0: o.strip(leading = false) else: "(no output)") & "\n```")
+      of "problems":
+        let n = problemsFromText(name, o, dir)
+        if n > 0:
+          setPanel(pkProblems)
+          info(name & ": " & $n & (if n == 1: " problem" else: " problems"))
+        else: info(name & ": no problems")
       else: info(if o.strip.len > 0: o.strip else: name & ": done"))
 
 proc userCmdExists(name: string): bool =
@@ -81,6 +106,7 @@ proc userCmdOutputMenu(name: string) =
   var items: seq[(string, string, Action)]
   for (o, d) in [("panel", "the Output panel (the default)"), ("replace", "replaces the selection — or the whole file"),
                  ("insert", "inserted at the cursor"), ("popup", "a popup"), ("message", "a short message"),
+                 ("problems", "its file:line: messages become Problems (a linter, a build)"),
                  ("terminal", "runs in the terminal (interactive)")]:
     let oo = o
     let dd = d
@@ -145,3 +171,21 @@ proc refreshUserCommands() =
     let sp = spec
     capture n, sp:
       commands.add Command(name: n, keys: UserCmdMark, action: proc() = runUserCommand(n, sp))
+
+var pipeLast = ""                 # (the last command a selection went through: offered again)
+
+proc pipeThroughCommand(cmd: string) =
+  ## the selection — or the whole file — through a shell command, its output in its place (sort, jq ., column -t,
+  ## a formatter of your own …); one undo step
+  if cmd.strip.len == 0: return
+  pipeLast = cmd.strip
+  if not buf().canEdit():
+    info("This file cannot be changed")
+    return
+  runUserCommand("| " & pipeLast, %*{"run": pipeLast, "output": "replace"})
+
+proc cmdPipeSelection() =
+  let b = buf()
+  let (a, e) = b.primary.range
+  openPrompt(pPipeCmd, "Put " & (if a != e: "the selection" else: "the whole file") &
+             " through a command (its output replaces it: sort, jq ., column -t …)", pipeLast)

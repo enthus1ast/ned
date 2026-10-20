@@ -115,7 +115,7 @@ proc vimKey(k: Key): bool =
       var e = p.col                         # n characters, not n bytes
       var k = 0
       while k < n and e < b.lines[p.line].len:
-        e = nextRune(b.lines[p.line], e)
+        e = nextCluster(b.lines[p.line], e)
         inc k
       if k == n and b.canEdit():
         b.beginEdit()

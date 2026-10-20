@@ -24,6 +24,21 @@ proc handleTermBg() =
     prevGrid.setLen(0)
     needRender = true
 
+proc handleTermScheme() =
+  ## mode 2031: the terminal (or the system) switched between light and dark — "theme": "auto" follows at once
+  tcSchemeNews = false
+  if tcScheme notin [1, 2]: return
+  writeAll("\e]11;?\a")                    # (and its new background colour: handleTermBg reads the answer)
+  let light = tcScheme == 2
+  if termBgKnown and termBgLight == light: return
+  termBgKnown = true
+  termBgLight = light
+  if cfgThemeName == "auto" and not autoByClock():
+    applyTheme("auto")
+    themeFollowers()
+    prevGrid.setLen(0)
+    needRender = true
+
 var lastDaytime = -1         # theme.autoBy "clock": light (1) or dark (0) at the last look
 
 proc themeClockCheck() =

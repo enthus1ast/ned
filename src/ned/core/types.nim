@@ -71,7 +71,10 @@ type
     chromeCols: array[3, Rgb]   # title bar, docks, status bar — when the theme sets them
     hasChrome: bool
 
-  Attr = enum aBold, aDim, aItalic, aUnder, aRev, aStrike
+  Attr = enum
+    aBold, aDim, aItalic, aUnder, aRev, aStrike,
+    aCurl,                     # (with aUnder) a curly underline, where the terminal draws one (ui.undercurl)
+    aUcErr, aUcWarn, aUcInfo   # (with aUnder) the underline in the error, warning or info colour (the text keeps its own)
   DragTarget = enum dtNone, dtSplit, dtLeftDock, dtRightDock, dtPanel, dtScroll, dtMinimap, dtTab
   Cell = object
     ch: uint32
@@ -213,7 +216,7 @@ type
     pNone, pFind, pReplaceFind, pReplaceWith, pGoto, pSaveAs, pRunCmd, pSearch,
     pNewFile, pNewFolder, pRenamePath, pLspRename, pNewProject, pAtlasUse, pAtlasSearch, pGitCommit,
     pNimbleTask, pVimCmd, pVimSearch, pOpenFolder, pAiEdit, pSetting, pNimbleAdd, pNimbleSearch,
-    pBpCond, pBpLog, pDbgWp, pDbgWatch, pUserCmdName, pUserCmdRun, pGitInput, pPathInput
+    pBpCond, pBpLog, pDbgWp, pDbgWatch, pUserCmdName, pUserCmdRun, pPipeCmd, pGitInput, pPathInput
   PickKind = enum pickNone, pickCmd, pickFile, pickSymbol, pickBuffer, pickTheme, pickRecent, pickLang, pickAction
   PanelKind = enum pkOutput, pkSearch, pkProblems, pkTerminal, pkDebug
 

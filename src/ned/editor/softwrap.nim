@@ -13,6 +13,7 @@ const
 
 type VcMarks = object
   change, tab: int                     # the buffer's changeId and the tab width they were made for
+  joined: bool                         # (and whether the terminal joins grapheme clusters: their widths differ)
   lines: Table[int, seq[(int, int)]]   # line → (byte, visual column) at character boundaries, the first (0, 0)
 
 var vcMarks: Table[int, VcMarks]       # buffer id → its long lines' marks
@@ -26,7 +27,7 @@ proc vcBuild(s: string): seq[(int, int)] =
     if i >= next:
       result.add (i, vc)
       next = i + VcStep
-    if i + 8 <= s.len and printable8(s, i):
+    if i + 8 <= s.len and printable8(s, i) and (i + 8 >= s.len or s[i + 8].uint8 < 0x80):
       vc += 8
       i += 8
       continue
@@ -35,8 +36,9 @@ proc vcBuild(s: string): seq[(int, int)] =
     i += n
 
 proc vcMarksOf(b: Buffer, line: int): seq[(int, int)] =
-  if b.id notin vcMarks or vcMarks[b.id].change != b.changeId or vcMarks[b.id].tab != tabW:
-    vcMarks[b.id] = VcMarks(change: b.changeId, tab: tabW)
+  if b.id notin vcMarks or vcMarks[b.id].change != b.changeId or vcMarks[b.id].tab != tabW or
+     vcMarks[b.id].joined != graphemes:
+    vcMarks[b.id] = VcMarks(change: b.changeId, tab: tabW, joined: graphemes)
   vcMarks[b.id].lines.withValue(line, m):
     return m[]
   result = vcBuild(b.lines[line])

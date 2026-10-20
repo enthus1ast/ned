@@ -3,7 +3,8 @@
 palette commands and resizes at it. Reports crashes (non-zero exit), hangs and logged internal errors.
 
   NEDBIN=./ned_debug python3 tests/fuzz/fuzz.py [SEED [SECONDS [MODE]]]
-  MODE: mixed · vim · helix · emacs · palette · refactor · ai · git · fixes · c · emit · strings · ws · term · a11y · hex …
+  MODE: mixed · vim · helix · emacs · palette · refactor · ai · git · fixes · c · emit · strings · ws · term · a11y · hex ·
+        kitty …
 
 It works in a scratch home of its own (NED_FUZZ_HOME, default /tmp/ned-fuzz-UID): ned's settings, state and
 a copy of the test project live there. Random palette commands can run tasks, git and shell commands in that
@@ -278,6 +279,20 @@ C_TOKS = ['head->', 'a.', 'a.u.', 'q.', 'p->', 'table[0].', '{ .', '#include "',
           '\x1bh', '\x1bq', '\x1b\r', '\x00', '\x14', '\x1b,', '\x13', '\x1a', '\x0b', '\r', '\t', '\x07']
 def token():
     if MODE == 'engine' and rnd.random() < 0.4: return rnd.choice(ENGINE)
+    if MODE == 'kitty' and rnd.random() < 0.4:
+        # the kitty keyboard protocol and the terminal's answers (6.13): keys as CSI code[:shifted];mods u, emoji
+        # sequences, light/dark switches, capabilities
+        r = rnd.random()
+        if r < 0.55:
+            code = rnd.choice([rnd.randint(32, 126), 13, 9, 27, 127, 57414, 57399, 57417, 57420, 57376, 57441, 0x1F600,
+                               rnd.randint(57344, 57460)])
+            sh = '' if rnd.random() < 0.6 else ':' + str(rnd.choice([code - 32 if 97 <= code <= 122 else code, 63, 0]))
+            mods = rnd.choice(['', ';2', ';3', ';4', ';5', ';6', ';7', ';9', ';5:3', ';129', ';1:2'])
+            return '\x1b[' + str(code) + sh + mods + 'u'
+        if r < 0.75: return rnd.choice(['👨‍👩‍👧', '👍🏽', '🇴🇲', '1️⃣', '❤️', 'e\u0301', '✅', '\u200d', '\ufe0f', '中文'])
+        return rnd.choice(['\x1b[?1u', '\x1b[?2027;2$y', '\x1b[?2027;1$y', '\x1b[?2027;0$y', '\x1b[?997;1n',
+                           '\x1b[?997;2n', '\x1bP1+r536d756c78=31\x1b\\', '\x1bP1+r524742\x1b\\',
+                           '\x1bP1$r0;48:2:1:2:3m\x1b\\', '\x1bP0+r\x1b\\', '\x1b[O', '\x1b[I', '\x1b[?62;22c'])
     if MODE == 'c' and rnd.random() < 0.4: return rnd.choice(C_TOKS)
     if MODE == 'term' and rnd.random() < 0.3:
         # the terminal with shell integration: commands, their marks, menus, split terminals; macros
@@ -348,7 +363,8 @@ def token():
     if r < 0.965: return '\x11'          # Ctrl+Q
     if r < 0.97: return '\x1a'           # Ctrl+Z
     if r < 0.975: return '\x03'          # Ctrl+C
-    return rnd.choice(['\x00', ESC + '[999;999R', ESC + ']11;rgb:0000/0000/0000\x07', ESC + '[I', ESC + '[O', ESC + '[?1;2c'])
+    return rnd.choice(['\x00', ESC + '[999;999R', ESC + ']11;rgb:0000/0000/0000\x07', ESC + '[I', ESC + '[O', ESC + '[?1;2c',
+                       ESC + '[?1u', ESC + '[?2027;2$y', ESC + '[?997;2n', ESC + '[102;6u', ESC + '[115:83;4u'])
 
 def send(s):
     hx = ' '.join('%02x' % b for b in s.encode('utf-8'))

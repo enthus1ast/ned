@@ -113,6 +113,16 @@ proc mainLoop() =
         startRss.add ("settled", rssMB())
         quitting = true
         break
+    if focusNews != 0:
+      let fnow = focusNews
+      focusNews = 0
+      if fnow == 1:
+        lastFileCheck = getMonoTime()
+        checkDiskChanges()                 # (back from another window: what changed meanwhile, at once)
+      elif cfgSaveOnBlur: saveOnFocusLost()
+    if tcSchemeNews: handleTermScheme()
+    # the terminal lost the focus a while ago: what only serves the screen waits (jobs, terminals, servers go on)
+    let away = cfgPauseAway and awayIdle()
     var fds = @[TPollfd(fd: 0, events: POLLIN)]
     for j in jobs:
       if not j.eof: fds.add TPollfd(fd: j.outFd, events: POLLIN)
@@ -124,6 +134,7 @@ proc mainLoop() =
     for s in nimSugs:
       if not s.dead and s.pr.outFd >= 0: fds.add TPollfd(fd: s.pr.outFd, events: POLLIN)
     mcpFds(fds)
+    ctlFds(fds)
     for fd in termFds(): fds.add TPollfd(fd: fd, events: POLLIN)
     if dbgOn and dbgProc.outFd >= 0: fds.add TPollfd(fd: dbgProc.outFd, events: POLLIN)
     if dbgOn and dbgDap and dapSock >= 0: fds.add TPollfd(fd: dapSock, events: POLLIN)
@@ -159,6 +170,8 @@ proc mainLoop() =
       if t.replQ.len > 0: timeout = min(timeout, 250)
     if reapPids.len > 0: timeout = min(timeout, 500)
     if startTrace: timeout = min(timeout, 20)
+    if landBuf >= 0: timeout = min(timeout, 40)              # (the line a jump landed on, fading)
+    if progressAnimating() or (progWas and msSince(progSince) < 600): timeout = min(timeout, 80)   # (the progress band)
     if cfgRefCounts and not refComplete and refFiles.len > 0: timeout = min(timeout, 20)   # the project's words
     if cfgRefCounts and msSince(lastInputAt) < 450: timeout = min(timeout, 250)          # (the counts after scrolling)
     if nxWarmMods.len > 0: timeout = min(timeout, 60)          # (the imports' scopes, a few at a time while quiet)
@@ -175,6 +188,7 @@ proc mainLoop() =
     for b in bufs:
       if b.changeId != b.swapAt and b.dirty: anySwap = true
     if anySwap: timeout = min(timeout, 1000)
+    if away and not busy and inBuf.len == 0 and not inputBacklog and landBuf < 0: timeout = max(timeout, 1000)
     # (how long the round before took — a long one is a moment ned did not answer keys or the mouse)
     noteBusy(int((getMonoTime() - busyFrom).inMicroseconds))
     let r = poll(addr fds[0], fds.len.Tnfds, timeout.cint)
@@ -230,6 +244,7 @@ proc mainLoop() =
       if oscBgReply.len > 0: handleTermBg()
       if ciDue and getMonoTime() >= ciDueAt: ciRefresh()
       timedWork("results of programs (checks, git …)"): pumpJobs(ready)
+      if ctlFd >= 0 or ctlClients.len > 0: ctlPump(ready)
       pumpTerms(ready)
       if reapPids.len > 0: reapPending()
       if mcpServers.len > 0: mcpPump(ready)
@@ -247,12 +262,16 @@ proc mainLoop() =
          msSince(mouseMovedAt) < 2000:
         let ri = hitRegion(mouseX, mouseY)
         if ri >= 0 and regions[ri].tip.len > 0: needRender = true
-      if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0: timedWork("type and parameter hints"): requestInlays(buf())
-      if cfgCSigHints and inBuf.len == 0: cSigHintsUpdate(buf())
-      if inBuf.len == 0: timedWork("language server requests"): lspExtras(buf())
-      if inBuf.len == 0: timedWork("the engine reading imports"): engineWarm(buf())
-      if inBuf.len == 0: ghostTick()
-      if inBuf.len == 0:
+      if landBuf >= 0:
+        needRender = true
+        if msSince(landAt) > JumpHlMs: landBuf = -1
+      if progressAnimating() or progressStarting(): needRender = true      # (the progress band, or its first frame)
+      if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0 and not away: timedWork("type and parameter hints"): requestInlays(buf())
+      if cfgCSigHints and inBuf.len == 0 and not away: cSigHintsUpdate(buf())
+      if inBuf.len == 0 and not away: timedWork("language server requests"): lspExtras(buf())
+      if inBuf.len == 0 and not away: timedWork("the engine reading imports"): engineWarm(buf())
+      if inBuf.len == 0 and not away: ghostTick()
+      if inBuf.len == 0 and not away:
         let gb = buf()
         if gb.gitHasBase and gb.gitAt != gb.changeId and msSince(gb.lspChangeAt) > 200: updateGitMarks(gb)
         if splitOn:
@@ -302,17 +321,19 @@ proc mainLoop() =
       elif cb.changeId != navChange:
         navChange = cb.changeId
         autoHoverFired = true
-      if cfgAutoHover and not autoHoverFired and msSince(navAt) >= cfgHoverDelay and focus == fEditor and
+      if cfgAutoHover and not autoHoverFired and not away and msSince(navAt) >= cfgHoverDelay and focus == fEditor and
          pickKind == pickNone and promptKind == pNone and not compOpen and not hoverOpen and not helpOpen and
          not dialogOpen() and not menuOpen() and not replaceActive and inBuf.len == 0 and not mouseDragging:
         autoHoverFired = true
         timedWork("hover"): cmdHover(auto = true)
       # live diagnostics through nimsuggest
-      timedWork("clangd for the emitted C"): emitPump(cb)
-      timedWork("servers for the languages in strings"): embPump(cb)
-      timedWork("reference counts"): refLensPump(cb)
+      if not away:
+        timedWork("clangd for the emitted C"): emitPump(cb)
+        timedWork("servers for the languages in strings"): embPump(cb)
+        timedWork("reference counts"): refLensPump(cb)
       remoteAutoSync()                     # a remote folder: what changed on the server
-      if cfgLiveCheck and cb.chkAt == 0 and not cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
+      if away: discard                     # (checks of what you look at: when you are back)
+      elif cfgLiveCheck and cb.chkAt == 0 and not cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
          msSince(cb.lspChangeAt) > 1200 and cb.path notin typingChecks and msSince(lastInputAt) > 800:
         # a project file just opened: its errors, without waiting for an edit or a save
         if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb): typingCheck(cb)
@@ -324,16 +345,16 @@ proc mainLoop() =
           cb.chkAt = cb.changeId
           discard nsRequest(cb, nsChk, Pos())
         else: cb.chkAt = cb.changeId                        # (nothing to check it with: on save, then)
-      if cfgLiveCheck and cEngineOn(cb) and cb.dirty and cb.chkAt != cb.changeId and msSince(cb.lspChangeAt) > 1000 and
-         not lspActiveFor(cb):
+      if cfgLiveCheck and not away and cEngineOn(cb) and cb.dirty and cb.chkAt != cb.changeId and
+         msSince(cb.lspChangeAt) > 1000 and not lspActiveFor(cb):
         cTypingCheck(cb)                                    # C: the compiler on the unsaved text
-      if cfgLiveCheck and cb.lang != nil and cb.lang.mode == lmNim and typoAt.getOrDefault(cb.id, -1) != cb.changeId and
+      if cfgLiveCheck and not away and cb.lang != nil and cb.lang.mode == lmNim and typoAt.getOrDefault(cb.id, -1) != cb.changeId and
          msSince(cb.lspChangeAt) > 500 and msSince(lastInputAt) > 300 and nxWarmMods.len == 0 and
          (cb.dirty or engineChecksOnOpen(cb)):
         # (a pause in typing and in scrolling: on a phone the checks of a big file take a moment; the imports read
         # first, a few at a time)
         timedWork("the engine's checks"): engineTypos(cb)
-      if cfgMacroNames and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
+      if cfgMacroNames and not away and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
          msSince(cb.lspChangeAt) > 1500 and msSince(lastInputAt) > 1000 and not compilerRunning():
         # (one compiler at a time, and not while you scroll or type: a phone has the CPU for one)
         timedWork("names macros make"): macroNamesFor(cb)
@@ -456,6 +477,17 @@ proc usage() =
   echo "                        argument counts, unused imports and locals, a var that can be a let, deprecated or"
   echo "                        too-new library names … — text, GitHub annotations or JSON; --staged, --install-hook"
   echo "                        (git pre-commit): ned --lint --help"
+  echo "  --wait FILE…          in ned's terminal (or with --remote): open the files in the running ned and wait"
+  echo "                        until their tabs are closed — git's editor: GIT_EDITOR=\"ned --wait\""
+  echo "  --new                 start a new ned, even in ned's own terminal (where `ned FILE` opens FILE there)"
+  echo "  --remote FILE[:LINE[:COL]]…  open the files in a ned that is running (the one whose project holds them,"
+  echo "                        else the last started); with --wait, wait for their tabs to close"
+  echo "  --remote-command NAME run a command of the palette there (\"Format document\", \"Run tests in file\" …)"
+  echo "  --remote-message TEXT show a message there (scripts: \"build done\")"
+  echo "  --remote-problems [NAME]  a build's or a linter's output on stdin → its Problems (file:line:col: msg,"
+  echo "                        Nim's file(line, col) Error: …), under NAME; sending again replaces them"
+  echo "  --remote-get WHAT     print file, line, col, selection, word, root, files or text of the running ned"
+  echo "  --remote-list         the neds running for you: process, project, files"
   echo "  --startup-time [FILE…] start as usual, then quit once settled and print how long each step took"
   echo "                        and the memory used (the CI benchmark reads it)"
   echo "  --                    the rest are file names, even when they start with -"
@@ -573,10 +605,65 @@ func argNum(s: string): int =
   try: min(parseInt(s), 100_000_000)
   except ValueError: 100_000_000
 
+proc remoteMain(targets: seq[(string, int, int)], op, arg: string, explicit, wait, wantStdin: bool): int =
+  ## `ned` as the running ned's remote: the exit code — or -1 when there is no ned to talk to and a ned of its own
+  ## should start (in its terminal, where one ran before; EDITOR="ned --wait" outside one)
+  let cwd = getCurrentDir()
+  if op == "list":
+    let all = ctlRunning()
+    if all.len == 0:
+      stderr.writeLine("ned: no ned is running")
+      return 1
+    for (p, j) in all:
+      var files: seq[string]
+      for f in j{"files"}: files.add relativePath(f.getStr, j{"root"}.getStr)
+      echo $j{"pid"}.getInt & "  " & j{"root"}.getStr & (if files.len > 0: "  (" & files.join(", ") & ")" else: "")
+    return 0
+  let near = if targets.len > 0: absolutePath(targets[0][0]).normalizedPath else: cwd
+  let implicit = op.len == 0 and not explicit
+  let sock = if implicit: getEnv("NED_SOCKET") else: ctlFind(near)
+  let alive = sock.len > 0 and ctlAsk(sock, %*{"cmd": "info"}, 1500) != nil
+  if not alive:
+    if implicit: return -1                     # (the ned whose terminal this was is gone: start one)
+    stderr.writeLine("ned: no running ned to talk to (start one: ned [folder])")
+    return 1
+  case op
+  of "command": return ctlClient(sock, %*{"cmd": "command", "name": arg}, false)
+  of "message": return ctlClient(sock, %*{"cmd": "message", "text": arg}, false)
+  of "get": return ctlClient(sock, %*{"cmd": "get", "what": arg}, false)
+  of "problems":
+    var text = ""
+    try: text = stdin.readAll()
+    except CatchableError: discard
+    return ctlClient(sock, %*{"cmd": "problems", "source": arg, "text": text, "cwd": cwd}, false)
+  else: discard
+  var piped = ""
+  if isatty(0) == 0 or wantStdin:
+    if isatty(0) == 0:
+      try: piped = stdin.readAll()
+      except CatchableError: discard
+  if targets.len == 0 and piped.len == 0:
+    if implicit:
+      stderr.writeLine("ned: this is ned's terminal — `ned FILE` opens FILE in it, `ned --new` starts another ned")
+      return 0
+    stderr.writeLine("ned: --remote needs files (or text on stdin)")
+    return 2
+  var code = 0
+  if piped.len > 0:
+    code = ctlClient(sock, %*{"cmd": "text", "text": piped, "wait": wait and targets.len == 0}, wait and targets.len == 0)
+  if targets.len > 0:
+    var files = newJArray()
+    for (p, l, c) in targets:
+      files.add %*{"path": absolutePath(p).normalizedPath, "line": l, "col": c}
+    code = max(code, ctlClient(sock, %*{"cmd": "open", "files": files, "wait": wait}, wait))
+  code
+
 proc main() =
   var targets: seq[(string, int, int)]
   var pendingLine = -1
   var optsDone, wantStdin, doCheck = false
+  var wantNew, wantWait, wantRemote = false
+  var remoteOp, remoteArg = ""            # --remote-command NAME, --remote-message TEXT, --remote-get WHAT …
   let cl = commandLineParams()
   var ai = 0
   while ai < cl.len:
@@ -604,6 +691,20 @@ proc main() =
         formatFiles(cl[ai .. ^1])
       of "--lint":
         quit lintMain(cl[ai .. ^1])
+      of "--new": wantNew = true
+      of "--wait": wantWait = true
+      of "--remote": wantRemote = true
+      of "--remote-list": remoteOp = "list"
+      of "--remote-command", "--remote-message", "--remote-get":
+        if ai >= cl.len: quit "ned: " & a & " needs a value — see ned --help", 2
+        remoteOp = a[9 .. ^1]
+        remoteArg = cl[ai]
+        inc ai
+      of "--remote-problems":
+        remoteOp = "problems"
+        if ai < cl.len and not cl[ai].startsWith("-"):
+          remoteArg = cl[ai]
+          inc ai
       else:
         stderr.writeLine("ned: unknown option " & a & " — see ned --help\n" &
           "     (to open a file whose name starts with -, use: ned -- " & a & ")")
@@ -627,6 +728,9 @@ proc main() =
         if parts.len >= 3 and parts[2].allDigits: col = argNum(parts[2]) - 1
     targets.add (path, line, col)
   smark("command line")
+  if remoteOp.len > 0 or wantRemote or (not wantNew and not doCheck and not startTrace and getEnv("NED_SOCKET").len > 0):
+    let code = remoteMain(targets, remoteOp, remoteArg, wantRemote, wantWait, wantStdin)
+    if code >= 0: quit code
   # tools installed by nimble/cargo/go/pip --user are often not on Termux's PATH
   var path = getEnv("PATH")
   let parts = path.split(':')
@@ -710,18 +814,7 @@ proc main() =
       flattenTree()
     else:
       discard openFile(t[0], t[1], t[2])
-  if fromStdin:
-    let b = newBuffer()
-    let txt = stripAnsi(stdinText).replace("\r\n", "\n")
-    b.setContent(if txt.endsWith("\n"): txt[0 ..< ^1] else: txt)
-    let l0 = b.lines[0]
-    b.lang = if l0.startsWith("diff ") or l0.startsWith("--- ") or
-                (l0.startsWith("commit ") and "\ndiff --git " in txt): langByName("Diff")
-             else: detectLang("", l0)
-    if bufs.len == 1 and bufs[0].isWelcome(): bufs[0] = b
-    else: bufs.add b
-    curBuf = bufs.find(b)
-    focus = fEditor
+  if fromStdin: openTextBuffer(stdinText)
   smark("files opened")
   signal(SIGWINCH, onWinch)
   signal(SIGPIPE, SIG_IGN)
@@ -733,6 +826,7 @@ proc main() =
   # index the project in the background so Ctrl+P is instant (never the whole filesystem)
   if rootDir != "/" and rootDir.len > 1: startScan()
   smark("file list started")
+  ctlListen()                          # (`ned FILE` in its terminal, git's editor, scripts: see control)
   enterRaw()
   gridResize()
   loadingHook = showLoading            # from now on a big file shows "Opening …" while it loads
@@ -763,6 +857,7 @@ proc main() =
     quit 1
   finally:
     leaveRaw()
+    ctlClose()
     cleanProjectTemps()
   saveState()
   if termSignal == 0:

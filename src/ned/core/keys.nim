@@ -43,6 +43,76 @@ proc controlKey(c: char, k: var Key): bool =
   else: return false
   true
 
+proc kittyKey(raw: string, k: var Key) =
+  ## a key in the kitty keyboard protocol: CSI code[:shifted[:base]] ; mods[:event] u — turned into the Key ned has
+  ## always had for it, so bindings keep working: Alt+Shift+R is 'R' with Alt (as ESC R was), Ctrl+[ is Esc; and
+  ## what the old way could not tell apart now is: Ctrl+Shift+F, Ctrl+I and Tab, Ctrl+Enter, Shift+Enter
+  let parts = raw.split(';')
+  proc num(s: string): int =
+    if s.len == 0: return 0
+    try: parseInt(s) except ValueError: 0
+  let codes = parts[0].split(':')
+  let code = num(codes[0])
+  var shifted = if codes.len > 1: num(codes[1]) else: 0
+  if shifted < 32 or shifted > 0x10FFFF or shifted in 0xD800 .. 0xDFFF: shifted = 0
+  if code < 32 and code notin [8, 9, 13, 27] or code > 0x10FFFF or code in 0xD800 .. 0xDFFF:
+    k.kind = kNone                    # (no key: what a terminal would never send)
+    return
+  let mp = if parts.len > 1: num(parts[1].split(':')[0]) else: 1
+  let m = max(0, mp - 1)
+  k.mods = modsFromParam(mp)
+  if (m and (8 or 16 or 32)) != 0:     # (Super, Hyper, Meta: the desktop's, not ned's)
+    k.kind = kNone
+    return
+  if parts.len > 1 and parts[1].split(':').len > 1 and num(parts[1].split(':')[1]) == 3:
+    k.kind = kNone                    # (a key let go: only with flags ned does not ask for)
+    return
+  case code
+  of 13, 57414: k.kind = kEnter
+  of 9: k.kind = kTab
+  of 27: k.kind = kEsc
+  of 127, 8: k.kind = kBackspace
+  of 57417: k.kind = kLeft
+  of 57418: k.kind = kRight
+  of 57419: k.kind = kUp
+  of 57420: k.kind = kDown
+  of 57421: k.kind = kPgUp
+  of 57422: k.kind = kPgDn
+  of 57423: k.kind = kHome
+  of 57424: k.kind = kEnd
+  of 57425: k.kind = kInsert
+  of 57426: k.kind = kDelete
+  of 57399 .. 57408: k.kind = kChar; k.ch = ord('0') + code - 57399
+  of 57409: k.kind = kChar; k.ch = ord('.')
+  of 57410: k.kind = kChar; k.ch = ord('/')
+  of 57411: k.kind = kChar; k.ch = ord('*')
+  of 57412: k.kind = kChar; k.ch = ord('-')
+  of 57413: k.kind = kChar; k.ch = ord('+')
+  of 57415: k.kind = kChar; k.ch = ord('=')
+  of 57416: k.kind = kChar; k.ch = ord(',')
+  of 57376 .. 57398: k.kind = kFn; k.fn = 13 + code - 57376
+  of 57344 .. 57375, 57427 .. 63743: k.kind = kNone      # (media keys, lone modifiers, other private-use keys)
+  else:
+    k.kind = kChar
+    k.ch = code
+    let ctrl = mCtrl in k.mods
+    if mShift in k.mods and not ctrl:
+      # Shift (with Alt): the shifted character, as the terminal would have sent it — 'R', '?' — without Shift
+      if shifted > 0:
+        k.ch = shifted
+        k.mods.excl mShift
+      elif code < 128 and char(code) in {'a'..'z'}:
+        k.ch = ord(toUpperAscii(char(code)))
+        k.mods.excl mShift
+    elif ctrl and code < 128 and char(code) in {'A'..'Z'}:
+      k.ch = ord(toLowerAscii(char(code)))
+      k.mods.incl mShift
+    # as they always were: Ctrl+[ is Esc, Ctrl+M and Ctrl+J are Enter, Ctrl+H deletes back (Ctrl+I is not Tab now)
+    if k.mods == {mCtrl}:
+      if code == ord('['): k = Key(kind: kEsc)
+      elif code in [ord('m'), ord('j')]: k = Key(kind: kEnter)
+      elif code == ord('h'): k = Key(kind: kBackspace, mods: (if eraseIsCtrlH: {} else: {mCtrl}))
+
 var inOff = 0     # parse position inside inBuf (consumed bytes are dropped once per batch)
 
 proc avail(): int {.inline.} = inBuf.len - inOff
@@ -81,19 +151,31 @@ proc parseKey(force: bool, k: var Key): bool =
         inc i
       let ps = i
       while i < avail() and at(i) in {'0'..'9', ';', ':'}: inc i
+      let pe = i
+      var inter = '\0'                  # (an intermediate byte: CSI ? 2027 ; 2 $ y)
+      while i < avail() and at(i) in {' ' .. '/'}:
+        inter = at(i)
+        inc i
       if i >= avail():
         if not force: return false
         inOff += 2
         k.kind = kChar; k.ch = ord('['); k.mods = {mAlt}
         return true
       let fin = at(i)
+      let raw = inBuf[inOff + ps ..< inOff + pe]
       var params: seq[int]
-      for part in inBuf[inOff + ps ..< inOff + i].split(';'):
+      for part in raw.split(';'):
         let p0 = part.split(':')[0]
         params.add (if p0.len == 0: 0 else: (try: parseInt(p0) except ValueError: 0))
       inOff += i + 1
       let p1 = if params.len > 0: params[0] else: 0
       let p2 = if params.len > 1: params[1] else: 1
+      if priv == '?' and termCsiReply(priv, inter, fin, params):
+        k.kind = kNone          # the terminal answering a question (see termcaps)
+        return true
+      if inter != '\0':
+        k.kind = kNone
+        return true
       if priv == '<' and fin in {'M', 'm'} and params.len >= 3:
         k.kind = kMouse
         let b = params[0]
@@ -120,11 +202,7 @@ proc parseKey(force: bool, k: var Key): bool =
       of 'P'..'S': k.kind = kFn; k.fn = ord(fin) - ord('P') + 1
       of 'I', 'O':
         k.kind = kNone           # focus in/out
-        if fin == 'I':
-          # (back in the terminal: everything drawn again — whatever happened to the screen meanwhile, say an app
-          # switch on Android, it is right again)
-          prevGrid.setLen(0)
-          needRender = true
+        termFocusChange(fin == 'I')
         return true
       of '~':
         case p1
@@ -141,15 +219,7 @@ proc parseKey(force: bool, k: var Key): bool =
         k.mods = k.mods + modsFromParam(p2)
         return true
       of 'u':
-        k.mods = modsFromParam(p2)
-        case p1
-        of 13: k.kind = kEnter
-        of 9: k.kind = kTab
-        of 27: k.kind = kEsc
-        of 127: k.kind = kBackspace
-        else:
-          k.kind = kChar
-          k.ch = p1
+        kittyKey(raw, k)
         return true
       else:
         k.kind = kNone
@@ -185,6 +255,10 @@ proc parseKey(force: bool, k: var Key): bool =
             var body = newStringOfCap(i)
             for q in 2 ..< i: body.add at(q)
             if body.startsWith("11;"): oscBgReply = body[3 .. ^1]
+          elif c2 == 'P' and i > 3:
+            var body = newStringOfCap(i)
+            for q in 2 ..< i: body.add at(q)
+            termDcsReply(body)
           inOff += i + (if bel: 1 else: 2)
           k.kind = kNone
           return true

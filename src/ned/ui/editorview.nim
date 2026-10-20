@@ -368,7 +368,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           worst = d.sev
           if d.line == line: lineDiag = di
     if spellOnHere and s.len <= 4000:
-      for (a, e) in b.spellErrors(s, toks): diagR.add (a, e, 9)        # misspelled: underlined, colour kept
+      for (a, e) in b.spellErrors(s, toks): diagR.add (a, e, 8)        # misspelled: underlined, colour kept
     if b.path.len > 0 and b.id notin diffViews and s.len <= 20000 and ("://" in s or b.id in docLinks):
       for (a, e) in linkRangesOn(b, line): diagR.add (a, e, 9)        # a link: underlined (F12 or Ctrl+click opens it)
     let isCurLine = line == ph.line and not primSel
@@ -376,6 +376,9 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     if flashBuf == b.id and line >= flashA and line <= flashB and msSince(flashAt) < 1800:
       rowBg = blend(theme.bg, theme.accent, 0.16)       # code just put in (AI chat › Insert)
     if dbgOn and line == dbgAt[1] and b.path == dbgAt[0]: rowBg = blend(theme.bg, theme.warn, 0.20)
+    if landBuf == b.id and line == landLine:
+      let t = float(msSince(landAt)) / float(JumpHlMs)
+      if t < 1.0: rowBg = blend(rowBg, theme.accent, 0.32 * (1.0 - t) * (1.0 - t))     # (a jump landed here)
     var conflictStart = -1
     if hasConflicts:
       let ci = b.conflictAt(line)
@@ -576,7 +579,13 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         for (a, e, sv) in diagR:
           if i >= a and i < e and sv <= 2:
             at.incl aUnder
-            if tk == tkText: fg = sevColor(sv)
+            # a curly underline in the problem's colour where the terminal draws one (the text keeps its colour);
+            # else a straight one, and a plain name takes the colour
+            if ulStyled: at.incl {aCurl, (if sv == 1: aUcErr else: aUcWarn)}
+            elif tk == tkText: fg = sevColor(sv)
+          elif i >= a and i < e and sv == 8:
+            at.incl aUnder
+            if ulStyled: at.incl {aCurl, aUcInfo}             # (misspelled)
           elif i >= a and i < e and sv == 9:
             at.incl aUnder
         if ligRuns.len > 0:
@@ -606,7 +615,11 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           if cp < 32: cp = 0x2400 + cp
           elif cp == 127: cp = 0x2421
           if x + cw <= limX:
-            setCell(x, y, Cell(ch: cp.uint32, fg: fg, bg: bg, at: at))
+            # (an accent with its letter, a ZWJ emoji: one cell — see cellOf)
+            let rn = runeLen(s[i])
+            let ch = if n > rn and s[i].uint8 >= 32 and s[i] != '\x7f' and (i >= ligCh.len or ligCh[i] == 0): cellOf(s, i, n)
+                     else: cp.uint32
+            setCell(x, y, Cell(ch: ch, fg: fg, bg: bg, at: at))
             if cw == 2: setCell(x + 1, y, Cell(ch: 0, fg: fg, bg: bg, at: at))
         vc += cw
         i += n

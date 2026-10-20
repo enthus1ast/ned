@@ -29,3 +29,77 @@ suite "visual columns":
       if (s[start].uint8 and 0xC0) == 0x80: continue        # (not inside a character)
       for col in start .. s.len:
         check visColFrom(s, col, start, visColOf(s, start)) == visColOf(s, col)
+
+suite "widths and characters of several code points (6.13)":
+  test "widths from Unicode 15.1: emoji shown as emoji take two columns, marks and format characters none":
+    for cp in [0x2705, 0x2B50, 0x231A, 0x1FAE0, 0x1F600, 0x4E2D, 0xD55C, 0x1F3FD, 0xFF21]: check runeWidth(cp) == 2
+    for cp in [0x301, 0x200D, 0xFE0F, 0x0E31, 0x20E3, 0x200B, 0xFEFF, 0x1160]: check runeWidth(cp) == 0
+    for cp in [ord('a'), 0xAD, 0x1F1F4, 0x2764, 0x00E9, 0x0600]: check runeWidth(cp) == 1
+
+  test "without joined clusters (most terminals): an accent joins its letter, an emoji sequence stays apart":
+    graphemes = false
+    let e = "é"                                   # e + combining acute
+    check charWidthAt(e, 0, 0) == (1, e.len)
+    let thumb = "👍🏽"                                   # thumbs up, medium skin tone: two emoji here
+    check charWidthAt(thumb, 0, 0) == (2, 4)
+    check strWidth(thumb) == 4
+    check strWidth("❤️") == 1                           # (VS16 is left out: the terminal shows the text heart)
+    check strWidth("👨‍👩‍👧") == 6
+
+  test "with joined clusters (mode 2027, kitty, WezTerm, Ghostty): one character, two columns":
+    graphemes = true
+    defer: graphemes = false
+    for s in ["👍🏽", "👨‍👩‍👧", "🇴🇲", "1️⃣", "❤️", "🏴󠁧󠁢󠁳󠁣󠁴󠁿"]:
+      check charWidthAt(s, 0, 0) == (2, s.len)
+      check strWidth(s) == 2
+    check strWidth("⌚︎") == 1                           # (VS15: the text form)
+    check strWidth("🇴🇲🇸🇦") == 4                        # (two flags: the indicators pair up)
+    check strWidth("a‍b") == 2                     # (a ZWJ between letters joins nothing)
+
+  test "the cursor steps over a whole character, either way":
+    let s = "a👨‍👩‍👧b🇴🇲🇸🇦éz"
+    var starts: seq[int]
+    var i = 0
+    while i < s.len:
+      starts.add i
+      i = nextCluster(s, i)
+    check starts.len == 7                               # a · family · b · 🇴🇲 · 🇸🇦 · é · z
+    var back: seq[int]
+    var j = s.len
+    while j > 0:
+      j = prevCluster(s, j)
+      back.add j
+    check back.len == 7
+    for k in 0 ..< 7: check back[6 - k] == starts[k]
+
+  test "a character of several code points is one cell, kept once in the pool":
+    graphemes = true
+    defer:
+      graphemes = false
+      resetCellPool()
+    let s = "x👍🏽y👍🏽"
+    let a = cellOf(s, 1, 8)
+    let b = cellOf(s, 10, 8)
+    check a == b and a >= PoolBase
+    check cellPool[int(a - PoolBase)] == "👍🏽"
+    check cellWidth(a) == 2
+    check cellOf(s, 0, 1) == uint32(ord('x'))
+
+  test "visColOf and colAtVis agree with one character at a time, emoji sequences mixed in (both ways of joining)":
+    randomize(13)
+    let pieces = ["a", " ", "\t", "é", "é", "中", "😀", "👍🏽", "👨‍👩‍👧", "🇴🇲", "1️⃣", "❤️", "‍", "️", "xy"]
+    for g in [false, true]:
+      graphemes = g
+      var bad = 0
+      for t in 0 ..< 5000:
+        var s = ""
+        for k in 0 ..< rand(0 .. 30): s.add pieces[rand(pieces.high)]
+        for col in 0 .. s.len + 1:
+          if visColOf(s, col) != oneByOne(s, col): inc bad
+        var i = 0
+        while i < s.len:
+          let vc = visColOf(s, i)
+          if charWidthAt(s, i, vc)[0] > 0 and colAtVis(s, vc) != i: inc bad
+          i += charWidthAt(s, i, vc)[1]
+      check bad == 0
+    graphemes = false

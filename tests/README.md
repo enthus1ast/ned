@@ -5,7 +5,7 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 
 | folder | what | how long | run |
 |---|---|---|---|
-| [`unit/`](unit) | the Nim index (compile-time values too, kept on disk, memory layouts and exception hints checked against the compiler, the package versions a build uses), the C index, the formatters and nedfmt, the regular expressions, where ARC/ORC copies, what each Nim release added, columns counted 8 bytes at a time, executables read (ELF, Mach-O, PE) and Nim's names in them — as libraries, without the editor | seconds | `nimble test` |
+| [`unit/`](unit) | the Nim index (compile-time values too, kept on disk, memory layouts and exception hints checked against the compiler, the package versions a build uses), the C index, the formatters and nedfmt, the regular expressions, where ARC/ORC copies, what each Nim release added, columns counted 8 bytes at a time, character widths from Unicode (emoji sequences joined or not — `unit/genwidths.py` makes the tables), executables read (ELF, Mach-O, PE) and Nim's names in them — as libraries, without the editor | seconds | `nimble test` |
 | [`lsp/`](lsp) | nedls driven by a small LSP client: every feature, then 2000 random edits that must not put it out of step | a minute | `nimble lsptest` |
 | [`format/`](format) | the Nim formatter on 463 files of Nim's compiler and standard library, each checked by Nim's own parser | minutes | `nimble parsecheck` |
 | [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 1000 checks | ~1 hour | `nimble uitest` |
@@ -60,7 +60,8 @@ NEDBIN=./ned_debug tests/fuzz/batch.sh 120 mixed vim helix emacs palette refacto
 ```
 
 Each mode is a two-minute round with a different mix of input (`ai` drives the assistant, `git` a repository with
-history, `fixes` code full of compiler errors, `c` C files with ned's own engine and its ligatures, `refactor` procs to change). The fuzzer works in a scratch home of
+history, `fixes` code full of compiler errors, `c` C files with ned's own engine and its ligatures, `refactor` procs to change,
+`hex` binary files and programs, `kitty` keys in the kitty keyboard protocol, emoji sequences and the terminal's answers). The fuzzer works in a scratch home of
 its own, with a copy of the Nim toolchain (random keys can go to a definition in the standard library and save
 it), but random palette commands can run tasks and shell commands in its test project, and random keys can
 "save as" anywhere ned may write: give it a throwaway user (`NED_FUZZ_USER=fuzz`, run as root — as root it does

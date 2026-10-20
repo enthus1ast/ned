@@ -24,6 +24,14 @@ proc newTerm(w, h: int, cwd: string, cmd = ""): Term =
   t.fd = fd
   t.setWinSize()
   let (siArgs, siEnv) = if cmd.len == 0: shellIntegration(shell) else: (@[], @[])
+  # terminal.editorEnv: this ned is git's editor here (and EDITOR, VISUAL where they are not set) — `git commit`
+  # opens its message in a tab and waits for it (see control)
+  var edEnv: seq[(string, string)]
+  if cfgEditorEnv and getEnv("NED_SOCKET").len > 0:
+    let me = quoteShell(getAppFilename()) & " --wait"
+    if getEnv("GIT_EDITOR").len == 0: edEnv.add ("GIT_EDITOR", me)
+    for v in ["EDITOR", "VISUAL"]:
+      if getEnv(v).len == 0: edEnv.add (v, me)
   let pid = fork()
   if pid == 0:
     discard setsid()
@@ -44,6 +52,7 @@ proc newTerm(w, h: int, cwd: string, cmd = ""): Term =
     signal(SIGQUIT, SIG_DFL)          # … and Ctrl+\ quits programs in the terminal again
     if cwd.len > 0: discard chdir(cstring(cwd))
     for (k, v) in siEnv: putEnv(k, v)
+    for (k, v) in edEnv: putEnv(k, v)
     let args = if cmd.len > 0: allocCStringArray([shell, "-c", "exec " & cmd]) else: allocCStringArray(@[shell] & siArgs)
     discard execvp(cstring(shell), args)
     exitnow(127)

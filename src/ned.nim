@@ -75,6 +75,7 @@ include ned/core/state
 include ned/core/utils
 include ned/core/themes
 include ned/core/screen
+include ned/core/termcaps
 include ned/core/keys
 include ned/core/languages
 include ned/core/highlight
@@ -291,4 +292,5 @@ include ned/run/tasks
 include ned/app/usercommands
 include ned/app/lint
 include ned/app/commandlist
+include ned/app/control
 include ned/app/main

@@ -1,6 +1,79 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-612). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-613). Older releases:
+
+## What's new in 6.12
+
+**Nim 3 (Nimony).** A project built with `nimony` is Nim 3 for all of ned: *Nim › Nim 3 (Nimony) › This project is
+Nim 3* sets `"nim.compiler": "nimony"` in its `.ned/settings.json`, and the status bar says *Nim 3* with the nimony in
+use.
+
+- **Names are matched as written** — Nim 3 is case-sensitive — in completion, go to definition, references, rename,
+  the engine's checks and the colours (`foobar` is not `fooBar`). A module with `{.feature: "ignoreStyle".}` finds
+  names by Nim 2's rule.
+- **Nimony's own standard library** answers completion, hover and go to definition (`lib/std` of the `nimony` on
+  `PATH`); `when defined(nimony)` is true.
+- **Errors while you type and on save come from `nimony check`** — on a copy of the unsaved text in ned's own folder,
+  its relative imports made absolute: nimony's build files never land in the project (no `nimcache/`). Run uses
+  `nimony c -r` the same way.
+- **Nimony answers where the engine has none**: go to definition from `nimony check --def`, references from
+  `--usages`. nimsuggest and nimlangserver, which are Nim 2's, keep away from Nim 3 files.
+- **Nim 3's syntax and pragmas**: `import (path / module) {.cyclic.}`, `nil ref T`, `concept of`, a keyword as a
+  routine's name (`func addr*[T](x: T)`), a parameter with a pragma of its own (`r {.register: "rdi".}: Words`); and
+  `{.passive.}`, `{.feature: …}`, `{.plugin: …}`, `{.assembler.}`, `{.instruction.}`, `{.register.}` completed and
+  explained on hover.
+- **The formatter takes Nimony's own code** (since 6.11.2): of the 1,684 files of Nimony — its library, its tests and
+  its compiler — it formats all but two, which it leaves alone (as it does whenever it is not sure).
+
+**Porting to Nim 3.**
+
+- *Nim › Nim 3 (Nimony) › What this file needs* shows, on a Nim 2 file, what Nim 3 wants changed (Nimony's
+  `doc/porting.md`, each rule checked against what nimony itself rejects today): `except IOError as e` and
+  `raise newException(ValueError, …)` — the library's errors are ErrorCode values (the project's own `ref object`
+  exceptions work as before) —, `{.async.}` and `await`, a `for` over an enum type, a `break` that leaves a `block`,
+  `x.isNil`, a template called without `()`, `cast[cstring]`. In a Nim 3 project they are always shown. Where the
+  change is mechanical the quick fix makes it, and *Fix all* makes every one in the file — so does
+  `ned --lint --fix`, in CI too. From then on nimony checks the file on save.
+- *Nim › Nim 3 (Nimony) › Port this file with AI*: the assistant, given Nimony's own guides (`doc/differences.md`,
+  `doc/porting.md`), ports the file; each of its edits is checked with `nimony check` and what is wrong goes back to
+  it, until the file is clean. In a Nim 3 project the assistant always has those guides — Nim 3 is not the Nim the
+  models learned.
+
+![A Nim 2 file with Nim 3's porting problems in Problems, and the quick fixes of one — Fix all makes the six ned can](screenshots/nim3-port-612.png)
+
+**The hex editor.** A binary file opens as its bytes — offset, hex and text — instead of a read-only dump:
+
+- type over bytes in hex or as text (Tab switches), Insert to add bytes, Delete and Backspace to take them away, undo
+  and redo, and save (safely, its permissions kept);
+- Ctrl+G goes to an offset (`8000`, `0x1F40`, `+16`), Ctrl+F finds bytes (`de ad be ef`) or text (`"abc"`), F3 the next
+  one;
+- a data inspector under the bytes: integers of 8 to 64 bits both ways round, floats, a varint, a UTF-8 character;
+- Ctrl+C copies the bytes as hex, and *Hex: copy as a Nim array* (`[0xde'u8, 0xad, …]`), *as a Nim string* or *as a
+  C array*;
+- only what is on the screen is drawn: a file of a hundred megabytes scrolls like a small one (0.1 ms a frame), and
+  its bytes are kept once — a 48 MB file takes 59 MB in all.
+
+![A program Nim built in the hex editor: what it is, the proc the cursor is in (shout, of the module app), the bytes and the data inspector](screenshots/hex-editor-612.png)
+
+**Programs and libraries** (ELF for Linux and Android, Mach-O for macOS, PE for Windows): the hex editor says what
+the file is — format, CPU, kind, built with Nim — and which proc the cursor is in.
+
+- *Hex: symbols…* lists the symbols, Nim's procs by their Nim names (`shout__app_u12` is *shout (app)*, `plus___app_u7`
+  is *+*; Nimony's names too), the biggest first; picking one goes to its bytes.
+- *Hex: open the Nim source of the proc at the cursor*.
+- *Hex: Nim modules by size*: how many bytes of code each module takes, and its procs by size — what makes a
+  program big.
+- *Hex: sections…*.
+
+![Hex: Nim modules by size — the bytes of code each module of the program takes](screenshots/hex-modules-612.png)
+
+**Big files take less memory**: a text file of 8 MB or more is read straight into lines, a megabyte at a time — the
+whole text is never in memory beside its lines. An 80 MB log took 199 MB, now 125 MB.
+
+**Also**: the compiler's warning about a `break` that leaves a block (Nim 2.2) has a quick fix — `break` by the
+block's name, or the block named `done` — and *Fix all*. The debugger's call stack names procs as Nim does
+(`demo.+`, `exceptions.=destroy`, not `_ZN4demo5plus_E6string6string`), and so does the hex editor for a program
+built with `--debugger:native`.
 
 ## What's new in 6.11.2
 

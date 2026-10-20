@@ -190,6 +190,10 @@ proc submitPrompt() =
       userCmdEditing = t.strip
       openPrompt(pUserCmdRun, "Shell command for “" & userCmdEditing & "” ($file $dir $line $word $selection …)", "")
     return
+  of pPipeCmd:
+    closePrompt()
+    pipeThroughCommand(t)
+    return
   of pUserCmdRun:
     closePrompt()
     if t.strip.len > 0 and userCmdEditing.len > 0:

@@ -184,7 +184,7 @@ proc backspace(b: Buffer, word = false) =
       let w = b.indentW()
       a = Pos(line: h.line, col: ((h.col - 1) div w) * w)
     else:
-      a = Pos(line: h.line, col: prevRune(s, h.col))
+      a = Pos(line: h.line, col: prevCluster(s, h.col))
       if h.col < s.len and a.col == h.col - 1 and pairClose(b.lang.pairs, s[a.col]) == s[h.col] and
          pairClose(b.lang.pairs, s[a.col]) != '\0':
         b.cursors[i] = cur(b.replaceText(a, Pos(line: h.line, col: h.col + 1), ""))

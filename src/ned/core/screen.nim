@@ -5,6 +5,8 @@
 const
   MouseOffSeq = "\e[?1006l\e[?1003l\e[?1002l\e[?1000l"
 
+var titleReset = false          # (raw mode left: the terminal's title is set again when it comes back)
+
 proc writeAll(s: string) =
   var off = 0
   while off < s.len:
@@ -31,6 +33,9 @@ proc cursorStyleSeq(): string =
   of "underline": "\e[4 q"
   else: "\e[6 q"
 
+proc termCapsStart()
+proc termCapsStop()
+
 proc setMouseMode() = writeAll(MouseOffSeq & mouseSeq())
 proc applyCursorStyle() = writeAll(cursorStyleSeq())
 
@@ -46,15 +51,18 @@ proc enterRaw() =
   t.c_cc[VTIME] = 0.char
   discard tcSetAttr(0, TCSAFLUSH, addr t)
   gRaw = true
-  writeAll("\e[?1049h\e[?7l\e[?2004h\e[?1004h\e[?25l" & cursorStyleSeq() & mouseSeq())
+  writeAll("\e[22;0t\e[?1049h\e[?7l\e[?2004h\e[?1004h\e[?25l" & cursorStyleSeq() & mouseSeq())
   prevGrid.setLen(0)
   writeAll("\e]11;?\a")         # the background colour, for "theme": "auto" (terminals that do not answer ignore it)
+  termCapsStart()               # (and what else it can do: see termcaps)
 
 proc leaveRaw() =
   if not gRaw: return
   if pointerShape.len > 0 and pointerShape != "default": writeAll("\e]22;default\a")   # (the arrow back)
   pointerShape = ""
-  writeAll(MouseOffSeq & "\e[?1004l\e[?2004l\e[0m\e[0 q\e[?7h\e[?25h\e[?1049l")
+  termCapsStop()
+  titleReset = true
+  writeAll(MouseOffSeq & "\e[?1004l\e[?2004l\e[0m\e[0 q\e[?7h\e[?25h\e[?1049l\e[23;0t")   # (and its old title back)
   discard tcSetAttr(0, TCSAFLUSH, addr gOrigTerm)
   gRaw = false
 
@@ -78,7 +86,7 @@ proc setCell(x, y: int, c: Cell) {.inline.} =
   if x < 0 or y < 0 or x >= scrW or y >= scrH: return
   let i = y * scrW + x
   if grid[i].ch == 0 and x > 0: grid[i-1].ch = 32           # broke a wide char's right half
-  if x + 1 < scrW and grid[i+1].ch == 0 and grid[i].ch != 0 and runeWidth(grid[i].ch.int) == 2:
+  if x + 1 < scrW and grid[i+1].ch == 0 and grid[i].ch != 0 and cellWidth(grid[i].ch) == 2:
     grid[i+1].ch = 32                                       # broke a wide char's left half
   grid[i] = c
 
@@ -95,24 +103,33 @@ proc putStr(x, y: int, s: string, fg, bg: Rgb, at: set[Attr] = {}, maxX = -1): i
   var i = 0
   while i < s.len and x < lim:
     var (cp, n) = runeAt(s, i)
+    var ch = cp.uint32
+    var w = 1
+    if cp == 9: ch = 32
+    elif cp < 32: ch = uint32(0x2400 + cp)
+    elif cp == 127: ch = 0x2421
+    elif cp >= 0x80 or (i + 1 < s.len and s[i + 1].uint8 >= 0x80):
+      # (a character of several code points — an accent, a ZWJ emoji — is one cell; see cellOf)
+      let (e, uw) = unitAt(s, i, graphemes)
+      n = e - i
+      w = uw
+      ch = cellOf(s, i, n)
     i += n
-    if cp == 9: cp = 32
-    elif cp < 32: cp = 0x2400 + cp
-    elif cp == 127: cp = 0x2421
-    let w = runeWidth(cp)
     if w == 0: continue
     if x + w > lim:
       while x < lim:
         setCell(x, y, Cell(ch: 32, fg: fg, bg: bg, at: at))
         inc x
       break
-    setCell(x, y, Cell(ch: cp.uint32, fg: fg, bg: bg, at: at))
+    setCell(x, y, Cell(ch: ch, fg: fg, bg: bg, at: at))
     if w == 2: setCell(x + 1, y, Cell(ch: 0, fg: fg, bg: bg, at: at))
     x += w
   x
 
 var numStr: array[256, string]
 for i in 0 .. 255: numStr[i] = $i
+
+var ulStyled = false            # curly underlines in the problem's colour (ui.undercurl and the terminal: termcaps)
 
 proc sgrColorFast(s: var string, c: Rgb, fg: bool) {.inline.} =
   if c == NoColor: return
@@ -123,6 +140,22 @@ proc sgrColorFast(s: var string, c: Rgb, fg: bool) {.inline.} =
     s.add numStr[int(c and 0xFF)]
   else:
     s.add (if fg: ";38;5;" else: ";48;5;")
+    s.add numStr[rgbTo256(c)]
+
+proc sgrUnderline(s: var string, at: set[Attr], added: set[Attr]) =
+  ## a curly underline and its colour (ui.undercurl and a terminal that draws them): `added` is what is new
+  if not ulStyled or aUnder notin at: return
+  if aCurl in added: s.add ";4:3"
+  let c = if aUcErr in added: theme.err elif aUcWarn in added: theme.warn elif aUcInfo in added: theme.info
+          else: NoColor
+  if c == NoColor: return
+  if trueColor:
+    s.add ";58:2::"
+    s.add numStr[int((c shr 16) and 0xFF)]; s.add ':'
+    s.add numStr[int((c shr 8) and 0xFF)]; s.add ':'
+    s.add numStr[int(c and 0xFF)]
+  else:
+    s.add ";58:5:"
     s.add numStr[rgbTo256(c)]
 
 func sameCell(a, b: Cell): bool {.inline.} =
@@ -315,7 +348,8 @@ proc flushScreen() =
     var prevWide = false
     var x = x0
     while x <= x1:
-      let c = grid[base + x]
+      var c = grid[base + x]
+      if cfgTransparentBg and c.bg == theme.bg: c.bg = NoColor       # (the terminal's own background shows)
       # (a run of cells the terminal already shows: stepped over)
       if not full and not hasWide and sameCell(c, prevGrid[base + x]):
         var e = x + 1
@@ -345,6 +379,7 @@ proc flushScreen() =
           if aUnder in at: o.add ";4"
           if aRev in at: o.add ";7"
           if aStrike in at: o.add ";9"
+          sgrUnderline(o, at, at)
           sgrColorFast(o, c.fg, true)
           sgrColorFast(o, c.bg, false)
           o.add 'm'
@@ -362,6 +397,7 @@ proc flushScreen() =
             if aUnder in add: o.add ";4"
             if aRev in add: o.add ";7"
             if aStrike in add: o.add ";9"
+            sgrUnderline(o, at, (if aUnder in add: at else: add))
             la = at
             if c.fg != lf:
               if c.fg == NoColor: o.add ";39" else: sgrColorFast(o, c.fg, true)
@@ -374,8 +410,10 @@ proc flushScreen() =
             o.delete(mark + 2 .. mark + 2)          # ("\e[;…" → "\e[…")
             o.add 'm'
       if cfgAccessible and ch >= 128 and ch < 0x3000: ch = asciiGlyph(ch)
-      if ch < 128: o.add char(ch) else: o.addUtf8(ch)
-      prevWide = ch >= 0x1100 and runeWidth(ch) == 2
+      if ch < 128: o.add char(ch)
+      elif ch >= PoolBase.int: o.add cellPool[ch - PoolBase.int]          # (several code points: one character)
+      else: o.addUtf8(ch)
+      prevWide = ch >= 0x1100 and cellWidth(ch.uint32) == 2
       inc x
     copyMem(addr prevGrid[base], addr grid[base], scrW * sizeof(Cell))
   o.add "\e[0m"

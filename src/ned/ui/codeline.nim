@@ -21,7 +21,7 @@ proc drawCodeLine(b: Buffer, l, x0, y, maxX: int, bg: Rgb, skipVc = 0) =
       let tk = if i < toks.len: toks[i] else: tkText
       var (cp, _) = runeAt(s, i)
       if cp < 32: cp = 0x2400 + cp
-      setCell(x, y, Cell(ch: cp.uint32, fg: theme.syn[tk], bg: bg,
+      setCell(x, y, Cell(ch: (if n > 1 and cp >= 32: cellOf(s, i, n) else: cp.uint32), fg: theme.syn[tk], bg: bg,
                          at: (if tk in {tkComment, tkDoc}: {aItalic}
                               elif tk == tkKeyword and theme.boldKw: {aBold} else: {})))
       if cw == 2: setCell(x + 1, y, Cell(ch: 0, fg: theme.syn[tk], bg: bg))

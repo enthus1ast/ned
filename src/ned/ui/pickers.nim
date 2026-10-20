@@ -254,21 +254,21 @@ proc editLine(text: var string, cur: var int, k: Key): bool =
     cur += t.len
   of kBackspace:
     if cur > 0:
-      var a = prevRune(text, cur)
+      var a = prevCluster(text, cur)
       if ctrl or alt:
         a = cur
         while a > 0 and text[a-1] == ' ': dec a
         while a > 0 and text[a-1] != ' ' and text[a-1] != '/': dec a
-        if a == cur: a = prevRune(text, cur)       # right after a '/': remove that one character
+        if a == cur: a = prevCluster(text, cur)       # right after a '/': remove that one character
       if a < cur:
         text.delete(a ..< cur)
         cur = a
   of kDelete:
-    if cur < text.len and nextRune(text, cur) > cur: text.delete(cur ..< nextRune(text, cur))
+    if cur < text.len and nextCluster(text, cur) > cur: text.delete(cur ..< nextCluster(text, cur))
   of kLeft:
-    if cur > 0: cur = prevRune(text, cur)
+    if cur > 0: cur = prevCluster(text, cur)
   of kRight:
-    if cur < text.len: cur = nextRune(text, cur)
+    if cur < text.len: cur = nextCluster(text, cur)
   of kHome: cur = 0
   of kEnd: cur = text.len
   else: return false
