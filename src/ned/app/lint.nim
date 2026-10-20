@@ -110,6 +110,12 @@ proc lintChecks(b: Buffer): seq[Diag] =
   if cfgEngineChecks:
     try: result.add engineChecksFor(b)
     except CatchableError, Defect: discard
+  # (the SQL, HTML and CSS in its strings: a query given the wrong number of values, an unknown table …)
+  if cfgWebEngine != "off":
+    try:
+      for d in webDiagsOf(b):
+        if d.sev <= ecWantSev: result.add d
+    except CatchableError, Defect: discard
   lintApply(b.path, b.lines, result)
   result.sort(proc(x, y: Diag): int = cmp((x.line, x.col), (y.line, y.col)))
 

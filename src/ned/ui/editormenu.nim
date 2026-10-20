@@ -52,7 +52,7 @@ proc editorMenu(): seq[MenuItem] =
   result = @[mc("Go to definition"), mc("Go to type definition"), mc("Peek definition"), mc("Find references"),
              mc("Peek references"),
              mc("Call hierarchy (callers and calls)", "Call hierarchy"), mc("Show hover info", "Show info"),
-             mc("Rename symbol"), msep(),
+             mc("Rename symbol"), mc("Quick fix / code actions…", "Quick fix…"), msep(),
              mc("Cut", disabled = not hasSel), mc("Copy"), mc("Paste"), msep(),
              mc("Toggle comment"), mc("Format document")]
   if hasSel: result.add mc("Format selection (Nim built in, or the language server)", "Format selection")

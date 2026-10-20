@@ -180,3 +180,5 @@ suite "SQL":
     check sqlArgChecks(@["db.exec(sql\"\"\"", "  UPDATE t SET a = ?", "  WHERE id = ?\"\"\", v, id)"]).len == 0
     check sqlArgChecks(@["s.insert(\"abc\", 0)"]).len == 0                 # (not a query)
     check sqlArgChecks(@["db.exec(sql\"SELECT '?' FROM t\")"]).len == 0    # (a ? in a string)
+    check sqlArgChecks(@["## `db.exec(sql\"INSERT INTO t VALUES (?)\", a, b)`: an example in a doc comment",
+                         "#[ db.exec(sql\"SELECT ?\", a, b) ]#"]).len == 0      # (comments: not calls)

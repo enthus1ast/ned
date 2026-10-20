@@ -669,7 +669,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                 if bb == nil: return
                 bb.setSingle(bb.clampPos(Pos(line: dl, col: dc)))
                 if fixable: cmdCodeActions() else: cmdHover(),
-                (if fixable: "Fix it (Alt+Enter)" else: "The whole message (Alt+H)"))
+                (if fixable: "Fix it (" & fixKey() & ")" else: "The whole message (Alt+H)"))
         elif b.path.len > 0 and (let rn = reviewNoteAt(b.path, line); rn.len > 0) and ex + 6 < limX:
           # a review comment of the branch's pull request (GitHub)
           discard putStr(ex + 3, y, rn, blend(theme.info, theme.inlay, 0.3), rowBg, {aItalic}, limX)

@@ -28,6 +28,14 @@ var
   focusLostAt = getMonoTime()
   focusNews = 0                  # (for the main loop: 1 the focus came back, 2 it went)
 
+proc inWindowsTerminal(): bool =
+  ## running in Windows Terminal (WSL too: it passes WT_SESSION on) — which keeps Alt+Enter for full screen
+  existsEnv("WT_SESSION")
+
+proc fixKey(): string =
+  ## the key that opens quick fixes here: Alt+Enter, or Alt+Shift+Enter where the terminal keeps Alt+Enter
+  if inWindowsTerminal(): "Alt+Shift+Enter" else: "Alt+Enter"
+
 proc termKnownName(): bool =
   ## a terminal whose answers to these questions would show as text (the Linux console, a dumb terminal)
   let t = getEnv("TERM")

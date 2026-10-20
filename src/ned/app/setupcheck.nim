@@ -68,6 +68,10 @@ proc setupRows(inEditor: bool): seq[SetupRow] =
               (if tcKittyOn: "kitty keyboard protocol: Ctrl+Shift+letters, Ctrl+I, Ctrl+Enter, Shift+Enter"
                elif tcKitty: "kitty keyboard protocol off (ui.kittyKeyboard)"
                else: "the classic way (Ctrl+Shift+F arrives as Ctrl+F; Ctrl+I as Tab)"), "")
+    if inWindowsTerminal():
+      rows.add ("System", "quick fixes", 1, "", "Windows Terminal keeps Alt+Enter for full screen: quick fixes are " &
+                "Alt+Shift+Enter here (or Ctrl+., the right-click menu, Edit › Quick fix…)",
+                "or remove Alt+Enter from Windows Terminal's Settings › Actions")
     rows.add ("System", "emoji", 3, "",
               (if graphemes: "emoji sequences as one character (👨‍👩‍👧, flags, skin tones)"
                else: "each emoji apart (ui.graphemes: \"on\" for a terminal that joins them)"), "")

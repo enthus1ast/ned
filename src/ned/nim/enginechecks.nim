@@ -1690,7 +1690,19 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("import-not-required", "an import of a package the .nimble does not require", 2),
   ("require-unused", "a package the .nimble requires that nothing imports", 4),
   ("nimble", "a problem in a .nimble file", 2),
-  ("nim3", "Nim 3 (Nimony): what Nim 2 code must change — in a Nim 3 project, or when asked", 2)]
+  ("nim3", "Nim 3 (Nimony): what Nim 2 code must change — in a Nim 3 project, or when asked", 2),
+  # (ned's own CSS, HTML and SQL — in their files and in Nim strings)
+  ("sql-args", "a query given more (or fewer) values than it has `?` (db_connector's exec, getRow …)", 1),
+  ("sql-table", "a table no CREATE TABLE of the project makes", 2),
+  ("sql-column", "a column its table does not have (`t.col`)", 2),
+  ("css-property", "an unknown CSS property", 2),
+  ("css-value", "a value its CSS property does not take", 2),
+  ("css-semicolon", "a missing `;`: the next line is read as part of the value", 1),
+  ("css-brace", "a `}` too many, or a `{` never closed", 1),
+  ("html-close", "a closing tag that closes the wrong element or nothing, an element never closed", 1),
+  ("html-id", "an id used twice", 2),
+  ("html-element", "an element HTML does not have", 2),
+  ("html-alt", "an <img> without alt text", 4)]
 
 var ecWantSev* = 4                     # ned --lint: rules less serious than what it shows or fails on are not looked for
 

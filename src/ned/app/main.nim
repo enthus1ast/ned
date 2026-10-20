@@ -187,6 +187,7 @@ proc mainLoop() =
     if landBuf >= 0: timeout = min(timeout, 40)              # (the line a jump landed on, fading)
     if progressAnimating() or (progWas and msSince(progSince) < 600): timeout = min(timeout, 80)   # (the progress band)
     if cfgRefCounts and not refComplete and refFiles.len > 0: timeout = min(timeout, 20)   # the project's words
+    if cfgRefCounts and refJobs.len > 0: timeout = min(timeout, 40)        # (a count of many places, going on)
     if cfgRefCounts and msSince(lastInputAt) < 450: timeout = min(timeout, 250)          # (the counts after scrolling)
     if nxWarmMods.len > 0: timeout = min(timeout, 60)          # (the imports' scopes, a few at a time while quiet)
     if nxPreload.len > 0 or (nimEngineOn(cb0) and cb0.path.len > 0 and cb0.id notin nxPreloaded):
