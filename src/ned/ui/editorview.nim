@@ -6,7 +6,7 @@ proc mbDiags(b: Buffer): seq[Diag] =
   var base = 0
   var byPath: Table[string, seq[Diag]]
   for l, s in b.lines:
-    if k + 1 < secs.len and s == mbHeader(b.lang, secs[k + 1].path, secs[k + 1].start):
+    if k + 1 < secs.len and s == mbHeaderOf(b.lang, secs[k + 1]):
       inc k
       base = l + 1
       if secs[k].path notin byPath: byPath[secs[k].path] = diagsFor(secs[k].path)
@@ -395,7 +395,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                colourSwatches(b.lang, s, toks) else: @[]
     var swBg: seq[(int, int, Rgb)]       # swatches with no room on the row: the colour behind the text instead
     var overlays: seq[(int, string)]     # type hints over the spaces before a lined-up `=`
-    if (showInlays and line in b.inlays) or sw.len > 0 or
+    if (showInlays and line in b.inlays) or sw.len > 0 or (nesSug.buf == b.id and nesSug.at.line == line) or
        (cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]) or
        (cfgShowCopies and b.id in copyMarks and line in copyMarks[b.id]) or
        (showInlays and b.lang.mode == lmNim and s.len < 400 and '=' in s):     # (a run lined up on `=` with hints)
@@ -848,6 +848,13 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     var xx = putStr(x0 + 1, y, " ▤ ", theme.accent, hbg, {aBold})
     xx = putStr(xx, y, relPath(path), theme.fg, hbg, {aBold}, x0 + w - 2)
     xx = putStr(xx, y, "  line " & $(fl + 1), theme.dim, hbg, {}, x0 + w - 2)
+    let nk = b.lines[line].find("  — ")
+    if nk >= 0:
+      # (a note: the Git changes view's +added −removed · staged or not)
+      let note = b.lines[line][nk + "  — ".len .. ^1]
+      let col = if "not staged" in note or "not tracked" in note: theme.gitMod
+                elif "partly" in note: theme.warn elif "staged" in note: theme.gitAdd else: theme.dim
+      xx = putStr(xx + 2, y, note, col, hbg, {}, x0 + w - 2)
     let hint = "↵ or click: open"
     if xx + strWidth(hint) + 3 < x0 + w: discard putStr(x0 + w - strWidth(hint) - 2, y, hint, theme.dim, hbg)
     let pp = path

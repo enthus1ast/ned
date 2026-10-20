@@ -1,11 +1,13 @@
-## ned showcase — one Nim file that exercises what ned (6.14) does for Nim.
+## ned showcase — one Nim file that exercises what ned (6.15) does for Nim.
 ##
 ## Open it:   ned showcase.nim        Run it:   F5 (or `nim c -r showcase.nim`)
 ## Each section says what to try. Alt+Enter = quick fixes (Alt+Shift+Enter or Ctrl+. where the terminal keeps
 ## Alt+Enter: Windows Terminal; also the right-click menu and Edit › Quick fix…) · Alt+H = hover · F12 = go to
 ## definition · Shift+F12 = references · F2 = rename · Alt+M = expand a template/macro · Alt+F = format ·
 ## Alt+Shift+J = jump labels (a letter over every word on screen: type it to go there) · Ctrl+P = open a file,
-## with the selected one shown beside the list · Ctrl+E = command palette (type "Nim:" to see every Nim command).
+## with the selected one shown beside the list · Alt+Shift+→ = select the next piece of code around the cursor ·
+## Alt+Shift+S = surround · Alt+Shift+U = undo history · Alt+Shift+G = every git change in one editable view ·
+## Ctrl+E = command palette (type "Nim:" to see every Nim command).
 ## Help › Performance… shows how ned keeps up on your device: frames, what each sends to the terminal, and what
 ## the engine takes; Help › Check setup what the terminal can do (keys, colours, emoji widths).
 ##
@@ -180,6 +182,8 @@ proc cStrlen(s: cstring): csize_t {.importc: "strlen", header: "<string.h>".}
 # The C in an emit edits as C: indentation, completion (struct members, nimbase.h, its headers), hover,
 # C compiler errors on these very lines, and Alt+F formats it (clang-format or ned's own C formatter).
 # F12 on `addInts` in its declaration below goes to `add_ints` here (F12 on `add_ints` comes back).
+# With "nim.backend": "cpp" an emit is C++: classes and their bases, namespaces (`ns::` lists their names),
+# methods, `auto`, templates like std::vector — ned's own engine reads them when clangd is not installed.
 {.emit: """
 /*TYPESECTION*/
 #include <stdio.h>
@@ -197,11 +201,12 @@ static int add_ints(int a, int b) {
 proc addInts(a, b: cint): cint {.importc: "add_ints", nodecl.}
 
 # ── 6. Other languages inside strings ─────────────────────────────────────────────────────────────────
-# Each string below is coloured as its language, and ned's own engines answer for CSS, HTML and SQL (a
-# language server for them, when installed, answers instead): completion — type `s.` in Query for the
-# columns of `shapes`, which Schema creates; `<` in Page for elements; a property in Style, then its values —,
-# hover, and problems: `paddng` is not a CSS property ("did you mean 'padding'?"), and the INSERT in saveShape
-# is given three values for its two `?`. Alt+F with the cursor in a string formats its HTML, CSS, SQL or JSON.
+# Each string below is coloured as its language, and ned's own engines answer for CSS, HTML, SQL and
+# JavaScript (a language server for them, when installed, answers instead): completion — type `s.` in Query
+# for the columns of `shapes`, which Schema creates; `<` in Page for elements; a property in Style, then its
+# values; `card.` in Script for an element's members —, hover, and problems: `paddng` is not a CSS property
+# ("did you mean 'padding'?"), `crad` in Script is one letter off `card`, and the INSERT in saveShape is given
+# three values for its two `?`. Alt+F with the cursor in a string formats its HTML, CSS, SQL or JSON.
 # Name your own routines with "nim.embeddedLanguages": {"render": "html"}.
 func sql(s: string): string = s
 func html(s: string): string = s
@@ -213,7 +218,7 @@ const
   Query = sql"""SELECT s.name, s.size FROM shapes s WHERE s.size > 3 ORDER BY s.name"""
   Page = html"""<div class="card"><h1>ned</h1><p>A Nim IDE in your terminal</p></div>"""
   Style = css""".card { color: #c0caf5; paddng: 2px 4px; }"""
-  Script = js"""document.querySelector(".card").classList.add("seen");"""
+  Script = js"""const card = document.querySelector(".card"); card.classList.add("seen"); crad.focus();"""
   Marked = #[html]# """<ul><li>a #[html]# marker colours any string</li></ul>"""
 
 type Db = object  # (a stand-in for db_connector's DbConn: the same calls)
@@ -279,7 +284,21 @@ proc main() =
   except IOError as e:
     echo "no config (", e.msg, ")"
 
-# ── 10. Tests ─────────────────────────────────────────────────────────────────────────────────────────
+# ── 10. Editing: by structure, surround, the next edit, the undo tree ─────────────────────────────────
+# Alt+Shift+→ in `scaled` grows the selection a piece of code at a time: `factor`, the call's argument, the
+# call, the value after `=`, the statement, the block, the proc with its doc comment (Alt+Shift+← goes back).
+# Alt+Shift+S puts brackets, quotes, a tag or a block (if, when, for, try…) around the selection — vim:
+# ysiw" cs"' ds' and S) as vim-surround. Rename `factor` where it is declared: the next `factor` shows
+# "→ … ⇥" — Tab goes there, Tab changes it too (editor.nextEdit; with AI set up, ai.nextEdit suggests what
+# an edit with no repeat leads to). Undo, then type: what was undone stays — Alt+Shift+U lists every state,
+# with a preview, and goes to any of them (vim: g- and g+). Alt+Shift+G: every change not committed, each
+# with a line around it, in one view to edit — stage, unstage or revert the one at the cursor.
+proc scaled*(x: float, factor: float): float =
+  ## x times factor, doubled, kept between 0 and 100 times factor
+  let doubled = x * factor * 2.0
+  result = clamp(doubled, 0.0, factor * 100.0)
+
+# ── 11. Tests ─────────────────────────────────────────────────────────────────────────────────────────
 # The Tests dock (test explorer) lists these; ▶ in the gutter runs one; with "nim.testOnSave" they run on
 # every save and show ✓ or ✗ beside each test. "Test coverage: run" colours the lines they reached.
 when isMainModule:
@@ -296,5 +315,7 @@ when isMainModule:
     test "C from Nim":
       check addInts(2, 3) == 5
       check cStrlen("ned") == 3
+    test "scaled":
+      check scaled(1.0, 2.0) == 4.0
 
   main()

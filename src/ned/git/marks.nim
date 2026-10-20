@@ -87,6 +87,21 @@ proc gotoHunk(d: int) =
 
 proc showHunk() =
   let b = buf()
+  if b.id in gcViews:
+    # (the changes view: what the change replaced, from its file's diff)
+    let (ok, path, line) = b.gcPlace(b.primary.head.line)
+    if ok:
+      for f in gcViews[b.id]:
+        if f.path != path: continue
+        for h in f.head:
+          if (line >= h.newStart and line < h.newStart + h.newLen) or (h.newLen == 0 and line + 1 == h.newStart):
+            var t = ""
+            for x in h.old: t.add "- " & x & "\n"
+            for x in h.new: t.add "+ " & x & "\n"
+            showHover(if t.len > 0: t else: "(no lines)")
+            return
+    info("The cursor is not on a change")
+    return
   let k = b.hunkAtCursor()
   if k < 0:
     info("The cursor is not on a changed line")
@@ -101,6 +116,7 @@ proc revertHunk()
 
 proc stageHunk() =
   ## put the change at the cursor into git's index (the next commit), as it is in the editor
+  if gcActHere("stage"): return
   let b = buf()
   let k = b.hunkAtCursor()
   if k < 0 or b.path.len == 0:
@@ -159,6 +175,7 @@ proc hunkActions() =
                           act("Show the change", "", proc() = showHunk())])
 
 proc revertHunk() =
+  if gcActHere("revert"): return
   let b = buf()
   if not b.canEdit(): return
   let k = b.hunkAtCursor()

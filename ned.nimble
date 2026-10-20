@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.14.1"
+version       = "6.15.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
@@ -84,7 +84,7 @@ task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt),
             "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim", "tests/unit/tdiskcache.nim", "tests/unit/tversions.nim",
             "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim", "tests/unit/tgcov.nim",
             "tests/unit/teffects.nim", "tests/unit/ttext.nim", "tests/unit/tbinfmt.nim", "tests/unit/twebdata.nim",
-            "tests/unit/tweb.nim", "tests/unit/twebfmt.nim"]:
+            "tests/unit/tweb.nim", "tests/unit/twebfmt.nim", "tests/unit/tjs.nim"]:
     exec "nim r -d:release --hints:off " & t
 
 task lsptest, "nedls driven by a test client: every feature, and 2000 random edits (needs python3)":

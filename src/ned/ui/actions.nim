@@ -19,8 +19,11 @@ proc gitCloneFromLink(link = "")
 proc gitIdentityMissing(dir: string): bool
 proc gitAskIdentity(dir: string, then: proc() {.closure.} = nil)
 
+var undoPickBuf = -1              # (the undo history's picker: the buffer it shows; -1 for any other picker)
+
 proc openActions(title: string, items: seq[(string, string, proc() {.closure.})], search: seq[string] = @[]) =
   ## a picker of arbitrary actions (label, detail, action); `search`: extra text per item the query may match
+  undoPickBuf = -1
   pickActions.setLen(0)
   pickSwatches.setLen(0)
   var its: seq[PickItem]

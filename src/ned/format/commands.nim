@@ -108,6 +108,7 @@ proc builtinFormatText(kind, text: string, indentW = 2, path = ""): (string, str
     case kind
     of "nim": nimFormatAll(text, path)
     of "c": fmtC(text, max(1, indentW), looksCpp(text))
+    of "cpp": fmtC(text, max(1, indentW), true)
     of "json": fmtJson(text, max(1, indentW))
     of "markdown": fmtMarkdown(text)
     of "css": fmtCss(text, max(1, indentW))
@@ -340,7 +341,8 @@ proc formatEmbedded(b: Buffer): bool =
            of "json": "json"
            of "css": "css"
            of "scss", "less": "scss"
-           of "c", "cpp": "c"             # (C in an emit: clang-format when installed, else ned's own)
+           of "c": "c"                    # (C in an emit: clang-format when installed, else ned's own)
+           of "cpp": "cpp"
            of "yaml": "yaml"
            of "toml": "toml"
            of "markdown": "markdown"

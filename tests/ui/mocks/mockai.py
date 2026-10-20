@@ -160,6 +160,8 @@ class H(BaseHTTPRequestHandler):
             fix = 'x * 5' if ('second try' in user and 'Your previous answer was' not in user) else 'x * 2'
             text, finish = ('FILE: calc.nim\n<<<<<<< SEARCH\nproc twice*(x: int): int = x * 3\n=======\n'
                             'proc twice*(x: int): int = ' + fix + '\n>>>>>>> REPLACE\n'), 'stop'
+        elif 'Just edited line' in user and 'NEXTEDIT' in user:
+            text, finish = '{"line": 3, "old": "2", "new": "2.0"}', 'stop'   # (a next-edit suggestion)
         elif '<CURSOR>' in user and 'GHOSTGOOD' in user:
             text, finish = 'name.toUpperAscii', 'stop'          # (an inline suggestion that compiles)
         elif '<CURSOR>' in user and 'GHOSTBAD' in user:

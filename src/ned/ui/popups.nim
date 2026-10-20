@@ -152,6 +152,8 @@ proc pickPreviewTarget(): (string, int, Buffer) =
     if it.idx >= 0 and it.idx < bufs.len:
       let b = bufs[it.idx]
       return (b.path, b.primary.head.line, b)
+  of pickAction:
+    return (if undoPickBuf >= 0: undoPreviewTarget() else: ("", -1, nil))
   else: return ("", -1, nil)
   for b in bufs:
     if b.path == result[0] and b.path.len > 0: return (result[0], result[1], b)
@@ -186,7 +188,8 @@ proc drawPickPreview(x, y, w, h: int) =
   let (path, line, open) = pickPreviewTarget()
   if path.len == 0 and open == nil: return
   let b = if open != nil: open else: pickPreviewBuffer(path)
-  drawBox(x, y, w, h, (if path.len > 0: truncTo(relPath(path), max(8, w - 6)) else: "untitled"))
+  drawBox(x, y, w, h, (if path.len > 0: truncTo(relPath(path), max(8, w - 6))
+                       elif undoPickBuf >= 0: "the text at that state" else: "untitled"))
   if b == nil:
     discard putStr(x + 2, y + 1, "(not a text file)", theme.dim, theme.popupBg, {aItalic}, x + w - 1)
     return
@@ -213,7 +216,7 @@ proc drawPicker() =
   var ph = n + 4
   # a preview beside it, when there is room (files, symbols, buffers)
   let preview = cfgPickerPreview and not pickNear and scrW >= 110 and scrH >= 16 and
-                pickKind in {pickFile, pickSymbol, pickBuffer, pickRecent}
+                (pickKind in {pickFile, pickSymbol, pickBuffer, pickRecent} or (pickKind == pickAction and undoPickBuf >= 0))
   if preview:
     pw = clamp((scrW - 3) * 11 div 20, 50, 96)      # (the list keeps room for its details; the rest previews)
     px = 1
@@ -357,6 +360,7 @@ const HelpLines = [
   "Alt+'                Bookmark the line    Alt+; / Alt+:  next / previous bookmark",
   "Alt+V / Alt+Shift+V  Next / previous TODO · FIXME · BUG · HACK · NOTE comment (View › TODOs: list and count)",
   "F7 / Shift+F7        Next / previous git change — click its mark (▎) to stage, revert or show it",
+  "Alt+Shift+G          Git › Changes: every change not committed in one editable view (stage, unstage, revert)",
   "Git menu            Branches (or click the branch in the title bar) · commit box · amend · sync · pull ·",
   "                     push (a login opens the terminal) · stage selected lines · history · blame · stash",
   "Git menu            Interactive rebase (edit the plan, Ctrl+S) · branch graph · compare with a branch ·",
@@ -371,13 +375,15 @@ const HelpLines = [
   "Large files          Very big files or very long lines: no wrap, language server or minimap (palette turns it off)",
   "",
   "EDITING",
-  "Ctrl+Z / Ctrl+Y      Undo / redo",
+  "Ctrl+Z / Ctrl+Y      Undo / redo     Alt+Shift+U  undo history: every state, the branches too, a preview",
   "Ctrl+C / X / V       Copy / cut / paste (whole line when nothing selected)",
   "Ctrl+A / Ctrl+L      Select all / select line",
   "Ctrl+D / Alt+A       Next occurrence / all occurrences (multi-cursor)",
   "Alt+J / Alt+K        Add cursor below / above (also Alt+Shift+↑/↓)    Esc  single cursor",
   "Alt+click / Alt+drag Add a cursor / box (column) selection",
-  "Alt+Shift+→ / ←      Expand / shrink selection",
+  "Alt+Shift+→ / ←      Grow / shrink the selection: name, call, argument, statement, block, routine",
+  "Alt+Shift+S          Surround with brackets, quotes, a tag or a block (Edit › Surround: change, delete a pair)",
+  "→ x ⇥ after a word   Next edit: Tab goes there, Tab again makes the same change · Esc no (editor.nextEdit)",
   "Alt+↑ / Alt+↓        Move line(s)        Alt+D  duplicate line/selection",
   "Ctrl+K               Delete line(s)      Ctrl+/  toggle comment",
   "Alt+Shift+R / M      Record a keyboard macro (again: stop) / play it · Edit › Macros: N times, each line, save",

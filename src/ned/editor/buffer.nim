@@ -280,14 +280,51 @@ proc replaceText(b: Buffer, a0, c0: Pos, text: string): Pos =
 proc beginEdit(b: Buffer, kind = ekOther) =
   b.inGroup = true
   b.group = UndoGroup(before: b.cursors, kind: kind, time: getMonoTime())
+  # (next-edit suggestions: the line the edits are on, as it was before they began)
+  if b.cursors.len == 1:
+    let l = clamp(b.cursors[0].head.line, 0, b.lines.high)
+    if not b.nesHas or b.nesLine != l:
+      b.nesHas = true
+      b.nesLine = l
+      b.nesBefore = b.lines[l]
+  else: b.nesHas = false
+
+proc detachRedo(b: Buffer) =
+  ## the steps undone (the redo stack) kept as a branch of the undo tree, off the line of edits where they were
+  if b.redoStack.len == 0: return
+  let d = b.undoStack.len
+  var tail = newSeqOfCap[UndoGroup](b.redoStack.len)
+  for i in countdown(b.redoStack.high, 0): tail.add b.redoStack[i]
+  for br in b.undoBranches.mitems:
+    if br.at > d:
+      # (it hung off those steps: now off this branch, with the steps it shared)
+      br.groups = tail[0 ..< clamp(br.at - d, 0, tail.len)] & br.groups
+      br.at = d
+  b.undoBranches.add UndoBranch(at: d, groups: tail)
+  if b.undoBranches.len > 64: b.undoBranches.delete(0)
+  b.redoStack.setLen(0)
+
+proc dropOldestUndo(b: Buffer) =
+  ## (the history is full: its oldest step goes, and the branches off the state before it)
+  b.undoStack.delete(0)
+  var k = 0
+  while k < b.undoBranches.len:
+    dec b.undoBranches[k].at
+    if b.undoBranches[k].at < 0: b.undoBranches.delete(k) else: inc k
 
 proc endEdit(b: Buffer) =
   b.inGroup = false
   if b.group.ops.len == 0: return
+  if b.nesHas:
+    for o in b.group.ops:
+      if o.a.line != b.nesLine or '\n' in o.oldText or '\n' in o.newText:
+        b.nesHas = false            # (an edit over lines, or elsewhere: no single line's change to repeat)
+        break
   b.group.after = b.cursors
-  b.redoStack.setLen(0)
+  let branched = b.redoStack.len > 0
+  b.detachRedo()                   # (an edit after an undo: what was undone stays reachable — Undo history…)
   inc undoSeq
-  let forceNew = b.newGroup
+  let forceNew = b.newGroup or branched
   b.newGroup = false
   if b.group.kind in {ekType, ekDelete} and b.undoStack.len > 0 and not forceNew:
     let last = addr b.undoStack[^1]
@@ -299,7 +336,7 @@ proc endEdit(b: Buffer) =
       return
   b.group.seqId = undoSeq
   b.undoStack.add b.group
-  if b.undoStack.len > 2000: b.undoStack.delete(0)
+  if b.undoStack.len > 2000: b.dropOldestUndo()
 
 proc normalize(b: Buffer)
 
@@ -315,6 +352,7 @@ proc undo(b: Buffer) =
     info("Nothing to undo")
     return
   let g = b.undoStack.pop()
+  b.nesHas = false
   b.stops.setLen(0)
   b.stopIds.setLen(0)
   for i in countdown(g.ops.high, 0):
@@ -325,6 +363,7 @@ proc undo(b: Buffer) =
       b.undoStack.setLen(0)
       b.redoStack.setLen(0)
       b.normalize()
+      b.undoBranches.setLen(0)
       warn("The undo history no longer matches this text — it was cleared")
       return
     let e = b.rawReplace(op.a, c, op.oldText)
@@ -338,12 +377,14 @@ proc redo(b: Buffer) =
     info("Nothing to redo")
     return
   let g = b.redoStack.pop()
+  b.nesHas = false
   for op in g.ops:
     let c = posAfter(op.a, op.oldText)
     if not b.textAt(op.a, c, op.oldText):
       b.undoStack.setLen(0)
       b.redoStack.setLen(0)
       b.normalize()
+      b.undoBranches.setLen(0)
       warn("The undo history no longer matches this text — it was cleared")
       return
     let e = b.rawReplace(op.a, c, op.newText)

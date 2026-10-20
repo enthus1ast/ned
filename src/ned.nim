@@ -142,6 +142,7 @@ include ned/editor/navigation
 include ned/editor/search
 include ned/editor/projectreplace
 include ned/ui/actions
+include ned/editor/undotree
 include ned/format/folder
 include ned/nim/commands
 include ned/git/status
@@ -191,6 +192,7 @@ include ned/ai/oneshot
 include ned/ai/plan
 include ned/ai/offline
 include ned/ai/suggestions
+include ned/editor/nextedit
 include ned/ai/chatview
 include ned/ui/welcome
 include ned/editor/spell
@@ -211,6 +213,7 @@ include ned/app/commands
 include ned/app/input
 include ned/keymaps/vim
 include ned/editor/macros
+include ned/editor/surround
 include ned/keymaps/vimkeys
 include ned/keymaps/emacs
 include ned/keymaps/helix
@@ -272,6 +275,7 @@ include ned/nim/nimbleupdates
 include ned/editor/bookmarks
 include ned/editor/localhistoryview
 include ned/editor/recovery
+include ned/git/changesview
 include ned/git/marks
 include ned/app/keyboard
 include ned/app/setupcheck

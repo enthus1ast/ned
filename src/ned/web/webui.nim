@@ -1,6 +1,6 @@
-# ── ned's own CSS, HTML and SQL in the editor: in .css / .scss / .less, .html and .sql files and where they are
-#    embedded (an HTML <style>, Nim strings) — completion, hover and problems, when no language server does it
-#    (web.engine: auto) ──
+# ── ned's own CSS, HTML, SQL and JavaScript in the editor: in .css / .scss / .less, .html, .sql and .js files and
+#    where they are embedded (an HTML <style> or <script>, Nim strings) — completion, hover, go to definition and
+#    problems, when no language server does it (web.engine: auto) ──
 
 var
   webDocMemo: Table[(int, string), (int, seq[string])]    # (buffer, language) → (the change it was made for, text)
@@ -18,7 +18,7 @@ proc webHtmlFile(b: Buffer): bool =
   b.path.len == 0 or ext in [".html", ".htm", ".xhtml"]
 
 proc webLangAt(b: Buffer, p: Pos): string =
-  ## "css", "html", "sql" or "": the language ned's own engines know at p
+  ## "css", "html", "sql", "js" or "": the language ned's own engines know at p
   if b.lang == nil or p.line < 0 or p.line >= b.lines.len: return ""
   let own = webFamily(b.lang.id)
   if own == "html" and not webHtmlFile(b): return ""
@@ -82,6 +82,7 @@ proc webServerFor(b: Buffer, fam: string): bool =
   embServerAvailable(langByName(case fam
                                 of "css": "CSS"
                                 of "html": "HTML"
+                                of "js": "JavaScript"
                                 else: "SQL"))
 
 proc webEngineOn(b: Buffer, p: Pos): bool =
@@ -214,6 +215,15 @@ proc toCompItems(ws: seq[WebItem]): seq[CompItem] =
 
 var webCompAt = (-1, -1, -1)      # (buffer, line, column) the list ned's own engine opened is for
 
+proc jsTooBig(b: Buffer): bool =
+  ## (a minified bundle: the engine reads the whole text at every question — not that one)
+  if b.lines.len > 40_000: return true
+  var n = 0
+  for l in b.lines:
+    n += l.len
+    if n > 1_500_000: return true
+  false
+
 proc webComplete(b: Buffer, p: Pos, manual: bool): bool =
   ## ned's own completion for the CSS, HTML or SQL at p; false when it has nothing to say there
   if not webEngineOn(b, p): return false
@@ -225,8 +235,9 @@ proc webComplete(b: Buffer, p: Pos, manual: bool): bool =
     var ok = true
     var word = false                  # (`:`, `::`, `@` only in front of the word: `u.` asks for the columns anew)
     for ch in typed:
-      if isCssIdent(ch) and not (fam == "sql" and ch == '-'): word = true
-      elif word or fam == "sql" or ch notin {':', '@'}: ok = false
+      let identCh = if fam == "js": ch in IdentChars or ch == '$' else: isCssIdent(ch) and not (fam == "sql" and ch == '-')
+      if identCh: word = true
+      elif word or fam in ["sql", "js"] or ch notin {':', '@'}: ok = false
     if ok:
       refilterComp()
       return true
@@ -269,6 +280,13 @@ proc webComplete(b: Buffer, p: Pos, manual: bool): bool =
       return false
     start = a
     items = its
+  of "js":
+    if b.jsTooBig(): return false
+    let (a, its) = jsComplete(doc, p.line, p.col)
+    let afterDot = a > 0 and doc[p.line].len >= a and doc[p.line][a - 1] == '.'
+    if not manual and p.col - a < 1 and not afterDot: return false
+    start = a
+    items = its
   else: return false
   if items.len == 0:
     if manual: info("No completions")
@@ -294,15 +312,30 @@ proc webHoverInfo(b: Buffer, p: Pos): string =
     of "css": cssHover(doc, p.line, p.col)
     of "html": htmlHover(doc, p.line, p.col)
     of "sql": sqlHover(doc, p.line, p.col, sqlSchema(b))
+    of "js": (if b.jsTooBig(): "" else: jsHover(doc, p.line, p.col))
     else: ""
   except CatchableError, Defect: ""
+
+proc webDefinition(b: Buffer, p: Pos): bool =
+  ## JavaScript: where the name at p is declared (in the file, or the <script>s of the page)
+  if not webEngineOn(b, p) or webLangAt(b, p) != "js" or b.jsTooBig(): return false
+  let doc = webDoc(b, "js", near = -1)
+  if p.line >= doc.len: return false
+  var at = (-1, -1)
+  try: at = jsDefinition(doc, p.line, p.col)
+  except CatchableError, Defect: return false
+  if at[0] < 0: return false
+  pushJump()
+  b.setSingle(b.clampPos(Pos(line: at[0], col: at[1])))
+  b.centerOn(b.primary.head)
+  true
 
 # ── problems: after a pause in typing, for the file in front ──
 
 proc webDiagsOf(b: Buffer): seq[Diag] =
   var ws: seq[WebDiag]
   let fam = webFamily(b.lang.id)
-  let own = (fam == "html" and webHtmlFile(b)) or fam in ["css", "sql"]
+  let own = (fam == "html" and webHtmlFile(b)) or fam in ["css", "sql", "js"]
   if own and not (cfgWebEngine == "on" or not webServerFor(b, fam)): return
   case fam
   of "css":
@@ -318,7 +351,18 @@ proc webDiagsOf(b: Buffer): seq[Diag] =
           any = true
           break
       if any: ws.add cssChecks(css, strict = true)
+      if not b.jsTooBig() and (cfgWebEngine == "on" or not webServerFor(b, "js")):
+        # the page's <script>s: each a piece (a name two module scripts declare is no redeclaration)
+        let js = webDoc(b, "js")
+        var anyJs = false
+        for l in js:
+          if l.strip.len > 0:
+            anyJs = true
+            break
+        if anyJs: ws.add jsChecks(js, fragment = true)
   of "sql": ws.add sqlChecks(b.lines, sqlSchema(b))
+  of "js":
+    if not b.jsTooBig(): ws.add jsChecks(b.lines)
   else:
     var any3 = false                     # (HTML, CSS and SQL live in triple-quoted strings and sql"…")
     if b.lang.mode == lmNim and b.lines.len <= 15000:
@@ -327,8 +371,9 @@ proc webDiagsOf(b: Buffer): seq[Diag] =
           any3 = true
           break
     if any3:
-      # the HTML, CSS and SQL in the Nim strings — pieces of a page or a query: no brace or end-tag counting
-      for f in ["html", "css", "sql"]:
+      # the HTML, CSS, SQL and JavaScript in the Nim strings — pieces of a page, a query, a script: no brace or
+      # end-tag counting
+      for f in ["html", "css", "sql", "js"]:
         if cfgWebEngine != "on" and webServerFor(b, f): continue
         let d = webDoc(b, f)
         var any = false
@@ -340,6 +385,7 @@ proc webDiagsOf(b: Buffer): seq[Diag] =
         case f
         of "html": ws.add htmlChecks(d, fragment = true)
         of "css": ws.add cssChecks(d, strict = false)
+        of "js": ws.add jsChecks(d, fragment = true)
         else: ws.add sqlChecks(d, sqlSchema(b))
       var anyDb = false
       for l in b.lines:

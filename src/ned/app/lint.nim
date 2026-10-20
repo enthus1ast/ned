@@ -9,7 +9,8 @@ const LintFixRules = ["var-let", "deprecated", "unused-import", "can-be-func", "
 
 proc lintUsage(prog: string): string =
   prog & " — the Nim engine's checks over files and folders (no compiler run, no build)\n\n" &
-  "Usage: " & prog & " [options] [FILE|FOLDER…]      (default: this folder)\n\n" &
+  "Usage: " & prog & " [options] [FILE|FOLDER…]      (default: this folder)\n" &
+  "  (a CSS, HTML, SQL or JavaScript file named here: ned's own checks of those languages)\n\n" &
   "  --format:text|github|json|sarif  plain lines (path:line:col: warning: … [rule]), GitHub annotations\n" &
   "                        (::warning file=…; by itself under GitHub Actions), a JSON array, or SARIF 2.1.0 for\n" &
   "                        GitHub code scanning\n" &
@@ -101,13 +102,13 @@ proc lintChecks(b: Buffer): seq[Diag] =
   ## what ned --lint reports for one file: a misspelled name (the compiler's words), then the engine's checks —
   ## as .ned/lint.json and `# ned: ignore` comments want them
   try:
-    let f = nxFileFor(b)
+    let f = if b.lang != nil and b.lang.mode == lmNim: nxFileFor(b) else: nil
     if f != nil:
       for (l, c, w, meant) in nxTypos(f, b.lines, 0, b.lines.high, (-1, -1)):
         result.add Diag(line: l, col: c, eline: l, ecol: c + w.len, sev: 1, src: "ned", rule: "typo",
                         msg: "undeclared identifier: '" & w & "' — did you mean '" & meant & "'?")
   except CatchableError, Defect: discard
-  if cfgEngineChecks:
+  if cfgEngineChecks and b.lang != nil and b.lang.mode == lmNim:
     try: result.add engineChecksFor(b)
     except CatchableError, Defect: discard
   # (the SQL, HTML and CSS in its strings: a query given the wrong number of values, an unknown table …)
@@ -304,7 +305,8 @@ proc lintMain(args: seq[string], prog = "ned --lint"): int =
         l.setLen(l.len - 1)
         crlf = true
     b.lang = detectLang(path, b.lines[0])
-    if b.lang == nil or b.lang.mode != lmNim: continue
+    # (Nim files; a CSS, HTML, SQL or JavaScript file named on the command line: ned's own engines' checks)
+    if b.lang == nil or (b.lang.mode != lmNim and webFamily(b.lang.id).len == 0): continue
     let lc = lintCfgFor(path)
     for pr in lc.problems:
       let m = relativePath(lc.dir / ".ned" / "lint.json", rootDir) & ": " & pr

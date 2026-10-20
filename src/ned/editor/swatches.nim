@@ -178,6 +178,10 @@ proc lineDecor(b: Buffer, line: int, toks: seq[TokKind], sw: seq[(int, int, Rgb)
   ## what is drawn between the characters of a line: inlay hints and colour swatches, in column order
   decorOverlay.setLen(0)
   if (cfgInlayHints or b.lang.mode == lmCsv) and line in b.inlays: result = b.lineInlays(line, toks)
+  let (nc, nh) = b.nesHint(line)          # (a next-edit suggestion's place: what it would become)
+  if nc >= 0:
+    result.add (nc, nh)
+    result.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
   if cfgInlayHints and b.lang.mode == lmNim and line < b.lines.len and b.lines[line].len < 400 and
      (not cfgWrap or b.lineSegs(line).len == 1):
     # declarations lined up on their `=` (nim.format.align): a type hint goes over the spaces before the `=`, and

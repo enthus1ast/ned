@@ -1,11 +1,22 @@
 # ── C files with ned's own engine (c.engine): completion — struct members after `.` and `->` too —, hover with the
 #    comment that documents a declaration, F12 through #includes, references and rename, the outline, signature
-#    help, the C compiler's errors while you type, and a missing #include added. No clangd needed ──
+#    help, the C compiler's errors while you type, and a missing #include added. No clangd needed. C++ files
+#    (.cpp .cc .hpp …, and a .h that is C++) too: classes, methods, namespaces, templates read past ──
 
 proc cEngineOn(b: Buffer): bool =
   ## does ned's own C engine answer for this file? (c.engine: auto — when clangd is not installed —, builtin, both)
-  b != nil and b.lang != nil and b.lang.id == "c" and b.path.len > 0 and not b.largeOn and b.lines.len < 200_000 and
-    (cfgCEngine in ["builtin", "both"] or (cfgCEngine == "auto" and not haveExe("clangd")))
+  b != nil and b.lang != nil and b.lang.id in ["c", "cpp"] and b.path.len > 0 and not b.largeOn and
+    b.lines.len < 200_000 and (cfgCEngine in ["builtin", "both"] or (cfgCEngine == "auto" and not haveExe("clangd")))
+
+var cxCppSeen: Table[int, (int, bool)]       # buffer id → (the change it was looked at, is it C++)
+
+proc cxIsCppBuf(b: Buffer): bool =
+  ## is this buffer C++: a C++ file, or a .h with classes, namespaces or templates in it
+  if b.lang != nil and b.lang.id == "cpp": return true
+  if not b.path.endsWith(".h"): return false
+  if b.id in cxCppSeen and cxCppSeen[b.id][0] == b.changeId: return cxCppSeen[b.id][1]
+  result = cxLooksCpp(b.allText)
+  cxCppSeen[b.id] = (b.changeId, result)
 
 var
   cxDirsKey = ""
@@ -54,6 +65,7 @@ proc cxSetDirs(b: Buffer) =
     for d in v.split(':'): add d
   for d in cSystemIncludeDirs(): add d
   cxDirs = ds
+  cxSysDirs = cSystemIncludeDirs()
   cxCompileDefs = defs
   if not cxPredefSet:
     # the compiler's predefined macros: the #if branches its target decides (__x86_64__, __linux__, _WIN32 …)
@@ -80,22 +92,9 @@ proc cxFileOf(b: Buffer): CxFile =
     if f != nil and (cid == b.changeId or now - at < 2.0):
       if cid != b.changeId: f.lines = b.lines
       return f
-  result = cxLoad(b.path, b.allText & "\n", "buf:" & $b.id & ":" & $b.changeId)
+  result = cxLoad(b.path, b.allText & "\n", "buf:" & $b.id & ":" & $b.changeId, cpp = cxIsCppBuf(b))
   if b.lines.len > 20_000: cxBufParse[b.id] = (b.changeId, now, result)
   else: cxBufParse.del b.id
-
-func cxKindIcon(k: CxKind): int =
-  ## the completion list's icon (LSP's numbers)
-  case k
-  of cxFunc: 3
-  of cxField: 5
-  of cxVar, cxParam, cxLocal: 6
-  of cxStruct, cxUnion: 22
-  of cxEnum: 13
-  of cxEnumConst: 20
-  of cxTypedef: 7
-  of cxMacro: 15
-  of cxLabel: 18
 
 proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool =
   if not cEngineOn(b): return false
@@ -108,11 +107,12 @@ proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool =
   if member and items.len == 0:
     if manual: info(if typ.len > 0: "No members known for " & typ else: "The type there is not known")
     return true
+  let fence = if cxIsCppBuf(b): "```cpp\n" else: "```c\n"
   var out0: seq[CompItem]
   for it in items:
     out0.add CompItem(label: it.label, insert: it.label, detail: it.detail, kind: cxKindIcon(it.kind),
                       filter: it.label, sortText: $it.rank & it.label, rank: it.rank,
-                      doc: (if it.detail.len > 0: "```c\n" & it.detail & "\n```\n" else: "") & it.doc, docMade: true)
+                      doc: (if it.detail.len > 0: fence & it.detail & "\n```\n" else: "") & it.doc, docMade: true)
   if out0.len == 0: return false
   compLine = p.line
   compStartCol = b.wordStart(p)
@@ -138,18 +138,20 @@ proc cEngDefinition(b: Buffer, p: Pos): bool =
   except CatchableError as e:
     internalError("C engine", e)
     return false
+  let cpp = cxIsCppBuf(b)
   proc projectC(): seq[string] =
     if rootDir.len > 0:
       for f in projectFiles():
-        if f.endsWith(".c") and f != b.path: result.add(if f.isAbsolute: f else: rootDir / f)
+        if (f.endsWith(".c") or (cpp and cxIsCppPath(f) and not f.splitFile.ext.startsWith(".h"))) and f != b.path:
+          result.add(if f.isAbsolute: f else: rootDir / f)
   if ts.len == 0:
     # declared in no header this file includes: a function or global defined in the project's other .c files
     let (a, e) = cxWordAt(b.lines[p.line], p.col)
     if a >= e: return false
     let w = b.lines[p.line][a ..< e]
-    if w in CxKeywords: return false
+    if w in CxKeywords or (cpp and w in CxxKeywords): return false
     let cs = projectC()
-    for kind in [cxFunc, cxVar, cxStruct]:
+    for kind in (if cpp: @[cxFunc, cxVar, cxClass, cxStruct] else: @[cxFunc, cxVar, cxStruct]):
       let (h, k) = cxBodyIn(cs, w, kind)
       if h != nil:
         ts.add (h, h.syms[k])
@@ -161,9 +163,12 @@ proc cEngDefinition(b: Buffer, p: Pos): bool =
   let onDef = ts[^1][1].isDef and ts[^1][0].path == b.path and ts[^1][1].line == p.line
   # (a system header's declaration stays: a body the project has for it is a fallback, compiled out where the
   # system has its own)
-  if s.kind in {cxFunc, cxStruct, cxUnion, cxVar} and not s.isDef and not onDef and rootDir.len > 0 and
-     (g.path == b.path or g.path.startsWith(rootDir & "/")):
-    let (h, k) = cxBodyIn(projectC(), s.name, s.kind)
+  if s.kind in {cxFunc, cxStruct, cxUnion, cxVar, cxClass, cxMethod} and not s.isDef and not onDef and
+     rootDir.len > 0 and (g.path == b.path or g.path.startsWith(rootDir & "/")):
+    # (C++: a method's body in a .cpp of the project — of its class; a namespace's function as `int ns::f() { … }`)
+    var (h, k) = cxBodyIn(projectC(), s.name, s.kind, owner = (if s.kind == cxMethod: s.owner else: ""))
+    if h == nil and cpp and s.kind == cxFunc and s.scope.len > 0:
+      (h, k) = cxBodyIn(projectC(), s.name, cxMethod, owner = s.scope)
     if h != nil: (g, s) = (h, h.syms[k])
   pushJump()
   let path = if g.path == b.path: b.path else: g.path
@@ -183,13 +188,18 @@ proc cEngReferenceHits(b: Buffer, p: Pos): (seq[(string, int, int)], string) =
   let (a, e) = cxWordAt(b.lines[p.line], p.col)
   if a >= e: return (@[], "No symbol under cursor")
   let w = b.lines[p.line][a ..< e]
+  let cpp = f.cpp
   if w in CxKeywords: return (@[], w & " is a C keyword")
+  if cpp and w in CxxKeywords: return (@[], w & " is a C++ keyword")
   if ts.len > 0 and ts[0][1].kind in {cxLocal, cxParam, cxLabel}:
     let s = ts[0][1]
     var lo = s.scopeA
     if s.kind == cxParam:
       for x in f.syms:
-        if x.kind == cxFunc and x.name == s.owner and x.isDef: lo = x.line
+        if x.kind == cxFunc and x.name == s.owner and x.isDef and
+           (not cpp or (x.line <= s.line and x.endLine >= s.line)): lo = x.line
+        elif cpp and x.kind == cxMethod and x.name == s.owner and x.isDef and x.line <= s.line and x.endLine >= s.line:
+          lo = x.line
     for (l, c) in cxOccurrences(b.lines, w, lo, s.scopeB): result[0].add (b.path, l, c)
     return
   if ts.len > 0 and not ts[0][0].path.startsWith(rootDir & "/") and ts[0][0].path != b.path and rootDir.len > 0:
@@ -202,7 +212,7 @@ proc cEngReferenceHits(b: Buffer, p: Pos): (seq[(string, int, int)], string) =
   if rootDir.len > 0:
     var n = 0
     for f2 in projectFiles():
-      if not (f2.endsWith(".c") or f2.endsWith(".h")): continue
+      if not (f2.endsWith(".c") or f2.endsWith(".h") or (cpp and cxIsCppPath(f2))): continue
       let full = if f2.isAbsolute: f2 else: rootDir / f2
       if full in seen: continue
       inc n
@@ -233,8 +243,8 @@ proc cEngRename(b: Buffer, p: Pos, newName: string): bool =
   if nn.len == 0 or nn[0] notin IdentStartChars or not nn.allCharsInSet(IdentChars):
     warn("'" & nn & "' is not a C identifier")
     return true
-  if nn in CxKeywords:
-    warn("'" & nn & "' is a C keyword")
+  if nn in CxKeywords or (cxIsCppBuf(b) and nn in CxxKeywords):
+    warn("'" & nn & "' is a " & (if nn in CxKeywords: "C" else: "C++") & " keyword")
     return true
   try:
     let f = cxFileOf(b)
@@ -259,7 +269,7 @@ proc cEngSignature(b: Buffer, p: Pos): bool =
     internalError("C engine", e)
     return false
   if s.name.len == 0: return false
-  var lbl = (if s.kind == cxMacro: "#define " else: s.typ & " ") & s.name & "("
+  var lbl = (if s.kind == cxMacro: "#define " elif s.typ.len > 0: s.typ & " " else: "") & s.name & "("
   var spans: seq[(int, int)]
   for i, prm in s.params:
     if i > 0: lbl.add ", "
@@ -283,18 +293,23 @@ proc cEngOutline(b: Buffer): seq[SideItem] =
     let f = cxFileOf(b)
     for s in cxOutline(f):
       let icon = case s.kind
-        of cxFunc: "ƒ"
-        of cxStruct, cxUnion, cxEnum, cxTypedef: "T"
+        of cxFunc, cxMethod: "ƒ"
+        of cxStruct, cxUnion, cxEnum, cxTypedef, cxClass: "T"
         of cxMacro: "#"
         else: "v"
-      result.add SideItem(text: s.name, detail: (if s.kind == cxFunc: s.text else: s.typ), path: b.path,
+      let fn = s.kind in {cxFunc, cxMethod}
+      # (C++: a method defined outside its class, as Class::name)
+      let name = if s.kind == cxMethod and s.owner.len > 0: cxxSplit(s.owner)[^1] & "::" & s.name else: s.name
+      result.add SideItem(text: name, detail: (if fn or s.kind == cxClass: s.text else: s.typ), path: b.path,
                           line: s.line, col: s.col, depth: 0, icon: icon,
-                          role: (if s.kind == cxFunc: 7 elif s.kind in {cxStruct, cxUnion, cxEnum, cxTypedef}: 8 else: 0))
-      if s.kind in {cxStruct, cxUnion}:
+                          role: (if fn: 7 elif s.kind in {cxStruct, cxUnion, cxEnum, cxTypedef, cxClass}: 8 else: 0))
+      if s.kind in {cxStruct, cxUnion, cxClass}:
+        let key = if f.cpp: cxxQual(s) else: s.name
         for x in f.syms:
-          if x.kind == cxField and x.owner == s.name:
-            result.add SideItem(text: x.name, detail: x.typ, path: b.path, line: x.line, col: x.col, depth: 1,
-                                icon: "v", role: 0)
+          if x.kind in {cxField, cxMethod} and x.owner == key and (x.kind == cxField or x.scope == x.owner):
+            result.add SideItem(text: x.name, detail: (if x.kind == cxMethod: x.text else: x.typ), path: b.path,
+                                line: x.line, col: x.col, depth: 1, icon: (if x.kind == cxMethod: "ƒ" else: "v"),
+                                role: (if x.kind == cxMethod: 7 else: 0))
   except CatchableError as e: internalError("C engine", e)
 
 # ── errors while you type: the C compiler on the unsaved text (a private copy, removed after) ──
@@ -302,9 +317,10 @@ proc cEngOutline(b: Buffer): seq[SideItem] =
 var cTypingChecks: Table[string, (int, string)]      # path → (changeId checked, the copy)
 
 proc cTypingCheck(b: Buffer) =
-  if b.path in cTypingChecks or not haveExe("cc"): return
+  let cpp = cxIsCppBuf(b)
+  if b.path in cTypingChecks or not haveExe(if cpp: "c++" else: "cc"): return
   let id = b.changeId
-  let copy = privTmp("ctyping") & ".c"
+  let copy = privTmp("ctyping") & (if cpp: ".cpp" else: ".c")
   try: writeFile(copy, b.lines.join("\n") & "\n")
   except CatchableError: return
   b.chkAt = id
@@ -316,8 +332,9 @@ proc cTypingCheck(b: Buffer) =
   for d in cxDirs:
     if d != parentDir(path) and not cSystemIncludeDirs().contains(d): inc.add " -I" & quoteShell(d)
   for d in cxCompileDefs: inc.add " " & quoteShell(d)
-  discard startJob(jkCheck, "LC_ALL=C cc -fsyntax-only -Wall -fdiagnostics-color=never" & inc & " -x c - < " &
-                   quoteShell(copy),
+  let cc = if cpp: "c++ -std=c++17" else: "cc"
+  discard startJob(jkCheck, "LC_ALL=C " & cc & " -fsyntax-only -Wall -fdiagnostics-color=never" & inc &
+                   (if cpp: " -x c++ - < " else: " -x c - < ") & quoteShell(copy),
                    parentDir(path), proc(j: Job) =
     cTypingChecks.del path
     try: removeFile(copy)

@@ -1,4 +1,5 @@
-# ── C in {.emit.}: completion, hover and F12 with no language server (headers read by ned itself) ──
+# ── C in {.emit.}: completion, hover and F12 with no language server (headers read by ned itself). C++ in an emit
+#    (the C++ backend's): ned's C engine reading it as C++ — classes, methods, namespaces, templates ──
 
 const CKeywords = ["auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum",
                    "extern", "float", "for", "goto", "if", "inline", "int", "long", "register", "restrict", "return",
@@ -77,6 +78,84 @@ proc emitIsC(b: Buffer, p: Pos): bool =
   let l = b.langAt(p)
   l != nil and l.id in ["c", "cpp"]
 
+proc emitIsCpp(b: Buffer, p: Pos): bool =
+  ## is p in C++ emitted from this Nim file (the backend is C++)?
+  if not emitIsC(b, p): return false
+  let l = b.langAt(p)
+  l != nil and l.id == "cpp"
+
+func cxKindIcon(k: CxKind): int =
+  ## the completion list's icon for ned's C engine's kinds (LSP's numbers)
+  case k
+  of cxFunc: 3
+  of cxMethod: 2
+  of cxField: 5
+  of cxVar, cxParam, cxLocal: 6
+  of cxStruct, cxUnion: 22
+  of cxClass: 7
+  of cxNamespace: 9
+  of cxEnum: 13
+  of cxEnumConst: 20
+  of cxTypedef: 7
+  of cxMacro: 15
+  of cxLabel: 18
+
+proc emitCxx(b: Buffer): CxFile =
+  ## the C++ this file emits as ned's C engine reads it — lines and columns the .nim file's own —, its headers:
+  ## its #includes, the file's header: pragmas, nimbase.h
+  result = cxLoad(b.path, emitCode(b.lines) & "\n", "emit:" & $b.id & ":" & $b.changeId, cpp = true)
+  for h in emitHeaders(b):
+    let w = if h.startsWith("<") or h.startsWith("\""): h else: "\"" & h & "\""
+    var has = false
+    for (x, _) in result.includes:
+      if x == w: has = true
+    if not has: result.includes.add (w, -1)
+
+template withEmitDirs(b: Buffer, body: untyped) =
+  ## the engine asked with the Nim file's C include folders (the C files' are put back after)
+  let savedDirs = cxDirs
+  let savedSys = cxSysDirs
+  cxDirs = cIncludeDirs(b.path, b.lines)
+  cxSysDirs = cSystemIncludeDirs()
+  try: body
+  finally:
+    cxDirs = savedDirs
+    cxSysDirs = savedSys
+
+proc emitCxxComplete(b: Buffer, p: Pos, manual: bool): bool =
+  ## C++ in an emit: after `.` `->` `::` the members (a namespace's names), else once a word starts
+  let ws = b.wordStart(p)
+  let line = b.lines[p.line]
+  let prev = if ws > 0: line[ws - 1] else: ' '
+  let member = prev == '.' or (prev == '>' and ws >= 2 and line[ws - 2] == '-') or
+               (prev == ':' and ws >= 2 and line[ws - 2] == ':')
+  if not manual and not member and p.col - ws < 2: return false
+  var res: (seq[CxItem], bool, string)
+  try:
+    withEmitDirs(b):
+      res = cxComplete(emitCxx(b), p.line, p.col, cSystemIncludeDirs())
+  except CatchableError as e:
+    internalError("C++ engine", e)
+    return false
+  let (items, isMember, typ) = res
+  if isMember and items.len == 0:
+    if manual: info(if typ.len > 0: "No members known for " & typ else: "The type there is not known")
+    return manual
+  var out0: seq[CompItem]
+  for it in items:
+    out0.add CompItem(label: it.label, insert: it.label, detail: it.detail, kind: cxKindIcon(it.kind),
+                      filter: it.label, sortText: $it.rank & it.label, rank: it.rank,
+                      doc: (if it.detail.len > 0: "```cpp\n" & it.detail & "\n```\n" else: "") & it.doc, docMade: true)
+  if out0.len == 0: return false
+  compLine = p.line
+  compStartCol = ws
+  compManual = manual
+  compNx.setLen(0)
+  compItems = out0
+  compFromLsp = true
+  refilterComp()
+  true
+
 func cKindIcon(kind: string): int =
   case kind
   of "function": 3
@@ -94,6 +173,7 @@ proc emitComplete(b: Buffer, p: Pos, manual: bool): bool =
     refilterComp()
     return true
   if emitLspComplete(b, p): return true               # clangd, when installed
+  if emitIsCpp(b, p): return emitCxxComplete(b, p, manual)
   if not manual and p.col - ws < 2: return false
   var items: seq[CompItem]
   var seen: HashSet[string]
@@ -145,6 +225,17 @@ proc emitDecl(b: Buffer, w: string): (CProto, string) =
 proc emitHoverInfo(b: Buffer, p: Pos): string =
   ## the hover on a name in emitted C: its C declaration, and the Nim proc that imports it
   if not emitIsC(b, p): return ""
+  if emitIsCpp(b, p):
+    let w = b.wordAt(p)
+    if w.len == 0 or w in CxxKeywords: return ""
+    try:
+      withEmitDirs(b):
+        result = cxHover(emitCxx(b), p.line, p.col)
+    except CatchableError as e:
+      internalError("C++ engine", e)
+      return ""
+    if result.len > 0: result.add emitNimNote(b, w)
+    return
   let w = b.wordAt(p)
   if w.len == 0 or w in CKeywords: return ""
   let (d, h) = emitDecl(b, w)
@@ -159,9 +250,47 @@ proc emitHoverInfo(b: Buffer, p: Pos): string =
       result.add "\n\nImported into Nim as `" & nd.name & "` (line " & $(nd.line + 1) & ")"
       break
 
+proc emitCxxGoto(b: Buffer, p: Pos): bool =
+  ## F12 in emitted C++: the declaration (a method's body, its class's members, through the headers); on a
+  ## definition with nothing else to go to, the Nim declaration that imports it
+  let w = b.wordAt(p)
+  if w.len == 0 or w in CxxKeywords: return false
+  var ts: seq[(CxFile, CxSym)]
+  try:
+    withEmitDirs(b):
+      ts = cxTargets(emitCxx(b), p.line, p.col, jump = true)
+  except CatchableError as e:
+    internalError("C++ engine", e)
+    return false
+  if ts.len == 0:
+    if emitLspDefinition(b, p): return true            # clangd, when installed
+    info("No C++ declaration of " & w & " in this file or the headers it includes")
+    return true
+  let (g, s) = ts[0]
+  if ts.len == 1 and g.path == b.path and s.line == p.line:
+    # on the definition itself: the Nim side
+    for nd in nimFfiDecls(b.lines):
+      if nd.cname == w and nd.kind in ["proc", "func", "var", "let"]:
+        pushJump()
+        b.centerOn(b.clampPos(Pos(line: nd.line, col: nd.nameCol)))
+        b.cursors = @[cur(b.clampPos(Pos(line: nd.line, col: nd.nameCol)))]
+        info("Nim: " & b.lines[nd.line].strip)
+        return true
+    info(w & " is declared here")
+    return true
+  pushJump()
+  let nb = if g.path == b.path: b else: openFile(g.path)
+  if nb != nil:
+    let at = nb.clampPos(Pos(line: s.line, col: s.col))
+    nb.cursors = @[cur(at)]
+    nb.centerOn(at)
+  info("C++: " & s.text)
+  true
+
 proc emitGoto(b: Buffer, p: Pos): bool =
   ## F12 in emitted C: from a definition to the Nim proc that imports it; from a use to the definition
   if not emitIsC(b, p): return false
+  if emitIsCpp(b, p): return emitCxxGoto(b, p)
   let w = b.wordAt(p)
   if w.len == 0 or w in CKeywords: return false
   let (d, h) = emitDecl(b, w)

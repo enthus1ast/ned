@@ -167,7 +167,8 @@ proc snippetJump(b: Buffer, dir: int): bool =
   b.activateStop(ids[nxt])
   true
 
-proc expandSnippet(b: Buffer, a, e: Pos, body: string) =
+proc expandSnippet(b: Buffer, a, e: Pos, body: string, literal = false) =
+  ## (literal: a tab stays a tab — text that is the user's, not a snippet's indentation)
   if not b.canEdit(): return
   let line = b.lines[a.line]
   let baseInd = leadingWs(line[0 ..< min(a.col, line.len)])
@@ -212,7 +213,7 @@ proc expandSnippet(b: Buffer, a, e: Pos, body: string) =
     elif c == '\n':
       text.add "\n" & baseInd
       inc i
-    elif c == '\t':
+    elif c == '\t' and not literal:
       text.add b.indent
       inc i
     else:

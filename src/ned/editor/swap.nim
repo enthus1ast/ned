@@ -69,7 +69,7 @@ proc writeUndo(b: Buffer) =
   if undoWritten.getOrDefault(b.id, -1) == b.topSeq() and b.undoStack.len > 0: return
   undoWritten[b.id] = b.topSeq()
   let f = undoFile(b.path)
-  if b.undoStack.len == 0 and b.redoStack.len == 0:
+  if b.undoStack.len == 0 and b.redoStack.len == 0 and b.undoBranches.len == 0:
     removeFile(f)
     return
   proc pos(p: Pos): JsonNode = %[p.line, p.col]
@@ -86,7 +86,14 @@ proc writeUndo(b: Buffer) =
         size += o.oldText.len + o.newText.len
       result.add %*{"o": ops, "b": curs(g.before), "a": curs(g.after), "k": g.kind, "s": g.seqId}
       if size > 4_000_000: break
-  let j = %*{"path": b.path, "hash": fnv(b.lines.join("\n")), "undo": groups(b.undoStack), "redo": groups(b.redoStack)}
+  # the undo tree's branches (their first steps; where they leave the line of edits, counted in the steps kept)
+  let offset = b.undoStack.len - min(300, b.undoStack.len)
+  let brs = newJArray()
+  for br in b.undoBranches[max(0, b.undoBranches.len - 20) .. ^1]:
+    if br.at - offset < 0: continue
+    brs.add %*{"at": br.at - offset, "g": groups(br.groups[0 ..< min(300, br.groups.len)])}
+  let j = %*{"path": b.path, "hash": fnv(b.lines.join("\n")), "undo": groups(b.undoStack), "redo": groups(b.redoStack),
+             "branches": brs}
   try:
     createDir(parentDir(f))
     writeFile(f, $j)
@@ -112,12 +119,20 @@ proc readUndo(b: Buffer) =
   try:
     b.undoStack = groupsOf(j{"undo"})
     b.redoStack = groupsOf(j{"redo"})
+    b.undoBranches.setLen(0)
+    for br in jitems(j{"branches"}):
+      let at = br{"at"}.getInt
+      if at >= 0 and at <= b.undoStack.len + b.redoStack.len:
+        b.undoBranches.add UndoBranch(at: at, groups: groupsOf(br{"g"}))
   except CatchableError:
     b.undoStack.setLen(0)
     b.redoStack.setLen(0)
+    b.undoBranches.setLen(0)
     return
   for g in b.undoStack: undoSeq = max(undoSeq, g.seqId)
   for g in b.redoStack: undoSeq = max(undoSeq, g.seqId)
+  for br in b.undoBranches:
+    for g in br.groups: undoSeq = max(undoSeq, g.seqId)
   b.savedSeq = b.topSeq()
   undoWritten[b.id] = b.topSeq()
 

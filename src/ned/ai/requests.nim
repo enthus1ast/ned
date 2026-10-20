@@ -81,7 +81,7 @@ proc nimDefinitionsFor(b: Buffer, l0, l1: int, budget = 6000): string =
 proc cDefinitionsFor(b: Buffer, l0, l1: int, budget = 6000): string =
   ## C: the declarations the code in lines l0..l1 uses from headers and other files (prototypes, structs, macros —
   ## with the comment that documents them), from ned's C engine
-  if not cfgAiNimContext or b.lang == nil or b.lang.id != "c" or b.path.len == 0: return ""
+  if not cfgAiNimContext or b.lang == nil or b.lang.id notin ["c", "cpp"] or b.path.len == 0: return ""
   var f: CxFile
   try: f = cxFileOf(b)
   except CatchableError: return ""
@@ -128,7 +128,7 @@ proc cDefinitionsFor(b: Buffer, l0, l1: int, budget = 6000): string =
 proc codeDefinitionsFor(b: Buffer, l0, l1: int, budget = 6000): string =
   ## what the code in lines l0..l1 uses but does not declare: Nim from the built-in engine, C from ned's C engine
   if b.lang != nil and b.lang.mode == lmNim: nimDefinitionsFor(b, l0, l1, budget)
-  elif b.lang != nil and b.lang.id == "c": cDefinitionsFor(b, l0, l1, budget)
+  elif b.lang != nil and b.lang.id in ["c", "cpp"]: cDefinitionsFor(b, l0, l1, budget)
   else: ""
 
 proc fileContext(): string =

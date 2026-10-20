@@ -6508,8 +6508,219 @@ def t_6141_showcase():
     check("6141 ned --lint: the SQL and CSS in the strings", "[sql-args]" in r.stdout and "'paddng'" in r.stdout,
           r.stdout + r.stderr)
     start('showcase.nim', w=150, h=40); time.sleep(1)
-    keys('C-g'); text('224'); keys('Enter')
+    at = [i + 1 for i, l in enumerate(ftext('showcase.nim').split('\n')) if 'db.exec(sql"INSERT' in l][0]
+    keys('C-g'); text(str(at)); keys('Enter')
     check("6141 the showcase: exec given 3 values for 2 '?'", wait_for("exec: 3 values for the query's 2", 10), screen())
 
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase]
+def t_615_select_structure():
+    # Alt+Shift+→ grows the selection to the next piece of code: the name, the call, the argument, the brackets, the
+    # member chain, the statement, the block, the routine — Alt+Shift+← goes back
+    setup({"nim.nimsuggest": None})
+    src = 'proc go(a: int): int =\n  let x = foo.bar(a, call(a, 3)).baz\n  result = x\n'
+    for name, n, want in [('s1.nim', 2, '  let x = foo.bar(a, Z).baz\n'), ('s2.nim', 6, '  let x = Z.baz\n'),
+                          ('s6.nim', 7, '  let x = Z\n'),
+                          ('s3.nim', 8, '  Z\n  result = x\n'), ('s4.nim', 9, 'proc go(a: int): int =\n  Z\n')]:
+        open(W + '/' + name, 'w').write(src)
+        tm('kill-server'); time.sleep(0.3)
+        start(name, w=110, h=24); time.sleep(0.5)
+        keys('C-g'); text('2:22'); keys('Enter'); time.sleep(0.2)
+        for _ in range(n): keys('M-S-Right'); time.sleep(0.12)
+        text('Z'); keys('C-s'); time.sleep(0.5)
+        check('615 select by structure: %d steps out from a name' % n, want in ftext(name), repr(ftext(name)))
+    tm('kill-server'); time.sleep(0.3)
+    open(W + '/s5.nim', 'w').write(src)
+    start('s5.nim', w=110, h=24); time.sleep(0.5)
+    keys('C-g'); text('2:22'); keys('Enter'); time.sleep(0.2)
+    for _ in range(4): keys('M-S-Right'); time.sleep(0.12)
+    for _ in range(2): keys('M-S-Left'); time.sleep(0.12)
+    text('Z'); keys('C-s'); time.sleep(0.5)
+    check('615 select by structure: Alt+Shift+← goes back a step', 'foo.bar(a, Z).baz' in ftext('s5.nim'), repr(ftext('s5.nim')))
+
+def t_615_surround():
+    # Edit › Surround with… (Alt+Shift+S): quotes around a word, the pair changed, taken away; a block around lines
+    setup({"nim.nimsuggest": None})
+    open(W + '/sr.nim', 'w').write('let a = foo + bar\n')
+    open(W + '/sb.nim', 'w').write('echo 1\necho 2\n')
+    start('sr.nim', w=120, h=26); time.sleep(0.5)
+    keys('C-g'); text('1:10'); keys('Enter')
+    keys('M-S'); time.sleep(0.5)
+    check('615 surround: the picker of pairs and blocks', 'Surround with' in screen() and 'when' in screen(), screen())
+    text('double'); time.sleep(0.3); keys('Enter'); time.sleep(0.3)
+    keys('C-s'); time.sleep(0.4)
+    check('615 surround: quotes around the word', ftext('sr.nim') == 'let a = "foo" + bar\n', repr(ftext('sr.nim')))
+    keys('C-g'); text('1:11'); keys('Enter')
+    palette('Change the surrounding pair'); time.sleep(0.4)
+    text('square'); time.sleep(0.3); keys('Enter'); time.sleep(0.3); keys('C-s'); time.sleep(0.4)
+    check('615 surround: the pair changed', ftext('sr.nim') == 'let a = [foo] + bar\n', repr(ftext('sr.nim')))
+    keys('C-g'); text('1:11'); keys('Enter')
+    palette('Delete the surrounding pair'); time.sleep(0.4); keys('C-s'); time.sleep(0.4)
+    check('615 surround: the pair taken away', ftext('sr.nim') == 'let a = foo + bar\n', repr(ftext('sr.nim')))
+    keys('C-p'); time.sleep(0.3); text('sb.nim'); time.sleep(0.4); keys('Enter'); time.sleep(0.6)
+    keys('C-a'); keys('M-S'); time.sleep(0.5)
+    text('when'); time.sleep(0.3); keys('Enter'); time.sleep(0.3)
+    text('true'); keys('C-s'); time.sleep(0.4)
+    check('615 surround: a block around the lines (its condition typed in its place)',
+          ftext('sb.nim') == 'when true:\n  echo 1\n  echo 2\n', repr(ftext('sb.nim')))
+
+def t_615_vim_surround():
+    # vim: ys{motion}{char}, yss, cs{old}{new}, ds{char}, S{char} on a visual selection (as vim-surround)
+    setup({"editor.vimMode": True, "editor.keymap": "vim", "nim.nimsuggest": None})
+    open(W + '/vs.txt', 'w').write('hello world\nsecond line\n')
+    start('vs.txt', w=100, h=24); time.sleep(0.5)
+    text('ysiw"'); time.sleep(0.2); text(':w'); keys('Enter'); time.sleep(0.4)
+    check('615 vim: ysiw" quotes the word', ftext('vs.txt').startswith('"hello" world\n'), repr(ftext('vs.txt')))
+    text("cs\"'"); time.sleep(0.2); text(':w'); keys('Enter'); time.sleep(0.4)
+    check("615 vim: cs\"' changes the quotes", ftext('vs.txt').startswith("'hello' world\n"), repr(ftext('vs.txt')))
+    text("ds'"); time.sleep(0.2); text(':w'); keys('Enter'); time.sleep(0.4)
+    check("615 vim: ds' takes them away", ftext('vs.txt').startswith('hello world\n'), repr(ftext('vs.txt')))
+    text('yss)'); time.sleep(0.2); text(':w'); keys('Enter'); time.sleep(0.4)
+    check('615 vim: yss) around the line', ftext('vs.txt').startswith('(hello world)\n'), repr(ftext('vs.txt')))
+    text('jwve'); text('S]'); time.sleep(0.2); text(':w'); keys('Enter'); time.sleep(0.4)
+    check('615 vim: S] around the visual selection', '\nsecond [line]\n' in ftext('vs.txt'), repr(ftext('vs.txt')))
+
+def t_615_undo_tree():
+    # an edit after an undo keeps what was undone: Undo history… (Alt+Shift+U) lists every state with a preview,
+    # going to one makes the edits left a branch in turn; vim's g- goes back in time across branches
+    setup({"nim.nimsuggest": None})
+    open(W + '/u.txt', 'w').write('abc\n')
+    start('u.txt', w=130, h=30); time.sleep(0.5)
+    keys('End'); text('1'); time.sleep(1.8); text('2'); time.sleep(1.8)
+    keys('C-z'); time.sleep(0.3); text('X'); time.sleep(0.3)
+    keys('M-U'); time.sleep(0.8)
+    sc = screen()
+    check('615 undo tree: every state, the undone one on a branch', 'Undo history' in sc and '⑂ typed “2”' in sc and
+          'typed “X”' in sc, sc)
+    check('615 undo tree: a preview of the text there', 'the text at that state' in sc and 'abc1X' in sc, sc)
+    keys('Down'); time.sleep(0.4)
+    check('615 undo tree: … the preview follows the selection', 'abc12' in screen(), screen())
+    keys('Enter'); time.sleep(0.4); keys('C-s'); time.sleep(0.4)
+    check('615 undo tree: to the branch', ftext('u.txt') == 'abc12\n', repr(ftext('u.txt')))
+    keys('M-U'); time.sleep(0.8)
+    check('615 undo tree: the edits left are a branch now', '⑂ typed “X”' in screen(), screen())
+    keys('Escape')
+    tm('kill-server'); time.sleep(0.3)
+    start('u.txt', w=130, h=30); time.sleep(0.6)
+    keys('M-U'); time.sleep(0.8)
+    check('615 undo tree: kept with the file\'s undo history (after a restart)', '⑂ typed “X”' in screen(), screen())
+
+def t_615_git_changes():
+    # Git › Changes… (Alt+Shift+G): every change not committed in one editable view — staged or not in each header;
+    # stage, unstage, revert the change at the cursor; an edit there written back with Ctrl+S
+    setup({"nim.nimsuggest": None})
+    open(W + '/ga.txt', 'w').write(''.join('line %d\n' % i for i in range(1, 21)))
+    open(W + '/gb.txt', 'w').write('alpha\nbeta\n')
+    git('add -A'); git('-c user.email=a@b -c user.name=t commit -qm base')
+    open(W + '/ga.txt', 'w').write(''.join(('LINE %d\n' if i == 3 else 'line %d\n') % i for i in range(1, 21)) + 'line 21\n')
+    open(W + '/gb.txt', 'w').write('alpha\nBETA\n')
+    start('ga.txt', w=140, h=34); time.sleep(0.8)
+    keys('M-G')
+    ok = wait_for(r'changes in 2 files', 8)
+    sc = screen()
+    check('615 git changes: every change in one view, with what it is', ok and 'ga.txt  line 2  +1 −1 · not staged' in sc and
+          'LINE 3' in sc and 'gb.txt  line 1' in sc and 'line 21' in sc, sc)
+    keys('Down'); keys('Down'); time.sleep(0.2)
+    palette('Git: stage this change')
+    ok = wait_for(r'Change staged', 8); time.sleep(1.0)
+    cached = git('diff --cached').stdout
+    check('615 git changes: the change at the cursor staged (and the view says so)', ok and '+LINE 3' in cached and
+          'line 21' not in cached and '· staged' in screen(), cached + screen())
+    keys('C-Home'); keys('Down'); keys('Down'); time.sleep(0.2)
+    palette('Git: unstage this change')
+    ok = wait_for(r'Change unstaged', 8); time.sleep(0.8)
+    check('615 git changes: … and unstaged', ok and git('diff --cached').stdout.strip() == '', git('diff --cached').stdout)
+    keys('C-Home'); keys('Down'); keys('Down'); time.sleep(0.2)
+    palette('Git: revert this change')
+    ok = wait_for(r'reverted to the last commit', 8); time.sleep(0.8)
+    check('615 git changes: … and reverted', ok and 'LINE 3' not in ftext('ga.txt') and 'line 3\n' in ftext('ga.txt') and
+          'line 21' in ftext('ga.txt'), ftext('ga.txt'))
+    sc = screen()
+    rows = sc.split('\n')
+    i = [k for k, r in enumerate(rows) if 'BETA' in r]
+    check('615 git changes: the view made again', i and 'LINE 3' not in sc, sc)
+    keys('C-End'); keys('Home'); text('X'); keys('C-s')
+    wait_for(r'Saved changes to 1', 6); time.sleep(0.8)
+    check('615 git changes: an edit in the view written back to its file', 'XBETA' in ftext('gb.txt'), ftext('gb.txt'))
+
+def t_615_next_edit():
+    # after a name is changed, the next place that has it shows → new ⇥: Tab goes there, Tab makes it, Esc says no;
+    # with ai.nextEdit, where an edit has no repeat the quick model suggests what follows
+    setup({"nim.nimsuggest": None})
+    open(W + '/ne.nim', 'w').write('let width = 10\necho width * 2\necho width + 1\nlet widthy = 3\n')
+    start('ne.nim', w=110, h=24); time.sleep(0.6)
+    keys('C-g'); text('1:5'); keys('Enter'); keys('M-S-Right'); text('size'); time.sleep(0.3); keys('Escape')
+    ok = wait_for('→ size ⇥', 4)
+    check('615 next edit: the next place with the old name shows the change', ok and 'Tab: “width” → “size”' in screen(), screen())
+    keys('Tab'); time.sleep(0.2); keys('Tab'); time.sleep(0.3)
+    keys('Tab'); time.sleep(0.2); keys('Tab'); time.sleep(0.3)
+    keys('C-s'); time.sleep(0.4)
+    check('615 next edit: Tab, Tab — made at each place (a longer name that starts the same left as it is)',
+          ftext('ne.nim') == 'let size = 10\necho size * 2\necho size + 1\nlet widthy = 3\n', repr(ftext('ne.nim')))
+    keys('C-g'); text('1:5'); keys('Enter'); keys('M-S-Right'); text('w'); time.sleep(0.3); keys('Escape')
+    wait_for('→ w ⇥', 4); keys('Escape'); time.sleep(0.3)
+    check('615 next edit: Esc says no', '→ w ⇥' not in screen(), screen())
+    keys('C-z'); keys('C-s')
+    tm('kill-server'); time.sleep(0.3)
+    setup({"nim.nimsuggest": None, "ai.nextEdit": True})
+    open(W + '/na.nim', 'w').write('# NEXTEDIT\nlet a = 1\nlet b = 2\n')
+    start('na.nim', w=110, h=24); time.sleep(0.6)
+    keys('C-g'); text('2'); keys('Enter'); keys('End'); text('.0'); time.sleep(0.3); keys('Escape')
+    ok = wait_for(r'→ 2\.0 ⇥ \(AI\)', 8)
+    check('615 next edit: from AI, where the edit has no repeat', ok, screen())
+    keys('Tab'); time.sleep(0.2); keys('Tab'); time.sleep(0.3); keys('C-s'); time.sleep(0.4)
+    check('615 next edit: … Tab, Tab takes it', ftext('na.nim') == '# NEXTEDIT\nlet a = 1.0\nlet b = 2.0\n', repr(ftext('na.nim')))
+
+
+def t_615_web_js():
+    # ned's own JavaScript: a class's members after `p.`, a global's (Math.), hover with the signature, F12 to the
+    # declaration; problems — a const assigned, a name one letter off; in an HTML page's <script> too
+    setup({})
+    open(W + '/app.js', 'w').write('class Point {\n  constructor(x, y) { this.x = x; this.y = y; }\n'
+                                   '  norm() { return Math.hypot(this.x, this.y); }\n}\n'
+                                   'const p = new Point(1, 2);\nconst total = 1;\ntotal = 2;\nconsole.log(p, totl);\n\n')
+    open(W + '/page.html', 'w').write('<!DOCTYPE html>\n<html>\n<body>\n<script>\n  const n = 1;\n  n = 2;\n'
+                                      '</script>\n</body>\n</html>\n')
+    start('app.js', w=130, h=30)
+    ok = wait_for("'total' is a constant", 6)
+    check('615 js: assigning a const', ok, screen())
+    check("615 js: a name one letter off one that is declared", wait_for("did you mean 'total'", 4), screen())
+    keys('C-g'); text('9'); keys('Enter'); text('p.'); time.sleep(0.8)
+    sc = screen()
+    check('615 js: a class\'s members after p.', 'norm' in sc and ' x ' in sc, sc)
+    keys('Escape'); text('norm'); time.sleep(0.2); keys('Escape'); keys('Left')
+    keys('F12'); time.sleep(0.6)
+    check('615 js: F12 to the method', status_pos() and status_pos()[0] == 3, screen())
+    keys('M-,'); time.sleep(0.3)
+    keys('C-g'); text('3:24'); keys('Enter'); keys('M-h'); time.sleep(0.8)
+    check('615 js: hover on Math.hypot', 'hypot' in screen() and 'MDN' in screen() or 'developer.mozilla' in screen(), screen())
+    keys('Escape')
+    keys('C-p'); time.sleep(0.3); text('page.html'); time.sleep(0.4); keys('Enter')
+    check("615 js: in an HTML page's <script>", wait_for("'n' is a constant", 6), screen())
+    r = subprocess.run([BIN, '--lint', 'app.js'], capture_output=True, text=True, cwd=W)
+    check('615 js: ned --lint', '[js-const-assign]' in r.stdout and '[js-typo]' in r.stdout, r.stdout + r.stderr)
+
+def t_615_cpp():
+    # C++ in ned's own C engine: members after `.` through a class's bases, `ns::`, hover on a method; in an emit when
+    # the backend is C++
+    setup({"c.engine": "builtin", "nim.backend": "cpp", "nim.emitClangd": False})
+    open(W + '/shape.cpp', 'w').write('namespace geo {\nstruct Base {\n  int id;\n  void hello() {}\n};\n'
+                                      'class Circle : public Base {\npublic:\n  double r;\n  double area() const { return 3.14 * r * r; }\n};\n'
+                                      'int count() { return 1; }\n}\n\nint main() {\n  geo::Circle c;\n  \n  return 0;\n}\n')
+    open(W + '/ec.nim', 'w').write('{.emit: """\nnamespace util {\nstruct Acc {\n  int total;\n  void add(int x) { total += x; }\n};\n}\n'
+                                   'static int run() {\n  util::Acc a;\n  \n  return a.total;\n}\n""".}\n')
+    start('shape.cpp', w=130, h=34); time.sleep(1)
+    keys('C-g'); text('16'); keys('Enter'); keys('End'); text('c.'); time.sleep(1.0)
+    sc = screen()
+    check('615 C++: members after c. — its own and its base class\'s', 'area' in sc and 'hello' in sc and ' r ' in sc, sc)
+    keys('Escape'); keys('Home'); keys('S-End'); text('  geo::'); time.sleep(1.0)
+    sc = screen()
+    check('615 C++: a namespace\'s names after ::', 'count' in sc and 'Circle' in sc, sc)
+    keys('Escape')
+    keys('C-p'); time.sleep(0.3); text('ec.nim'); time.sleep(0.4); keys('Enter'); time.sleep(1.5)
+    keys('C-g'); text('10'); keys('Enter'); keys('End'); text('a.'); time.sleep(1.0)
+    sc = screen()
+    check('615 C++ in an emit (backend cpp): a struct\'s members', 'add' in sc and 'total' in sc, sc)
+    keys('Escape')
+
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp]
