@@ -95,6 +95,7 @@ proc refreshEditorConfig() =
 
 proc setContent(b: Buffer, content: string) =
   # one pass to count line ends; the text is split without a copy unless it has CRLF line ends
+  b.nesHas = false
   var nl, crnl = 0
   var lastNl = -1
   var longest = 0
@@ -128,6 +129,7 @@ proc setContent(b: Buffer, content: string) =
   inc b.changeId
   b.undoStack.setLen(0)                        # (the steps of the old text mean nothing for this one)
   b.redoStack.setLen(0)
+  b.undoBranches.setLen(0)
   if b.cursors.len > 0: b.normalize()          # the new text may be shorter than where the cursors were
   b.topLine = clamp(b.topLine, 0, b.lines.high)
 
@@ -137,6 +139,7 @@ proc setContentStream(b: Buffer, path: string): bool =
   var f: File
   if not open(f, path): return false
   defer: close(f)
+  b.nesHas = false
   const Chunk = 1 shl 20
   var buf = newString(Chunk)
   # first: the line ends (how many, CRLF or LF, the longest line) — so the list of lines is made once, its size known
@@ -202,6 +205,7 @@ proc setContentStream(b: Buffer, path: string): bool =
   inc b.changeId
   b.undoStack.setLen(0)
   b.redoStack.setLen(0)
+  b.undoBranches.setLen(0)
   if b.cursors.len > 0: b.normalize()
   b.topLine = clamp(b.topLine, 0, b.lines.high)
   true
@@ -276,6 +280,7 @@ proc loadFile(b: Buffer, path: string): bool =
       if m < b.lines.len: b.marks.add m
   b.undoStack.setLen(0)
   b.redoStack.setLen(0)
+  b.undoBranches.setLen(0)
   b.savedSeq = 0
   if b.path in savedPos:
     b.setSingle(savedPos[b.path])

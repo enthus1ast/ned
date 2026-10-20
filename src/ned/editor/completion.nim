@@ -184,7 +184,8 @@ proc afterType(ch: int) =
       refilterComp()
       return
     if (c == '.' and not (p.col >= 2 and b.lines[p.line][p.col - 2] in Digits)) or
-       (c == '>' and p.col >= 2 and b.lines[p.line][p.col - 2] == '-'):
+       (c == '>' and p.col >= 2 and b.lines[p.line][p.col - 2] == '-') or
+       (c == ':' and p.col >= 2 and b.lines[p.line][p.col - 2] == ':' and cxIsCppBuf(b)):   # (C++: ns::, Class::)
       closeComp()
       discard cEngComplete(b, p, false)
       return

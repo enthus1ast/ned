@@ -122,6 +122,15 @@ proc globalKey(k: Key): bool =
       of 't': cmdThemes()
       of 'T': reopenClosedTab()
       of 'J': cmdJumpLabels()                 # Alt+Shift+J: a label on each word on screen
+      of 'G':                                 # Alt+Shift+G: every change not committed, in one editable view
+        focus = fEditor
+        cmdGitChanges()
+      of 'U':                                 # Alt+Shift+U: every state of the file, the undo tree's branches too
+        focus = fEditor
+        cmdUndoHistory()
+      of 'S':                                 # Alt+Shift+S: brackets, quotes, a tag or a block around the selection
+        focus = fEditor
+        cmdSurround()
       of 'R': macroToggle()                   # Alt+Shift+R: record a macro / stop
       of 'M': macroPlay(macroLast)            # Alt+Shift+M: play it (Alt+Shift+P arrives as ESC P, a terminal string)
       of 's':
@@ -234,6 +243,13 @@ proc editorKey(k: Key) =
     if k.kind == kEsc:
       ghostClear()
       return
+  if nesVisible(b) and not compOpen and k.mods == {}:
+    # a next-edit suggestion: Tab goes to it, then makes it; Esc says no
+    if k.kind == kTab and b.nesTab(): return
+    if k.kind == kEsc:
+      nesClear()
+      info("")
+      return
   if hoverOpen:
     hoverOpen = false
     if k.kind == kEsc: return
@@ -334,6 +350,7 @@ proc editorKey(k: Key) =
     if shift:
       if not (b.stops.len > 0 and b.snippetJump(-1)): b.indentLines(-1)
     elif b.stops.len > 0 and b.snippetJump(1): discard
+    elif b.nesTab(): discard
     elif b.trySnippetAtCursor(): discard
     elif b.lang.mode == lmHtml and cfgEmmet and b.tryEmmet(): discard
     elif b.lang.mode == lmCss and cfgEmmet and b.tryEmmetCss(): discard

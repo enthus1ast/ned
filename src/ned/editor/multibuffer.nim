@@ -1,6 +1,9 @@
 proc mbHeader(lang: Lang, path: string, start: int): string =
   (if lang != nil and lang.lineComment.len > 0: lang.lineComment else: "#") & " § " & relPath(path) & ":" & $(start + 1)
 
+proc mbHeaderOf(lang: Lang, sc: MbSection): string =
+  mbHeader(lang, sc.path, sc.start) & (if sc.note.len > 0: "  — " & sc.note else: "")
+
 proc fileLinesNow(path: string): seq[string] =
   let i = bufIndexByPath(path)
   if i >= 0: return bufs[i].lines
@@ -40,7 +43,7 @@ proc openMultibuffer(title: string, hits: seq[(string, int)], context = 1) =
   let lang = detectLang(secs[0].path, "")
   var text: seq[string]
   for sc in secs:
-    text.add mbHeader(lang, sc.path, sc.start)
+    text.add mbHeaderOf(lang, sc)
     text.add sc.orig
   let b = openScratch("Multibuffer: " & title, text.join("\n"), lang)
   b.readOnly = false
@@ -55,7 +58,7 @@ proc saveMultibuffer(b: Buffer): bool =
   var pieces: seq[seq[string]]
   var k = -1
   for l in b.lines:
-    if k + 1 < secs.len and l == mbHeader(b.lang, secs[k + 1].path, secs[k + 1].start):
+    if k + 1 < secs.len and l == mbHeaderOf(b.lang, secs[k + 1]):
       inc k
       pieces.add @[]
     elif k >= 0: pieces[k].add l
@@ -116,11 +119,12 @@ proc saveMultibuffer(b: Buffer): bool =
   # the headers show the new line numbers
   var text: seq[string]
   for i, sc in secs:
-    text.add mbHeader(b.lang, sc.path, sc.start)
+    text.add mbHeaderOf(b.lang, sc)
     text.add pieces[i]
   if text != b.lines: b.setTextMinimal(text.join("\n"))
   b.savedSeq = b.topSeq()
   info(if written > 0: "Saved changes to " & $written & " file(s)" else: "No changes to save")
+  if written > 0: gcAfterSave(b)
   true
 
 proc cmdMultibufferFromSearch() =

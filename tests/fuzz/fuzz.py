@@ -96,6 +96,15 @@ def setup():
                                           'CREATE TABLE orders (id INTEGER, user_id INTEGER, total REAL);\n')
     open(PROJ + '/q.sql', 'w').write('SELECT u.name, o.total FROM users u JOIN orders o ON o.user_id = u.id\n'
                                      'WHERE u.email LIKE ? ORDER BY 2;\n')
+    # JavaScript and C++ for ned's own engines, and a file to edit by structure, surround and undo in (mode "edit")
+    open(PROJ + '/app.js', 'w').write('class Point {\n  constructor(x, y) { this.x = x; this.y = y; }\n'
+                                      '  norm() { return Math.hypot(this.x, this.y); }\n}\n'
+                                      'const p = new Point(1, 2);\nconst el = document.querySelector(".card");\n'
+                                      'el.classList.add(`seen-${p.x}`);\nconsole.log(p.norm(), el);\n')
+    open(PROJ + '/shape.cpp', 'w').write('#include <vector>\nnamespace geo {\nstruct Base { int id; };\n'
+                                         'class Circle : public Base {\npublic:\n  double r;\n'
+                                         '  double area() const;\n};\ndouble Circle::area() const { return r * r; }\n}\n'
+                                         'int main() {\n  geo::Circle c;\n  std::vector<geo::Circle> v;\n  return c.id;\n}\n')
     # a workspace of two repositories, both with changes (mode "ws")
     if MODE == 'ws':
         lib = HOME + '/lib2'
@@ -176,6 +185,8 @@ proc total(xs: seq[int]): int =
     # the compiler, nimble and nimsuggest run in the test project, except in the modes that try the trust prompt
     if MODE not in ('mixed', 'palette', 'helix', 'emacs', 'a11y', 'c'): cfg["security.folderTrust"] = "off"
     if MODE == 'c': cfg.update({"c.engine": "builtin", "editor.fontLigatures": rnd.choice(["symbols", "font"])})
+    if MODE == 'edit': cfg.update({"c.engine": "builtin", "editor.nextEdit": True, "web.engine": rnd.choice(["auto", "on"]),
+                                   "editor.vimMode": rnd.random() < 0.3})
     if MODE == 'term': cfg["terminal.shell"] = "/bin/bash"
     if MODE == 'ai': cfg["ai.autoApprove"] = rnd.choice(["edits", "reads", "all"])
     if MODE == 'nimsuggest': cfg["nim.ide"] = "nimsuggest"
@@ -196,7 +207,7 @@ def start():
     script = HOME + '/run.sh'
     with open(script, 'w') as f:
         f.write(('#!/bin/bash\nexport HOME=%s PATH=' + (NIM_BIN + ':' if NIM_BIN else '') + os.environ.get('PATH', '/usr/bin:/bin') + ' TERM=xterm-256color COLORTERM=truecolor\n'
-                 'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'blob.bin prog m.nim' if MODE == 'hex' else 'style.css page.html q.sql web.nim' if MODE == 'web' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
+                 'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'blob.bin prog m.nim' if MODE == 'hex' else 'style.css page.html q.sql web.nim' if MODE == 'web' else 'app.js shape.cpp m.nim src/demo.nim' if MODE == 'edit' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
     os.chmod(script, 0o755); own(script)
     tm('-f ' + TESTS + '/ui/tmux.conf new-session -d -s fz -x %d -y %d %s' % (w, h, script))
     time.sleep(1.5)
@@ -290,7 +301,12 @@ C_TOKS = ['head->', 'a.', 'a.u.', 'q.', 'p->', 'table[0].', '{ .', '#include "',
 WEB_TOKS = ['<div', '<', '</', ' class="', '"', '>', ' id=', 'display: ', 'colo', ':hov', '::be', '@me', '10p', 'var(--',
             '}', '{', ';', 'SELECT ', 'u.', 'FROM ', ' JOIN ', 'sel', '?', "'", '<!--', '-->', '<script>', '</script>',
             '<style>', '\x1bJ', 'fj', 'k', '\x1bh', '\x1bf', '\x00', '\t', '\r', '\x1b[A', '\x1b[B', '\x10']
+EDIT_TOKS = ['\x1b[1;4C', '\x1b[1;4C', '\x1b[1;4D', '\x1bS', '\x1bU', '\x1bG', '\t', '\t', '\x1b', '\r', '\x1a', '\x19',
+             'ysiw"', 'cs"\'', 'ds(', 'yss)', 'S]', 'g-', 'g+', 'v', 'e', 'w', 'p.', 'this.', 'el.', 'Math.', 'geo::',
+             'std::', 'c.', '->', 'const ', 'let ', 'width', 'size', 'class ', '\x1b[A', '\x1b[B', '\x1b[D', '\x1b[C',
+             '\x00', '\x1b[24~', 'when', 'paren', '(', ')', '"', '\x08', '\x7f', '\x10']
 def token():
+    if MODE == 'edit' and rnd.random() < 0.5: return rnd.choice(EDIT_TOKS)
     if MODE == 'engine' and rnd.random() < 0.4: return rnd.choice(ENGINE)
     if MODE == 'kitty' and rnd.random() < 0.4:
         # the kitty keyboard protocol and the terminal's answers (6.13): keys as CSI code[:shifted];mods u, emoji

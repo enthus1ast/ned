@@ -267,6 +267,7 @@ proc openScratch(title, content: string, lang: Lang): Buffer =
       x.lang = lang
       x.undoStack.setLen(0)
       x.redoStack.setLen(0)
+      x.undoBranches.setLen(0)
       x.savedSeq = 0
       x.setSingle(Pos())
       x.topLine = 0

@@ -151,46 +151,32 @@ proc ghostUnknownName(b: Buffer, at: Pos, t: string): string =
     except CatchableError: discard
   ""
 
-proc ghostRequest(b: Buffer) =
-  ## ask for a short continuation at the cursor (one request in flight; stale answers are dropped)
-  if not haveExe("curl"): return
+proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.closure.},
+               onRetry: proc() {.closure.} = nil): Job =
+  ## a short request to the quick model (the suggestions'): its reply's text goes to onText. A refusal it can learn
+  ## from (a parameter, the endpoint) or a quick model that is gone (the chat model then) calls onRetry instead
+  if not haveExe("curl"): return nil
   let key = aiKey()
-  if key.len == 0 and cfgAiProvider notin ["ollama", "custom"]: return
+  if key.len == 0 and cfgAiProvider notin ["ollama", "custom"]: return nil
   let base = aiProviderBase()
-  if base.len == 0: return
-  let p = b.primary.head
-  if ghostJob != nil and not ghostJob.done: killProc(ghostJob.pr)
-  ghostAskedChange = b.changeId
-  ghostAskedBuf = b.id
-  var pre = ""
-  for l in max(0, p.line - 80) ..< p.line: pre.add b.lines[l] & "\n"
-  pre.add b.lines[p.line][0 ..< p.col]
-  var suf = b.lines[p.line][p.col .. ^1]
-  for l in p.line + 1 .. min(b.lines.high, p.line + 25): suf.add "\n" & b.lines[l]
-  let instr = "You are a code completion engine. Continue the " & b.lang.name & " code at <CURSOR>. Reply with ONLY " &
-              "the text to insert there — no explanation, no Markdown fences, nothing that is already after the " &
-              "cursor. At most a few lines; stop at the end of the statement or block. If nothing fits, reply with " &
-              "an empty message."
-  let defs = codeDefinitionsFor(b, max(0, p.line - 12), p.line + 3, 1500)   # (the names that exist, as they are)
-  let user = "File: " & (if b.path.len > 0: relPath(b.path) else: b.name) & "\n<code>\n" & pre & "<CURSOR>" & suf &
-             "\n</code>" & (if defs.len > 0: "\n" & defs else: "")
+  if base.len == 0: return nil
   let anth = cfgAiProvider == "anthropic"
   let gm = ghostModel()
   let reasoning = cfgAiProvider == "openai" and isReasoningModel(gm)
   let resp = cfgAiProvider == "openai" and ((gm & "|responses") in aiQuirks or sStr("ai.openaiApi") == "responses")
   var body: JsonNode
   if anth:
-    body = %*{"model": gm, "max_tokens": 128, "temperature": 0, "system": instr,
+    body = %*{"model": gm, "max_tokens": maxTokens, "temperature": 0, "system": instr,
               "messages": [{"role": "user", "content": user}]}
   elif resp:
-    body = %*{"model": gm, "max_output_tokens": (if reasoning: 2000 else: 160), "store": false,
+    body = %*{"model": gm, "max_output_tokens": (if reasoning: 2000 else: maxTokens + 32), "store": false,
               "instructions": instr, "input": [{"role": "user", "content": user}]}
   else:
     body = %*{"model": gm, "stream": false,
               "messages": [{"role": (if reasoning: "developer" else: "system"), "content": instr},
                            {"role": "user", "content": user}]}
     let mct = (cfgAiProvider == "openai" and (gm & "|maxtokens") notin aiQuirks) or (gm & "|mct") in aiQuirks
-    body[(if mct: "max_completion_tokens" else: "max_tokens")] = %(if reasoning: 2000 else: 128)
+    body[(if mct: "max_completion_tokens" else: "max_tokens")] = %(if reasoning: 2000 else: maxTokens)
     if not reasoning and (gm & "|notemp") notin aiQuirks: body["temperature"] = %0
   var hdr = "Content-Type: application/json\n"
   if anth: hdr.add "x-api-key: " & key & "\nanthropic-version: 2023-06-01\n"
@@ -202,19 +188,15 @@ proc ghostRequest(b: Buffer) =
     setFilePermissions(hf, {fpUserRead, fpUserWrite})
     writeFile(bf, $body)
     setFilePermissions(bf, {fpUserRead, fpUserWrite})
-  except CatchableError: return
+  except CatchableError: return nil
   let url = if anth: base & "/v1/messages" elif resp: base & "/responses" else: base & "/chat/completions"
   let cmd = "curl -sS --max-time 30 -X POST " & quoteShell(url) & " -H @" & quoteShell(hf) & " --data-binary @" & quoteShell(bf)
-  let id = b.id
-  let ch = b.changeId
-  let at = p
-  ghostJob = startJob(jkTool, cmd, rootDir, proc(j: Job) =
+  startJob(jkTool, cmd, rootDir, proc(j: Job) =
     try:
       removeFile(hf)
       removeFile(bf)
     except CatchableError: discard
-    let bb = bufById(id)
-    if bb == nil or bb.changeId != ch or bb.primary.head != at or j.code != 0: return
+    if j.code != 0: return
     var t = ""
     try:
       let r = parseJson(j.output)
@@ -230,8 +212,8 @@ proc ghostRequest(b: Buffer) =
            not learned and ("does not exist" in lem or "model_not_found" in lem or "no access" in lem or
                             ("not found" in lem and "model" in lem)):
           ghostFallback = aiModel()           # the default suggestion model is gone: use the chat model
-          ghostAskedChange = -1
-        elif learned: ghostAskedChange = -1   # ask again, adjusted; other errors wait for the next edit
+          if onRetry != nil: onRetry()
+        elif learned and onRetry != nil: onRetry()   # ask again, adjusted; other errors wait for the next edit
         return
       if anth:
         if r{"content"} != nil and r["content"].kind == JArray:
@@ -251,7 +233,33 @@ proc ghostRequest(b: Buffer) =
         ls = ls[1 .. ^1]
         if ls.len > 0 and ls[^1].strip.startsWith("```"): ls.setLen(ls.len - 1)
         t = ls.join("\n")
-    t = t.strip(leading = false)
+    onText(t))
+
+proc ghostRequest(b: Buffer) =
+  ## ask for a short continuation at the cursor (one request in flight; stale answers are dropped)
+  let p = b.primary.head
+  if ghostJob != nil and not ghostJob.done: killProc(ghostJob.pr)
+  ghostAskedChange = b.changeId
+  ghostAskedBuf = b.id
+  var pre = ""
+  for l in max(0, p.line - 80) ..< p.line: pre.add b.lines[l] & "\n"
+  pre.add b.lines[p.line][0 ..< p.col]
+  var suf = b.lines[p.line][p.col .. ^1]
+  for l in p.line + 1 .. min(b.lines.high, p.line + 25): suf.add "\n" & b.lines[l]
+  let instr = "You are a code completion engine. Continue the " & b.lang.name & " code at <CURSOR>. Reply with ONLY " &
+              "the text to insert there — no explanation, no Markdown fences, nothing that is already after the " &
+              "cursor. At most a few lines; stop at the end of the statement or block. If nothing fits, reply with " &
+              "an empty message."
+  let defs = codeDefinitionsFor(b, max(0, p.line - 12), p.line + 3, 1500)   # (the names that exist, as they are)
+  let user = "File: " & (if b.path.len > 0: relPath(b.path) else: b.name) & "\n<code>\n" & pre & "<CURSOR>" & suf &
+             "\n</code>" & (if defs.len > 0: "\n" & defs else: "")
+  let id = b.id
+  let ch = b.changeId
+  let at = p
+  let job = aiFastAsk(instr, user, 128, proc(t0: string) =
+    let bb = bufById(id)
+    if bb == nil or bb.changeId != ch or bb.primary.head != at: return
+    var t = t0.strip(leading = false)
     if t.strip.len == 0: return
     # the model sometimes repeats what is already typed on the line
     let linePre = bb.lines[at.line][0 ..< at.col]
@@ -268,7 +276,8 @@ proc ghostRequest(b: Buffer) =
     ghostBuf = id
     ghostPos = at
     ghostChange = ch
-    needRender = true)
+    needRender = true, proc() = ghostAskedChange = -1)
+  if job != nil: ghostJob = job
 
 proc ghostTick() =
   ## main loop: after a typing pause, request a suggestion at the cursor

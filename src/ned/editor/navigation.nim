@@ -432,6 +432,7 @@ proc cmdDefinition() =
   if openLinkAt(b, b.primary.head): return       # a link: #include "x.h", @import, a URL in a comment
   if b.lang.mode == lmNim and pragmaStringGoto(b, b.primary.head): return  # header: "…" opens it, importc: "…" its C
   if cEngineOn(b) and cEngDefinition(b, b.primary.head): return          # C: ned's own engine
+  if webDefinition(b, b.primary.head): return                            # JavaScript: ned's own engine
   if b.lang.mode == lmNim and emitGoto(b, b.primary.head): return          # in an emit: the C (or Nim) side
   if b.lang.mode == lmNim and cGotoFromDecl(b, b.primary.head): return     # an importc declaration: C's
   if nimEngineOn(b) and b.wordAt(b.primary.head).len > 0:

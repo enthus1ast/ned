@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.14.1](#whats-new-in-6141) · [6.14](#whats-new-in-614) · [6.13](CHANGELOG.md#whats-new-in-613) · [6.12](CHANGELOG.md#whats-new-in-612) · [older releases](CHANGELOG.md)
+- [What's new in 6.15](#whats-new-in-615) · [6.14.1](CHANGELOG.md#whats-new-in-6141) · [6.14](CHANGELOG.md#whats-new-in-614) · [6.13](CHANGELOG.md#whats-new-in-613) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,95 +40,88 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.14.1
+## What's new in 6.15
 
-- **Scrolling no longer waits for the reference counts.** A count of a name used in many places was worked out in
-  one go — 220 ms in ned's own source, while you scrolled — and gave up after 300 places as *300+ references*.
-  Now it goes on a few milliseconds at a time in quiet moments, and a name without `*` is looked for only in its
-  own module (and the files it includes): `func js` used once in the showcase is *1 reference*, however often
-  the rest of the project says `js`. A chunk of type hints that runs out of time takes at most 30 ms the next
-  time (was 60).
-- **Quick fixes without Alt+Enter.** Windows Terminal keeps Alt+Enter for full screen, so in WSL the quick fixes
-  never came: Alt+Shift+Enter opens them there (and the hints after a problem say so), as does Ctrl+. where the
-  terminal tells it apart (the kitty keyboard protocol), the right-click menu's *Quick fix…* and *Edit › Quick
-  fix…*. *Help › Check setup* says it when ned runs in Windows Terminal.
-- **`ned --lint` checks the SQL, HTML and CSS in a file's strings** too (rules `sql-args`, `sql-table`,
-  `sql-column`, `css-property`, `css-value`, `css-semicolon`, `css-brace`, `html-close`, `html-id`, `html-element`,
-  `html-alt` — `.ned/lint.json` and `# ned: ignore[…]` apply), and a call shown in a comment is not taken for one.
-- **The showcase** (`examples/showcase.nim`) covers 6.14: the CSS, HTML and SQL in its strings (a table it
-  creates, a misspelled property, a query given more values than its `?`), jump labels, the picker's preview,
-  the counts, ned's terminal and the hex editor.
+6.15 is about editing — selections that know the code, pairs put around it, an undo that loses nothing, the next
+edit guessed, every git change in one place — and two more languages ned answers for itself: JavaScript, and C++.
 
-## What's new in 6.14
+**Select by the code's structure** (Alt+Shift+→, Alt+Shift+← back): from a name, its call, the call's argument, what
+the brackets hold, the brackets, the member chain (`foo.bar(a).baz`), the value after `=`, the statement (over its
+continuation lines), the block, the block with its header, the routine with its doc comment, the file — by the
+text's brackets, quotes and indentation, so in every language (in C, a brace block's lines, then with the braces,
+then the `if (…) { … }`).
 
-6.14 is about speed — the moments ned did not answer a key while it worked — and about the other languages a Nim
-project is written in: ned answers for CSS, HTML and SQL itself now, in their files and in Nim strings.
+**Surround** (Alt+Shift+S, *Edit › Surround*, the right-click menu): brackets, quotes, backticks or an element
+(`<tag attrs>` — you type it) around each selection or the word under each cursor; around lines, a block of the
+language: Nim's `if`, `when`, `for`, `while`, `block`, `try` (with its `except`), `try … finally`, a `proc`; Python's,
+C's, JavaScript's, Go's, Rust's, shell's, Lua's and Ruby's own, Markdown's code fence — the lines indented, Tab
+walking its places (`${1:cond}`). *Change the surrounding pair…* and *Delete the surrounding pair* (an element
+too). In vim mode, as vim-surround: `ys{motion}{char}` (`ysiw"`), `yss)`, `cs"'`, `ds(`, `S{char}` on a visual
+selection, `t` or `<` for a tag.
 
-**Faster where you wait.** Measured on ned's own source (a program of 290 include files):
+**The undo tree.** An edit after an undo no longer throws away what was undone: it stays, as a branch.
+*Edit › Undo history…* (Alt+Shift+U) lists every state the file has been in, the newest first — what each step did
+(*typed “size”*, *deleted “width”*), its line and how long ago, ↷ for the undone, ⑂ for a branch — with **the text
+at that state beside the list**; Enter goes there (the edits you leave become a branch in turn). Vim's `g-` and
+`g+` go back and forth in time across branches. The branches are kept with the file's undo history
+(`editor.persistentUndo`).
 
-- **Opening a file**: the longest pause 240–280 ms → about 50 ms; the first frame 130–170 ms → 20–30 ms. What the
-  engine needs for a file is read a slice at a time, and type hints, the engine's checks and reference counts wait
-  until it is ready instead of each making it on the spot.
-- **Typing with completion**: a quarter of the work per key it was (the engine kept a scope per include file and
-  made it again at every key — now one edit puts that file's new names in place), and what completion weighs
-  for thousands of routines is remembered while the types stay the same. Keys answered in over 30 ms: 12 → 3 in
-  the same typing.
-- **Each round of background work stops at 15 ms** and the rest goes on in the next one, so a key never waits for
-  two of them; and frames no key asked for — a streaming answer of the assistant, a terminal's output — come at
-  most 60 a second (30 on a slow terminal).
-- **Formatting a file again formats only the statements that changed**: an 87,000-line file 906 ms → 91 ms the
-  second time (the result is the one formatting it all gives — checked over 2,400 files under several layout
-  settings); the C in an emit is not sent to clang-format again when it did not change.
-- **The project's own files in the index cache** (`nim.indexCacheProject`): reopening a project of hundreds of files
-  reads them instead of parsing them.
-- **git**: a new folder is one line in the Git dock (with how many files it holds), not every file in it
-  (`git.untrackedFiles`) — and `git status` takes no lock, so a git command of yours never finds the index locked;
-  it runs less often where it takes long, and not while you are away. The blame of the line you are on comes from
-  the whole file's blame, made once for each version.
-- **The assistant**: long tool outputs of earlier questions (a file it read, a command's output) are sent cut to
-  their start and end — those of the question being answered in full: fewer tokens at every step
-  (`ai.trimOldResults`).
+![Undo history: every state of the file, the branch an edit after an undo left, and the text at the selected state](screenshots/undo-tree-615.png)
 
-**CSS, HTML and SQL — ned's own** (`web.engine`; with a language server for them installed, it answers instead).
-In .css / .scss / .less, .html and .sql files, in an HTML file's `<style>`, and in Nim strings (`sql"…"`, HTML and
-CSS strings):
+**Next-edit suggestions** (`editor.nextEdit`). Change a name — `width` made `size` — and the next place that still
+says `width` shows *→ size ⇥*: Tab goes there (the word selected), Tab again makes the change and shows the place
+after it — Tab, Tab… through the file; Esc says no. Whole words only (`widthy` stays). With the assistant set up,
+`ai.nextEdit` asks the quick model where an edit with no repeat leads (*→ 2.0 ⇥ (AI)*).
 
-- **CSS**: properties and then their values (`display: ` → block, flex, grid …), colours, units after a number,
-  `var(--…)` with the custom properties the file declares, pseudo-classes, at-rules, the class names and ids the
-  page's HTML has after `.` and `#`; hover says what a property, value or function is. **Problems**: an unknown
-  property (*did you mean 'color'?*), a value its property does not take, a missing `;` that makes the next line
-  part of the value, a brace too many or never closed.
-- **HTML**: elements after `<`, the open element after `</`, an element's own attributes first, then the global
-  ones, their values (`type="` → checkbox, email …), the class names the project's stylesheets have in `class="`;
-  hover on elements and attributes. **Problems**: a closing tag that closes the wrong element, one that closes
-  nothing, an element never closed, an id used twice, an element HTML does not have (*did you mean <div>?*), an
-  `<img>` without alt text.
-- **SQL**: the tables your project creates (`CREATE TABLE` in its .sql files and in the SQL of its Nim files) after
-  FROM, JOIN, INTO and UPDATE; a table's columns after `u.` (through `FROM users u`); keywords in the case you
-  type; functions of SQLite, PostgreSQL and MySQL; hover on a table shows its columns. **Problems**: a table no
-  `CREATE TABLE` makes, a column its table does not have — and in Nim, **a query given more values than it has
-  `?`** (`db.exec(sql"INSERT … VALUES (?, ?)", a, b, c)`: *3 values for the query's 2 '?'*), or fewer.
-- **Formatting HTML and SQL** (Alt+F, *Format the code in this string*, nedfmt): HTML blocks on lines of their own,
-  indented, with what `<pre>`, `<script>` and `<style>` hold kept as it is; SQL one clause a line, keywords in upper
-  case. Each checks its own result and leaves the text alone when it is not sure (nedfmt and *Format: every file
-  in the folder* take .html and .sql files now too). The C in an emit is formatted by ned's own C formatter when
-  clang-format is not installed.
+**Git › Changes…** (Alt+Shift+G): every change not committed, in every file, in one editable multibuffer — each
+with a line around it, its header saying what it adds and removes and whether it is staged (*+3 −2 · not staged*,
+*partly staged*, *new file*), the change marks in the gutter. Edit there and Ctrl+S writes each piece back to its
+file; the right-click menu (or the palette) stages, unstages or reverts the change at the cursor — revert puts
+back the last commit's text and unstages it — and the view is made again, the cursor where it was. Enter on a
+header opens the file there. *Git: unstage this change* is new for any file too.
 
-![SQL in Nim strings: the columns of the table the project creates after `u.`, and a query given more values than its `?`](screenshots/web-614.png)
+![Git › Changes: every change in one editable view, staged or not](screenshots/git-changes-615.png)
 
-**Jump labels** (Alt+Shift+J): a letter or two over every word on screen; type it and the cursor is there (an upper
-case letter: the selection reaches there). **Open file, Go to symbol and the buffer list show the selected file
-beside the list** on a screen 110 columns wide (`editor.pickerPreview`).
+**JavaScript — ned's own** (`web.engine`; a JavaScript language server, when installed, answers instead), in .js
+files, an HTML page's `<script>`s, Nim strings (`js"""…"""`, emits with `nim.backend` js):
 
-[6.13](CHANGELOG.md#whats-new-in-613) made ned reachable from outside — `ned FILE` in its terminal, git's editor,
-`--remote-*` for scripts — and asked the terminal what it can do: the kitty keyboard protocol, curly underlines,
-light and dark following the system, emoji as wide as the terminal draws them.
+- **Completion**: after `.` the members of what is before it when the engine can tell — a class of the file (its
+  methods, fields set by `this.x = …`, inherited ones, `#private` ones; its statics after `Point.`), `this.` and
+  `super.`, the browser's and Node's globals (`document.`, `Math.`, `console.`, `localStorage.` …), and values it
+  recognises: strings, arrays, `new X()`, an element from `querySelector`, `classList`, a `fetch` Response, a
+  Promise, an object literal's keys; elsewhere the names in scope (the nearest first), keywords, globals. Nothing
+  in strings and comments, but `${…}` in a template literal is code.
+- **Hover** with the signature and a line of documentation (and the MDN or Node.js page); **F12** to a
+  declaration, a method of the file's classes too.
+- **Problems**: a bracket or `${` never closed, a name declared twice in a scope, an assignment to a `const` or an
+  import, a name nothing declares one letter off one that is (*did you mean 'card'?*), an unused function, `let`,
+  `const` or import (in a module), `==` with a literal — rules `js-brace`, `js-redeclare`, `js-const-assign`,
+  `js-typo`, `js-unused`, `js-eqeq`. Checked on 1,223 real files (174,000 lines): no false alarms.
+- `ned --lint app.js style.css page.html query.sql`: ned's own checks of those languages, for files named on the
+  command line.
+
+**C++ — ned's own C engine reads it** (in `.cpp`/`.cc`/`.hpp` files, a `.h` with classes in it, and emits when
+`nim.backend` is cpp): classes and structs with their bases, methods in the class or outside it
+(`Ret Class::method`), constructors, operators, namespaces (nested, `inline`, anonymous, `using namespace`),
+templates (`Box<Point>` gives `value` the type `Point`), references, `auto`, `enum class`. **Completion** after `.`
+and `->` — inherited members too, through `auto`, references, templates and smart pointers (`p->` on a
+`unique_ptr<T>` lists T's) —, after `::` a namespace's names, a class's members or an enum's constants, a class's
+members inside its methods (and after `this->`), and `std::`'s common names with what they are. **Hover and F12**:
+a method's body outside its class first, then its declaration, and back. Errors while you type from
+`c++ -std=c++17`; the outline puts members under their class; `#ifdef __cplusplus` branches are live. 823 real C++
+files (libstdc++, and others) read in 0.44 s together. Overloads are all listed (not resolved), and `decltype`,
+concepts and template specializations are not understood — clangd is still used first when installed.
+
+**The showcase** (`examples/showcase.nim`) has a section for all of this: a proc to select by structure, surround,
+rename and undo in, the JavaScript in its strings with a misspelled name, and how an emit becomes C++.
 
 Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
 ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
 ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.13](CHANGELOG.md#whats-new-in-613) made the running ned
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.14.1](CHANGELOG.md#whats-new-in-6141) kept scrolling
+smooth with reference counts and gave quick fixes keys Windows Terminal leaves alone, [6.14](CHANGELOG.md#whats-new-in-614)
+made ned faster where you wait and brought its own CSS, HTML and SQL, [6.13](CHANGELOG.md#whats-new-in-613) made the running ned
 reachable from its terminal, git and scripts and asked the terminal what it can do, [6.12](CHANGELOG.md#whats-new-in-612) brought Nim 3
 (Nimony), the hex editor and big files in less memory, [6.11.2](CHANGELOG.md#whats-new-in-6112) fixed the ▶ of runnableExamples,
 terminal floods and very long lines, [6.11.1](CHANGELOG.md#whats-new-in-6111) wrapped long comments and
@@ -164,8 +157,10 @@ three icon sets (unicode, Nerd Font, ASCII), phone layout below 70 columns, an a
 beside colours, high contrast), multi-root workspaces (git for each folder), remote folders over SSH (git, Run
 and the assistant's commands on the server; its changes come back by themselves), settings sync.
 
-**Editing** — multi-cursor (Ctrl+D, Alt+A, Alt+J/K), expand/shrink selection, move/duplicate lines, toggle
-comment, folding, snippets for Nim, Python, C, C++, JS/TS, Rust, Go, HTML and shell (plus your own),
+**Editing** — multi-cursor (Ctrl+D, Alt+A, Alt+J/K), selection that grows by the code's structure (a name, the
+call, the statement, the block, the routine), surround (brackets, quotes, a tag, a block — and vim-surround), an
+undo tree (Undo history… with the text at each state), next-edit suggestions (a rename's next place: Tab, Tab),
+move/duplicate lines, toggle comment, folding, snippets for Nim, Python, C, C++, JS/TS, Rust, Go, HTML and shell (plus your own),
 completion, auto-pairs, smart indentation, soft wrap, split editor, bookmarks, regex find/replace, sort/join/
 case transforms, line-ending and indentation conversion, format on save (built in for Nim, JSON, Markdown, CSS,
 HTML, SQL, YAML and TOML; a whole project at once; or only the lines you changed, and a preview first), jump labels
@@ -182,9 +177,10 @@ hierarchy, document links, pull diagnostics and formatting as you type — and a
 as ruff), their problems and fixes merged; formatters per language; debugging through the Debug Adapter Protocol (Python, C, C++, Rust, Go, JS/TS …) with logpoints and
 stops when a value changes; tests for pytest, go
 test, cargo test, PHPUnit, dotnet test and Gradle/Maven; coverage for **Nim**, Python, Go, Rust, JS/TS and any lcov file;
-Send to REPL with `# %%` cells; Emmet for HTML and CSS; **ned's own CSS, HTML and SQL** — completion, hover and
-problems in their files and in Nim strings, with your project's class names, tables and columns, and the `?` of a
-query counted against the values it is given (`web.engine`).
+Send to REPL with `# %%` cells; Emmet for HTML and CSS; **ned's own CSS, HTML, SQL and JavaScript** — completion,
+hover and problems in their files and in Nim strings (and a page's `<script>`s), with your project's class names,
+tables and columns, the `?` of a query counted against the values it is given, a script's classes and the
+browser's globals (`web.engine`).
 
 **Nim IDE** — a built-in Nim engine (completion with documentation beside the list, hover, go to definition,
 signature help, references with counts beside each declaration (operators too), rename, type hierarchy, go to
@@ -206,9 +202,11 @@ type mismatches explained argument by argument. **Nim 3 (Nimony)**: a project bu
 written, Nimony's own library, errors from `nimony check` and its `--def`/`--usages`, Nim 3's pragmas; Nim 2 files
 show what porting them needs, fixed one by one, all at once, or by the assistant checked with nimony.
 
-**C** — ned's own C engine, no clangd needed: completion (struct members after `.` and `->` too), hover with the
-comment that documents a declaration, go to definition through `#include`s, references, rename, signature help, the
-outline, the C compiler's errors while you type and a missing `#include` added; clangd when you prefer it.
+**C and C++** — ned's own C engine, no clangd needed: completion (struct members after `.` and `->` too; C++
+classes with their bases, methods, namespaces after `::`, templates, `auto`), hover with the comment that documents
+a declaration, go to definition through `#include`s (a C++ method's body outside its class), references, rename,
+signature help, the outline, the compiler's errors while you type and a missing `#include` added — in emits too
+(C++ when `nim.backend` is cpp); clangd when you prefer it.
 
 **Hex editor** — binary files as offset · hex · text, typed over or inserted, undo, find bytes or text, go to an
 offset, a data inspector, copy as hex, a Nim array or a C array; programs and libraries (ELF, Mach-O, PE) with their
@@ -228,8 +226,9 @@ is marked — Ctrl+↑/↓ go through them, failed ones show red, a command's ou
 dark following the system (mode 2031), the focus (files looked at again when you come back, background work paused
 while you are away), the terminal's title, progress on its tab, a transparent background.
 
-**Git** — source-control dock (stage, unstage, discard, diff, commit, push, pull, log), gutter marks that
-follow your typing, change navigation and revert, inline blame, file timeline, AI-written commit messages,
+**Git** — source-control dock (stage, unstage, discard, diff, commit, push, pull, log), every change not committed
+in one editable view (Alt+Shift+G: stage, unstage or revert each), gutter marks that follow your typing, change
+navigation and revert, inline blame, file timeline, AI-written commit messages,
 interactive rebase, cherry-pick, branch compare and graph, the history of some lines, bisect (by hand or with a
 command), worktrees, submodules, GitHub pull requests, issues and CI status (`gh`), review comments on their
 lines; signing in to GitHub (the GitHub CLI or an SSH key — no passwords), undo of the last commit, pull or
@@ -425,7 +424,11 @@ can add your own (see [Settings](#settings)).
 | Ctrl+D · Alt+A | next occurrence · all occurrences (multi-cursor) |
 | Alt+J / Alt+K · Alt+Shift+↑↓ | add cursor below / above · Esc back to one cursor |
 | Alt+click · Alt+drag | add a cursor · box (column) selection |
-| Alt+Shift+→ / ← | expand / shrink selection |
+| Alt+Shift+→ / ← | grow / shrink the selection by the code's structure (name, call, argument, statement, block, routine) |
+| Alt+Shift+S | surround: brackets, quotes, a tag or a block around the selection (*Edit › Surround* also changes or deletes a pair) |
+| Alt+Shift+U | undo history: every state of the file, the undo tree's branches too, with the text there |
+| Tab on a → … ⇥ hint | next edit: to the place, then the same change there (Esc: no) |
+| Alt+Shift+G | Git › Changes: every change not committed in one editable view |
 | Alt+↑ / Alt+↓ · Alt+D | move line(s) · duplicate |
 | Alt+Shift+R · Alt+Shift+M | record a keyboard macro (again: stop) · play it — *Edit › Macros* for N times, each line, saved ones |
 | Ctrl+K · Ctrl+/ | delete line(s) · toggle comment |
@@ -1048,7 +1051,17 @@ C++-only code (`#ifdef __cplusplus`, `extern "C++" { … }`) and the compiler's 
 `_WIN32` … as `cc -dM -E` reports them) —, and of branches that open a brace each (`#ifdef X  if (a) {  #else  if (b)
 {`) the first, as ctags does. Macros used as expressions are expanded for the types (`#define atime tv[0]`), as are
 export markers (`mod_export int x;`) and prototypes written through a macro (`int f _((int a));`); declarations a
-macro makes (`local_list1(foo);`) are not understood, and C++ is left to clangd.
+macro makes (`local_list1(foo);`) are not understood.
+
+**C++** is read too — in `.cpp`, `.cc`, `.cxx`, `.hpp` files, a `.h` with classes, namespaces or templates in it,
+and emits when `nim.backend` is cpp: classes, structs and unions with their access sections and bases, methods in
+the class or outside it (`Ret Class::method(…)`, constructor init lists), operators, nested classes, namespaces
+(nested, `a::b`, `inline`, anonymous, `using namespace`, `using T = …`), templates (a class template's arguments put
+in for its parameters: `Box<Point>`'s `value` is a `Point`), references, `auto` (range-for too), `enum class`,
+`extern "C"`. Completion after `.`, `->` (smart pointers too) and `::`, a class's members in its methods, `std::`'s
+common names; hover and F12 from a call to a method's body, then its declaration; errors from `c++ -std=c++17`.
+Overloads are listed, not resolved; dependent types, `decltype`, concepts, specializations and structured bindings
+are not understood — clangd answers those.
 
 `c.engine` chooses: `auto` (the default: ned's engine when clangd is not installed, clangd when it is), `builtin`,
 `clangd`, or `both`. How it compares with clangd is measured in [tests/engine](tests/engine/README.md#c-ned-against-clangd).
@@ -1221,7 +1234,9 @@ C-x b / k / u / h / o / 1 / 2 / 3. **Helix** (select, then act): `h j k l`, `w b
 
 **Vim mode** (`"editor.vimMode": true` or View › Vim mode): normal, insert, visual, visual-line and replace
 modes; motions `hjkl w b e 0 ^ $ gg G { } % f t ; ,`; operators `d c y > < gu gU gc` with motions and text
-objects (`iw aw i( a( i" a" i{ …`); `x X s S C D Y p P J r R ~ . u Ctrl+R`; `/ ? n N * #`; `:w :q :wq :e
+objects (`iw aw i( a( i" a" i{ …`); `x X s S C D Y p P J r R ~ . u Ctrl+R`, `g-` `g+` (back and forth in time,
+across the undo tree's branches); vim-surround's `ys{motion}{char}`, `yss`, `cs{old}{new}`, `ds{char}` and `S{char}`
+in visual mode (`t` or `<`: a tag); `/ ? n N * #`; `:w :q :wq :e
 file :s/a/b/g :%s/a/b/g :set wrap :term :zen`; `:!cmd` (`%` is the file) and `:%!sort`, `:'<,'>!cmd`,
 `:N,M!cmd` (lines through a command); `zz zt zb za zc zo zM zR`; optional `jk` escape
 (`vim.escapeSequence`).
@@ -1307,12 +1322,12 @@ ned is one program in about 260 files, standard library only:
 src/ned.nim            the program: the parts below, in the order they build on each other
 src/ned/
   core/                types, global state, themes, the cell grid and terminal output, keys, languages, highlighting
-  editor/              the buffer and its undo, editing, cursors, find, clipboard, snippets, folding, spell check …
+  editor/              the buffer and its undo tree, editing, cursors, selection by structure, surround, next edits, find …
   ui/                  drawing: layout, menus, dialogs, pickers, docks, the file tree, the panel, the editor view
   nim/                 the Nim IDE: the engine's glue, quick fixes, refactorings, codegen, nimble, examples …
   nim/index/           the Nim index — a module of its own: parsing, scopes, types, completion, hover, typos
   format/              the formatters (Nim, JSON, Markdown, CSS, HTML, SQL — a module of their own) and Format all
-  web/                 ned's own CSS, HTML and SQL: what they know, completion, hover, problems (a module)
+  web/                 ned's own CSS, HTML, SQL and JavaScript: what they know, completion, hover, problems (a module)
   lsp/                 the language-server client, code actions, inlay hints, servers for code inside strings
   ai/                  the assistant: requests, agent tools, MCP, chats, inline suggestions
   git/  term/  debug/  c/  run/  testing/  project/  config/  keymaps/  app/

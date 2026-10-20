@@ -5,7 +5,7 @@ var inactiveCache: Table[int, (int, seq[(int, int)])]    # buffer id → (the ch
 
 proc inactiveRanges(b: Buffer): seq[(int, int)] =
   if not cfgDimInactive or b.lang == nil or b.largeOn: return
-  if b.lang.mode != lmNim and b.lang.id != "c": return
+  if b.lang.mode != lmNim and b.lang.id notin ["c", "cpp"]: return
   if b.id in inactiveCache and inactiveCache[b.id][0] == b.changeId: return inactiveCache[b.id][1]
   try:
     if b.lang.mode == lmNim:
@@ -24,7 +24,7 @@ proc inactiveRanges(b: Buffer): seq[(int, int)] =
         if l.len > 2 and l.strip(trailing = false).startsWith("#if"):
           any = true
           break
-      if any: result = cxInactiveIn(b.allText)        # (clangd or ned's engine: the same rule)
+      if any: result = cxInactiveIn(b.allText, cpp = cxIsCppBuf(b))   # (clangd or ned's engine: the same rule)
   except Exception as e:
     internalError("dimming left-out code", e)
   if result.len > 1:

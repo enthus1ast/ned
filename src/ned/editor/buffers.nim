@@ -109,6 +109,7 @@ type MbSection = object
   path: string
   start: int                # 0-based first line in the file
   orig: seq[string]         # the lines as they were (to notice changes made elsewhere)
+  note: string              # shown after its header (the Git changes view: what changed, staged or not)
 var multiBufs: Table[int, seq[MbSection]]
 proc saveMultibuffer(b: Buffer): bool
 
@@ -142,7 +143,9 @@ proc mbHeaderAt(b: Buffer, line: int): (bool, string, int) =
   let t = b.lines[line]
   let k = t.find(" § ")
   if k < 0 or k > 4: return
-  let rest = t[k + 3 .. ^1]
+  var rest = t[k + 3 .. ^1]
+  let nk = rest.find("  — ")
+  if nk >= 0: rest = rest[0 ..< nk]
   let c = rest.rfind(':')
   if c <= 0: return
   let n = (try: parseInt(rest[c + 1 .. ^1]) except ValueError: -1)

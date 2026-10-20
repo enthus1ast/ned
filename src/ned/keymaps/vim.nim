@@ -16,6 +16,7 @@ var
   vimEscAt: MonoTime
   vimEscChar = '\0'
   vimCursorShape = ""
+  vimSurRange: (Pos, Pos)          # (vim-surround: what ys{motion} goes around, until its character)
 
 proc vimModeName(): string =
   if cfgKeymap == "helix":
@@ -46,12 +47,21 @@ proc mergeUndo(b: Buffer, mark: int) =
   ## an insert session (or c/s/o + typing) undoes as one step, like Vim
   if mark < 0 or b.undoStack.len - mark < 2: return
   var g = b.undoStack[mark]
+  let n = b.undoStack.len
   for i in mark + 1 .. b.undoStack.high:
     g.ops.add b.undoStack[i].ops
     g.after = b.undoStack[i].after
     g.seqId = b.undoStack[i].seqId
   b.undoStack.setLen(mark)
   b.undoStack.add g
+  # (undo-tree branches off the steps merged: the states between them are gone; one off the last is off the merged)
+  var k = 0
+  while k < b.undoBranches.len:
+    let at = b.undoBranches[k].at
+    if at > mark and at < n: b.undoBranches.delete(k)
+    else:
+      if at == n: b.undoBranches[k].at = mark + 1
+      inc k
 
 proc vimSetMode(m: VimMode) =
   if m in {vmInsert, vmReplace} and vimUndoMark < 0: vimUndoMark = buf().undoStack.len

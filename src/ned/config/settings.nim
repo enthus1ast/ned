@@ -142,6 +142,8 @@ proc initSettingDefs() =
   defS("Editor", "editor.softWrap", %true, "Wrap long lines at the window edge (Alt+W)")
   defS("Editor", "editor.pickerPreview", %true, "Open file, Go to symbol and the buffer list show the selected " &
        "file, symbol or buffer beside the list (on a screen 110 columns wide or more)")
+  defS("Editor", "editor.nextEdit", %true, "Next-edit suggestions: after you change a name (width → size), the next " &
+       "place that still has it shows → size ⇥ — Tab goes there, Tab again makes the same change, Esc says no")
   defS("Editor", "editor.largeFileSize", %16,
        "Large-file mode for files of this many MB or more: no soft wrap, language server, Nim engine, minimap or " &
        "word highlight, so scrolling and typing stay instant (palette › Large file mode turns it off for one file)")
@@ -480,6 +482,8 @@ proc initSettingDefs() =
        "answers sooner. The assistant can run the tool again")
   defS("AI", "ai.inlineCompletion", %false, "Grey inline suggestions while you type (Tab accepts) — sends code on every pause")
   defS("AI", "ai.inlineCompletionDelay", %700, "Pause in ms before an inline suggestion is requested")
+  defS("AI", "ai.nextEdit", %false, "Next-edit suggestions from AI: when an edit has no repeat in the file, the quick " &
+       "model is asked what edit follows from it (shown as → … ⇥ (AI), Tab takes it) — sends the code around it")
   defS("AI", "ai.checkSuggestions", %true,
        "Nim: an inline suggestion that uses a name that does not exist here (a proc, a field the type does not " &
        "have) is not shown — ned's engine checks it first")

@@ -42,6 +42,7 @@ proc embComplete(b: Buffer, p: Pos, manual: bool): bool
 proc webComplete(b: Buffer, p: Pos, manual: bool): bool
 proc webEngineOn(b: Buffer, p: Pos): bool
 proc webHoverInfo(b: Buffer, p: Pos): string
+proc webDefinition(b: Buffer, p: Pos): bool
 proc webChecksPump(b: Buffer)
 proc webDiagsOf(b: Buffer): seq[Diag]
 proc embHover(b: Buffer, p: Pos, auto: bool): bool
@@ -64,6 +65,7 @@ proc cSigHintsUpdate(b: Buffer)
 proc cWrapperComplete(b: Buffer, p: Pos, manual: bool): bool
 proc cEngineOn(b: Buffer): bool
 proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool
+proc cxIsCppBuf(b: Buffer): bool
 proc cEngHover(b: Buffer, p: Pos): string
 proc cEngDefinition(b: Buffer, p: Pos): bool
 proc cEngReferences(b: Buffer, p: Pos): bool
@@ -79,6 +81,7 @@ proc askConfirm(message: string, action: proc(c: char) {.closure.})
 proc closeComp()
 proc showReferences(title: string, hits: seq[(string, int, int)])
 proc openScratch(title, content: string, lang: Lang): Buffer
+proc gcAfterSave(b: Buffer)
 proc haveExe(name: string): bool
 proc nsUsable(b: Buffer): bool
 proc nimUsesLsp(): bool

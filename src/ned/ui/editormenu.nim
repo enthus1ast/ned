@@ -56,11 +56,13 @@ proc editorMenu(): seq[MenuItem] =
              mc("Cut", disabled = not hasSel), mc("Copy"), mc("Paste"), msep(),
              mc("Toggle comment"), mc("Format document")]
   if hasSel: result.add mc("Format selection (Nim built in, or the language server)", "Format selection")
+  result.add mc("Surround with…")
   let ln = b.primary.head.line
   if ln < b.git.len and b.git[ln] != 0:
     result.add msep()
     result.add mc("Git: show this change", "Show this change")
     result.add mc("Git: stage this change", "Stage this change")
+    if b.id in multiBufs and b.title == "Git: changes": result.add mc("Git: unstage this change", "Unstage this change")
     result.add mc("Git: revert this change", "Revert this change")
   if b.lang.mode == lmNim:
     result.add msep()

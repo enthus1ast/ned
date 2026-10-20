@@ -108,6 +108,10 @@ type
     kind: int
     time: MonoTime
     seqId: int
+  UndoBranch = object
+    ## steps undone and then edited over: kept (the undo tree), off the line of edits after its first `at` steps
+    at: int
+    groups: seq[UndoGroup]
   Diag = object
     line, col, eline, ecol: int
     sev: int            # 1 error, 2 warning, 3 info, 4 hint
@@ -125,6 +129,10 @@ type
     cursors: seq[Cursor]
     prim: int
     undoStack, redoStack: seq[UndoGroup]
+    undoBranches: seq[UndoBranch]      # the undo tree's other branches (editor/undotree.nim)
+    nesHas: bool                       # next-edit suggestions: the line being edited, as it was before
+    nesLine: int
+    nesBefore: string
     group: UndoGroup
     inGroup: bool
     changeId, savedId: int

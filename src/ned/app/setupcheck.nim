@@ -225,6 +225,8 @@ proc initCommandsV4() =
   add("Git: revert this change", "", revertHunk())
   add("Git: stage this change", "", stageHunk())
   add("Git: unstage this file", "", unstageFile())
+  add("Git: unstage this change", "", cmdGitUnstageHere())
+  add("Git: changes (every change, editable)…", "Alt+Shift+G", cmdGitChanges())
   add("Peek definition", "Alt+F12", cmdPeekDefinition())
   add("Call hierarchy (callers and calls)", "", cmdCallHierarchy())
   add("Type hierarchy (supertypes and subtypes)", "", cmdTypeHierarchy())

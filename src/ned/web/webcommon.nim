@@ -30,11 +30,12 @@ const
 func isCssIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '-'} or ord(c) >= 0x80
 
 func webFamily*(id: string): string =
-  ## the engine for a language: "css" (CSS, SCSS, Less), "html", "sql" or ""
+  ## the engine for a language: "css" (CSS, SCSS, Less), "html", "sql", "js" (JavaScript) or ""
   case id
   of "css", "scss", "less": "css"
   of "html": "html"
   of "sql": "sql"
+  of "javascript": "js"
   else: ""
 
 func wordDistance*(a, b: string, limit = 3): int =

@@ -195,7 +195,72 @@ proc vimKey(k: Key): bool =
       of 'J':
         b.joinLines()
         return true
+      of '-', '+':
+        for _ in 0 ..< max(1, (if vimCount.len > 0: parseInt(vimCount) else: 1)): b.undoChrono(if ch == '-': -1 else: 1)
+        vimCount = ""
+        return true
       else: return true
+    elif pend in ["ys", "ysi", "ysa", "ys>", "ds", "cs", "S"] or (pend.len == 3 and pend.startsWith("cs")):
+      # vim-surround: ys{motion}{char} (yss: the line), ds{char}, cs{old}{new}, S{char} on a visual selection
+      let n = max(1, (if vimCount.len > 0: parseInt(vimCount) else: 1)) *
+              max(1, (if vimOpCount.len > 0: parseInt(vimOpCount) else: 1))
+      vimCount = ""
+      vimOpCount = ""
+      case pend
+      of "ys":
+        if ch in {'i', 'a'}:
+          vimPending = "ys" & $ch
+          return true
+        if ch == 's':
+          let fb = b.firstNonBlank(p.line)
+          vimSurRange = (fb, Pos(line: p.line, col: b.lines[p.line].len))
+        else:
+          vimPending = "ys"
+          let m = b.vimMotion($ch, n, p)
+          if not m.ok:
+            vimPending = ""
+            return true
+          var e = m.p
+          if m.inclusive: e.col += 1
+          vimSurRange = if m.linewise: (Pos(line: min(p.line, e.line), col: 0),
+                                        Pos(line: max(p.line, e.line), col: b.lines[max(p.line, e.line)].len))
+                        else: (minP(p, e), maxP(p, e))
+        vimPending = "ys>"
+      of "ysi", "ysa":
+        let (ok, a, e) = b.textObject(pend[2], ch, p)
+        vimPending = if ok: "ys>" else: ""
+        vimSurRange = (a, e)
+      of "ys>":
+        vimPending = ""
+        b.vimSurroundChar(ch, @[vimSurRange])
+        vimIsChange = true
+        if not vimReplaying: vimLastChange = vimRec
+        b.setSingle(b.clampNormal(vimSurRange[0]))
+      of "S":
+        vimPending = ""
+        let (a, e) = b.primary.range
+        let lw = vimMode == vmVLine
+        vimSetMode(vmNormal)
+        b.vimSurroundChar(ch, @[(a, (if lw: Pos(line: e.line, col: b.lines[e.line].len) else: Pos(line: e.line, col: e.col + 1)))],
+                          lines = lw)
+        b.setSingle(b.clampNormal(a))
+      of "ds":
+        vimPending = ""
+        if b.deleteSurrounding(ch):
+          vimIsChange = true
+          if not vimReplaying: vimLastChange = vimRec
+      of "cs":
+        vimPending = "cs" & $ch
+      else:
+        vimPending = ""
+        let old = pend[2]
+        if ch in {'t', '<'}: changeSurroundingToTag(old)
+        else:
+          let (op, cl) = surroundPair(ch)
+          if op.len > 0 and b.changeSurrounding(op, cl, old):
+            vimIsChange = true
+            if not vimReplaying: vimLastChange = vimRec
+      return true
     elif pend.len == 2 and pend[1] in {'i', 'a'} and pend[0] in {'d', 'c', 'y', '>', '<'}:
       discard
     elif pend.len == 2 and pend[1] == 'g' and pend[0] in {'d', 'c', 'y', '>', '<'}:
@@ -226,6 +291,10 @@ proc vimKey(k: Key): bool =
         b.vimApply(op, Pos(line: p.line, col: 0), Pos(line: e, col: 0), true)
         if op != "y": vimIsChange = true
         if vimIsChange and vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
+        return true
+      if ch == 's' and op in ["y", "d", "c"]:
+        vimPending = op & "s"
+        vimOpCount = $n
         return true
       if ch in {'i', 'a'}:
         vimPending = op & $ch
@@ -359,6 +428,9 @@ proc vimKey(k: Key): bool =
       vimSetMode(vmVLine)
       b.setSingle(p)
   of 'x', 'X', 's', 'S', 'C', 'D', 'Y':
+    if visual and ch == 'S':
+      vimPending = "S"                    # (vim-surround: S{char} puts a pair around the selection)
+      return true
     if visual:
       let (a, e) = b.primary.range
       let lw = vimMode == vmVLine or ch in {'X', 'S', 'D', 'Y'}

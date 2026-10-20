@@ -1702,7 +1702,14 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("html-close", "a closing tag that closes the wrong element or nothing, an element never closed", 1),
   ("html-id", "an id used twice", 2),
   ("html-element", "an element HTML does not have", 2),
-  ("html-alt", "an <img> without alt text", 4)]
+  ("html-alt", "an <img> without alt text", 4),
+  # (ned's own JavaScript — in .js files and an HTML page's <script>s)
+  ("js-brace", "a bracket (or `${`) never closed, or one that closes nothing", 1),
+  ("js-redeclare", "a let, const, class or import declared twice in one scope", 1),
+  ("js-const-assign", "an assignment to a const (or an import)", 1),
+  ("js-unused", "a function, let, const or import nothing uses (in a module)", 4),
+  ("js-eqeq", "== or != with a literal: === and !== do not convert", 4),
+  ("js-typo", "a name nothing declares, a letter or two away from one that is", 2)]
 
 var ecWantSev* = 4                     # ned --lint: rules less serious than what it shows or fails on are not looked for
 

@@ -1,6 +1,86 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-614). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-615). Older releases:
+
+## What's new in 6.14.1
+
+- **Scrolling no longer waits for the reference counts.** A count of a name used in many places was worked out in
+  one go — 220 ms in ned's own source, while you scrolled — and gave up after 300 places as *300+ references*.
+  Now it goes on a few milliseconds at a time in quiet moments, and a name without `*` is looked for only in its
+  own module (and the files it includes): `func js` used once in the showcase is *1 reference*, however often
+  the rest of the project says `js`. A chunk of type hints that runs out of time takes at most 30 ms the next
+  time (was 60).
+- **Quick fixes without Alt+Enter.** Windows Terminal keeps Alt+Enter for full screen, so in WSL the quick fixes
+  never came: Alt+Shift+Enter opens them there (and the hints after a problem say so), as does Ctrl+. where the
+  terminal tells it apart (the kitty keyboard protocol), the right-click menu's *Quick fix…* and *Edit › Quick
+  fix…*. *Help › Check setup* says it when ned runs in Windows Terminal.
+- **`ned --lint` checks the SQL, HTML and CSS in a file's strings** too (rules `sql-args`, `sql-table`,
+  `sql-column`, `css-property`, `css-value`, `css-semicolon`, `css-brace`, `html-close`, `html-id`, `html-element`,
+  `html-alt` — `.ned/lint.json` and `# ned: ignore[…]` apply), and a call shown in a comment is not taken for one.
+- **The showcase** (`examples/showcase.nim`) covers 6.14: the CSS, HTML and SQL in its strings (a table it
+  creates, a misspelled property, a query given more values than its `?`), jump labels, the picker's preview,
+  the counts, ned's terminal and the hex editor.
+
+## What's new in 6.14
+
+6.14 is about speed — the moments ned did not answer a key while it worked — and about the other languages a Nim
+project is written in: ned answers for CSS, HTML and SQL itself now, in their files and in Nim strings.
+
+**Faster where you wait.** Measured on ned's own source (a program of 290 include files):
+
+- **Opening a file**: the longest pause 240–280 ms → about 50 ms; the first frame 130–170 ms → 20–30 ms. What the
+  engine needs for a file is read a slice at a time, and type hints, the engine's checks and reference counts wait
+  until it is ready instead of each making it on the spot.
+- **Typing with completion**: a quarter of the work per key it was (the engine kept a scope per include file and
+  made it again at every key — now one edit puts that file's new names in place), and what completion weighs
+  for thousands of routines is remembered while the types stay the same. Keys answered in over 30 ms: 12 → 3 in
+  the same typing.
+- **Each round of background work stops at 15 ms** and the rest goes on in the next one, so a key never waits for
+  two of them; and frames no key asked for — a streaming answer of the assistant, a terminal's output — come at
+  most 60 a second (30 on a slow terminal).
+- **Formatting a file again formats only the statements that changed**: an 87,000-line file 906 ms → 91 ms the
+  second time (the result is the one formatting it all gives — checked over 2,400 files under several layout
+  settings); the C in an emit is not sent to clang-format again when it did not change.
+- **The project's own files in the index cache** (`nim.indexCacheProject`): reopening a project of hundreds of files
+  reads them instead of parsing them.
+- **git**: a new folder is one line in the Git dock (with how many files it holds), not every file in it
+  (`git.untrackedFiles`) — and `git status` takes no lock, so a git command of yours never finds the index locked;
+  it runs less often where it takes long, and not while you are away. The blame of the line you are on comes from
+  the whole file's blame, made once for each version.
+- **The assistant**: long tool outputs of earlier questions (a file it read, a command's output) are sent cut to
+  their start and end — those of the question being answered in full: fewer tokens at every step
+  (`ai.trimOldResults`).
+
+**CSS, HTML and SQL — ned's own** (`web.engine`; with a language server for them installed, it answers instead).
+In .css / .scss / .less, .html and .sql files, in an HTML file's `<style>`, and in Nim strings (`sql"…"`, HTML and
+CSS strings):
+
+- **CSS**: properties and then their values (`display: ` → block, flex, grid …), colours, units after a number,
+  `var(--…)` with the custom properties the file declares, pseudo-classes, at-rules, the class names and ids the
+  page's HTML has after `.` and `#`; hover says what a property, value or function is. **Problems**: an unknown
+  property (*did you mean 'color'?*), a value its property does not take, a missing `;` that makes the next line
+  part of the value, a brace too many or never closed.
+- **HTML**: elements after `<`, the open element after `</`, an element's own attributes first, then the global
+  ones, their values (`type="` → checkbox, email …), the class names the project's stylesheets have in `class="`;
+  hover on elements and attributes. **Problems**: a closing tag that closes the wrong element, one that closes
+  nothing, an element never closed, an id used twice, an element HTML does not have (*did you mean <div>?*), an
+  `<img>` without alt text.
+- **SQL**: the tables your project creates (`CREATE TABLE` in its .sql files and in the SQL of its Nim files) after
+  FROM, JOIN, INTO and UPDATE; a table's columns after `u.` (through `FROM users u`); keywords in the case you
+  type; functions of SQLite, PostgreSQL and MySQL; hover on a table shows its columns. **Problems**: a table no
+  `CREATE TABLE` makes, a column its table does not have — and in Nim, **a query given more values than it has
+  `?`** (`db.exec(sql"INSERT … VALUES (?, ?)", a, b, c)`: *3 values for the query's 2 '?'*), or fewer.
+- **Formatting HTML and SQL** (Alt+F, *Format the code in this string*, nedfmt): HTML blocks on lines of their own,
+  indented, with what `<pre>`, `<script>` and `<style>` hold kept as it is; SQL one clause a line, keywords in upper
+  case. Each checks its own result and leaves the text alone when it is not sure (nedfmt and *Format: every file
+  in the folder* take .html and .sql files now too). The C in an emit is formatted by ned's own C formatter when
+  clang-format is not installed.
+
+![SQL in Nim strings: the columns of the table the project creates after `u.`, and a query given more values than its `?`](screenshots/web-614.png)
+
+**Jump labels** (Alt+Shift+J): a letter or two over every word on screen; type it and the cursor is there (an upper
+case letter: the selection reaches there). **Open file, Go to symbol and the buffer list show the selected file
+beside the list** on a screen 110 columns wide (`editor.pickerPreview`).
 
 ## What's new in 6.13
 

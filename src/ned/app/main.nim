@@ -293,7 +293,9 @@ proc mainLoop() =
       if cfgCSigHints and inBuf.len == 0 and not away: cSigHintsUpdate(buf())
       if inBuf.len == 0 and not away: timedWork("language server requests"): lspExtras(buf())
       if inBuf.len == 0 and not away and roomLeft(): timedWork("the engine reading imports"): engineWarm(buf())
-      if inBuf.len == 0 and not away: ghostTick()
+      if inBuf.len == 0 and not away:
+        ghostTick()
+        nesTick()
       if inBuf.len == 0 and not away:
         let gb = buf()
         if gb.gitHasBase and gb.gitAt != gb.changeId and msSince(gb.lspChangeAt) > 200: updateGitMarks(gb)
