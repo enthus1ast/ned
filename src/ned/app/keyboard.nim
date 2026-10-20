@@ -290,6 +290,7 @@ proc editorKey(k: Key) =
       of 'k': b.deleteLines()
       of '/', '_', '7': b.toggleComment()
       of ' ', '@': startCompletion(true)
+      of '.': cmdCodeActions()                # Ctrl+. (where the terminal tells it apart): quick fixes, as Alt+Enter
       of ']':
         let (ok, a, e) = b.matchBracket(b.primary.head)
         if ok: b.setSingle(if b.primary.head == a or b.primary.head.col == a.col + 1: e else: a)

@@ -1,10 +1,18 @@
-## ned showcase — one Nim file that exercises what ned (6.11) does for Nim.
+## ned showcase — one Nim file that exercises what ned (6.14) does for Nim.
 ##
 ## Open it:   ned showcase.nim        Run it:   F5 (or `nim c -r showcase.nim`)
-## Each section says what to try. Alt+Enter = quick fixes · Alt+H = hover · F12 = go to definition ·
-## Shift+F12 = references · F2 = rename · Alt+M = expand a template/macro · Alt+F = format ·
-## Ctrl+E = command palette (type "Nim:" to see every Nim command). Help › Performance… shows how ned keeps up
-## on your device: frames, what each sends to the terminal, and what the engine takes.
+## Each section says what to try. Alt+Enter = quick fixes (Alt+Shift+Enter or Ctrl+. where the terminal keeps
+## Alt+Enter: Windows Terminal; also the right-click menu and Edit › Quick fix…) · Alt+H = hover · F12 = go to
+## definition · Shift+F12 = references · F2 = rename · Alt+M = expand a template/macro · Alt+F = format ·
+## Alt+Shift+J = jump labels (a letter over every word on screen: type it to go there) · Ctrl+P = open a file,
+## with the selected one shown beside the list · Ctrl+E = command palette (type "Nim:" to see every Nim command).
+## Help › Performance… shows how ned keeps up on your device: frames, what each sends to the terminal, and what
+## the engine takes; Help › Check setup what the terminal can do (keys, colours, emoji widths).
+##
+## Beside each routine and type: how many places use it ("3 references" — a click lists them; an export
+## nothing uses is marked). In ned's terminal, `ned FILE:LINE` opens a file in this ned, and `git commit`
+## opens its message in a tab (git waits until you close it). Open the compiled program (`showcase`, no
+## extension) to see the hex editor with Nim's own names for its functions.
 ##
 ## A few things need a project around the file, not just the file: put it in a folder with a .nimble
 ## (`nimble init`) to see the .nimble checks, `Nimble: dependency tree`, `Nim: add a CI workflow` and
@@ -189,20 +197,31 @@ static int add_ints(int a, int b) {
 proc addInts(a, b: cint): cint {.importc: "add_ints", nodecl.}
 
 # ── 6. Other languages inside strings ─────────────────────────────────────────────────────────────────
-# Each string below is coloured as its language (and HTML, CSS, SQL, JSON and JS go to their language
-# servers when installed: errors on the Nim line, completion, hover). Name your own routines with
-# "nim.embeddedLanguages": {"render": "html"}.
+# Each string below is coloured as its language, and ned's own engines answer for CSS, HTML and SQL (a
+# language server for them, when installed, answers instead): completion — type `s.` in Query for the
+# columns of `shapes`, which Schema creates; `<` in Page for elements; a property in Style, then its values —,
+# hover, and problems: `paddng` is not a CSS property ("did you mean 'padding'?"), and the INSERT in saveShape
+# is given three values for its two `?`. Alt+F with the cursor in a string formats its HTML, CSS, SQL or JSON.
+# Name your own routines with "nim.embeddedLanguages": {"render": "html"}.
 func sql(s: string): string = s
 func html(s: string): string = s
 func css(s: string): string = s
 func js(s: string): string = s
 
 const
-  Query = sql"""SELECT name, size FROM shapes WHERE size > 3 ORDER BY name"""
+  Schema = sql"""CREATE TABLE shapes (name TEXT PRIMARY KEY, sides INTEGER, size REAL)"""
+  Query = sql"""SELECT s.name, s.size FROM shapes s WHERE s.size > 3 ORDER BY s.name"""
   Page = html"""<div class="card"><h1>ned</h1><p>A Nim IDE in your terminal</p></div>"""
-  Style = css""".card { color: #c0caf5; padding: 2px 4px; }"""
+  Style = css""".card { color: #c0caf5; paddng: 2px 4px; }"""
   Script = js"""document.querySelector(".card").classList.add("seen");"""
   Marked = #[html]# """<ul><li>a #[html]# marker colours any string</li></ul>"""
+
+type Db = object  # (a stand-in for db_connector's DbConn: the same calls)
+
+proc exec(db: Db, query: string, args: varargs[string, `$`]) = discard
+
+proc saveShape(db: Db, s: Square) =
+  db.exec(sql"INSERT INTO shapes (name, sides) VALUES (?, ?)", "square", 4, s.side)
 
 proc embedded(): string =
   let conf = parseJson("""{"title": "ned", "size": 3, "tags": ["nim", "termux"]}""")
@@ -211,11 +230,12 @@ proc embedded(): string =
   if "colour=blue" =~ peg"{\ident} '=' {\ident}":
     key = matches[0]
   result = fmt"{who} has {conf[""size""].getInt} tags; first key: {key}"
-  result.add &" · {Query.len + Page.len + Style.len + Script.len + Marked.len} chars of other languages"
+  result.add &" · {Schema.len + Query.len + Page.len + Style.len + Script.len + Marked.len} chars of other languages"
 
 # ── 7. Formatting ─────────────────────────────────────────────────────────────────────────────────────
 # Alt+F formats the file in nph's style (the next line is written badly on purpose); select lines first to
-# format only those. "Format: preview as a diff" shows the change before making it.
+# format only those. "Format: preview as a diff" shows the change before making it. Formatting again formats
+# only the statements that changed (a big file: a tenth of the time).
 proc  messy( a:int,b:int ):int=a+b
 
 # ── 8. TODO tags (the TODOs dock lists them; Ctrl+E › TODO) ───────────────────────────────────────────
@@ -253,6 +273,7 @@ proc main() =
   echo "C strlen ", cStrlen("hello"), " · C add_ints ", addInts(40, 2), " · walked ", walked, " m"
   echo embedded(), " · double ", double(4), " · start ", counterStart(), " · messy ", messy(1, 2)
   echo "tree root ", tree.kind, " · fetched ", waitFor fetchCount(), " · some ", some(5).get
+  Db().saveShape(sq)
   try:
     echo readConfig("/no/such/showcase.conf")
   except IOError as e:

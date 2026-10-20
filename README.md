@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.14](#whats-new-in-614) · [6.13](CHANGELOG.md#whats-new-in-613) · [6.12](CHANGELOG.md#whats-new-in-612) · [older releases](CHANGELOG.md)
+- [What's new in 6.14.1](#whats-new-in-6141) · [6.14](#whats-new-in-614) · [6.13](CHANGELOG.md#whats-new-in-613) · [6.12](CHANGELOG.md#whats-new-in-612) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -39,6 +39,25 @@ library, and builds to one binary of about 9 MB.
 - [Contributing](#contributing)
 
 ---
+
+## What's new in 6.14.1
+
+- **Scrolling no longer waits for the reference counts.** A count of a name used in many places was worked out in
+  one go — 220 ms in ned's own source, while you scrolled — and gave up after 300 places as *300+ references*.
+  Now it goes on a few milliseconds at a time in quiet moments, and a name without `*` is looked for only in its
+  own module (and the files it includes): `func js` used once in the showcase is *1 reference*, however often
+  the rest of the project says `js`. A chunk of type hints that runs out of time takes at most 30 ms the next
+  time (was 60).
+- **Quick fixes without Alt+Enter.** Windows Terminal keeps Alt+Enter for full screen, so in WSL the quick fixes
+  never came: Alt+Shift+Enter opens them there (and the hints after a problem say so), as does Ctrl+. where the
+  terminal tells it apart (the kitty keyboard protocol), the right-click menu's *Quick fix…* and *Edit › Quick
+  fix…*. *Help › Check setup* says it when ned runs in Windows Terminal.
+- **`ned --lint` checks the SQL, HTML and CSS in a file's strings** too (rules `sql-args`, `sql-table`,
+  `sql-column`, `css-property`, `css-value`, `css-semicolon`, `css-brace`, `html-close`, `html-id`, `html-element`,
+  `html-alt` — `.ned/lint.json` and `# ned: ignore[…]` apply), and a call shown in a comment is not taken for one.
+- **The showcase** (`examples/showcase.nim`) covers 6.14: the CSS, HTML and SQL in its strings (a table it
+  creates, a misspelled property, a query given more values than its `?`), jump labels, the picker's preview,
+  the counts, ned's terminal and the hex editor.
 
 ## What's new in 6.14
 
@@ -414,7 +433,7 @@ can add your own (see [Settings](#settings)).
 | Tab after a keyword | snippet (Tab / Shift+Tab walk the fields) |
 | Ctrl+Space | completion |
 | Alt+F | format document (with lines selected: just those) · F2 rename symbol |
-| Alt+Enter | quick fixes (Nim: fixes for the compiler's errors and warnings, missing case branches, generate $/==/hash, doc comment, run selection, debug this test) |
+| Alt+Enter · Ctrl+. | quick fixes (Nim: fixes for the compiler's errors and warnings, missing case branches, generate $/==/hash, doc comment, run selection, debug this test) — also the right-click menu and Edit › Quick fix…; Windows Terminal keeps Alt+Enter for full screen: there Alt+Shift+Enter |
 | F2 | rename — a preview lists every change first (Space unticks, Enter applies) |
 
 ### Search

@@ -422,9 +422,60 @@ func placeholders(sqlText: string): int =
     elif c == '?': inc result
     inc i
 
+proc nimCodeOnly(lines: openArray[string]): seq[string] =
+  ## Nim lines with their comments blanked (`#`, `##`, `#[ … ]#`), strings kept — the calls a doc comment shows as
+  ## an example are not calls
+  var triple = false
+  var blockDepth = 0
+  for s0 in lines:
+    var s = s0
+    var i = 0
+    var q = false
+    while i < s.len:
+      if blockDepth > 0:
+        if s.continuesWith("]#", i):
+          dec blockDepth
+          s[i] = ' '
+          s[i + 1] = ' '
+          i += 2
+          continue
+        if s.continuesWith("#[", i): inc blockDepth
+        s[i] = ' '
+        inc i
+        continue
+      if triple:
+        if s.continuesWith("\"\"\"", i):
+          triple = false
+          i += 3
+          continue
+        inc i
+        continue
+      let c = s[i]
+      if q:
+        if c == '\\': inc i
+        elif c == '"': q = false
+      elif s.continuesWith("\"\"\"", i):
+        triple = true
+        i += 3
+        continue
+      elif c == '"': q = true
+      elif c == '\'' and i + 2 < s.len and (s[i + 2] == '\'' or s[i + 1] == '\\'):
+        i += (if s[i + 1] == '\\': 4 else: 3)
+        continue
+      elif c == '#':
+        if s.continuesWith("#[", i) or s.continuesWith("##[", i):
+          inc blockDepth
+          for k in i ..< min(s.len, i + 3): s[k] = ' '
+          i += 2
+          continue
+        for k in i ..< s.len: s[k] = ' '
+        break
+      inc i
+    result.add s
+
 proc sqlArgChecks*(lines: openArray[string]): seq[WebDiag] =
   ## `db.exec(sql"INSERT … VALUES (?, ?)", a, b, c)`: three values for two `?` — on the call's line
-  let (text, starts) = joinLines(lines)
+  let (text, starts) = joinLines(nimCodeOnly(lines))
   for p in DbProcs:
     var i = text.find(p & "(")
     while i >= 0:

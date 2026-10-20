@@ -296,7 +296,9 @@ proc engineInlayStep(b: Buffer) =
       if c >= visA and c <= visB: visibleDone = false
       continue
     if sc == nil: sc = nxScope(f)
-    let budget = if tries == 0: max(slice - el, 3) else: min(60, 15 * (tries + 1))
+    # (a chunk that ran out of time: more the next times, but never so much that a key or a wheel turn arriving
+    # meanwhile waits long for it)
+    let budget = if tries == 0: max(slice - el, 3) else: min(30, 10 * (tries + 1))
     let a = c * IhChunk
     let e = min(last, a + IhChunk - 1)
     var hints: Table[int, seq[(int, string)]]
@@ -312,12 +314,12 @@ proc engineInlayStep(b: Buffer) =
       try: cut = not engineRaisesHints(b, f, a, e, hints, ct0)
       except Exception as ex: internalError("exception hints", ex)
     engineInlayBudget = keep
-    if cut and tries + 1 < 6:
+    if cut and tries + 1 < 10:
       st.tries[c] = tries + 1
       ihPending = true
       if c >= visA and c <= visB: visibleDone = false
       continue
-    # this chunk's lines: these hints now (after six tries, what it got)
+    # this chunk's lines: these hints now (after ten tries, what it got)
     for l in a .. e:
       var nw = hints.getOrDefault(l)
       nw.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))

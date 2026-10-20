@@ -652,6 +652,6 @@ proc fixLabel(s: LspServer, ca: JsonNode): (string, string) =
 proc fixHint(d: Diag): string =
   ## what Alt+Enter does about this problem, shown after it ("" when the server sent no fixes with it)
   if d.fixes == nil or d.fixes.len == 0: return ""
-  if d.fixes.len > 1: return "  — Alt+Enter: " & $d.fixes.len & " fixes"
+  if d.fixes.len > 1: return "  — " & fixKey() & ": " & $d.fixes.len & " fixes"
   let ca = d.fixes[0]
-  "  — Alt+Enter: " & fixLabel(nil, ca)[0]
+  "  — " & fixKey() & ": " & fixLabel(nil, ca)[0]

@@ -429,6 +429,8 @@ const HelpLines = [
   "Palette › Nim:       ARC/ORC view · generated C · build mode · backend · nimony",
   "F12 on importc       its C declaration in the header (hover shows it) · wrappers are checked against the header",
   "Palette › Nim:       wrap a C header (c2nim) · compile_commands.json for clangd",
+  "Alt+Enter · Ctrl+.   Quick fixes (also the right-click menu, Edit › Quick fix…) — Windows Terminal keeps Alt+Enter",
+  "                     for full screen: there Alt+Shift+Enter (or remove Alt+Enter in its Settings › Actions)",
   "Alt+Enter            Quick fixes: imports, missing case branches, generate $ == hash init, doc comment,",
   "                     run the selection, debug this test, AI fix",
   "Alt+H on a selection Its type        Nim › Refactor: extract proc · sort imports · proc ⇄ func",

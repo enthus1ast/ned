@@ -602,7 +602,8 @@ proc initCommands() =
   add("Fold level 2", "", buf().foldAllAt(1))
   add("Unfold all", "", (buf().folds.setLen(0)))
   add("Go to symbol in project…", "Ctrl+P #", cmdProjectSymbols())
-  add("Quick fix / code actions…", "Alt+Enter", cmdCodeActions())
+  add("Quick fix / code actions…", (if inWindowsTerminal(): "Alt+Shift+Enter · Ctrl+." else: "Alt+Enter · Ctrl+."),
+      cmdCodeActions())
   add("Nim: debug with gdb", "", cmdDebugGdb())
   add("Debug: start / continue", "F5", dbgStart())
   add("Debug: toggle breakpoint", "F9", toggleBreakpoint())

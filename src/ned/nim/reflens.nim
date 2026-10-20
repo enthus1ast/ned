@@ -64,28 +64,93 @@ proc refIndexFile(path: string) =
   refFileInfo[fid] = RefFile(stamp: stamp, words: ws)
   inc refVersion
 
-proc refCountDirect(path: string, f: NxFile, si: int, limit = 300): int
+type RefJob = object
+  ## a count under way: the files to look in, where it stopped (a file, a line in it, the lexer's state there),
+  ## what was found so far
+  files: seq[string]
+  next, line: int
+  st: NxLexState
+  count, checked: int
+  version: int
 
-proc refCountOf(path: string, f: NxFile, si: int, limit = 300): int =
-  ## how many places in the project name declaration `si` (resolved as Find references does); -1: more than
-  ## `limit` places to look at; -3: an operator whose uses take too long to resolve while idle.
-  ## A method that overrides another also counts the calls of the ones it overrides (they dispatch to it)
-  result = refCountDirect(path, f, si, limit)
+var refJobs: Table[string, RefJob]       # "path|name|line" → a count not finished yet
+
+proc refModuleFiles(path: string): seq[string] =
+  ## the files where a name the module keeps to itself (no `*`) can be used: the module — the file that
+  ## includes this one, if any — and every file it includes
+  let top = nxTopIncluder(path)
+  var seen: HashSet[string]
+  var stack = @[(if top.len > 0: top else: path)]
+  while stack.len > 0:
+    let p = stack.pop
+    if p in seen: continue
+    seen.incl p
+    result.add p
+    for q in nxIncludesOf(p): stack.add q
+
+proc refJobFor(path: string, f: NxFile, si: int): RefJob =
+  ## the files that may name declaration `si`: those whose words have it — only the module's own when it is not
+  ## exported (`func js` used once in showcase.nim was "300+ references": the word in the rest of the project)
   let sym = f.syms[si]
-  if result < 0 or sym.kind != nxMethod or sym.params.len == 0 or "base" in sym.pragmas: return
-  let sc = nxScope(f)
-  let own = nxBaseName(nxStripMods(sym.params[0].typ))
-  for anc in nxAncestors(sc, own):
-    for r in nxLookup(sc, sym.name):
-      if r.sym.kind == nxMethod and r.sym.params.len > 0 and
-         nxNorm(nxBaseName(nxStripMods(r.sym.params[0].typ))) == anc:
-        let n = refCountDirect(r.file.path, r.file, r.idx, limit)
-        if n < 0: return n
-        result += n
+  result.version = refVersion
+  let wid = refWordId.getOrDefault(nxNorm(sym.name), -1'i32)
+  if wid < 0:
+    result.files = @[path]
+    return
+  var own: HashSet[string]
+  if not sym.exported:
+    for p in refModuleFiles(path): own.incl p
+    own.incl path
+  for fid in refFilesOf[wid]:
+    let p = refFilePath[fid]
+    if sym.exported or p in own: result.files.add p
+  if path notin result.files: result.files.add path
 
-proc refCountDirect(path: string, f: NxFile, si: int, limit = 300): int =
+proc refCountStep(job: var RefJob, path: string, f: NxFile, si: int, deadline: MonoTime, limit: int): bool =
+  ## counts on, a file at a time, until the deadline (MonoTime() = none); true when finished — job.count is the
+  ## count, -1 when there were more than `limit` places to resolve
   let sym = f.syms[si]
   let nw = nxNorm(sym.name)
+  let target = NxRef(file: f, idx: int32(si))
+  while job.next < job.files.len:
+    let p = job.files[job.next]
+    let g = if p == path: f else: nxLoad(p)
+    if g == nil:
+      inc job.next
+      job.line = 0
+      continue
+    let lines = refLinesOf(p)
+    var l = job.line
+    while l < lines.len:
+      # (every few lines a look at the clock: a line naming it many times is resolved whole, then it stops —
+      # resolving a place takes a while, and scrolling must not wait for a count)
+      if (l and 7) == 0 and deadline != MonoTime() and getMonoTime() > deadline:
+        job.line = l
+        return false
+      let line = lines[l]
+      for (c, e) in nxIdents(line, job.st):
+        if line[c] != nw[0] or nxNorm(line[c ..< e]) != nw: continue
+        if p == path and l == sym.line and c == sym.col: continue
+        if nxSymAt(g, l, c) >= 0: continue            # another declaration of the name (an overload, a forward one)
+        inc job.checked
+        if job.checked > limit:
+          job.count = -1
+          return true
+        let (rs, ls, mp) = nxTargets(g, lines, l, c)
+        if ls.len > 0 or mp.len > 0: continue
+        for r in rs:
+          if nxSameDecl(target, r):
+            inc job.count
+            break
+      inc l
+    inc job.next
+    job.line = 0
+    job.st = NxLexState()
+  true
+
+proc refCountDirect(path: string, f: NxFile, si: int, limit = 5000, deadline = MonoTime()): int =
+  ## how many places name declaration `si`; -2: not finished by the deadline (it goes on next time)
+  let sym = f.syms[si]
   let target = NxRef(file: f, idx: int32(si))
   if nxIsOpName(sym.name):
     # an operator: the files that have it written, each use resolved by its operands' types
@@ -102,31 +167,36 @@ proc refCountDirect(path: string, f: NxFile, si: int, limit = 300): int =
       if not has: continue
       let g = if p == path: f else: nxLoad(p)
       if g == nil: continue
-      if not nxOpUses(target, lines, g, p, hits, checked, limit, t0, 400):
-        return (if checked > limit: -1 else: -3)       # (-3: too slow to count while idle)
+      if not nxOpUses(target, lines, g, p, hits, checked, min(limit, 300), t0, 400):
+        return (if checked > min(limit, 300): -1 else: -3)    # (-3: too slow to count while idle)
     return max(0, hits.len - 1)            # (its own declaration aside)
-  let wid = refWordId.getOrDefault(nw, -1'i32)
-  if wid < 0: return 0
-  var checked = 0
-  for fid in refFilesOf[wid]:
-    let p = refFilePath[fid]
-    let g = if p == path: f else: nxLoad(p)
-    if g == nil: continue
-    let lines = refLinesOf(p)
-    var st: NxLexState
-    for l, line in lines:
-      for (c, e) in nxIdents(line, st):
-        if line[c] != nw[0] or nxNorm(line[c ..< e]) != nw: continue
-        if p == path and l == sym.line and c == sym.col: continue
-        if nxSymAt(g, l, c) >= 0: continue            # another declaration of the name (an overload, a forward one)
-        inc checked
-        if checked > limit: return -1
-        let (rs, ls, mp) = nxTargets(g, lines, l, c)
-        if ls.len > 0 or mp.len > 0: continue
-        for r in rs:
-          if nxSameDecl(target, r):
-            inc result
-            break
+  let key = path & "|" & sym.name & "|" & $sym.line
+  var job = refJobs.getOrDefault(key)
+  if job.files.len == 0 or job.version != refVersion: job = refJobFor(path, f, si)
+  if refCountStep(job, path, f, si, deadline, limit):
+    refJobs.del key
+    return job.count
+  if refJobs.len > 200: refJobs.clear()          # (counts of declarations long scrolled away)
+  refJobs[key] = job
+  -2
+
+proc refCountOf(path: string, f: NxFile, si: int, limit = 5000, deadline = MonoTime()): int =
+  ## how many places in the project name declaration `si` (resolved as Find references does); -1: more than
+  ## `limit` places to look at; -2: not finished by the deadline (asked again, it goes on where it stopped);
+  ## -3: an operator whose uses take too long to resolve while idle.
+  ## A method that overrides another also counts the calls of the ones it overrides (they dispatch to it)
+  result = refCountDirect(path, f, si, limit, deadline)
+  let sym = f.syms[si]
+  if result < 0 or sym.kind != nxMethod or sym.params.len == 0 or "base" in sym.pragmas: return
+  let sc = nxScope(f)
+  let own = nxBaseName(nxStripMods(sym.params[0].typ))
+  for anc in nxAncestors(sc, own):
+    for r in nxLookup(sc, sym.name):
+      if r.sym.kind == nxMethod and r.sym.params.len > 0 and
+         nxNorm(nxBaseName(nxStripMods(r.sym.params[0].typ))) == anc:
+        let n = refCountDirect(r.file.path, r.file, r.idx, limit)
+        if n < 0: return n
+        result += n
 
 proc hasBody(b: Buffer, s: NxSym): bool =
   ## a routine with a body (not a forward declaration, whose callers may be in files it includes)
@@ -201,9 +271,16 @@ proc refLensPump(b: Buffer, budgetMs = 12) =
     let have = refCounts.getOrDefault(key, (-2, -1))
     if have[1] == refVersion and s.line in lens: continue
     if msSince(t0) > budgetMs: break
-    let n = if have[1] == refVersion: have[0] else: refCountOf(b.path, f, i)
+    let n = if have[1] == refVersion: have[0]
+            else: refCountOf(b.path, f, i, deadline = t0 + initDuration(milliseconds = budgetMs))
+    if n == -2:
+      # (a count of many places: it goes on in the next quiet moments — the label it had stays meanwhile)
+      if s.line notin lens:
+        lens[s.line] = ("references…", false)
+        changed = true
+      break
     refCounts[key] = (n, refVersion)
-    let label = if n == -3: "references…" elif n < 0: "300+ references" elif n == 0: "no references"
+    let label = if n == -3: "references…" elif n < 0: "5000+ references" elif n == 0: "no references"
                 elif n == 1: "1 reference"
                 else: $n & " references"
     let v = (label, n == 0 and s.exported)
