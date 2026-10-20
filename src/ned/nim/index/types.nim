@@ -162,8 +162,8 @@ proc nxAncestors*(sc: NxScope, child: string): seq[string] =
   ## the base types of an object type, nearest first (normalized names), memoized per scope
   let key = nxBaseName(child)
   if key.len == 0: return
-  if key in sc.anc: return sc.anc[key]
-  sc.anc[key] = @[]                 # guards against cycles while we work
+  if key in sc.tm.anc: return sc.tm.anc[key]
+  sc.tm.anc[key] = @[]                 # guards against cycles while we work
   var cur = key
   var csc = sc
   for depth in 0 .. 8:
@@ -177,7 +177,7 @@ proc nxAncestors*(sc: NxScope, child: string): seq[string] =
     result.add nxNorm(base)
     cur = base
     if r.file != csc.own: csc = nxScope(r.file)
-  sc.anc[key] = result
+  sc.tm.anc[key] = result
 
 proc nxIsSubtype*(sc: NxScope, child, parent: string): bool =
   let anc = nxAncestors(sc, child)
@@ -219,9 +219,9 @@ const
 
 proc nxResolveAlias*(sc: NxScope, name: string): string =
   ## follow `type A = B` aliases to the type they name (distinct types stay themselves)
-  if name in sc.alias: return sc.alias[name]
+  if name in sc.tm.alias: return sc.tm.alias[name]
   result = name
-  defer: sc.alias[name] = result
+  defer: sc.tm.alias[name] = result
   for _ in 0 .. 5:
     var nxt = ""
     for r in nxTypeSyms(sc, result):
@@ -279,7 +279,7 @@ proc nxAlternatives*(t: string): seq[string] =
 proc nxUnionAlts*(sc: NxScope, t: string): seq[string] =
   ## the alternatives of a union type — written (`PType | PSym`) or an alias of one (`GVec234[T] = GVec2[T] |
   ## GVec3[T] | GVec4[T]`, `AsyncStreamRW = AsyncStreamReader | AsyncStreamWriter`) — or @[] for any other type
-  if t in sc.plain: return
+  if t in sc.tm.plain: return
   let s0 = nxStripMods(t)
   if s0.len == 0: return
   if '|' in s0 or " or " in s0:
@@ -287,9 +287,9 @@ proc nxUnionAlts*(sc: NxScope, t: string): seq[string] =
     if alts.len > 1: return alts
   let b = nxBaseName(s0)
   if b.len == 0 or b in ["seq", "array", "openArray", "string", "int", "float", "bool", "char", "set", "Table"]:
-    if sc.plain.len < 20000: sc.plain.incl t
+    if sc.tm.plain.len < 20000: sc.tm.plain.incl t
     return
-  if b notin sc.unions:
+  if b notin sc.tm.unions:
     var entry: (seq[string], seq[string])
     var found = false
     for r in nxTypeSyms(sc, b):
@@ -314,10 +314,10 @@ proc nxUnionAlts*(sc: NxScope, t: string): seq[string] =
           if da.len > 1:
             entry = (da, nxGenericNames(g.syms[k].generics))
             break
-    sc.unions[b] = entry
-  let ent = addr sc.unions[b]                         # (no copy: asked for every routine a completion weighs)
+    sc.tm.unions[b] = entry
+  let ent = addr sc.tm.unions[b]                         # (no copy: asked for every routine a completion weighs)
   if ent[][0].len == 0:
-    if sc.plain.len < 20000: sc.plain.incl t
+    if sc.tm.plain.len < 20000: sc.tm.plain.incl t
     return
   let (da, names) = ent[]
   let args = nxTypeArgs(s0)
@@ -325,9 +325,22 @@ proc nxUnionAlts*(sc: NxScope, t: string): seq[string] =
   for i in 0 ..< min(names.len, args.len): binds[names[i]] = args[i]
   for x in da: result.add nxSubst(x, binds)
 
+proc nxCompat0(sc: NxScope, paramType, generics, recv: string, depth: int): int
+
 proc nxCompat*(sc: NxScope, paramType, generics, recv: string, depth = 0): int =
   ## can a value of type `recv` be the first argument of a routine whose first parameter is `paramType`?
   ## 3 exact · 2 related (subtype, openArray, type class, alias, wider number) · 1 generic · 0 no
+  ## (remembered: a completion weighs thousands of routines, of a few dozen parameter types)
+  if depth > 0: return nxCompat0(sc, paramType, generics, recv, depth)
+  let key = paramType & "\0" & generics & "\0" & recv
+  let m = sc.tm
+  let got = m.compat.getOrDefault(key, -1'i8)
+  if got >= 0: return int(got)
+  result = nxCompat0(sc, paramType, generics, recv, 0)
+  if m.compat.len > 50_000: m.compat.clear()
+  m.compat[key] = int8(result)
+
+proc nxCompat0(sc: NxScope, paramType, generics, recv: string, depth: int): int =
   var p = nxStripMods(paramType)
   if p.startsWith("type ") and recv.startsWith("typedesc["): p = "typedesc[" & p[5 .. ^1].strip & "]"   # (T: type X)
   if p.len == 0: return 1
@@ -702,10 +715,10 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
   template hasRet(s: NxSym): bool =
     (s.ret.len > 0 or (s.pragmas.len > 0 and nxAsyncPragma(s.pragmas) >= 0))     # ({.async.}: a Future[void])
   for r in nxLookup(sc, name):
-    let s = r.sym
+    template s: untyped = r.sym
     if s.kind in NxRoutineKinds and s.kind != nxIterator and hasRet(s) and nxArgsFit(s, nargs): anyFits = true
   for r in nxLookup(sc, name):
-    let s = r.sym
+    template s: untyped = r.sym
     if s.kind notin NxRoutineKinds or s.kind == nxIterator or not hasRet(s): continue
     if anyFits and not nxArgsFit(s, nargs): continue
     rets.incl s.ret
@@ -853,7 +866,7 @@ proc nxCommonRet*(sc: NxScope, name: string): string =
   ## what every overload of `name` returns, when that is one type (so a call can be typed without its receiver)
   var rets: HashSet[string]
   for r in nxLookup(sc, name):
-    let s = r.sym
+    template s: untyped = r.sym
     if s.kind notin NxRoutineKinds or s.kind == nxIterator: continue
     let ret = nxAsyncResult(s.ret, s.pragmas)
     if ret.len == 0 or ret in ["auto", "untyped", "typed"] or nxIsGenericName(nxStripMods(ret), s.generics): return ""
@@ -954,7 +967,7 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
     # a type of its own (HttpHeaders, a user's tree): the iterator it has says what it yields
     let want = if itName.len > 0: itName elif slots >= 2: "pairs" else: "items"
     for r in nxLookup(sc, want):
-      let s = r.sym
+      template s: untyped = r.sym
       if s.kind != nxIterator or s.ret.len == 0 or s.params.len == 0: continue
       if nxCompatP(sc, s.params[0], s.generics, ct) < 2: continue
       let rt = nxStripMods(nxSubst(s.ret, nxBindings(s, ct)))
@@ -1027,7 +1040,7 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
         return (if slot < parts.len: parts[slot] else: "")
       return rt
   for r in nxLookup(sc, itName):
-    let s = r.sym
+    template s: untyped = r.sym
     if s.kind != nxIterator or s.ret.len == 0: continue
     if ct.len > 0 and s.params.len > 0 and nxCompatP(sc, s.params[0], s.generics, ct) == 0: continue
     var rt = nxStripMods(nxSubst(s.ret, nxBindings(s, ct)))
@@ -1185,7 +1198,7 @@ proc nxTypeOfName*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, lin
       return
   if name in sc.modules: return NxVal(module: sc.modules[name])
   for r in nxLookup(sc, name):
-    let s = r.sym
+    template s: untyped = r.sym
     case s.kind
     of nxType: return NxVal(typeName: s.name)
     of nxConst, nxLet, nxVar:

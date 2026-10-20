@@ -1,6 +1,8 @@
 # build output
 /ned
 /ned_debug
+/nedfmt
+/nedls
 /ned-*
 *.exe
 nimcache/

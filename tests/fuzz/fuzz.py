@@ -86,6 +86,16 @@ def setup():
     for x in ('web.nim', 'page.nimf', 'notes.md'): shutil.copy(FIX + '/emb/' + x, PROJ + '/' + x)
     for x in ('wrap.nim', 'mathx.h', 'mathx.c'): shutil.copy(FIX + '/cwrap/' + x, PROJ + '/' + x)
     shutil.copy(FIX + '/emitc/words.nim', PROJ + '/words.nim')
+    # CSS, HTML and SQL for ned's own engines (mode "web")
+    open(PROJ + '/style.css', 'w').write(':root { --gap: 4px; }\n.card { color: red; display: flex }\n'
+                                         '@media (max-width: 600px) {\n  .card:hover { margin: var(--gap) }\n}\n')
+    open(PROJ + '/page.html', 'w').write('<!DOCTYPE html>\n<html>\n<head><style>p { colr: red }</style></head>\n'
+                                         '<body>\n  <div class="card" id="a">\n    <span>x</div>\n  <img src="a.png">\n'
+                                         '  <script>if (a < b) {}</script>\n</body>\n</html>\n')
+    open(PROJ + '/schema.sql', 'w').write('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT);\n'
+                                          'CREATE TABLE orders (id INTEGER, user_id INTEGER, total REAL);\n')
+    open(PROJ + '/q.sql', 'w').write('SELECT u.name, o.total FROM users u JOIN orders o ON o.user_id = u.id\n'
+                                     'WHERE u.email LIKE ? ORDER BY 2;\n')
     # a workspace of two repositories, both with changes (mode "ws")
     if MODE == 'ws':
         lib = HOME + '/lib2'
@@ -186,7 +196,7 @@ def start():
     script = HOME + '/run.sh'
     with open(script, 'w') as f:
         f.write(('#!/bin/bash\nexport HOME=%s PATH=' + (NIM_BIN + ':' if NIM_BIN else '') + os.environ.get('PATH', '/usr/bin:/bin') + ' TERM=xterm-256color COLORTERM=truecolor\n'
-                 'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'blob.bin prog m.nim' if MODE == 'hex' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
+                 'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'blob.bin prog m.nim' if MODE == 'hex' else 'style.css page.html q.sql web.nim' if MODE == 'web' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
     os.chmod(script, 0o755); own(script)
     tm('-f ' + TESTS + '/ui/tmux.conf new-session -d -s fz -x %d -y %d %s' % (w, h, script))
     time.sleep(1.5)
@@ -277,6 +287,9 @@ int main(int argc, char **argv)
 C_TOKS = ['head->', 'a.', 'a.u.', 'q.', 'p->', 'table[0].', '{ .', '#include "', '#include <st', '#include <sys/',
           'goto ', 'walk(', 'printf(', 'struct node *m = ', '->', '!=', '<=', '>=', '=>', ':=', '\x1b[24~', '\x1bOQ',
           '\x1bh', '\x1bq', '\x1b\r', '\x00', '\x14', '\x1b,', '\x13', '\x1a', '\x0b', '\r', '\t', '\x07']
+WEB_TOKS = ['<div', '<', '</', ' class="', '"', '>', ' id=', 'display: ', 'colo', ':hov', '::be', '@me', '10p', 'var(--',
+            '}', '{', ';', 'SELECT ', 'u.', 'FROM ', ' JOIN ', 'sel', '?', "'", '<!--', '-->', '<script>', '</script>',
+            '<style>', '\x1bJ', 'fj', 'k', '\x1bh', '\x1bf', '\x00', '\t', '\r', '\x1b[A', '\x1b[B', '\x10']
 def token():
     if MODE == 'engine' and rnd.random() < 0.4: return rnd.choice(ENGINE)
     if MODE == 'kitty' and rnd.random() < 0.4:
@@ -294,6 +307,7 @@ def token():
                            '\x1b[?997;2n', '\x1bP1+r536d756c78=31\x1b\\', '\x1bP1+r524742\x1b\\',
                            '\x1bP1$r0;48:2:1:2:3m\x1b\\', '\x1bP0+r\x1b\\', '\x1b[O', '\x1b[I', '\x1b[?62;22c'])
     if MODE == 'c' and rnd.random() < 0.4: return rnd.choice(C_TOKS)
+    if MODE == 'web' and rnd.random() < 0.45: return rnd.choice(WEB_TOKS)      # (\x1bJ: jump labels)
     if MODE == 'term' and rnd.random() < 0.3:
         # the terminal with shell integration: commands, their marks, menus, split terminals; macros
         return rnd.choice(['\x1c', '\x1b[1;5A', '\x1b[1;5B', '\x1b\r', '\x1b[5;5~', '\x1b[6;5~', 'echo hi\r', 'false\r',

@@ -13,12 +13,16 @@ type
     stamp*: string
     ikey*: string                          # what it depends on besides its own text (the toolchain, its imports)
     own*: NxFile                           # the parsed file this scope was built for
-    anc*: Table[string, seq[string]]       # type → its ancestors (normalized base names), memoized
     deps*: seq[(string, string)]           # (path, stamp) of every other file it took symbols from
-    alias*: Table[string, string]          # type name → what its aliases lead to, memoized
+    memo*: NxTypeMemo                      # what was worked out about its types (shared with the next version of
+                                           # the scope while no type declaration changed: tm)
+  NxTypeMemo* = ref object
+    anc*: Table[string, seq[string]]       # type → its ancestors (normalized base names)
+    alias*: Table[string, string]          # type name → what its aliases lead to
     unions*: Table[string, (seq[string], seq[string])]   # type name → (its alternatives when it is `A | B`, its
-                                                          #   generic parameters), memoized
+                                                          #   generic parameters)
     plain*: HashSet[string]                # types as written that are no union (nxUnionAlts asked again and again)
+    compat*: Table[string, int8]           # (parameter type, generics, argument type) → nxCompat's answer
 
 var
   nxFiles* = initTable[string, NxFile]()          # path → parsed file
@@ -30,6 +34,26 @@ var
   nxGen* = 0                                      # bumped when the toolchain or a file changes
   nxBufferStamp*: proc(path: string): string = nil          # open buffers win over disk: "" = not open
   nxBufferLines*: proc(path: string): seq[string] = nil
+
+proc tm*(sc: NxScope): NxTypeMemo {.inline.} =
+  if sc.memo == nil: sc.memo = NxTypeMemo()
+  sc.memo
+
+proc nxSameTypes*(a, b: NxFile): bool =
+  ## do two versions of a file declare the same types (the same definitions)? Then what a scope worked out about
+  ## types still holds with the other version in it
+  if a == b: return true
+  if a == nil or b == nil: return false
+  var i, j = 0
+  while true:
+    while i < a.syms.len and a.syms[i].kind != nxType: inc i
+    while j < b.syms.len and b.syms[j].kind != nxType: inc j
+    if i >= a.syms.len or j >= b.syms.len: return i >= a.syms.len and j >= b.syms.len
+    if a.syms[i].name != b.syms[j].name or a.syms[i].typ != b.syms[j].typ or a.syms[i].generics != b.syms[j].generics or
+       a.syms[i].local != b.syms[j].local:
+      return false
+    inc i
+    inc j
 
 var nxExact* = false      ## Nim 3 (nimony): names are matched as written — case and underscores count
 
@@ -899,22 +923,116 @@ func skey(f: NxFile): string {.inline.} =
   ## the key a file's scope is kept under (its path; the file as a left-out `when` branch sees it: its own)
   if f.scopeKey.len > 0: f.scopeKey else: f.path
 
+var nxFocusPath* = ""     # the file being edited (the one in front): its scope is its own, whatever it is part of
+
+proc nxScopeCached*(f: NxFile): bool =
+  ## is the scope of `f` made already? (what can wait for a quiet moment asks before it would make one)
+  if f == nil: return false
+  let s = nxScopes.getOrDefault(f.skey)
+  s != nil and (s.own == f or f.path != nxFocusPath)
+
+proc nxPatchScope(old: NxScope, path: string, g: NxFile): NxScope =
+  ## the scope with one of the files the module includes in its new version (`g`): that file's names taken out and
+  ## the new ones put in their place, the rest kept — no gathering and sorting a hundred thousand names again for a
+  ## keystroke in one include file of a big program (ned's own source has 290). nil when the file's names are not
+  ## one block of names the module took all of
+  var a, e = -1
+  for i, r in old.refs:
+    if r.file.path == path:
+      if e >= 0 or r.origin != 1: return nil        # (a second block, or names it took only some of)
+      if a < 0: a = i
+    elif a >= 0 and e < 0: e = i
+  if a < 0: return nil
+  if e < 0: e = old.refs.len
+  let n = g.syms.len
+  let delta = n - (e - a)
+  result = NxScope(stamp: old.stamp, ikey: old.ikey, own: old.own, modules: old.modules, deps: old.deps)
+  if nxSameTypes(old.refs[a].file, g): result.memo = old.memo     # (an edit in a routine's body: types as they were)
+  result.refs = newSeqOfCap[NxRef](old.refs.len + delta)
+  for i in 0 ..< a: result.refs.add old.refs[i]
+  for i in 0 ..< n: result.refs.add NxRef(file: g, idx: int32(i), origin: 1)
+  for i in e ..< old.refs.len: result.refs.add old.refs[i]
+  var fresh = newSeq[(uint32, int32)](n)
+  for i in 0 ..< n: fresh[i] = (uint32(hash(nxNorm(g.syms[i].name)) and 0xFFFF_FFFF), int32(a + i))
+  fresh.sort(proc(x, y: (uint32, int32)): int = cmp(x[0], y[0]))
+  result.byHash = newSeqOfCap[(uint32, int32)](old.byHash.len + delta)
+  var k = 0
+  for (h, ix) in old.byHash:
+    if ix >= int32(a) and ix < int32(e): continue
+    while k < n and fresh[k][0] < h:
+      result.byHash.add fresh[k]
+      inc k
+    result.byHash.add (h, (if ix >= int32(e): ix + int32(delta) else: ix))
+  while k < n:
+    result.byHash.add fresh[k]
+    inc k
+  for d in result.deps.mitems:
+    if d[0] == path: d[1] = g.stamp
+
 proc nxIncludedScope*(f, host: NxFile): NxScope =
   ## what a file that another one includes can see: everything its includer sees (the includer's own
   ## declarations, its imports, its other include files), with this file's current declarations
   let hs = nxScope(host)
-  let st = "inc|" & f.stamp & "|" & host.path & "|" & hs.stamp & "/" & $nxGen
-  var old = nxScopes.getOrDefault(f.skey)
-  if old != nil and old.stamp == st and old.own == f:
-    var fresh = true
-    for (p, ps) in old.deps:
-      if nxCurStamp(p) != ps:
-        fresh = false
+  if f.path != nxFocusPath:
+    # an include file that is not the one being edited, that imports nothing of its own and is the very file the
+    # includer's scope was made with: it sees just what the includer sees — that scope itself. (A program of many
+    # include files — ned's own source: 290 — made one scope per file it walked into, each a copy of the
+    # includer's hundred thousand names, more than the index keeps: they were made again and again)
+    var plain = true
+    for im in f.imports:
+      if not im.isInclude:
+        plain = false
         break
-    if fresh:
+    if plain and nxFiles.getOrDefault(f.path) == f:
+      for (p, ps) in hs.deps:
+        if p == f.path and ps == f.stamp: return hs
+  block shared:
+    # the file being edited, when the includer's scope holds this very version of it and it imports nothing of its
+    # own: the includer's names as they are, this file as the scope's own — a copy, nothing gathered or sorted again
+    for im in f.imports:
+      if not im.isInclude: break shared
+    if nxFiles.getOrDefault(f.path) != f: break shared
+    var holds = false
+    for (p, ps) in hs.deps:
+      if p == f.path and ps == f.stamp:
+        holds = true
+        break
+    if not holds: break shared
+    let st = "inc|" & f.stamp & "|" & host.path & "|" & hs.stamp & "/" & $nxGen & "|" & $hs.refs.len & "|" &
+             $cast[int](hs)
+    let old = nxScopes.getOrDefault(f.skey)
+    if old != nil and old.stamp == st and old.own == f:
       inc nxTick
       nxScopeUsed[f.skey] = nxTick
       return old
+    result = NxScope(stamp: st, own: f, modules: hs.modules, refs: hs.refs, byHash: hs.byHash, deps: hs.deps,
+                     memo: hs.tm)
+    result.deps.add (host.path, host.stamp)
+    nxKeepScope(f.skey, result)
+    return
+  let st = "inc|" & f.stamp & "|" & host.path & "|" & hs.stamp & "/" & $nxGen
+  var old = nxScopes.getOrDefault(f.skey)
+  if old != nil and old.stamp == st and old.own == f:
+    var stale = ""
+    var many = false
+    for (p, ps) in old.deps:
+      if nxCurStamp(p) != ps:
+        if stale.len > 0:
+          many = true
+          break
+        stale = p
+    if stale.len == 0:
+      inc nxTick
+      nxScopeUsed[f.skey] = nxTick
+      return old
+    if not many and stale != host.path:
+      # (one file of the program edited — ned.nim's scope when ui/editorview.nim, that it includes, changed: its
+      # new names in place of the old, not every import gathered again)
+      let g = nxLoad(stale)
+      let patched = if g != nil: nxPatchScope(old, stale, g) else: nil
+      if patched != nil:
+        nxKeepScope(f.skey, patched)
+        return patched
   result = NxScope(stamp: st, own: f, modules: hs.modules)
   for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
   for r in hs.refs:
@@ -979,11 +1097,26 @@ proc nxScope*(f: NxFile): NxScope =
   let stamp = f.stamp & "/" & ikey
   var old = nxScopes.getOrDefault(f.skey)
   if old != nil:
-    # another file it sees was edited (or saved): start over
+    # another file it sees was edited (or saved): start over — or, when that is one file the module includes and
+    # nothing else changed, put that file's new names in (an edit in one include file of a big program)
+    var stale = ""
+    var many = false
     for (p, st) in old.deps:
       if nxCurStamp(p) != st:
-        old = nil
-        break
+        if stale.len > 0:
+          many = true
+          break
+        stale = p
+    if stale.len > 0:
+      var patched: NxScope = nil
+      if not many and old.stamp == stamp and old.own == f and old.ikey == ikey:
+        let g = nxLoad(stale)
+        if g != nil: patched = nxPatchScope(old, stale, g)
+      if patched != nil:
+        nxKeepScope(f.skey, patched)
+        inc nxTick
+        return patched
+      old = nil
   if old != nil and old.stamp == stamp and old.own == f:
     inc nxTick
     nxScopeUsed[f.skey] = nxTick
@@ -992,7 +1125,7 @@ proc nxScope*(f: NxFile): NxScope =
     # own symbols change with every edit; imports rarely do: what the imports bring is kept (system's and the
     # imports' thousands of names: an edit no longer gathers them all again)
     var sc = NxScope(refs: newSeqOfCap[NxRef](old.refs.len + 16), stamp: stamp, ikey: ikey, modules: old.modules,
-                     own: f, deps: old.deps)
+                     own: f, deps: old.deps, memo: (if nxSameTypes(old.own, f): old.memo else: nil))
     for i in 0 ..< f.syms.len: sc.refs.add NxRef(file: f, idx: int32(i), origin: 1)
     for r in old.refs:
       if r.file != old.own and r.file != f and r.file.path != f.path: sc.refs.add r
@@ -1067,7 +1200,7 @@ proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
     for r in sc.refs:
       if nxNorm2(r.file.syms[r.idx].name) == n2: result.add r
 
-func sym*(r: NxRef): NxSym {.inline.} = r.file.syms[r.idx]
+func sym*(r: NxRef): lent NxSym {.inline.} = r.file.syms[r.idx]     # (lent: `r.sym.kind` copies nothing)
 
 var
   nxOverlays: seq[(string, NxFile)]       # (file and branch, the file as that branch sees it), the latest last

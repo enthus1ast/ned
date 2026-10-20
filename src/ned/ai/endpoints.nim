@@ -100,7 +100,8 @@ proc openaiBody(): JsonNode =
   let noSys = hasQuirk("nosysrole")
   if not noSys: msgs.add %*{"role": sysRole, "content": aiSystemPrompt()}
   var first = true
-  for m in aiMsgs:
+  let lastUser = aiLastUser()
+  for mi, m in aiMsgs:
     case m.role
     of 0:
       msgs.add %*{"role": "user", "content": (if noSys and first: aiSystemPrompt() & "\n\n" & m.text else: m.text)}
@@ -116,7 +117,7 @@ proc openaiBody(): JsonNode =
         if m.text.len == 0: o["content"] = newJNull()
       msgs.add o
     of 2:
-      for c in m.calls: msgs.add %*{"role": "tool", "tool_call_id": c.id, "content": c.result}
+      for c in m.calls: msgs.add %*{"role": "tool", "tool_call_id": c.id, "content": aiSentResult(mi, c, lastUser)}
     else: discard
   let stream = not hasQuirk("nostream")
   result = %*{"model": model, "stream": stream, "messages": msgs}
@@ -134,7 +135,8 @@ proc openaiBody(): JsonNode =
 proc responsesBody(): JsonNode =
   ## OpenAI Responses API (models that are not served by /chat/completions)
   var items = newJArray()
-  for m in aiMsgs:
+  let lastUser = aiLastUser()
+  for mi, m in aiMsgs:
     case m.role
     of 0: items.add %*{"role": "user", "content": m.text}
     of 1:
@@ -143,7 +145,7 @@ proc responsesBody(): JsonNode =
         items.add %*{"type": "function_call", "call_id": c.id, "name": c.name,
                      "arguments": (if c.args.len > 0: c.args else: "{}")}
     of 2:
-      for c in m.calls: items.add %*{"type": "function_call_output", "call_id": c.id, "output": c.result}
+      for c in m.calls: items.add %*{"type": "function_call_output", "call_id": c.id, "output": aiSentResult(mi, c, lastUser)}
     else: discard
   result = %*{"model": aiModel(), "stream": not hasQuirk("nostream"), "store": false,
               "instructions": aiSystemPrompt(), "input": items, "max_output_tokens": aiOutputBudget(aiModel())}

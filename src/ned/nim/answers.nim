@@ -1,4 +1,37 @@
 var nxWarm: HashSet[int]                 # buffers whose imports the index has already read
+var nxPreload: Table[int, seq[string]]  # buffer → the files its scope is made of, still to be read (a few a round)
+var nxPreloaded: HashSet[int]           # buffers whose scope is made: what waited for it (hints, checks, colours,
+                                        #   counts) goes ahead
+
+proc enginePreloadList(f: NxFile): seq[string] =
+  ## the files the scope of `f` is made of and the index has not read: the program it is part of (the file that
+  ## includes it, every file that one includes) and its imports — read a few at a time in quiet moments, so that
+  ## making the scope reads nothing (ned's own source: 290 include files — a quarter of a second at once)
+  var seen: HashSet[string]
+  var todo: seq[string]
+  let top = nxTopIncluder(f.path)
+  if top.len > 0: todo.add top
+  for im in f.imports:
+    let p = nxResolve(f.path, im.spec)
+    if p.len > 0: todo.add p
+  while todo.len > 0 and result.len < 3000:
+    let p = todo.pop()
+    if p in seen or p == f.path: continue
+    seen.incl p
+    if p notin nxFiles: result.add p
+    if p.len > 0 and p in nxFiles:
+      for q in nxIncludesOf(p): todo.add q
+    elif result.len > 0 and result[^1] == p:
+      # (read now: what it includes is known only then — a file that includes others is read first)
+      discard nxLoad(p)
+      result.setLen(result.len - 1)
+      for q in nxIncludesOf(p): todo.add q
+
+proc engineReady(b: Buffer): bool =
+  ## the engine has what this buffer's scope is made of (else hints, checks, colours and counts wait a moment:
+  ## the files are read a few at a time — completion, hover and the rest you ask for do not wait)
+  when defined(nedNoMain): true          # (nedls and the engine's test driver: no main loop to read them for it)
+  else: b.id in nxPreloaded or not nimEngineOn(b) or b.path.len == 0
 
 var nxWarmMods: seq[(string, int)]      # modules the open file imports (and theirs) whose own scopes are still to be
 var nxWarmedMods: HashSet[string]       #   made: (path, how far from the file)
@@ -34,9 +67,28 @@ proc engineWarm(b: Buffer) =
     nxWarmLeft = 40
     try:
       let f = nxFileFor(b)
-      discard nxScope(f)
+      if nxScopeCached(f): nxPreloaded.incl b.id
+      else: nxPreload[b.id] = enginePreloadList(f)
       queue(f, 1)
     except Exception as e: internalError("Nim index", e)
+    return
+  if b.id notin nxPreloaded:
+    # the files its scope is made of, 6 ms a round; then the scope (what waited for it goes ahead)
+    let t0 = getMonoTime()
+    var left = nxPreload.getOrDefault(b.id)
+    try:
+      while left.len > 0 and msSince(t0) < 6:
+        let p = left.pop()
+        if p notin nxFiles: discard nxLoad(p)
+      nxPreload[b.id] = left
+      if left.len == 0:
+        nxPreload.del b.id
+        discard nxScope(nxFileFor(b))
+        nxPreloaded.incl b.id
+        needRender = true
+    except Exception as e:
+      nxPreloaded.incl b.id
+      internalError("Nim index", e)
     return
   if nxWarmMods.len == 0 or msSince(lastInputAt) < 400: return
   let t0 = getMonoTime()

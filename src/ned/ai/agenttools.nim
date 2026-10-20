@@ -279,10 +279,30 @@ proc diffForCall(c: AiCall): string
 proc projectInstructions(): string
 proc saveChat()
 
+func utf8Cut(s: string, at: int): int =
+  ## a byte index near `at` that does not split a UTF-8 character
+  result = clamp(at, 0, s.len)
+  while result > 0 and result < s.len and (ord(s[result]) and 0xC0) == 0x80: dec result
+
+proc aiLastUser(): int =
+  for i in countdown(aiMsgs.high, 0):
+    if aiMsgs[i].role == 0: return i
+  -1
+
+proc aiSentResult(mi: int, c: AiCall, lastUser: int): string =
+  ## a tool's output as sent with a request: in full for the question being answered; a long one of an earlier
+  ## question cut to its start and end (ai.trimOldResults — the conversation sent at every step grew by every
+  ## file the assistant ever read)
+  if not cfgAiTrimOld or mi > lastUser or c.result.len <= 2400: return c.result
+  let a = utf8Cut(c.result, 1200)
+  let b = utf8Cut(c.result, c.result.len - 600)
+  c.result[0 ..< a] & "\n… (" & $(c.result.count('\n') + 1) & " lines of an earlier step left out — run the tool again " &
+    "if you need them) …\n" & c.result[b .. ^1]
+
 proc finishCall(mi, ci: int, res: string, isErr: bool) =
   if mi >= aiMsgs.len or ci >= aiMsgs[mi].calls.len: return
   var r = res
-  if r.len > 30000: r = r[0 ..< 15000] & "\n… (output truncated) …\n" & r[^14000 .. ^1]
+  if r.len > 30000: r = r[0 ..< utf8Cut(r, 15000)] & "\n… (output truncated) …\n" & r[utf8Cut(r, r.len - 14000) .. ^1]
   aiMsgs[mi].calls[ci].result = r
   aiMsgs[mi].calls[ci].isError = isErr
   aiMsgs[mi].calls[ci].state = 2

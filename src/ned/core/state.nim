@@ -93,6 +93,8 @@ var
   sideView = svFiles
   gitStatusLines: seq[string]
   gitStatusAt: MonoTime
+  gitStatusStart: MonoTime          # (when the last `git status` started, and how long it took: ms)
+  gitStatusTook = 0
   gitStatusBusy = false
   nimble: NimbleInfo
   nimbleAt = ""
@@ -171,6 +173,9 @@ var
   cfgCodeLens = true
   cfgRefCounts = true
   cfgAiCheckEdits = true
+  cfgAiTrimOld = true
+  cfgPickerPreview = true             # editor.pickerPreview: the file, symbol or buffer beside the picker's list
+  cfgWebEngine = "auto"                # web.engine: ned's own CSS, HTML, SQL — auto (no language server) · on · off
   cfgFolding = true
   cfgVim = false
   cfgKeymap = "default"        # editor.keymap: default · vim · emacs · helix
@@ -189,6 +194,7 @@ var
   cfgTermCwd = "project"
   cfgGitGutter = true
   cfgGitAutoRefresh = true
+  cfgGitUntrackedAll = false          # git.untrackedFiles: every new file on its own line (git status -uall)
   cfgNimFlags = ""
   cfgNimTestFlags = "--hints:off"
   cfgCovTestFiles = false              # nim.coverageTestFiles: Nim test coverage counts the test files too
@@ -320,6 +326,7 @@ var
   diagsTest = initTable[string, seq[Diag]]()    # failed checks of tests run on save
   diagsFfi = initTable[string, seq[Diag]]()     # importc wrappers that do not fit their C header
   diagsEmit = initTable[string, seq[Diag]]()    # clangd's problems in the C a Nim file emits
+  diagsWeb = initTable[string, seq[Diag]]()     # ned's own CSS, HTML and SQL checks (web.engine)
   diagsExt = initTable[string, seq[Diag]]()     # what a script sent (ned --remote-problems): kept until it sends again
   shadowNim = initTable[string, string]()       # the hidden C document of a Nim file's emits → the Nim file
   diagsByShadow = initTable[string, seq[Diag]]()  # a hidden document → its problems, on the Nim file's lines
@@ -456,6 +463,7 @@ var
 var
   gitFileStatus = initTable[string, char]()
   gitDirty: HashSet[string]
+  gitNewDirs: HashSet[string]       # folders git does not know at all (their files are new too)
 var inlayShown: HashSet[int]
 var
   savedMarks = initTable[string, seq[int]]()   # bookmarks per file (state.json)

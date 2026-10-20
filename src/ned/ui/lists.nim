@@ -93,8 +93,9 @@ proc gitItemMenu(it: SideItem): seq[MenuItem] =
   let root = gitHome()
   let p = it.path
   let rel = if p.startsWith(root & "/"): p[root.len + 1 .. ^1] else: p
-  let untr = it.data == "untracked"
-  @[mi("Open file", "", proc() = discard openFile(p)),
+  let untr = it.data in ["untracked", "untracked-dir"]
+  let isDir = it.data == "untracked-dir"
+  @[(if isDir: mi("Show in Files", "", proc() = revealInTree(p)) else: mi("Open file", "", proc() = discard openFile(p))),
     mi("Open diff", "d", proc() = gitOpenChangeDiff(rel, it.data == "staged"), disabled = untr),
     mi("Open diff as text", "", proc() = gitDiffView(rel, it.data == "staged"), disabled = untr),
     msep(),
@@ -103,11 +104,12 @@ proc gitItemMenu(it: SideItem): seq[MenuItem] =
        disabled = it.data != "staged"),
     msep(),
     mi("Discard changes…", "x", proc() =
-      askConfirm("Discard changes to " & rel & (if untr: " (delete file)" else: "") & "? (y/n)", proc(ch: char) =
+      askConfirm("Discard changes to " & rel & (if isDir: " (delete the folder and everything in it)" elif untr: " (delete file)" else: "") &
+                 "? (y/n)", proc(ch: char) =
         if ch == 'y':
           if untr:
             try:
-              removeFile(p)
+              if isDir: removeDir(p) else: removeFile(p)
               remoteFileOp("rm", p)
               refreshGitStatus()
               info("Deleted " & rel)

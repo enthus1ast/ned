@@ -1,6 +1,6 @@
 # ── Emmet for CSS: Tab after m10 → margin: 10px; · p10-20 · w100p · df · posr · jcsb · c#333 · bd1-s-#ccc · fz14! ──
 
-const CssProps = [("m", "margin"), ("mt", "margin-top"), ("mr", "margin-right"), ("mb", "margin-bottom"),
+const EmmetCssAbbrevs = [("m", "margin"), ("mt", "margin-top"), ("mr", "margin-right"), ("mb", "margin-bottom"),
   ("ml", "margin-left"), ("p", "padding"), ("pt", "padding-top"), ("pr", "padding-right"), ("pb", "padding-bottom"),
   ("pl", "padding-left"), ("w", "width"), ("h", "height"), ("maw", "max-width"), ("mah", "max-height"),
   ("miw", "min-width"), ("mih", "min-height"), ("t", "top"), ("r", "right"), ("b", "bottom"), ("l", "left"),
@@ -45,8 +45,8 @@ const CssDefaults = [("box-sizing", "border-box"), ("transition", "all 0.2s ease
 
 const CssUnitless = ["z-index", "opacity", "line-height", "font-weight", "flex", "flex-grow", "flex-shrink", "order"]
 
-func cssProp(abbr: string): string =
-  for (a, p) in CssProps:
+func emmetCssProp(abbr: string): string =
+  for (a, p) in EmmetCssAbbrevs:
     if a == abbr: return p
   ""
 
@@ -96,13 +96,13 @@ proc emmetCss(abbr0: string): (string, int) =
   # prop:value
   let colon = abbr.find(':')
   if colon > 0:
-    let prop = cssProp(abbr[0 ..< colon])
+    let prop = emmetCssProp(abbr[0 ..< colon])
     if prop.len == 0: return ("", -1)
     var vals: seq[string]
     for v in abbr[colon + 1 .. ^1].split('-'): vals.add cssValue(prop, v)
     return (prop & ": " & vals.join(" ") & tail, -1)
   # a known property alone: its default, else an empty value with the cursor in it
-  let alone = cssProp(abbr)
+  let alone = emmetCssProp(abbr)
   if alone.len > 0:
     for (p, d) in CssDefaults:
       if p == alone: return (p & ": " & d & tail, -1)
@@ -110,7 +110,7 @@ proc emmetCss(abbr0: string): (string, int) =
     return (t, alone.len + 2)
   # property + keyword (df, posr, jcsb …) or property + values (m10-20, w100p, c#333, bd1-s-#ccc)
   for cut in countdown(min(4, abbr.len - 1), 1):
-    let prop = cssProp(abbr[0 ..< cut])
+    let prop = emmetCssProp(abbr[0 ..< cut])
     if prop.len == 0: continue
     let rest = abbr[cut .. ^1]
     let kw = cssKeyword(prop, rest)

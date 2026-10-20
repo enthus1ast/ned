@@ -987,7 +987,7 @@ proc ecMutatingCall(f: NxFile, b: Buffer, l, col: int, argIdx: int): bool =
   except CatchableError: return true
   if rs.len == 0: return true
   for r in rs:
-    let sy = r.sym
+    template sy: untyped = r.sym
     if sy.kind notin {nxProc, nxFunc, nxMethod, nxIterator, nxConverter}: return true
     for i, p in sy.params:
       if argIdx >= 0 and i != argIdx and not p.typ.startsWith("varargs"): continue
@@ -1355,7 +1355,7 @@ proc ecResultNeverSet(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag
                  ecol: max(0, b.lines[r.line].find(r.name)) + r.name.len, sev: 2, src: "ned", rule: "result-unset",
                  msg: "'" & r.name & "' never sets its result: it always returns the default value")
 
-const EcFuncMs = 25                         # ms a round of the "can be a func" check may take in an open file
+const EcFuncMs = 12                         # ms a round of the "can be a func" check may take in an open file
 var ecFuncRounds: Table[int, (int, int)]    # buffer id → (the change, the rounds the check asked for after it)
 
 proc ecCanBeFunc(f: NxFile, b: Buffer, res: var seq[Diag]) =
@@ -1426,7 +1426,7 @@ var ecMinNim: Table[string, (string, seq[int], string)]                  # .nimb
 proc ecSinceOf(r: NxRef): seq[int] =
   ## the Nim version a library declaration first appeared in: its {.since.} pragma or the `since (…):` block
   ## around it (@[] when it does not say)
-  let sy = r.sym
+  template sy: untyped = r.sym
   let (has, v) = ecPragmaArg(sy.pragmas, "since")
   if has: return ecVersion(v)
   let path = r.file.path
@@ -1589,7 +1589,7 @@ proc ecDeprecatedAndNewer(f: NxFile, b: Buffer, code: seq[string], res: var seq[
   var notDep: HashSet[string]            # (a name with one declaration that is not deprecated: an overload may be meant)
   for r in sc.refs:
     if r.file == nil: continue
-    let sy = r.sym
+    template sy: untyped = r.sym
     if "deprecated" in sy.pragmas and r.file.path != f.path: depNames.incl nxNorm(sy.name)
     elif "deprecated" notin sy.pragmas: notDep.incl nxNorm(sy.name)
     if minNim.len > 0 and nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir & "/"):
@@ -1637,7 +1637,7 @@ proc ecDeprecatedAndNewer(f: NxFile, b: Buffer, code: seq[string], res: var seq[
     var step = -1                        # (else the latest release step that added one of them)
     var depMsg = ""
     for r in rs:
-      let sy = r.sym
+      template sy: untyped = r.sym
       if r.file.path == f.path and sy.line == l: return                 # (its own declaration)
       let (has, msg) = ecPragmaArg(sy.pragmas, "deprecated")
       if not has: allDep = false

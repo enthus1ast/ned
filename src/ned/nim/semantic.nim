@@ -57,12 +57,18 @@ proc semMapFor(b: Buffer): SemMap =
     result.at = -1
     result.importKey = ""
   if result != nil and (result.at == b.changeId or msSince(b.lspChangeAt) < SemPauseMs): return
+  if result != nil and not engineReady(b): return     # (the files it needs are being read: a moment)
   if result == nil:
     result = SemMap(rich: cfgRichColors, exact: nxExact)
     semMaps[b.id] = result
-    if b.lines.len > 3000:
-      # a big file just opened: shown at once, its names coloured a moment later (the main loop asks for that
-      # frame) — parsing all of it first would hold up the first frame
+    var later = b.lines.len > 3000
+    if not later:
+      try: later = not nxScopeCached(nxFileFor(b))
+      except CatchableError: later = true
+    if later:
+      # a big file just opened — or one whose imports have not been read yet: shown at once, its names coloured
+      # a moment later (the main loop asks for that frame), once the engine has read what it sees in a quiet
+      # moment — doing that first would hold up the first frame
       result.at = -1
       result.built = getMonoTime()
       return

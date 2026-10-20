@@ -12,3 +12,5 @@ include markdown
 include css
 include cfmt
 include yamltoml
+include html
+include sql

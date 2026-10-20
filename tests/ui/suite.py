@@ -5578,8 +5578,10 @@ def t_610_concepts():
     top = max([i for i, l in enumerate(ls) if 'Implementations — Shape' in l] or [0])
     box = []
     for l in ls[top + 1:]:
-        if '╰' in l: break
-        box.append(l[l.find('│'):] if '│' in l else l)
+        if l.lstrip().startswith('╰'): break
+        a = l.find('│')
+        b = l.find('│', a + 1) if a >= 0 else -1          # (the list's box only: the preview beside it is not)
+        box.append(l[a:b] if b > a else (l[a:] if a >= 0 else l))
     box = '\n'.join(box)
     check('610 go to implementation on a concept: the types that satisfy it', ok and 'Circle' in box and
           'Square' in box and 'satisfies Shape' in box and 'Line' not in box, s)
@@ -6346,4 +6348,118 @@ def t_613_vim_filter():
     check('613 vim: :!cmd runs it, its output in the panel', wait_for('hi-from-bang', 4), screen())
 
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter]
+def t_614_web_css():
+    # ned's own CSS (no language server for it): a property and then its value completed; an unknown property, a
+    # value its property does not take, a missing `;` — found as you write; the hover
+    setup({})
+    open(W + '/style.css', 'w').write('a {\n  \n}\n\nb {\n  colr: red;\n  display: flexx;\n  color: blue\n  margin: 0;\n}\n')
+    start('style.css', w=130, h=30)
+    check('614 css: an unknown property, and the one meant', wait_for("unknown property 'colr' — did you mean 'color'", 5),
+          screen())
+    check('614 css: a value its property does not take', "'flexx' is not a value of display" in screen(), screen())
+    check('614 css: a missing ; between two declarations', "missing ';'" in screen(), screen())
+    keys('Down', 'End'); text('disp'); time.sleep(0.7)
+    check('614 css: properties completed', ' display ' in screen() and 'property' in screen(), screen())
+    keys('Tab'); time.sleep(0.3); text('fl'); time.sleep(0.7)
+    check('614 css: … then the property\'s values', 'inline-flex' in screen(), screen())
+    keys('Tab'); time.sleep(0.3); keys('C-s'); time.sleep(0.5)
+    check('614 css: accepted, as `display: flex`', ftext('style.css').startswith('a {\n  display: flex\n}'),
+          repr(ftext('style.css')))
+    keys('Home'); keys('Right', 'Right'); keys('M-h'); time.sleep(0.6)
+    check('614 css: hover on a property', 'CSS property' in screen(), screen())
+
+def t_614_web_html():
+    # ned's own HTML: a closing tag that closes the wrong element, class names from the project's stylesheets, the
+    # elements and attributes; the built-in HTML formatter
+    setup({})
+    open(W + '/site.css', 'w').write('.hero-title { margin: 0 }\n')
+    open(W + '/page.html', 'w').write('<!DOCTYPE html>\n<html>\n<body>\n  <div>\n    <span>x</div>\n  <p class="">\n</body>\n</html>\n')
+    open(W + '/ugly.html', 'w').write('<ul><li>one</li><li>two</li></ul>\n<section><h1>Hi</h1><p>text</p></section>\n')
+    start('page.html', w=130, h=30)
+    check('614 html: a closing tag that closes the wrong element', wait_for('<span> is not closed before </div>', 5),
+          screen())
+    keys('C-g'); text('6'); keys('Enter'); keys('End', 'Left', 'Left'); text('he'); time.sleep(0.7)
+    check('614 html: the class names the project\'s stylesheets have', 'hero-title' in screen(), screen())
+    keys('Escape'); keys('End'); keys('Enter'); text('<sec'); time.sleep(0.7)
+    check('614 html: elements', 'section' in screen() and 'element' in screen(), screen())
+    keys('Tab'); time.sleep(0.3); text(' '); time.sleep(0.7)
+    check('614 html: attributes', ' class ' in screen() and ' attribute ' in screen(), screen())
+    keys('Escape')
+    keys('C-p'); time.sleep(0.3); text('ugly.html'); time.sleep(0.4); keys('Enter'); time.sleep(1.0)
+    keys('M-f'); time.sleep(0.8); keys('C-s'); time.sleep(0.5)
+    check('614 html: the built-in formatter', ftext('ugly.html') ==
+          '<ul>\n  <li>one</li>\n  <li>two</li>\n</ul>\n<section>\n  <h1>Hi</h1>\n  <p>text</p>\n</section>\n',
+          repr(ftext('ugly.html')))
+
+def t_614_web_sql():
+    # ned's own SQL: the tables the project creates after FROM, a table's columns after `u.` — in a .sql file and in
+    # the SQL of a Nim string; a query given more values than its `?`, a column its table does not have
+    setup({})
+    open(W + '/schema.sql', 'w').write('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT);\n')
+    open(W + '/q.sql', 'w').write('select * from \n')
+    open(W + '/db.nim', 'w').write('proc exec(a: int, s: string, x: varargs[string]) = discard\n'
+                                   'proc sql(s: string): string = s\nlet db = 1\n'
+                                   'db.exec(sql"INSERT INTO users (name, email) VALUES (?, ?)", "a", "b", "c")\n'
+                                   'db.exec(sql"SELECT  FROM users u WHERE u.nam = ?", "1")\n')
+    start('q.sql', w=130, h=30)
+    keys('End'); text('u'); time.sleep(0.8)
+    check('614 sql: the project\'s tables after FROM', 'users' in screen() and '3 columns' in screen(), screen())
+    keys('Escape')
+    keys('C-p'); time.sleep(0.3); text('db.nim'); time.sleep(0.4); keys('Enter')
+    check('614 sql: more values than `?`', wait_for("exec: 3 values for the query's 2 '\\?'", 6), screen())
+    check('614 sql: a column its table does not have', "has no column 'nam' — did you mean 'name'" in screen(), screen())
+    keys('C-g'); text('5'); keys('Enter'); keys('Home')
+    for _ in range(19): keys('Right')
+    text('u.'); time.sleep(0.8)
+    check('614 sql: a table\'s columns after `u.`, in a Nim string', 'email' in screen() and 'users' in screen(), screen())
+
+def t_614_picker_preview():
+    # the file picker shows the selected file beside the list; the symbol picker the symbol's line
+    setup({})
+    open(W + '/notes.txt', 'w').write('first line of the notes\nsecond line\n')
+    start('src/demo.nim', w=140, h=34)
+    keys('C-p'); time.sleep(0.3); text('notes'); time.sleep(0.6)
+    check('614 preview: the selected file beside the list', 'first line of the notes' in screen() and
+          '─ notes.txt' in screen(), screen())
+    keys('Escape')
+
+def t_614_jump_labels():
+    # Alt+Shift+J: a label on each word on screen; its letter puts the cursor there
+    setup({})
+    open(W + '/j.txt', 'w').write('alpha beta\ngamma delta\n')
+    start('j.txt', w=100, h=20)
+    keys('M-J'); time.sleep(0.5)
+    sc = screen()
+    check('614 jump: a label over each word', 'jeta' in sc and 'kelta' in sc, sc)
+    text('k'); time.sleep(0.3); text('X'); keys('C-s'); time.sleep(0.5)
+    check('614 jump: its letter puts the cursor there', ftext('j.txt') == 'alpha beta\ngamma Xdelta\n', repr(ftext('j.txt')))
+
+def t_614_git_new_folder():
+    # a new folder in the Git dock is one line (with how many files), not every file in it
+    setup({})
+    os.makedirs(W + '/newdir/sub', exist_ok=True)
+    open(W + '/newdir/a.txt', 'w').write('a\n')
+    open(W + '/newdir/sub/b.txt', 'w').write('b\n')
+    start('src/demo.nim', w=130, h=34)
+    keys('M-g'); time.sleep(2.0)
+    sc = screen()
+    check('614 git: a new folder is one line, with its files counted', 'newdir/' in sc and '2 files' in sc and
+          'b.txt' not in sc, sc)
+
+def t_614_format_pieces():
+    # formatting a file again formats only the statements that changed — the result the same as all at once
+    setup({})
+    procs = ''.join('proc p%d(a:int):int=\n  a+%d\n\n' % (i, i) for i in range(400))
+    open(W + '/many.nim', 'w').write(procs)
+    start('many.nim', w=120, h=30)
+    keys('M-f'); time.sleep(1.5)
+    keys('C-g'); text('5'); keys('Enter'); keys('End'); text(';let x=1'); time.sleep(0.2)
+    keys('M-f'); time.sleep(1.0); keys('C-s'); time.sleep(0.6)
+    shutil.copy(W + '/many.nim', W + '/again.nim')
+    open(W + '/fresh.nim', 'w').write(procs.replace('a+1\n', 'a+1;let x=1\n', 1))
+    r = sh('cd %s && %s --format fresh.nim' % (W, BIN))
+    check('614 format: piece by piece, the same as the whole file at once', ftext('many.nim') == ftext('fresh.nim'),
+          r.stdout + r.stderr + repr(ftext('many.nim')[:300]) + ' | ' + repr(ftext('fresh.nim')[:300]))
+
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces]

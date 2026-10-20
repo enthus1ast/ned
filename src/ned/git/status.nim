@@ -18,6 +18,17 @@ proc gitRun(args: seq[string], okMsg: string) =
     for b in bufs: refreshGit(b)
     remoteGitAfter(root))
 
+proc gitStatusOf(path: string): char =
+  ## a file's or folder's git mark (' ' none): its own, or '?' inside a folder git does not know
+  result = gitFileStatus.getOrDefault(path, ' ')
+  if result != ' ' or gitNewDirs.len == 0: return
+  var d = parentDir(path)
+  for _ in 0 .. 64:
+    if d in gitNewDirs: return '?'
+    let up = parentDir(d)
+    if up.len == 0 or up == d: break
+    d = up
+
 type GitStatusRun = ref object
   pending: int
   outs: Table[string, string]
@@ -26,8 +37,10 @@ proc gitStatusDone(st: GitStatusRun) =
   ## every repository's status is in: the Git dock's (the active one), the file marks of all of them
   gitStatusBusy = false
   gitStatusAt = getMonoTime()
+  gitStatusTook = int(msSince(gitStatusStart))
   gitRepos.setLen(0)
   gitFileStatus.clear()
+  gitNewDirs.clear()
   gitDirty.clear()
   gitStatusLines.setLen(0)
   gitAhead = 0
@@ -71,8 +84,11 @@ proc gitStatusDone(st: GitStatusRun) =
       let arrow = path.find(" -> ")
       if arrow >= 0: path = path[arrow + 4 .. ^1]
       if path.len > 1 and path[0] == '"': path = unquoteNim(path)
-      let full = root / path
+      var full = root / path
       let c = if l[0] == '?': '?' elif l[1] notin {' ', '?'}: l[1] else: l[0]
+      if full.endsWith("/"):
+        full.setLen(full.len - 1)
+        if c == '?': gitNewDirs.incl full           # (a new folder: everything in it is new)
       gitFileStatus[full] = c
       var d = parentDir(full)
       while d.len > root.len and d notin gitDirty:
@@ -93,7 +109,10 @@ proc gitStatusJob(st: GitStatusRun, root: string) =
                 "CHERRY_PICK_HEAD:cherry-pick REVERT_HEAD:revert; do [ -e \"$g/${f%%:*}\" ] && echo \"#ned-state ${f#*:}\" " &
                 "&& break; done; true"
               else: ""
-  let j = startJob(jkGit, "git status --porcelain=v1 -b -uall" & probe, root, proc(j: Job) =
+  # (-unormal: a new folder is one line, not every file in it — a folder of thousands is not listed; and no index
+  # lock taken, so a git command of yours running meanwhile never finds the index locked)
+  let j = startJob(jkGit, "git --no-optional-locks status --porcelain=v1 -b " &
+                   (if cfgGitUntrackedAll: "-uall" else: "-unormal") & probe, root, proc(j: Job) =
     st.outs[root] = j.output
     dec st.pending
     if st.pending == 0: gitStatusDone(st))
@@ -109,6 +128,7 @@ proc refreshGitStatus() =
     if gitOk(r): roots.add r
   if roots.len == 0: return
   gitStatusBusy = true
+  gitStatusStart = getMonoTime()
   let st = GitStatusRun(pending: roots.len)
   for r in roots: gitStatusJob(st, r)
 

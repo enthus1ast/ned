@@ -232,7 +232,18 @@ proc buildGitItems(): seq[SideItem] =
     if path.len > 1 and path[0] == '"': path = unquoteNim(path)
     let full = gitHome() / path
     if x == '?' and y == '?':
-      untracked.add sideItem(path, 5, "U", "", nil, full, data = "untracked")
+      if path.endsWith("/"):
+        # (a new folder: one line — git lists it so, however many files are in it)
+        let dir = full[0 ..< full.len - 1]
+        var n = 0
+        try:
+          for _ in walkDirRec(dir):
+            inc n
+            if n > 999: break
+        except OSError: discard
+        untracked.add sideItem(path, 5, "U", (if n > 999: "1000+ files" elif n == 1: "1 file" else: $n & " files"),
+                               proc() = revealInTree(dir), dir, data = "untracked-dir")
+      else: untracked.add sideItem(path, 5, "U", "", nil, full, data = "untracked")
     else:
       if x notin {' ', '?'}: staged.add sideItem(path, gitRole(x), $x, "", nil, full, data = "staged")
       if y notin {' ', '?'}: changes.add sideItem(path, gitRole(y), $y, "", nil, full, data = "unstaged")

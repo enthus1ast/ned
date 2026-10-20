@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.13](#whats-new-in-613) · [6.12](CHANGELOG.md#whats-new-in-612) · [6.11.2](CHANGELOG.md#whats-new-in-6112) · [older releases](CHANGELOG.md)
+- [What's new in 6.14](#whats-new-in-614) · [6.13](CHANGELOG.md#whats-new-in-613) · [6.12](CHANGELOG.md#whats-new-in-612) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,77 +40,77 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.13
+## What's new in 6.14
 
-6.13 is about ned and the terminal it runs in: what the terminal can do is asked of it, not guessed from its name —
-and the ned that is running can be reached from outside it: from its own terminal, from git, from scripts.
+6.14 is about speed — the moments ned did not answer a key while it worked — and about the other languages a Nim
+project is written in: ned answers for CSS, HTML and SQL itself now, in their files and in Nim strings.
 
-**`ned FILE` in ned's terminal opens FILE in this ned.** ned answers on a socket only you can reach (in its private
-folder), and its terminal knows where (`$NED_SOCKET`):
+**Faster where you wait.** Measured on ned's own source (a program of 290 include files):
 
-- `ned app.nim:42` there opens the file at that line in a tab — no ned inside ned; `git log | ned` opens the log in a
-  tab. `ned --new` starts another ned when that is what you want.
-- **git's editor is this ned** in its terminal (`terminal.editorEnv`): `git commit` opens the message in a tab and git
-  waits; save and close the tab (Ctrl+S, Ctrl+W) and git goes on, the terminal has the focus again. `git rebase -i`
-  and whatever runs `$EDITOR` work the same way (where you have not set `GIT_EDITOR` or `EDITOR` yourself). Anywhere
-  else, `ned --wait FILE` does the same: `GIT_EDITOR="ned --wait"`.
-- **Scripts** reach the running ned — the one whose project holds the file, else the one started last:
+- **Opening a file**: the longest pause 240–280 ms → about 50 ms; the first frame 130–170 ms → 20–30 ms. What the
+  engine needs for a file is read a slice at a time, and type hints, the engine's checks and reference counts wait
+  until it is ready instead of each making it on the spot.
+- **Typing with completion**: a quarter of the work per key it was (the engine kept a scope per include file and
+  made it again at every key — now one edit puts that file's new names in place), and what completion weighs
+  for thousands of routines is remembered while the types stay the same. Keys answered in over 30 ms: 12 → 3 in
+  the same typing.
+- **Each round of background work stops at 15 ms** and the rest goes on in the next one, so a key never waits for
+  two of them; and frames no key asked for — a streaming answer of the assistant, a terminal's output — come at
+  most 60 a second (30 on a slow terminal).
+- **Formatting a file again formats only the statements that changed**: an 87,000-line file 906 ms → 91 ms the
+  second time (the result is the one formatting it all gives — checked over 2,400 files under several layout
+  settings); the C in an emit is not sent to clang-format again when it did not change.
+- **The project's own files in the index cache** (`nim.indexCacheProject`): reopening a project of hundreds of files
+  reads them instead of parsing them.
+- **git**: a new folder is one line in the Git dock (with how many files it holds), not every file in it
+  (`git.untrackedFiles`) — and `git status` takes no lock, so a git command of yours never finds the index locked;
+  it runs less often where it takes long, and not while you are away. The blame of the line you are on comes from
+  the whole file's blame, made once for each version.
+- **The assistant**: long tool outputs of earlier questions (a file it read, a command's output) are sent cut to
+  their start and end — those of the question being answered in full: fewer tokens at every step
+  (`ai.trimOldResults`).
 
-  ```sh
-  ned --remote src/app.nim:120                # open it there
-  ned --remote-command "Format document"      # a command of the palette
-  ned --remote-message "deploy finished"
-  make 2>&1 | ned --remote-problems build     # file:line: lines become problems (sent again: replaced)
-  ned --remote-get selection                  # file, line, col, selection, word, root, files, text
-  ned --remote-list                           # the neds running: process, project, files
-  ```
+**CSS, HTML and SQL — ned's own** (`web.engine`; with a language server for them installed, it answers instead).
+In .css / .scss / .less, .html and .sql files, in an HTML file's `<style>`, and in Nim strings (`sql"…"`, HTML and
+CSS strings):
 
-![git commit typed in ned's terminal: the message opens in a tab of this ned, and git waits for it](screenshots/remote-commit-613.png)
+- **CSS**: properties and then their values (`display: ` → block, flex, grid …), colours, units after a number,
+  `var(--…)` with the custom properties the file declares, pseudo-classes, at-rules, the class names and ids the
+  page's HTML has after `.` and `#`; hover says what a property, value or function is. **Problems**: an unknown
+  property (*did you mean 'color'?*), a value its property does not take, a missing `;` that makes the next line
+  part of the value, a brace too many or never closed.
+- **HTML**: elements after `<`, the open element after `</`, an element's own attributes first, then the global
+  ones, their values (`type="` → checkbox, email …), the class names the project's stylesheets have in `class="`;
+  hover on elements and attributes. **Problems**: a closing tag that closes the wrong element, one that closes
+  nothing, an element never closed, an id used twice, an element HTML does not have (*did you mean <div>?*), an
+  `<img>` without alt text.
+- **SQL**: the tables your project creates (`CREATE TABLE` in its .sql files and in the SQL of its Nim files) after
+  FROM, JOIN, INTO and UPDATE; a table's columns after `u.` (through `FROM users u`); keywords in the case you
+  type; functions of SQLite, PostgreSQL and MySQL; hover on a table shows its columns. **Problems**: a table no
+  `CREATE TABLE` makes, a column its table does not have — and in Nim, **a query given more values than it has
+  `?`** (`db.exec(sql"INSERT … VALUES (?, ?)", a, b, c)`: *3 values for the query's 2 '?'*), or fewer.
+- **Formatting HTML and SQL** (Alt+F, *Format the code in this string*, nedfmt): HTML blocks on lines of their own,
+  indented, with what `<pre>`, `<script>` and `<style>` hold kept as it is; SQL one clause a line, keywords in upper
+  case. Each checks its own result and leaves the text alone when it is not sure (nedfmt and *Format: every file
+  in the folder* take .html and .sql files now too). The C in an emit is formatted by ned's own C formatter when
+  clang-format is not installed.
 
-**What the terminal can do, asked of it** when ned starts (*Help › Check setup* shows what it answered):
+![SQL in Nim strings: the columns of the table the project creates after `u.`, and a query given more values than its `?`](screenshots/web-614.png)
 
-- **The kitty keyboard protocol** (kitty, WezTerm, Ghostty, foot, Alacritty, iTerm2 …): Ctrl+Shift+letters can have
-  key bindings of their own, Ctrl+I is not Tab, Ctrl+Enter and Shift+Enter work, Alt+key comes without the Esc
-  delay — and the keys you had arrive as they did (Ctrl+[ is Esc, Alt+Shift+T is still Alt+Shift+T).
-  `ui.kittyKeyboard`.
-- **24-bit colour, by asking** — not only from `COLORTERM`, which SSH, mosh, `sudo` and tmux often lose.
-- **Curly underlines in the problem's colour** where the terminal draws them: an error a red squiggle, a warning a
-  yellow one, a misspelled word a blue one, and the text keeps its own colour. `ui.undercurl`.
-- **Light and dark follow the system**: with `"theme": "auto"`, a terminal that tells about the switch (mode 2031:
-  kitty, Ghostty, Contour …) changes ned's theme the moment the phone or the desktop goes dark.
-- **The focus**: back in the terminal, files that changed meanwhile are looked at at once; away for a while, what
-  only serves the screen waits — type hints, the engine's checks, AI suggestions: battery on a phone
-  (`ui.pauseWhenAway`) — and `editor.saveOnFocusLost` saves when you switch to another window or app.
+**Jump labels** (Alt+Shift+J): a letter or two over every word on screen; type it and the cursor is there (an upper
+case letter: the selection reaches there). **Open file, Go to symbol and the buffer list show the selected file
+beside the list** on a screen 110 columns wide (`editor.pickerPreview`).
 
-**Emoji and accents as wide as the terminal draws them.** Widths come from Unicode 15.1 now — what glibc's `wcwidth`
-and the terminals use: ✅ ⭐ ⌚ 🫠 take two columns (ned counted one, and on a line with them the cursor drifted off
-its character). A letter with its accent (e + ◌́) is one character, drawn whole. Where the terminal joins emoji
-sequences (mode 2027: WezTerm, Ghostty, Contour, foot …) 👨‍👩‍👧, 👍🏽, 🇴🇲 and 1️⃣ are one character two columns wide;
-anywhere, the cursor steps over one at once and Backspace takes it whole. `ui.graphemes`.
-
-**Smaller things:**
-
-- the line a jump lands on — go to definition, a search result, Ctrl+G, a problem — lights up and fades
-  (`ui.jumpHighlight`);
-- long jobs — a run or a build, formatting a folder, a project search, the assistant — fill the status bar as they go,
-  and Windows Terminal and Ghostty show it on the tab too (`ui.progressBar`);
-- the terminal's title is the file and the project, ● while it is unsaved; the old title comes back when ned quits
-  (`ui.terminalTitle`);
-- `ui.transparentBackground` leaves the editor's background to the terminal, for its see-through or blurred window;
-- *Edit: put the selection through a command…* — `sort`, `jq .`, `column -t`; the whole file when nothing is
-  selected; one undo step — and in Vim mode `:%!sort`, `:'<,'>!cmd`, `:N,M!cmd` and `:!cmd` (`%` is the file);
-- your own commands (`commands` in settings) can send what they print to Problems: with `"output": "problems"` a
-  linter's `file:line:col: message` lines become problems.
-
-[6.12](CHANGELOG.md#whats-new-in-612) brought Nim 3 (Nimony) — names matched as written, Nimony's library, its
-errors, porting Nim 2 code by quick fix or by the assistant — the hex editor with Nim's names in programs, and big
-files in less memory.
+[6.13](CHANGELOG.md#whats-new-in-613) made ned reachable from outside — `ned FILE` in its terminal, git's editor,
+`--remote-*` for scripts — and asked the terminal what it can do: the kitty keyboard protocol, curly underlines,
+light and dark following the system, emoji as wide as the terminal draws them.
 
 Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
 ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
 ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.12](CHANGELOG.md#whats-new-in-612) brought Nim 3
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.13](CHANGELOG.md#whats-new-in-613) made the running ned
+reachable from its terminal, git and scripts and asked the terminal what it can do, [6.12](CHANGELOG.md#whats-new-in-612) brought Nim 3
 (Nimony), the hex editor and big files in less memory, [6.11.2](CHANGELOG.md#whats-new-in-6112) fixed the ▶ of runnableExamples,
 terminal floods and very long lines, [6.11.1](CHANGELOG.md#whats-new-in-6111) wrapped long comments and
 kept type hints ahead of scrolling, [6.11](CHANGELOG.md#whats-new-in-611) made scrolling send only the new lines and
@@ -149,7 +149,8 @@ and the assistant's commands on the server; its changes come back by themselves)
 comment, folding, snippets for Nim, Python, C, C++, JS/TS, Rust, Go, HTML and shell (plus your own),
 completion, auto-pairs, smart indentation, soft wrap, split editor, bookmarks, regex find/replace, sort/join/
 case transforms, line-ending and indentation conversion, format on save (built in for Nim, JSON, Markdown, CSS,
-YAML and TOML; a whole project at once; or only the lines you changed, and a preview first),
+HTML, SQL, YAML and TOML; a whole project at once; or only the lines you changed, and a preview first), jump labels
+(Alt+Shift+J), a preview beside the file and symbol pickers,
 rulers at the columns you choose or where the formatter wraps (`"editor.rulers": ["lineLength"]`; long lines tinted), colour swatches, `.editorconfig` support (its `max_line_length` is the formatter's too), spell check,
 CSV and TSV files as tables (columns lined up, sort by a column, a column's sum and mean), large-file mode, a 3-pane merge editor, keyboard macros, vim, Emacs and Helix key bindings, operator ligatures
 (`editor.fontLigatures`: drawn by ned in any terminal — `─→ ═⇒ ≠ ≤ ≥` — or kept whole for a ligature font).
@@ -162,7 +163,9 @@ hierarchy, document links, pull diagnostics and formatting as you type — and a
 as ruff), their problems and fixes merged; formatters per language; debugging through the Debug Adapter Protocol (Python, C, C++, Rust, Go, JS/TS …) with logpoints and
 stops when a value changes; tests for pytest, go
 test, cargo test, PHPUnit, dotnet test and Gradle/Maven; coverage for **Nim**, Python, Go, Rust, JS/TS and any lcov file;
-Send to REPL with `# %%` cells; Emmet for HTML and CSS.
+Send to REPL with `# %%` cells; Emmet for HTML and CSS; **ned's own CSS, HTML and SQL** — completion, hover and
+problems in their files and in Nim strings, with your project's class names, tables and columns, and the `?` of a
+query counted against the values it is given (`web.engine`).
 
 **Nim IDE** — a built-in Nim engine (completion with documentation beside the list, hover, go to definition,
 signature help, references with counts beside each declaration (operators too), rename, type hierarchy, go to
@@ -385,6 +388,7 @@ can add your own (see [Settings](#settings)).
 | Alt+. / F12 / Ctrl+click | go to definition · Alt+, jump back · Alt+< go forward |
 | Alt+F12 · Alt+Shift+F12 | peek definition · peek references |
 | Alt+Shift+T | reopen the last closed tab |
+| Alt+Shift+J | jump labels: a letter over every word on screen, type it to go there |
 | Alt+Q / Shift+F12 | find all references |
 | Alt+H | hover info (also automatic) |
 | Alt+N / Alt+P / F8 | next / previous problem |
@@ -645,7 +649,8 @@ definition* (which goes to the call). It runs again only when those calls change
 nimble packages is kept in `~/.cache/ned/index`, so a new session — ned's or nedls' — answers its first question
 without parsing them again (the whole standard library comes back from the cache in a fifth of the time parsing
 it takes). An entry is used only for the very text it was made from, by the same parser, with the same
-defines; anything else is read afresh.
+defines; anything else is read afresh. The project's own files are kept too, as they are on disk
+(`nim.indexCacheProject`): reopening a project of hundreds of files reads them instead of parsing them.
 
 **Expansion.** Alt+M on a template call writes it out with the arguments in place (the engine, at once); on a
 macro call, the compiler expands it (`nim check --expandMacro`). Hover on a template call shows the same.
@@ -908,7 +913,11 @@ syntax tree as before, comments and layout aside. A file it reads differently is
 token and block check runs anyway; this one is for when you want the compiler's word on it. `nimble parsecheck`
 runs it over 463 files of Nim's compiler and standard library.
 
-JSON, Markdown (tables) and CSS have built-in formatters too, used when prettier is not installed.
+JSON, Markdown (tables), CSS, HTML and SQL have built-in formatters too, used when prettier (or a formatter of
+yours) is not installed: HTML blocks on lines of their own and indented, what `<pre>`, `<script>`, `<style>` and
+`<textarea>` hold kept as it is, templates (`{{ }}`, `{% %}`, `{expr}`) untouched; SQL one clause a line, keywords in
+upper case, strings, comments and placeholders untouched. Like the others they check their result, or change
+nothing.
 
 It works on tokens and checks every result before writing it: the same tokens in the same order (doc comments
 included), the same block structure, and line breaks only where Nim's parser reads the line on — after `,` `(` `[`
@@ -1180,7 +1189,7 @@ programs (`nim.toolchain`, `lsp`, `run` …) take effect only in a folder you tr
 
 Setting groups: Appearance (`theme`, `ui.*`), Editor (`editor.*`), Zen (`zen.*`), Vim (`vim.*`), Files
 (`files.*`), Search (`search.*`), Terminal (`terminal.*`), Git (`git.*`), Nim (`nim.*`, including every
-nimlangserver option), C (`c.*`), AI (`ai.*`), Languages (`lsp`, `formatters`, `run`, `snippets`) and `keys`.
+nimlangserver option), C (`c.*`), AI (`ai.*`), Languages (`lsp`, `formatters`, `run`, `snippets`, `web.engine`) and `keys`.
 
 ## Vim mode and zen mode
 
@@ -1218,7 +1227,7 @@ belongs to vim: leave with Alt+Z or `:zen`; the corner shows the vim mode.
 | `~/.local/state/ned/history/` | local history (previous versions of saved files) |
 | `~/.local/state/ned/chats/` | saved AI chats (newest 200) |
 | `~/.local/state/ned/nimindex.json` | index of the Nim standard library's exports |
-| `~/.cache/ned/index/` | the engine's reading of the standard library and packages, kept between sessions (`nim.indexCache`; `$XDG_CACHE_HOME`; safe to delete) |
+| `~/.cache/ned/index/` | the engine's reading of the standard library, packages and the project's files, kept between sessions (`nim.indexCache`; `$XDG_CACHE_HOME`; safe to delete) |
 | `~/.cache/ned/nedastcheck-*` | the Nim parser check the formatter can use (`nim.format.verify`), built once |
 | `~/.local/state/ned/errors.log` | details of internal errors, if any ever happen (please include it in a report) |
 | `~/.local/state/ned/remote/` | the local copies of remote (SSH) folders, and `remotes.json` |
@@ -1283,7 +1292,8 @@ src/ned/
   ui/                  drawing: layout, menus, dialogs, pickers, docks, the file tree, the panel, the editor view
   nim/                 the Nim IDE: the engine's glue, quick fixes, refactorings, codegen, nimble, examples …
   nim/index/           the Nim index — a module of its own: parsing, scopes, types, completion, hover, typos
-  format/              the formatters (Nim, JSON, Markdown, CSS — a module of their own) and Format all
+  format/              the formatters (Nim, JSON, Markdown, CSS, HTML, SQL — a module of their own) and Format all
+  web/                 ned's own CSS, HTML and SQL: what they know, completion, hover, problems (a module)
   lsp/                 the language-server client, code actions, inlay hints, servers for code inside strings
   ai/                  the assistant: requests, agent tools, MCP, chats, inline suggestions
   git/  term/  debug/  c/  run/  testing/  project/  config/  keymaps/  app/

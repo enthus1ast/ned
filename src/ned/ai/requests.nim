@@ -154,7 +154,8 @@ proc fileContext(): string =
 
 proc anthropicBody(): JsonNode =
   let msgs = newJArray()
-  for m in aiMsgs:
+  let lastUser = aiLastUser()
+  for mi, m in aiMsgs:
     case m.role
     of 0: msgs.add %*{"role": "user", "content": m.text}
     of 1:
@@ -170,7 +171,8 @@ proc anthropicBody(): JsonNode =
     of 2:
       let content = newJArray()
       for c in m.calls:
-        content.add %*{"type": "tool_result", "tool_use_id": c.id, "content": c.result, "is_error": c.isError}
+        content.add %*{"type": "tool_result", "tool_use_id": c.id, "content": aiSentResult(mi, c, lastUser),
+                       "is_error": c.isError}
       msgs.add %*{"role": "user", "content": content}
     else: discard
   let cache = sBool("ai.promptCaching")

@@ -210,7 +210,7 @@ proc nxTemplateCalls*(f: NxFile, lines: openArray[string], tpl: NxTplAround, min
 proc nxTemplateInjects*(r: NxRef): seq[(int, string, int)] =
   ## what a template declares in its body for its untyped parameters — withData(s, fd, value, body): `var value =
   ## addr(s.fds[fdi].data)` — as (parameter index, the value written, its line)
-  let s = r.sym
+  template s: untyped = r.sym
   let key = r.file.path & "\t" & r.file.stamp & "\t" & $s.line
   if key in nxInjects: return nxInjects[key]
   let ls = nxLinesOf(r.file).ls

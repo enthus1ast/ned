@@ -121,6 +121,7 @@ proc globalKey(k: Key): bool =
       of 'p': gotoDiag(-1)
       of 't': cmdThemes()
       of 'T': reopenClosedTab()
+      of 'J': cmdJumpLabels()                 # Alt+Shift+J: a label on each word on screen
       of 'R': macroToggle()                   # Alt+Shift+R: record a macro / stop
       of 'M': macroPlay(macroLast)            # Alt+Shift+M: play it (Alt+Shift+P arrives as ESC P, a terminal string)
       of 's':
@@ -442,6 +443,7 @@ proc handleKey(k: Key) =
   if keyCaptureFor.len > 0:
     captureKey(k)
     return
+  if jumpOn and jumpKey(k): return                # jump labels on screen: their letters
   if dialogOpen():
     dialogKey(k)
     return

@@ -188,19 +188,97 @@ proc revertHunk() =
   b.normalize()
   info("Change reverted — Ctrl+Z brings it back")
 
+# the whole file's blame, once for each version of it and of the history (the line under the cursor is then
+# looked up, not asked of git at every move)
+type BlameAll = object
+  key: string                    # the file's time, the history's (.git/logs/HEAD), when it was made
+  at: MonoTime
+  lineCommit: seq[int32]         # each line's commit (an index in commits)
+  commits: seq[(string, string, int64)]   # (author, summary, time) — author "" when not committed yet
+var
+  blameAll: Table[string, BlameAll]
+  blameAllBusy: HashSet[string]
+
+proc blameAllKey(path: string): string =
+  try:
+    var key = $getLastModificationTime(path).toUnixFloat
+    let g = findGitRoot(parentDir(path))
+    if g.len > 0 and fileExists(g / ".git" / "logs" / "HEAD"):
+      key.add "|" & $getLastModificationTime(g / ".git" / "logs" / "HEAD").toUnixFloat
+    key
+  except CatchableError: ""
+
+proc parseBlameAll(o: string, key: string): BlameAll =
+  result.key = key
+  result.at = getMonoTime()
+  var byHash: Table[string, int]
+  var cur = -1
+  var final = 0
+  for ln in o.splitLines:
+    if ln.len == 0: continue
+    if ln[0] == '\t':
+      if cur >= 0 and final > 0:
+        if result.lineCommit.len < final: result.lineCommit.setLen(final)
+        result.lineCommit[final - 1] = int32(cur)
+      continue
+    if ln.len >= 41 and ln[40] == ' ' and ln[0 ..< 40].allCharsInSet(HexDigits):
+      let h = ln[0 ..< 40]
+      let parts = ln.splitWhitespace
+      final = (if parts.len >= 3: (try: parseInt(parts[2]) except ValueError: 0) else: 0)
+      cur = byHash.getOrDefault(h, -1)
+      if cur < 0:
+        cur = result.commits.len
+        byHash[h] = cur
+        result.commits.add (if h.startsWith("0000000"): ("", "", 0'i64) else: ("?", "", 0'i64))
+      continue
+    if cur < 0 or result.commits[cur][0].len == 0: continue
+    if ln.startsWith("author "): result.commits[cur][0] = ln[7 .. ^1]
+    elif ln.startsWith("author-time "):
+      try: result.commits[cur][2] = parseBiggestInt(ln[12 .. ^1].strip).int64
+      except ValueError: discard
+    elif ln.startsWith("summary "): result.commits[cur][1] = ln[8 .. ^1]
+
+proc blameLineText(ba: BlameAll, l: int): string =
+  if l < 0 or l >= ba.lineCommit.len: return ""
+  let c = ba.commits[ba.lineCommit[l]]
+  if c[0].len == 0: "You · not committed" else: c[0] & ", " & agoText(c[2] * 1000) & " · " & c[1]
+
 proc requestBlame(b: Buffer) =
   if not cfgBlame or b.path.len == 0 or not b.inGit or b.binary: return
   let l = b.primary.head.line
   let key = b.path & ":" & $l & ":" & $b.changeId
   if key == blameFor: return
+  if b.dirty and b.git.len > l and b.git[l] in {1'u8, 2'u8}:
+    blameFor = key
+    blameText = "You · not committed"
+    return
+  if b.dirty:
+    blameFor = key
+    blameText = ""
+    return
+  # (the whole file's, when it is made for this version: at once)
+  if b.path in blameAll:
+    let ba = blameAll[b.path]
+    if msSince(ba.at) < 60_000 and ba.key == blameAllKey(b.path):
+      blameFor = key
+      blameText = ba.blameLineText(l)
+      return
   if msSince(blameReqAt) < 350: return
   blameReqAt = getMonoTime()
   blameFor = key
   blameText = ""
-  if b.dirty and b.git.len > l and b.git[l] in {1'u8, 2'u8}:
-    blameText = "You · not committed"
-    return
-  if b.dirty: return
+  if b.lines.len <= 20000 and b.path notin blameAllBusy and remoteOf(b.path) < 0:
+    let path = b.path
+    let bkey = blameAllKey(path)
+    blameAllBusy.incl path
+    discard startJob(jkGit, "git --no-pager blame --porcelain -- " & quoteShell(extractFilename(path)), parentDir(path),
+                     proc(j: Job) =
+      blameAllBusy.excl path
+      if j.code != 0: return
+      if blameAll.len > 16: blameAll.clear()
+      blameAll[path] = parseBlameAll(j.output, bkey)
+      blameFor = ""                      # (asked again, now from it)
+      needRender = true)
   let cmd = "git --no-pager blame --porcelain -L " & $(l + 1) & "," & $(l + 1) & " -- " &
             quoteShell(extractFilename(b.path))
   discard startJob(jkGit, cmd, parentDir(b.path), proc(j: Job) =

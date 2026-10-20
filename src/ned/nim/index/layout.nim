@@ -659,7 +659,7 @@ proc nxLayHasUnchecked(c: var NxLayCtx, env: NxLayEnv, t: string, depth: int): b
 proc nxLayDefOf(r: NxRef, lines: seq[string]): (string, int, int, int) =
   ## a type's definition, the first and last line of its body, the indentation the body is deeper than —
   ## also for `Name* {.pragmas.} =` with the definition on the line below (system's RootObj)
-  let s = r.sym
+  template s: untyped = r.sym
   if s.line >= lines.len: return ("", 0, -1, 0)
   let ind = leadWs(lines[s.line])
   var def = s.typ.strip
@@ -820,7 +820,7 @@ proc nxLayObject(c: var NxLayCtx, r: NxRef, env: NxLayEnv, def: string, prags: s
 proc nxLayDecl(c: var NxLayCtx, r: NxRef, args: seq[NxLayArg], depth: int): NxLayout =
   ## the layout of the type `r` declares, with its generic parameters bound to `args`
   if depth > 24: return
-  let s = r.sym
+  template s: untyped = r.sym
   var key = r.file.path & ":" & $s.line & ":" & s.name
   for a in args: key.add "|" & a.text & "@" & a.env.file.path
   if key in c.memo: return c.memo[key]

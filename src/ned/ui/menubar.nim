@@ -125,7 +125,8 @@ proc menuItems(i: int): seq[MenuItem] =
   of "Go":
     @[mc("Open file…", "Go to file…"), mc("Go to symbol…", "Go to symbol in file…"),
       mc("Go to symbol in project…"), mc("Go to symbol in workspace (language server)…", "Go to symbol (language server)…"),
-      mc("Go to line…"), msep(), mc("Go to definition"), mc("Peek definition"), mc("Find references"),
+      mc("Go to line…"), mc("Jump to a word on screen (labels)", "Jump to a word on screen"), msep(),
+      mc("Go to definition"), mc("Peek definition"), mc("Find references"),
       mc("Peek references"), mc("Go to type definition"), mc("Go to implementation"),
       mc("Call hierarchy (callers and calls)", "Call hierarchy"), mc("Type hierarchy (supertypes and subtypes)", "Type hierarchy"),
       mc("Show hover info"), mc("Jump back"), mc("Go forward"), msep(), mc("Next problem"), mc("Previous problem"),

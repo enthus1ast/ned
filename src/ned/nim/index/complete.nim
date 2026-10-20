@@ -112,20 +112,29 @@ proc nxShortDetail*(s: NxSym, ufcs = false): string =
     result = (if s.typ.len > 0: s.typ elif s.value.len > 0: "= " & s.value else: "")
   of nxModule: result = "module"
 
+var nxModMemo: (NxFile, int, HashSet[string])     # (a file, nxGen, the files of its module): completion asks a
+                                                   # thousand times a keystroke
+
+proc nxInModule(f: NxFile, path: string): bool =
+  ## is `path` part of the same module as `f`: f, the files it includes — and, when f is itself included, its
+  ## includer and the includer's other include files
+  if nxModMemo[0] != f or nxModMemo[1] != nxGen:
+    var s: HashSet[string]
+    s.incl f.path
+    for g in nxIncluded(f): s.incl g.path
+    let hp = nxIncluderOf(f.path)
+    if hp.len > 0:
+      s.incl hp
+      let h = nxLoad(hp)
+      if h != nil:
+        for g in nxIncluded(h): s.incl g.path
+    nxModMemo = (f, nxGen, s)
+  path in nxModMemo[2]
+
 proc nxVisible*(f: NxFile, r: NxRef): bool =
   ## private declarations are visible in their own module (and the files it includes) only
   if r.sym.exported or r.file == f or r.file.path == f.path: return true
-  for g in nxIncluded(f):
-    if g == r.file: return true
-  # f is itself included: its includer and the includer's other include files are the same module
-  let hp = nxIncluderOf(f.path)
-  if hp.len > 0:
-    if r.file.path == hp: return true
-    let h = nxLoad(hp)
-    if h != nil:
-      for g in nxIncluded(h):
-        if g == r.file or g.path == r.file.path: return true
-  false
+  nxInModule(f, r.file.path)
 
 proc nxAddRefs*(items: var seq[NxItem], f: NxFile, refs: seq[NxRef], ufcs = false, rankBias = 0, recv = "",
                binds = initTable[string, string]()) =
@@ -133,7 +142,7 @@ proc nxAddRefs*(items: var seq[NxItem], f: NxFile, refs: seq[NxRef], ufcs = fals
   var at = initTable[string, int]()
   for i, it in items: at[it.label & "/" & $(it.kind in NxRoutineKinds)] = i
   for r in refs:
-    let s = r.sym
+    template s: untyped = r.sym
     if s.kind == nxModule or s.name.len == 0 or not (s.name[0] in {'a'..'z', 'A'..'Z', '_'} or s.name[0] >= '\x80'):
       continue                     # operators are not typed by name
     if ufcs and s.name in NxKeywords: continue        # x.and(y) is legal but nobody writes it
@@ -868,7 +877,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       nxAddRefs(result.items, f, vals)
       var tprocs: seq[NxRef]
       for r in sc.refs:
-        let s = r.sym
+        template s: untyped = r.sym
         if s.kind in NxRoutineKinds and s.params.len > 0:
           let p = nxStripMods(s.params[0].typ)
           if p.startsWith("typedesc") or p.startsWith("type "):
@@ -935,7 +944,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
         let intLike = ra in NxInts or ownDistinct.len > 0
         var seenD: HashSet[string]
         for r in sc.refs:
-          let s = r.sym
+          template s: untyped = r.sym
           if s.kind != nxType or s.name in seenD or s.name == st: continue
           let def = s.typ.strip
           if def.startsWith("distinct "):
@@ -964,7 +973,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       result.items.add NxItem(label: s.name, detail: nxShortDetail(s), kind: s.kind, local: s, rank: 0, ufcs: true)
     var exact, related, generic: seq[NxRef]
     for r in sc.refs:
-      let s = r.sym
+      template s: untyped = r.sym
       if s.kind notin NxRoutineKinds or s.params.len == 0: continue
       if not result.known:
         generic.add r
@@ -994,7 +1003,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       for u in convTo[0 ..< min(convTo.len, 3)]:
         var viaConv: seq[NxRef]
         for r in sc.refs:
-          let s = r.sym
+          template s: untyped = r.sym
           if s.kind notin NxRoutineKinds or s.kind == nxConverter or s.params.len == 0 or s.name in have: continue
           if nxCompatP(sc, s.params[0], s.generics, u) >= 2:
             viaConv.add r
@@ -1184,7 +1193,7 @@ proc nxRstToMd*(doc0: string): string =
 
 proc nxDoc*(r: NxRef, ufcs = false, withSig = true): string =
   ## Markdown for the documentation panel and hover: signature, doc comment, where it lives
-  let s = r.sym
+  template s: untyped = r.sym
   if withSig: result = "```nim\n" & nxSig(s) & "\n```"
   let dp = s.pragmas.find("deprecated")
   if dp >= 0:

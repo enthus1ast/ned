@@ -103,6 +103,11 @@ proc lspInstallToast(langName: string, cands: seq[seq[string]]) =
     let cmd = lspInstallCmd(extractFilename(c[0]))
     if cmd.len == 0: continue
     let shown = cmd
+    if langName in ["CSS", "HTML", "SQL"] and cfgWebEngine != "off":
+      # (ned's own engine answers: the server would add rename, formatting and more)
+      toast(langName & ": ned's own completion, hover and checks — " & c[0] & " adds more (" & shown & ")",
+            4, "Install", proc() = runInTerm(shown), 8000)
+      return
     toast(langName & ": no language server for completion, errors and rename — " & c[0] & " (" & shown & ")",
           3, "Install", proc() = runInTerm(shown), 12000)
     return
