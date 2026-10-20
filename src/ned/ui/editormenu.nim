@@ -110,4 +110,14 @@ proc scrollAt(x, y, d: int) =
       rightList.sel = clamp(rightList.sel + d, 0, max(0, rightList.items.high))
   else:
     hoverOpen = false
+    if buf().hex != nil:
+      let hx = buf().hex
+      hx.top = clamp(hx.top + d, 0, max(0, hx.data.len div max(1, hx.perRow)))
+      # (the cursor stays on the screen: it moves along when it would scroll out)
+      let row = hx.cur div max(1, hx.perRow)
+      if row < hx.top: hx.cur += (hx.top - row) * hx.perRow
+      elif row >= hx.top + hx.rows: hx.cur -= (row - hx.top - hx.rows + 1) * hx.perRow
+      hx.cur = clamp(hx.cur, 0, hx.data.len)
+      needRender = true
+      return
     buf().scrollBy(d)

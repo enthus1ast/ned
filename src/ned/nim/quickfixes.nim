@@ -21,6 +21,8 @@ proc nimProblemFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
         of "unusedImport": "remove every unused import"
         of "varLet": "every var nothing changes made a let"
         of "canBeFunc": "every proc without side effects made a func"
+        of "nim3": "every change for Nim 3 that ned can make"
+        of "unnamedBreak": "every break that leaves a block names it"
         else: "the new name everywhere it is used"), a)
   for d in ds:
     let m = d.msg

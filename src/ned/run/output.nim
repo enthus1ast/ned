@@ -200,8 +200,10 @@ proc nimCmd(b: Buffer, run: bool): string =
     else: ""
   if b.path.endsWith(".nims"): return "nim e --hints:off " & f
   if b.path.endsWith(".nimble"): return (if run: "nimble run" else: "nimble build")
-  if cfgNimCompiler == "nimony" and findExe("nimony").len > 0:
-    return "nimony c" & (if run: " -r" else: "") & mode & " " & f
+  if cfgNimCompiler == "nimony" and nimonyExe().len > 0:
+    # (Nim 3: the program next to the file, as `nim c` puts it; the build files in ned's folder, not nimcache/)
+    return quoteShell(nimonyExe()) & " c" & (if run: " -r" else: "") & mode & " " & nimonyArgs() & " --outdir:" &
+           quoteShell(parentDir(b.path)) & " " & f
   "nim " & cfgNimTarget & (if run: " -r" else: "") & " --hints:off" & mode &
     (if cfgNimFlags.len > 0: " " & cfgNimFlags else: "") & " " & f
 

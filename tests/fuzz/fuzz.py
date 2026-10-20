@@ -3,7 +3,7 @@
 palette commands and resizes at it. Reports crashes (non-zero exit), hangs and logged internal errors.
 
   NEDBIN=./ned_debug python3 tests/fuzz/fuzz.py [SEED [SECONDS [MODE]]]
-  MODE: mixed · vim · helix · emacs · palette · refactor · ai · git · fixes · c · emit · strings · ws · term · a11y …
+  MODE: mixed · vim · helix · emacs · palette · refactor · ai · git · fixes · c · emit · strings · ws · term · a11y · hex …
 
 It works in a scratch home of its own (NED_FUZZ_HOME, default /tmp/ned-fuzz-UID): ned's settings, state and
 a copy of the test project live there. Random palette commands can run tasks, git and shell commands in that
@@ -79,6 +79,9 @@ def setup():
     with open(PROJ + '/big.nim', 'w') as f:
         for i in range(30000): f.write('proc p%d*(x: int): int = x + %d  # line\n' % (i, i))
     open(PROJ + '/empty.nim', 'w').close()
+    # binary files for the hex editor: random bytes, and a program (an ELF with Nim's symbols)
+    open(PROJ + '/blob.bin', 'wb').write(bytes(rnd.randrange(256) for _ in range(65536)))
+    shutil.copy(SRC_BIN, PROJ + '/prog')
     for x in ('web.nim', 'page.nimf', 'notes.md'): shutil.copy(FIX + '/emb/' + x, PROJ + '/' + x)
     for x in ('wrap.nim', 'mathx.h', 'mathx.c'): shutil.copy(FIX + '/cwrap/' + x, PROJ + '/' + x)
     shutil.copy(FIX + '/emitc/words.nim', PROJ + '/words.nim')
@@ -182,7 +185,7 @@ def start():
     script = HOME + '/run.sh'
     with open(script, 'w') as f:
         f.write(('#!/bin/bash\nexport HOME=%s PATH=' + (NIM_BIN + ':' if NIM_BIN else '') + os.environ.get('PATH', '/usr/bin:/bin') + ' TERM=xterm-256color COLORTERM=truecolor\n'
-                 'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
+                 'cd %s\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'blob.bin prog m.nim' if MODE == 'hex' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
     os.chmod(script, 0o755); own(script)
     tm('-f ' + TESTS + '/ui/tmux.conf new-session -d -s fz -x %d -y %d %s' % (w, h, script))
     time.sleep(1.5)

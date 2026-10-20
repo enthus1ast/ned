@@ -11,7 +11,12 @@ proc aiSystemPrompt(): string =
     result.add "You can use tools to read, search and edit project files and to run shell commands " &
                "(nim c -r, nimble test, git …). Read files before editing them; make small exact edits with edit_file; " &
                "verify with a build or test command when useful. Paths are relative to the project root. "
-  result.add "For Nim, prefer idiomatic Nim 2 (ARC/ORC, std/ modules, nimble)."
+  if nim3On() or (b.path.len > 0 and b.path in nim3Asked):
+    # (Nim 3 is not the Nim the models learned: Nimony's own guides go with every request)
+    result.add "This project is Nim 3 (Nimony), NOT Nim 2: write Nim 3 code — the rules below are Nimony's own guides. " &
+               "Code is checked with `nimony check`." & nimonyGuide()
+  else:
+    result.add "For Nim, prefer idiomatic Nim 2 (ARC/ORC, std/ modules, nimble)."
   if cfgAiSystem.len > 0: result.add "\n" & cfgAiSystem
   result.add projectInstructions()
 

@@ -11,7 +11,8 @@ var
 proc typingCheckUsable(b: Buffer): bool =
   ## should the compiler check this buffer's unsaved text while you type (rather than nimsuggest, or nothing)?
   if b.lang == nil or b.lang.mode != lmNim or b.path.len == 0 or not b.path.endsWith(".nim") or b.largeOn or
-     b.readOnly or not haveExe("nim") or lspActiveFor(b) or not nimEngineOn(b):
+     b.readOnly or not (if nim3On(): nimonyExe().len > 0 else: haveExe("nim")) or lspActiveFor(b) or
+     not nimEngineOn(b):
     return false
   if not codeTrusted(parentDir(b.path)):
     askTrust(parentDir(b.path), quiet = true)          # (the compiler runs the folder's config.nims and macros)
@@ -24,6 +25,7 @@ proc typingCheckUsable(b: Buffer): bool =
   if how != "compiler" and took > 30_000: return false
   for l in b.lines:
     if l.startsWith("<<<<<<< ") or l == "<<<<<<<": return false     # (a merge to finish first: no errors yet)
+  if nim3On(): return nxIncluderOf(b.path).len == 0       # (Nim 3: a module of its own; an included part on save)
   # a file another one includes is checked inside it (includerCopy): one level of include
   let inc = nxIncluderOf(b.path)
   inc.len == 0 or nxIncluderOf(inc).len == 0
@@ -80,8 +82,40 @@ proc includerCopy(b: Buffer, copy: string): (string, string) =
   lines[target] = spaces(leadWs(lines[target])) & "include " & specs.join(", ")
   (inc, lines.join("\n") & "\n")
 
+proc typingCheckNimony(b: Buffer) =
+  ## Nim 3: `nimony check` reads no stdin — a copy of the text in ned's own folder, its relative imports made
+  ## absolute and the file's folder on the search path, under the file's own name (nimony's build files stay)
+  let id = b.changeId
+  let dir = privDir() / "nimony" / ("typing-" & nimonyKey(b.path))
+  let copy = dir / extractFilename(b.path)
+  try:
+    createDir(dir)
+    writeFile(copy, nimonyCopyText(b.lines, parentDir(b.path)))
+  except CatchableError: return
+  b.chkAt = id
+  let path = b.path
+  let bid = b.id
+  typingChecks[path] = (id, getMonoTime(), copy)
+  discard startJob(jkCheck, quoteShell(nimonyExe()) & " check " & nimonyArgs() & " --path:" &
+                            quoteShell(parentDir(path)) & " " & quoteShell(copy) & " 2>&1", dir, proc(j: Job) =
+    let st = typingChecks.getOrDefault(path)
+    typingChecks.del path
+    typingCheckMs[path] = int(msSince(st[1]))
+    var (found, _) = parseNimCheck(j.output, j.cwd, "")
+    let x = bufById(bid)
+    if x == nil or x.changeId != id: return        # (typed since: the next pause checks the new text)
+    var mine: seq[Diag]
+    for k, v in found:
+      if k == copy or (extractFilename(k) == extractFilename(copy) and k.startsWith(dir)): mine.add v
+    diagsBuild[path] = mine
+    engineAgain(path)
+    needRender = true)
+
 proc typingCheck(b: Buffer) =
   if b.path in typingChecks: return
+  if nim3On():
+    b.typingCheckNimony()
+    return
   let id = b.changeId
   let copy = privTmp("typing") & ".nim"
   # an included file: checked inside the module that includes it (that module's text, on stdin, includes the copy)

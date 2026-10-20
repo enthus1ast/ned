@@ -230,9 +230,49 @@ proc qDeprecated(b: Buffer, d: Diag): (int, string, string) =
     let at = qFindOnLine(b.lines[d.line], old, d.col)
     if at >= 0: result = (at, old, simpleRepl)
 
+proc qBreakEdits(b: Buffer, line: int): (string, seq[QEdit]) =
+  ## a `break` that leaves a block (Nim 2.2 warns, Nim 3 only leaves loops): break that block by its name — the
+  ## block named `done` when it has no name. (title, edits); no edits when the break is inside a loop first
+  if line < 0 or line >= b.lines.len: return
+  let s = b.lines[line]
+  let t = s.strip(trailing = false)
+  let ind = s.len - t.len
+  if not (t == "break" or t.startsWith("break ") or t.startsWith("break#")): return
+  var u = line - 1
+  while u >= 0:
+    let ut = b.lines[u].strip(trailing = false)
+    let ui = b.lines[u].len - ut.len
+    if ut.len > 0 and ui < ind:
+      if ut.startsWith("for ") or ut.startsWith("while "): return
+      for kw in ["proc ", "func ", "iterator ", "method ", "template ", "macro "]:
+        if ut.startsWith(kw): return
+      if ut.startsWith("block"):
+        let rest = ut[5 .. ^1]
+        let colon = rest.find(':')
+        let lbl = if colon >= 0: rest[0 ..< colon].strip else: ""
+        if lbl.len > 0 and lbl.allCharsInSet(IdentChars):
+          return ("Make it `break " & lbl & "`", @[(Pos(line: line, col: ind + 5), Pos(line: line, col: ind + 5), " " & lbl)])
+        if colon >= 0 and lbl.len == 0:
+          return ("Name the block `done` and break it", @[(Pos(line: u, col: ui + 5), Pos(line: u, col: ui + 5), " done"),
+                  (Pos(line: line, col: ind + 5), Pos(line: line, col: ind + 5), " done")])
+        return
+    dec u
+
 proc nimDiagFixes(b: Buffer, d: Diag): seq[(string, string, Action)] =
   ## the fixes for one Nim compiler message (empty when none fits)
   if d.line < 0 or d.line >= b.lines.len: return
+  # ── a break that leaves a block: by the block's name (Nim 2.2 warns, Nim 3 leaves only loops)
+  if "unnamed break in a block" in d.msg or "[UnnamedBreak]" in d.msg:
+    let (title, es) = qBreakEdits(b, d.line)
+    if es.len > 0: result.add act(title, "a named block and its break", qAct(b, es, ""))
+    return
+  # ── Nim 3 (ned's nim3 rule): the problem carries its edits
+  if d.rule == "nim3" and d.code != nil and d.code.kind == JObject and d.code.hasKey("edits"):
+    var es: seq[QEdit]
+    for e in d.code["edits"]:
+      es.add (Pos(line: e[0].getInt, col: e[1].getInt), Pos(line: e[2].getInt, col: e[3].getInt), e[4].getStr)
+    result.add act(d.code{"nim3fix"}.getStr, "for Nim 3", qAct(b, es, ""))
+    return
   let m = d.msg
   let first = m.splitLines()[0]
   let s = b.lines[d.line]
@@ -617,7 +657,9 @@ proc nimDiagFixes(b: Buffer, d: Diag): seq[(string, string, Action)] =
 proc nimFixKind(d: Diag): string =
   ## problems whose fix is the same everywhere in a file (for "fix all")
   let f = d.msg.splitLines()[0]
-  if "has to be used (or discarded)" in f: "discard"
+  if d.rule == "nim3": (if d.code != nil and d.code.kind == JObject and d.code.hasKey("edits"): "nim3" else: "")
+  elif "unnamed break in a block" in f or "[UnnamedBreak]" in f: "unnamedBreak"
+  elif "has to be used (or discarded)" in f: "discard"
   elif "bare except clause is deprecated" in f or "[BareExcept]" in f: "bareExcept"
   elif "imported and not used" in f: "unusedImport"
   elif "is deprecated" in f: "deprecated:" & quotedName(f)
@@ -631,10 +673,23 @@ proc nimFixAll(b: Buffer, kind: string): (int, Action) =
   var n = 0
   var imports: seq[string]
   for d in diagsFor(b.path):
-    if nimFixKind(d) != kind: continue
+    let dk = nimFixKind(d)
+    # (Nim 3's changes take the breaks that leave a block with them: Nim 3 needs those too)
+    if dk != kind and not (kind == "nim3" and dk == "unnamedBreak"): continue
     if kind == "unusedImport":
       let nm = quotedName(d.msg)
       if nm.len > 0 and nm notin imports: imports.add nm
+      inc n
+      continue
+    if dk == "unnamedBreak":
+      let es = qBreakEdits(b, d.line)[1]
+      if es.len > 0:
+        for e in es: edits.add e
+        inc n
+      continue
+    if kind == "nim3":
+      for e in d.code["edits"]:
+        edits.add (Pos(line: e[0].getInt, col: e[1].getInt), Pos(line: e[2].getInt, col: e[3].getInt), e[4].getStr)
       inc n
       continue
     let fx = nimDiagFixes(b, d)

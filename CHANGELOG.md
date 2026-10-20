@@ -1,6 +1,26 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-6112). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-612). Older releases:
+
+## What's new in 6.11.2
+
+- **The ▶ on `runnableExamples` runs them again after a format on save**: it saves the file first, and when the
+  save re-wrapped a comment above the block (since 6.11.1 a doc comment inside a proc is re-wrapped), the block moved
+  and the ▶ found nothing on its old line — so nothing ran and no popup came. It now goes by which block it is.
+- **The built-in terminal keeps up with a flood of output**: the oldest scrollback lines are dropped a chunk at a time
+  instead of the whole scrollback being shifted for every new line. `seq 1 200000` took 1.1 s with the default 3000
+  lines of scrollback and 6.3 s with 20 000 (tmux: 0.25 s); now 0.16 s whatever is kept.
+- **Very long lines are as fast as short ones** (minified JSON, JS and CSS, a log on one line): each frame works on
+  what is on the screen — the cursor's column and the first character shown come from marks along the line, kept
+  until it changes, and the bracket pair, links and colours are not looked for across megabytes. On a 5 MB line a
+  frame took 22–27 ms, now 0.06 ms (a keystroke 2.7 ms).
+- **The formatter leaves fewer files alone**: a `using` parameter after one with a default (`proc d(c = 1; y; z: int)`),
+  comment lines inside a parenthesized expression (it made it a tuple, so the check refused the whole file — ned's own
+  source tripped on it), a `;` after the last parameter, and Nim 3's code: a keyword as a routine's name
+  (`func addr*[T](x: T)`) and a parameter with a pragma of its own (`r {.register: "rdi".}: Words`). Of the 1,684 files
+  of Nimony it now formats all but two.
+- **`ned --bench` and CI measure these too**: a 5 MB line's frames, an 80 MB log's start and memory, and a flood of
+  terminal output, each with a limit.
 
 ## What's new in 6.11.1
 

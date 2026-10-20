@@ -40,6 +40,11 @@ proc nxParseImports*(f: NxFile, rest: string, line: int, kw: string) =
   for p0 in nxSplitTop(r, {','}):
     var p = p0.strip
     if p.len == 0: continue
+    # (Nim 3: `import (path / module) {.cyclic.}` — the pragma and the parentheses are not part of the path)
+    if p.endsWith(".}"):
+      let pa = p.rfind("{.")
+      if pa > 0: p = p[0 ..< pa].strip
+    if p.len > 1 and p[0] == '(' and p[^1] == ')' and '"' notin p: p = p[1 ..< p.high].strip.replace(" / ", "/")
     var alias = ""
     let a = p.find(" as ")
     if a >= 0:

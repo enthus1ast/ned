@@ -31,12 +31,20 @@ var
   nxBufferStamp*: proc(path: string): string = nil          # open buffers win over disk: "" = not open
   nxBufferLines*: proc(path: string): seq[string] = nil
 
-func nxNorm*(s: string): string =
-  ## Nim identifiers are style-insensitive apart from the first character
+var nxExact* = false      ## Nim 3 (nimony): names are matched as written — case and underscores count
+
+func nxNorm2*(s: string): string =
+  ## Nim 2's rule: identifiers are style-insensitive apart from the first character
   if s.len == 0: return s
   result.add s[0]
   for i in 1 ..< s.len:
     if s[i] != '_': result.add toLowerAscii(s[i])
+
+func nxNorm*(s: string): string =
+  ## a name as the index keys it: Nim 2's rule, or (Nim 3) as it is written
+  {.cast(noSideEffect).}:
+    if nxExact: return s
+  nxNorm2(s)
 
 const NxStatFreshMs = 50                # (a file's stamp, read again after this: one question stats each file once)
 var
@@ -387,6 +395,23 @@ proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraP
   nxModCache.clear()
   nxScopes.clear()
   inc nxGen
+
+var nxSysMemo: (string, string)
+
+proc nxSystemPath*(): string =
+  ## system.nim of the library in use: lib/system.nim (Nim 2) or lib/std/system.nim (Nimony, Nim 3)
+  if nxLibDir.len == 0: return ""
+  if nxSysMemo[0] == nxLibDir: return nxSysMemo[1]
+  result = if fileExists(nxLibDir / "system.nim"): nxLibDir / "system.nim"
+           elif fileExists(nxLibDir / "std" / "system.nim"): nxLibDir / "std" / "system.nim"
+           else: ""
+  nxSysMemo = (nxLibDir, result)
+
+proc nxInSystem*(path: string, partsOnly = false): bool =
+  ## is `path` system.nim or one of its parts (lib/system/…; Nimony: lib/std/system/…)? (partsOnly: only the parts)
+  let sys = nxSystemPath()
+  if sys.len == 0: return false
+  path.startsWith(parentDir(sys) / "system" & "/") or (not partsOnly and path == sys)
 
 var nxSrcDirs* = initTable[string, string]()     # folder → srcDir of the nimble package it is in
 
@@ -980,8 +1005,8 @@ proc nxScope*(f: NxFile): NxScope =
     for i in 0 ..< g.syms.len: result.refs.add NxRef(file: g, idx: int32(i), origin: 1)
   var seen: HashSet[string]
   seen.incl f.path
-  let sys = if nxLibDir.len > 0: nxLibDir / "system.nim" else: ""
-  if sys.len > 0 and f.path != sys and not f.path.startsWith(nxLibDir / "system" & "/"):
+  let sys = nxSystemPath()
+  if sys.len > 0 and f.path != sys and not f.path.startsWith(parentDir(sys) / "system" & "/"):
     let before = result.refs.len
     nxExports(sys, 0, seen, result.refs)
     for k in before ..< result.refs.len: result.refs[k].origin = 3
@@ -1008,6 +1033,22 @@ proc nxScope*(f: NxFile): NxScope =
       result.deps.add (r.file.path, r.file.stamp)
   nxKeepScope(f.skey, result)
 
+var nxStyleFree: Table[string, (string, bool)]   # path → (stamp, it has {.feature: "ignoreStyle".})
+
+proc nxIgnoresStyle*(f: NxFile): bool =
+  ## does this Nim 3 module ask for Nim 2's style-insensitive names?
+  if f == nil or f.path.len == 0: return false
+  let k = nxStyleFree.getOrDefault(f.path, ("", false))
+  if k[0].len > 0 and k[0] == f.stamp: return k[1]
+  var text = ""
+  if nxBufferLines != nil and nxBufferStamp != nil and nxBufferStamp(f.path).len > 0:
+    text = nxBufferLines(f.path).join("\n")
+  else:
+    try: text = readFile(f.path)
+    except CatchableError: discard
+  result = "\"ignoreStyle\"" in text and "feature" in text
+  nxStyleFree[f.path] = (f.stamp, result)
+
 proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
   let n = nxNorm(name)
   let h = uint32(hash(n) and 0xFFFF_FFFF)
@@ -1020,6 +1061,11 @@ proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
     let r = sc.refs[sc.byHash[lo][1]]
     if nxNorm(r.file.syms[r.idx].name) == n: result.add r
     inc lo
+  if result.len == 0 and nxExact and sc.own != nil and nxIgnoresStyle(sc.own):
+    # (Nim 3: a module with {.feature: "ignoreStyle".} finds names by Nim 2's rule)
+    let n2 = nxNorm2(name)
+    for r in sc.refs:
+      if nxNorm2(r.file.syms[r.idx].name) == n2: result.add r
 
 func sym*(r: NxRef): NxSym {.inline.} = r.file.syms[r.idx]
 

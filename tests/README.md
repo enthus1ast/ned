@@ -5,7 +5,7 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 
 | folder | what | how long | run |
 |---|---|---|---|
-| [`unit/`](unit) | the Nim index (compile-time values too, kept on disk, memory layouts and exception hints checked against the compiler, the package versions a build uses), the C index, the formatters and nedfmt, the regular expressions, where ARC/ORC copies, what each Nim release added — as libraries, without the editor | seconds | `nimble test` |
+| [`unit/`](unit) | the Nim index (compile-time values too, kept on disk, memory layouts and exception hints checked against the compiler, the package versions a build uses), the C index, the formatters and nedfmt, the regular expressions, where ARC/ORC copies, what each Nim release added, columns counted 8 bytes at a time, executables read (ELF, Mach-O, PE) and Nim's names in them — as libraries, without the editor | seconds | `nimble test` |
 | [`lsp/`](lsp) | nedls driven by a small LSP client: every feature, then 2000 random edits that must not put it out of step | a minute | `nimble lsptest` |
 | [`format/`](format) | the Nim formatter on 463 files of Nim's compiler and standard library, each checked by Nim's own parser | minutes | `nimble parsecheck` |
 | [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 1000 checks | ~1 hour | `nimble uitest` |

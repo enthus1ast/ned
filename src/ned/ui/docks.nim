@@ -116,9 +116,9 @@ proc buildProjectItems(): seq[SideItem] =
       of "cpp": "js"
       of "js": "objc"
       else: "c"))
-  if haveExe("nimony"):
-    result.add sideItem("Compiler: " & cfgNimCompiler, 0, "◇", "nim / nimony", proc() =
-      setNimCompiler(if cfgNimCompiler == "nim": "nimony" else: "nim"))
+  if nimonyExe().len > 0:
+    result.add sideItem("Compiler: " & cfgNimCompiler & (if nim3On(): " (Nim 3)" else: ""), 0, "◇", "nim / nimony",
+                        proc() = setNimCompiler(if cfgNimCompiler == "nim": "nimony" else: "nim"))
   if haveExe("nimble") and nimble.file.len > 0:
     result.add sideItem("NIMBLE", 6)
     for (l, d, a) in nimbleTaskActions():
@@ -145,12 +145,17 @@ proc buildProjectItems(): seq[SideItem] =
     result.add sideItem("search…", 7, "›", "atlas search", proc() = openPrompt(pAtlasSearch, "atlas search", ""))
   else:
     result.add sideItem("install atlas", 2, "+", "nimble install atlas", proc() = runNimble("install -y atlas"))
-  result.add sideItem("NIMONY", 6)
-  if haveExe("nimony"):
+  result.add sideItem("NIM 3 (NIMONY)", 6)
+  if nimonyExe().len > 0:
+    if nim3On(): result.add sideItem("this project is Nim 3 · nimony " & nimonyVersion(), 0, "◆", "")
+    else: result.add sideItem("make this project Nim 3", 7, "›", "nim.compiler: nimony", proc() =
+      runCmd("Nim 3: this project is Nim 3 (nimony)"))
     result.add sideItem("check with nimony", 7, "›", "", proc() = cmdNimony(false))
     result.add sideItem("run with nimony", 7, "›", "", proc() = cmdNimony(true))
   else:
     result.add sideItem("not installed (github.com/nim-lang/nimony)", 2, "·")
+  result.add sideItem("what this file needs for Nim 3", 7, "›", "", proc() = runCmd("Nim 3: what this file needs (porting problems)"))
+  result.add sideItem("port this file with AI", 7, "✦", "", proc() = runCmd("Nim 3: port this file with AI"))
   result.add sideItem("TOOLCHAIN", 6)
   if nimToolchainLine().len > 0:
     result.add sideItem(nimToolchainLine(), (if tcProblem.len > 0: 2 else: 0), (if tcProblem.len > 0: "⚠" else: "◆"),

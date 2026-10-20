@@ -22,12 +22,13 @@ func nxStripValMods*(t: string): string =
       changed = true
 
 func nxStripMods*(t: string): string =
-  ## "var seq[int]" → "seq[int]", "sink Foo" → "Foo", "ref Foo" → "Foo", "static[int]" → "int"
+  ## "var seq[int]" → "seq[int]", "sink Foo" → "Foo", "ref Foo" → "Foo", "static[int]" → "int", (Nim 3)
+  ## "nil ref Foo" → "Foo"
   result = t.strip
-  var changed = result.len > 0 and result[0] in {'v', 's', 'l', 'r', 'p', 'o'}   # (most types: nothing to strip)
+  var changed = result.len > 0 and result[0] in {'v', 's', 'l', 'r', 'p', 'o', 'n'}   # (most types: nothing to strip)
   while changed:
     changed = false
-    for m in ["var ", "sink ", "lent ", "lent2 ", "ref ", "ptr ", "out ", "owned "]:
+    for m in ["var ", "sink ", "lent ", "lent2 ", "ref ", "ptr ", "out ", "owned ", "nil "]:
       if result.startsWith(m):
         result = result[m.len .. ^1].strip
         changed = true

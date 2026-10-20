@@ -402,6 +402,7 @@ def t_521_debugger():
     check('debugger stops at the breakpoint', ok, s[-1500:])
     check('condition respected (i == 3)', 'i: int = 3' in s, s[-1500:])
     check('C names hidden, Nim types shown', 'T1_' not in s and 'sq: int = 9' in s, s[-1500:])
+    check('612 the call stack names procs as Nim does', 'dbg.main' in s and '_ZN' not in s, s[-1500:])
     keys('Home'); keys('M-h'); time.sleep(0.5)
     check('hover shows the value while stopped', re.search(r'total: int = 3', screen()) is not None, screen()[:1500])
     keys('Escape', 'S-F5'); time.sleep(0.5)
@@ -6041,4 +6042,145 @@ def t_611_perf_report():
     check('611 NED_PERF_LOG: the report on the way out, the wheel scrolls done by the terminal', m and int(m.group(1)) >= 3,
           t[:1500])
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood]
+def t_612_nim3():
+    # a Nim 3 project (nim.compiler: nimony): Nimony's library, names as written, errors from nimony check, go to
+    # definition into Nimony's own library, Nim 3's pragmas completed
+    need('nimony')
+    setup({"nim.compiler": "nimony", "nim.nimsuggest": None})
+    open(W + '/src/n3.nim', 'w').write('import std/syncio\n\nproc fooBar(x: int): int = x + 1\n\necho fooBar(1)\n'
+                                       'echo foobar(2)\nlet s: int = "oops"\n')
+    start('src/n3.nim', w=140, h=30); time.sleep(1)
+    keys('C-g'); text('5:7'); keys('Enter'); text(' '); keys('BSpace')          # (an edit: the checks run)
+    ok = wait_for(r'type mismatch', 30)
+    s = screen()
+    check('612 Nim 3: the status bar says so', 'Nim 3' in s, s)
+    check('612 Nim 3: names are case-sensitive (foobar is not fooBar)', re.search(r"undeclared identifier: 'foobar'", s)
+          is not None, s)
+    check('612 Nim 3: errors while typing come from nimony check', ok, s)
+    keys('C-g'); text('5:1'); keys('Enter'); keys('F12'); time.sleep(1.2)
+    s = screen()
+    check("612 Nim 3: go to definition goes into Nimony's own library (echo in std/syncio)",
+          'syncio.nim' in s and 'template echo' in s, s)
+    keys('C-w'); time.sleep(0.4)
+    keys('C-g'); text('3'); keys('Enter', 'End'); keys('BSpace', 'BSpace', 'BSpace', 'BSpace', 'BSpace')
+    text(' {.pas'); keys('C-Space'); time.sleep(0.6)
+    s = screen()
+    check("612 Nim 3: Nimony's pragmas are completed, with what they do ({.passive.})", 'passive' in s and
+          'continuation' in s, s)
+    keys('Escape')
+    check("612 Nim 3: nimony's build files are not left in the project (no nimcache/)",
+          not os.path.exists(W + '/src/nimcache') and not os.path.exists(W + '/nimcache'), str(os.listdir(W + '/src')))
+
+def t_612_nim3_port():
+    # porting a Nim 2 file: what Nim 3 needs shown as problems (Nim › Nim 3: what this file needs), and fixed in one go
+    setup({"nim.nimsuggest": None})
+    open(W + '/src/old.nim', 'w').write(
+        'type Color = enum red, green\n\ntemplate reset() = discard\n\n'
+        'proc twice(x: SomeInteger): int = int(x) * 2\n\n'
+        'proc load(path: string): string =\n  try:\n    result = readFile(path)\n  except IOError as e:\n'
+        '    raise newException(ValueError, "cannot read " & path)\n\n'
+        'type MyError = ref object of CatchableError\n\n'
+        'proc safe() =\n  try: discard\n  except MyError as m: discard\n\n'
+        'proc pick(n: ref int): bool =\n  for c in Color:\n    echo c\n  block search:\n    if n.isNil:\n      break\n'
+        '  reset\n  true\n')
+    start('src/old.nim', w=150, h=56); time.sleep(1.5)
+    palette('Nim 3: what this file needs')
+    time.sleep(2.5)
+    s = screen()
+    check('612 port: Nim 3 problems listed (except as, newException, enum loop, template call)',
+          all(x in s for x in ['no `as e`', '`raise ValueError`', 'low(Color)..high(Color)', '`reset()`']), s)
+    check("612 port: what today's nimony takes is not flagged (generics without [T], the project's own exception type)",
+          '[T: SomeInteger]' not in s and 'no `as m`' not in s, s)
+    keys('Escape')
+    keys('C-g'); text('10'); keys('Enter'); keys('M-Enter')
+    ok = wait_for('Fix all', 8)
+    s = screen()
+    check('612 port: the quick fixes offer the change, and all of them in the file', ok and 'Remove `as e`' in s, s)
+    if ok:
+        text('Fix all'); time.sleep(0.3); keys('Enter'); time.sleep(0.6)
+    keys('C-s'); time.sleep(0.6)
+    t = ftext('src/old.nim')
+    check('612 port: fixed in one go — the file is what Nim 3 wants', 'proc twice(x: SomeInteger)' in t and
+          'except MyError as m:' in t and 'except IOError:' in t and 'raise ValueError' in t and 'low(Color)..high(Color)' in t and
+          'break search' in t and 'reset()' in t and 'n == nil' in t, t)
+
+def t_612_hex():
+    # a binary file in the hex editor: typed over (hex and text), undone, saved; inserted, deleted; found, gone to
+    setup()
+    open(W + '/data.bin', 'wb').write(bytes(range(256)) * 4)
+    start('data.bin', w=120, h=32); time.sleep(1)
+    s = screen()
+    check('612 hex: a binary file opens in the hex editor (offset · hex · text, the data inspector)',
+          re.search(r'00000040\s+40 41 42 43', s) is not None and '@ABCDEFG' in s and 'u16 256' in s, s)
+    text('41'); text('4'); keys('Tab'); text('Z'); time.sleep(0.3)
+    check('612 hex: typed over in hex, then in the text column (Tab)', re.search(r'00000000\s+41 5a 02', screen())
+          is not None, screen())
+    keys('C-z'); time.sleep(0.3)
+    check('612 hex: undo', re.search(r'00000000\s+41 41 02', screen()) is not None, screen())
+    keys('C-s'); time.sleep(0.5)
+    d = open(W + '/data.bin', 'rb').read()
+    check('612 hex: saved as bytes', d[:3] == b'\x41\x41\x02' and len(d) == 1024, repr(d[:8]))
+    # (still in the text column: Insert, then two letters go in after the first byte; Delete takes the next one)
+    keys('Insert'); text('ab'); keys('Delete'); time.sleep(0.2); keys('C-s'); time.sleep(0.5)
+    d = open(W + '/data.bin', 'rb').read()
+    check('612 hex: Insert adds bytes, Delete takes one away', len(d) == 1025 and d[:5] == b'\x41ab\x02\x03', repr(d[:8]))
+    keys('C-f'); time.sleep(0.3); text('fe ff 00'); keys('Enter'); time.sleep(0.4)
+    s = screen()
+    check('612 hex: Ctrl+F finds bytes', re.search(r'Found at 0x0000\w+', s) is not None, s)
+    keys('C-g'); time.sleep(0.3); text('0x300'); keys('Enter'); time.sleep(0.3)
+    check('612 hex: Ctrl+G goes to an offset', '0x00000300 (768)' in screen(), screen())
+    rows = screen().split('\n')
+    r = [i for i, l in enumerate(rows) if l.startswith('00000300')]
+    if r:
+        click(10 + 2 * 3 + 1, r[0] + 1); time.sleep(0.3)       # (the third byte of that row)
+        check('612 hex: a click puts the cursor on the byte clicked', '0x00000302 (770)' in screen(), screen())
+        text('é'); time.sleep(0.4)                               # (found by the fuzzer: it stopped ned)
+        check('612 hex: a letter beyond ASCII in the hex column is no hex digit', 'Hex digits here' in screen() and
+              '0x00000302 (770)' in screen(), screen())
+
+def t_612_hex_exe():
+    # a program Nim built: what it is, its symbols by their Nim names (the biggest first), the bytes of one,
+    # its Nim source; Nim's modules by size
+    setup()
+    open(W + '/app.nim', 'w').write('proc shout*(s: string): string = s & "!"\nproc `+`(a, b: int): int = a * b\n'
+                                    'echo shout("hi"), 2 + 3\n')
+    r = subprocess.run([NIMBIN + '/nim', 'c', '-d:release', '--hints:off', '--nimcache:' + TMP + '/hexnc',
+                        '-o:' + W + '/app', W + '/app.nim'], capture_output=True, text=True)
+    check('612 hex: a Nim program built for the test', r.returncode == 0, r.stdout + r.stderr)
+    start('app', w=130, h=34); time.sleep(1.2)
+    s = screen()
+    check('612 hex: an ELF program, built with Nim', 'ELF' in s and 'executable' in s and 'Nim' in s, s)
+    palette('Hex: symbols')
+    time.sleep(0.8)
+    text('shout'); time.sleep(0.5)
+    s = screen()
+    check('612 hex: symbols by their Nim names (shout of app)', 'shout  (app)' in s, s)
+    keys('Enter'); time.sleep(0.5)
+    s = screen()
+    check("612 hex: picking it goes to its bytes (the header says which proc the cursor is in)", 'in shout (app)' in s, s)
+    palette('Hex: open the Nim source')
+    time.sleep(0.8)
+    s = screen()
+    check('612 hex: … and its Nim source opens', 'app.nim' in s and 'proc shout*' in s, s)
+
+def t_612_big_text():
+    # a text file of 8 MB or more is read straight into lines, a megabyte at a time: CRLF line ends, a line across
+    # two megabytes, no line end at the end — and saved again byte for byte
+    setup()
+    lines = ['line %07d %s' % (i, 'x' * (i % 97)) for i in range(160000)]
+    lines[5000] = 'L' * 2_500_000                       # (a line longer than a megabyte: across the reads)
+    data = '\r\n'.join(lines) + '\r\nTHE LAST LINE'
+    open(W + '/big.log', 'w', newline='').write(data)
+    start('big.log', w=120, h=30); time.sleep(2)
+    s = screen()
+    check('612 big text: opened, CRLF seen', 'CRLF' in s and 'line 0000000' in s, s)
+    keys('C-End'); time.sleep(0.5)
+    s = screen()
+    check('612 big text: the last line (no line end after it) is there', 'THE LAST LINE' in s and 'Ln 160001' in s, s)
+    keys('C-g'); text('5002'); keys('Enter'); time.sleep(0.3)
+    check('612 big text: the line after the long one', 'line 0005001' in screen(), screen())
+    keys('C-g'); text('3'); keys('Enter', 'End'); text('!'); keys('BSpace'); keys('C-s'); time.sleep(1.5)
+    check('612 big text: saved byte for byte as it was read', open(W + '/big.log', newline='').read() == data,
+          'differs')
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text]

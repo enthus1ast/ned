@@ -856,7 +856,7 @@ proc nxLayDecl(c: var NxLayCtx, r: NxRef, args: seq[NxLayArg], depth: int): NxLa
   var res = NxLayout(word: c.word, path: r.file.path, declLine: s.line, endLine: s.endLine)
   if def.len == 0:
     # the system's magic types (int, string, seq[T], set[T] …): what the compiler knows of them
-    if nxLibDir.len == 0 or not r.file.path.startsWith(nxLibDir / "system") or magicP.len == 0: return
+    if not nxInSystem(r.file.path) or magicP.len == 0: return
     var t = s.name
     if args.len > 0:
       var xs: seq[string]

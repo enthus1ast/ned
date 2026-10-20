@@ -735,7 +735,7 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
   if member and nxReceiver(t, a - 1) == "system":
     var sys: seq[NxRef]
     for r in nxLookup(w.sc, name):
-      if nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir / "system"): sys.add r
+      if nxInSystem(r.file.path): sys.add r
     if sys.len == 0: return nxRsFail("cannot tell what system." & name & " is")
     var allValues = true
     for r in sys:
@@ -745,7 +745,7 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
   var refs = refs0
   if refs.len == 0 and member and nxReceiver(t, a - 1) == "system":
     for r in nxLookup(w.sc, name):
-      if nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir / "system"): refs.add r
+      if nxInSystem(r.file.path): refs.add r
   if modPath.len > 0: return NxRaises(known: true)
   if locals.len > 0:
     let s = locals[0]
@@ -837,7 +837,7 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
   if systemOnly:
     pool.setLen(0)
     for r in nxLookup(w.sc, name):
-      if r.sym.kind in NxRoutineKinds and nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir / "system"):
+      if r.sym.kind in NxRoutineKinds and nxInSystem(r.file.path):
         pool.add r
   if not qualified:
     pool.setLen(0)
@@ -1798,7 +1798,7 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
   else:
     let (has, list) = nxRsDeclared(r, lines)
     if has: return nxRsListOf(nxRsScope(c, r.file), list)
-  let isSystem = nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir / "system")
+  let isSystem = nxInSystem(r.file.path)
   if "magic" in prag or "importc" in prag or "importcpp" in prag or "importjs" in prag or "importobjc" in prag:
     if "exportc" notin prag: return NxRaises(known: true)
   if "effectsOf" in prag: return nxRsFail(s.name & " raises what the routine passed to it does")

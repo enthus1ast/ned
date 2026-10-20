@@ -145,3 +145,22 @@ proc aiExplainProblem() =
   showSide(svAssistant)
   aiSend("Explain this " & (if d.sev == 1: "compiler error" else: "warning") & " at line " & $(d.line + 1) &
          " and how to fix it:\n\n" & d.msg)
+
+proc cmdNim3PortAi() =
+  ## Nim › Nim 3: port this file with AI — the assistant, given Nimony's own guides, changes the file for Nim 3;
+  ## each of its edits is checked with `nimony check` and what is wrong goes back to it, until the file is clean
+  let b = buf()
+  if b.lang == nil or b.lang.mode != lmNim or b.path.len == 0:
+    info("Open a saved Nim file")
+    return
+  if nimonyExe().len == 0:
+    error("nimony is not installed: it checks each step of the port — github.com/nim-lang/nimony")
+    return
+  if not nim3On(): nim3Asked.incl b.path        # (from now on nimony checks this file, and its problems show)
+  engineAgain(b.path)
+  aiQuick("Port " & relPath(b.path) & " to Nim 3 (Nimony). Read it first. Change only what Nim 3 needs (the " &
+          "guides are in your instructions: the library's errors as ErrorCode values, {.passive.} for async, nil ref T " &
+          "where nil is stored, case-sensitive names …) and keep what the code does the same. Your " &
+          "edits are checked with `nimony check`: go on until it reports nothing. Where the file must still build " &
+          "with Nim 2 too, put the differences under `when defined(nimony):`. At the end, list what you changed and " &
+          "anything you could not port.")

@@ -1689,7 +1689,8 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("unused-export", "an exported routine nothing in the project uses (programs, not libraries)", 4),
   ("import-not-required", "an import of a package the .nimble does not require", 2),
   ("require-unused", "a package the .nimble requires that nothing imports", 4),
-  ("nimble", "a problem in a .nimble file", 2)]
+  ("nimble", "a problem in a .nimble file", 2),
+  ("nim3", "Nim 3 (Nimony): what Nim 2 code must change — in a Nim 3 project, or when asked", 2)]
 
 var ecWantSev* = 4                     # ned --lint: rules less serious than what it shows or fails on are not looked for
 
@@ -1827,7 +1828,7 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
   let f = try: nxFileFor(b) except CatchableError: nil
   if f == nil: return
   # (system's own parts see more than ned knows)
-  if nxLibDir.len > 0 and f.path.startsWith(nxLibDir / "system" & "/"): return
+  if nxInSystem(f.path, partsOnly = true): return
   let sk = f.path.find("/lib/system/")
   if sk >= 0 and fileExists(f.path[0 ..< sk] / "lib" / "system.nim"): return
   var code = newSeq[string](b.lines.len)
@@ -1839,7 +1840,9 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
   template on(rule: string): bool =
     (let sv = lc.sev.getOrDefault(rule, nedRuleSev(rule)); sv != 0 and sv <= ecWantSev)
   let live = bufById(b.id) == b
-  let key = $b.changeId & "/" & $nxGen & "/" & lc.dir & "/" & $lc.sev & "/" & $ecWantSev & "/" & $cfgEngineMoreChecks
+  let port3 = nim3On() or b.path in nim3Asked       # (Nim 3's porting problems: in a Nim 3 project, or asked for)
+  let key = $b.changeId & "/" & $nxGen & "/" & lc.dir & "/" & $lc.sev & "/" & $ecWantSev & "/" & $cfgEngineMoreChecks &
+            "/" & $port3
   if live and ecLast.getOrDefault(b.id)[0] == key:
     result = ecLast[b.id][1]                          # (the same text: only can-be-func goes on)
     try:
@@ -1863,6 +1866,7 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
       # (the project's .nimble: its requires)
       if on("import-not-required"): result.add pcImportsNotRequired(f, b, code)
       if b.path.endsWith(".nimble") and on("nimble"): result.add pcNimbleChecks(b)
+      if port3 and on("nim3"): nim3Checks(f, b, code, result)
     except CatchableError, Defect: discard
     if live:
       var others: seq[Diag]
