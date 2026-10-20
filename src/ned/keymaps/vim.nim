@@ -385,6 +385,33 @@ proc vimEx(cmd: string) =
   if c.allCharsInSet(Digits):
     b.centerOn(b.firstNonBlank(clamp(parseInt(c) - 1, 0, b.lines.high)))
     return
+  # :!cmd runs a command (% is the file), its output in the panel · :%!cmd, :'<,'>!cmd, :.!cmd, :N,M!cmd put those
+  # lines through it (sort, jq ., column -t …)
+  let bang = c.find('!')
+  if bang >= 0 and bang + 1 < c.len:
+    let rng = c[0 ..< bang].strip
+    let sh = c[bang + 1 .. ^1].strip
+    var lo, hi = -1
+    if rng == "%": (lo, hi) = (0, b.lines.high)
+    elif rng == ".": (lo, hi) = (b.primary.head.line, b.primary.head.line)
+    elif rng == "'<,'>":
+      let (a, e) = b.primary.range
+      (lo, hi) = (a.line, (if e.col == 0 and e.line > a.line: e.line - 1 else: e.line))
+    elif rng.split(',').len == 2 and rng.split(',')[0].strip.allDigits and rng.split(',')[1].strip.allDigits and
+         rng.split(',')[0].strip.len > 0 and rng.split(',')[1].strip.len > 0:
+      lo = clamp(parseInt(rng.split(',')[0].strip) - 1, 0, b.lines.high)
+      hi = clamp(parseInt(rng.split(',')[1].strip) - 1, lo, b.lines.high)
+    if sh.len > 0 and rng.len == 0:
+      var cmdl = ""
+      for w in sh.split(' '):
+        cmdl.add (if cmdl.len > 0: " " else: "") & (if w == "%" and b.path.len > 0: quoteShell(b.path) else: w)
+      runCommand(cmdl, (if b.path.len > 0: parentDir(b.path) else: rootDir))
+      return
+    if sh.len > 0 and lo >= 0:
+      b.setSingle(Pos(line: hi, col: b.lines[hi].len), Pos(line: lo, col: 0))
+      pipeThroughCommand(sh)
+      vimSetMode(vmNormal)
+      return
   let parts = c.splitWhitespace
   let head = parts[0]
   let arg = if parts.len > 1: c[head.len .. ^1].strip else: ""

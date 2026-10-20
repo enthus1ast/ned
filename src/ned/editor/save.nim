@@ -197,6 +197,16 @@ proc closeBuffer(i: int) =
   else:
     closeBufferAt(i)
 
+proc saveOnFocusLost() =
+  ## editor.saveOnFocusLost: the terminal lost the focus — the changed files are saved (never one that changed on
+  ## disk meanwhile or that another ned is editing: that is yours to decide)
+  var n = 0
+  for b in bufs:
+    if b.dirty and b.path.len > 0 and b.title.len == 0 and not b.readOnly and not b.diskChanged and
+       otherSessionEditing(b.path) == 0:
+      if b.saveBuffer(): inc n
+  if n > 0: info("Saved " & $n & (if n == 1: " file" else: " files") & " (you switched away: editor.saveOnFocusLost)")
+
 proc checkDiskChanges() =
   for b in bufs:
     if b.path.len == 0 or b.mtime == 0: continue

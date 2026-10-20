@@ -15,6 +15,7 @@ proc problemCounts(): (int, int) =
   for p in diagsBuild.keys: paths.incl p
   for p in diagsFfi.keys: paths.incl p
   for p in diagsEmit.keys: paths.incl p
+  for p in diagsExt.keys: paths.incl p
   for p in paths:
     var ds = lspAndBuildDiags(p)
     if p.endsWith(".nim") or p.endsWith(".nims"): dropNimFollowOns(ds)
@@ -32,6 +33,8 @@ proc rebuildProblems() =
   for p in diagsFfi.keys:
     if p notin paths: paths.add p
   for p in diagsEmit.keys:
+    if p notin paths: paths.add p
+  for p in diagsExt.keys:
     if p notin paths: paths.add p
   paths.sort()
   var n = 0
@@ -61,6 +64,8 @@ proc cmdProblemsMultibuffer() =
   for p in diagsFfi.keys:
     if p notin paths: paths.add p
   for p in diagsEmit.keys:
+    if p notin paths: paths.add p
+  for p in diagsExt.keys:
     if p notin paths: paths.add p
   paths.sort()
   for p in paths:

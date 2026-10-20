@@ -6,13 +6,13 @@ func charClass(c: char): int {.inline.} =
   if c in {' ', '\t'}: 0 elif isWordByte(c): 1 else: 2
 
 func posLeft(b: Buffer, p: Pos): Pos =
-  if p.col > 0: Pos(line: p.line, col: prevRune(b.lines[p.line], p.col))
+  if p.col > 0: Pos(line: p.line, col: prevCluster(b.lines[p.line], p.col))   # (a whole character: 👨‍👩‍👧 too)
   elif p.line > 0: Pos(line: p.line - 1, col: b.lines[p.line - 1].len)
   else: p
 
 func posRight(b: Buffer, p: Pos): Pos =
   let s = b.lines[p.line]
-  if p.col < s.len: Pos(line: p.line, col: nextRune(s, p.col))
+  if p.col < s.len: Pos(line: p.line, col: nextCluster(s, p.col))
   elif p.line + 1 < b.lines.len: Pos(line: p.line + 1, col: 0)
   else: p
 

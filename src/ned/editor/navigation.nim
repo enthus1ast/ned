@@ -50,6 +50,7 @@ proc gotoDiag(dir: int) =
   for path in diagsAi.keys: paths.incl path
   for path in diagsFfi.keys: paths.incl path
   for path in diagsEmit.keys: paths.incl path
+  for path in diagsExt.keys: paths.incl path
   for path in paths:
     for d in diagsFor(path): all.add (path, d)
   if all.len == 0:

@@ -157,7 +157,8 @@ def setup(cfg=None):
     json.dump(c, open(CFG + '/ned/config.json', 'w'))
 
 def start(*files, w=140, h=40, path=None, env_extra=''):
-    env = 'PATH=%s XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s COLORTERM=truecolor TERM=xterm-256color %s' % (
+    # (NED_SOCKET=: never the remote of a ned the tests themselves run in)
+    env = 'PATH=%s XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s COLORTERM=truecolor TERM=xterm-256color NED_SOCKET= %s' % (
         path or TOOLS + ':$PATH', CFG, STATE, env_extra)
     tm('-f', HERE + '/tmux.conf', 'new-session', '-d', '-s', 'f', '-x', str(w), '-y', str(h),
        'cd %s && env %s %s %s; echo EXITED $? > %s/exit; sleep 600' % (W, env, BIN, ' '.join(files), W))

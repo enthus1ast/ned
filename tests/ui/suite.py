@@ -6183,4 +6183,167 @@ def t_612_big_text():
     check('612 big text: saved byte for byte as it was read', open(W + '/big.log', newline='').read() == data,
           'differs')
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text]
+def raw_in(b):
+    """bytes as if the terminal sent them (an answer to a question, a key in the kitty protocol)"""
+    tm('send-keys', '-t', 'f', '-H', *['%02x' % x for x in b]); time.sleep(0.3)
+
+def t_613_remote():
+    # `ned FILE` in ned's own terminal opens FILE in this ned; git's editor there is this ned (it waits for the tab to
+    # close); scripts: --remote-get, --remote-list, --remote-message, --remote-problems, --remote-command
+    setup()
+    open(W + '/a.txt', 'w').write('zeta\nalpha\nmid\n')
+    open(W + '/b.txt', 'w').write('one\ntwo\nthree\n')
+    subprocess.run('cd %s && git add a.txt b.txt' % W, shell=True, capture_output=True)
+    start('a.txt', w=120, h=34, env_extra='GIT_EDITOR=')
+    keys('C-\\'); time.sleep(1.5)
+    text(BIN + ' b.txt:2'); keys('Enter')
+    ok = wait_for(r'Ln 2, Col 1', 6)
+    s = screen()
+    check('613 remote: ned FILE in ned\'s terminal opens it in this ned (at its line)', ok and '• b.txt' in s and
+          'ned: ' not in s, s)
+    r = subprocess.run([BIN, '--remote-get', 'file'], capture_output=True, text=True, cwd=W)
+    check('613 remote: --remote-get file', r.returncode == 0 and r.stdout.strip() == W + '/b.txt', repr((r.stdout, r.stderr)))
+    r = subprocess.run([BIN, '--remote-list'], capture_output=True, text=True, cwd=W)
+    check('613 remote: --remote-list names the project and its files', r.returncode == 0 and W in r.stdout and
+          'b.txt' in r.stdout, repr((r.stdout, r.stderr)))
+    r = subprocess.run([BIN, '--remote-message', 'build finished'], capture_output=True, text=True, cwd=W)
+    check('613 remote: --remote-message shows there', r.returncode == 0 and wait_for('build finished', 3), screen())
+    r = subprocess.run([BIN, '--remote-problems', 'mylint'], input='a.txt:2:1: error: no alpha here\nnot a location\n',
+                       capture_output=True, text=True, cwd=W)
+    time.sleep(0.5)
+    check('613 remote: --remote-problems: file:line: lines become problems', r.returncode == 0 and
+          r.stdout.strip() == '1 problem' and '● 1' in screen(), repr(r.stdout) + screen()[-300:])
+    r = subprocess.run([BIN, '--remote-command', 'No such thing at all'], capture_output=True, text=True, cwd=W)
+    check('613 remote: --remote-command with an unknown name says so', r.returncode == 1 and 'no command' in r.stderr,
+          r.stderr)
+    # git commit: the message in a tab; saved and closed, git goes on — and the terminal has the focus again
+    keys('C-\\'); time.sleep(0.5)
+    if 'TERMINAL' not in screen(): keys('C-\\'); time.sleep(0.5)
+    text('git -c user.name=t -c user.email=t@t commit'); keys('Enter')
+    ok = wait_for('COMMIT_EDITMSG', 8)
+    check('613 remote: git commit opens its message in a tab of this ned, and says git waits', ok and 'waits for it' in
+          screen(), screen())
+    text('a message from ned'); keys('C-s'); time.sleep(0.4); keys('C-w')
+    ok = wait_for(r'\[master [0-9a-f]+\] a message from ned', 8)
+    log = subprocess.run('cd %s && git log -1 --format=%%s' % W, shell=True, capture_output=True, text=True).stdout
+    check('613 remote: … closed: git goes on and commits', ok and log.strip() == 'a message from ned', log + screen())
+    text('echo back-in-the-terminal'); keys('Enter'); time.sleep(0.4)
+    check('613 remote: … and the terminal has the focus again', 'back-in-the-terminal\n' in screen() or
+          screen().count('back-in-the-terminal') >= 2, screen())
+    text(BIN); keys('Enter'); time.sleep(0.8)
+    check('613 remote: ned alone in ned\'s terminal tells how to open a file (and starts no second ned)',
+          "this is ned's terminal" in screen(), screen())
+
+def t_613_terminal_answers():
+    # what the terminal answers: the kitty keyboard protocol (keys ned could not tell apart before), grapheme
+    # clusters (mode 2027), light and dark (mode 2031), XTGETTCAP; the focus (save when it goes)
+    setup({"keys": {"ctrl+shift+f": "New file", "ctrl+i": "Toggle soft wrap"}, "theme": "auto",
+           "editor.saveOnFocusLost": True})
+    open(W + '/e.txt', 'w').write('👨‍👩‍👧x✅y\n')
+    start('e.txt', w=110, h=26)
+    keys('End'); time.sleep(0.3)
+    check('613 emoji: ✅ takes two columns; a ZWJ family each of its emoji where the terminal does not join them',
+          'Ln 1, Col 11' in screen(), screen()[-200:])
+    raw_in(b'\x1b[?2027;2$y')
+    keys('Home', 'End'); time.sleep(0.3)
+    check('613 emoji: the terminal joins clusters (mode 2027): the family is one character, two columns',
+          'Ln 1, Col 7' in screen(), screen()[-200:])
+    keys('Home', 'Right'); time.sleep(0.2)
+    check('613 emoji: … and the cursor steps over it at once', 'Ln 1, Col 3' in screen(), screen()[-200:])
+    raw_in(b'\x1b[?1u')                          # (the terminal speaks the kitty keyboard protocol)
+    raw_in(b'\x1b[102;6u')                       # Ctrl+Shift+F
+    check('613 kitty keys: Ctrl+Shift+F has a binding of its own', 'untitled' in screen().split('\n')[1], screen()[:300])
+    raw_in(b'\x1b[119;5u')                       # Ctrl+W
+    raw_in(b'\x1b[105;5u')                       # Ctrl+I — not Tab
+    check('613 kitty keys: Ctrl+I is not Tab', 'Soft wrap' in screen() and 'untitled' not in screen().split('\n')[1],
+          screen())
+    raw_in(b'\x1b[27u')                          # Esc
+    raw_in(b'\x1b[119;5u')                       # Ctrl+W closes e.txt …
+    gone = 'e.txt' not in screen().split('\n')[1]
+    raw_in(b'\x1b[116:84;4u')                    # … Alt+Shift+T as the protocol sends it: 'T' with Alt, as before
+    check('613 kitty keys: Alt+Shift+letter arrives as it always did (Alt+Shift+T reopens the closed tab)',
+          gone and 'e.txt' in screen().split('\n')[1], screen()[:300])
+    keys('Escape', 'C-End'); text('!'); time.sleep(0.2)
+    raw_in(b'\x1b[O'); time.sleep(0.6)           # the terminal lost the focus
+    check('613 focus: editor.saveOnFocusLost saves when the terminal loses the focus', ftext('e.txt').rstrip('\n').endswith('!'),
+          repr(ftext('e.txt')))
+    raw_in(b'\x1b[I')
+    a0 = screen_ansi().split('\n')[3][:40]
+    raw_in(b'\x1b[?997;2n'); time.sleep(0.4)     # the system went light
+    a1 = screen_ansi().split('\n')[3][:40]
+    check('613 light/dark: "theme": "auto" follows the terminal when it switches (mode 2031)', a0 != a1, repr((a0, a1)))
+    raw_in(b'\x1bP1+r536d756c78=5c45\x1b\\')    # XTGETTCAP: Smulx — curly underlines
+    palette('Check setup'); time.sleep(1)
+    s = screen()
+    check('613 check setup: what the terminal answered', 'kitty keyboard protocol' in s and 'grapheme' in s and
+          'curly underlines' in s, s)
+    keys('Escape'); time.sleep(0.2)
+    open(W + '/e.txt', 'w').write('changed outside\n')
+    raw_in(b'\x1b[O'); raw_in(b'\x1b[I')        # (away and back: what changed is looked at at once)
+    check('613 focus: back in the terminal, a file changed meanwhile is noticed at once', wait_for('changed outside|changed on disk', 1.5),
+          screen())
+
+def t_613_edit_tools():
+    # a selection through a command (and vim's :%!), a command of yours whose output becomes problems, the line a jump
+    # lands on, the terminal's title, a transparent background, Backspace over an emoji with a skin tone
+    setup({"commands": {"lint": {"run": "printf 'a.txt:2:1: error: no alpha here\\n'; exit 1", "output": "problems"},
+                        "slow": {"run": "sleep 2.5; echo slow-done", "output": "panel"}},
+           "ui.transparentBackground": True})
+    open(W + '/a.txt', 'w').write('zeta\nalpha\nmid\n')
+    open(W + '/long.txt', 'w').write(''.join('line %d\n' % i for i in range(200)))
+    start('a.txt', w=110, h=30)
+    keys('C-a')
+    palette('Edit: put the selection through a command'); time.sleep(0.3)
+    text('sort'); keys('Enter'); time.sleep(1.2)
+    keys('C-s'); time.sleep(0.4)
+    check('613 pipe: the selection through sort', ftext('a.txt') == 'alpha\nmid\nzeta\n', repr(ftext('a.txt')))
+    palette('lint'); time.sleep(1.5)
+    check('613 commands: output "problems" — a linter\'s file:line: lines are problems', 'no alpha here' in screen() and
+          '● 1' in screen(), screen())
+    def status_bgs():
+        row = screen_ansi().rstrip('\n').split('\n')[-1]
+        return set(re.findall(r'48;2;(\d+;\d+;\d+)', row))
+    idle = status_bgs()
+    palette('slow'); time.sleep(1.4)
+    busy = status_bgs()
+    wait_for('Finished in', 6); time.sleep(0.4)
+    check('613 progress: a long run fills the status bar (a band moving across)', len(busy - idle) >= 1 and
+          len(status_bgs() - idle) == 0, repr((idle, busy, status_bgs())))
+    keys('Escape')
+    title = tm('display', '-p', '-t', 'f', '#{pane_title}').stdout.strip()
+    check('613 title: the file and the project in the terminal\'s title', title == 'a.txt — work', repr(title))
+    keys('End'); text('x'); time.sleep(0.3)
+    title = tm('display', '-p', '-t', 'f', '#{pane_title}').stdout.strip()
+    check('613 title: … ● while it has unsaved changes', title == '● a.txt — work', repr(title))
+    keys('C-z')
+    keys('C-p'); time.sleep(0.3); text('long.txt'); time.sleep(0.4); keys('Enter'); time.sleep(0.8)
+    keys('C-g'); time.sleep(0.2); text('150'); keys('Enter'); time.sleep(0.1)
+    plain = screen().split('\n')
+    an = screen_ansi().split('\n')
+    i = [k for k, l in enumerate(plain) if ' line 149' in l]
+    lit = an[i[0]] if i else ''
+    time.sleep(1.0)
+    an2 = screen_ansi().split('\n')
+    check('613 jump: the line a jump lands on lights up, then it fades', i and lit != an2[i[0]], repr((lit[:60], an2[i[0]][:60] if i else '')))
+    other = [l for k, l in enumerate(an2) if ' line 151' in plain[k]] if i else []
+    check('613 transparent: the editor\'s background is the terminal\'s', other and '\x1b[49m' in other[0] or
+          (other and '48;2;' not in other[0].split('line')[-1]), repr(other[:1]))
+    keys('C-End'); text('a'); keys('Enter')
+    tm('send-keys', '-t', 'f', '-l', 'b👍🏽'); time.sleep(0.3)
+    keys('BSpace'); time.sleep(0.2); keys('C-s'); time.sleep(0.4)
+    check('613 emoji: Backspace takes an emoji with its skin tone at once', ftext('long.txt').endswith('a\nb\n') or
+          ftext('long.txt').endswith('a\nb'), repr(ftext('long.txt')[-12:]))
+
+def t_613_vim_filter():
+    # vim: :%!sort puts the lines through a command, :!cmd runs one (its output in the panel)
+    setup({"editor.vimMode": True, "editor.keymap": "vim"})
+    open(W + '/v.txt', 'w').write('c\nb\na\n')
+    start('v.txt', w=100, h=26)
+    text(':%!sort'); keys('Enter'); time.sleep(1.2)
+    text(':w'); keys('Enter'); time.sleep(0.5)
+    check('613 vim: :%!sort', ftext('v.txt') == 'a\nb\nc\n', repr(ftext('v.txt')))
+    text(':!echo hi-from-bang'); keys('Enter')
+    check('613 vim: :!cmd runs it, its output in the panel', wait_for('hi-from-bang', 4), screen())
+
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter]

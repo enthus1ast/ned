@@ -112,6 +112,8 @@ proc aiModel(): string =
   of "ollama": "qwen2.5-coder"
   else: ""
 
+proc aiRunning(): bool = aiBusy
+
 proc aiStatus(): string =
   if aiBusy: (if aiPhase.len > 0: aiPhase else: "thinking…")
   elif aiInlineMode: "editing…"

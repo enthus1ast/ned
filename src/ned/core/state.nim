@@ -4,6 +4,8 @@
 
 const NoColor: Rgb = 0xFF000000'u32
 
+const JumpHlMs = 650           # (how long the line a jump lands on stays lit)
+
 var
   bufs: seq[Buffer]
   curBuf = 0
@@ -140,6 +142,13 @@ var
   cfgScrollbar = true
   cfgLongPress = true          # touch: press and hold opens the context menu
   cfgShadows = true
+  cfgTermTitle = true          # ui.terminalTitle: the file and project in the terminal's title
+  cfgTransparentBg = false     # ui.transparentBackground: the editor's background left to the terminal
+  cfgJumpHl = true             # ui.jumpHighlight: the line a jump lands on lights up
+  cfgProgressBar = true        # ui.progressBar: long jobs fill the status bar
+  cfgPauseAway = true          # ui.pauseWhenAway: background work for the screen waits while the terminal is away
+  cfgSaveOnBlur = false        # editor.saveOnFocusLost
+  cfgEditorEnv = true          # terminal.editorEnv: GIT_EDITOR (EDITOR, VISUAL) in ned's terminal is this ned
   cfgItalics = false
   cfgToasts = true
   cfgMessages = "popup"        # info / warnings / errors: "popup" (wrapped, readable) or "statusbar"
@@ -311,6 +320,7 @@ var
   diagsTest = initTable[string, seq[Diag]]()    # failed checks of tests run on save
   diagsFfi = initTable[string, seq[Diag]]()     # importc wrappers that do not fit their C header
   diagsEmit = initTable[string, seq[Diag]]()    # clangd's problems in the C a Nim file emits
+  diagsExt = initTable[string, seq[Diag]]()     # what a script sent (ned --remote-problems): kept until it sends again
   shadowNim = initTable[string, string]()       # the hidden C document of a Nim file's emits → the Nim file
   diagsByShadow = initTable[string, seq[Diag]]()  # a hidden document → its problems, on the Nim file's lines
   shadowLangName = initTable[string, string]()  # a hidden document → its language's name (the messages' prefix)
@@ -379,6 +389,9 @@ var
   compDocRect: tuple[x, y, w, h: int]
   compDocLines = 0
   hoverMd = ""                  # hover text (Markdown)
+  landBuf = -1                  # the line a jump landed on (ui.jumpHighlight): lit up, fading over JumpHlMs
+  landLine: int
+  landAt: MonoTime
   flashBuf = -1                 # lines just inserted (AI chat): briefly tinted so you see where they went
   flashA, flashB: int
   flashAt: MonoTime

@@ -2,6 +2,7 @@
 
 proc vimModeName(): string
 proc aiStatus(): string
+proc aiRunning(): bool
 
 proc handleKey(k: Key)
 
@@ -57,6 +58,71 @@ proc drawTouchBar() =
     capture kk, cmd:
       discard button(x, y, lab, proc() = (if cmd.len > 0: runCmd(cmd) else: handleKey(kk)), "", theme.fg, theme.btnBg)
     x += w + 1
+
+# ── progress: a long job fills the status bar as it goes (its background, behind the text); one that cannot say how
+#    far it is shows a band moving across ──
+
+var
+  progSince = getMonoTime()
+  progWas = false
+  progOscSent = ""
+
+proc progressNow(): (bool, float) =
+  ## (is a long job running, how far it is: 0..1, or -1 when it cannot say)
+  if fmtAllOn and fmtAllTotal > 0: return (true, float(fmtAllTotal - fmtAllQueue.len) / float(fmtAllTotal))
+  if searchBuiltin and fileCache.len > 0: return (true, min(1.0, float(searchIdx) / float(fileCache.len)))
+  if searchJob != nil and not searchJob.done: return (true, -1.0)
+  if runningJob() != nil: return (true, -1.0)
+  if aiRunning(): return (true, -1.0)
+  (false, 0.0)
+
+proc progressShown(): (bool, float) =
+  ## what the status bar shows: a job that has run for half a second (a quick one would only flicker)
+  let (on, f) = progressNow()
+  if on and not progWas: progSince = getMonoTime()
+  progWas = on
+  if not cfgProgressBar or not on or msSince(progSince) < 500: return (false, 0.0)
+  (true, f)
+
+proc progressAnimating(): bool =
+  progWas and cfgProgressBar and progressNow()[1] < 0 and msSince(progSince) >= 400
+
+proc progressStarting(): bool =
+  ## a job that may need the bar soon (it shows after half a second), or one that ended with the bar still drawn
+  cfgProgressBar and progressNow()[0] != progWas
+
+proc oscProgressOk(): bool =
+  ## terminals that show OSC 9;4 progress on their tab or task bar (elsewhere OSC 9 is a desktop notification!)
+  if getEnv("WT_SESSION").len > 0 or getEnv("ConEmuPID").len > 0: return true
+  if getEnv("TERM_PROGRAM") == "ghostty":
+    let v = getEnv("TERM_PROGRAM_VERSION").split('.')
+    if v.len >= 2 and v[0].allCharsInSet(Digits) and v[1].allCharsInSet(Digits) and v[0].len > 0 and v[1].len > 0:
+      return parseInt(v[0]) > 1 or (parseInt(v[0]) == 1 and parseInt(v[1]) >= 2)
+  false
+
+proc termProgress() =
+  ## the same progress on the terminal's tab (OSC 9;4), where the terminal shows it
+  if not oscProgressOk(): return
+  let (on, f) = progressShown()
+  let want = if not cfgProgressBar or not on: "0" elif f < 0: "3" else: "1;" & $int(f * 100)
+  if want == progOscSent or (progOscSent.len == 0 and want == "0"): return
+  progOscSent = want
+  writeAll("\e]9;4;" & want & "\a")
+
+proc drawProgressTint(y: int, bg: Rgb) =
+  let (on, f) = progressShown()
+  if not on: return
+  let tint = blend(bg, theme.accent, 0.38)
+  var a, e = 0
+  if f >= 0:
+    e = min(scrW, int(f * float(scrW) + 0.5))
+  else:
+    let band = max(8, scrW div 6)
+    let p = int(msSince(progSince) div 22) mod (scrW + band) - band
+    a = max(0, p)
+    e = min(scrW, p + band)
+  for x in a ..< e:
+    if grid[y * scrW + x].bg == bg: grid[y * scrW + x].bg = tint
 
 proc drawStatusBar() =
   let y = lay.statusY
@@ -190,3 +256,4 @@ proc drawStatusBar() =
     if maxX - msgX >= 6:
       discard putStr(msgX, y, truncTo(msg, maxX - msgX), sevColor(if msgSev == 0: 3 else: msgSev), bg,
                      (if msgSev == 1: {aBold} else: {}), maxX)
+  drawProgressTint(y, bg)

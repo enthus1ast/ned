@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.12](#whats-new-in-612) · [6.11.2](CHANGELOG.md#whats-new-in-6112) · [6.11](CHANGELOG.md#whats-new-in-611) · [older releases](CHANGELOG.md)
+- [What's new in 6.13](#whats-new-in-613) · [6.12](CHANGELOG.md#whats-new-in-612) · [6.11.2](CHANGELOG.md#whats-new-in-6112) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,87 +40,78 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.12
+## What's new in 6.13
 
-**Nim 3 (Nimony).** A project built with `nimony` is Nim 3 for all of ned: *Nim › Nim 3 (Nimony) › This project is
-Nim 3* sets `"nim.compiler": "nimony"` in its `.ned/settings.json`, and the status bar says *Nim 3* with the nimony in
-use.
+6.13 is about ned and the terminal it runs in: what the terminal can do is asked of it, not guessed from its name —
+and the ned that is running can be reached from outside it: from its own terminal, from git, from scripts.
 
-- **Names are matched as written** — Nim 3 is case-sensitive — in completion, go to definition, references, rename,
-  the engine's checks and the colours (`foobar` is not `fooBar`). A module with `{.feature: "ignoreStyle".}` finds
-  names by Nim 2's rule.
-- **Nimony's own standard library** answers completion, hover and go to definition (`lib/std` of the `nimony` on
-  `PATH`); `when defined(nimony)` is true.
-- **Errors while you type and on save come from `nimony check`** — on a copy of the unsaved text in ned's own folder,
-  its relative imports made absolute: nimony's build files never land in the project (no `nimcache/`). Run uses
-  `nimony c -r` the same way.
-- **Nimony answers where the engine has none**: go to definition from `nimony check --def`, references from
-  `--usages`. nimsuggest and nimlangserver, which are Nim 2's, keep away from Nim 3 files.
-- **Nim 3's syntax and pragmas**: `import (path / module) {.cyclic.}`, `nil ref T`, `concept of`, a keyword as a
-  routine's name (`func addr*[T](x: T)`), a parameter with a pragma of its own (`r {.register: "rdi".}: Words`); and
-  `{.passive.}`, `{.feature: …}`, `{.plugin: …}`, `{.assembler.}`, `{.instruction.}`, `{.register.}` completed and
-  explained on hover.
-- **The formatter takes Nimony's own code** (since 6.11.2): of the 1,684 files of Nimony — its library, its tests and
-  its compiler — it formats all but two, which it leaves alone (as it does whenever it is not sure).
+**`ned FILE` in ned's terminal opens FILE in this ned.** ned answers on a socket only you can reach (in its private
+folder), and its terminal knows where (`$NED_SOCKET`):
 
-**Porting to Nim 3.**
+- `ned app.nim:42` there opens the file at that line in a tab — no ned inside ned; `git log | ned` opens the log in a
+  tab. `ned --new` starts another ned when that is what you want.
+- **git's editor is this ned** in its terminal (`terminal.editorEnv`): `git commit` opens the message in a tab and git
+  waits; save and close the tab (Ctrl+S, Ctrl+W) and git goes on, the terminal has the focus again. `git rebase -i`
+  and whatever runs `$EDITOR` work the same way (where you have not set `GIT_EDITOR` or `EDITOR` yourself). Anywhere
+  else, `ned --wait FILE` does the same: `GIT_EDITOR="ned --wait"`.
+- **Scripts** reach the running ned — the one whose project holds the file, else the one started last:
 
-- *Nim › Nim 3 (Nimony) › What this file needs* shows, on a Nim 2 file, what Nim 3 wants changed (Nimony's
-  `doc/porting.md`, each rule checked against what nimony itself rejects today): `except IOError as e` and
-  `raise newException(ValueError, …)` — the library's errors are ErrorCode values (the project's own `ref object`
-  exceptions work as before) —, `{.async.}` and `await`, a `for` over an enum type, a `break` that leaves a `block`,
-  `x.isNil`, a template called without `()`, `cast[cstring]`. In a Nim 3 project they are always shown. Where the
-  change is mechanical the quick fix makes it, and *Fix all* makes every one in the file — so does
-  `ned --lint --fix`, in CI too. From then on nimony checks the file on save.
-- *Nim › Nim 3 (Nimony) › Port this file with AI*: the assistant, given Nimony's own guides (`doc/differences.md`,
-  `doc/porting.md`), ports the file; each of its edits is checked with `nimony check` and what is wrong goes back to
-  it, until the file is clean. In a Nim 3 project the assistant always has those guides — Nim 3 is not the Nim the
-  models learned.
+  ```sh
+  ned --remote src/app.nim:120                # open it there
+  ned --remote-command "Format document"      # a command of the palette
+  ned --remote-message "deploy finished"
+  make 2>&1 | ned --remote-problems build     # file:line: lines become problems (sent again: replaced)
+  ned --remote-get selection                  # file, line, col, selection, word, root, files, text
+  ned --remote-list                           # the neds running: process, project, files
+  ```
 
-![A Nim 2 file with Nim 3's porting problems in Problems, and the quick fixes of one — Fix all makes the six ned can](screenshots/nim3-port-612.png)
+![git commit typed in ned's terminal: the message opens in a tab of this ned, and git waits for it](screenshots/remote-commit-613.png)
 
-**The hex editor.** A binary file opens as its bytes — offset, hex and text — instead of a read-only dump:
+**What the terminal can do, asked of it** when ned starts (*Help › Check setup* shows what it answered):
 
-- type over bytes in hex or as text (Tab switches), Insert to add bytes, Delete and Backspace to take them away, undo
-  and redo, and save (safely, its permissions kept);
-- Ctrl+G goes to an offset (`8000`, `0x1F40`, `+16`), Ctrl+F finds bytes (`de ad be ef`) or text (`"abc"`), F3 the next
-  one;
-- a data inspector under the bytes: integers of 8 to 64 bits both ways round, floats, a varint, a UTF-8 character;
-- Ctrl+C copies the bytes as hex, and *Hex: copy as a Nim array* (`[0xde'u8, 0xad, …]`), *as a Nim string* or *as a
-  C array*;
-- only what is on the screen is drawn: a file of a hundred megabytes scrolls like a small one (0.1 ms a frame), and
-  its bytes are kept once — a 48 MB file takes 59 MB in all.
+- **The kitty keyboard protocol** (kitty, WezTerm, Ghostty, foot, Alacritty, iTerm2 …): Ctrl+Shift+letters can have
+  key bindings of their own, Ctrl+I is not Tab, Ctrl+Enter and Shift+Enter work, Alt+key comes without the Esc
+  delay — and the keys you had arrive as they did (Ctrl+[ is Esc, Alt+Shift+T is still Alt+Shift+T).
+  `ui.kittyKeyboard`.
+- **24-bit colour, by asking** — not only from `COLORTERM`, which SSH, mosh, `sudo` and tmux often lose.
+- **Curly underlines in the problem's colour** where the terminal draws them: an error a red squiggle, a warning a
+  yellow one, a misspelled word a blue one, and the text keeps its own colour. `ui.undercurl`.
+- **Light and dark follow the system**: with `"theme": "auto"`, a terminal that tells about the switch (mode 2031:
+  kitty, Ghostty, Contour …) changes ned's theme the moment the phone or the desktop goes dark.
+- **The focus**: back in the terminal, files that changed meanwhile are looked at at once; away for a while, what
+  only serves the screen waits — type hints, the engine's checks, AI suggestions: battery on a phone
+  (`ui.pauseWhenAway`) — and `editor.saveOnFocusLost` saves when you switch to another window or app.
 
-![A program Nim built in the hex editor: what it is, the proc the cursor is in (shout, of the module app), the bytes and the data inspector](screenshots/hex-editor-612.png)
+**Emoji and accents as wide as the terminal draws them.** Widths come from Unicode 15.1 now — what glibc's `wcwidth`
+and the terminals use: ✅ ⭐ ⌚ 🫠 take two columns (ned counted one, and on a line with them the cursor drifted off
+its character). A letter with its accent (e + ◌́) is one character, drawn whole. Where the terminal joins emoji
+sequences (mode 2027: WezTerm, Ghostty, Contour, foot …) 👨‍👩‍👧, 👍🏽, 🇴🇲 and 1️⃣ are one character two columns wide;
+anywhere, the cursor steps over one at once and Backspace takes it whole. `ui.graphemes`.
 
-**Programs and libraries** (ELF for Linux and Android, Mach-O for macOS, PE for Windows): the hex editor says what
-the file is — format, CPU, kind, built with Nim — and which proc the cursor is in.
+**Smaller things:**
 
-- *Hex: symbols…* lists the symbols, Nim's procs by their Nim names (`shout__app_u12` is *shout (app)*, `plus___app_u7`
-  is *+*; Nimony's names too), the biggest first; picking one goes to its bytes.
-- *Hex: open the Nim source of the proc at the cursor*.
-- *Hex: Nim modules by size*: how many bytes of code each module takes, and its procs by size — what makes a
-  program big.
-- *Hex: sections…*.
+- the line a jump lands on — go to definition, a search result, Ctrl+G, a problem — lights up and fades
+  (`ui.jumpHighlight`);
+- long jobs — a run or a build, formatting a folder, a project search, the assistant — fill the status bar as they go,
+  and Windows Terminal and Ghostty show it on the tab too (`ui.progressBar`);
+- the terminal's title is the file and the project, ● while it is unsaved; the old title comes back when ned quits
+  (`ui.terminalTitle`);
+- `ui.transparentBackground` leaves the editor's background to the terminal, for its see-through or blurred window;
+- *Edit: put the selection through a command…* — `sort`, `jq .`, `column -t`; the whole file when nothing is
+  selected; one undo step — and in Vim mode `:%!sort`, `:'<,'>!cmd`, `:N,M!cmd` and `:!cmd` (`%` is the file);
+- your own commands (`commands` in settings) can send what they print to Problems: with `"output": "problems"` a
+  linter's `file:line:col: message` lines become problems.
 
-![Hex: Nim modules by size — the bytes of code each module of the program takes](screenshots/hex-modules-612.png)
-
-**Big files take less memory**: a text file of 8 MB or more is read straight into lines, a megabyte at a time — the
-whole text is never in memory beside its lines. An 80 MB log took 199 MB, now 125 MB.
-
-**Also**: the compiler's warning about a `break` that leaves a block (Nim 2.2) has a quick fix — `break` by the
-block's name, or the block named `done` — and *Fix all*. The debugger's call stack names procs as Nim does
-(`demo.+`, `exceptions.=destroy`, not `_ZN4demo5plus_E6string6string`), and so does the hex editor for a program
-built with `--debugger:native`.
-
-6.11.2 fixed the ▶ on `runnableExamples` after a format on save, made the built-in terminal keep up with floods of
-output and very long lines as fast as short ones — see the [CHANGELOG](CHANGELOG.md#whats-new-in-6112).
+[6.12](CHANGELOG.md#whats-new-in-612) brought Nim 3 (Nimony) — names matched as written, Nimony's library, its
+errors, porting Nim 2 code by quick fix or by the assistant — the hex editor with Nim's names in programs, and big
+files in less memory.
 
 Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
 ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
 ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.11.2](CHANGELOG.md#whats-new-in-6112) fixed the ▶ of runnableExamples,
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.12](CHANGELOG.md#whats-new-in-612) brought Nim 3
+(Nimony), the hex editor and big files in less memory, [6.11.2](CHANGELOG.md#whats-new-in-6112) fixed the ▶ of runnableExamples,
 terminal floods and very long lines, [6.11.1](CHANGELOG.md#whats-new-in-6111) wrapped long comments and
 kept type hints ahead of scrolling, [6.11](CHANGELOG.md#whats-new-in-611) made scrolling send only the new lines and
 the engine's checks wait for a pause, with Help › Performance, [6.10](CHANGELOG.md#whats-new-in-610) brought lint
@@ -204,6 +195,16 @@ sections and symbols — Nim's procs by their Nim names, the bytes each module t
 **Integrated terminal** — a real pty with an xterm-compatible emulator: vim, htop, less, git, ssh all work;
 several terminals (two side by side), scrollback, mouse, selection and copy; with bash, zsh and fish every command
 is marked — Ctrl+↑/↓ go through them, failed ones show red, a command's output can be copied or it can be run again.
+`ned FILE` there opens FILE in this ned, and this ned is git's editor (`git commit` opens the message in a tab).
+
+**Remote control** — scripts reach the running ned: `ned --remote FILE:LINE`, `--remote-command`,
+`--remote-message`, `--remote-problems` (a build's output → Problems), `--remote-get`, `--remote-list`;
+`ned --wait` as `GIT_EDITOR`.
+
+**The terminal it runs in, asked** — the kitty keyboard protocol (Ctrl+Shift+letters, Ctrl+I apart from Tab),
+24-bit colour, curly underlines in the problem's colour, emoji sequences as one character (mode 2027), light and
+dark following the system (mode 2031), the focus (files looked at again when you come back, background work paused
+while you are away), the terminal's title, progress on its tab, a transparent background.
 
 **Git** — source-control dock (stage, unstage, discard, diff, commit, push, pull, log), gutter marks that
 follow your typing, change navigation and revert, inline blame, file timeline, AI-written commit messages,
@@ -1193,7 +1194,8 @@ C-x b / k / u / h / o / 1 / 2 / 3. **Helix** (select, then act): `h j k l`, `w b
 **Vim mode** (`"editor.vimMode": true` or View › Vim mode): normal, insert, visual, visual-line and replace
 modes; motions `hjkl w b e 0 ^ $ gg G { } % f t ; ,`; operators `d c y > < gu gU gc` with motions and text
 objects (`iw aw i( a( i" a" i{ …`); `x X s S C D Y p P J r R ~ . u Ctrl+R`; `/ ? n N * #`; `:w :q :wq :e
-file :s/a/b/g :%s/a/b/g :set wrap :term :zen`; `zz zt zb za zc zo zM zR`; optional `jk` escape
+file :s/a/b/g :%s/a/b/g :set wrap :term :zen`; `:!cmd` (`%` is the file) and `:%!sort`, `:'<,'>!cmd`,
+`:N,M!cmd` (lines through a command); `zz zt zb za zc zo zM zR`; optional `jk` escape
 (`vim.escapeSequence`).
 
 **Zen mode** (Alt+Z): no chrome, a centred column (`zen.width`), the block or paragraph you are in stays bright
@@ -1221,6 +1223,7 @@ belongs to vim: leave with Alt+Z or `:zen`; the corner shows the vim mode.
 | `~/.local/state/ned/errors.log` | details of internal errors, if any ever happen (please include it in a report) |
 | `~/.local/state/ned/remote/` | the local copies of remote (SSH) folders, and `remotes.json` |
 | `~/.local/state/ned/settings-sync/` | the clone of your settings repository (*Settings sync: push / pull*) |
+| `$TMPDIR/ned-UID/remote-PID.sock` | the socket a running ned answers on (`ned --remote …`, `ned FILE` in its terminal; only you can reach it; gone when it quits) |
 
 ## Building, tasks and performance
 
@@ -1322,6 +1325,13 @@ added to the standard library — is made by `.github/ci/nimapis.py` from the re
 - **Lines left behind or out of place after scrolling** — the terminal does not handle scroll regions as ned
   expects: set `"ui.terminalScroll": false` (and *Redraw the screen* from the palette clears it at once).
 - **Colours look wrong** — set `"ui.trueColor": "on"` or `"off"` (256 colours).
+- **Emoji push the text out of place** — terminals disagree on emoji sequences (👨‍👩‍👧, 👍🏽, flags): ned joins them
+  where the terminal says it does (mode 2027). If yours joins them without saying so, set `"ui.graphemes": "on"`; if
+  it shows them apart although it said otherwise, `"off"`. *Help › Check setup* shows what the terminal answered.
+- **A key does something odd in kitty, WezTerm, Ghostty or foot** — ned speaks the kitty keyboard protocol there;
+  `"ui.kittyKeyboard": "off"` goes back to the classic keys (please report the key).
+- **`ned FILE` in ned's terminal starts no second ned** — that is on purpose: the file opens in the ned around it.
+  `ned --new FILE` starts another one; `"terminal.editorEnv": false` keeps git's and your `$EDITOR` as they were.
 - **Comments look odd or garbled** — italics are off by default. Turn them on with `"ui.italics": true`
   only if your terminal font has an italic face.
 - **AI says "No API key"** — export the key in the shell that starts ned, or set `ai.apiKey`
