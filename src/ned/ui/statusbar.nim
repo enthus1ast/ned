@@ -102,6 +102,8 @@ proc drawStatusBar() =
     for s in servers:
       if s.secondary and not s.dead and s.langId == b.lang.id and b.id in s.docVer: more.add " + " & s.name
     if more.len > 0: lsTxt = (if lsTxt.len > 0: lsTxt & more else: ic("ok") & " " & more[3 .. ^1])
+  elif nimEngineOn(b) and nim3On():
+    lsTxt = ic("ok") & " Nim 3" & (if nimonyVersion().len > 0 and scrW >= 100: " · nimony " & nimonyVersion() else: "")
   elif nimEngineOn(b):
     let st = if nsUsable(b): nsStatus(b) else: ""
     lsTxt = ic("ok") & " Nim" & (if tcVer.len > 0 and scrW >= 100: " " & tcVerText(tcVer) else: "") &
@@ -110,10 +112,11 @@ proc drawStatusBar() =
     let st = nsStatus(b)
     lsTxt = if st.len == 0: "○ nimsuggest" elif st == "nimsuggest": ic("ok") & " nimsuggest" else: "○ " & st
   if lsTxt.len > 0 and scrW >= 60:
-    let tip = if b.lang.mode == lmNim and nimToolchainLine().len > 0: "Language intelligence · " & nimToolchainLine()
+    let tip = if b.lang.mode == lmNim and nim3On(): "Language intelligence · Nim 3: nimony in " & tildePath(nimonyRoot())
+              elif b.lang.mode == lmNim and nimToolchainLine().len > 0: "Language intelligence · " & nimToolchainLine()
               else: "Language intelligence"
     x = button(x, y, " " & lsTxt & " ", proc() = showSide(svProject), tip, theme.dim, bg)
-  if b.lang.mode == lmNim and tcProblem.len > 0 and scrW >= 60:
+  if b.lang.mode == lmNim and tcProblem.len > 0 and scrW >= 60 and not nim3On():
     # (the Nim in use is not what the project's .nimble asks for)
     x = button(x, y, " " & (if cfgAccessible: "[!]" else: "⚠") & " Nim " & tcVerText(tcVer) & ": " & tcProblem & " ",
                proc() = cmdChooseProjectNim(), "Choose the Nim for this project", theme.warn, bg)
@@ -141,7 +144,8 @@ proc drawStatusBar() =
   # ── right ──
   var right: seq[(string, Rgb, Action, string)]
   let p = b.primary.head
-  var pos = "Ln " & $(p.line + 1) & ", Col " & $(b.visColAt(p.line, p.col) + 1)
+  var pos = if b.hex != nil: "0x" & toHex(b.hex.cur, 8).toLowerAscii & " / " & $b.hex.data.len
+            else: "Ln " & $(p.line + 1) & ", Col " & $(b.visColAt(p.line, p.col) + 1)
   if b.cursors.len > 1: pos.add " (" & $b.cursors.len & " cursors)"
   elif b.primary.hasSel:
     let (a, e) = b.primary.range
@@ -157,7 +161,7 @@ proc drawStatusBar() =
   right.add (b.lang.name, theme.dim, Action(proc() = cmdLanguages()), "Select language mode")
   if b.lang.mode == lmNim and b.path.len > 0:
     var nm: seq[string]
-    if cfgNimCompiler == "nimony": nm.add "nimony"
+    if cfgNimCompiler == "nimony": nm.add (if nim3On(): "Nim 3" else: "nimony (not found)")
     if cfgNimTarget != "c": nm.add cfgNimTarget
     if cfgNimMode != "debug": nm.add cfgNimMode
     if nm.len > 0: right.add (nm.join("·"), theme.accent, Action(proc() = openMenuBar(4)), "Build settings")

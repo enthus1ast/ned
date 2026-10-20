@@ -98,6 +98,9 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     fillRect(x0, y0, w, h, theme.fg, theme.bg)
     drawDiffView(b, x0, y0, w, h)
     return
+  if b.hex != nil:
+    drawHexView(b, x0, y0, w, h, active)
+    return
   if b.mdSrc != 0:
     editorRect = (x0, y0, w, h)
     fillRect(x0, y0, w, h, theme.fg, theme.bg)

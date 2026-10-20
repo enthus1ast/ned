@@ -37,7 +37,7 @@ from std/math import pow
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
 import ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
-       ned/nim/arccopies, ned/c/cindex, ned/version, ned/testing/gcovdata
+       ned/nim/arccopies, ned/c/cindex, ned/version, ned/testing/gcovdata, ned/editor/binfmt
 
 const
   Version = NedVersion
@@ -100,6 +100,7 @@ include ned/editor/buffers
 include ned/project/remote
 include ned/editor/save
 include ned/run/process
+include ned/nim/nimony
 include ned/run/cerrors
 include ned/run/output
 include ned/run/configs
@@ -131,6 +132,7 @@ include ned/nim/outline
 include ned/editor/completion
 include ned/nim/messages
 include ned/nim/nimapis
+include ned/nim/nim3checks
 include ned/nim/enginechecks
 include ned/nim/macronames
 include ned/editor/diagnostics
@@ -196,6 +198,7 @@ include ned/editor/rainbow
 include ned/ui/doclines
 include ned/ui/diffview
 include ned/editor/swatches
+include ned/editor/hexedit
 include ned/ui/editorview
 include ned/ui/popups
 include ned/ui/zen

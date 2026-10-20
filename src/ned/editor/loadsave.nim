@@ -131,23 +131,92 @@ proc setContent(b: Buffer, content: string) =
   if b.cursors.len > 0: b.normalize()          # the new text may be shorter than where the cursors were
   b.topLine = clamp(b.topLine, 0, b.lines.high)
 
-proc hexDump(data: string, limit = 1_048_576): string =
-  ## read-only view of a binary file
-  let n = min(data.len, limit)
-  var i = 0
-  while i < n:
-    result.add toHex(i, 8).toLowerAscii & "  "
-    for j in 0 ..< 16:
-      if i + j < n: result.add toHex(ord(data[i + j]), 2).toLowerAscii & " "
-      else: result.add "   "
-      if j == 7: result.add " "
-    result.add " │"
-    for j in 0 ..< min(16, n - i):
-      let c = data[i + j]
-      result.add (if c in {' ' .. '~'}: c else: '.')
-    result.add "│\n"
-    i += 16
-  if data.len > limit: result.add "… " & $(data.len - limit) & " more bytes not shown\n"
+proc setContentStream(b: Buffer, path: string): bool =
+  ## a big text file read into lines a megabyte at a time: the whole text is never in memory as well as its lines
+  ## (an 80 MB log took 199 MB — the text and its lines at once, and the text's memory kept by the allocator)
+  var f: File
+  if not open(f, path): return false
+  defer: close(f)
+  const Chunk = 1 shl 20
+  var buf = newString(Chunk)
+  # first: the line ends (how many, CRLF or LF, the longest line) — so the list of lines is made once, its size known
+  var nl, crnl, longest, cur, total = 0
+  var prevCR = false
+  while true:
+    let n = f.readBuffer(addr buf[0], Chunk)
+    if n <= 0: break
+    total += n
+    var st = 0
+    while true:
+      var i = buf.find('\n', st)                       # (memchr: the bytes between line ends are not looked at)
+      if i < 0 or i >= n: break
+      inc nl
+      if (i > 0 and buf[i - 1] == '\r') or (i == 0 and prevCR): inc crnl
+      longest = max(longest, cur + i - st)
+      cur = 0
+      st = i + 1
+    cur += n - st
+    prevCR = n > 0 and buf[n - 1] == '\r'
+  longest = max(longest, cur)
+  b.large = false
+  b.largeWhy = ""
+  if total >= cfgLargeMB * 1024 * 1024:
+    b.large = true
+    b.largeWhy = $(total div (1024 * 1024)) & " MB"
+  elif cfgLongLine > 0 and longest >= cfgLongLine:
+    b.large = true
+    b.largeWhy = "a line of " & $longest & " characters"
+  b.crlf = crnl > 0 and crnl * 2 >= nl
+  b.mixedEol = crnl > 0 and crnl < nl
+  # then the lines themselves
+  f.setFilePos(0)
+  var lines = newSeqOfCap[string](nl + 1)
+  var part = ""
+  while true:
+    let n = f.readBuffer(addr buf[0], Chunk)
+    if n <= 0: break
+    var st = 0
+    for i in 0 ..< n:
+      if buf[i] == '\n':
+        var e = i
+        if part.len == 0:
+          if crnl > 0 and e > st and buf[e - 1] == '\r': dec e
+          lines.add buf[st ..< e]
+        else:
+          part.add buf[st ..< e]
+          if crnl > 0 and part.len > 0 and part[^1] == '\r': part.setLen(part.len - 1)
+          lines.add move(part)
+          part = ""
+        st = i + 1
+    if st < n: part.add buf[st ..< n]
+  lines.add move(part)
+  b.lines = move(lines)
+  b.noEol = false
+  b.blankNl = total == 1 and nl == 1
+  if b.lines.len > 1 and b.lines[^1].len == 0: b.lines.setLen(b.lines.len - 1)
+  elif total > 0: b.noEol = true
+  if b.lines.len == 0: b.lines = @[""]
+  b.hlStart = newSeq[LexSt](b.lines.len + 1)
+  b.hlValid = 0
+  b.git = newSeq[uint8](b.lines.len)
+  inc b.changeId
+  b.undoStack.setLen(0)
+  b.redoStack.setLen(0)
+  if b.cursors.len > 0: b.normalize()
+  b.topLine = clamp(b.topLine, 0, b.lines.high)
+  true
+
+# ── a binary file: the hex editor holds its bytes (editor/hexedit.nim) ──
+
+proc hexOpen(b: Buffer, content: sink string) =
+  b.hex = HexState(data: content, anchor: -1, perRow: 16, rows: 20)
+  b.lines = @[""]
+
+proc hexInfo(b: Buffer): BinInfo =
+  if not b.hex.infoMade:
+    b.hex.infoMade = true
+    b.hex.info = binParse(b.hex.data)
+  b.hex.info
 
 var loadingHook: proc(msg: string)      # a big file: say so on screen before reading it
 
@@ -158,6 +227,7 @@ proc loadFile(b: Buffer, path: string): bool =
   b.path = absolutePath(path).normalizedPath
   if fileExists(b.path):
     var content: string
+    var streamed = false
     try:
       let size = getFileSize(b.path)
       if size > 512 * 1024 * 1024:
@@ -165,16 +235,28 @@ proc loadFile(b: Buffer, path: string): bool =
         return false
       if size > 16 * 1024 * 1024 and loadingHook != nil:
         loadingHook("Opening " & extractFilename(path) & " (" & $(size div (1024 * 1024)) & " MB)…")
-      content = readFile(b.path)
+      if size >= 8 * 1024 * 1024:
+        # a big file: is it text? (its first bytes) — then it is read straight into lines
+        var head = newString(8000)
+        var f: File
+        if open(f, b.path):
+          head.setLen(f.readBuffer(addr head[0], 8000))
+          close(f)
+        if '\0' notin head and b.setContentStream(b.path): streamed = true
+      if not streamed: content = readFile(b.path)
     except CatchableError as e:
       error("Cannot read " & path & ": " & e.msg)
       return false
     if content.len > 0 and '\0' in content[0 ..< min(content.len, 8000)]:
-      b.readOnly = true
+      # a binary file: the hex editor (its bytes as they are, nothing turned into lines)
       b.binary = true
-      info("Binary file — shown as a read-only hex dump")
-      content = hexDump(content)
-    b.setContent(content)
+      b.setContent("")
+      b.hexOpen(move(content))                       # (the bytes moved, not copied: a big file once in memory)
+      let bi = b.hexInfo()
+      info("Binary file — hex editor" & (if bi.format.len > 0: " · " & bi.format & " " & bi.kind &
+           (if bi.nim: ", built with Nim" else: "") else: "") & " (Tab: hex ↔ text · Insert: insert mode · Ctrl+G offset)")
+      content = ""
+    if not b.binary and not streamed: b.setContent(content)
     if b.large and not b.binary:
       info("Large-file mode (" & b.largeWhy & "): no soft wrap, language server, minimap or word highlight — " &
            "palette › Large file mode turns them back on")

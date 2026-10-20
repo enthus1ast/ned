@@ -175,7 +175,8 @@ type
     inlayAt, inlayLo, inlayHi: int
     inlayReqTime: MonoTime
     marks: seq[int]                        # bookmarked lines (Ctrl+F2 / F2)
-    binary: bool                           # shown as a hex dump; never saved
+    binary: bool                           # a binary file: in the hex editor (hex)
+    hex: HexState                          # the hex editor's state (nil: a text file)
     swapAt: int                            # changeId last written to the recovery file
     gitBase: seq[string]                   # the file as git has it (index) — live change marks
     gitHasBase: bool
@@ -185,6 +186,25 @@ type
     large: bool                            # large-file mode: very big, or a line too long for code features
     largeOff: bool                         # … turned off for this file (palette › Large file mode)
     largeWhy: string
+
+  HexEdit = object                         # one change in the hex editor: at `at`, `old` replaced by `new`
+    at: int
+    old, new: string
+  HexState = ref object                    # a binary file in the hex editor
+    data: string                           # its bytes, as edited
+    cur, anchor: int                       # the cursor's byte; the selection's other end (-1: none)
+    top: int                               # the first row shown
+    ascii: bool                            # the cursor is in the text column (else in the hex one)
+    nibble: int                            # 1: the high half of the byte was typed, the low one comes next
+    insert: bool                           # typing inserts bytes (else it types over them)
+    undo, redo: seq[HexEdit]
+    savedAt: int                           # undo.len when last saved (-1: never the same again)
+    changed: seq[(int, int)]               # (from, to) byte ranges changed since loading — shown in colour
+    perRow: int                            # bytes per row as last drawn
+    rows: int                              # rows shown as last drawn
+    find: string                           # what was last looked for (as bytes)
+    infoMade: bool                         # the executable's sections and symbols were read
+    info: BinInfo
 
   Focus = enum fEditor, fTree, fPanel, fRight
   VimMode = enum vmNormal, vmInsert, vmVisual, vmVLine, vmReplace

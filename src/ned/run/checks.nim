@@ -18,6 +18,8 @@ proc checkCmdForPath(path, langId: string): (string, string) =
   let dir = parentDir(path)
   case langId
   of "nim":
+    if path.endsWith(".nim") and (nim3On() or (path in nim3Asked and nimonyExe().len > 0)):
+      return (nimonyCheckCmd(path), dir)              # (Nim 3: its build files in ned's folder, not nimcache/ here)
     if path.endsWith(".nim") and haveExe("nim"):
       # a file another one includes is no module of its own: the module that includes it is checked (its errors
       # land on this file's lines)

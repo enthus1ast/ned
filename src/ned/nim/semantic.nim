@@ -5,6 +5,7 @@
 type SemMap = ref object
   at: int                        # buffer version it was made for
   rich: bool                     # made with nim.richColors
+  exact: bool                    # made for Nim 3 (names as written: nxExact)
   built: MonoTime
   kinds: Table[string, TokKind]  # this file's names → colour (normalized)
   fields: HashSet[string]        # this file's names that are fields of some object (coloured so after a dot)
@@ -50,13 +51,14 @@ proc semMapFor(b: Buffer): SemMap =
   ## imported modules is kept while they stay the same: only this file's own names are gone through again
   if not cfgSemColors or not nimEngineOn(b) or b.path.len == 0: return nil
   result = semMaps.getOrDefault(b.id)
-  if result != nil and result.rich != cfgRichColors:
-    result.rich = cfgRichColors                  # (the setting changed: all of it again)
+  if result != nil and (result.rich != cfgRichColors or result.exact != nxExact):
+    result.rich = cfgRichColors                  # (the setting changed, or Nim 2 ↔ 3: all of it again)
+    result.exact = nxExact
     result.at = -1
     result.importKey = ""
   if result != nil and (result.at == b.changeId or msSince(b.lspChangeAt) < SemPauseMs): return
   if result == nil:
-    result = SemMap(rich: cfgRichColors)
+    result = SemMap(rich: cfgRichColors, exact: nxExact)
     semMaps[b.id] = result
     if b.lines.len > 3000:
       # a big file just opened: shown at once, its names coloured a moment later (the main loop asks for that

@@ -49,7 +49,7 @@ proc nxTypos*(f: NxFile, lines: seq[string], lo, hi: int, cur: (int, int)): seq[
   ## else in the file, and that is one or two letters away from a name that is declared. Kept to where that is
   ## certain: not in templates, macros, `when` branches, the arguments or blocks of a template call, `defined(…)`
   if f == nil or lines.len == 0 or nxLibDir.len == 0: return
-  if f.path.startsWith(nxLibDir / "system" & "/"): return      # (system's own parts see more than ned knows)
+  if nxInSystem(f.path, partsOnly = true): return      # (system's own parts see more than ned knows)
   if nxIncluderOf(f.path).len > 0: return                       # (nor does a file another one includes)
   for im in f.imports:
     # (a module ned cannot find may declare it)

@@ -1,11 +1,42 @@
+# ── the hex editor's bytes saved (editor/hexedit.nim) ──
+
+proc hexSave(b: Buffer, path = ""): bool =
+  ## the bytes written (safely: a new file renamed over the old one, its permissions kept)
+  let p = if path.len > 0: path else: b.path
+  try:
+    var mode = 0o644
+    try:
+      mode = 0
+      for f in getFilePermissions(p):
+        mode = mode or (case f
+          of fpUserExec: 0o100
+          of fpUserWrite: 0o200
+          of fpUserRead: 0o400
+          of fpGroupExec: 0o010
+          of fpGroupWrite: 0o020
+          of fpGroupRead: 0o040
+          of fpOthersExec: 0o001
+          of fpOthersWrite: 0o002
+          of fpOthersRead: 0o004)
+    except CatchableError: mode = 0o644
+    writeFileSafe(p, b.hex.data, mode)
+  except CatchableError as e:
+    error("Cannot save " & extractFilename(p) & ": " & e.msg)
+    return false
+  if path.len == 0 or path == b.path:
+    b.hex.savedAt = b.hex.undo.len
+    (b.mtime, b.fsize) = fileStamp(b.path)
+  info("Saved " & extractFilename(p) & " (" & $b.hex.data.len & " bytes)")
+  needRender = true
+  true
+
 proc saveBuffer(b: Buffer, path = "", force = false): bool =
   if b.id in multiBufs and path.len == 0: return saveMultibuffer(b)
   if b.id in commitBufs and path.len == 0: return doCommitFromBuffer(b)
   if b.id in rebaseBufs and path.len == 0: return doRebaseFromBuffer(b)
   if b.id in sigPlans and path.len == 0: return doSignatureFromBuffer(b)
-  if b.binary:
-    warn("Binary files are shown as a hex dump and are never saved by ned")
-    return false
+  if b.hex != nil:
+    return b.hexSave(path)                           # (the hex editor: the bytes as they are)
   if path.len == 0 and b.path.len > 0 and not force:
     # never silently overwrite what another program wrote since we loaded the file
     if b.diskChanged:
@@ -93,9 +124,16 @@ proc saveAll(): bool =
       if not b.saveBuffer(): result = false
 
 proc reloadBuffer(b: Buffer) =
+  if b.hex != nil:
+    try:
+      b.hexOpen(readFile(b.path))
+      (b.mtime, b.fsize) = fileStamp(b.path)
+      b.diskChanged = false
+      needRender = true
+    except CatchableError as e: error("Reload failed: " & e.msg)
+    return
   try:
     var content = readFile(b.path)
-    if b.binary: content = hexDump(content)
     var tmp = newBuffer()
     tmp.lang = b.lang
     tmp.setContent(content)

@@ -192,7 +192,7 @@ proc initCommandsV4() =
   add("File: recover unsaved edits…", "", cmdRecoverFiles())
   add("File: allow editing this file", "read-only off", (block:
     let b = buf()
-    if b.binary: info("A binary file is shown as a hex dump: it cannot be edited here")
+    if b.binary: info("A binary file opens in the hex editor (Tab: hex ↔ text · Insert: insert mode)")
     elif not b.readOnly: info(b.name & " can be edited")
     elif b.path.len == 0 or b.title.len > 0: info("This view is made by ned: it cannot be edited")
     else:

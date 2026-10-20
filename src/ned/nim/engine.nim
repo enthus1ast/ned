@@ -51,7 +51,22 @@ proc nxGuessLib(): string =
     if fileExists(c / "system.nim"): return normalizedPath(c)
   ""
 
+var nxNim3Applied = false               # the engine set up for Nim 3 (Nimony's library, names as written)
+
 proc nxApplyToolchain() =
+  nxNim3Applied = nim3On()
+  nxExact = nxNim3Applied
+  if nxNim3Applied:
+    # Nim 3: Nimony's library (lib/std/system.nim …), `nim dump` is Nim 2's and is not asked
+    let lib = nimonyRoot() / "lib"
+    var sp = @[lib, lib / "std"]
+    if rootDir.len > 0:
+      sp.add rootDir
+      if dirExists(rootDir / "src"): sp.add rootDir / "src"
+    for d in nimonyDefaultDefines(): nxDefines.incl d
+    nxSetToolchain(lib, sp, @[])
+    return
+  nxDefines.excl "nimony"
   var sp = nxDumpSearch
   # the package's own sources: tests/ and examples/ import them by name (nimble adds srcDir to the path)
   let nf = findNimbleFile(if rootDir.len > 0: rootDir else: getCurrentDir())
@@ -137,6 +152,12 @@ proc nxEnsureToolchain(b: Buffer) =
     nxInitDefines()
     if nxLibFound.len == 0: nxLibFound = nxGuessLib()
     nxApplyToolchain()
+  if nim3On() != nxNim3Applied:
+    # the project became Nim 3 or stopped being it (nim.compiler): every file read again, names keyed anew
+    nxForgetFiles()
+    nxApplyToolchain()
+    needRender = true
+  if nxNim3Applied: return
   if b == nil or b.path.len == 0 or nxDumping.len > 0 or not haveExe("nim"): return
   let proj = nimProjectFile(b)
   if proj in nxDumped: return

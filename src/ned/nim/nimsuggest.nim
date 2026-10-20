@@ -5,14 +5,14 @@
 
 proc nimUsesLsp(): bool =
   ## should Nim files go through a language server (nimlangserver, or the one set in "lsp")?
-  if cfgNimIde == "off" or "nim" in lspFailed: return false
+  if cfgNimIde == "off" or "nim" in lspFailed or nim3On(): return false     # (Nim 3: nimlangserver is Nim 2's)
   cfgNimIde == "nimlangserver"
 
 proc nsUsable(b: Buffer): bool =
   ## may the built-in engine ask nimsuggest about this buffer?
   b.lang != nil and b.lang.mode == lmNim and b.path.len > 0 and b.path.endsWith(".nim") and
     b.lines.len < 60000 and not b.largeOn and cfgNimIde != "off" and cfgNimSuggest and not nimUsesLsp() and
-    haveExe("nimsuggest") and codeTrusted(parentDir(b.path))
+    not nim3On() and haveExe("nimsuggest") and codeTrusted(parentDir(b.path))     # (Nim 3: nimsuggest is Nim 2's)
 
 proc procRssMB(pid: int): int =
   ## resident memory of a process in MB (Linux/Android /proc), 0 when unknown

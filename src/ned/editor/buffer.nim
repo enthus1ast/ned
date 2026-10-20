@@ -15,7 +15,9 @@ proc newBuffer(): Buffer =
   inc nextBufId
 
 func topSeq(b: Buffer): int = (if b.undoStack.len == 0: 0 else: b.undoStack[^1].seqId)
-func dirty(b: Buffer): bool = b.topSeq() != b.savedSeq
+func dirty(b: Buffer): bool =
+  if b.hex != nil: b.hex.undo.len != b.hex.savedAt          # (the hex editor's own undo)
+  else: b.topSeq() != b.savedSeq
 func isWelcome(b: Buffer): bool =
   b.welcome and b.path.len == 0 and b.title.len == 0 and b.lines.len == 1 and b.lines[0].len == 0 and
     b.undoStack.len == 0

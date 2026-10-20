@@ -54,6 +54,14 @@ const NimDocs* = [
   ("static", "static: block — run at compile time · static[T] — compile-time parameter"),
   ("isMainModule", "true only in the module given on the command line"),
   ("result", "implicit return variable of every proc with a return type"),
+  # (Nim 3, Nimony)
+  ("passive", "{.passive.} — Nim 3: a continuation that may wait (I/O, sleep) without blocking a thread; called without await"),
+  ("feature", "{.feature: \"ignoreStyle\".} — Nim 3: a feature for this module (ignoreStyle, lenientnils, untyped, anonBlockBreaks …)"),
+  ("plugin", "{.plugin: \"deps/x\".} — Nim 3: a compiler plugin makes this template's or type's expansion"),
+  ("cyclic", "import (path / module) {.cyclic.} — Nim 3: an import that may be cyclic"),
+  ("assembler", "{.assembler.} — Nim 3: a routine written in the target's assembly"),
+  ("instruction", "{.instruction: \"adc\".} — Nim 3: a call that is one machine instruction"),
+  ("register", "{.register: \"r0\".} — Nim 3: the register a parameter of an {.assembler.} routine is in"),
 ]
 
 func nimDocFor*(word: string): string =
@@ -89,7 +97,7 @@ const NxKeywords* = ["addr", "and", "as", "asm", "bind", "block", "break", "case
 proc nxRank*(f: NxFile, r: NxRef): int =
   if r.file == f: 1
   elif r.origin > 0: r.origin.int
-  elif nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir / "system"): 3
+  elif nxInSystem(r.file.path): 3
   else: 2
 
 proc nxShortDetail*(s: NxSym, ufcs = false): string =
@@ -241,6 +249,19 @@ const NxPragmas* = [
   ("sideEffect", "has side effects"), ("enforceNoRaises", "raises nothing"), ("overflowChecks", "on / off"),
   ("boundChecks", "on / off"), ("rangeChecks", "on / off"), ("nilChecks", "on / off"), ("checks", "on / off"),
   ("optimization", "speed / size / none"), ("warnings", "on / off"), ("hints", "on / off"), ("line", "the line errors report")]
+
+const NxNim3Pragmas* = [
+  ("passive", "Nim 3: a continuation — it may wait (I/O, sleep) without blocking a thread; called without await"),
+  ("feature", "Nim 3: a feature for this module: \"ignoreStyle\", \"lenientnils\", \"untyped\", \"anonBlockBreaks\" …"),
+  ("plugin", "Nim 3: a template or type whose expansion a compiler plugin makes: {.plugin: \"deps/x\".}"),
+  ("cyclic", "Nim 3: an import that may be cyclic: import (path / module) {.cyclic.}"),
+  ("sideEffect", "Nim 3: has side effects (a func, iterator or converter has none unless it says so)"),
+  ("raises", "Nim 3: may raise an ErrorCode (routines raise nothing unless they say so)"),
+  ("assembler", "Nim 3: a routine written in the target's assembly"),
+  ("instruction", "Nim 3: a call that is one machine instruction: {.instruction: \"adc\".}"),
+  ("register", "Nim 3: the machine register a parameter of an {.assembler.} routine is in: {.register: \"r0\".}"),
+  ("semantics", "Nim 3: what the compiler may assume of a routine (constant folding)"),
+  ("noinit", "not zeroed: a buffer the OS fills in")]
 
 proc nxJoinBack(lines: seq[string], line, upto: int): string =
   ## the line up to `upto`, with the lines above joined in front while a bracket closed on it opened there:
@@ -782,7 +803,14 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     let k2 = max(between.rfind(','), between.rfind(' '))
     if k2 >= 0 and between[0 .. k2].count('[') > between[0 .. k2].count(']'): break pragmas   # (raises: [Val…)
     if between.rfind(':') > max(between.rfind(','), -1): break pragmas                     # (deprecated: "…")
+    var seen3: HashSet[string]
+    if nxExact:
+      for (p, d) in NxNim3Pragmas:
+        seen3.incl p
+        result.items.add NxItem(label: p, detail: d, kind: nxConst, rank: 0,
+                                local: NxSym(name: p, kind: nxConst, typ: "pragma", doc: d))
     for (p, d) in NxPragmas:
+      if p in seen3: continue
       result.items.add NxItem(label: p, detail: d, kind: nxConst, rank: 0,
                               local: NxSym(name: p, kind: nxConst, typ: "pragma", doc: d))
     var seenP: HashSet[string]

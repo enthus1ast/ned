@@ -5,7 +5,7 @@
 #    a git pre-commit hook that lints what is staged ──
 
 const LintHookMark = "# ned --lint pre-commit hook"
-const LintFixRules = ["var-let", "deprecated", "unused-import", "can-be-func", "import-not-required"]
+const LintFixRules = ["var-let", "deprecated", "unused-import", "can-be-func", "import-not-required", "nim3"]
 
 proc lintUsage(prog: string): string =
   prog & " — the Nim engine's checks over files and folders (no compiler run, no build)\n\n" &
@@ -139,6 +139,15 @@ proc lintFixOne(b: Buffer, d: Diag): bool =
     if k >= 0:
       discard b.replaceText(Pos(line: d.line, col: k), Pos(line: d.line, col: k + 4), "func")
       return true
+  of "nim3":
+    # (the problem carries its edits: made from the right, so the columns of the others stay right)
+    if d.code != nil and d.code.kind == JObject and d.code.hasKey("edits"):
+      var es: seq[(Pos, Pos, string)]
+      for e in d.code["edits"]:
+        es.add (Pos(line: e[0].getInt, col: e[1].getInt), Pos(line: e[2].getInt, col: e[3].getInt), e[4].getStr)
+      es.sort(proc(x, y: (Pos, Pos, string)): int = cmp((y[0].line, y[0].col), (x[0].line, x[0].col)))
+      for (a, e, t) in es: discard b.replaceText(b.clampPos(a), b.clampPos(e), t)
+      return es.len > 0
   else: discard
   false
 

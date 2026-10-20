@@ -1,20 +1,12 @@
 # ── the debugger: gdb's machine interface (breakpoints, stepping, call stack, variables) ──
 
 
-proc nimDemangle(fn: string): string =
-  ## _ZN4demo5greetE6string → demo.greet
-  if not fn.startsWith("_ZN"): return fn
-  var i = 3
-  var parts: seq[string]
-  while i < fn.len and fn[i] in {'0'..'9'}:
-    var n = 0
-    while i < fn.len and fn[i] in {'0'..'9'}:
-      n = n * 10 + ord(fn[i]) - ord('0')
-      inc i
-    if i + n > fn.len: break
-    parts.add fn[i ..< i + n]
-    i += n
-  if parts.len == 0: fn else: parts.join(".")
+proc dbgFuncName(fn: string): string =
+  ## the function gdb names → Nim's: _ZN4demo5greetE6string → demo.greet, _ZN4demo5plus_E6string6string → demo.+,
+  ## greet__demo_u12 → demo.greet, greet_0_h3j08bn01 (Nimony) → greet
+  let (n, m) = nimDemangle(fn)
+  if n.len == 0: return fn
+  if m.len > 0 and (fn.contains("_ZN") or fn.contains("__")): m.rsplit('/', 1)[^1] & "." & n else: n
 
 func nimTypeName(t: string): string =
   ## the C type gdb reports → its Nim name (NI → int, tySequence__… → seq, tyObject_Person__… → Person)
@@ -201,7 +193,7 @@ proc dbgPanel() =
          not (f.endsWith(".nim") or f.endsWith(".nims"))):
         inc hidden
         continue
-      let name = if dbgDap: fn elif fn == "NimMainModule": "(top level)" else: nimDemangle(fn)
+      let name = if dbgDap: fn elif fn == "NimMainModule": "(top level)" else: dbgFuncName(fn)
       ls.add PanelLine(text: "  " & name & "   " & extractFilename(f) & ":" & $(l + 1), path: f, line: l, sev: 3)
     if hidden > 0: ls.add PanelLine(text: "  (" & $hidden & " frames of the C runtime hidden)", line: -1)
   if dbgOut.len > 0:
@@ -623,7 +615,7 @@ proc dbgLine(line: string) =
       let ln = if fr != nil: (try: parseInt(fr{"line"}.getStr) - 1 except ValueError: -1) else: -1
       dbgState = "‖ stopped" & (if reason.len > 0: " (" & reason.replace("-", " ") & ")" else: "") &
                  (if r{"signal-name"} != nil: " " & r{"signal-name"}.getStr else: "") &
-                 (if f.len > 0: " at " & extractFilename(f) & ":" & $(ln + 1) & " in " & nimDemangle(fr{"func"}.getStr) else: "")
+                 (if f.len > 0: " at " & extractFilename(f) & ":" & $(ln + 1) & " in " & dbgFuncName(fr{"func"}.getStr) else: "")
       if reason == "breakpoint-hit" and f.len > 0:
         dbgCondPending = bpCond.getOrDefault(f & ":" & $ln)
         dbgLogPending = bpLog.getOrDefault(f & ":" & $ln)
@@ -640,7 +632,7 @@ proc dbgLine(line: string) =
         let ch = if v != nil and v{"old"} != nil: v{"old"}.getStr & " → " & v{"new"}.getStr
                  elif v != nil and v{"new"} != nil: "now " & v{"new"}.getStr else: ""
         dbgState = "‖ stopped: " & x & " changed" & (if ch.len > 0: " (" & ch & ")" else: "") &
-                   (if f.len > 0: " at " & extractFilename(f) & ":" & $(ln + 1) & " in " & nimDemangle(fr{"func"}.getStr) else: "")
+                   (if f.len > 0: " at " & extractFilename(f) & ":" & $(ln + 1) & " in " & dbgFuncName(fr{"func"}.getStr) else: "")
         dbgOut.add "● " & x & " changed" & (if ch.len > 0: ": " & ch else: "") &
                    (if f.len > 0: "  (" & extractFilename(f) & ":" & $(ln + 1) & ")" else: "")
       elif reason == "watchpoint-scope":

@@ -461,6 +461,7 @@ proc handleKey(k: Key) =
     promptKey(k)
     return
   if focus == fEditor and buf().id in diffViews and diffKey(k): return
+  if focus == fEditor and buf().hex != nil and hexKey(buf(), k): return
   if focus == fEditor and renamePv.bufId > 0 and buf().id == renamePv.bufId and renamePvKey(k): return
   if focus == fEditor and k.kind == kEnter and k.mods == {} and buf().id in graphBufs:
     let h = graphHashAt(buf().lines[buf().primary.head.line])

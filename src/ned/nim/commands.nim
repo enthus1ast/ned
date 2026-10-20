@@ -475,6 +475,15 @@ proc cmdReferences() =
     if nsUsable(b):
       discard nsRequest(b, nsUse, b.wordRangeAt(b.primary.head)[0], w)
       return
+    if nim3On() and b.path.len > 0:
+      # Nim 3: nimony's own --usages where the engine could not tell which symbol this is
+      info("Asking nimony…")
+      let bid = b.id
+      b.nimonyAsk("usages", b.wordRangeAt(b.primary.head)[0], proc(found: seq[(string, int, int)]) =
+        if bufById(bid) == nil: return
+        showReferences("REFERENCES " & w & " (nimony)", found)
+        needRender = true)
+      return
   let s = lspReady(b)
   if s != nil and s.caps != nil and s.caps{"referencesProvider"} != nil:
     discard s.lspRequest("textDocument/references", %*{"textDocument": b.docId,
@@ -555,10 +564,12 @@ proc cmdAtlas() =
 proc cmdNimony(run: bool) =
   let b = buf()
   if b.lang.mode != lmNim or not saveForTool(b): return
-  if not haveExe("nimony"):
-    error("nimony not found — build it from github.com/nim-lang/nimony (hastur build all)")
+  if nimonyExe().len == 0:
+    error("nimony not found — build it from github.com/nim-lang/nimony (nim c -r src/hastur/hastur build all)")
     return
-  runCommand((if run: "nimony c -r " else: "nimony check ") & quoteShell(b.path), parentDir(b.path))
+  # (its build files in ned's own folder: nimony would make nimcache/ next to the file)
+  runCommand(quoteShell(nimonyExe()) & (if run: " c -r " else: " check ") & nimonyArgs() & " " & quoteShell(b.path),
+             parentDir(b.path))
 
 proc setNimMode(m: string) =
   cfgNimMode = m

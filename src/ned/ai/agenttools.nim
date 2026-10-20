@@ -364,6 +364,7 @@ proc checkerName(cmd: string): string =
   ## "nim check", "py_compile" … for a checker command
   let w = cmd.splitWhitespace()
   if w.len == 0: return "check"
+  if w[0].strip(chars = {'\'', '"'}).endsWith("nimony"): return "nimony check"
   case w[0]
   of "nim", "cargo", "node", "bash": (if w.len > 1: w[0] & " " & w[1] else: w[0])
   of "python3": "py_compile"

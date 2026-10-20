@@ -686,4 +686,31 @@ suite "the scope of a file being edited":
     nxBufferStamp = nil
     nxBufferLines = nil
 
+suite "Nim 3 (Nimony)":
+  test "import (path / module) {.cyclic.}: the module's path, not its parentheses and pragma":
+    let (f, _) = fixture("import (std / strutils) {.cyclic.}\nimport std/os\n")
+    var specs: seq[string]
+    for im in f.imports: specs.add im.spec
+    check "std/strutils" in specs and "std/os" in specs
+
+  test "nil ref T: its fields after a dot, as for ref T":
+    let (f, ls) = fixture("type\n  Node = object\n    value: int\n    next: nil ref Node\n" &
+                          "var n: nil ref Node\necho n.\n")
+    let c = nxComplete(f, ls, 5, ls[5].len)
+    check "value" in c.labels and "next" in c.labels
+
+  test "names matched as written (nxExact): fooBar is not foobar; ignoreStyle brings Nim 2's rule back":
+    nxExact = true
+    defer:
+      nxExact = false
+      nxForgetFiles()
+    nxForgetFiles()
+    let (f, _) = fixture("proc fooBar(x: int): int = x\nlet a = fooBar(1)\n")
+    let sc = nxScope(f)
+    check nxLookup(sc, "fooBar").len == 1
+    check nxLookup(sc, "foobar").len == 0 and nxLookup(sc, "foo_bar").len == 0
+    let (g, _) = fixture("{.feature: \"ignoreStyle\".}\nproc fooBar(x: int): int = x\n")
+    let sg = nxScope(g)
+    check nxLookup(sg, "foo_bar").len == 1
+
 removeDir(dir)
