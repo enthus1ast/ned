@@ -139,8 +139,20 @@ def demo_template():
                        check=True, capture_output=True)
     return t
 
+def worker_in_sync():
+    # (NED_WK_VERIFY: the engine worker checked its copy of each text against the editor's — a difference is an
+    # internal error in the state folder's errors.log)
+    for root, _, files in os.walk(STATE):
+        for f in files:
+            if f == 'errors.log':
+                t = open(os.path.join(root, f), errors='replace').read()
+                if "is not the editor's" in t:
+                    check('engine worker: its copy of the text was the editor\'s', False, t[-600:])
+                    return
+
 def setup(cfg=None):
     tm('kill-server'); time.sleep(0.3)
+    worker_in_sync()
     shutil.rmtree(W, ignore_errors=True); shutil.copytree(demo_template(), W)
     shutil.rmtree(STATE, ignore_errors=True)
     os.makedirs(CFG + '/ned', exist_ok=True)
@@ -158,7 +170,7 @@ def setup(cfg=None):
 
 def start(*files, w=140, h=40, path=None, env_extra=''):
     # (NED_SOCKET=: never the remote of a ned the tests themselves run in)
-    env = 'PATH=%s XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s COLORTERM=truecolor TERM=xterm-256color NED_SOCKET= %s' % (
+    env = 'PATH=%s XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s COLORTERM=truecolor TERM=xterm-256color NED_SOCKET= NED_WK_VERIFY=1 %s' % (
         path or TOOLS + ':$PATH', CFG, STATE, env_extra)
     tm('-f', HERE + '/tmux.conf', 'new-session', '-d', '-s', 'f', '-x', str(w), '-y', str(h),
        'cd %s && env %s %s %s; echo EXITED $? > %s/exit; sleep 600' % (W, env, BIN, ' '.join(files), W))

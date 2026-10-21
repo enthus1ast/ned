@@ -145,6 +145,7 @@ proc mainLoop() =
     mcpFds(fds)
     ctlFds(fds)
     for fd in termFds(): fds.add TPollfd(fd: fd, events: POLLIN)
+    wkFds(fds)
     if dbgOn and dbgProc.outFd >= 0: fds.add TPollfd(fd: dbgProc.outFd, events: POLLIN)
     if dbgOn and dbgDap and dapSock >= 0: fds.add TPollfd(fd: dapSock, events: POLLIN)
     if dbgOn and dbgDap and dapParentSock >= 0: fds.add TPollfd(fd: dapParentSock, events: POLLIN)
@@ -190,7 +191,7 @@ proc mainLoop() =
     if cfgRefCounts and refJobs.len > 0: timeout = min(timeout, 40)        # (a count of many places, going on)
     if cfgRefCounts and msSince(lastInputAt) < 450: timeout = min(timeout, 250)          # (the counts after scrolling)
     if nxWarmMods.len > 0: timeout = min(timeout, 60)          # (the imports' scopes, a few at a time while quiet)
-    if nxPreload.len > 0 or (nimEngineOn(cb0) and cb0.path.len > 0 and cb0.id notin nxPreloaded):
+    if nxPreloadQ.len > 0 or (nimEngineOn(cb0) and cb0.path.len > 0 and cb0.id notin nxPreloaded):
       timeout = min(timeout, 10)                               # (the files the open file's scope is made of)
     if cfgTooltips and not tipShown and mouseX >= 0 and msSince(mouseMovedAt) < 700:
       timeout = min(timeout, max(1, 660 - int(msSince(mouseMovedAt))))
@@ -217,6 +218,7 @@ proc mainLoop() =
     var ready: HashSet[cint]
     for f in fds:
       if (f.revents and (POLLIN or POLLHUP or POLLERR)) != 0: ready.incl f.fd
+    wkRead(ready)                          # (the engine worker's answers)
     if dbgOn and dbgProc.outFd >= 0 and dbgProc.outFd in ready:
       try: dbgRead()
       except CatchableError as e: dbgEnd("debugger error: " & e.msg)
@@ -374,7 +376,7 @@ proc mainLoop() =
          msSince(cb.lspChangeAt) > 1000 and not lspActiveFor(cb):
         cTypingCheck(cb)                                    # C: the compiler on the unsaved text
       if cfgLiveCheck and not away and cb.lang != nil and cb.lang.mode == lmNim and typoAt.getOrDefault(cb.id, -1) != cb.changeId and
-         msSince(cb.lspChangeAt) > 500 and msSince(lastInputAt) > 300 and nxWarmMods.len == 0 and
+         msSince(cb.lspChangeAt) > 500 and msSince(lastInputAt) > 300 and (nxWarmMods.len == 0 or wkOn()) and
          (cb.dirty or engineChecksOnOpen(cb)):
         # (a pause in typing and in scrolling: on a phone the checks of a big file take a moment; the imports read
         # first, a few at a time)
@@ -548,6 +550,7 @@ proc onTermSignal(sig: cint) {.noconv.} =
 
 proc runBench(path: string) =
   ## ned --bench FILE > /dev/null : renders frames off-screen and reports timings on stderr
+  wkBench = true
   initLangs()
   applyTheme(getEnv("NED_THEME", "nim-crown"))
   rootDir = getCurrentDir()
@@ -708,6 +711,7 @@ proc main() =
       of "-v", "--version":
         echo AppName & " " & Version
         quit 0
+      of "--engine-worker": workerMain()          # (the editor's engine worker: nim/worker.nim)
       of "--check": doCheck = true
       of "--startup-time": startTrace = true
       of "--default-settings":
@@ -897,6 +901,7 @@ proc main() =
   lspShutdown()
   mcpStopAll()
   nsShutdown()
+  wkStop()
   if haveExe("ssh"):
     for r in remotes:                  # the shared ssh connections end with ned (where one was made)
       var st: Stat

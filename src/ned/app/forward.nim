@@ -4,6 +4,14 @@
 
 proc refreshGit(b: Buffer)
 proc applyNimToolchain()
+var wkWorkerMode = false            # this process is the engine worker (`ned --engine-worker`, nim/worker.nim)
+proc wkOn(): bool
+proc wkInlayStep(b: Buffer)
+proc wkChecks(b: Buffer)
+proc wkDump(proj, o: string)
+proc wkSettingsChanged()
+proc wkFolderChanged()
+proc wkReport(): string
 proc engineAgain(path: string)
 proc showProblems()
 proc pipeThroughCommand(cmd: string)

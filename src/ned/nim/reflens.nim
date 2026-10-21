@@ -226,9 +226,14 @@ proc refLensDecls(b: Buffer, f: NxFile): seq[int] =
       if b.lines[s.line].len > 0 and b.lines[s.line][0] notin {' ', '\t'} and b.hasBody(s): result.add i
     elif s.kind == nxType: result.add i
 
+proc wkRefs(b: Buffer)
+
 proc refLensPump(b: Buffer, budgetMs = 12) =
   ## counts for the declarations on screen, a few at a time (after typing has paused)
   if not cfgRefCounts or b.lang.mode != lmNim or b.path.len == 0 or not nimEngineOn(b) or b.lines.len > 20000: return
+  if wkOn() and not wkWorkerMode:
+    if msSince(b.lspChangeAt) >= 700 and msSince(lastInputAt) >= 200: wkRefs(b)   # (the engine worker counts)
+    return
   if not engineReady(b): return
   if msSince(b.lspChangeAt) < 700: return
   if msSince(lastInputAt) < 200: return        # (while you scroll: the counts come when you stop, not between frames)

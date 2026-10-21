@@ -1362,7 +1362,7 @@ proc ecCanBeFunc(f: NxFile, b: Buffer, res: var seq[Diag]) =
   ## a proc of this module with no side effects — the engine sure of every call in it, as the compiler infers it:
   ## it touches no module variable and calls nothing that has side effects — can be a func. In an open file a round
   ## takes at most EcFuncMs: what is left is looked at in the next rounds (what was worked out is kept)
-  let live = bufById(b.id) == b
+  let live = bufById(b.id) == b and not wkWorkerMode     # (the engine worker: all of it at once, nothing waits)
   let keep = proc(s: NxSym): bool =
     for (a, e) in f.inactive:
       if s.line >= a and s.line <= e: return false

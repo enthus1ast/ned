@@ -11,7 +11,8 @@ proc buf(): Buffer {.inline.} = bufs[curBuf]
 
 proc newBuffer(): Buffer =
   result = Buffer(id: nextBufId, lines: @[""], cursors: @[cur(Pos())], indent: "  ",
-                  lang: langByName("Text"), hlStart: @[0'u32, 0'u32], git: @[0'u8], ecTrim: -1, ecFinalNl: -1)
+                  lang: langByName("Text"), hlStart: @[0'u32, 0'u32], git: @[0'u8], ecTrim: -1, ecFinalNl: -1,
+                  wkLogFrom: -1)
   inc nextBufId
 
 func topSeq(b: Buffer): int = (if b.undoStack.len == 0: 0 else: b.undoStack[^1].seqId)
@@ -101,6 +102,12 @@ proc shiftInlays(b: Buffer, a, c, e: Pos) =
   b.inlays = nt
 
 proc rawReplace(b: Buffer, a, c: Pos, text: string): Pos =
+  if b.wkLogFrom >= 0:
+    # (the engine worker has the text of change wkLogFrom: these edits bring it up to date — too many, the whole text)
+    if b.wkLog.len < 3000: b.wkLog.add WkEdit(a: a, c: c, text: text)
+    else:
+      b.wkLog.setLen(0)
+      b.wkLogFrom = -1
   if b.hlStart.len != b.lines.len + 1: b.hlStart.setLen(b.lines.len + 1)
   if b.git.len != b.lines.len: b.git.setLen(b.lines.len)
   if a.line == c.line and '\n' notin text and b.lines[a.line].len > 4096:

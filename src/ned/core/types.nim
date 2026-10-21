@@ -108,6 +108,10 @@ type
     kind: int
     time: MonoTime
     seqId: int
+  WkEdit = object
+    ## a change to a buffer's text, kept for the engine worker (nim/worker.nim): lines a..c replaced with text
+    a, c: Pos
+    text: string
   UndoBranch = object
     ## steps undone and then edited over: kept (the undo tree), off the line of edits after its first `at` steps
     at: int
@@ -130,6 +134,8 @@ type
     prim: int
     undoStack, redoStack: seq[UndoGroup]
     undoBranches: seq[UndoBranch]      # the undo tree's other branches (editor/undotree.nim)
+    wkLog: seq[WkEdit]                 # the engine worker: the edits since it last had the text (nim/worker.nim)
+    wkLogFrom: int                     #   … the change they start from (-1: none kept — the whole text next time)
     nesHas: bool                       # next-edit suggestions: the line being edited, as it was before
     nesLine: int
     nesBefore: string

@@ -158,6 +158,7 @@ proc nxEnsureToolchain(b: Buffer) =
     nxApplyToolchain()
     needRender = true
   if nxNim3Applied: return
+  if wkWorkerMode: return                          # (the engine worker: the editor runs `nim dump` and tells it)
   if b == nil or b.path.len == 0 or nxDumping.len > 0 or not haveExe("nim"): return
   let proj = nimProjectFile(b)
   if proj in nxDumped: return
@@ -169,7 +170,8 @@ proc nxEnsureToolchain(b: Buffer) =
                    parentDir(proj), proc(j: Job) =
     nxDumping.excl proj
     nxDumped.incl proj
-    nxDumpApply(proj, j.output))
+    nxDumpApply(proj, j.output)
+    wkDump(proj, j.output))
 
 proc engineDepOf(dir, name: string): NxDep =
   ## the version of package `name` the project in `dir` builds with (dir: "" for an empty name: not one it uses)
@@ -243,10 +245,42 @@ var typosLast: Table[int, (string, seq[(int, int, string, string)])]   # buffer 
 
 proc engineReady(b: Buffer): bool
 
+proc engineTyposApply(b: Buffer, found: seq[(int, int, string, string)], mine: seq[Diag], checksOn: bool) =
+  ## the misspelled names and the engine's checks found (here, or by the engine worker) among the problems of the
+  ## file: the compiler's word first where it said something on the line
+  var ds: seq[Diag]
+  for d in diagsBuild.getOrDefault(b.path):
+    if d.src != "ned": ds.add d
+  let before = diagsBuild.getOrDefault(b.path).len
+  for (l, c, w, meant) in found:
+    var dup = false
+    for d in ds:
+      if d.line == l and ("'" & w & "'") in d.msg: dup = true
+    if dup: continue
+    ds.add Diag(line: l, col: c, eline: l, ecol: -1, sev: 1, src: "ned", rule: "typo",
+                msg: "undeclared identifier: '" & w & "'\ncandidates (edit distance, scope distance); see " &
+                     "'--spellSuggest': \n (1, 0): '" & meant & "'")
+  var checked = 0
+  if checksOn:
+    for d in mine:
+      var taken = false
+      for e in ds:
+        if e.line == d.line and e.src != "ned": taken = true     # (the compiler said something there: its word)
+      if not taken:
+        ds.add d
+        inc checked
+  lintApply(b.path, b.lines, ds)                       # (.ned/lint.json, `# ned: ignore`: the typos too)
+  if ds.len != before or found.len > 0 or checked > 0:
+    diagsBuild[b.path] = ds
+    needRender = true
+
 proc engineTypos(b: Buffer) =
   ## a misspelled name marked at once, and what the engine's own checks find (nim.engineChecks: a field that is
   ## not there, a wrong number of arguments, code that never runs, an unused local) — the compiler's check, a
   ## moment later, has the last word
+  if wkOn():
+    wkChecks(b)                                  # (the engine worker works them out: the answer comes back)
+    return
   if not engineReady(b): return                  # (the files it needs are being read: asked again then)
   typoAt[b.id] = b.changeId
   if b.path.len == 0 or b.lines.len > 15_000 or not nimEngineOn(b): return
@@ -266,31 +300,8 @@ proc engineTypos(b: Buffer) =
     except CatchableError: return
     if typosLast.len > 50: typosLast.clear()
     typosLast[b.id] = (tkey, found)
-  var ds: seq[Diag]
-  for d in diagsBuild.getOrDefault(b.path):
-    if d.src != "ned": ds.add d
-  let before = diagsBuild.getOrDefault(b.path).len
-  for (l, c, w, meant) in found:
-    var dup = false
-    for d in ds:
-      if d.line == l and ("'" & w & "'") in d.msg: dup = true
-    if dup: continue
-    ds.add Diag(line: l, col: c, eline: l, ecol: -1, sev: 1, src: "ned", rule: "typo",
-                msg: "undeclared identifier: '" & w & "'\ncandidates (edit distance, scope distance); see " &
-                     "'--spellSuggest': \n (1, 0): '" & meant & "'")
-  var checked = 0
+  var mine: seq[Diag]
   if cfgEngineChecks:
-    var mine: seq[Diag]
     try: mine = engineChecksFor(b)
     except CatchableError, Defect: discard
-    for d in mine:
-      var taken = false
-      for e in ds:
-        if e.line == d.line and e.src != "ned": taken = true     # (the compiler said something there: its word)
-      if not taken:
-        ds.add d
-        inc checked
-  lintApply(b.path, b.lines, ds)                       # (.ned/lint.json, `# ned: ignore`: the typos too)
-  if ds.len != before or found.len > 0 or checked > 0:
-    diagsBuild[b.path] = ds
-    needRender = true
+  engineTyposApply(b, found, mine, cfgEngineChecks)

@@ -6,6 +6,7 @@ var
   webDocMemo: Table[(int, string), (int, seq[string])]    # (buffer, language) → (the change it was made for, text)
   webChkAt: Table[int, int]                                # buffer → the change its problems were found for
   webHeld: Table[int, (int, Pos)]                          # buffer → (change, cursor) a problem was held back at
+  webLast: Table[int, (int, seq[Diag])]                    # buffer → (change, what its checks found)
   sqlFileMemo: Table[string, (times.Time, SqlSchema)]            # a project file → (its time, the tables it creates)
   sqlSchemaMemo: SqlSchema
   sqlSchemaAt: MonoTime
@@ -74,8 +75,11 @@ proc webDoc(b: Buffer, fam: string, near = -1): seq[string] =
     webDocMemo[key] = (b.changeId, res)
   res
 
+var wkWebServed: seq[string]       # (the engine worker: the languages the editor has a server for — it asks)
+
 proc webServerFor(b: Buffer, fam: string): bool =
   ## does a language server answer for this language here (the file's own, or the one embedded strings use)?
+  if wkWorkerMode: return fam in wkWebServed
   if webFamily(b.lang.id) == fam:
     let s = lspReady(b)
     return s != nil and s.caps != nil
@@ -397,6 +401,9 @@ proc webDiagsOf(b: Buffer): seq[Diag] =
     result.add Diag(line: w.line, col: w.col, eline: w.eline, ecol: w.ecol, sev: w.sev, msg: w.msg, src: "ned",
                     rule: w.rule)
 
+proc wkWeb(b: Buffer): bool
+proc webChecksApply(b: Buffer, found: seq[Diag])
+
 proc webChecksPump(b: Buffer) =
   ## the problems ned's own engines find, once the text has settled (web.engine)
   if cfgWebEngine == "off" or b == nil or b.lang == nil or b.path.len == 0 or b.largeOn: return
@@ -405,12 +412,25 @@ proc webChecksPump(b: Buffer) =
   if webChkAt.getOrDefault(b.id, -1) == b.changeId:
     # (done for this text — unless a problem under the cursor was held back and the cursor has moved on)
     if b.id notin webHeld or webHeld[b.id] == (b.changeId, b.primary.head): return
+    if b.id in webLast and webLast[b.id][0] == b.changeId:
+      webChecksApply(b, webLast[b.id][1])         # (the same text: what was found, without the cursor's word)
+      return
   if msSince(lastInputAt) < 400: return
   webChkAt[b.id] = b.changeId
   webHeld.del b.id
+  if wkWeb(b): return                            # (the engine worker works them out: the answer comes back)
   var ds: seq[Diag]
   try: ds = webDiagsOf(b)
   except CatchableError, Defect: return
+  webChecksApply(b, ds)
+
+proc webChecksApply(b: Buffer, found: seq[Diag]) =
+  ## what ned's own CSS, HTML, SQL and JavaScript checks found (here or by the engine worker), among the file's
+  ## problems — not the word being typed at the cursor
+  var ds = found
+  webHeld.del b.id
+  webLast[b.id] = (b.changeId, found)
+  if webLast.len > 64: webLast.clear()
   lintApply(b.path, b.lines, ds)
   # (not the word being typed at the cursor: `fl` on the way to `flex`; nor the tag being written there, not closed
   # yet — once the cursor moves on they show)

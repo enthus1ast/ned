@@ -25,6 +25,7 @@ proc openFolder(d: string) =
     wsFile = ""
   rootDir = d
   setCurrentDir(d)
+  wkFolderChanged()                 # (the engine worker: a new one for this folder, when needed)
   reloadSettings(true)
   nxLibGuessed = false              # the Nim index reads the new project's paths and packages
   nxDumped.clear()
