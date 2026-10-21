@@ -321,7 +321,9 @@ proc nxSymAt*(f: NxFile, line, col: int): int =
   ## references asks this for every use of a name, and a big file has tens of thousands of declarations)
   if f.byLineN != f.syms.len or (f.syms.len > 0 and f.byLine.len == 0):
     f.byLine = initTable[int, seq[int]]()
-    for i, s in f.syms: f.byLine.mgetOrPut(s.line, @[]).add i
+    for i in 0 ..< f.syms.len:
+      template s: untyped = f.syms[i]
+      f.byLine.mgetOrPut(s.line, @[]).add i
     f.byLineN = f.syms.len
   for i in f.byLine.getOrDefault(line):
     let s = f.syms[i]

@@ -35,6 +35,7 @@ proc drawCompletion() =
   if compSel < compScroll: compScroll = compSel
   if compSel >= compScroll + n: compScroll = compSel - n + 1
   compRect = (px, py, pw, n)
+  let lp = compPrefix().toLowerAscii
   for r in 0 ..< n:
     let idx = compScroll + r
     if idx >= compShown.len: break
@@ -49,7 +50,8 @@ proc drawCompletion() =
     if solid: icc = fg
     var x = putStr(px + 1, y, ic, icc, bg)
     x += 1
-    let hl = if it.filter == it.label: it.hl else: @[]
+    var hl: seq[int]
+    if compFilter(it) == it.label and lp.len > 0 and lp != "\0": discard fuzzyMatch(lp, it.label, hl)
     discard putHl(x, y, truncTo(it.label, lw), hl, fg, (if solid: fg else: theme.accent), bg, px + 2 + lw + 1)
     if dw > 0 and it.detail.len > 0:
       let d = truncTo(it.detail, min(dw, pw - lw - 5))

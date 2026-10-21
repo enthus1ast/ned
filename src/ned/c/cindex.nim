@@ -2120,7 +2120,8 @@ proc cxStrip*(t: string): (string, int) =
 proc cxIndexed(g: CxFile) =
   if g.indexed: return
   g.indexed = true
-  for k, s in g.syms:
+  for k in 0 ..< g.syms.len:
+    template s: untyped = g.syms[k]
     if s.kind in {cxParam, cxLocal, cxLabel}: continue
     g.byName.mgetOrPut(s.name, @[]).add k.int32
     if s.kind == cxField or (g.cpp and s.kind == cxMethod): g.byOwner.mgetOrPut(s.owner, @[]).add k.int32
@@ -2697,7 +2698,8 @@ proc cxxCtxAt(files: seq[CxFile], f: CxFile, line: int): CxxCtx =
   var sp: seq[string]
   # in a method: its class, its bases, the class's namespace; in `int a::b::f() { … }`: a::b
   var fn = -1
-  for k, s in f.syms:
+  for k in 0 ..< f.syms.len:
+    template s: untyped = f.syms[k]
     if s.kind in {cxFunc, cxMethod} and s.isDef and line >= s.line and line <= s.endLine:
       if fn < 0 or s.line >= f.syms[fn].line: fn = k
   if fn >= 0:

@@ -590,8 +590,8 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
       if (sy.line, sy.name) notin declared:
         r2.add sy
         s2.add scopes[k]
-    result = r2
-    scopes = s2
+    swap(result, r2)        # (swapped, not assigned: `result = r2` here left the list it replaced unfreed — 44 KB a
+    scopes = s2             #  call, the engine's checks ask thousands of times)
   # the smallest indentation from each line down to the cursor's
   var sufMin = newSeq[int](indents.len + 1)
   sufMin[indents.len] = high(int)
@@ -608,4 +608,4 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
       if scopes[k] >= 0 and s.line >= a and s.line < line and s.line - a + 1 <= indents.len and
          sufMin[s.line - a + 1] < scopes[k]: continue
       keep.add s
-  result = keep
+  swap(result, keep)        # (not `result = keep`: see above)

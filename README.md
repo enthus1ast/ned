@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.16](#whats-new-in-616) · [6.15](CHANGELOG.md#whats-new-in-615) · [6.14.1](CHANGELOG.md#whats-new-in-6141) · [6.14](CHANGELOG.md#whats-new-in-614) · [older releases](CHANGELOG.md)
+- [What's new in 6.17](#whats-new-in-617) · [6.16](CHANGELOG.md#whats-new-in-616) · [6.15](CHANGELOG.md#whats-new-in-615) · [6.14.1](CHANGELOG.md#whats-new-in-6141) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,44 +40,61 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.16
+## What's new in 6.17
 
-6.16 is about the moments ned did not answer a key because its Nim engine was busy. The slow work — type and
-parameter hints, the engine's checks and misspelled names, reference counts, and ned's own CSS, HTML, SQL and
-JavaScript checks — now runs in **the engine worker**: a second ned (`ned --engine-worker`, the same program) on
-another processor core. The editor sends it the text of the open files, then only what changed, and asks; the
-answers come back while you type and scroll. An answer for a text that has changed since is dropped and asked for
-again. Completion, hover, go to definition and the rest you ask for stay in the editor, answered in the same frame.
+6.17 makes ned answer sooner in a big program and take less memory while it works on one, and it comes with the
+test that keeps it that way.
 
-**What it changed**, measured on ned's own source (a program of 290 include files) on two processor cores, the longest
-moment ned did not read input:
+**What it changed**, measured on ned's own source (a program of about 290 include files) on two processor cores: the
+longest moment ned did not read a key in each step, the time a completion takes, and the memory of the editor and
+its engine worker at the end (`tests/perf/rounds.py`, three sessions; 6.17 measured twice):
 
-| | 6.15 | 6.16 |
+| | 6.16 | 6.17 |
 |---|---|---|
-| opening a file of it | 48–55 ms | 23–43 ms |
-| typing a few lines, with completion | 48–62 ms | 29–37 ms |
-| scrolling a long file with hints and counts | 55 ms | 24–26 ms |
+| opening a file of it, nothing in the index's cache yet | 53 ms | 18–20 ms |
+| opening a file of it | 65 ms | 17–28 ms |
+| typing a few lines, completion popping up | 37 ms | 16–19 ms |
+| asking for completions | 29 ms | 15–16 ms |
+| an import added, then completion | 43 ms | 20–25 ms |
+| a completion: median · longest | 17.5 · 48 ms | 8 · 19–36 ms |
+| memory: editor + engine worker | 42 + 59 MB | 42–44 + 24–28 MB |
 
-Hints, counts and problems also come sooner: the worker works on them flat out, not a few milliseconds between keys.
-It takes about 20 MB on ned's own source (Help › Performance shows it, with what its last answers took); the editor
-itself takes less, since it no longer prepares every imported module for the checks. A worker that has nothing to
-do for 10 minutes stops and gives its memory back; one that stops is started again (four times in ten minutes and
-the editor goes back to doing the work itself, saying why in Help › Performance). `"nim.engineWorker": false` keeps
-everything in the editor as before.
+**Completion.** What the rest of the scope offers — the imports, system, the program's other files: some twenty
+thousand names in ned's own source — stays the same while you type in one file. It is now made once, a slice at a
+time in the quiet moments after a file opens, and shared by every completion until an import or another file
+changes; before, every first letter made it again. Of those names only the ones on screen get their details, and
+the list is sorted with each entry's score worked out once.
 
-**Completion is twice as fast** in a big program: a name's list (thousands of entries in ned's own source) no longer
-makes the details of entries nobody sees, nor works out the type of each local again at every letter — 12–17 ms a
-letter before, 6–8 ms now. The first one after `nim dump` came back no longer makes the file's scope on the spot
-(40 ms): it is made again in the background, a few files a round, as it is when a file is opened.
+**A file's scope is made in a third of the time** (14 ms → 4–5 ms for a file of ned): names are compared by a hash
+that copies nothing, the file of an import is found once rather than every time the scope is asked for (again when
+the project's nimble.lock or settings change), and an edit that keeps the imports patches the scope instead of
+making it again.
 
-**What a file's scope is made of is read a few files at a time**, includes found as they are read — opening a file of a
-big program read them all at once before (up to 75 ms).
+**No pauses of half a second at start.** The index's disk cache was tidied in the editor — thousands of files looked
+at, some deleted — and that took 200–800 ms at times. The engine worker does it now, and only counts the files unless
+there are more than it keeps. The cache files a scope needs are asked from the disk ahead (Linux, Termux) and read once
+they are in memory, so a slow disk does not hold up a round.
 
-Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
-ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
-ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
+**The engine worker no longer grows as you edit.** Nim 2.2's ARC/ORC compiles one pattern wrong — a procedure that
+adds to its seq result and then assigns it a new one keeps the old one — and it cost 2.7 MB an edit on ned's own
+source. ned no longer uses the pattern; the worker stays at about 25 MB. Loops over a file's names no longer copy
+each name.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.15](CHANGELOG.md#whats-new-in-615) brought selection by
+**More work off the keys.** Recovery files are written and flushed to disk on a thread of their own. The C
+compiler's system include folders are asked for in the background. The TODO dock reads the open files a slice at a
+time, the semantic colours of imported names are worked out a few modules a round, and a language server's answers
+are handled 8 ms at a time at most — a burst (a whole project's problems) waits for the next rounds — without
+copying the rest of what the server sent after each message.
+
+**Measured on every push.** `tests/perf/rounds.py` runs ned in a pseudo-terminal on its own source — opens a file,
+scrolls, types, asks for completions, adds an import, opens another program — and checks the longest wait of each
+step, the completion times and the memory against `tests/perf/budget.json`; `nimble perf` runs it, and so does CI.
+`NED_PERF_TRACE=file` writes what it reads: every round of the main loop over 4 ms, with what it did, how much of it
+the processor gave ned and the heap. Help › Performance shows the index's parsed files and scopes, the editor's heap
+and what the engine worker holds.
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.16](CHANGELOG.md#whats-new-in-616) moved the engine's hints, checks
+and counts to the engine worker on another core, [6.15](CHANGELOG.md#whats-new-in-615) brought selection by
 code structure, surround, the undo tree, next-edit suggestions, the Git changes view, ned's own JavaScript and C++,
 [6.14.1](CHANGELOG.md#whats-new-in-6141) kept scrolling
 smooth with reference counts and gave quick fixes keys Windows Terminal leaves alone, [6.14](CHANGELOG.md#whats-new-in-614)
@@ -613,8 +630,8 @@ The rest stays in the list behind them. After `p.` in such a place, p's members 
 **The engine worker** (`nim.engineWorker`, on by default). Type and parameter hints, the engine's checks and
 misspelled names, reference counts and ned's own CSS, HTML, SQL and JavaScript checks are worked out by a second
 ned on another processor core; the editor sends it the open files' text (then only what changed) and shows the
-answers as they come. Typing, scrolling and opening files never wait for them. Off: the editor works them out
-itself, a few ms at a time, as before 6.16.
+answers as they come. Typing, scrolling and opening files never wait for them. It also keeps the index's disk cache
+tidy. Off: the editor works them out itself, a few ms at a time, as before 6.16.
 
 **The index's memory** (`nim.indexMemory`, 64 MB by default, 0 for no limit). The engine counts what its parsed
 files take and keeps them under the budget: above it, the files asked about least recently and not open are
@@ -1258,7 +1275,7 @@ tasks:
 | `nimble test` | the unit tests: the Nim and C indexes, the formatters, the regular expressions, ARC/ORC copies |
 | `nimble uitest` | the whole editor driven through tmux (needs tmux; see [tests/README.md](tests/README.md)) |
 | `nimble bench` | render a 200 000-line file off-screen and print frame timings and bytes |
-| `nimble perf` | startup time, memory and frame times, checked against the CI budget (needs python3) |
+| `nimble perf` | startup time, memory and frame times, then the longest waits while working on ned's own source (opening, scrolling, typing, completion, a new import) and the memory with the engine worker — each checked against its budget (needs python3; the second part on Linux) |
 | `nimble smoke` | build and run the non-interactive checks |
 | `nimble nedfmt` · `nimble nedls` | build the formatter and the language server on their own |
 | `nimble lsptest` | nedls driven by a test client: every feature, then 2000 random edits |
@@ -1277,7 +1294,8 @@ instant; a 1-million-line file scrolls and edits normally.
 *Help › Performance…* shows how ned does on your device: frames (made in, bytes sent, how long the terminal took),
 the terminal's speed, the moments ned could not read input and what kept it busy, the engine's timings, memory and
 what runs in the background, with the settings that would make it lighter. `NED_PERF_LOG=file` writes it when ned
-exits. `ned --bench FILE` gives the time and bytes per frame without a terminal, and
+exits; `NED_PERF_TRACE=file` writes every round of its main loop over 4 ms with what it did (and how much of it the
+processor gave ned — the rest it waited), which is what `tests/perf/rounds.py` reads. `ned --bench FILE` gives the time and bytes per frame without a terminal, and
 `ned --startup-time [file …]` where the time goes when ned starts, and the memory it uses (see the 5.22 notes); CI
 checks those numbers on every push.
 

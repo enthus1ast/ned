@@ -20,7 +20,8 @@ proc cmdUnusedExports() =
     if not p.endsWith(".nim"): continue
     let f = nxLoad(p)
     if f == nil: continue
-    for i, s in f.syms:
+    for i in 0 ..< f.syms.len:
+      template s: untyped = f.syms[i]
       if not s.exported or s.kind notin NxRoutineKinds + {nxType, nxConst}: continue
       if msSince(t0) > 20_000 or termSignal != 0:
         cut = true
@@ -223,7 +224,8 @@ proc cmdCallHierarchy() =
   # the routine: the one named at the cursor, else the one around it
   var name = b.wordAt(b.primary.head)
   var ri = -1
-  for i, sy in f.syms:
+  for i in 0 ..< f.syms.len:
+    template sy: untyped = f.syms[i]
     if sy.kind in NxRoutineKinds and sy.line == b.primary.head.line and sy.name == name: ri = i
   if ri < 0 and name.len == 0:
     ri = nxEnclosing(f, b.primary.head.line)

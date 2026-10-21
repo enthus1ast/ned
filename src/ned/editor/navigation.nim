@@ -255,7 +255,8 @@ proc nimSubtypes(sc: NxScope, name: string): seq[(NxRef, int)] =
   for depth in 1 .. 8:
     var next: seq[string]
     for g in files:
-      for i, sy in g.syms:
+      for i in 0 ..< g.syms.len:
+        template sy: untyped = g.syms[i]
         if sy.kind != nxType: continue
         let k = sy.typ.find(" of ")
         if k < 0 or "object" notin sy.typ[0 ..< k]: continue
@@ -266,7 +267,8 @@ proc nimSubtypes(sc: NxScope, name: string): seq[(NxRef, int)] =
           result.add (NxRef(file: g, idx: int32(i)), depth)
           # (and the ref type made for it: CircleRef = ref CircleObj)
           for h in files:
-            for j, sz in h.syms:
+            for j in 0 ..< h.syms.len:
+              template sz: untyped = h.syms[j]
               if sz.kind == nxType and nxNorm(nxBaseName(nxStripMods(sz.typ))) == nxNorm(sy.name) and
                  sz.typ.startsWith("ref ") and nxNorm(sz.name) notin seen:
                 seen.incl nxNorm(sz.name)
@@ -353,7 +355,8 @@ proc nimImplementations(b: Buffer): bool =
       for path in nimSourceFiles():
         let g = nxLoad(path)
         if g == nil: continue
-        for i, sy in g.syms:
+        for i in 0 ..< g.syms.len:
+          template sy: untyped = g.syms[i]
           if sy.kind == nxMethod and nxNorm(sy.name) == nxNorm(s0.name) and sy.params.len > 0 and
              nxNorm(nxBaseName(nxStripMods(sy.params[0].typ))) in family:
             items.add PickItem(label: sy.name & "(" & nxParamsText(sy.params, false) & ")" &

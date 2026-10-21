@@ -2,6 +2,19 @@
 #    module), not by its case — and by where it stands: after a dot a field or a call, a parameter inside its
 #    routine, a module name before a dot ──
 
+type SemImports = ref object
+  ## what the names from the rest of the scope are (imports, system, the program's other files) — shared by the
+  ## files that see the same, and made a slice at a time: a big program's hundred thousand names took 30–50 ms at once
+  key: uint64
+  rich: bool
+  kinds: Table[string, TokKind]
+  fields, calls, macros: HashSet[string]
+  globalVars, globalLets, deprecated, undeprecated: HashSet[string]
+  done: bool
+  pos: int                       # (how far through the scope's names it got)
+  scope: NxScope                 # (the scope gone through, while it is made)
+  own: string                    # (the file whose own names are left out)
+
 type SemMap = ref object
   at: int                        # buffer version it was made for
   rich: bool                     # made with nim.richColors
@@ -16,14 +29,13 @@ type SemMap = ref object
   globalVars, globalLets, deprecated: HashSet[string]          # … the module's own, and deprecated names
   undeprecated, importUndeprecated: HashSet[string]            # … names that also have an overload not deprecated
   modules: HashSet[string]       # the names its imports go by (strutils, or the `as` name)
-  importKey: string              # the imported modules (and their stamps) the part below was made from
-  importKinds: Table[string, TokKind]
-  importFields, importCalls, importMacros: HashSet[string]
-  importGlobalVars, importGlobalLets, importDeprecated: HashSet[string]
+  imp: SemImports                # the rest of the scope's names (nil: not made yet — the lexer's colours meanwhile)
+  impNext: SemImports            # … being made for what the scope holds now
 
 const SemPauseMs = 350
 var semMaps: Table[int, SemMap]
 var semLastMs = 0.0                     # how long the last rebuild took
+var semImportsMade: seq[SemImports]     # (the last few made: another file of the program sees the same)
 
 func semKindOfSym(k: NxKind): TokKind =
   case k
@@ -45,6 +57,51 @@ proc semAdd(kinds: var Table[string, TokKind], fields, calls, macros: var HashSe
   let k = semKindOfSym(s.kind)
   if k != tkText and n notin kinds: kinds[n] = k
 
+func semMix(h: var uint64, s: string) =
+  for c in s: h = (h xor uint64(ord(c))) * 0x100000001b3'u64
+  h = (h xor 0xff'u64) * 0x100000001b3'u64
+
+proc semImportKey(sc: NxScope, f: NxFile): uint64 =
+  ## what the rest of the scope is: the files it read (each version) but this one, the toolchain
+  result = 0xcbf29ce484222325'u64
+  for (p, st) in sc.deps:
+    if p != f.path:
+      semMix(result, p)
+      semMix(result, st)
+  semMix(result, $(sc.refs.len - f.syms.len) & "/" & $nxGen & "/" & $nxScopeEpoch & "/" & $cfgRichColors)
+
+proc semImportStep(m: SemImports, budgetMs: int): bool =
+  ## a slice of the rest of the scope's names gone through; true when all are
+  let t0 = getMonoTime()
+  let refs = addr m.scope.refs
+  while m.pos < refs[].len:
+    let r = refs[][m.pos]
+    inc m.pos
+    if r.file.path == m.own: continue
+    semAdd(m.kinds, m.fields, m.calls, m.macros, r.sym)
+    if m.rich:
+      let n = nxNorm(r.sym.name)
+      if "deprecated" in r.sym.pragmas: m.deprecated.incl n
+      elif r.sym.kind in NxRoutineKinds + {nxType, nxConst}: m.undeprecated.incl n
+      if not r.sym.local:
+        if r.sym.kind == nxVar: m.globalVars.incl n
+        elif r.sym.kind == nxLet: m.globalLets.incl n
+    if (m.pos and 1023) == 0 and msSince(t0) >= budgetMs: return false
+  m.done = true
+  m.scope = nil
+  semImportsMade.add m
+  if semImportsMade.len > 3: semImportsMade.delete(0)
+  true
+
+proc semImportsPump(b: Buffer) =
+  ## the main loop, in quiet moments: the rest of the scope's names, 4 ms a round
+  let m = semMaps.getOrDefault(b.id)
+  if m == nil or m.impNext == nil: return
+  if semImportStep(m.impNext, 4):
+    m.imp = m.impNext
+    m.impNext = nil
+    needRender = true
+
 proc semMapFor(b: Buffer): SemMap =
   ## what each name of the file means; rebuilt when typing pauses (it parses the whole file, which in a big file
   ## would make keys stutter) — the main loop asks for a frame once the pause is long enough. The part from the
@@ -55,7 +112,8 @@ proc semMapFor(b: Buffer): SemMap =
     result.rich = cfgRichColors                  # (the setting changed, or Nim 2 ↔ 3: all of it again)
     result.exact = nxExact
     result.at = -1
-    result.importKey = ""
+    result.imp = nil
+    result.impNext = nil
   if result != nil and (result.at == b.changeId or msSince(b.lspChangeAt) < SemPauseMs): return
   if result != nil and not engineReady(b): return     # (the files it needs are being read: a moment)
   if result == nil:
@@ -79,29 +137,23 @@ proc semMapFor(b: Buffer): SemMap =
     let f = nxFileFor(b)
     if f == nil: return
     let sc = nxScope(f)
-    var key = ""
-    for (p, st) in sc.deps: key.add p & "\t" & st & "\n"
-    key.add $(sc.refs.len - f.syms.len)
-    if key != result.importKey:
-      result.importKey = key
-      result.importKinds.clear()
-      result.importFields.clear()
-      result.importCalls.clear()
-      result.importMacros.clear()
-      result.importGlobalVars.clear()
-      result.importUndeprecated.clear()
-      result.importGlobalLets.clear()
-      result.importDeprecated.clear()
-      for r in sc.refs:
-        if r.file == f: continue
-        semAdd(result.importKinds, result.importFields, result.importCalls, result.importMacros, r.sym)
-        if cfgRichColors:
-          let n = nxNorm(r.sym.name)
-          if "deprecated" in r.sym.pragmas: result.importDeprecated.incl n
-          elif r.sym.kind in NxRoutineKinds + {nxType, nxConst}: result.importUndeprecated.incl n
-          if not r.sym.local:
-            if r.sym.kind == nxVar: result.importGlobalVars.incl n
-            elif r.sym.kind == nxLet: result.importGlobalLets.incl n
+    # the rest of the scope's names: kept while it stays the same (typing in this file changes only its own) — made
+    # anew a slice at a time when it changed, another file's when it sees the same
+    let key = semImportKey(sc, f)
+    if result.imp == nil or result.imp.key != key:
+      var found: SemImports = nil
+      for x in semImportsMade:
+        if x.key == key: found = x
+      if found != nil:
+        result.imp = found
+        result.impNext = nil
+      elif result.impNext == nil or result.impNext.key != key:
+        result.impNext = SemImports(key: key, rich: cfgRichColors, scope: sc, own: f.path)
+        when defined(nedNoMain):
+          # (nedls: no main loop to make it in quiet moments — the answer waits for it)
+          discard semImportStep(result.impNext, high(int) div 2)
+          result.imp = result.impNext
+          result.impNext = nil
     # this file's own names (they win over imported ones of the same name)
     result.kinds.clear()
     result.fields.clear()
@@ -144,7 +196,10 @@ proc semMapFor(b: Buffer): SemMap =
 
 proc semKind(m: SemMap, w: string): TokKind =
   result = m.kinds.getOrDefault(w, tkText)
-  if result == tkText: result = m.importKinds.getOrDefault(w, tkText)
+  if result == tkText and m.imp != nil: result = m.imp.kinds.getOrDefault(w, tkText)
+
+template impHas(m: SemMap, field: untyped, w: string): bool =
+  m.imp != nil and w in m.imp.field
 
 proc semParamsAt(m: SemMap, line: int): seq[string] =
   ## the parameters of the routines that `line` is inside (an inner one's too)
@@ -183,10 +238,10 @@ proc applySem(s: string, toks: var seq[TokKind], m: SemMap, line = -1) =
         if i > 0 and s[i - 1] == '.' and (i < 2 or s[i - 2] != '.'):
           # after a dot: a field, or a call (method-call syntax)
           let call = q < n and s[q] in {'(', '"', '['}
-          let isField = w in m.fields or w in m.importFields
-          let isCall = w in m.calls or w in m.importCalls
+          let isField = w in m.fields or m.impHas(fields, w)
+          let isCall = w in m.calls or m.impHas(calls, w)
           if isField and not isCall: k = tkProperty
-          elif isCall and (call or not isField): k = (if w in m.macros or w in m.importMacros: tkPreproc else: tkFunc)
+          elif isCall and (call or not isField): k = (if w in m.macros or m.impHas(macros, w): tkPreproc else: tkFunc)
           elif not isField: k = m.semKind(w)
           # (both a field somewhere and a routine, written without a call — x.len, x.name: the lexer's guess stays)
         elif w in params: k = tkParam
@@ -200,11 +255,11 @@ proc applySem(s: string, toks: var seq[TokKind], m: SemMap, line = -1) =
           if cfgRichColors and k == tkText and line >= 0:
             let lk = m.semLocalKind(line, w)
             if lk != tkPunct: k = lk
-            elif w in m.globalVars or (w notin m.globalLets and w in m.importGlobalVars): k = tkGlobalVar
-            elif w in m.globalLets or w in m.importGlobalLets: k = tkGlobal
+            elif w in m.globalVars or (w notin m.globalLets and m.impHas(globalVars, w)): k = tkGlobalVar
+            elif w in m.globalLets or m.impHas(globalLets, w): k = tkGlobal
         # (deprecated: every overload of that name is — `add` has deprecated overloads, and others)
-        if cfgRichColors and k != tkParam and (w in m.deprecated or w in m.importDeprecated) and
-           w notin m.undeprecated and w notin m.importUndeprecated and
+        if cfgRichColors and k != tkParam and (w in m.deprecated or m.impHas(deprecated, w)) and
+           w notin m.undeprecated and not m.impHas(undeprecated, w) and
            not (i > 0 and s[i - 1] == '.' and k == tkProperty):
           k = tkDeprecated
         if k != tkText:

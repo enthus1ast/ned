@@ -50,9 +50,12 @@ proc perfReport(): string =
   result.add "  type and parameter hints: " & (if lastInlayMs >= 0: $lastInlayMs & " ms the last round" else: "-") & "\n"
   result.add "  its own checks:           " & (if lastChecksMs >= 0: $lastChecksMs & " ms the last time" else: "-") & "\n"
   result.add wkReport()
-  result.add "  index: " & $(nxFilesBytes div 1048576) & " MB of parsed files (nim.indexMemory: " &
-             $(nxIndexBudget div 1048576) & " MB)\n\n"
-  result.add "Memory: ned " & $procRssMB(getpid().int) & " MB\n\n"
+  var scopeRefs = 0
+  for _, sc in nxScopes: scopeRefs += sc.refs.len
+  result.add "  index: " & $(nxFilesBytes div 1048576) & " MB of " & $nxFiles.len & " parsed files (nim.indexMemory: " &
+             $(nxIndexBudget div 1048576) & " MB), " & $nxScopes.len & " scopes (" & $(scopeRefs div 1000) & "k names)\n\n"
+  result.add "Memory: ned " & $procRssMB(getpid().int) & " MB (its heap: " & $(getOccupiedMem() div 1048576) &
+             " MB in use of " & $(getTotalMem() div 1048576) & " MB)\n\n"
   result.add "Running in the background\n"
   var any = false
   for j in jobs:

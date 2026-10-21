@@ -1242,7 +1242,9 @@ def t_516_quickfixes():
         check('516 … replaced', 'echo twice(x)' in open(W + '/ambig.nim').read(), open(W + '/ambig.nim').read())
     # two unused results left: fix all of them at once
     open(W + '/b.nim', 'w').write('proc one(): int = 1\none()\none()\none()\n')
-    keys('C-o'); time.sleep(0.4); text('b.nim'); keys('Enter'); time.sleep(1); keys('C-s'); wait_for('has to be used', 30)
+    # (all three found before the quick fixes are asked for: the engine's and the compiler's come at their own pace)
+    keys('C-o'); time.sleep(0.4); text('b.nim'); keys('Enter'); time.sleep(1); keys('C-s')
+    wait_for(r'(?s)(has to be used.*){3}', 30)
     keys('C-g'); text('2'); keys('Enter'); keys('M-Enter')
     ok = wait_for('Fix all 3 like this', 8)
     check('516 "fix all like this in the file"', ok, screen())
@@ -1250,7 +1252,9 @@ def t_516_quickfixes():
         text('Fix all'); time.sleep(0.3); keys('Enter'); time.sleep(0.5); keys('C-s'); time.sleep(0.5)
         check('516 … every one fixed', open(W + '/b.nim').read().count('discard one()') == 3, open(W + '/b.nim').read())
     # a deprecated name used twice: both changed at once
-    keys('C-o'); time.sleep(0.4); text('dep.nim'); keys('Enter'); time.sleep(1); keys('C-s'); wait_for('deprecated', 30); time.sleep(1)
+    # (the problems themselves, both: the pragma's own text says "deprecated" from the start)
+    keys('C-o'); time.sleep(0.4); text('dep.nim'); keys('Enter'); time.sleep(1); keys('C-s')
+    wait_for(r'(?s)(is deprecated.*){2}', 30); time.sleep(0.5)
     keys('C-g'); text('3:6'); keys('Enter'); keys('M-Enter')
     ok = wait_for('Fix all 2 like this', 8)
     check('516 "fix all" for a deprecated name', ok, screen())
@@ -4060,7 +4064,8 @@ def t_64_engine():
     keys('Escape')
     # organize imports: the unused ones go (the compiler says which, on save), the rest sorted
     keys('C-p'); time.sleep(0.4); text('o64.nim'); time.sleep(0.5); keys('Enter'); time.sleep(0.8)
-    keys('C-s'); ok = wait_for(r'imported and not used', 20)
+    # (the engine finds `tables` at once; `os` is the compiler's finding, a moment later — the test waits for both)
+    keys('C-s'); ok = wait_for(r"imported and not used: 'os'", 25)
     palette('Nim: organize imports'); time.sleep(1)
     keys('C-s'); time.sleep(0.6)
     t = ftext('src/o64.nim')

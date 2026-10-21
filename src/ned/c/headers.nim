@@ -26,29 +26,58 @@ type
 var
   cSysDirs: seq[string]                     # the C compiler's own include folders
   cSysDirsDone = false
+  cDirsCache: Table[string, (MonoTime, seq[string])]
   cHeaderText: Table[string, (times.Time, string)]   # header → (mtime, its text with comments blanked)
 
-proc cSystemIncludeDirs(): seq[string] =
-  ## where #include <…> looks, as the C compiler says (cc -v); cached
-  if cSysDirsDone: return cSysDirs
-  cSysDirsDone = true
-  for cc in ["cc", "clang", "gcc"]:
-    if not haveExe(cc): continue
-    let (_, o, e) = runFilter("echo | " & cc & " -E -Wp,-v -x c - 2>&1", "", getCurrentDir(), 5000)
-    var inList = false
-    for l in (o & "\n" & e).splitLines:
-      if l.startsWith("#include <...> search starts here"):
-        inList = true
-        continue
-      if l.startsWith("End of search list"): break
-      if inList and l.startsWith(" "):
-        var d = l.strip
-        if d.endsWith("(framework directory)"): d = d[0 ..< d.len - "(framework directory)".len].strip
-        if dirExists(d) and d notin cSysDirs: cSysDirs.add d
-    if cSysDirs.len > 0: break
+var cSysDirsAsked = false
+
+proc cSysDirsFrom(output: string) =
+  ## the folders in `cc -E -v`'s answer (and the usual ones after them)
+  var inList = false
+  for l in output.splitLines:
+    if l.startsWith("#include <...> search starts here"):
+      inList = true
+      continue
+    if l.startsWith("End of search list"): break
+    if inList and l.startsWith(" "):
+      var d = l.strip
+      if d.endsWith("(framework directory)"): d = d[0 ..< d.len - "(framework directory)".len].strip
+      if dirExists(d) and d notin cSysDirs: cSysDirs.add d
   for d in [getEnv("PREFIX") / "include", "/usr/local/include", "/usr/include"]:
     if d.len > 1 and dirExists(d) and d notin cSysDirs: cSysDirs.add d
-  cSysDirs
+
+proc cSystemIncludeDirs(): seq[string] =
+  ## where #include <…> looks, as the C compiler says (cc -v); cached. The editor asks the compiler in the
+  ## background (a phone's clang takes a moment to start: no key waits for it) — the usual folders meanwhile
+  if cSysDirsDone: return cSysDirs
+  var cc = ""
+  for c in ["cc", "clang", "gcc"]:
+    if haveExe(c):
+      cc = c
+      break
+  when defined(nedNoMain):
+    cSysDirsDone = true
+    if cc.len > 0:
+      let (_, o, e) = runFilter("echo | " & cc & " -E -Wp,-v -x c - 2>&1", "", getCurrentDir(), 5000)
+      cSysDirsFrom(o & "\n" & e)
+    else: cSysDirsFrom("")
+    cSysDirs
+  else:
+    if cc.len == 0:
+      cSysDirsDone = true
+      cSysDirsFrom("")
+      return cSysDirs
+    if not cSysDirsAsked:
+      cSysDirsAsked = true
+      discard startJob(jkAux, "echo | " & cc & " -E -Wp,-v -x c - 2>&1", getCurrentDir(), proc(j: Job) =
+        cSysDirs.setLen(0)
+        cSysDirsFrom(j.output)
+        cSysDirsDone = true
+        cDirsCache.clear())
+    var tmp: seq[string]
+    for d in [getEnv("PREFIX") / "include", "/usr/local/include", "/usr/include"]:
+      if d.len > 1 and dirExists(d): tmp.add d
+    tmp
 
 proc cFlagDirs(text, base: string, dirs: var seq[string]) =
   ## the -I folders named in config text (--passC:"-I…", switch("passC", "-I…"), {.passC: "-I…".})
@@ -69,7 +98,6 @@ proc cFlagDirs(text, base: string, dirs: var seq[string]) =
         if dirExists(p) and p notin dirs: dirs.add p
     i = text.find("-I", i + 2)
 
-var cDirsCache: Table[string, (MonoTime, seq[string])]
 
 proc cConfigFiles(nimPath: string): seq[string] =
   ## the project's config files that may pass flags to the C compiler

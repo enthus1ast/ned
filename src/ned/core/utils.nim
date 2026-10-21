@@ -164,3 +164,8 @@ func textDistance(a, b: string): int =
       if not ok[]: break
       i += n
   if okA and okB: editDistance(a, b) else: editDistanceAscii(a, b)
+
+# (a completion item's text to filter by and to insert: its label when it has none of its own — the index's
+# thousands of items carry one string each)
+template compFilter(it: CompItem): string = (if it.filter.len > 0: it.filter else: it.label)
+template compInsert(it: CompItem): string = (if it.insert.len > 0: it.insert else: it.label)

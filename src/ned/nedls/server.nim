@@ -209,6 +209,7 @@ proc lsFilesChanged(params: JsonNode) =
     if name in ["nim.cfg", "config.nims"] or name.endsWith(".nimble"):
       nxDumped.clear()                                   # (`nim dump` again: search paths, defines)
       nxModCache.clear()
+      nxResolveMemo.clear()
     if p.endsWith(".ned/settings.json"): lsApplySettings()
   lsDiagsDirty = true
 

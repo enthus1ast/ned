@@ -36,6 +36,7 @@ type
     answers: int                  # (Help › Performance)
     hintsMs, checksMs: int        # how long the last ones took it
     fullSends, editSends: int
+    held: string                  # what its memory holds (it says so with its checks)
 
 var
   wkVerify = getEnv("NED_WK_VERIFY") == "1"
@@ -52,6 +53,12 @@ proc wkOn(): bool =
   ## does the worker work out the hints and checks (else the editor, in slices, as before)?
   when defined(nedNoMain): false     # (nedls, the engine's test driver: their own process does it)
   else: not wkWorkerMode and not wkBench and wkOffWhy.len == 0 and sBool("nim.engineWorker")
+
+proc wkTidyHere(): bool {.nimcall.} =
+  ## the index's disk cache tidied here? In the worker — or the editor when there is none (it takes a moment)
+  wkWorkerMode or not wkOn()
+
+nxCacheTidyHere = wkTidyHere
 
 proc wkExe(): string =
   ## this very program (Linux: even when its file was replaced by an update meanwhile)
@@ -187,8 +194,12 @@ proc wkSyncAll(b: Buffer) =
 proc wkReady(b: Buffer): bool =
   ## the worker answers for this buffer (started now when it was not)
   if not wkOn() or b == nil or b.path.len == 0: return false
+  var t0 = getMonoTime()
   if nimEngineOn(b): nxEnsureToolchain(b)   # (`nim dump` of its project runs here — the worker is told what it said)
+  noteWork("the toolchain looked at", t0)
+  t0 = getMonoTime()
   if not wkStart(): return false
+  noteWork("the engine worker started", t0)
   wkp.usedAt = getMonoTime()
   true
 
@@ -243,7 +254,10 @@ proc wkInlayStep(b: Buffer) =
     ask.add c
   if visibleDone: b.inlayAt = b.changeId
   if ask.len == 0: return
-  wkSyncAll(b)
+  block:
+    let st0 = getMonoTime()
+    wkSyncAll(b)
+    noteWork("texts sent to the engine worker", st0)
   wkSend(%*{"op": "hints", "id": b.id, "v": b.changeId, "key": key, "c": ask})
   for c in ask: fly[1].incl c
 
@@ -253,7 +267,10 @@ proc wkChecks(b: Buffer) =
   if b.path.len == 0 or b.lines.len > 15_000 or not nimEngineOn(b) or not wkReady(b): return
   let lo = max(0, b.topLine - 100)
   let hi = min(b.lines.high, b.topLine + max(textH, 20) + 100)
-  wkSyncAll(b)
+  block:
+    let st0 = getMonoTime()
+    wkSyncAll(b)
+    noteWork("texts sent to the engine worker", st0)
   wkSend(%*{"op": "checks", "id": b.id, "v": b.changeId, "lo": lo, "hi": hi, "cl": b.primary.head.line,
             "cc": b.primary.head.col, "n3": b.path in nim3Asked})
   wkp.checksFly[b.id] = b.changeId
@@ -265,7 +282,10 @@ proc wkRefs(b: Buffer) =
   let bottom = min(b.lines.high, b.topLine + max(20, textH) + 5)
   if wkp.refsAsked.getOrDefault(b.id, (-1, -1, -1)) == (b.changeId, top, bottom): return
   wkp.refsAsked[b.id] = (b.changeId, top, bottom)
-  wkSyncAll(b)
+  block:
+    let st0 = getMonoTime()
+    wkSyncAll(b)
+    noteWork("texts sent to the engine worker", st0)
   wkSend(%*{"op": "refs", "id": b.id, "v": b.changeId, "top": top, "bottom": bottom})
 
 proc wkWeb(b: Buffer): bool =
@@ -275,7 +295,10 @@ proc wkWeb(b: Buffer): bool =
   var srv = newJArray()
   for fam in ["css", "html", "sql", "js"]:
     if webServerFor(b, fam): srv.add %fam
-  wkSyncAll(b)
+  block:
+    let st0 = getMonoTime()
+    wkSyncAll(b)
+    noteWork("texts sent to the engine worker", st0)
   wkSend(%*{"op": "web", "id": b.id, "v": b.changeId, "srv": srv})
   true
 
@@ -358,7 +381,9 @@ proc wkChecksAnswer(j: JsonNode) =
   var mine: seq[Diag]
   for d in jitems(j{"diags"}): mine.add wkDiagOf(d)
   lastChecksMs = j{"ms"}.getInt
-  if wkp != nil: wkp.checksMs = lastChecksMs
+  if wkp != nil:
+    wkp.checksMs = lastChecksMs
+    wkp.held = j{"held"}.getStr
   engineTyposApply(b, found, mine, j{"on"}.getBool)
 
 proc wkRefsAnswer(j: JsonNode) =
@@ -466,7 +491,7 @@ proc wkReport(): string =
   "  engine worker: pid " & $wkp.pr.pid & ", " & $mb & " MB · the last hints took it " & $wkp.hintsMs &
     " ms, the last checks " & $wkp.checksMs & " ms · " & $wkp.answers & " answers, texts sent whole " &
     $wkp.fullSends & "×, as edits " & $wkp.editSends & "×" & (if wkLastErr.len > 0: " · last error: " & wkLastErr else: "") &
-    "\n"
+    "\n" & (if wkp.held.len > 0: "    it holds " & wkp.held & "\n" else: "")
 
 # ── the worker itself (`ned --engine-worker`) ──
 
@@ -715,8 +740,13 @@ proc wkRunChecks(t: WkTask) =
       try:
         for d in engineChecksFor(b): diags.add wkDiagJson(d)
       except CatchableError, Defect: discard
+  var scopeRefs = 0
+  for _, sc in nxScopes: scopeRefs += sc.refs.len
+  let held = $(nxFilesBytes div 1048576) & " MB of " & $nxFiles.len & " parsed files, " & $nxScopes.len & " scopes (" &
+             $(scopeRefs div 1000) & "k names), the project's words: " & $refFilePath.len & " files · heap " &
+             $(getOccupiedMem() div 1048576) & " MB in use of " & $(getTotalMem() div 1048576) & " MB · " & nxCacheStats()
   wkWrite(%*{"op": "checks", "id": t.id, "v": t.v, "typos": typos, "diags": diags, "on": cfgEngineChecks,
-             "ms": int(msSince(t0))})
+             "ms": int(msSince(t0)), "held": held})
 
 var wkScanAt: MonoTime              # (the worker's list of the project's files: made again every 30 s)
 

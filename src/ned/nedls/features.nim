@@ -65,19 +65,19 @@ proc lsCompletion(params: JsonNode): JsonNode =
     let i = compShown[k]
     let it = compItems[i]
     var start = min(compStartCol, p.col)
-    var filter = it.filter
+    var filter = compFilter(it)
     if it.postfix > 0:
       start = min(it.postfix - 1, p.col)
-      filter = line[start ..< min(compStartCol, line.len)] & it.filter
+      filter = line[start ..< min(compStartCol, line.len)] & compFilter(it)
     let snip = it.snippet.len > 0 and lsSnippets
-    let text = if snip: it.snippet elif it.snippet.len > 0: stripSnippet(it.snippet) else: it.insert
+    let text = if snip: it.snippet elif it.snippet.len > 0: stripSnippet(it.snippet) else: compInsert(it)
     var j = %*{"label": it.label, "kind": max(1, it.kind), "sortText": align($k, 5, '0'), "filterText": filter,
                "textEdit": {"range": lsRangeIn(b.lines, p.line, start, p.line, p.col), "newText": text},
                "data": {"g": lsCompGen, "i": i, "u": d.uri}}
     if snip: j["insertTextFormat"] = %2
     if it.detail.len > 0: j["detail"] = %it.detail
-    if it.nx > 0 and it.nx <= compNx.len:
-      let nx = compNx[it.nx - 1]
+    if compNxAt(it.nx) != nil:
+      let nx = compNxAt(it.nx)[]
       if nx.refs.len > 0 and "deprecated" in nx.refs[0].file.syms[nx.refs[0].idx].pragmas: j["tags"] = %*[1]
     if it.addImport.len > 0:
       j["data"]["m"] = %it.addImport

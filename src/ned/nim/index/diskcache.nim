@@ -150,15 +150,24 @@ proc nxCacheRead*(path, text: string): NxFile =
     f
   except CatchableError: nil
 
+var nxCacheTidyHere*: proc(): bool {.nimcall.}   # (the editor: no — its engine worker tidies, off its thread —
+                                                 #   and writes the entries: a write can wait for the disk too)
+
 proc nxCacheTidy(dir: string) =
-  ## at most 4000 entries: the oldest go (a Nim or package version no longer used)
+  ## at most 4000 entries: the oldest go (a Nim or package version no longer used). Counted first, without a look
+  ## at each: the dates of thousands of files, and a thousand removed, took a moment no key was read (up to 0.7 s)
   nxDiskCacheTidied = true
+  var n = 0
+  try:
+    for k, p in walkDir(dir):
+      if k == pcFile and p.endsWith(".nx"): inc n
+  except OSError: return
+  if n <= 4000: return
   var es: seq[(times.Time, string)]
   try:
     for k, p in walkDir(dir):
       if k == pcFile and p.endsWith(".nx"): es.add (getLastModificationTime(p), p)
   except OSError: return
-  if es.len <= 4000: return
   es.sort(proc(a, b: (times.Time, string)): int = cmp(a[0], b[0]))
   for i in 0 ..< es.len - 3000:
     try: removeFile(es[i][1])
@@ -167,12 +176,13 @@ proc nxCacheTidy(dir: string) =
 proc nxCacheWrite*(path, text: string, f: NxFile) =
   ## keep a freshly parsed library file for the next session (written whole or not at all)
   if not nxCacheable(path) or f == nil: return
+  if nxCacheTidyHere != nil and not nxCacheTidyHere(): return
   try:
     let dir = nxCacheDir()
     if not dirExists(dir):
       createDir(dir)
       discard chmod(dir.cstring, 0o700)
-    if not nxDiskCacheTidied: nxCacheTidy(dir)
+    if not nxDiskCacheTidied and (nxCacheTidyHere == nil or nxCacheTidyHere()): nxCacheTidy(dir)
     let body = nxCacheBytes(f)
     let s = nxCacheHeader(path, text) & $body.len & ":" & $hash(body.toOpenArray(0, body.high)) & "\n" & body
     let dest = nxCacheFile(path)
@@ -180,6 +190,51 @@ proc nxCacheWrite*(path, text: string, f: NxFile) =
     writeFile(tmp, s)
     moveFile(tmp, dest)
   except CatchableError: discard
+
+when defined(linux) or defined(android):
+  proc nxMincore(a: pointer, len: csize_t, vec: ptr uint8): cint {.importc: "mincore", header: "<sys/mman.h>".}
+
+proc nxInMemory(path: string): bool =
+  ## is the file's content in memory (read ahead by the system)? Then reading it does not wait for the disk.
+  ## (true where that cannot be told)
+  when defined(linux) or defined(android):
+    let fd = posix.open(path.cstring, O_RDONLY or O_CLOEXEC)
+    if fd < 0: return true
+    defer: discard posix.close(fd)
+    var st: Stat
+    if fstat(fd, st) != 0 or st.st_size <= 0: return true
+    let size = int(st.st_size)
+    let m = mmap(nil, size, PROT_READ, MAP_SHARED, fd, 0)
+    if m == MAP_FAILED or m == nil: return true
+    defer: discard munmap(m, size)
+    let pg = max(4096, sysconf(SC_PAGESIZE))
+    var vec = newSeq[uint8]((size + pg - 1) div pg)
+    if nxMincore(m, csize_t(size), addr vec[0]) != 0: return true
+    for v in vec:
+      if (v and 1) == 0: return false
+    true
+  else: true
+
+proc nxReadyToRead*(path: string): bool =
+  ## can the file be read without waiting for the disk: read already, or in memory (with its entry in the disk
+  ## cache)?
+  if path in nxFiles: return true
+  if not nxInMemory(path): return false
+  if nxCacheable(path) and not nxInMemory(nxCacheFile(path)): return false
+  true
+
+proc nxPrefetch*(path: string) =
+  ## the system asked to read a file ahead, in the background — and its entry in the disk cache: the files a scope
+  ## is made of are then read from memory a moment later (on a phone's storage, or a disk not read yet, a file took
+  ## up to 8 ms to read, each)
+  when defined(linux) or defined(android):
+    if path in nxFiles: return
+    for p in [path, (if nxCacheable(path): nxCacheFile(path) else: "")]:
+      if p.len == 0: continue
+      let fd = posix.open(p.cstring, O_RDONLY or O_CLOEXEC)
+      if fd >= 0:
+        discard posix_fadvise(fd, 0, 0, POSIX_FADV_WILLNEED)
+        discard posix.close(fd)
 
 proc nxParseDisk*(path: string): NxFile =
   ## a file on disk parsed (from the cache when it has this text)

@@ -84,13 +84,17 @@ proc ffiProblem(ctype, nimType: string, isReturn: bool): (string, string) =
 
 proc ffiCheckDecls(path: string, lines: seq[string], decls: seq[NimFfi]): seq[Diag] =
   ## the wrappers that do not fit their C declaration
-  let dirs = cIncludeDirs(path, lines)
+  var dirs: seq[string]
+  var dirsMade = false                 # (where headers are looked for: worked out when a wrapper names one)
   let here = parentDir(path)
   var checked = 0
   for d in decls:
     if d.kind notin ["proc", "func", "var", "let"]: continue
     inc checked
     if checked > 400: break
+    if d.header.len > 0 and not dirsMade:
+      dirs = cIncludeDirs(path, lines)
+      dirsMade = true
     # its header's declaration — or, with no header, its definition in emitted C
     let (cp, _) = if d.header.len > 0: cDeclFor(d.header, d.cname, dirs, here) else: ffiCDecl(d, path, lines, false)
     if cp.kind.len == 0: continue

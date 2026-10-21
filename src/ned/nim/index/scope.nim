@@ -32,6 +32,10 @@ var
   nxPkgDirs*: seq[string]                         # newest version of every installed nimble package
   nxModCache* = initTable[string, string]()       # "dir\tspec" → resolved path ("" = not found)
   nxGen* = 0                                      # bumped when the toolchain or a file changes
+  nxScopeEpoch* = 0                               # bumped when what scopes hold changes without the files' text
+                                                  #   changing (names a macro makes, other defines): completion's memo
+  nxTrace*: proc(what: string, t0: MonoTime) {.nimcall.} = nil   # (measuring: how long a part took — ned's
+                                                                 #   NED_PERF_TRACE; nil: nothing noted)
   nxBufferStamp*: proc(path: string): string = nil          # open buffers win over disk: "" = not open
   nxBufferLines*: proc(path: string): seq[string] = nil
 
@@ -69,6 +73,22 @@ func nxNorm*(s: string): string =
   {.cast(noSideEffect).}:
     if nxExact: return s
   nxNorm2(s)
+
+func nxNameHash*(s: string): uint32 =
+  ## the hash a scope keeps a name under (its normalized form's, as nxNorm makes it — without making it: a scope of
+  ## ten thousand names made as many strings)
+  var h = 2166136261'u32
+  template mix(c: char) = h = (h xor uint32(ord(c))) * 16777619'u32
+  {.cast(noSideEffect).}:
+    let exact = nxExact
+  if s.len == 0: return h
+  if exact:
+    for c in s: mix(c)
+  else:
+    mix(s[0])
+    for i in 1 ..< s.len:
+      if s[i] != '_': mix(toLowerAscii(s[i]))
+  h
 
 const NxStatFreshMs = 50                # (a file's stamp, read again after this: one question stats each file once)
 var
@@ -191,6 +211,7 @@ proc nxLoad*(path: string): NxFile =
 
 proc nxForgetFiles*() =
   ## every parsed file read again when next asked for (the defines changed: what `when` decides)
+  inc nxScopeEpoch
   nxFiles.clear()
   nxFileBytes.clear()
   nxFileUsed.clear()
@@ -236,6 +257,9 @@ var
   nxProjects*: Table[string, NxProject]           # project folder → the versions it builds with
   nxProjectPaths*: Table[string, seq[string]]     # project folder → the package folders `nim dump` put on its path
   nxActive*: NxProject                            # the project asked about last: package files follow it
+  nxResolveMemo*: Table[(string, string), tuple[path, root: string, pkg: bool, proj: NxProject]]
+                                                  # (importing file, spec as written) → nxResolve's answer, and the
+                                                  #   project it was for (its folder; a package's file: the active)
   nxRootOf: Table[string, string]                 # folder → the project folder above it ("" none)
 
 proc nxPkgSplit*(dirName: string): (string, string) =
@@ -417,8 +441,10 @@ proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraP
   nxProjects.clear()
   nxActive = nil
   nxModCache.clear()
+  nxResolveMemo.clear()
   nxScopes.clear()
   inc nxGen
+  inc nxScopeEpoch
 
 var nxSysMemo: (string, string)
 
@@ -686,26 +712,48 @@ proc nxProjectAt*(root: string): NxProject =
   nxProjects[root] = p
   p
 
+proc nxProjectWhere(path: string): tuple[root: string, pkg: bool] =
+  ## the folder of the project a file belongs to — or pkg: a package's own file, which follows the project asked
+  ## about last (what imports it)
+  if nxIsPkgPath(path): return ("", true)
+  let root = nxRootFor(parentDir(path))
+  if root.len > 0 and nxIsPkgPath(root): return ("", true)
+  (root, false)
+
 proc nxProjectOf*(path: string): NxProject =
   ## the project a file belongs to; a package's own file follows the project asked about last (what imports it)
-  if nxIsPkgPath(path):
-    return (if nxActive != nil: nxActive else: nxProjectAt(""))
-  let root = nxRootFor(parentDir(path))
-  if root.len > 0 and nxIsPkgPath(root): return (if nxActive != nil: nxActive else: nxProjectAt(""))
-  nxProjectAt(root)
+  let (root, pkg) = nxProjectWhere(path)
+  if pkg: (if nxActive != nil: nxActive else: nxProjectAt("")) else: nxProjectAt(root)
 
 proc nxSetActiveFile*(path: string) =
   ## the file asked about now (a request starts): the package files it reaches follow its project's versions
   if path.len == 0 or nxIsPkgPath(path): return
   nxActive = nxProjectOf(path)
 
+proc nxResolve0(fromPath, spec0: string, proj: NxProject): string
+
 proc nxResolve*(fromPath, spec0: string): string =
   ## the file an import refers to, searched like the compiler does: next to the importing module,
-  ## then the search paths (stdlib, --path, config), then nimble packages — the versions the project builds with
+  ## then the search paths (stdlib, --path, config), then nimble packages — the versions the project builds with.
+  ## (Asked thousands of times when a scope is made: the answer kept by what was asked, while the project it was
+  ## for is still the one the file follows — the same as it was worked out, the same one active for a package's
+  ## file. Nothing on disk is looked at for that: nxProjectAt looks at the project's files every 2 s when a scope
+  ## is asked for)
+  nxResolveMemo.withValue((fromPath, spec0), v):
+    let now = (if v.pkg and nxActive != nil: nxActive
+               elif v.pkg or v.root.len == 0: nxNoProject        # (made again for the same packages: a miss)
+               else: nxProjects.getOrDefault(v.root))
+    if now != nil and now == v.proj: return v.path
+  let (root, pkg) = nxProjectWhere(fromPath)
+  let proj = (if pkg: (if nxActive != nil: nxActive else: nxProjectAt("")) else: nxProjectAt(root))
+  result = nxResolve0(fromPath, spec0, proj)
+  if nxResolveMemo.len > 20000: nxResolveMemo.clear()
+  nxResolveMemo[(fromPath, spec0)] = (result, root, pkg, proj)
+
+proc nxResolve0(fromPath, spec0: string, proj: NxProject): string =
   var spec = spec0.strip(chars = {'"', ' '})
   if spec.len == 0: return ""
   let dir = parentDir(fromPath)
-  let proj = nxProjectOf(fromPath)
   let key = proj.key & "\t" & dir & "\t" & spec
   if key in nxModCache: return nxModCache[key]
   var std = false
@@ -769,7 +817,8 @@ proc nxExports*(path: string, depth: int, seen: var HashSet[string], res: var se
   var parts = @[f]
   parts.add nxIncluded(f)
   for g in parts:
-    for i, s in g.syms:
+    for i in 0 ..< g.syms.len:
+      template s: untyped = g.syms[i]
       if s.exported: res.add NxRef(file: g, idx: int32(i))
   if f.exports.len == 0: return
   var mods = initTable[string, string]()
@@ -792,7 +841,8 @@ proc nxExports*(path: string, depth: int, seen: var HashSet[string], res: var se
         if fromMod.len > 0 and mname != fromMod: continue
         let g = nxLoad(p)
         if g == nil: continue
-        for i, s in g.syms:
+        for i in 0 ..< g.syms.len:
+          template s: untyped = g.syms[i]
           if s.exported and s.name == only: res.add NxRef(file: g, idx: int32(i))
 
 var
@@ -807,14 +857,21 @@ proc nxIncludesOf*(p: string): seq[string] =
   if p in nxIncFiles and nxIncFiles[p][0] == st: return nxIncFiles[p][1]
   var res: seq[string]
   try:
-    let lines = if nxBufferLines != nil and nxBufferStamp(p).len > 0: nxBufferLines(p)
-                elif getFileSize(p) <= 3_000_000: readFile(p).splitLines
-                else: @[]
     var any = false
-    for l in lines:
-      if l.len > 8 and l.strip.startsWith("include "):
-        any = true
-        break
+    if nxBufferLines != nil and nxBufferStamp(p).len > 0:
+      for l in nxBufferLines(p):
+        if l.len > 8 and l.strip.startsWith("include "):
+          any = true
+          break
+    elif getFileSize(p) <= 3_000_000:
+      # (a folder's files looked through for `include` when a file of it is opened: no copy of each line made)
+      let t = readFile(p)
+      var k = t.find("include ")
+      while k >= 0 and not any:
+        var a = k
+        while a > 0 and t[a - 1] in {' ', '\t'}: dec a
+        if a == 0 or t[a - 1] == '\n': any = true
+        else: k = t.find("include ", k + 8)
     if any:
       let g = nxLoad(p)
       if g != nil:
@@ -866,11 +923,29 @@ proc nxTopIncluder*(path: string): string =
 
 proc nxScope*(f: NxFile): NxScope
 
+proc nxSortByHash*(a: var seq[(uint32, int32)]) =
+  ## by hash, stable (entries of one hash in the order they came): two passes of 16 bits — a merge sort with a
+  ## comparison proc took a fifth of making a scope
+  if a.len < 64:
+    a.sort(proc(x, y: (uint32, int32)): int = cmp(x[0], y[0]))
+    return
+  var tmp = newSeq[(uint32, int32)](a.len)
+  for shift in [0'u32, 16'u32]:
+    var count = newSeq[int](65537)
+    for x in a: inc count[int((x[0] shr shift) and 0xFFFF'u32) + 1]
+    for k in 1 .. 65536: count[k] += count[k - 1]
+    for x in a:
+      let k = int((x[0] shr shift) and 0xFFFF'u32)
+      tmp[count[k]] = x
+      inc count[k]
+    swap(a, tmp)
+
 proc nxIndexNames(sc: NxScope) =
   ## the scope's names, by hash, sorted (nxLookup)
   sc.byHash.setLen(sc.refs.len)
-  for i, r in sc.refs: sc.byHash[i] = (uint32(hash(nxNorm(r.file.syms[r.idx].name)) and 0xFFFF_FFFF), int32(i))
-  sc.byHash.sort(proc(x, y: (uint32, int32)): int = cmp(x[0], y[0]))
+  for i in 0 ..< sc.refs.len:
+    sc.byHash[i] = (nxNameHash(sc.refs[i].file.syms[sc.refs[i].idx].name), int32(i))
+  nxSortByHash(sc.byHash)
 
 var
   nxScopeMax* = 48                     # scopes kept: the files asked about most recently (each holds thousands of
@@ -901,6 +976,7 @@ proc nxKeepScope(path: string, sc: NxScope) =
 
 proc nxForgetScopesOf*(path: string) =
   ## the names of `path` changed without its text changing (what its macro calls make): the scopes that see it go
+  inc nxScopeEpoch
   var dead: seq[string]
   for k, sc in nxScopes:
     var hit = sc.own != nil and sc.own.path == path
@@ -953,7 +1029,7 @@ proc nxPatchScope(old: NxScope, path: string, g: NxFile): NxScope =
   for i in 0 ..< n: result.refs.add NxRef(file: g, idx: int32(i), origin: 1)
   for i in e ..< old.refs.len: result.refs.add old.refs[i]
   var fresh = newSeq[(uint32, int32)](n)
-  for i in 0 ..< n: fresh[i] = (uint32(hash(nxNorm(g.syms[i].name)) and 0xFFFF_FFFF), int32(a + i))
+  for i in 0 ..< n: fresh[i] = (nxNameHash(g.syms[i].name), int32(a + i))
   fresh.sort(proc(x, y: (uint32, int32)): int = cmp(x[0], y[0]))
   result.byHash = newSeqOfCap[(uint32, int32)](old.byHash.len + delta)
   var k = 0
@@ -969,9 +1045,47 @@ proc nxPatchScope(old: NxScope, path: string, g: NxFile): NxScope =
   for d in result.deps.mitems:
     if d[0] == path: d[1] = g.stamp
 
+proc nxSameImports(a, b: NxFile): bool =
+  ## do two versions of a file import and include the same (the same way)?
+  if a.imports.len != b.imports.len: return false
+  for i in 0 ..< a.imports.len:
+    let (x, y) = (a.imports[i], b.imports[i])
+    if x.spec != y.spec or x.alias != y.alias or x.isInclude != y.isInclude or x.only != y.only or
+       x.excepts != y.excepts:
+      return false
+  true
+
 proc nxIncludedScope*(f, host: NxFile): NxScope =
   ## what a file that another one includes can see: everything its includer sees (the includer's own
   ## declarations, its imports, its other include files), with this file's current declarations
+  if f.path == nxFocusPath and nxFiles.getOrDefault(f.path) == f:
+    # the file being edited, a keystroke later: its scope before, with this version's names in place of the last
+    # one's — the includer's scope is left as it was (patching it, then copying it for this file, was two copies of
+    # a hundred thousand names at every key in a big program)
+    # (a file of its own imports too — ned.nim, that nedls.nim includes: its names are the first block, the
+    # includer's follow without it)
+    let old = nxScopes.getOrDefault(f.skey)
+    if old != nil and old.own != nil and old.own.path == f.path and old.stamp.startsWith("inc|") and
+       nxSameImports(old.own, f):
+      var stale = ""
+      var many = false
+      for (p, ps) in old.deps:
+        if nxCurStamp(p) != ps:
+          if stale.len > 0:
+            many = true
+            break
+          stale = p
+      if stale.len == 0 and old.own == f:
+        inc nxTick
+        nxScopeUsed[f.skey] = nxTick
+        return old
+      if not many and (stale == f.path or stale.len == 0):
+        let pt = nxPatchScope(old, f.path, f)
+        if pt != nil:
+          pt.own = f
+          pt.stamp = "inc|" & f.stamp & "|patched"
+          nxKeepScope(f.skey, pt)
+          return pt
   let hs = nxScope(host)
   if f.path != nxFocusPath:
     # an include file that is not the one being edited, that imports nothing of its own and is the very file the
@@ -1123,7 +1237,14 @@ proc nxScope*(f: NxFile): NxScope =
     return old
   if old != nil and old.ikey == ikey and old.own != nil and old.own.path == f.path:
     # own symbols change with every edit; imports rarely do: what the imports bring is kept (system's and the
-    # imports' thousands of names: an edit no longer gathers them all again)
+    # imports' thousands of names: an edit no longer gathers them all again) — this file's names put in place of
+    # the last version's, the rest's index kept (sorting a hundred thousand names again took 16 ms a key in ned.nim)
+    let pt = nxPatchScope(old, f.path, f)
+    if pt != nil:
+      pt.stamp = stamp
+      pt.own = f
+      nxKeepScope(f.skey, pt)
+      return pt
     var sc = NxScope(refs: newSeqOfCap[NxRef](old.refs.len + 16), stamp: stamp, ikey: ikey, modules: old.modules,
                      own: f, deps: old.deps, memo: (if nxSameTypes(old.own, f): old.memo else: nil))
     for i in 0 ..< f.syms.len: sc.refs.add NxRef(file: f, idx: int32(i), origin: 1)
@@ -1184,7 +1305,7 @@ proc nxIgnoresStyle*(f: NxFile): bool =
 
 proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
   let n = nxNorm(name)
-  let h = uint32(hash(n) and 0xFFFF_FFFF)
+  let h = nxNameHash(name)
   var lo = 0
   var hi = sc.byHash.len
   while lo < hi:                               # the first entry with this hash
@@ -1247,7 +1368,8 @@ proc nxAt*(f: NxFile, lines: openArray[string], line: int): NxFile =
   # the declarations of branches with these conditions first (any `when defined(windows)` of the file for Windows
   # code), then those of the branches around them, then the file's, then the rest
   var mine, around, others: seq[NxSym]
-  for k, s in full.syms:
+  for k in 0 ..< full.syms.len:
+    template s: untyped = full.syms[k]
     let b = if k < full.symBranch.len: full.symBranch[k] else: -1'i32
     if b < 0: g.syms.add s
     elif b == chain: mine.add s
