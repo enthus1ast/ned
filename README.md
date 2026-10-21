@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.15](#whats-new-in-615) · [6.14.1](CHANGELOG.md#whats-new-in-6141) · [6.14](CHANGELOG.md#whats-new-in-614) · [6.13](CHANGELOG.md#whats-new-in-613) · [older releases](CHANGELOG.md)
+- [What's new in 6.16](#whats-new-in-616) · [6.15](CHANGELOG.md#whats-new-in-615) · [6.14.1](CHANGELOG.md#whats-new-in-6141) · [6.14](CHANGELOG.md#whats-new-in-614) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,86 +40,46 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.15
+## What's new in 6.16
 
-6.15 is about editing — selections that know the code, pairs put around it, an undo that loses nothing, the next
-edit guessed, every git change in one place — and two more languages ned answers for itself: JavaScript, and C++.
+6.16 is about the moments ned did not answer a key because its Nim engine was busy. The slow work — type and
+parameter hints, the engine's checks and misspelled names, reference counts, and ned's own CSS, HTML, SQL and
+JavaScript checks — now runs in **the engine worker**: a second ned (`ned --engine-worker`, the same program) on
+another processor core. The editor sends it the text of the open files, then only what changed, and asks; the
+answers come back while you type and scroll. An answer for a text that has changed since is dropped and asked for
+again. Completion, hover, go to definition and the rest you ask for stay in the editor, answered in the same frame.
 
-**Select by the code's structure** (Alt+Shift+→, Alt+Shift+← back): from a name, its call, the call's argument, what
-the brackets hold, the brackets, the member chain (`foo.bar(a).baz`), the value after `=`, the statement (over its
-continuation lines), the block, the block with its header, the routine with its doc comment, the file — by the
-text's brackets, quotes and indentation, so in every language (in C, a brace block's lines, then with the braces,
-then the `if (…) { … }`).
+**What it changed**, measured on ned's own source (a program of 290 include files) on two processor cores, the longest
+moment ned did not read input:
 
-**Surround** (Alt+Shift+S, *Edit › Surround*, the right-click menu): brackets, quotes, backticks or an element
-(`<tag attrs>` — you type it) around each selection or the word under each cursor; around lines, a block of the
-language: Nim's `if`, `when`, `for`, `while`, `block`, `try` (with its `except`), `try … finally`, a `proc`; Python's,
-C's, JavaScript's, Go's, Rust's, shell's, Lua's and Ruby's own, Markdown's code fence — the lines indented, Tab
-walking its places (`${1:cond}`). *Change the surrounding pair…* and *Delete the surrounding pair* (an element
-too). In vim mode, as vim-surround: `ys{motion}{char}` (`ysiw"`), `yss)`, `cs"'`, `ds(`, `S{char}` on a visual
-selection, `t` or `<` for a tag.
+| | 6.15 | 6.16 |
+|---|---|---|
+| opening a file of it | 48–55 ms | 23–43 ms |
+| typing a few lines, with completion | 48–62 ms | 29–37 ms |
+| scrolling a long file with hints and counts | 55 ms | 24–26 ms |
 
-**The undo tree.** An edit after an undo no longer throws away what was undone: it stays, as a branch.
-*Edit › Undo history…* (Alt+Shift+U) lists every state the file has been in, the newest first — what each step did
-(*typed “size”*, *deleted “width”*), its line and how long ago, ↷ for the undone, ⑂ for a branch — with **the text
-at that state beside the list**; Enter goes there (the edits you leave become a branch in turn). Vim's `g-` and
-`g+` go back and forth in time across branches. The branches are kept with the file's undo history
-(`editor.persistentUndo`).
+Hints, counts and problems also come sooner: the worker works on them flat out, not a few milliseconds between keys.
+It takes about 20 MB on ned's own source (Help › Performance shows it, with what its last answers took); the editor
+itself takes less, since it no longer prepares every imported module for the checks. A worker that has nothing to
+do for 10 minutes stops and gives its memory back; one that stops is started again (four times in ten minutes and
+the editor goes back to doing the work itself, saying why in Help › Performance). `"nim.engineWorker": false` keeps
+everything in the editor as before.
 
-![Undo history: every state of the file, the branch an edit after an undo left, and the text at the selected state](screenshots/undo-tree-615.png)
+**Completion is twice as fast** in a big program: a name's list (thousands of entries in ned's own source) no longer
+makes the details of entries nobody sees, nor works out the type of each local again at every letter — 12–17 ms a
+letter before, 6–8 ms now. The first one after `nim dump` came back no longer makes the file's scope on the spot
+(40 ms): it is made again in the background, a few files a round, as it is when a file is opened.
 
-**Next-edit suggestions** (`editor.nextEdit`). Change a name — `width` made `size` — and the next place that still
-says `width` shows *→ size ⇥*: Tab goes there (the word selected), Tab again makes the change and shows the place
-after it — Tab, Tab… through the file; Esc says no. Whole words only (`widthy` stays). With the assistant set up,
-`ai.nextEdit` asks the quick model where an edit with no repeat leads (*→ 2.0 ⇥ (AI)*).
-
-**Git › Changes…** (Alt+Shift+G): every change not committed, in every file, in one editable multibuffer — each
-with a line around it, its header saying what it adds and removes and whether it is staged (*+3 −2 · not staged*,
-*partly staged*, *new file*), the change marks in the gutter. Edit there and Ctrl+S writes each piece back to its
-file; the right-click menu (or the palette) stages, unstages or reverts the change at the cursor — revert puts
-back the last commit's text and unstages it — and the view is made again, the cursor where it was. Enter on a
-header opens the file there. *Git: unstage this change* is new for any file too.
-
-![Git › Changes: every change in one editable view, staged or not](screenshots/git-changes-615.png)
-
-**JavaScript — ned's own** (`web.engine`; a JavaScript language server, when installed, answers instead), in .js
-files, an HTML page's `<script>`s, Nim strings (`js"""…"""`, emits with `nim.backend` js):
-
-- **Completion**: after `.` the members of what is before it when the engine can tell — a class of the file (its
-  methods, fields set by `this.x = …`, inherited ones, `#private` ones; its statics after `Point.`), `this.` and
-  `super.`, the browser's and Node's globals (`document.`, `Math.`, `console.`, `localStorage.` …), and values it
-  recognises: strings, arrays, `new X()`, an element from `querySelector`, `classList`, a `fetch` Response, a
-  Promise, an object literal's keys; elsewhere the names in scope (the nearest first), keywords, globals. Nothing
-  in strings and comments, but `${…}` in a template literal is code.
-- **Hover** with the signature and a line of documentation (and the MDN or Node.js page); **F12** to a
-  declaration, a method of the file's classes too.
-- **Problems**: a bracket or `${` never closed, a name declared twice in a scope, an assignment to a `const` or an
-  import, a name nothing declares one letter off one that is (*did you mean 'card'?*), an unused function, `let`,
-  `const` or import (in a module), `==` with a literal — rules `js-brace`, `js-redeclare`, `js-const-assign`,
-  `js-typo`, `js-unused`, `js-eqeq`. Checked on 1,223 real files (174,000 lines): no false alarms.
-- `ned --lint app.js style.css page.html query.sql`: ned's own checks of those languages, for files named on the
-  command line.
-
-**C++ — ned's own C engine reads it** (in `.cpp`/`.cc`/`.hpp` files, a `.h` with classes in it, and emits when
-`nim.backend` is cpp): classes and structs with their bases, methods in the class or outside it
-(`Ret Class::method`), constructors, operators, namespaces (nested, `inline`, anonymous, `using namespace`),
-templates (`Box<Point>` gives `value` the type `Point`), references, `auto`, `enum class`. **Completion** after `.`
-and `->` — inherited members too, through `auto`, references, templates and smart pointers (`p->` on a
-`unique_ptr<T>` lists T's) —, after `::` a namespace's names, a class's members or an enum's constants, a class's
-members inside its methods (and after `this->`), and `std::`'s common names with what they are. **Hover and F12**:
-a method's body outside its class first, then its declaration, and back. Errors while you type from
-`c++ -std=c++17`; the outline puts members under their class; `#ifdef __cplusplus` branches are live. 823 real C++
-files (libstdc++, and others) read in 0.44 s together. Overloads are all listed (not resolved), and `decltype`,
-concepts and template specializations are not understood — clangd is still used first when installed.
-
-**The showcase** (`examples/showcase.nim`) has a section for all of this: a proc to select by structure, surround,
-rename and undo in, the JavaScript in its strings with a misspelled name, and how an emit becomes C++.
+**What a file's scope is made of is read a few files at a time**, includes found as they are read — opening a file of a
+big program read them all at once before (up to 75 ms).
 
 Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
 ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
 ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.14.1](CHANGELOG.md#whats-new-in-6141) kept scrolling
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.15](CHANGELOG.md#whats-new-in-615) brought selection by
+code structure, surround, the undo tree, next-edit suggestions, the Git changes view, ned's own JavaScript and C++,
+[6.14.1](CHANGELOG.md#whats-new-in-6141) kept scrolling
 smooth with reference counts and gave quick fixes keys Windows Terminal leaves alone, [6.14](CHANGELOG.md#whats-new-in-614)
 made ned faster where you wait and brought its own CSS, HTML and SQL, [6.13](CHANGELOG.md#whats-new-in-613) made the running ned
 reachable from its terminal, git and scripts and asked the terminal what it can do, [6.12](CHANGELOG.md#whats-new-in-612) brought Nim 3
@@ -649,6 +609,12 @@ written over several lines), a parameter's default in a routine's header (`proc 
 `result = `, `return `, a comparison, a field in `Foo(name: …)` — completion lists what has that type first:
 values, enum values, fields and routines returning it, subtypes and numbers that convert without a cast included.
 The rest stays in the list behind them. After `p.` in such a place, p's members of that type come first.
+
+**The engine worker** (`nim.engineWorker`, on by default). Type and parameter hints, the engine's checks and
+misspelled names, reference counts and ned's own CSS, HTML, SQL and JavaScript checks are worked out by a second
+ned on another processor core; the editor sends it the open files' text (then only what changed) and shows the
+answers as they come. Typing, scrolling and opening files never wait for them. Off: the editor works them out
+itself, a few ms at a time, as before 6.16.
 
 **The index's memory** (`nim.indexMemory`, 64 MB by default, 0 for no limit). The engine counts what its parsed
 files take and keeps them under the budget: above it, the files asked about least recently and not open are
@@ -1302,8 +1268,9 @@ tasks:
 Why it is fast: a cell grid with per-cell diffing (only changed cells are sent, inside synchronized-output
 frames, colours carried along a row and unchanged stretches skipped), scrolling done by the terminal itself (a
 scroll region: only the new lines are sent), incremental per-line highlighting with a background pass, nothing done
-per frame that depends on file size, file indexing and project search in the background, the engine's checks in
-the pauses between keys and swipes, language servers and git in separate processes with non-blocking pipes and a
+per frame that depends on file size, file indexing and project search in the background, the engine's hints,
+checks and counts in the engine worker (a second ned on another core, `nim.engineWorker`), language servers and git
+in separate processes with non-blocking pipes and a
 lower priority than ned, and zero CPU while idle. Files over 40 000 lines skip the language server so typing stays
 instant; a 1-million-line file scrolls and edits normally.
 

@@ -19,6 +19,7 @@ proc drawCompletion() =
   var lw = 10
   var dw = 0
   for k in 0 ..< min(compShown.len, 60):
+    compDetailFill(compShown[k])
     let it = compItems[compShown[k]]
     lw = max(lw, strWidth(it.label))
     dw = max(dw, strWidth(it.detail))

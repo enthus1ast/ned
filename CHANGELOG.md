@@ -1,6 +1,81 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-615). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-616). Older releases:
+
+## What's new in 6.15
+
+6.15 is about editing — selections that know the code, pairs put around it, an undo that loses nothing, the next
+edit guessed, every git change in one place — and two more languages ned answers for itself: JavaScript, and C++.
+
+**Select by the code's structure** (Alt+Shift+→, Alt+Shift+← back): from a name, its call, the call's argument, what
+the brackets hold, the brackets, the member chain (`foo.bar(a).baz`), the value after `=`, the statement (over its
+continuation lines), the block, the block with its header, the routine with its doc comment, the file — by the
+text's brackets, quotes and indentation, so in every language (in C, a brace block's lines, then with the braces,
+then the `if (…) { … }`).
+
+**Surround** (Alt+Shift+S, *Edit › Surround*, the right-click menu): brackets, quotes, backticks or an element
+(`<tag attrs>` — you type it) around each selection or the word under each cursor; around lines, a block of the
+language: Nim's `if`, `when`, `for`, `while`, `block`, `try` (with its `except`), `try … finally`, a `proc`; Python's,
+C's, JavaScript's, Go's, Rust's, shell's, Lua's and Ruby's own, Markdown's code fence — the lines indented, Tab
+walking its places (`${1:cond}`). *Change the surrounding pair…* and *Delete the surrounding pair* (an element
+too). In vim mode, as vim-surround: `ys{motion}{char}` (`ysiw"`), `yss)`, `cs"'`, `ds(`, `S{char}` on a visual
+selection, `t` or `<` for a tag.
+
+**The undo tree.** An edit after an undo no longer throws away what was undone: it stays, as a branch.
+*Edit › Undo history…* (Alt+Shift+U) lists every state the file has been in, the newest first — what each step did
+(*typed “size”*, *deleted “width”*), its line and how long ago, ↷ for the undone, ⑂ for a branch — with **the text
+at that state beside the list**; Enter goes there (the edits you leave become a branch in turn). Vim's `g-` and
+`g+` go back and forth in time across branches. The branches are kept with the file's undo history
+(`editor.persistentUndo`).
+
+![Undo history: every state of the file, the branch an edit after an undo left, and the text at the selected state](screenshots/undo-tree-615.png)
+
+**Next-edit suggestions** (`editor.nextEdit`). Change a name — `width` made `size` — and the next place that still
+says `width` shows *→ size ⇥*: Tab goes there (the word selected), Tab again makes the change and shows the place
+after it — Tab, Tab… through the file; Esc says no. Whole words only (`widthy` stays). With the assistant set up,
+`ai.nextEdit` asks the quick model where an edit with no repeat leads (*→ 2.0 ⇥ (AI)*).
+
+**Git › Changes…** (Alt+Shift+G): every change not committed, in every file, in one editable multibuffer — each
+with a line around it, its header saying what it adds and removes and whether it is staged (*+3 −2 · not staged*,
+*partly staged*, *new file*), the change marks in the gutter. Edit there and Ctrl+S writes each piece back to its
+file; the right-click menu (or the palette) stages, unstages or reverts the change at the cursor — revert puts
+back the last commit's text and unstages it — and the view is made again, the cursor where it was. Enter on a
+header opens the file there. *Git: unstage this change* is new for any file too.
+
+![Git › Changes: every change in one editable view, staged or not](screenshots/git-changes-615.png)
+
+**JavaScript — ned's own** (`web.engine`; a JavaScript language server, when installed, answers instead), in .js
+files, an HTML page's `<script>`s, Nim strings (`js"""…"""`, emits with `nim.backend` js):
+
+- **Completion**: after `.` the members of what is before it when the engine can tell — a class of the file (its
+  methods, fields set by `this.x = …`, inherited ones, `#private` ones; its statics after `Point.`), `this.` and
+  `super.`, the browser's and Node's globals (`document.`, `Math.`, `console.`, `localStorage.` …), and values it
+  recognises: strings, arrays, `new X()`, an element from `querySelector`, `classList`, a `fetch` Response, a
+  Promise, an object literal's keys; elsewhere the names in scope (the nearest first), keywords, globals. Nothing
+  in strings and comments, but `${…}` in a template literal is code.
+- **Hover** with the signature and a line of documentation (and the MDN or Node.js page); **F12** to a
+  declaration, a method of the file's classes too.
+- **Problems**: a bracket or `${` never closed, a name declared twice in a scope, an assignment to a `const` or an
+  import, a name nothing declares one letter off one that is (*did you mean 'card'?*), an unused function, `let`,
+  `const` or import (in a module), `==` with a literal — rules `js-brace`, `js-redeclare`, `js-const-assign`,
+  `js-typo`, `js-unused`, `js-eqeq`. Checked on 1,223 real files (174,000 lines): no false alarms.
+- `ned --lint app.js style.css page.html query.sql`: ned's own checks of those languages, for files named on the
+  command line.
+
+**C++ — ned's own C engine reads it** (in `.cpp`/`.cc`/`.hpp` files, a `.h` with classes in it, and emits when
+`nim.backend` is cpp): classes and structs with their bases, methods in the class or outside it
+(`Ret Class::method`), constructors, operators, namespaces (nested, `inline`, anonymous, `using namespace`),
+templates (`Box<Point>` gives `value` the type `Point`), references, `auto`, `enum class`. **Completion** after `.`
+and `->` — inherited members too, through `auto`, references, templates and smart pointers (`p->` on a
+`unique_ptr<T>` lists T's) —, after `::` a namespace's names, a class's members or an enum's constants, a class's
+members inside its methods (and after `this->`), and `std::`'s common names with what they are. **Hover and F12**:
+a method's body outside its class first, then its declaration, and back. Errors while you type from
+`c++ -std=c++17`; the outline puts members under their class; `#ifdef __cplusplus` branches are live. 823 real C++
+files (libstdc++, and others) read in 0.44 s together. Overloads are all listed (not resolved), and `decltype`,
+concepts and template specializations are not understood — clangd is still used first when installed.
+
+**The showcase** (`examples/showcase.nim`) has a section for all of this: a proc to select by structure, surround,
+rename and undo in, the JavaScript in its strings with a misspelled name, and how an emit becomes C++.
 
 ## What's new in 6.14.1
 

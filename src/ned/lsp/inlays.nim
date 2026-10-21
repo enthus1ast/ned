@@ -404,7 +404,10 @@ proc requestInlays(b: Buffer) =
   if not cfgInlayHints or b.path.len == 0: return
   if nimEngineOn(b) and sStr("nim.typeHints") != "nimsuggest":
     # ned's own engine: at once, without nimsuggest
-    if msSince(b.lspChangeAt) < 400: return      # (typing: the hints there move with the text meanwhile)
+    if msSince(b.lspChangeAt) < 300: return      # (typing: the hints there move with the text meanwhile)
+    if wkOn():
+      wkInlayStep(b)                             # (the engine worker works them out: the answers come back)
+      return
     if not engineReady(b): return                # (the files it needs are being read, a few at a time)
     engineInlayStep(b)
     return

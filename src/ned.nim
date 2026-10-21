@@ -297,6 +297,7 @@ include ned/run/tasks
 include ned/app/usercommands
 include ned/app/lint
 include ned/web/webui
+include ned/nim/worker
 include ned/app/commandlist
 include ned/app/control
 include ned/app/main

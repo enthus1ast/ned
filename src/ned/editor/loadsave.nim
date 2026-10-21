@@ -96,6 +96,7 @@ proc refreshEditorConfig() =
 proc setContent(b: Buffer, content: string) =
   # one pass to count line ends; the text is split without a copy unless it has CRLF line ends
   b.nesHas = false
+  b.wkLogFrom = -1
   var nl, crnl = 0
   var lastNl = -1
   var longest = 0
@@ -140,6 +141,7 @@ proc setContentStream(b: Buffer, path: string): bool =
   if not open(f, path): return false
   defer: close(f)
   b.nesHas = false
+  b.wkLogFrom = -1
   const Chunk = 1 shl 20
   var buf = newString(Chunk)
   # first: the line ends (how many, CRLF or LF, the longest line) — so the list of lines is made once, its size known

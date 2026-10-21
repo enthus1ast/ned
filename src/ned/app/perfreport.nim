@@ -49,6 +49,7 @@ proc perfReport(): string =
   result.add "Engine (the Nim file in front)\n"
   result.add "  type and parameter hints: " & (if lastInlayMs >= 0: $lastInlayMs & " ms the last round" else: "-") & "\n"
   result.add "  its own checks:           " & (if lastChecksMs >= 0: $lastChecksMs & " ms the last time" else: "-") & "\n"
+  result.add wkReport()
   result.add "  index: " & $(nxFilesBytes div 1048576) & " MB of parsed files (nim.indexMemory: " &
              $(nxIndexBudget div 1048576) & " MB)\n\n"
   result.add "Memory: ned " & $procRssMB(getpid().int) & " MB\n\n"

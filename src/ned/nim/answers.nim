@@ -1,37 +1,60 @@
 var nxWarm: HashSet[int]                 # buffers whose imports the index has already read
-var nxPreload: Table[int, seq[string]]  # buffer → the files its scope is made of, still to be read (a few a round)
 var nxPreloaded: HashSet[int]           # buffers whose scope is made: what waited for it (hints, checks, colours,
                                         #   counts) goes ahead
 
-proc enginePreloadList(f: NxFile): seq[string] =
-  ## the files the scope of `f` is made of and the index has not read: the program it is part of (the file that
-  ## includes it, every file that one includes) and its imports — read a few at a time in quiet moments, so that
-  ## making the scope reads nothing (ned's own source: 290 include files — a quarter of a second at once)
-  var seen: HashSet[string]
-  var todo: seq[string]
-  let top = nxTopIncluder(f.path)
-  if top.len > 0: todo.add top
+var
+  nxPreloadQ: Table[int, seq[(string, bool)]]   # buffer id → the files its scope is made of still to read: (path,
+                                                #   a part of its program — else of a module the program imports)
+  nxPreloadSeen: Table[int, HashSet[string]]
+
+proc enginePreloadStart(b: Buffer, f: NxFile) =
+  ## the files the scope of `f` is made of, to be read a few at a time in quiet moments (so that making the scope
+  ## reads nothing — ned's own source: 290 include files and the modules they import, a quarter of a second at
+  ## once): system, its imports, the program it is part of (the file that includes it)
+  var q: seq[(string, bool)]
+  let sp = nxSystemPath()
+  if sp.len > 0: q.add (sp, false)
   for im in f.imports:
     let p = nxResolve(f.path, im.spec)
-    if p.len > 0: todo.add p
-  while todo.len > 0 and result.len < 3000:
-    let p = todo.pop()
-    if p in seen or p == f.path: continue
+    if p.len > 0: q.add (p, im.isInclude)
+  let top = nxTopIncluder(f.path)
+  if top.len > 0: q.add (top, true)
+  nxPreloadQ[b.id] = q
+  nxPreloadSeen[b.id] = initHashSet[string]()
+
+proc enginePreloadStep(b: Buffer, ms: int): bool =
+  ## a few more of them read (each from the index's disk cache when it has it); true when all are
+  let t0 = getMonoTime()
+  if b.id notin nxPreloadQ: return true
+  var q = move nxPreloadQ[b.id]
+  var seen = move nxPreloadSeen[b.id]
+  defer:
+    nxPreloadQ[b.id] = move q
+    nxPreloadSeen[b.id] = move seen
+  while q.len > 0 and msSince(t0) < ms:
+    let (p, part) = q.pop()
+    if p in seen: continue
     seen.incl p
-    if p notin nxFiles: result.add p
-    if p.len > 0 and p in nxFiles:
-      for q in nxIncludesOf(p): todo.add q
-    elif result.len > 0 and result[^1] == p:
-      # (read now: what it includes is known only then — a file that includes others is read first)
-      discard nxLoad(p)
-      result.setLen(result.len - 1)
-      for q in nxIncludesOf(p): todo.add q
+    let g = nxLoad(p)
+    if g == nil: continue
+    var mods: Table[string, string]
+    for im in g.imports:
+      let r = nxResolve(p, im.spec)
+      if r.len == 0 or r in seen: continue
+      if im.isInclude: q.add (r, part)            # (what a part includes is a part too)
+      elif part: q.add (r, false)                 # (the program's imports: what they export)
+      else: mods[nxModuleName(if im.alias.len > 0: im.alias else: im.spec)] = r
+    if not part:
+      for e in g.exports:                          # (a module's `export x`: what x exports too)
+        let nm = nxModuleName(e.split(" except ")[0])
+        if nm in mods: q.add (mods[nm], false)
+  q.len == 0
 
 proc engineReady(b: Buffer): bool =
   ## the engine has what this buffer's scope is made of (else hints, checks, colours and counts wait a moment:
   ## the files are read a few at a time — completion, hover and the rest you ask for do not wait)
   when defined(nedNoMain): true          # (nedls and the engine's test driver: no main loop to read them for it)
-  else: b.id in nxPreloaded or not nimEngineOn(b) or b.path.len == 0
+  else: wkWorkerMode or b.id in nxPreloaded or not nimEngineOn(b) or b.path.len == 0
 
 var nxWarmMods: seq[(string, int)]      # modules the open file imports (and theirs) whose own scopes are still to be
 var nxWarmedMods: HashSet[string]       #   made: (path, how far from the file)
@@ -50,8 +73,15 @@ proc engineWarm(b: Buffer) =
     nxWarm.clear()
     nxWarmedMods.clear()
     nxWarmMods.setLen(0)
+    # (`nim dump` came back — the files read again: the open file's scope made again here too, a few files a round,
+    # not by the first completion asked for, all at once)
+    nxPreloaded.clear()
+    nxPreloadQ.clear()
+    nxPreloadSeen.clear()
   template queue(f: NxFile, depth: int) =
-    if f != nil:
+    # (the modules it imports, and theirs, made ready for the engine's checks — which the engine worker makes now,
+    # in its own process: then only the open file's scope here, for completion and hover)
+    if f != nil and (not wkOn() or getEnv("NED_DEEPWARM").len > 0):
       for im in f.imports:
         if im.isInclude: continue
         let p = nxResolve(f.path, im.spec)
@@ -68,21 +98,16 @@ proc engineWarm(b: Buffer) =
     try:
       let f = nxFileFor(b)
       if nxScopeCached(f): nxPreloaded.incl b.id
-      else: nxPreload[b.id] = enginePreloadList(f)
+      else: enginePreloadStart(b, f)
       queue(f, 1)
     except Exception as e: internalError("Nim index", e)
     return
   if b.id notin nxPreloaded:
     # the files its scope is made of, 6 ms a round; then the scope (what waited for it goes ahead)
-    let t0 = getMonoTime()
-    var left = nxPreload.getOrDefault(b.id)
     try:
-      while left.len > 0 and msSince(t0) < 6:
-        let p = left.pop()
-        if p notin nxFiles: discard nxLoad(p)
-      nxPreload[b.id] = left
-      if left.len == 0:
-        nxPreload.del b.id
+      if enginePreloadStep(b, 6):
+        nxPreloadQ.del b.id
+        nxPreloadSeen.del b.id
         discard nxScope(nxFileFor(b))
         nxPreloaded.incl b.id
         needRender = true
@@ -234,8 +259,7 @@ proc engineComplete(b: Buffer, manual: bool): bool =
   compLine = p.line
   compStartCol = b.wordStart(p)
   compManual = manual
-  compNx = c.items
-  var items: seq[CompItem]
+  var items = newSeqOfCap[CompItem](c.items.len + 8)
   for i, it in c.items:
     let kw = it.detail == "keyword"
     items.add CompItem(label: it.label, insert: (if it.insert.len > 0: it.insert else: it.label), detail: (if kw: "" else: it.detail),
@@ -266,13 +290,22 @@ proc engineComplete(b: Buffer, manual: bool): bool =
                              sortText: "5" & name.toLowerAscii, rank: 5, addImport: m)
           inc added
           break
-  compItems = items
+  compNx = move c.items
+  compItems = move items
   compFromLsp = true
   refilterComp()
   if c.member and not c.known and nsUsable(b):
     discard nsRequest(b, nsSug, p)        # the compiler knows what the index could not work out
   elif manual and not compOpen: info("No completions")
   true
+
+proc compDetailFill(i: int) =
+  ## (a plain name's list: the details of the items shown, made when they are)
+  if i < 0 or i >= compItems.len or compItems[i].detail.len > 0: return
+  let nx = compItems[i].nx
+  if nx > 0 and nx <= compNx.len and compNx[nx - 1].lazy:
+    try: compItems[i].detail = nxItemDetail(compNx[nx - 1])
+    except CatchableError: discard
 
 proc compDocOf(i: int): string =
   ## the documentation shown beside completion item i (made once, when first shown)

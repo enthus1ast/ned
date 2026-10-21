@@ -78,6 +78,7 @@ type
     rank*: int                 # 0 local · 1 this module · 2 imports · 3 system · 4 guesses
     ufcs*: bool                # offered after `.` as a method-call: the first parameter is the receiver
     insert*: string            # text to insert when it is not the label (`field: ` in a constructor)
+    lazy*: bool                # detail not made yet: nxItemDetail makes it (when the item is shown)
   NxCompletion* = object
     member*: bool              # after a `.`
     known*: bool               # the receiver's type was understood
@@ -137,27 +138,56 @@ proc nxVisible*(f: NxFile, r: NxRef): bool =
   nxInModule(f, r.file.path)
 
 proc nxAddRefs*(items: var seq[NxItem], f: NxFile, refs: seq[NxRef], ufcs = false, rankBias = 0, recv = "",
-               binds = initTable[string, string]()) =
-  ## one item per name: overloads are folded into it (all of them are in the documentation)
-  var at = initTable[string, int]()
-  for i, it in items: at[it.label & "/" & $(it.kind in NxRoutineKinds)] = i
+               binds = initTable[string, string](), lazy = false) =
+  ## one item per name: overloads are folded into it (all of them are in the documentation). lazy: the details
+  ## are made when an item is shown (a plain name: thousands of items, a handful on screen)
+  # (the items so far by their name's hash — a plain name's list has thousands: no string made per name)
+  var at = initTable[Hash, int32](max(64, (items.len + refs.len) * 2))
+  var clash: Table[string, int]                       # (names whose hash another name has: rare)
+  template keyOf(name: string, routine: bool): Hash = (hash(name) shl 1) xor Hash(ord(routine))
+  proc find(items: seq[NxItem], at: Table[Hash, int32], clash: Table[string, int], name: string,
+            routine: bool): int =
+    let k = keyOf(name, routine)
+    let i = at.getOrDefault(k, -1'i32)
+    if i >= 0 and items[i].label == name and (items[i].kind in NxRoutineKinds) == routine: return i
+    clash.getOrDefault(name & "/" & $routine, -1)
+  proc put(items: seq[NxItem], at: var Table[Hash, int32], clash: var Table[string, int], name: string,
+           routine: bool, idx: int) =
+    let k = keyOf(name, routine)
+    let i = at.getOrDefault(k, -1'i32)
+    if i < 0: at[k] = int32(idx)
+    elif items[i].label != name or (items[i].kind in NxRoutineKinds) != routine: clash[name & "/" & $routine] = idx
+  for i, it in items: put(items, at, clash, it.label, it.kind in NxRoutineKinds, i)
   for r in refs:
     template s: untyped = r.sym
     if s.kind == nxModule or s.name.len == 0 or not (s.name[0] in {'a'..'z', 'A'..'Z', '_'} or s.name[0] >= '\x80'):
       continue                     # operators are not typed by name
     if ufcs and s.name in NxKeywords: continue        # x.and(y) is legal but nobody writes it
-    let key = s.name & "/" & $(s.kind in NxRoutineKinds)
-    if key in at:
-      items[at[key]].refs.add r
+    let routine = s.kind in NxRoutineKinds
+    let got = find(items, at, clash, s.name, routine)
+    if got >= 0:
+      items[got].refs.add r
       continue
-    at[key] = items.len
-    var detail = nxShortDetail(s, ufcs)
-    if binds.len > 0: detail = nxSubst(detail, binds)
-    elif ufcs and recv.len > 0:
-      let b = nxBindings(s, recv)
-      if b.len > 0: detail = nxSubst(detail, b)
-    items.add NxItem(label: s.name, detail: detail, kind: s.kind, refs: @[r],
+    put(items, at, clash, s.name, routine, items.len)
+    var detail = ""
+    let later = lazy and not ufcs and binds.len == 0
+    if not later:
+      detail = nxShortDetail(s, ufcs)
+      if binds.len > 0: detail = nxSubst(detail, binds)
+      elif ufcs and recv.len > 0:
+        let b = nxBindings(s, recv)
+        if b.len > 0: detail = nxSubst(detail, b)
+    items.add NxItem(label: s.name, detail: detail, kind: s.kind, refs: @[r], lazy: later,
                      rank: nxRank(f, r) + rankBias + (if "deprecated" in s.pragmas: 2 else: 0), ufcs: ufcs)
+
+var nxLocalTypMemo: Table[string, string]   # a local's declaration (where, its line's text) → its type, for completion
+
+proc nxItemDetail*(it: var NxItem): string =
+  ## an item's detail, made now when it was left for later
+  if it.lazy:
+    it.lazy = false
+    if it.refs.len > 0: it.detail = nxShortDetail(it.refs[0].sym, false)
+  it.detail
 
 type NxSigHelp* = object
   overloads*: seq[NxRef]
@@ -1047,8 +1077,15 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     seenLocal.incl s.name
     var ls = s
     if ls.typ.len == 0 and ls.kind notin NxRoutineKinds and seenLocal.len <= 40:
-      # show what the local holds:  c  Circle
-      ls.typ = nxTypeOfName(f, sc, locals[0 .. i], s.name, line, 0).typ
+      # show what the local holds:  c  Circle — worked out once while its declaration's line stays as it is (each
+      # letter typed asks again; the types of a routine's locals took a quarter of the time)
+      let mk = f.path & "|" & $s.line & "|" & $s.col & "|" & s.name & "|" & $nxGen & "|" &
+               (if s.line >= 0 and s.line < lines.len: lines[s.line] else: "")
+      ls.typ = nxLocalTypMemo.getOrDefault(mk, "\0")
+      if ls.typ == "\0":
+        ls.typ = nxTypeOfName(f, sc, locals[0 .. i], s.name, line, 0).typ
+        if nxLocalTypMemo.len > 2000: nxLocalTypMemo.clear()
+        nxLocalTypMemo[mk] = ls.typ
     result.items.add NxItem(label: s.name, detail: nxShortDetail(ls), kind: s.kind, local: ls, rank: 0)
   var plain: seq[NxRef]
   let here = nxEnclosing(f, line)
@@ -1056,7 +1093,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     if r.sym.kind == nxField: continue
     if r.sym.local and (r.file != f or here < 0 or nxEnclosing(f, r.sym.line) != here): continue   # (another routine's type)
     plain.add r
-  nxAddRefs(result.items, f, plain)
+  nxAddRefs(result.items, f, plain, lazy = true)
   for m, p in sc.modules:
     result.items.add NxItem(label: m, detail: "module", kind: nxModule, rank: 2,
                             local: NxSym(name: m, kind: nxModule, value: p))

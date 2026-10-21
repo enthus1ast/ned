@@ -422,6 +422,9 @@ proc initSettingDefs() =
   defS("Nim", "nim.indexCacheProject", %true, "The project's own files in the index cache too, as they are on " &
        "disk: reopening a project of hundreds of files reads them instead of parsing them (a changed file is " &
        "parsed again)")
+  defS("Nim", "nim.engineWorker", %true, "The engine's type and parameter hints, its own checks and misspelled " &
+       "names worked out by a second ned on another processor core (the engine worker): typing, scrolling and " &
+       "opening files never wait for them. Off: worked out by the editor itself, a few ms at a time")
   defS("Nim", "nim.indexMemory", %64, "Megabytes the engine's parsed files may take (0: no limit). Above it the " &
        "files asked about least recently, and not open, are dropped; one is read again when needed (a library file " &
        "from the index cache, in a few ms)")
@@ -1259,6 +1262,7 @@ proc reloadSettings(fromFile = true) =
   if gRaw: applyCursorStyle()
   lspConfigChanged()
   refreshUserCommands()
+  wkSettingsChanged()                # (the engine worker's settings too)
   for b in bufs: b.lastChange = -1
   needRender = true
 
