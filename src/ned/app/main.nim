@@ -110,7 +110,7 @@ proc mainLoop() =
         startRss.add ("first frame", rssMB())
       if not privSwept:
         privSwept = true
-        privSweep()                  # (after the first frame: nothing in the way of the start)
+        timedWork("old temporary files"): privSweep()   # (after the first frame: nothing in the way of the start)
     if startTrace and startRss.len == 1:
       # settled: the file list made, git and the other background jobs done (10 s at most)
       var busyJobs = false
@@ -129,7 +129,7 @@ proc mainLoop() =
         lastFileCheck = getMonoTime()
         checkDiskChanges()                 # (back from another window: what changed meanwhile, at once)
       elif cfgSaveOnBlur: saveOnFocusLost()
-    if tcSchemeNews: handleTermScheme()
+    if tcSchemeNews: timedWork("terminal colours"): handleTermScheme()
     # the terminal lost the focus a while ago: what only serves the screen waits (jobs, terminals, servers go on)
     let away = cfgPauseAway and awayIdle()
     var fds = @[TPollfd(fd: 0, events: POLLIN)]
@@ -152,7 +152,8 @@ proc mainLoop() =
     var timeout = 2000
     let cb0 = buf()
     let busy = scanning or searchBuiltin or cb0.hlValid < cb0.hlTarget() or todoQueue.len > 0 or fmtAllOn
-    if busy: timeout = 0
+    if busy or lspMorePending: timeout = 0
+    lspMorePending = false
     if inBuf.len > 0: timeout = min(timeout, (if inputBacklog: 0 else: 25))
     if cfgAutoHover and not autoHoverFired:
       timeout = min(timeout, max(0, cfgHoverDelay - int(msSince(navAt))) + 5)
@@ -168,6 +169,7 @@ proc mainLoop() =
     if toasts.len > 0: timeout = min(timeout, 500)
     let semStale = cfgSemColors and cb0.id in semMaps and semMaps[cb0.id].at != cb0.changeId
     if semStale: timeout = min(timeout, SemPauseMs + 10)
+    if cfgSemColors and cb0.id in semMaps and semMaps[cb0.id].impNext != nil: timeout = min(timeout, 10)
     for b in bufs:
       if b.todoBufStale():
         timeout = min(timeout, 320)
@@ -191,6 +193,7 @@ proc mainLoop() =
     if cfgRefCounts and refJobs.len > 0: timeout = min(timeout, 40)        # (a count of many places, going on)
     if cfgRefCounts and msSince(lastInputAt) < 450: timeout = min(timeout, 250)          # (the counts after scrolling)
     if nxWarmMods.len > 0: timeout = min(timeout, 60)          # (the imports' scopes, a few at a time while quiet)
+    if nxCompletionPending(): timeout = min(timeout, 20)      # (completion's list, made a slice at a time)
     if nxPreloadQ.len > 0 or (nimEngineOn(cb0) and cb0.path.len > 0 and cb0.id notin nxPreloaded):
       timeout = min(timeout, 10)                               # (the files the open file's scope is made of)
     if cfgTooltips and not tipShown and mouseX >= 0 and msSince(mouseMovedAt) < 700:
@@ -211,6 +214,7 @@ proc mainLoop() =
     noteBusy(int((getMonoTime() - busyFrom).inMicroseconds))
     let r = poll(addr fds[0], fds.len.Tnfds, timeout.cint)
     busyFrom = getMonoTime()
+    perfRoundStart()
     if r < 0:
       if errno == EINTR: continue
       os.sleep(10)
@@ -218,7 +222,7 @@ proc mainLoop() =
     var ready: HashSet[cint]
     for f in fds:
       if (f.revents and (POLLIN or POLLHUP or POLLERR)) != 0: ready.incl f.fd
-    wkRead(ready)                          # (the engine worker's answers)
+    timedWork("the engine worker's answers"): wkRead(ready)
     if dbgOn and dbgProc.outFd >= 0 and dbgProc.outFd in ready:
       try: dbgRead()
       except CatchableError as e: dbgEnd("debugger error: " & e.msg)
@@ -233,18 +237,18 @@ proc mainLoop() =
       discard readInput()
       timedWork("keys and mouse"): processInput(false)
     elif inputBacklog:
-      processInput(false)
+      timedWork("keys and mouse"): processInput(false)
     elif inBuf.len > 0:
-      processInput(true)
+      timedWork("keys and mouse"): processInput(true)
     try:
       # background work in small slices so typing always wins
       if inBuf.len == 0:
-        if scanning: pumpScan(8)
-        if searchBuiltin: pumpSearch(8)
+        if scanning: timedWork("the project's files listed"): pumpScan(8)
+        if searchBuiltin: timedWork("search"): pumpSearch(8)
         if fmtAllOn:
           fmtAllPump(25)
           if fmtAllOn: setMsg("Formatting " & $(fmtAllTotal - fmtAllQueue.len) & " of " & $fmtAllTotal & "…", 3)
-        hlPump(buf(), 6)
+        timedWork("highlighting"): hlPump(buf(), 6)
         if todoTagsChanged:
           todoTagsChanged = false
           inc todoGen
@@ -252,21 +256,21 @@ proc mainLoop() =
           todoFiles.clear()
           todoScanned = false
           todoScanProject()
-        if todoQueue.len > 0: todoPump(8)
-        todoRefreshBufs()
+        if todoQueue.len > 0: timedWork("TODOs"): todoPump(4)
+        timedWork("TODOs"): todoRefreshBufs()
         if ffiQueue.len > 0:
           let fb = bufById(ffiQueue[0])
           ffiQueue.delete(0)
-          if fb != nil: ffiCheck(fb)
+          if fb != nil: timedWork("C wrappers checked"): ffiCheck(fb)
         if semStale and msSince(cb0.lspChangeAt) >= SemPauseMs: needRender = true   # semantic colours catch up
         if rightOpen and rightView == svTodos and msSince(todoScanAt) > 30_000: todoScanProject()
       if oscBgReply.len > 0: handleTermBg()
-      if ciDue and getMonoTime() >= ciDueAt: ciRefresh()
+      if ciDue and getMonoTime() >= ciDueAt: timedWork("CI status"): ciRefresh()
       timedWork("results of programs (checks, git …)"): pumpJobs(ready)
-      if ctlFd >= 0 or ctlClients.len > 0: ctlPump(ready)
-      pumpTerms(ready)
-      if reapPids.len > 0: reapPending()
-      if mcpServers.len > 0: mcpPump(ready)
+      if ctlFd >= 0 or ctlClients.len > 0: timedWork("remote control"): ctlPump(ready)
+      timedWork("terminals"): pumpTerms(ready)
+      if reapPids.len > 0: timedWork("ended programs"): reapPending()
+      if mcpServers.len > 0: timedWork("MCP servers"): mcpPump(ready)
       if mcpWaitReq and not mcpStarting():
         mcpWaitReq = false
         aiRequest()
@@ -292,22 +296,23 @@ proc mainLoop() =
       template roomLeft(): bool =
         (if msSince(roundT0) < 15: true else: (workDeferred = true; false))
       if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0 and not away: timedWork("type and parameter hints"): requestInlays(buf())
-      if cfgCSigHints and inBuf.len == 0 and not away: cSigHintsUpdate(buf())
+      if cfgCSigHints and inBuf.len == 0 and not away: timedWork("C signature hints"): cSigHintsUpdate(buf())
       if inBuf.len == 0 and not away: timedWork("language server requests"): lspExtras(buf())
       if inBuf.len == 0 and not away and roomLeft(): timedWork("the engine reading imports"): engineWarm(buf())
+      if inBuf.len == 0 and not away and roomLeft(): timedWork("semantic colours"): semImportsPump(buf())
       if inBuf.len == 0 and not away:
-        ghostTick()
-        nesTick()
+        timedWork("AI suggestions"): ghostTick()
+        timedWork("next edits"): nesTick()
       if inBuf.len == 0 and not away:
         let gb = buf()
-        if gb.gitHasBase and gb.gitAt != gb.changeId and msSince(gb.lspChangeAt) > 200: updateGitMarks(gb)
+        if gb.gitHasBase and gb.gitAt != gb.changeId and msSince(gb.lspChangeAt) > 200: timedWork("git marks"): updateGitMarks(gb)
         if splitOn:
           let ob = bufById(panes[1 - activePane].bufId)
           if ob != nil and ob.gitHasBase and ob.gitAt != ob.changeId and msSince(ob.lspChangeAt) > 200: updateGitMarks(ob)
-        if cfgBlame: requestBlame(gb)
+        if cfgBlame: timedWork("blame"): requestBlame(gb)
       var liveNs: seq[NimSug]
       for s in nimSugs:
-        if not s.dead and s.pr.outFd in ready: nsRead(s)
+        if not s.dead and s.pr.outFd in ready: timedWork("nimsuggest's answers"): nsRead(s)
         if s.dead:
           nsKill(s)
           needRender = true
@@ -358,23 +363,25 @@ proc mainLoop() =
         timedWork("clangd for the emitted C"): emitPump(cb)
         timedWork("servers for the languages in strings"): embPump(cb)
         if roomLeft(): timedWork("reference counts"): refLensPump(cb)
-      remoteAutoSync()                     # a remote folder: what changed on the server
+      timedWork("remote folder"): remoteAutoSync()   # a remote folder: what changed on the server
       if away: discard                     # (checks of what you look at: when you are back)
       elif cfgLiveCheck and cb.chkAt == 0 and not cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
          msSince(cb.lspChangeAt) > 1200 and cb.path notin typingChecks and msSince(lastInputAt) > 800:
         # a project file just opened: its errors, without waiting for an edit or a save
-        if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb): typingCheck(cb)
+        if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb):
+          timedWork("the compiler's check started"): typingCheck(cb)
         else: cb.chkAt = -1
       elif cfgLiveCheck and (cb.dirty or cb.chkAt > 0) and cb.chkAt != cb.changeId and msSince(cb.lspChangeAt) > 1200 and
          cb.path notin typingChecks and not cEngineOn(cb):           # (C: below)
-        if typingCheckUsable(cb): typingCheck(cb)           # the compiler, on the unsaved text
+        if typingCheckUsable(cb):
+          timedWork("the compiler's check started"): typingCheck(cb)   # the compiler, on the unsaved text
         elif nsUsable(cb):
           cb.chkAt = cb.changeId
           discard nsRequest(cb, nsChk, Pos())
         else: cb.chkAt = cb.changeId                        # (nothing to check it with: on save, then)
       if cfgLiveCheck and not away and cEngineOn(cb) and cb.dirty and cb.chkAt != cb.changeId and
          msSince(cb.lspChangeAt) > 1000 and not lspActiveFor(cb):
-        cTypingCheck(cb)                                    # C: the compiler on the unsaved text
+        timedWork("the C compiler's check started"): cTypingCheck(cb)   # C: the compiler on the unsaved text
       if cfgLiveCheck and not away and cb.lang != nil and cb.lang.mode == lmNim and typoAt.getOrDefault(cb.id, -1) != cb.changeId and
          msSince(cb.lspChangeAt) > 500 and msSince(lastInputAt) > 300 and (nxWarmMods.len == 0 or wkOn()) and
          (cb.dirty or engineChecksOnOpen(cb)):
@@ -391,7 +398,7 @@ proc mainLoop() =
       # while you are away)
       if cfgGitAutoRefresh and not away and (treeOpen and sideView in {svGit, svFiles}) and
          msSince(gitStatusAt) > max(5000, 20 * gitStatusTook):
-        refreshGitStatus()
+        timedWork("git status"): refreshGitStatus()
       if wsRoots.len > 0 and cb.path.len > 0 and cb.path != gitFollowPath:
         # a workspace: the Git dock follows the open file to its folder's repository
         gitFollowPath = cb.path
@@ -401,7 +408,7 @@ proc mainLoop() =
       for s in servers:
         if not s.dead:
           if s.errFd in ready: lspReadErr(s)
-          if s.outFd in ready: lspRead(s)
+          if s.outFd in ready or s.rbuf.len > 0: timedWork("language servers' answers"): lspRead(s)
           if s.wbuf.len > 0: s.lspFlush()
         if s.dead:
           if s.errFd >= 0: lspReadErr(s)
@@ -450,7 +457,7 @@ proc mainLoop() =
         for id in due:
           let hb = bufById(id)
           if hb == nil: lspHoldAttach.del id
-          else: lspAttach(hb)
+          else: timedWork("language servers started"): lspAttach(hb)
       if lspRestartAt.len > 0:
         var due: seq[string]
         for lang, t in lspRestartAt:
@@ -460,20 +467,20 @@ proc mainLoop() =
           if lang notin lspFailed:
             for b in bufs:
               if b.lang.id == lang and b.path.len > 0 and b.title.len == 0:
-                lspAttach(b)          # starts the server again; it opens every file of that language
+                timedWork("language servers started"): lspAttach(b)   # starts it again; it opens every file of that language
                 break
       for b in bufs:
-        if b.lspDirty and (b.lspOpen or b.lspMore) and msSince(b.lspChangeAt) > 120: lspSync(b)
+        if b.lspDirty and (b.lspOpen or b.lspMore) and msSince(b.lspChangeAt) > 120: timedWork("language servers told"): lspSync(b)
       if msSince(lastSwapCheck) > 900:
         lastSwapCheck = getMonoTime()
         for b in bufs:
-          if b.changeId != b.swapAt and msSince(b.lspChangeAt) > 600: writeSwap(b)
-      codeActionsOverdue()
+          if b.changeId != b.swapAt and msSince(b.lspChangeAt) > 600: timedWork("recovery files"): writeSwap(b)
+      timedWork("quick fixes asked"): codeActionsOverdue()
       if msSince(lastFileCheck) > 2000:
         lastFileCheck = getMonoTime()
-        checkDiskChanges()
-        themeClockCheck()
-        ollamaPullTick()
+        timedWork("files changed on disk"): checkDiskChanges()
+        timedWork("theme clock"): themeClockCheck()
+        timedWork("local model download"): ollamaPullTick()
         if cfgAutoSave:
           for b in bufs:
             if b.dirty and b.path.len > 0 and b.group.time.ticks > 0 and msSince(b.lspChangeAt) > 1500:
@@ -532,6 +539,7 @@ proc usage() =
 
 proc emergencySave() =
   ## crash: every unsaved buffer goes to its recovery file; the next start offers to restore it
+  swapThreadStop()
   for b in bufs:
     if b.dirty:
       b.swapAt = -1
@@ -876,11 +884,15 @@ proc main() =
   smark("git status started")
   try:
     lastInputAt = getMonoTime()     # (what starts in the background waits for the first frame and a moment of calm)
+    perfTraceOn = getEnv("NED_PERF_TRACE").len > 0
     mainLoop()
     # (NED_PERF_LOG=file: the performance report written there on the way out — for measuring, and tests)
     let perfLog = getEnv("NED_PERF_LOG")
     if perfLog.len > 0:
       try: writeFile(perfLog, perfReport())
+      except CatchableError: discard
+    if perfTraceOn:
+      try: writeFile(getEnv("NED_PERF_TRACE"), perfTrace.join("\n") & "\n")
       except CatchableError: discard
   except Exception as e:
     leaveRaw()
@@ -896,6 +908,7 @@ proc main() =
   saveState()
   if termSignal == 0:
     for b in bufs: removeSwap(b)     # a normal exit: unsaved edits were saved or discarded on purpose
+  swapThreadStop()                   # (the recovery files it was writing or removing: done before ned leaves)
   aiStop()
   killTerminals()
   lspShutdown()

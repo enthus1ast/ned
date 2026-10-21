@@ -211,7 +211,7 @@ proc lineDecor(b: Buffer, line: int, toks: seq[TokKind], sw: seq[(int, int, Rgb)
         var keep: seq[(int, string)]
         for (c, lb) in result:
           if not (c == padStart and lb == own): keep.add (c, lb)
-        result = keep
+        swap(result, keep)      # (not `result = keep`: Nim 2.2 took that for result's first value — what it held leaked)
         if target > eq: result.add (padStart, spaces(target - eq))
         if own.len > 0: decorOverlay.add (padStart, own)
         result.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))

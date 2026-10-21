@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.16.0"
+version       = "6.17.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
@@ -30,7 +30,8 @@ requires "nim >= 2.2.0"
 #   nimble parsecheck     the Nim formatter checked by Nim's own parser on 463 files of Nim itself
 #   nimble uitest         the whole editor driven through tmux (tests/ui — needs tmux and python3)
 #   nimble bench          render a large file off-screen and print frame timings
-#   nimble perf           startup time, memory and frame times against the CI budget (needs python3)
+#   nimble perf           startup time, memory, frame times and the longest waits on a big program, against
+#                         their budgets (needs python3)
 #   nimble smoke          build, then run the non-interactive self checks
 #   nimble tools          install the optional companions: inim (and nph, nimlangserver, if you want them)
 
@@ -107,9 +108,13 @@ task bench, "Render frames of a big generated file off-screen and print timings"
   writeFile(big, s)
   exec "./ned --bench " & big & " > /dev/null"
 
-task perf, "Startup time, memory and frame times, checked against .github/ci/bench-budget.json":
+task perf, "Startup time, memory, frame times, and the longest waits while working on a big program (Linux), checked against their budgets":
   exec "nim c " & flags & " -o:ned " & main
   exec "python3 .github/ci/bench.py ./ned"
+  # ned's own source opened as a project: open, scroll, type, completions, an import added, another program —
+  # the longest moment each step kept you waiting, the completion times, editor + engine worker memory
+  # (tests/perf/budget.json)
+  if defined(linux): exec "python3 tests/perf/rounds.py ./ned"
 
 task smoke, "Build and run the non-interactive checks":
   exec "nim c " & flags & " -o:ned " & main

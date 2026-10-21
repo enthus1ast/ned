@@ -154,7 +154,8 @@ proc nxFuncHints*(f: NxFile, lines: seq[string], ms = 2000, keep: proc(s: NxSym)
   if f == nil or nxStrictFuncsOn(f.path, lines): return
   var c = nxFxCtx(4000, ms)
   let ff = nxFuncFileOf(c, f, lines)
-  for i, s in f.syms:
+  for i in 0 ..< f.syms.len:
+    template s: untyped = f.syms[i]
     if s.kind != nxProc or s.made or s.local: continue
     if keep != nil and not keep(s): continue
     if not nxFuncHintableIn(ff, f, lines, s): continue

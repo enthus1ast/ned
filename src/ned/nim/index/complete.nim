@@ -79,7 +79,18 @@ type
     ufcs*: bool                # offered after `.` as a method-call: the first parameter is the receiver
     insert*: string            # text to insert when it is not the label (`field: ` in a constructor)
     lazy*: bool                # detail not made yet: nxItemDetail makes it (when the item is shown)
+  NxItemIx* = object
+    ## items by name (and routine or not): one item per name, overloads folded into it
+    at: Table[Hash, int32]
+    clash: Table[string, int]          # (names whose hash another name has: rare)
+  NxRest* = ref object
+    ## a plain name's items from the rest of the scope — imports, system, the program's other files — made once
+    ## while it stays the same and shared by the completions asked meanwhile (not copied at every first letter)
+    items*: seq[NxItem]
+    ix: NxItemIx                         # (by name and routine or not: nxRestFind)
   NxCompletion* = object
+    rest*: NxRest              # (shared: true) more items, by reference — but those in restHidden (folded into an
+    restHidden*: HashSet[int]  #   item of `items`, or shown there differently)
     member*: bool              # after a `.`
     known*: bool               # the receiver's type was understood
     items*: seq[NxItem]
@@ -137,38 +148,37 @@ proc nxVisible*(f: NxFile, r: NxRef): bool =
   if r.sym.exported or r.file == f or r.file.path == f.path: return true
   nxInModule(f, r.file.path)
 
-proc nxAddRefs*(items: var seq[NxItem], f: NxFile, refs: seq[NxRef], ufcs = false, rankBias = 0, recv = "",
-               binds = initTable[string, string](), lazy = false) =
-  ## one item per name: overloads are folded into it (all of them are in the documentation). lazy: the details
-  ## are made when an item is shown (a plain name: thousands of items, a handful on screen)
-  # (the items so far by their name's hash — a plain name's list has thousands: no string made per name)
-  var at = initTable[Hash, int32](max(64, (items.len + refs.len) * 2))
-  var clash: Table[string, int]                       # (names whose hash another name has: rare)
-  template keyOf(name: string, routine: bool): Hash = (hash(name) shl 1) xor Hash(ord(routine))
-  proc find(items: seq[NxItem], at: Table[Hash, int32], clash: Table[string, int], name: string,
-            routine: bool): int =
-    let k = keyOf(name, routine)
-    let i = at.getOrDefault(k, -1'i32)
-    if i >= 0 and items[i].label == name and (items[i].kind in NxRoutineKinds) == routine: return i
-    clash.getOrDefault(name & "/" & $routine, -1)
-  proc put(items: seq[NxItem], at: var Table[Hash, int32], clash: var Table[string, int], name: string,
-           routine: bool, idx: int) =
-    let k = keyOf(name, routine)
-    let i = at.getOrDefault(k, -1'i32)
-    if i < 0: at[k] = int32(idx)
-    elif items[i].label != name or (items[i].kind in NxRoutineKinds) != routine: clash[name & "/" & $routine] = idx
-  for i, it in items: put(items, at, clash, it.label, it.kind in NxRoutineKinds, i)
+template nxItemKey(name: string, routine: bool): Hash = (hash(name) shl 1) xor Hash(ord(routine))
+
+proc nxIxFind(ix: NxItemIx, items: seq[NxItem], name: string, routine: bool): int =
+  let i = int(ix.at.getOrDefault(nxItemKey(name, routine), -1'i32))
+  if i >= 0 and items[i].label == name and (items[i].kind in NxRoutineKinds) == routine: return i
+  ix.clash.getOrDefault(name & "/" & $routine, -1)
+
+proc nxIxPut(ix: var NxItemIx, items: seq[NxItem], name: string, routine: bool, idx: int) =
+  let k = nxItemKey(name, routine)
+  let i = ix.at.getOrDefault(k, -1'i32)
+  if i < 0: ix.at[k] = int32(idx)
+  elif items[i].label != name or (items[i].kind in NxRoutineKinds) != routine: ix.clash[name & "/" & $routine] = idx
+
+proc nxIxOf(items: seq[NxItem], room = 0): NxItemIx =
+  result.at = initTable[Hash, int32](max(64, (items.len + room) * 2))
+  for i in 0 ..< items.len: result.nxIxPut(items, items[i].label, items[i].kind in NxRoutineKinds, i)
+
+proc nxAddRefsIx(items: var seq[NxItem], ix: var NxItemIx, f: NxFile, refs: openArray[NxRef], ufcs = false,
+                 rankBias = 0, recv = "", binds = initTable[string, string](), lazy = false) =
+  ## nxAddRefs with the items' index kept by the caller (a list made a slice at a time)
   for r in refs:
     template s: untyped = r.sym
     if s.kind == nxModule or s.name.len == 0 or not (s.name[0] in {'a'..'z', 'A'..'Z', '_'} or s.name[0] >= '\x80'):
       continue                     # operators are not typed by name
     if ufcs and s.name in NxKeywords: continue        # x.and(y) is legal but nobody writes it
     let routine = s.kind in NxRoutineKinds
-    let got = find(items, at, clash, s.name, routine)
+    let got = ix.nxIxFind(items, s.name, routine)
     if got >= 0:
       items[got].refs.add r
       continue
-    put(items, at, clash, s.name, routine, items.len)
+    ix.nxIxPut(items, s.name, routine, items.len)
     var detail = ""
     let later = lazy and not ufcs and binds.len == 0
     if not later:
@@ -180,7 +190,86 @@ proc nxAddRefs*(items: var seq[NxItem], f: NxFile, refs: seq[NxRef], ufcs = fals
     items.add NxItem(label: s.name, detail: detail, kind: s.kind, refs: @[r], lazy: later,
                      rank: nxRank(f, r) + rankBias + (if "deprecated" in s.pragmas: 2 else: 0), ufcs: ufcs)
 
+proc nxAddRefs*(items: var seq[NxItem], f: NxFile, refs: seq[NxRef], ufcs = false, rankBias = 0, recv = "",
+               binds = initTable[string, string](), lazy = false) =
+  ## one item per name: overloads are folded into it (all of them are in the documentation). lazy: the details
+  ## are made when an item is shown (a plain name: thousands of items, a handful on screen)
+  var ix = nxIxOf(items, refs.len)
+  nxAddRefsIx(items, ix, f, refs, ufcs, rankBias, recv, binds, lazy)
+
 var nxLocalTypMemo: Table[string, string]   # a local's declaration (where, its line's text) → its type, for completion
+
+# ── what the rest of the scope offers — imports, system, the program's other files — is the same while you type in one
+#    file: made once (from a hundred thousand names in a big program), not at every first letter and every dot ──
+
+proc nxOthersKey(sc: NxScope, f: NxFile): Hash =
+  ## what the scope holds besides `f`: the files it read (each version), its imports, the toolchain
+  var h: Hash = 0
+  for (p, st) in sc.deps:
+    if p != f.path: h = h !& hash(p) !& hash(st)
+  for m, p in sc.modules: h = h !& hash(m) !& hash(p)
+  h = h !& hash(f.path) !& hash(sc.ikey) !& hash(nxGen) !& hash(nxScopeEpoch)
+  !$h
+
+proc nxOwnTypesKey(f: NxFile): Hash =
+  ## the types `f` declares (what a routine's first parameter is matched against can go through them)
+  var h: Hash = 0
+  for s in f.syms:
+    if s.kind == nxType: h = h !& hash(s.name) !& hash(s.typ) !& hash(s.generics) !& hash(s.local)
+  !$h
+
+var
+  nxPlainMemo: (Hash, NxRest)                         # (key, a plain name's items from the rest of the scope)
+  nxMemberMemo: (Hash, Table[string, array[3, seq[NxRef]]])   # (key, receiver type → the rest of the scope's
+                                                               #   routines that take it: exact, related, generic)
+
+proc nxRestOf(items: sink seq[NxItem]): NxRest =
+  result = NxRest(items: items)
+  result.ix = nxIxOf(result.items)
+
+proc nxRestFind(r: NxRest, label: string, routine: bool): int = r.ix.nxIxFind(r.items, label, routine)
+
+var nxPrep: tuple[key: Hash, sc: NxScope, pos: int, items: seq[NxItem], ix: NxItemIx]   # (made a slice at a time)
+
+proc nxCompletionPending*(): bool = nxPrep.sc != nil
+
+proc nxCompletionPrepare*(f: NxFile, budgetMs: int): bool =
+  ## in quiet moments: a slice of a plain name's list from the rest of the scope of `f`, made before a first letter
+  ## asks for it (a big program's ten thousand names: 15 ms at once); true when it is made
+  let sc = nxScope(f)
+  let gk = nxOthersKey(sc, f)
+  if nxPlainMemo[1] != nil and nxPlainMemo[0] == gk:
+    reset(nxPrep)
+    return true
+  if nxPrep.sc == nil or nxPrep.key != gk:
+    reset(nxPrep)
+    nxPrep.key = gk
+    nxPrep.sc = sc
+    nxPrep.ix = nxIxOf(@[], 8192)
+  let t0 = getMonoTime()
+  let refs = addr nxPrep.sc.refs
+  var chunk: seq[NxRef]
+  while nxPrep.pos < refs[].len:
+    let r = refs[][nxPrep.pos]
+    inc nxPrep.pos
+    if not (r.sym.kind == nxField or r.sym.local or r.file == f or r.file.path == f.path): chunk.add r
+    if chunk.len >= 1024:
+      nxAddRefsIx(nxPrep.items, nxPrep.ix, f, chunk, lazy = true)
+      chunk.setLen(0)
+      if (getMonoTime() - t0).inMilliseconds >= budgetMs: return false
+  if chunk.len > 0: nxAddRefsIx(nxPrep.items, nxPrep.ix, f, chunk, lazy = true)
+  nxPlainMemo = (gk, NxRest(items: move nxPrep.items, ix: move nxPrep.ix))
+  reset(nxPrep)
+  true
+
+proc nxMaterialize*(c: var NxCompletion) =
+  ## the shared items copied into `items` (those not hidden): what wants to change them (ranks by the type
+  ## wanted, an enum's values) — and a caller that does not take `rest`
+  if c.rest == nil: return
+  for j, it in c.rest.items:
+    if j notin c.restHidden: c.items.add it
+  c.rest = nil
+  c.restHidden.clear()
 
 proc nxItemDetail*(it: var NxItem): string =
   ## an item's detail, made now when it was left for later
@@ -827,9 +916,16 @@ proc nxRankExpected*(items: var seq[NxItem], f: NxFile, sc: NxScope, want: strin
     # one step up only, behind the locals; an enum's values always first)
     it.rank = if it.rank <= 1 or not plain or it.kind == nxEnumVal: -1 else: max(0, it.rank - 1)
 
-proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
+template nxNote(what: string, t0: MonoTime) =
+  if nxTrace != nil: nxTrace(what, t0)
+
+proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false): NxCompletion =
+  ## the items at (line, col). shared: a plain name's items from the rest of the scope come in `rest`, by
+  ## reference (the editor: thousands of them, not copied at every first letter typed)
+  var tt = getMonoTime()
   let f = nxAt(f, lines, line)             # (code in a `when` branch left out here: as that branch sees it)
   let sc = nxScope(f)
+  nxNote("scope", tt)
   let text = lines[line]
   var ws = min(col, text.len)
   while ws > 0 and nxIsIdent(text[ws - 1]): dec ws
@@ -873,7 +969,10 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
     result.items = nxModuleItems(f, text[0 ..< ws])
     result.known = true
     return
+  tt = getMonoTime()
   let locals = nxLocals(f, lines, line, col)
+  nxNote("locals", tt)
+  tt = getMonoTime()
   if ws > 0 and text[ws - 1] == '.' and not (ws > 1 and text[ws - 2] == '.'):
     result.member = true
     let joined = nxJoinBack(lines, line, ws - 1)
@@ -902,7 +1001,8 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       var vals: seq[NxRef]
       for r in nxLookup(sc, v.typeName):
         if r.sym.kind == nxType:
-          for i, s in r.file.syms:
+          for i in 0 ..< r.file.syms.len:
+            template s: untyped = r.file.syms[i]
             if s.kind == nxEnumVal and s.owner == v.typeName: vals.add NxRef(file: r.file, idx: int32(i))
       nxAddRefs(result.items, f, vals)
       var tprocs: seq[NxRef]
@@ -921,6 +1021,8 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       return
     var typ = v.typ
     if typ.len == 0 and v.routine.len > 0: typ = nxCallType(f, sc, locals, v.routine, "", line, 0)
+    nxNote("receiver's type", tt)
+    tt = getMonoTime()
     result.receiverType = typ
     typ = nxConstrained(f, line, typ)        # (x: T with [T: Duration | Time]: the members of both)
     result.known = typ.len > 0
@@ -1002,17 +1104,37 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       seenLocalR.incl s.name
       result.items.add NxItem(label: s.name, detail: nxShortDetail(s), kind: s.kind, local: s, rank: 0, ufcs: true)
     var exact, related, generic: seq[NxRef]
-    for r in sc.refs:
-      template s: untyped = r.sym
-      if s.kind notin NxRoutineKinds or s.params.len == 0: continue
-      if not result.known:
-        generic.add r
-        continue
-      case nxCompatP(sc, s.params[0], s.generics, typ)
-      of 3: exact.add r
-      of 2: related.add r
-      of 1: generic.add r
-      else: discard
+    template sortIn(r: NxRef, ex, rel, gen: var seq[NxRef]) =
+      if r.sym.kind in NxRoutineKinds and r.sym.params.len > 0:
+        if not result.known: gen.add r
+        else:
+          case nxCompatP(sc, r.sym.params[0], r.sym.generics, typ)
+          of 3: ex.add r
+          of 2: rel.add r
+          of 1: gen.add r
+          else: discard
+    nxNote("fields and conversions", tt)
+    tt = getMonoTime()
+    # this file's routines (they change as you type) …
+    for i in 0 ..< f.syms.len:
+      sortIn(NxRef(file: f, idx: int32(i), origin: 1), exact, related, generic)
+    # … then the rest of the scope's, worked out once for this receiver type while the rest stays as it is
+    let mk = (if result.known: typ else: "\0?")
+    let gk = nxOthersKey(sc, f) !& nxOwnTypesKey(f)
+    if nxMemberMemo[0] != gk: nxMemberMemo = (gk, initTable[string, array[3, seq[NxRef]]]())
+    if mk notin nxMemberMemo[1]:
+      var got: array[3, seq[NxRef]]
+      for r in sc.refs:
+        if r.file == f or r.file.path == f.path: continue
+        sortIn(r, got[0], got[1], got[2])
+      if nxMemberMemo[1].len >= 24: nxMemberMemo[1].clear()
+      nxMemberMemo[1][mk] = got
+    let got = nxMemberMemo[1][mk]
+    exact.add got[0]
+    related.add got[1]
+    generic.add got[2]
+    nxNote("routines that take it", tt)
+    tt = getMonoTime()
     nxAddRefs(result.items, f, exact, ufcs = true, recv = typ)
     nxAddRefs(result.items, f, related, ufcs = true, rankBias = 1, recv = typ)
     nxAddRefs(result.items, f, generic, ufcs = true, rankBias = 2, recv = typ)
@@ -1039,6 +1161,8 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
             viaConv.add r
             have.incl s.name
         nxAddRefs(result.items, f, viaConv, ufcs = true, rankBias = 2, recv = u)
+    nxNote("items", tt)
+    tt = getMonoTime()
     # a concept (x: Shape, or [T: Shape]): what it asks of its type comes first
     if result.known:
       let need = nxConceptNeeds(f, sc, lines, line, nxStripMods(typ))
@@ -1068,8 +1192,10 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
           try: want = nxExpectedType(f, sc, lines, locals, line, rs, h2)
           except CatchableError: want = ""
           if want.len > 0: nxRankExpected(result.items, f, sc, want, recv = typ)
+    nxNote("the type wanted there", tt)
     return
   # a plain name: locals, this module, imports, system, module names, keywords
+  tt = getMonoTime()
   var seenLocal: HashSet[string]
   for i in countdown(locals.high, 0):
     let s = locals[i]
@@ -1087,13 +1213,54 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
         if nxLocalTypMemo.len > 2000: nxLocalTypMemo.clear()
         nxLocalTypMemo[mk] = ls.typ
     result.items.add NxItem(label: s.name, detail: nxShortDetail(ls), kind: s.kind, local: ls, rank: 0)
+  nxNote("locals' types", tt)
+  tt = getMonoTime()
   var plain: seq[NxRef]
   let here = nxEnclosing(f, line)
-  for r in sc.refs:
-    if r.sym.kind == nxField: continue
-    if r.sym.local and (r.file != f or here < 0 or nxEnclosing(f, r.sym.line) != here): continue   # (another routine's type)
-    plain.add r
+  # (a local of this file is offered inside its own routine only: the routines nested in this one, where a local
+  # is theirs — worked out once, not a walk through the file's declarations for each local)
+  var nested: seq[(int, int)]
+  if here >= 0:
+    let hs = f.syms[here]
+    for j in 0 ..< f.syms.len:
+      template s2: untyped = f.syms[j]
+      if j != here and s2.kind in NxRoutineKinds and not s2.made and
+         (s2.line > hs.line or (s2.line == hs.line and j < here)) and s2.line <= hs.endLine:
+        nested.add (s2.line, s2.endLine)
+  proc inHere(f: NxFile, here: int, nested: seq[(int, int)], ln: int): bool =
+    if here < 0 or ln < f.syms[here].line or ln > f.syms[here].endLine: return false
+    for (a, e) in nested:
+      if ln >= a and ln <= e: return false
+    true
+  for i in 0 ..< f.syms.len:
+    template s: untyped = f.syms[i]
+    if s.kind == nxField: continue
+    if s.local and not inHere(f, here, nested, s.line): continue   # (another routine's type)
+    plain.add NxRef(file: f, idx: int32(i), origin: 1)
   nxAddRefs(result.items, f, plain, lazy = true)
+  # the rest of the scope's names: made once while it stays as it is
+  let gk = nxOthersKey(sc, f)
+  if nxPlainMemo[1] == nil or nxPlainMemo[0] != gk:
+    var others: seq[NxRef]
+    for r in sc.refs:
+      if r.sym.kind == nxField or r.sym.local or r.file == f or r.file.path == f.path: continue
+      others.add r
+    var its: seq[NxItem]
+    nxAddRefs(its, f, others, lazy = true)
+    nxPlainMemo = (gk, nxRestOf(its))
+  nxNote("this file's names", tt)
+  tt = getMonoTime()
+  # this file's names and the locals take the declarations of the same name from the rest (one item a name)
+  let rest = nxPlainMemo[1]
+  result.rest = rest
+  for it in result.items.mitems:
+    let j = rest.nxRestFind(it.label, it.kind in NxRoutineKinds)
+    if j >= 0 and j notin result.restHidden:
+      it.refs.add rest.items[j].refs
+      result.restHidden.incl j
+  if not shared: nxMaterialize(result)
+  nxNote("the rest of the scope's names", tt)
+  tt = getMonoTime()
   for m, p in sc.modules:
     result.items.add NxItem(label: m, detail: "module", kind: nxModule, rank: 2,
                             local: NxSym(name: m, kind: nxModule, value: p))
@@ -1134,12 +1301,15 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
           result.items.add NxItem(label: pn & " =", insert: pn & " = ", detail: what & " · " & r.sym.name & "'s argument",
                                   kind: nxParam, rank: 1, local: NxSym(name: pn, kind: nxParam, typ: ps[i].typ,
                                   value: ps[i].default))
+  nxNote("arguments by name", tt)
+  tt = getMonoTime()
   # the type the code wants here (an argument, `let x: T = `, `result = ` …): the items of that type first
   var expect = ""
   let leadE = text[0 ..< ws].strip
   if not (leadE == "of" or (leadE.startsWith("of ") and leadE.endsWith(","))):
     try: expect = nxExpectedType(f, sc, lines, locals, line, ws, h)
     except CatchableError: expect = ""
+  if expect.len > 0: nxMaterialize(result)       # (their ranks change by the type wanted)
   # `of` in a case on an enum, `x == `, or an enum expected: the enum's values (those no branch has taken yet first)
   block enumValues:
     let lead = text[0 ..< ws].strip
@@ -1173,6 +1343,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
           if le.len > 0: et = nxTypeOfExpr(f, sc, locals, le, line, 0).typ
       if et.len == 0: et = expect
     if et.len == 0: break enumValues
+    nxMaterialize(result)                           # (the enum's values are taken out, and put first)
     let eb = nxBaseName(nxStripMods(et))
     for r in nxTypeSyms(sc, eb):
       if not r.sym.typ.strip.startsWith("enum"): continue
@@ -1180,13 +1351,15 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int): NxCompletion =
       for it in result.items:
         if not (it.kind == nxEnumVal and it.refs.len > 0 and it.refs[0].sym.owner == r.sym.name): keep.add it
       result.items = keep
-      for i, s2 in r.file.syms:
+      for i in 0 ..< r.file.syms.len:
+        template s2: untyped = r.file.syms[i]
         if s2.kind == nxEnumVal and s2.owner == r.sym.name:
           let used = nxNorm(s2.name) in taken
           result.items.add NxItem(label: s2.name, detail: r.sym.name & (if used: " · has a branch" else: ""),
                                   kind: nxEnumVal, rank: (if used: 3 else: 0), refs: @[NxRef(file: r.file, idx: int32(i))])
       break
   if expect.len > 0: nxRankExpected(result.items, f, sc, expect)
+  nxNote("the type wanted there", tt)
 
 proc nxRstToMd*(doc0: string): string =
   ## Nim doc comments are RST-flavoured: turn code blocks and ``literals`` into Markdown

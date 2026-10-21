@@ -106,7 +106,8 @@ proc typeAtCursor(b: Buffer): (NxFile, int) =
   ## the object type declared on the cursor's line
   let f = nxFileFor(b)
   if f == nil: return (nil, -1)
-  for i, sy in f.syms:
+  for i in 0 ..< f.syms.len:
+    template sy: untyped = f.syms[i]
     if sy.kind == nxType and sy.line == b.primary.head.line and ("object" in sy.typ or "tuple" in sy.typ): return (f, i)
   (nil, -1)
 
@@ -244,7 +245,8 @@ proc docCommentStub() =
   let f = nxFileFor(b)
   if f == nil: return
   var ri = -1
-  for i, sy in f.syms:
+  for i in 0 ..< f.syms.len:
+    template sy: untyped = f.syms[i]
     if sy.kind in NxRoutineKinds and sy.line <= b.primary.head.line and b.primary.head.line <= sy.line + 3: ri = i
   if ri < 0:
     info("Put the cursor on a proc's first line")
@@ -447,14 +449,16 @@ proc forwardDeclAt(b: Buffer): (NxFile, int) =
   let f = nxFileFor(b)
   if f == nil: return (nil, -1)
   let line = b.primary.head.line
-  for i, sy in f.syms:
+  for i in 0 ..< f.syms.len:
+    template sy: untyped = f.syms[i]
     if sy.kind notin NxRoutineKinds or sy.line != line or sy.made or b.hasBody(sy): continue
     if b.lines[line].len > 0 and b.lines[line][0] in {' ', '\t'}: continue    # (top level only)
     if "importc" in sy.pragmas or "importcpp" in sy.pragmas or "importjs" in sy.pragmas or "magic" in sy.pragmas or
        "dynlib" in sy.pragmas or "noDecl" in sy.pragmas: continue
     let want = nxParamsText(sy.params, false)
     var done = false
-    for j, other in f.syms:
+    for j in 0 ..< f.syms.len:
+      template other: untyped = f.syms[j]
       if j != i and other.kind == sy.kind and nxNorm(other.name) == nxNorm(sy.name) and
          nxParamsText(other.params, false) == want and b.hasBody(other): done = true
     if not done: return (f, i)

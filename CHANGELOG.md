@@ -1,6 +1,43 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-616). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-617). Older releases:
+
+## What's new in 6.16
+
+6.16 is about the moments ned did not answer a key because its Nim engine was busy. The slow work — type and
+parameter hints, the engine's checks and misspelled names, reference counts, and ned's own CSS, HTML, SQL and
+JavaScript checks — now runs in **the engine worker**: a second ned (`ned --engine-worker`, the same program) on
+another processor core. The editor sends it the text of the open files, then only what changed, and asks; the
+answers come back while you type and scroll. An answer for a text that has changed since is dropped and asked for
+again. Completion, hover, go to definition and the rest you ask for stay in the editor, answered in the same frame.
+
+**What it changed**, measured on ned's own source (a program of 290 include files) on two processor cores, the longest
+moment ned did not read input:
+
+| | 6.15 | 6.16 |
+|---|---|---|
+| opening a file of it | 48–55 ms | 23–43 ms |
+| typing a few lines, with completion | 48–62 ms | 29–37 ms |
+| scrolling a long file with hints and counts | 55 ms | 24–26 ms |
+
+Hints, counts and problems also come sooner: the worker works on them flat out, not a few milliseconds between keys.
+It takes about 20 MB on ned's own source (Help › Performance shows it, with what its last answers took); the editor
+itself takes less, since it no longer prepares every imported module for the checks. A worker that has nothing to
+do for 10 minutes stops and gives its memory back; one that stops is started again (four times in ten minutes and
+the editor goes back to doing the work itself, saying why in Help › Performance). `"nim.engineWorker": false` keeps
+everything in the editor as before.
+
+**Completion is twice as fast** in a big program: a name's list (thousands of entries in ned's own source) no longer
+makes the details of entries nobody sees, nor works out the type of each local again at every letter — 12–17 ms a
+letter before, 6–8 ms now. The first one after `nim dump` came back no longer makes the file's scope on the spot
+(40 ms): it is made again in the background, a few files a round, as it is when a file is opened.
+
+**What a file's scope is made of is read a few files at a time**, includes found as they are read — opening a file of a
+big program read them all at once before (up to 75 ms).
+
+Tip: the formatter wraps at `nim.format.lineLength` (88 unless your settings or `.editorconfig` say otherwise). A
+ruler at another column (`"editor.rulers": [80]`) does not move it: `"editor.rulers": ["lineLength"]` puts the
+ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
 
 ## What's new in 6.15
 

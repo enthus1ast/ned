@@ -2612,7 +2612,7 @@ proc fNphLayout*(toks0: seq[FTok], depth: int, exprLine = false, declLike = fals
     var flat: seq[string]
     for r in result:
       for l in r.split('\n'): flat.add l
-    result = flat
+    swap(result, flat)        # (not `result = flat`: Nim 2.2 took that for result's first value — what it held leaked)
 
 proc fCommentValue(o: FOut): seq[string] =
   ## `x = a and # note` ⏎ `b` — a value with comments among its operands (outside brackets) as nph lays it out:

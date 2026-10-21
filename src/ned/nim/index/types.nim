@@ -144,7 +144,8 @@ proc nxFields*(sc: NxScope, typ: string, depth = 0): seq[NxRef] =
   let (r, def) = nxObjectDef(sc, typ)
   if r.file == nil: return
   let owner = r.sym.name
-  for i, s in r.file.syms:
+  for i in 0 ..< r.file.syms.len:
+    template s: untyped = r.file.syms[i]
     if s.kind == nxField and s.owner == owner: result.add NxRef(file: r.file, idx: int32(i))
   let k = def.find(" of ")
   if k >= 0:
@@ -306,7 +307,8 @@ proc nxUnionAlts*(sc: NxScope, t: string): seq[string] =
         if g == nil: continue
         if not g.unionsMade:
           g.unionsMade = true
-          for i, s in g.syms:
+          for i in 0 ..< g.syms.len:
+            template s: untyped = g.syms[i]
             if s.kind == nxType and '|' in s.typ: g.unionTypes[s.name] = i
         let k = g.unionTypes.getOrDefault(b, -1)
         if k >= 0:
@@ -1132,7 +1134,8 @@ proc nxInjectedType(f: NxFile, sc: NxScope, before: seq[NxSym], s: NxSym, depth:
   let vl = try: parseInt(parts[2]) except ValueError: -1
   let ri = block:
     var best = -1
-    for i, ts in tf.syms:
+    for i in 0 ..< tf.syms.len:
+      template ts: untyped = tf.syms[i]
       if ts.kind == nxTemplate and ts.line < vl and vl <= ts.endLine and (best < 0 or ts.line > tf.syms[best].line):
         best = i
     best

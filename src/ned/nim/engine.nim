@@ -21,6 +21,7 @@ var
   nxDumpSearch, nxDumpLazy: seq[string]  # search paths and nimble package folders from `nim dump`
   nxLibFound = ""
   compNx: seq[NxItem]                    # index items behind the completion list (docs are made when shown)
+  compRest: NxRest                       # … and the rest of the scope's, shared (items with nx < 0)
 
 proc nxGuessLib(): string =
   ## the standard library's folder, worked out from where `nim` lives (until `nim dump` says)

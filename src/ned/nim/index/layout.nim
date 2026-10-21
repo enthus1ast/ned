@@ -84,6 +84,8 @@ proc nxLayLinesRef(path: string): NxLinesRef =
   for x in nxLayLines:
     if x.path == path and x.stamp == st: return x
   result = NxLinesRef(path: path, stamp: st, lines: nxFileLines(path))
+  for k in countdown(nxLayLines.high, 0):          # (the file as it was: no use — an open file's 32 last versions
+    if nxLayLines[k].path == path: nxLayLines.delete(k)   #  were kept while you typed)
   if nxLayLines.len >= 32: nxLayLines.delete(0)
   nxLayLines.add result
 

@@ -22,14 +22,13 @@ proc refilterComp() =
     return
   let lp = pre.toLowerAscii
   compShown.setLen(0)
-  var hl: seq[int]
   var exact = false
   for i in 0 ..< compItems.len:
-    let sc = fuzzyMatch(lp, compItems[i].filter, hl)
+    # (the letters matched are found when an item is drawn: a list of thousands, a handful on screen)
+    let sc = fuzzyScore(lp, compFilter(compItems[i]))
     if sc != low(int):
       # a prefix match, and nearer names (locals, this module) before far ones (system)
-      compItems[i].score = sc + (if compItems[i].filter.startsWith(pre): 30 else: 0) + max(0, 4 - compItems[i].rank) * 4
-      compItems[i].hl = hl
+      compItems[i].score = sc + (if compFilter(compItems[i]).startsWith(pre): 30 else: 0) + max(0, 4 - compItems[i].rank) * 4
       if compItems[i].label != pre or compItems[i].postfix > 0: compShown.add i
       elif pre.len > 0: exact = true
   if exact and not compManual:
@@ -47,9 +46,14 @@ proc refilterComp() =
       if result == 0: result = cmp(compItems[a].rank, compItems[b].rank)
       if result == 0: result = cmp(compItems[a].label.len, compItems[b].label.len))
   elif compFromLsp:
-    proc key(i: int): string =
-      (if compItems[i].label.startsWith("_"): "~" else: "") & compItems[i].sortText
-    compShown.sort(proc(a, b: int): int = cmp(key(a), key(b)))
+    # (each item's key made once, not at every comparison; the index's items sort by how near, then by name)
+    var keyed = newSeqOfCap[(string, int)](compShown.len)
+    for i in compShown:
+      let it = addr compItems[i]
+      keyed.add ((if it.label.startsWith("_"): "~" else: "") &
+                 (if it.sortText.len > 0: it.sortText else: $it.rank & it.label.toLowerAscii), i)
+    keyed.sort(proc(a, b: (string, int)): int = cmp(a[0], b[0]))
+    for k, x in keyed: compShown[k] = x[1]
   compSel = 0
   compScroll = 0
   compDocIdx = -1
@@ -254,7 +258,7 @@ proc acceptComp() =
     let h = b.cursors[i].head
     let a = if i == b.prim and h.line == compLine: Pos(line: h.line, col: min(compStartCol, h.col))
             else: Pos(line: h.line, col: b.wordStart(h))
-    b.cursors[i] = cur(b.replaceText(a, h, it.insert))
+    b.cursors[i] = cur(b.replaceText(a, h, compInsert(it)))
   b.endEdit()
   b.normalize()
   closeComp()

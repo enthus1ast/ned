@@ -393,9 +393,13 @@ proc lspDeathReason(s: LspServer): string =
       return l
   if s.errTail.len > 0: s.errTail[^1] else: ""
 
-proc lspRead(s: LspServer) =
+var lspMorePending* = false     # a server's answers are read and not all handled yet: the main loop comes back at once
+
+proc lspRead(s: LspServer, budgetMs = 8) =
+  ## what the server wrote, read; its messages handled — for budgetMs at most (a burst of big answers, a server's
+  ## diagnostics of a whole project, waited in one round for all of them): the rest in the next rounds
   var tmp: array[65536, char]
-  while true:
+  while not s.dead:
     let n = posix.read(s.outFd, addr tmp[0], tmp.len)
     if n > 0:
       let old = s.rbuf.len
@@ -405,26 +409,32 @@ proc lspRead(s: LspServer) =
       s.dead = true
       break
     else: break
-  while true:
-    let he = s.rbuf.find("\r\n\r\n")
+  let t0 = getMonoTime()
+  var at = 0                   # (where the next message starts: the buffer is cut once, not after each message)
+  while at < s.rbuf.len:
+    if msSince(t0) >= budgetMs:
+      lspMorePending = true
+      break
+    let he = s.rbuf.find("\r\n\r\n", at)
     if he < 0: break
     var clen = -1
     # by lines, not \r\n: a server that prints to stdout (sql-language-server's timings) puts its lines
     # before the header
-    for h0 in s.rbuf[0 ..< he].split('\n'):
+    for h0 in s.rbuf[at ..< he].split('\n'):
       let h = h0.strip(chars = {'\r', ' '})
       if h.toLowerAscii.startsWith("content-length:"):
         try: clen = parseInt(h[15 .. ^1].strip)
         except ValueError: discard
     if clen < 0:
-      s.rbuf = s.rbuf[he + 4 .. ^1]
+      at = he + 4
       continue
     if s.rbuf.len < he + 4 + clen: break
     let body = s.rbuf[he + 4 ..< he + 4 + clen]
-    s.rbuf = s.rbuf[he + 4 + clen .. ^1]
+    at = he + 4 + clen
     try:
       lspHandle(s, parseJson(body))
     except CatchableError: discard
+  if at > 0: s.rbuf = s.rbuf[at .. ^1]
 
 proc lspShutdown() =
   ## polite shutdown, then the whole process group goes: a language server's helpers (nimsuggest

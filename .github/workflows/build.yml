@@ -57,6 +57,9 @@ jobs:
       - name: Performance — startup time, memory, time per frame (fails when over .github/ci/bench-budget.json)
         if: matrix.name == 'linux-x86_64' || matrix.name == 'macos-arm64'
         run: python3 .github/ci/bench.py ./${{ matrix.out }}
+      - name: Performance — the longest waits while working on ned's own source, completion times, memory with the engine worker (tests/perf/budget.json)
+        if: matrix.name == 'linux-x86_64'
+        run: python3 tests/perf/rounds.py ./${{ matrix.out }}
       - name: The language server's tests (every feature, then 2000 random edits)
         if: matrix.name == 'linux-x86_64'
         run: python3 tests/lsp/tnedls.py ./nedls-${{ matrix.name }}

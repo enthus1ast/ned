@@ -1,3 +1,8 @@
+proc nxTraceNote(what: string, t0: MonoTime) {.nimcall.} =
+  if perfTraceOn: noteWork(what, t0)
+
+nxTrace = nxTraceNote
+
 var nxWarm: HashSet[int]                 # buffers whose imports the index has already read
 var nxPreloaded: HashSet[int]           # buffers whose scope is made: what waited for it (hints, checks, colours,
                                         #   counts) goes ahead
@@ -6,6 +11,8 @@ var
   nxPreloadQ: Table[int, seq[(string, bool)]]   # buffer id → the files its scope is made of still to read: (path,
                                                 #   a part of its program — else of a module the program imports)
   nxPreloadSeen: Table[int, HashSet[string]]
+
+var nxPrefetchedAt: Table[string, MonoTime]   # files the system was asked to read ahead (when)
 
 proc enginePreloadStart(b: Buffer, f: NxFile) =
   ## the files the scope of `f` is made of, to be read a few at a time in quiet moments (so that making the scope
@@ -19,6 +26,10 @@ proc enginePreloadStart(b: Buffer, f: NxFile) =
     if p.len > 0: q.add (p, im.isInclude)
   let top = nxTopIncluder(f.path)
   if top.len > 0: q.add (top, true)
+  if nxPrefetchedAt.len > 4000: nxPrefetchedAt.clear()
+  for (p, _) in q:
+    nxPrefetch(p)
+    nxPrefetchedAt[p] = getMonoTime()
   nxPreloadQ[b.id] = q
   nxPreloadSeen[b.id] = initHashSet[string]()
 
@@ -28,16 +39,26 @@ proc enginePreloadStep(b: Buffer, ms: int): bool =
   if b.id notin nxPreloadQ: return true
   var q = move nxPreloadQ[b.id]
   var seen = move nxPreloadSeen[b.id]
+  var later: seq[(string, bool)]
   defer:
+    for x in later: q.insert(x, 0)               # (read when the rest has been)
     nxPreloadQ[b.id] = move q
     nxPreloadSeen[b.id] = move seen
   while q.len > 0 and msSince(t0) < ms:
     let (p, part) = q.pop()
     if p in seen: continue
+    # a file the system has not read into memory yet (it was asked to, when queued): later — a third of a second
+    # at most — so that no key waits for the disk (on a phone's storage a file took up to 8 ms, now and then 400)
+    if msSince(nxPrefetchedAt.getOrDefault(p, t0)) < 300 and not nxReadyToRead(p):
+      later.add (p, part)
+      continue
     seen.incl p
+    let lt0 = getMonoTime()
     let g = nxLoad(p)
+    noteWork("read " & extractFilename(p), lt0)
     if g == nil: continue
     var mods: Table[string, string]
+    let before = q.len
     for im in g.imports:
       let r = nxResolve(p, im.spec)
       if r.len == 0 or r in seen: continue
@@ -48,6 +69,10 @@ proc enginePreloadStep(b: Buffer, ms: int): bool =
       for e in g.exports:                          # (a module's `export x`: what x exports too)
         let nm = nxModuleName(e.split(" except ")[0])
         if nm in mods: q.add (mods[nm], false)
+    for k in before ..< q.len:                   # (read ahead by the system, meanwhile)
+      if q[k][0] notin nxPrefetchedAt:
+        nxPrefetch(q[k][0])
+        nxPrefetchedAt[q[k][0]] = getMonoTime()
   q.len == 0
 
 proc engineReady(b: Buffer): bool =
@@ -61,6 +86,8 @@ var nxWarmedMods: HashSet[string]       #   made: (path, how far from the file)
 var nxWarmBad: HashSet[string]          # files that would not stay read (unreadable, or the index over its memory)
 var nxWarmGen = -1                      # the index generation they were made for (`nim dump` came back: again)
 var nxWarmLeft = 0                      # how many more modules the file opened last may have warmed (40)
+
+var compPrepFor: (int, int, int, int)   # (buffer, version, nxGen, nxScopeEpoch) completion's list was made for
 
 proc engineWarm(b: Buffer) =
   ## read a Nim file's imports while you are not typing, so the first completion is instant — then, in quiet
@@ -77,6 +104,7 @@ proc engineWarm(b: Buffer) =
     # not by the first completion asked for, all at once)
     nxPreloaded.clear()
     nxPreloadQ.clear()
+    nxPrefetchedAt.clear()
     nxPreloadSeen.clear()
   template queue(f: NxFile, depth: int) =
     # (the modules it imports, and theirs, made ready for the engine's checks — which the engine worker makes now,
@@ -108,13 +136,46 @@ proc engineWarm(b: Buffer) =
       if enginePreloadStep(b, 6):
         nxPreloadQ.del b.id
         nxPreloadSeen.del b.id
-        discard nxScope(nxFileFor(b))
+        # the program's scopes first, from the top — the file that includes this one, the one that includes that —
+        # one a round (all of them at once took 20–30 ms in ned's own source: nedls.nim includes ned.nim, which
+        # includes this file)
+        let f = nxFileFor(b)
+        var chain: seq[NxFile]
+        var p = f.path
+        for _ in 0 .. 6:
+          let up = nxIncluderOf(p)
+          if up.len == 0 or up == f.path: break
+          let g = nxLoad(up)
+          if g == nil: break
+          chain.add g
+          p = up
+        for k in countdown(chain.high, 0):
+          if not nxScopeCached(chain[k]):
+            let st0 = getMonoTime()
+            discard nxScope(chain[k])
+            noteWork("the scope of " & extractFilename(chain[k].path), st0)
+            return
+        let st0 = getMonoTime()
+        discard nxScope(f)
+        noteWork("the scope of " & extractFilename(f.path), st0)
         nxPreloaded.incl b.id
         needRender = true
     except Exception as e:
       nxPreloaded.incl b.id
       internalError("Nim index", e)
     return
+  if msSince(lastInputAt) >= 300 and b.lang.mode == lmNim and
+     compPrepFor != (b.id, b.changeId, nxGen, nxScopeEpoch):
+    # a plain name's list from the rest of the scope, made before the first letter asks for it (4 ms a round)
+    try:
+      let st0 = getMonoTime()
+      let ready = nxCompletionPrepare(nxFileFor(b), 4)
+      noteWork("completion's list prepared", st0)
+      if not ready: return
+      compPrepFor = (b.id, b.changeId, nxGen, nxScopeEpoch)
+    except Exception as e:
+      compPrepFor = (b.id, b.changeId, nxGen, nxScopeEpoch)
+      internalError("Nim index", e)
   if nxWarmMods.len == 0 or msSince(lastInputAt) < 400: return
   let t0 = getMonoTime()
   while nxWarmMods.len > 0 and msSince(t0) < 8:
@@ -244,27 +305,51 @@ proc postfixItems(b: Buffer, c: NxCompletion, line, dot: int): seq[CompItem] =
   result.add("par", "(" & recv & ")", "(" & r & ")$0")
   if sh != "string": result.add("str", "$" & recv, "\\$" & r & "$0")
 
+proc compItemOf(it: NxItem, nx: int): CompItem =
+  ## a list item for an index item (its text to insert and to filter by: its label — compInsert, compFilter)
+  let kw = it.detail == "keyword"
+  CompItem(label: it.label, insert: it.insert, detail: (if kw: "" else: it.detail),
+           kind: (if kw: 14 else: nxKindIcon(it.kind)), rank: it.rank, nx: nx)
+
+var
+  compRestFor: NxRest            # the rest of the scope's items the list items below were made for
+  compRestItems: seq[CompItem]
+
+proc compNxAt(nx: int): ptr NxItem =
+  ## the index item behind a list item: compNx (> 0), the shared rest of the scope's (< 0)
+  if nx > 0 and nx <= compNx.len: addr compNx[nx - 1]
+  elif nx < 0 and compRest != nil and -nx - 1 < compRest.items.len: addr compRest.items[-nx - 1]
+  else: nil
+
 proc engineComplete(b: Buffer, manual: bool): bool =
   ## completion from the index — after a `.` the receiver's fields and the routines that take it;
   ## nimsuggest is asked as well when the index cannot tell the receiver's type
+  let wt0 = getMonoTime()
+  defer: noteWork("completion", wt0)
   let p = b.primary.head
   var c: NxCompletion
   try:
     let f = nxFileFor(b)
     if f == nil: return false
-    c = nxComplete(f, b.lines, p.line, p.col)
+    c = nxComplete(f, b.lines, p.line, p.col, shared = true)
   except Exception as e:
     internalError("Nim index", e)
     return false
+  let wt1 = getMonoTime()
   compLine = p.line
   compStartCol = b.wordStart(p)
   compManual = manual
-  var items = newSeqOfCap[CompItem](c.items.len + 8)
-  for i, it in c.items:
-    let kw = it.detail == "keyword"
-    items.add CompItem(label: it.label, insert: (if it.insert.len > 0: it.insert else: it.label), detail: (if kw: "" else: it.detail),
-                       kind: (if kw: 14 else: nxKindIcon(it.kind)), filter: it.label,
-                       sortText: $it.rank & it.label.toLowerAscii, rank: it.rank, nx: i + 1)
+  var items = newSeqOfCap[CompItem](c.items.len + (if c.rest != nil: c.rest.items.len else: 0) + 8)
+  for i, it in c.items: items.add compItemOf(it, i + 1)
+  if c.rest != nil:
+    # the rest of the scope's names (thousands in a big program): their list items made once while it stays the
+    # same, and copied here — one string each
+    if compRestFor != c.rest:
+      compRestFor = c.rest
+      compRestItems.setLen(0)
+      for k, it in c.rest.items: compRestItems.add compItemOf(it, -(k + 1))
+    for k in 0 ..< compRestItems.len:
+      if k notin c.restHidden: items.add compRestItems[k]
   if c.member and compStartCol > 0:
     items.add postfixItems(b, c, p.line, compStartCol - 1)
   if not c.member:
@@ -291,9 +376,13 @@ proc engineComplete(b: Buffer, manual: bool): bool =
           inc added
           break
   compNx = move c.items
+  compRest = c.rest
   compItems = move items
   compFromLsp = true
+  noteWork("the list made", wt1)
+  let wt2 = getMonoTime()
   refilterComp()
+  noteWork("the list filtered", wt2)
   if c.member and not c.known and nsUsable(b):
     discard nsRequest(b, nsSug, p)        # the compiler knows what the index could not work out
   elif manual and not compOpen: info("No completions")
@@ -302,9 +391,9 @@ proc engineComplete(b: Buffer, manual: bool): bool =
 proc compDetailFill(i: int) =
   ## (a plain name's list: the details of the items shown, made when they are)
   if i < 0 or i >= compItems.len or compItems[i].detail.len > 0: return
-  let nx = compItems[i].nx
-  if nx > 0 and nx <= compNx.len and compNx[nx - 1].lazy:
-    try: compItems[i].detail = nxItemDetail(compNx[nx - 1])
+  let it = compNxAt(compItems[i].nx)
+  if it != nil and (it[].lazy or it[].detail.len > 0):
+    try: compItems[i].detail = nxItemDetail(it[])
     except CatchableError: discard
 
 proc compDocOf(i: int): string =
@@ -313,11 +402,11 @@ proc compDocOf(i: int): string =
   if compItems[i].docMade: return compItems[i].doc
   compItems[i].docMade = true
   var d = compItems[i].doc
-  let nx = compItems[i].nx
-  if d.len == 0 and nx > 0 and nx <= compNx.len:
+  let nxi = compNxAt(compItems[i].nx)
+  if d.len == 0 and nxi != nil:
     try:
-      d = nxDocItem(compNx[nx - 1])
-      d.add cDocForNx(compNx[nx - 1])          # an importc proc: its C declaration and documentation
+      d = nxDocItem(nxi[])
+      d.add cDocForNx(nxi[])          # an importc proc: its C declaration and documentation
     except Exception as e: internalError("Nim index", e)
   elif d.len == 0 and compItems[i].postfix > 0:
     d = "```nim\n" & stripSnippet(compItems[i].snippet).replace("\t", "  ") & "\n```\npostfix — Tab or Enter writes this " &
@@ -345,6 +434,8 @@ proc nxSigLabel(s: NxSym, ufcs: bool, binds: Table[string, string]): (string, se
 
 proc engineSignature(b: Buffer, p: Pos): bool =
   ## signature help from the index: the call around the cursor, its parameter being typed, its docs
+  let wt0 = getMonoTime()
+  defer: noteWork("signature help", wt0)
   var h: NxSigHelp
   try:
     let f = nxFileFor(b)
@@ -429,6 +520,8 @@ proc engineSignature(b: Buffer, p: Pos): bool =
 proc nimSourceFiles(): seq[string]
 
 proc engineHover(b: Buffer, p: Pos): string =
+  let wt0 = getMonoTime()
+  defer: noteWork("hover from the engine", wt0)
   try:
     let f = nxFileFor(b)
     if f == nil: return
@@ -454,6 +547,8 @@ proc engineHover(b: Buffer, p: Pos): string =
 
 proc engineDefinition(b: Buffer, p: Pos): bool =
   ## jump to the declaration; a list when several fit (overloads the index cannot tell apart)
+  let wt0 = getMonoTime()
+  defer: noteWork("go to definition", wt0)
   var defs: seq[(string, int, int, string)]
   var own = ""
   try:

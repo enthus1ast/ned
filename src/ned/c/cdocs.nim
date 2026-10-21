@@ -194,12 +194,16 @@ proc cSigHintsUpdate(b: Buffer) =
       else:
         decls = nimFfiDecls(b.lines)
         cSigDecls[b.id] = (b.changeId, decls)
-      let dirs = cIncludeDirs(b.path, b.lines)
+      var dirs: seq[string]
+      var dirsMade = false              # (where headers are looked for: worked out when a wrapper on screen names one)
       let here = parentDir(b.path)
       let t0 = getMonoTime()
       for d in decls:
         if d.kind notin ["proc", "func"] or d.eline < lo or d.line > hi: continue
         if msSince(t0) > 80: break
+        if d.header.len > 0 and not dirsMade:
+          dirs = cIncludeDirs(b.path, b.lines)
+          dirsMade = true
         let (cp, _) = if d.header.len > 0: cDeclFor(d.header, d.cname, dirs, here)
                       else: ffiCDecl(d, b.path, b.lines, false)
         if cp.kind != "function": continue

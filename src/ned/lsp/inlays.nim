@@ -109,7 +109,8 @@ proc engineRaisesHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, 
   ## (nim.raisesHints) — only when the engine is sure of every call in it, and something is raised. false: out of
   ## time (what was worked out is kept: the next round goes on from there)
   result = true
-  for i, s in f.syms:
+  for i in 0 ..< f.syms.len:
+    template s: untyped = f.syms[i]
     if s.kind notin {nxProc, nxFunc, nxIterator, nxConverter} or s.line > hi or s.line + 16 < lo: continue
     let left = engineInlayBudget - int(msSince(t0))
     if left <= 0: return false

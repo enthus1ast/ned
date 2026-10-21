@@ -519,7 +519,8 @@ const NxCpBuiltins = ["int", "int8", "int16", "int32", "int64", "uint", "uint8",
 
 proc nxCpTypesOf(f: NxFile): seq[NxRef] =
   ## the types a file declares that a concept can be tried on: not generic, not local, not a concept
-  for i, s in f.syms:
+  for i in 0 ..< f.syms.len:
+    template s: untyped = f.syms[i]
     if s.kind == nxType and not s.local and not s.made and s.generics.len == 0 and not nxIsConcept(s) and
        s.name.len > 0 and s.name.allCharsInSet(IdentChars):
       result.add NxRef(file: f, idx: int32(i))

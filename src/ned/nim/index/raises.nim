@@ -1756,7 +1756,8 @@ proc nxFxForwardElsewhere(c: var NxRsCtx, target: NxRef, callPath: string): int 
       let g = nxLoad(p)
       if g == nil: continue
       let gl = nxLayLinesRef(p)
-      for j, s in g.syms:
+      for j in 0 ..< g.syms.len:
+        template s: untyped = g.syms[j]
         if s.kind in NxRoutineKinds and not s.made and s.endLine <= s.line and nxIsForward(gl.lines, s):
           t.mgetOrPut(nxNorm(s.name), @[]).add (p, j)
     if nxFxFwdCache.len > 64: nxFxFwdCache.clear()

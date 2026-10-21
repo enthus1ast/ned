@@ -155,7 +155,8 @@ proc doSignatureFromBuffer(b: Buffer): bool =
   let f = nxLoad(plan.path)
   if f == nil: return false
   var si = -1
-  for i, s in f.syms:
+  for i in 0 ..< f.syms.len:
+    template s: untyped = f.syms[i]
     if s.line == plan.line and s.name == plan.name: si = i
   if si < 0:
     error("Cannot find " & plan.name & " at line " & $(plan.line + 1) & " any more — open Change signature again")

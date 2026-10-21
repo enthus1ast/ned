@@ -155,6 +155,49 @@ proc swapKey(b: Buffer): string =
 proc swapPath(b: Buffer): string =
   swapDir() / swapKey(b) & "-" & $getCurrentProcessId() & ".json"
 
+# ── a recovery file is flushed to storage (fsync) and put in place by a thread of its own: on a phone's flash an
+#    fsync took tens of ms — now and then hundreds — at every pause in typing, and no key was read meanwhile. Its
+#    jobs are done in order (a file removed after it was written stays removed); a crash or a signal stops it first
+#    and writes what is left itself ──
+type SwapJob = object
+  kind: int8                 # 0 stop · 1 flush the written temp file and rename it over the recovery file · 2 remove
+  fd: cint
+  tmp, dest: string
+
+var
+  swapChan: Channel[SwapJob]
+  swapThr: Thread[void]
+  swapThrOn = false
+  swapTmpN = 0
+
+proc swapThreadMain() {.thread.} =
+  while true:
+    let j = swapChan.recv()
+    case j.kind
+    of 0: break
+    of 1:
+      discard fsync(j.fd)
+      discard posix.close(j.fd)
+      if cRename(j.tmp.cstring, j.dest.cstring) != 0: discard posix.unlink(j.tmp.cstring)
+    else: discard posix.unlink(j.dest.cstring)
+
+proc swapThreadStart(): bool =
+  if swapThrOn: return true
+  try:
+    swapChan.open()
+    createThread(swapThr, swapThreadMain)
+    swapThrOn = true
+  except CatchableError, ResourceExhaustedError: discard
+  swapThrOn
+
+proc swapThreadStop() =
+  ## what it was given is done (then it stops): before ned leaves, and before a recovery file is written here
+  if not swapThrOn: return
+  swapChan.send(SwapJob(kind: 0))
+  joinThread(swapThr)
+  swapChan.close()
+  swapThrOn = false
+
 proc removeSwap(b: Buffer) =
   ## deletes only this session's recovery file for `b`
   b.swapAt = b.changeId
@@ -162,8 +205,28 @@ proc removeSwap(b: Buffer) =
   b.swapMine = false
   try:
     let p = swapPath(b)
-    if fileExists(p): removeFile(p)
+    if swapThrOn: swapChan.send(SwapJob(kind: 2, dest: p))     # (after a write it may still be finishing)
+    elif fileExists(p): removeFile(p)
   except CatchableError: discard
+
+proc swapWriteAsync(dest, content: string): bool =
+  ## the recovery file written to a temp file here, flushed and put in place by the thread (false: do it here)
+  if not swapThreadStart(): return false
+  inc swapTmpN
+  let tmp = dest & ".w" & $swapTmpN
+  let fd = posix.open(tmp.cstring, O_WRONLY or O_CREAT or O_TRUNC or O_NOFOLLOW or O_CLOEXEC, 0o600)
+  if fd < 0: return false
+  var off = 0
+  while off < content.len:
+    let n = posix.write(fd, unsafeAddr content[off], content.len - off)
+    if n < 0:
+      if errno == EINTR: continue
+      discard posix.close(fd)
+      discard posix.unlink(tmp.cstring)
+      return false
+    off += n
+  swapChan.send(SwapJob(kind: 1, fd: fd, tmp: tmp, dest: dest))
+  true
 
 proc writeSwap(b: Buffer, force = false) =
   if b.binary or b.title.len > 0 or b.readOnly: return
@@ -180,7 +243,11 @@ proc writeSwap(b: Buffer, force = false) =
     if myStart.len == 0: myStart = procStart(getCurrentProcessId())
     let j = %*{"path": b.path, "pid": getCurrentProcessId(), "start": myStart, "time": getTime().toUnix,
                "text": b.lines.join("\n"), "crlf": b.crlf}
-    writeFileSafe(swapPath(b), $j, 0o600)
+    if force:
+      swapThreadStop()                     # (a crash or a signal: what the thread had first, then this, here)
+      writeFileSafe(swapPath(b), $j, 0o600)
+    elif not swapWriteAsync(swapPath(b), $j):
+      writeFileSafe(swapPath(b), $j, 0o600)
     b.swapMine = true
   except CatchableError: discard
 

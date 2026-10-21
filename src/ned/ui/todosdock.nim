@@ -25,6 +25,16 @@ proc todoRefreshBufs() =
   let t0 = getMonoTime()
   for b in bufs:
     if not b.todoBufStale() or msSince(b.lspChangeAt) < (if b.lines.len > 50_000: 1500 else: 300): continue
+    if not b.binary and b.lines.len <= 300_000 and todoTags.len > 0:
+      # the lexer's states up to the last tag below what is highlighted, a slice a round (a file just opened had a
+      # thousand lines lexed at once for it)
+      var need = -1
+      for l in countdown(min(b.lines.high, b.hlValid + 2000), b.hlValid + 1):
+        if b.lines[l].len <= 20000 and todoWordIn(b.lines[l]):
+          need = l
+          break
+      while b.hlValid < need and msSince(t0) < 4: b.ensureHl(min(need, b.hlValid + 200))
+      if b.hlValid < need: return                  # (more next round)
     let items = computeBufTodos(b)
     todoBufCache[b.id] = (b.changeId, items)
     inc todoGen
@@ -32,29 +42,6 @@ proc todoRefreshBufs() =
       if items.len > 0: todoFiles[b.path] = items else: todoFiles.del b.path
     needRender = true
     if msSince(t0) > 25: break
-
-proc scanFileTodos(path: string): seq[TodoItem] =
-  var content: string
-  try:
-    if getFileSize(path) > 2_000_000: return
-    content = readFile(path)
-  except CatchableError: return
-  if '\0' in content[0 ..< min(content.len, 8000)]: return
-  let nl = content.find('\n')
-  let lang = detectLang(path, if nl > 0: content[0 ..< nl] else: content)
-  # small files are lexed line by line (exact); big ones only on the lines with a tag word, so one
-  # large file never holds up typing
-  let exact = content.len <= 300_000
-  var st: LexSt = 0
-  var toks: seq[TokKind]
-  var l = 0
-  for s in content.splitLines:
-    if s.len <= 20000:
-      if exact: st = lexLine(lang, s, st, toks)
-      if todoWordIn(s):
-        if not exact: discard lexLine(lang, s, 0'u32, toks)
-        for h in todoHits(s, toks): result.add todoItemOf(path, l, s, h)
-    inc l
 
 proc todoScanProject() =
   ## finds the files with tags (ripgrep, else grep) in the background; todoPump reads them a slice at a time
@@ -99,13 +86,48 @@ proc todoScanProject() =
     needRender = true)
   if j == nil: todoScanBusy = false
 
+var
+  todoCur: tuple[path: string, lines: seq[string], lang: Lang, l: int, st: LexSt, exact: bool,
+                 items: seq[TodoItem]]                # (the file being read: a few hundred lines a round)
+
 proc todoPump(budgetMs: int) =
+  ## the files the scan found, read a slice at a time — a long file over several rounds (its tags exact: the lexer
+  ## carried from line to line), so one never holds up a key
   let t0 = getMonoTime()
   while todoQueue.len > 0 and msSince(t0) < budgetMs:
-    let p = todoQueue.pop()
-    let items = scanFileTodos(p)
-    if items.len > 0: todoFiles[p] = items else: todoFiles.del p
-    inc todoGen
+    let p = todoQueue[^1]
+    if todoCur.path != p:
+      todoCur = (p, newSeq[string](), Lang(nil), 0, LexSt(0), true, newSeq[TodoItem]())
+      var content: string
+      try:
+        if getFileSize(p) <= 2_000_000: content = readFile(p)
+      except CatchableError: discard
+      if content.len == 0 or '\0' in content[0 ..< min(content.len, 8000)]:
+        discard todoQueue.pop()
+        todoFiles.del p
+        todoCur.path = ""
+        continue
+      let nl = content.find('\n')
+      todoCur.lang = detectLang(p, if nl > 0: content[0 ..< nl] else: content)
+      # (small files are lexed line by line — exact; big ones only on the lines with a tag word)
+      todoCur.exact = content.len <= 300_000
+      todoCur.lines = content.splitLines
+    var toks: seq[TokKind]
+    let stop = min(todoCur.lines.len, todoCur.l + 400)
+    while todoCur.l < stop:
+      let s = todoCur.lines[todoCur.l]
+      if s.len <= 20000:
+        if todoCur.exact: todoCur.st = lexLine(todoCur.lang, s, todoCur.st, toks)
+        if todoWordIn(s):
+          if not todoCur.exact: discard lexLine(todoCur.lang, s, 0'u32, toks)
+          for h in todoHits(s, toks): todoCur.items.add todoItemOf(p, todoCur.l, s, h)
+      inc todoCur.l
+    if todoCur.l >= todoCur.lines.len:
+      if todoCur.items.len > 0: todoFiles[p] = todoCur.items else: todoFiles.del p
+      discard todoQueue.pop()
+      todoCur.path = ""
+      todoCur.lines.setLen(0)
+      inc todoGen
   if todoQueue.len == 0: todoScanned = true
   needRender = true
 

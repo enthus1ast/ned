@@ -305,13 +305,15 @@ proc nxForwardOf*(f: NxFile, lines: openArray[string], r: NxSym): int =
   ## the forward declaration of a routine with a body: same name, kind and signature, earlier, without one (or -1)
   result = -1
   if r.kind notin NxRoutineKinds or r.made: return
-  for j, s in f.syms:
+  for j in 0 ..< f.syms.len:
+    template s: untyped = f.syms[j]
     if s.line < r.line and s.name == r.name and not s.made and nxSameSig(s, r) and nxIsForward(lines, s): return j
 
 proc nxBodyOf*(f: NxFile, lines: openArray[string], fw: NxSym): int =
   ## the routine a forward declaration declares: the later one with the same name, kind and signature (or -1)
   result = -1
-  for j, s in f.syms:
+  for j in 0 ..< f.syms.len:
+    template s: untyped = f.syms[j]
     if s.line > fw.line and s.name == fw.name and not s.made and nxSameSig(s, fw) and not nxIsForward(lines, s):
       return j
 
@@ -324,6 +326,12 @@ proc nxParamAt(lines: openArray[string], r: NxSym, name: string): NxSym =
     at = (pl, pc + nm.len)
     if nxNorm(nm) == nxNorm(name):
       return NxSym(name: nm, kind: nxParam, typ: p.typ, value: p.default, line: pl, col: pc)
+
+proc nxLocalRoutine(locals: seq[NxSym], w: string, line: int): seq[NxSym] =
+  ## a routine declared inside the one around `line` by that name (it hides the module's)
+  for i in countdown(locals.high, 0):
+    template s: untyped = locals[i]
+    if s.kind in NxRoutineKinds and nxNorm(s.name) == nxNorm(w) and s.line <= line: return @[s]
 
 proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq[NxSym], string) =
   ## the declarations the word at line:col refers to: (index symbols, locals, module path)
@@ -399,10 +407,7 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
         if r.sym.kind == nxEnumVal and r.sym.owner == v.typeName: result[0].add r
       if result[0].len > 0: return
     # a routine declared inside this one (shape.addQuadratic(…) calling a nested proc): it hides the module's
-    proc localRoutine(): seq[NxSym] =
-      for i in countdown(locals.high, 0):
-        let s = locals[i]
-        if s.kind in NxRoutineKinds and nxNorm(s.name) == nxNorm(w) and s.line <= line: return @[s]
+    # (nxLocalRoutine — not a closure here: one holding `locals` was never freed, a list of locals at every call)
     if v.typ.len > 0:
       let vt = nxConstrained(f, line, v.typ)
       for fr in nxFields(sc, vt):
@@ -410,7 +415,7 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
       if nxStripMods(vt).startsWith("tuple["):
         let tf = nxTupleFieldOf(f, sc, nxStripMods(vt), w)
         if tf.len > 0: return (tf, @[], "")
-      let lr = localRoutine()
+      let lr = nxLocalRoutine(locals, w, line)
       if lr.len > 0: return (@[], lr, "")
       var best: seq[NxRef]
       var bestScore = 0
@@ -423,7 +428,7 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
         elif c == bestScore and c > 0: best.add r
       if best.len > 0: return (best, @[], "")
     # unknown receiver: any routine of that name
-    let lr = localRoutine()
+    let lr = nxLocalRoutine(locals, w, line)
     if lr.len > 0: return (@[], lr, "")
     for r in nxLookup(sc, w):
       if r.sym.kind in NxRoutineKinds or r.sym.kind == nxField: result[0].add r

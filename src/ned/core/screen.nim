@@ -208,14 +208,43 @@ var
 
 var slowWork*: seq[(MonoTime, string, int)]          # (work over 30 ms: when, what, how long — Help › Performance)
 
+var
+  perfTraceOn* = false              # NED_PERF_TRACE=file: every round over 4 ms, with what it did (tests/perf)
+  perfTrace*: seq[string]
+  perfTraceItems: seq[(string, int)]
+  perfTraceT0 = getMonoTime()
+  perfTraceDepth = 0                # (work inside other work: noted with "› " — the round's own items add up)
+  perfRoundCpu0 = 0                 # (the processor time the main thread had used when the round began)
+
+proc threadCpuUs(): int =
+  ## processor time this thread has used: a round much longer than it waited (the system ran something else,
+  ## a page was read from disk) — not work of ned's
+  var ts: Timespec
+  if clock_gettime(CLOCK_THREAD_CPUTIME_ID, ts) != 0: return 0
+  ts.tv_sec.int * 1_000_000 + ts.tv_nsec.int div 1000
+
+proc perfRoundStart() =
+  if perfTraceOn: perfRoundCpu0 = threadCpuUs()
+
 template timedWork(name: string, body: untyped) =
   ## `body`, noted when it takes over 30 ms (what kept ned busy: the performance report names it)
   let twT0 = getMonoTime()
-  body
+  inc perfTraceDepth
+  try: body
+  finally: dec perfTraceDepth
   let twUs = int((getMonoTime() - twT0).inMicroseconds)
   if twUs > 30_000:
     slowWork.add (getMonoTime(), name, twUs)
     if slowWork.len > 200: slowWork = slowWork[100 .. ^1]
+  if perfTraceOn and twUs >= 500: perfTraceItems.add ((if perfTraceDepth > 0: "› " else: "") & name, twUs)
+
+proc noteWork(name: string, t0: MonoTime) =
+  ## what timedWork notes, for work that returns from the middle (defer: noteWork("…", t0))
+  let us = int((getMonoTime() - t0).inMicroseconds)
+  if us > 30_000:
+    slowWork.add (getMonoTime(), name, us)
+    if slowWork.len > 200: slowWork = slowWork[100 .. ^1]
+  if perfTraceOn and us >= 500: perfTraceItems.add ((if perfTraceDepth > 0: "› " else: "") & name, us)
 
 proc noteBusy(us: int) =
   ## one round of the main loop done: how long it kept ned from reading input
@@ -225,6 +254,17 @@ proc noteBusy(us: int) =
     inc busyOver50
     busyRecent.add (getMonoTime(), us)
     if busyRecent.len > 200: busyRecent = busyRecent[100 .. ^1]
+  if perfTraceOn:
+    if us >= 4000 and perfTrace.len < 200_000:
+      var l = $((getMonoTime() - perfTraceT0).inMilliseconds) & " " & $us & " " & $(threadCpuUs() - perfRoundCpu0) &
+              " " & $(getOccupiedMem() div 1024) & " " & $(getTotalMem() div 1024)     # (the heap: in use, held, KB)
+      var own = 0
+      for (n, t) in perfTraceItems:
+        l.add "\t" & n & "=" & $t
+        if not n.startsWith("› "): own += t
+      if us - own >= 2000: l.add "\t(not named)=" & $(us - own)
+      perfTrace.add l
+    perfTraceItems.setLen(0)
 
 const UnknownCell = Cell(ch: 0xFFFFFFFF'u32)        # (a cell whose content on the terminal is not known: repainted)
 
