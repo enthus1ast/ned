@@ -10,6 +10,7 @@ include "ned/nedls/rpc.nim"
 include "ned/nedls/docs.nim"
 include "ned/nedls/features.nim"
 include "ned/nedls/diags.nim"
+include "ned/nedls/actions.nim"
 include "ned/nedls/server.nim"
 
 when isMainModule:

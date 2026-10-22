@@ -97,6 +97,90 @@ proc lintRuleOffAct(path, rule: string): Action =
     typoAt.clear()
     info(rule & " is off in " & relPath(f) & " — set it to \"warning\", \"hint\" … there to have it back")
 
+proc nimRefactors(b: Buffer, lsp = false): seq[(string, string, Action)] =
+  ## the refactorings ned offers at the cursor (and selection) in the quick-fix list. lsp: only those that are an
+  ## edit of the text and nothing else — nedls sends them as code actions (no dialog, nothing run, no name asked:
+  ## extract takes the name it would have proposed)
+  block refactors:
+    let (ra, re) = b.primary.range
+    if ra != re and ra.line == re.line and b.lang.id in ["nim", "python", "ruby", "javascript", "typescript", "go",
+                                                          "rust", "lua"]:
+      let ex: Action = if lsp: (proc() = extractVariable(direct = true)) else: (proc() = extractVariable())
+      result.add act("Extract into a variable", "let name = the selection", ex)
+    if b.lang.mode == lmNim:
+      let ln = b.lines[b.primary.head.line]
+      let lt = ln.strip
+      if '&' in ln and '"' in ln and fmtPlan(ln, b.primary.head.col).why.len == 0:
+        result.add act("Use fmt for this string", "\"a\" & x → fmt\"a{x}\"", proc() = concatToFmt())
+      let w = b.wordAt(b.primary.head)
+      for kw in ["let ", "const "]:
+        # (on the name it declares)
+        if w.len > 0 and lt.startsWith(kw) and lt[kw.len .. ^1].startsWith(w) and
+           (lt.len == kw.len + w.len or lt[kw.len + w.len] notin IdentChars):
+          result.add act("Inline this variable", "its value where it is used", proc() = inlineVariable())
+      if not lsp and (lt.startsWith("const ") or (ra != re and ra.line == re.line)):
+        result.add act("Evaluate at compile time", "the value, as the compiler computes it", proc() = nimEvaluate())
+  if nimEngineOn(b):
+    let t = b.lines[b.primary.head.line].strip
+    let (sa, se) = b.primary.range
+    if sa != se and not lsp:
+      result.add act("Run the selection", "nim r, with this file's imports", proc() = runSelection())
+    let ci = caseInfo(b)
+    if ci[0] >= 0 and b.primary.head.line - ci[0] < 60:
+      var mb: typeof(missingBranches(b))
+      try: mb = missingBranches(b)
+      except Exception as e: internalError("Nim index", e)
+      if mb.missing.len > 0:
+        result.add act("Add the missing case branches", "one `of` per value of " & mb.tname & " without one",
+                       proc() = addMissingBranches())
+    if typeAtCursor(b)[1] >= 0:
+      var rp: ReorderPlan
+      try: rp = reorderPlan(b)
+      except Exception as e: internalError("Nim index", e)
+      if rp.ok:
+        result.add act("Reorder fields to save " & $(rp.before - rp.after) & " bytes (" & $rp.before & " → " &
+                       $rp.after & " B)", "largest alignment first; comments move with their field",
+                       proc() = reorderFields())
+      result.add act("Generate `$`, `==`, hash and a constructor", "for this object type", proc() = generateForType("all"))
+      result.add act("Generate `$`", "", proc() = generateForType("$"))
+      result.add act("Generate `==`", "", proc() = generateForType("=="))
+      result.add act("Generate hash", "imports std/hashes", proc() = generateForType("hash"))
+      result.add act("Generate a constructor", "", proc() = generateForType("init"))
+    if t.startsWith("proc ") or t.startsWith("func ") or t.startsWith("method ") or t.startsWith("iterator ") or
+       t.startsWith("template ") or t.startsWith("macro "):
+      var hl = b.primary.head.line          # (none when it has one: the line after the header's `=`)
+      while hl < b.lines.high and hl - b.primary.head.line < 12 and
+            not b.lines[hl].strip(leading = false).endsWith("="): inc hl
+      if not (hl + 1 <= b.lines.high and b.lines[hl + 1].strip.startsWith("##")):
+        result.add act("Add a doc comment", "## naming the parameters", proc() = docCommentStub())
+      var fw = -1
+      try: fw = forwardDeclAt(b)[1]
+      except Exception as e: internalError("Nim index", e)
+      if fw >= 0: result.add act("Write its body", "at the end of the file", proc() = writeForwardBody())
+    block ctor:
+      var ci: CtorInfo
+      try: ci = ctorAtCursor(b)
+      except Exception as e: internalError("Nim index", e)
+      if ci.ok and ci.missing.len > 0:
+        var names: seq[string]
+        for (n, _) in ci.missing: names.add n
+        result.add act("Fill in the missing fields", truncTo(names.join(", "), 40), proc() = fillMissingFields())
+    if not lsp and quotedName(t, "test ").len > 0:
+      result.add act("Debug this test", "only this test, under gdb", proc() = debugTestAtCursor())
+    # refactorings of the routine (or type) the cursor names
+    var (rd, rok) = rfDeclOf(b)
+    if rok and not (rd.file.path.startsWith(rootDir & "/") or bufIndexByPath(rd.file.path) >= 0):
+      rok = false                  # (echo, a standard library proc: not ours to change)
+    if rok and rd.sym.kind in NxRoutineKinds:
+      if not lsp:
+        result.add act("Change signature of " & rd.sym.name & "…", "parameters, order, defaults — and every call",
+                       proc() = cmdChangeSignature())
+      if rd.sym.kind in {nxProc, nxFunc, nxTemplate} and rfBodyExpr(rfLinesOf(rd.file.path), rd.sym).len > 0:
+        result.add act("Inline " & rd.sym.name, "every call becomes its body", proc() = cmdInlineProc())
+    if not lsp and rok and rd.file.path == b.path and rd.sym.kind in NxRoutineKinds + {nxType} and
+       rd.sym.line == b.primary.head.line:
+      result.add act("Move " & rd.sym.name & " to another module…", "imports follow", proc() = cmdMoveToModule())
+
 proc localFixes(b: Buffer): seq[(string, string, Action)] =
   ## quick fixes ned offers itself, next to the language server's
   result = spellFixes(b)
@@ -132,66 +216,7 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
       if t.len > 0: result.add act(t, dsc, a)
     except CatchableError as e: internalError("C wrapper fix", e)
   let refStart = result.len
-  block refactors:
-    let (ra, re) = b.primary.range
-    if ra != re and ra.line == re.line and b.lang.id in ["nim", "python", "ruby", "javascript", "typescript", "go",
-                                                          "rust", "lua"]:
-      result.add act("Extract into a variable", "let name = the selection", proc() = extractVariable())
-    if b.lang.mode == lmNim:
-      let ln = b.lines[b.primary.head.line]
-      let lt = ln.strip
-      if '&' in ln and '"' in ln: result.add act("Use fmt for this string", "\"a\" & x → fmt\"a{x}\"", proc() = concatToFmt())
-      if (lt.startsWith("let ") or lt.startsWith("const ")) and b.wordAt(b.primary.head).len > 0:
-        result.add act("Inline this variable", "its value where it is used", proc() = inlineVariable())
-      if lt.startsWith("const ") or (ra != re and ra.line == re.line):
-        result.add act("Evaluate at compile time", "the value, as the compiler computes it", proc() = nimEvaluate())
-  if nimEngineOn(b):
-    let t = b.lines[b.primary.head.line].strip
-    let (sa, se) = b.primary.range
-    if sa != se: result.add act("Run the selection", "nim r, with this file's imports", proc() = runSelection())
-    if caseInfo(b)[0] >= 0 and b.primary.head.line - caseInfo(b)[0] < 60:
-      result.add act("Add the missing case branches", "one `of` per enum value", proc() = addMissingBranches())
-    if typeAtCursor(b)[1] >= 0:
-      var rp: ReorderPlan
-      try: rp = reorderPlan(b)
-      except Exception as e: internalError("Nim index", e)
-      if rp.ok:
-        result.add act("Reorder fields to save " & $(rp.before - rp.after) & " bytes (" & $rp.before & " → " &
-                       $rp.after & " B)", "largest alignment first; comments move with their field",
-                       proc() = reorderFields())
-      result.add act("Generate `$`, `==`, hash and a constructor", "for this object type", proc() = generateForType("all"))
-      result.add act("Generate `$`", "", proc() = generateForType("$"))
-      result.add act("Generate `==`", "", proc() = generateForType("=="))
-      result.add act("Generate hash", "imports std/hashes", proc() = generateForType("hash"))
-      result.add act("Generate a constructor", "", proc() = generateForType("init"))
-    if t.startsWith("proc ") or t.startsWith("func ") or t.startsWith("method ") or t.startsWith("iterator ") or
-       t.startsWith("template ") or t.startsWith("macro "):
-      result.add act("Add a doc comment", "## naming the parameters", proc() = docCommentStub())
-      var fw = -1
-      try: fw = forwardDeclAt(b)[1]
-      except Exception as e: internalError("Nim index", e)
-      if fw >= 0: result.add act("Write its body", "at the end of the file", proc() = writeForwardBody())
-    block ctor:
-      var ci: CtorInfo
-      try: ci = ctorAtCursor(b)
-      except Exception as e: internalError("Nim index", e)
-      if ci.ok and ci.missing.len > 0:
-        var names: seq[string]
-        for (n, _) in ci.missing: names.add n
-        result.add act("Fill in the missing fields", truncTo(names.join(", "), 40), proc() = fillMissingFields())
-    if quotedName(t, "test ").len > 0:
-      result.add act("Debug this test", "only this test, under gdb", proc() = debugTestAtCursor())
-    # refactorings of the routine (or type) the cursor names
-    var (rd, rok) = rfDeclOf(b)
-    if rok and not (rd.file.path.startsWith(rootDir & "/") or bufIndexByPath(rd.file.path) >= 0):
-      rok = false                  # (echo, a standard library proc: not ours to change)
-    if rok and rd.sym.kind in NxRoutineKinds:
-      result.add act("Change signature of " & rd.sym.name & "…", "parameters, order, defaults — and every call",
-                     proc() = cmdChangeSignature())
-      if rd.sym.kind in {nxProc, nxFunc, nxTemplate} and rfBodyExpr(rfLinesOf(rd.file.path), rd.sym).len > 0:
-        result.add act("Inline " & rd.sym.name, "every call becomes its body", proc() = cmdInlineProc())
-    if rok and rd.file.path == b.path and rd.sym.kind in NxRoutineKinds + {nxType} and rd.sym.line == b.primary.head.line:
-      result.add act("Move " & rd.sym.name & " to another module…", "imports follow", proc() = cmdMoveToModule())
+  result.add nimRefactors(b)
   let diagStart = result.len
   if b.lang.mode == lmNim: result.add nimProblemFixes(b, ds)
   if result.len > diagStart and diagStart > refStart:

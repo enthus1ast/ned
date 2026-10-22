@@ -137,7 +137,15 @@ proc showCodeActions() =
     return
   var seen: HashSet[string]
   var preferred: seq[(string, string, Action)]
+  # (an action of ned's own is not listed again from the server: nedls offers the same ones)
+  var localTitles: HashSet[string]
+  var localAi = false
+  for (t, _, _) in local:
+    localTitles.incl t
+    if t.endsWith("Fix with AI"): localAi = true
   for (srv, ca) in all:
+    if ca{"title"}.getStr in localTitles: continue
+    if localAi and ca{"command"}{"command"}.getStr == "nedls.aiFix": continue
     let ed = ca{"edit"}
     let cm = ca{"command"}
     let key = ca{"title"}.getStr & "|" & (if ed != nil: $ed else: "") & "|" & (if cm != nil: $cm else: "")

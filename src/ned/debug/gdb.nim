@@ -785,12 +785,18 @@ proc dbgStart() =
       dbgState = "the build failed"
       dbgPanel()
       return
+    # (no debuginfod: where DEBUGINFOD_URLS is set — Ubuntu 24.04 does it for every shell — gdb asks whether to
+    # download debug information, and the question takes the place of an answer ned waits for)
+    let diu = getEnv("DEBUGINFOD_URLS")
+    if diu.len > 0: delEnv("DEBUGINFOD_URLS")
     try:
       dbgProc = spawnProc(@["gdb", "--interpreter=mi3", "-q", "-nx", exe], parentDir(main), siPipe, erMerge)
     except OSError as e:
       dbgState = "could not start gdb: " & e.msg
       dbgPanel()
       return
+    finally:
+      if diu.len > 0: putEnv("DEBUGINFOD_URLS", diu)
     dbgOn = true
     dbgRbuf = ""
     dbgState = "starting…"

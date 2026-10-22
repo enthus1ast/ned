@@ -5,10 +5,19 @@ proc caseInfo(b: Buffer): (int, int, seq[string], int, bool) =
   ## branches go, has an else) — line -1 when there is none
   result = (-1, 0, @[], 0, false)
   var cl = b.primary.head.line
-  let curInd = leadingWs(b.lines[cl]).len
+  var curInd = leadingWs(b.lines[cl]).len
+  # (up to the `case` the cursor is in: the lines on the way may only go outwards — a `case` further in, or one
+  # that ended before a line further out, is not this one)
   while cl >= 0 and b.primary.head.line - cl < 300:
     let t = b.lines[cl].strip
-    if (t.startsWith("case ") or t.contains("= case ")) and leadingWs(b.lines[cl]).len <= curInd: break
+    if t.len > 0 and not t.startsWith("#"):
+      let ind = leadingWs(b.lines[cl]).len
+      if (t.startsWith("case ") or t.contains("= case ")) and ind <= curInd: break
+      if ind < curInd:
+        if not (t.startsWith("of ") or t.startsWith("else") or t.startsWith("elif ")) and
+           cl < b.primary.head.line and ind == 0:
+          return                        # (a top-level line that is not part of a case: none around the cursor)
+        curInd = ind
     dec cl
   if cl < 0 or b.primary.head.line - cl >= 300: return
   let ci = leadingWs(b.lines[cl]).len
@@ -61,18 +70,20 @@ proc enumValuesOf(b: Buffer, caseLine: int): (string, seq[string]) =
       result[0] = r.sym.name
       return
 
-proc addMissingBranches() =
-  let b = buf()
-  if not nimEngineOn(b) or not b.canEdit(): return
+proc missingBranches(b: Buffer): tuple[cl, ofInd, insertAt: int, hasElse: bool, tname: string,
+                                     missing: seq[string], why: string] =
+  ## the values the `case` at the cursor has no branch for (why: when there is no such case, or no enum type)
   let (cl, ofInd, have, insertAt, hasElse) = caseInfo(b)
+  result = (cl, ofInd, insertAt, hasElse, "", newSeq[string](), "")
   if cl < 0:
-    info("Put the cursor in a `case` statement")
+    result.why = "Put the cursor in a `case` statement"
     return
   var (tname, vals) = (("", newSeq[string]()))
   try: (tname, vals) = enumValuesOf(b, cl)
   except Exception as e: internalError("Nim index", e)
+  result.tname = tname
   if vals.len == 0:
-    info("Missing branches work when the case is on an enum or a bool (the index could not tell its type)")
+    result.why = "Missing branches work when the case is on an enum or a bool (the index could not tell its type)"
     return
   # values already handled (ranges a..b cover everything between, in declaration order)
   var covered: HashSet[string]
@@ -84,11 +95,16 @@ proc addMissingBranches() =
       if a >= 0 and e >= a:
         for i in a .. e: covered.incl nxNorm(vals[i])
     else: covered.incl nxNorm(hv.split('.')[^1])
-  var missing: seq[string]
   for v in vals:
-    if nxNorm(v) notin covered: missing.add v
-  if missing.len == 0:
-    info("Every value of " & tname & " has a branch")
+    if nxNorm(v) notin covered: result.missing.add v
+  if result.missing.len == 0: result.why = "Every value of " & tname & " has a branch"
+
+proc addMissingBranches() =
+  let b = buf()
+  if not nimEngineOn(b) or not b.canEdit(): return
+  let (_, ofInd, insertAt, hasElse, tname, missing, why) = missingBranches(b)
+  if why.len > 0:
+    info(why)
     return
   var text = ""
   for v in missing: text.add spaces(ofInd) & "of " & v & ":\n" & spaces(ofInd) & b.indent & "discard\n"

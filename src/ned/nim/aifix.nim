@@ -10,19 +10,21 @@ var aiFixN = 0
 
 proc aiFixVerify(bid: int, text: string, attempt: int, firstMsg: string)
 
-proc aiFixAsk(b: Buffer, d: Diag, attempt: int, prev, prevErr: string) =
-  ## ask the model to fix the problem; its answer is checked by nim check before it is applied
+proc aiFixInstr(b: Buffer, d: Diag, attempt: int, prev, prevErr: string): string =
+  ## what the model is told to do about the problem (the second time: with its answer and what nim check said)
   let l0 = max(0, d.line - 30)
   let l1 = min(b.lines.high, d.line + 30)
-  var instr = "Fix this " & (if d.sev == 1: "compiler error" else: "warning") & " reported at line " & $(d.line + 1) &
-              ":\n" & d.msg.strip & "\nChange as little as possible."
+  result = "Fix this " & (if d.sev == 1: "compiler error" else: "warning") & " reported at line " & $(d.line + 1) &
+           ":\n" & d.msg.strip & "\nChange as little as possible."
   let defs = nimDefinitionsFor(b, l0, l1)
-  if defs.len > 0: instr.add "\n\nDeclarations the code uses (for reference, do not repeat them):\n" & defs
+  if defs.len > 0: result.add "\n\nDeclarations the code uses (for reference, do not repeat them):\n" & defs
   if attempt > 0:
-    instr.add "\n\nYour previous answer was:\n" & prev & "\nWith it, `nim check` still reports:\n" & prevErr &
-              "\nGive a corrected replacement."
-  # the whole top-level declaration or statement with the problem (the cause is often a few lines above it,
-  # like the `let` of a name assigned to), when it is not huge
+    result.add "\n\nYour previous answer was:\n" & prev & "\nWith it, `nim check` still reports:\n" & prevErr &
+               "\nGive a corrected replacement."
+
+proc aiFixRegion(b: Buffer, d: Diag): (Pos, Pos) =
+  ## the code the model rewrites: the whole top-level declaration or statement with the problem (the cause is
+  ## often a few lines above it, like the `let` of a name assigned to) when it is not huge, else the line
   var top = d.line
   while top > 0 and (b.lines[top].len == 0 or b.lines[top][0] in {' ', '\t', '#'}): dec top
   var last = d.line
@@ -31,9 +33,73 @@ proc aiFixAsk(b: Buffer, d: Diag, attempt: int, prev, prevErr: string) =
     if b.lines[k].strip.len > 0: last = k
     inc k
   last = max(last, d.line)
+  if last - top <= 300: (Pos(line: top, col: 0), Pos(line: last, col: b.lines[last].len))
+  else: (Pos(line: d.line, col: 0), Pos(line: d.line, col: b.lines[d.line].len))
+
+proc aiFixCandidate(b: Buffer, a, e: Pos, text: string): (seq[string], int, int) =
+  ## the file's lines with the model's replacement for a..e — and the lines the replacement takes in it
+  let t = inlineClean(text)
+  var cand = b.lines[0 ..< a.line]
+  let newLines = (b.lines[a.line][0 ..< a.col] & t & b.lines[e.line][e.col .. ^1]).split('\n')
+  for x in newLines: cand.add x
+  for i in e.line + 1 ..< b.lines.len: cand.add b.lines[i]
+  (cand, a.line, a.line + newLines.len - 1)
+
+proc aiFixCheck(b: Buffer, cand: seq[string], regionLo, regionHi: int, firstMsg: string,
+                onDone: proc(bad: seq[string]) {.closure.}): bool =
+  ## `nim check` of the file as `cand` (a private copy beside it, checked from its folder on stdin — or, a file
+  ## another one includes, inside that one): onDone gets what is still wrong — an error in the changed lines, the
+  ## problem being fixed, or one that was not there before. false: the copy could not be written (nothing checked)
+  inc aiFixN
+  let tmp = privTmp("fixcheck") & ".nim"
+  var main, mainText = ""
+  if nxIncluderOf(b.path).len > 0:
+    let saved = b.lines
+    b.lines = cand
+    (main, mainText) = includerCopy(b, tmp)
+    b.lines = saved
+  let mainCopy = if main.len > 0: privTmp("fixcheckmain") & ".nim" else: ""
+  try:
+    writeFile(tmp, cand.join("\n") & "\n")
+    if main.len > 0: writeFile(mainCopy, mainText)
+  except CatchableError:
+    return false
+  var before: HashSet[string]              # what was wrong before (the problem being fixed aside)
+  for d in diagsFor(b.path):
+    if d.sev == 1: before.incl d.msg.splitLines()[0]
+  before.excl firstMsg
+  let path = b.path
+  let mainOf = if main.len > 0: main else: path
+  discard startJob(jkCheck, "nim check --hint:all:off --colors:off --listFullPaths:on - < " &
+                   quoteShell(if main.len > 0: mainCopy else: tmp), parentDir(mainOf), proc(j: Job) =
+    var bad: seq[string]
+    let tn = extractFilename(tmp)
+    for raw in j.output.splitLines:              # (read while the file is there: its path is checked)
+      var t = stripAnsi(raw)
+      if t.startsWith("stdinfile.nim("): t = mainOf & t["stdinfile.nim".len .. ^1]
+      var (ok, p, l, _, sev, m) = parseErrLine(t, j.cwd)
+      if ok and extractFilename(p) == tn: p = path
+      if main.len > 0 and p == main: continue     # (the module that includes it: not this file)
+      if not ok or sev != 1 or p != path: continue
+      let f = m.splitLines()[0]
+      if (l >= regionLo and l <= regionHi) or f == firstMsg or f notin before:
+        bad.add "line " & $(l + 1) & ": " & f
+    if j.code != 0 and bad.len == 0 and "Error:" in j.output and tn notin j.output and "stdinfile" notin j.output:
+      bad.add "nim check failed: " & j.output.strip.splitLines()[^1]
+    try:
+      removeFile(tmp)
+      if mainCopy.len > 0: removeFile(mainCopy)
+    except CatchableError: discard
+    onDone(bad))
+  true
+
+proc aiFixAsk(b: Buffer, d: Diag, attempt: int, prev, prevErr: string) =
+  ## ask the model to fix the problem; its answer is checked by nim check before it is applied
+  let instr = aiFixInstr(b, d, attempt, prev, prevErr)
+  let (ra, re) = aiFixRegion(b, d)
   let saved = b.cursors
-  if last - top <= 300 and b.primary.range[0] == b.primary.range[1]:
-    b.cursors = @[Cursor(anchor: Pos(line: top, col: 0), head: Pos(line: last, col: b.lines[last].len), goalX: -1)]
+  if b.primary.range[0] == b.primary.range[1]:
+    b.cursors = @[Cursor(anchor: ra, head: re, goalX: -1)]
   aiInlineEdit(instr)
   b.cursors = saved
   if not aiInlineMode: return
@@ -49,55 +115,9 @@ proc aiFixVerify(bid: int, text: string, attempt: int, firstMsg: string) =
   let t = inlineClean(text)
   let a = aiInlineA
   let e = b.clampPos(aiInlineE)
-  var cand = b.lines[0 ..< a.line]
-  let newLines = (b.lines[a.line][0 ..< a.col] & t & b.lines[e.line][e.col .. ^1]).split('\n')
-  for x in newLines: cand.add x
-  for i in e.line + 1 ..< b.lines.len: cand.add b.lines[i]
-  inc aiFixN
-  # (a private copy, checked from the file's folder on stdin — or, a file another one includes, inside that one)
-  let tmp = privTmp("fixcheck") & ".nim"
-  var main, mainText = ""
-  if nxIncluderOf(b.path).len > 0:
-    let saved = b.lines
-    b.lines = cand
-    (main, mainText) = includerCopy(b, tmp)
-    b.lines = saved
-  let mainCopy = if main.len > 0: privTmp("fixcheckmain") & ".nim" else: ""
-  try:
-    writeFile(tmp, cand.join("\n") & "\n")
-    if main.len > 0: writeFile(mainCopy, mainText)
-  except CatchableError:
-    aiInlineText = text
-    applyInlineEdit()
-    return
-  var before: HashSet[string]              # what was wrong before (the problem being fixed aside)
-  for d in diagsFor(b.path):
-    if d.sev == 1: before.incl d.msg.splitLines()[0]
-  before.excl firstMsg
-  let regionLo = a.line
-  let regionHi = a.line + newLines.len - 1
+  let (cand, regionLo, regionHi) = aiFixCandidate(b, a, e, text)
   info("Checking the AI's fix with nim check…")
-  let mainOf = if main.len > 0: main else: b.path
-  discard startJob(jkCheck, "nim check --hint:all:off --colors:off --listFullPaths:on - < " &
-                   quoteShell(if main.len > 0: mainCopy else: tmp), parentDir(mainOf), proc(j: Job) =
-    var bad: seq[string]
-    let tn = extractFilename(tmp)
-    for raw in j.output.splitLines:              # (read while the file is there: its path is checked)
-      var t = stripAnsi(raw)
-      if t.startsWith("stdinfile.nim("): t = mainOf & t["stdinfile.nim".len .. ^1]
-      var (ok, p, l, _, sev, m) = parseErrLine(t, j.cwd)
-      if ok and extractFilename(p) == tn: p = b.path
-      if main.len > 0 and p == main: continue     # (the module that includes it: not this file)
-      if not ok or sev != 1 or p != b.path: continue
-      let f = m.splitLines()[0]
-      if (l >= regionLo and l <= regionHi) or f == firstMsg or f notin before:
-        bad.add "line " & $(l + 1) & ": " & f
-    if j.code != 0 and bad.len == 0 and "Error:" in j.output and tn notin j.output and "stdinfile" notin j.output:
-      bad.add "nim check failed: " & j.output.strip.splitLines()[^1]
-    try:
-      removeFile(tmp)
-      if mainCopy.len > 0: removeFile(mainCopy)
-    except CatchableError: discard
+  let started = aiFixCheck(b, cand, regionLo, regionHi, firstMsg, proc(bad: seq[string]) =
     let b2 = bufById(bid)
     if b2 == nil: return
     if bad.len == 0:
@@ -121,6 +141,9 @@ proc aiFixVerify(bid: int, text: string, attempt: int, firstMsg: string) =
       aiInlineE = pe
       aiInlineText = ta
       applyInlineEdit(), 15000))
+  if not started:
+    aiInlineText = text
+    applyInlineEdit()
 
 proc aiFixProblem() =
   let b = buf()

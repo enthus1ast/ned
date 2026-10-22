@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.17](#whats-new-in-617) · [6.16](CHANGELOG.md#whats-new-in-616) · [6.15](CHANGELOG.md#whats-new-in-615) · [6.14.1](CHANGELOG.md#whats-new-in-6141) · [older releases](CHANGELOG.md)
+- [What's new in 6.18](#whats-new-in-618) · [6.17](CHANGELOG.md#whats-new-in-617) · [6.16](CHANGELOG.md#whats-new-in-616) · [6.15](CHANGELOG.md#whats-new-in-615) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -40,60 +40,56 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.17
+## What's new in 6.18
 
-6.17 makes ned answer sooner in a big program and take less memory while it works on one, and it comes with the
-test that keeps it that way.
+6.18 gives nedls — ned's engine as a language server, for VS Code, Neovim, Helix, Zed, Emacs, Kate and Sublime —
+the rest of what ned offers on Alt+Enter, and the AI fix that the compiler checks before it reaches your code.
 
-**What it changed**, measured on ned's own source (a program of about 290 include files) on two processor cores: the
-longest moment ned did not read a key in each step, the time a completion takes, and the memory of the editor and
-its engine worker at the end (`tests/perf/rounds.py`, three sessions; 6.17 measured twice):
+**ned's quick-fix list, as code actions.** nedls sent the fixes for the compiler's problems; it now sends
+everything in ned's list that is an edit of your text:
 
-| | 6.16 | 6.17 |
-|---|---|---|
-| opening a file of it, nothing in the index's cache yet | 53 ms | 18–20 ms |
-| opening a file of it | 65 ms | 17–28 ms |
-| typing a few lines, completion popping up | 37 ms | 16–19 ms |
-| asking for completions | 29 ms | 15–16 ms |
-| an import added, then completion | 43 ms | 20–25 ms |
-| a completion: median · longest | 17.5 · 48 ms | 8 · 19–36 ms |
-| memory: editor + engine worker | 42 + 59 MB | 42–44 + 24–28 MB |
+- the fix for the problem under the cursor and *Fix all N like this in the file*, as before;
+- refactorings: generate `$`, `==`, hash and a constructor for an object type; add the missing case branches; fill
+  in the missing fields of a constructor; reorder fields to save bytes; inline a variable, or a one-expression proc
+  into its calls; extract the selection into a variable (named as ned proposes — rename it after); turn
+  `"a" & x` into a fmt string; a doc comment naming the parameters; the body of a forward declaration; format the
+  JSON, SQL, CSS … in a string;
+- *Organize imports* (`source.organizeImports`: the unused ones the compiler found removed, the rest sorted into
+  one `import std/[…]`) and *Fix all* (`source.fixAll`: every problem ned fixes the same way everywhere — unused
+  results, unused imports, var → let, proc → func, bare `except`, deprecated names — in one edit). Editors can run
+  them on save (VS Code: `"editor.codeActionsOnSave": {"source.organizeImports": "explicit"}`); on an import line
+  Organize imports is in the list too, for editors that have no source-action menu;
+- *Turn off a rule for this project*: nedls writes `.ned/lint.json` itself and checks the open files again.
 
-**Completion.** What the rest of the scope offers — the imports, system, the program's other files: some twenty
-thousand names in ned's own source — stays the same while you type in one file. It is now made once, a slice at a
-time in the quiet moments after a file opens, and shared by every completion until an import or another file
-changes; before, every first letter made it again. Of those names only the ones on screen get their details, and
-the list is sorted with each entry's score worked out once.
+An editor that can resolve code actions gets the list at once (under a millisecond to a few on ned's own source)
+and each edit when you pick it; the others get the edits with the list (up to 13 ms on a type of ned's source).
+What needs a dialog or runs something — change signature, move to another module, evaluate, run the selection,
+debug a test — stays in ned.
 
-**A file's scope is made in a third of the time** (14 ms → 4–5 ms for a file of ned): names are compared by a hash
-that copies nothing, the file of an import is found once rather than every time the scope is asked for (again when
-the project's nimble.lock or settings change), and an edit that keeps the imports patches the scope instead of
-making it again.
+**Fix with AI, checked with `nim check`.** On a compiler error, nedls offers *Fix with AI (checked with nim check)*
+when ned's settings name a model (`ai.provider` and its key — ned's own Alt+Enter has done this since 5.16). The
+model gets the declaration with the error, the declarations it uses and the compiler's message; its answer goes
+into a private copy of the file — inside the file that includes it, for an include file — and `nim check` looks at
+it. An answer that does not compile goes back once, with the compiler's error; only one that compiles is sent to
+your editor to apply (`workspace/applyEdit`, tied to the document's version: a file you changed meanwhile is left
+alone). When the second answer does not compile either, the editor asks whether to apply it anyway. The steps
+show as progress in the editor; `"aiFix": false` in nedls's settings turns it off.
 
-**No pauses of half a second at start.** The index's disk cache was tidied in the editor — thousands of files looked
-at, some deleted — and that took 200–800 ms at times. The engine worker does it now, and only counts the files unless
-there are more than it keeps. The cache files a scope needs are asked from the disk ahead (Linux, Termux) and read once
-they are in memory, so a slow disk does not hold up a round.
+**Fewer entries in ned's own list that do nothing.** *Add the missing case branches* is offered inside a `case`
+that misses values (it showed for any line up to 60 below a `case`), *Inline this variable* on the name a `let`
+declares, *Use fmt* on a joined string it can rewrite, *Add a doc comment* where there is none. ned with nedls as
+its server lists an action both offer once.
 
-**The engine worker no longer grows as you edit.** Nim 2.2's ARC/ORC compiles one pattern wrong — a procedure that
-adds to its seq result and then assigns it a new one keeps the old one — and it cost 2.7 MB an edit on ned's own
-source. ned no longer uses the pattern; the worker stays at about 25 MB. Loops over a file's names no longer copy
-each name.
+**The debugger where DEBUGINFOD_URLS is set** (Ubuntu 24.04 sets it for every shell): gdb asked whether to download
+debug information, and the question took the place of an answer ned waited for — a logpoint printed once, then the
+program ran to its end. ned starts gdb without it.
 
-**More work off the keys.** Recovery files are written and flushed to disk on a thread of their own. The C
-compiler's system include folders are asked for in the background. The TODO dock reads the open files a slice at a
-time, the semantic colours of imported names are worked out a few modules a round, and a language server's answers
-are handled 8 ms at a time at most — a burst (a whole project's problems) waits for the next rounds — without
-copying the rest of what the server sent after each message.
+`nimble lsptest` drives the new actions: each refactoring, resolving, Organize imports, Fix all, the rule command,
+and Fix with AI against a mock of the OpenAI API — the first answer does not compile, the second does, and only the
+second reaches the editor.
 
-**Measured on every push.** `tests/perf/rounds.py` runs ned in a pseudo-terminal on its own source — opens a file,
-scrolls, types, asks for completions, adds an import, opens another program — and checks the longest wait of each
-step, the completion times and the memory against `tests/perf/budget.json`; `nimble perf` runs it, and so does CI.
-`NED_PERF_TRACE=file` writes what it reads: every round of the main loop over 4 ms, with what it did, how much of it
-the processor gave ned and the heap. Help › Performance shows the index's parsed files and scopes, the editor's heap
-and what the engine worker holds.
-
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.16](CHANGELOG.md#whats-new-in-616) moved the engine's hints, checks
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.17](CHANGELOG.md#whats-new-in-617) halved the waits on a big program
+and kept the engine worker from growing, [6.16](CHANGELOG.md#whats-new-in-616) moved the engine's hints, checks
 and counts to the engine worker on another core, [6.15](CHANGELOG.md#whats-new-in-615) brought selection by
 code structure, surround, the undo tree, next-edit suggestions, the Git changes view, ned's own JavaScript and C++,
 [6.14.1](CHANGELOG.md#whats-new-in-6141) kept scrolling
@@ -703,16 +699,20 @@ src/nedls.nim`).
 What it does: completion (with documentation, ned's snippets and postfix templates, the import it adds), hover,
 signature help with every overload, definition, declaration, type definition, references, highlights, rename,
 document and workspace symbols, semantic colours, inlay hints (types and parameter names), folding, formatting
-(ned's formatter; a file it is not sure of gets no edits and a message), the quick fixes for the compiler's
-problems (a missing std import, an unused one), and problems: ned's own checks at once, the compiler on the
-unsaved text after a pause, `nim check` on save. Positions are UTF-8 when the editor offers it, else UTF-16.
+(ned's formatter; a file it is not sure of gets no edits and a message), code actions — what ned's Alt+Enter
+offers as an edit: the quick fixes for the compiler's problems and ned's own, the refactorings (generate, inline,
+extract, the missing case branches and fields …), Organize imports, Fix all, a rule turned off for the project,
+and Fix with AI checked by `nim check` (see [What's new in 6.18](#whats-new-in-618)) — and problems: ned's own
+checks at once, the compiler on the unsaved text after a pause, `nim check` on save. Positions are UTF-8 when the
+editor offers it, else UTF-16.
 It starts at about 6 MB, holds a big file with its imports in about 16 MB, and answers a hover in a few
 milliseconds and a completion in about 20.
 
 Settings (in the editor's `initializationOptions`, or under `nedls` in its settings): `inlayHints` (true),
 `parameterHints` (`literals`, `all`, `off`), `raisesHints` (false: what a routine can raise, after its header),
 `checkOnSave` (true), `liveDiagnostics` (true), `formatLineLength` (not given: `nim.format.lineLength`, else the
-file's `.editorconfig`), `nedSettings` (true: your ned settings apply too). `nedls --lint` checks files from the
+file's `.editorconfig`), `nedSettings` (true: your ned settings apply too), `aiFix` (true: Fix with AI when ned's
+settings name a model). `nedls --lint` checks files from the
 command line, as `ned --lint` does.
 
 ```lua

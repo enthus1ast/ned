@@ -34,6 +34,8 @@ class Client:
         self.cv = threading.Condition()
         self.closed = False
         self.config = {}                 # what workspace/configuration answers, by section
+        self.server_requests = []        # what the server asked (applyEdit, showMessageRequest …), whole
+        self.button = None               # the button a showMessageRequest is answered with (its title)
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
@@ -61,6 +63,11 @@ class Client:
                     res = None
                     if msg["method"] == "workspace/configuration":
                         res = [self.config.get(it.get("section")) for it in msg["params"]["items"]]
+                    elif msg["method"] == "workspace/applyEdit":
+                        res = {"applied": True}
+                    elif msg["method"] == "window/showMessageRequest" and self.button:
+                        res = {"title": self.button}
+                    self.server_requests.append(msg)
                     self.notes.append({"method": "<request> " + msg["method"]})
                     self._write({"jsonrpc": "2.0", "id": msg["id"], "result": res})
                 elif "id" in msg:
@@ -269,8 +276,8 @@ def check(name, ok, detail=""):
     return ok
 
 
-def new_client(nedls, root, encodings=None, log=None, opts=None, config=None):
-    c = Client([nedls], root, log=log)
+def new_client(nedls, root, encodings=None, log=None, opts=None, config=None, env=None, more_caps=None):
+    c = Client([nedls], root, env=env, log=log)
     if config:
         c.config = config
     caps = {"textDocument": {"completion": {"completionItem": {"snippetSupport": True,
@@ -281,6 +288,8 @@ def new_client(nedls, root, encodings=None, log=None, opts=None, config=None):
             "workspace": {"workspaceFolders": True, "configuration": bool(config)}}
     if encodings:
         caps["general"] = {"positionEncodings": encodings}
+    for k, v in (more_caps or {}).items():
+        caps.setdefault(k, {}).update(v)
     r = c.request("initialize", {"processId": os.getpid(), "rootUri": uri(root), "capabilities": caps,
                                  "workspaceFolders": [{"uri": uri(root), "name": "proj"}],
                                  "initializationOptions": opts or {"nedSettings": False}}, timeout=60)
@@ -601,6 +610,8 @@ def run_checks(nedls, root, have_nim, log):
             fix = [a for a in acts if a["title"] == "Change to area"]
             ok = fix and apply_edits(BAD, fix[0]["edit"]["changes"][uri(bad_p)]).count("s.area") == 1
             check("codeAction: undeclared field → Change to area", ok, [a["title"] for a in acts])
+            check("codeAction: no Fix with AI without a model set up", not any("AI" in a["title"] for a in acts),
+                  [a["title"] for a in acts])
         if un:
             r = c.request("textDocument/codeAction", {"textDocument": {"uri": uri(bad_p)}, "range": un[0]["range"],
                                                       "context": {"diagnostics": un}})
@@ -730,6 +741,316 @@ def run_checks(nedls, root, have_nim, log):
 
 STRESS_WORDS = ["proc ", "let ", "x", "y", " = ", "1", "(", ")", "\n", "  ", "é", "🎉", "ü", "\"", "#", ".", ", ",
                 "Shape", "area", "sq", ":", "\n  ", "result", "echo ", "[", "]", "ñandú", "𝒜"]
+
+
+# ── code actions: the editor's refactorings, source actions, commands, Fix with AI ──
+
+ACT = '''type
+  Point* = object
+    x*, y*: int
+    tag*: string
+
+  Mood = enum
+    happy, sad, angry
+
+proc feel(m: Mood): string =
+  case m
+  of happy: "yay"
+
+proc double(x: int): int = x * 2
+
+let total = double(3) + double(4)
+let msg = "total: " & $total
+let p = Point(x: 1)
+echo msg, p, feel(happy)
+'''
+
+IMPS = '''import std/strutils
+import std/os
+
+echo "a".toUpperAscii, getCurrentDir()
+'''
+
+AISTUCK = '''proc f(): int =
+  let y = 1
+  y = 2
+  y
+
+echo f()
+'''
+
+AIFIX = '''proc total(xs: seq[int]): int =
+  let sum = 0
+  for x in xs:
+    sum += x
+  sum
+
+echo total(@[1, 2])
+'''
+
+
+def free_port():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def code_actions(c, path, rng, only=None):
+    ctx = {"diagnostics": []}
+    if only is not None:
+        ctx["only"] = only
+    r = c.request("textDocument/codeAction", {"textDocument": {"uri": uri(path)}, "range": rng, "context": ctx},
+                  timeout=60)
+    return (r or {}).get("result") or []
+
+
+def edits_of(ed, path):
+    if not ed:
+        return []
+    if "documentChanges" in ed:
+        return [e for dc in ed["documentChanges"] if dc["textDocument"]["uri"] == uri(path) for e in dc["edits"]]
+    return (ed.get("changes") or {}).get(uri(path), [])
+
+
+def after_action(c, text, path, act):
+    """the text once the action's edit is applied (resolved first when it was listed without one)"""
+    if act is None:
+        return None
+    if "edit" not in act:
+        r = c.request("codeAction/resolve", act, timeout=60)
+        act = (r or {}).get("result") or {}
+    es = edits_of(act.get("edit"), path)
+    return apply_edits(text, es) if es else None
+
+
+def at(text, needle, after=0, length=0):
+    p = pos_of(text, needle, after=after)
+    e = dict(p)
+    e["character"] += length
+    return {"start": p, "end": e}
+
+
+def named(acts, title):
+    for a in acts:
+        if a["title"] == title:
+            return a
+    return None
+
+
+def run_actions(nedls, have_nim, log):
+    root = tempfile.mkdtemp(prefix="tnedls-act-")
+    mock = None
+    try:
+        src = os.path.join(root, "src")
+        os.makedirs(src)
+        files = {"act.nim": ACT, "imps.nim": IMPS, "hints.nim": HINTS, "aifix.nim": AIFIX, "aistuck.nim": AISTUCK}
+        for name, text in files.items():
+            with open(os.path.join(src, name), "w") as f:
+                f.write(text)
+        with open(os.path.join(root, "act.nimble"), "w") as f:
+            f.write('version = "0.1.0"\nauthor = "t"\ndescription = "t"\nlicense = "MIT"\nsrcDir = "src"\n')
+        os.makedirs(os.path.join(root, ".git"))           # (the project's top: .ned/lint.json goes here)
+        act_p, imps_p, hints_p, ai_p = [os.path.join(src, n) for n in ("act.nim", "imps.nim", "hints.nim", "aifix.nim")]
+        # a model to ask (the UI tests' mock of the OpenAI API) in ned's own settings, which nedls reads
+        port = free_port()
+        mock_log = os.path.join(root, "mock.log")
+        here = os.path.dirname(os.path.abspath(__file__))
+        mock = subprocess.Popen([sys.executable, "-I", os.path.join(here, "..", "ui", "mocks", "mockai.py"), str(port)],
+                                env=dict(os.environ, NED_TEST_MOCK_LOG=mock_log), stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        cfg = os.path.join(root, "cfg")
+        os.makedirs(os.path.join(cfg, "ned"))
+        with open(os.path.join(cfg, "ned", "config.json"), "w") as f:
+            json.dump({"ai.provider": "openai", "ai.baseUrl": "http://127.0.0.1:%d/v1" % port, "ai.apiKey": "sk-test",
+                       "ai.model": "gpt-6", "security.folderTrust": "off"}, f)
+        env = dict(os.environ, XDG_CONFIG_HOME=cfg, XDG_STATE_HOME=os.path.join(root, "state"),
+                   XDG_CACHE_HOME=os.path.join(root, "cache"))
+        more = {"textDocument": {"codeAction": {"resolveSupport": {"properties": ["edit"]},
+                                                "codeActionLiteralSupport": {"codeActionKind": {"valueSet": [
+                                                    "", "quickfix", "refactor", "source"]}}}},
+                "workspace": {"applyEdit": True, "workspaceEdit": {"documentChanges": True},
+                              "executeCommand": {}},
+                "window": {"workDoneProgress": True, "showMessage": {}}}
+        c, init = new_client(nedls, root, log=log, opts={"nedSettings": True}, env=env, more_caps=more)
+        caps = (init or {}).get("result", {}).get("capabilities", {})
+        cap = caps.get("codeActionProvider") or {}
+        check("actions: resolveProvider, the kinds, the commands",
+              isinstance(cap, dict) and cap.get("resolveProvider") is True and "refactor.rewrite" in cap.get(
+                  "codeActionKinds", []) and "source.organizeImports" in cap.get("codeActionKinds", []) and
+              "nedls.aiFix" in (caps.get("executeCommandProvider") or {}).get("commands", []), caps)
+        open_doc(c, act_p, ACT)
+        # an object type: generate (worked out when chosen: the client resolves it)
+        acts = code_actions(c, act_p, at(ACT, "Point* = object", after=1))
+        g = named(acts, "Generate `$`")
+        check("refactor: Generate `$` on an object type, listed without its edit (resolved later)",
+              g and g.get("kind") == "refactor.rewrite" and "edit" not in g and "data" in g, [a["title"] for a in acts])
+        t = after_action(c, ACT, act_p, g)
+        check("codeAction/resolve: Generate `$` → a `$` for Point", t and "proc `$`" in t and "Point" in t, t)
+        acts = code_actions(c, act_p, at(ACT, "Point* = object", after=1), only=["quickfix"])
+        check("only: [quickfix] → no refactorings", not any(a["kind"].startswith("refactor") for a in acts),
+              [a["title"] for a in acts])
+        acts = code_actions(c, act_p, at(ACT, "Point* = object", after=1), only=["refactor.rewrite"])
+        check("only: [refactor.rewrite] → the generators", named(acts, "Generate hash") is not None,
+              [a["title"] for a in acts])
+        # a case without every value
+        t = after_action(c, ACT, act_p, named(code_actions(c, act_p, at(ACT, "case m", after=2)),
+                                              "Add the missing case branches"))
+        check("refactor: Add the missing case branches", t and "of sad" in t and "of angry" in t, t)
+        # a constructor without every field
+        t = after_action(c, ACT, act_p, named(code_actions(c, act_p, at(ACT, "Point(x: 1)", after=7)),
+                                              "Fill in the missing fields"))
+        check("refactor: Fill in the missing fields", t and "Point(x: 1, y:" in t and "tag:" in t, t)
+        # a selection into a variable: the name it would propose, no question asked
+        acts = code_actions(c, act_p, at(ACT, "double(3)", length=9))
+        x = named(acts, "Extract into a variable")
+        t = after_action(c, ACT, act_p, x)
+        check("refactor.extract: the selection into a variable (the proposed name)",
+              x and x["kind"] == "refactor.extract" and t and "let doubleResult = double(3)\n" in t and
+              "let total = doubleResult + double(4)" in t, (x, t))
+        t = after_action(c, ACT, act_p, named(code_actions(c, act_p, at(ACT, '"total: "', after=2)),
+                                              "Use fmt for this string"))
+        check("refactor: Use fmt for this string", t and 'fmt"total: {total}"' in t, t)
+        acts = code_actions(c, act_p, at(ACT, "proc double", after=6))
+        x = named(acts, "Inline double")
+        t = after_action(c, ACT, act_p, x)
+        check("refactor.inline: Inline a one-expression proc into its calls",
+              x and x["kind"] == "refactor.inline" and t and "double(3)" not in t, (x and x["kind"], t))
+        check("refactor: nothing that runs or asks (Run the selection, Change signature …)",
+              not any(a["title"].startswith(("Run the", "Change signature", "Move ", "Evaluate", "Debug"))
+                      for a in acts + code_actions(c, act_p, at(ACT, "double(3)", length=9))),
+              [a["title"] for a in acts])
+        # source: organize imports
+        open_doc(c, imps_p, IMPS)
+        acts = code_actions(c, imps_p, at(IMPS, "import std/os", after=2), only=["source.organizeImports"])
+        o = named(acts, "Organize imports")
+        t = after_action(c, IMPS, imps_p, o)
+        check("source.organizeImports: the imports sorted into one", o and o["kind"] == "source.organizeImports" and
+              t and t.startswith("import std/[os, strutils]\n"), t)
+        check("no `only` on an import line: Organize imports is there too",
+              named(code_actions(c, imps_p, at(IMPS, "import std/os", after=2)), "Organize imports") is not None)
+        check("… and not on other lines", named(code_actions(c, imps_p, at(IMPS, "echo", after=1)),
+                                                "Organize imports") is None)
+        # source.fixAll, and a rule turned off for the project (a command nedls carries out)
+        open_doc(c, hints_p, HINTS)
+        ds = c.wait_diagnostics(uri(hints_p), lambda ds: any("is never changed" in d["message"] for d in ds),
+                                timeout=60)
+        hv = [d for d in ds or [] if "'limit' is never changed" in d["message"]]
+        acts = code_actions(c, hints_p, at(HINTS, "echo total", after=1), only=["source.fixAll"])
+        fa = [a for a in acts if a["kind"] == "source.fixAll"]
+        t = after_action(c, HINTS, hints_p, fa[0] if fa else None)
+        check("source.fixAll: every problem ned can fix in the file", t and "let limit = 10" in t,
+              ([a["title"] for a in acts], t))
+        if hv:
+            acts = code_actions(c, hints_p, hv[0]["range"])
+            off = named(acts, "Turn off var-let for this project")
+            cmd = (off or {}).get("command") or {}
+            check("quick fix: turn the rule off — a command nedls runs (it writes .ned/lint.json)",
+                  cmd.get("command") == "nedls.lintRuleOff", off)
+            if cmd:
+                r = c.request("workspace/executeCommand", {"command": cmd["command"], "arguments": cmd["arguments"]})
+                lj = os.path.join(root, ".ned", "lint.json")
+                ok = r is not None and "error" not in r and os.path.exists(lj) and \
+                    json.load(open(lj)).get("rules", {}).get("var-let") == "off"
+                check("workspace/executeCommand nedls.lintRuleOff → .ned/lint.json says var-let: off", ok, r)
+                ds = c.wait_diagnostics(uri(hints_p), lambda ds: not any("is never changed" in d["message"]
+                                                                        for d in ds), timeout=30)
+                check("… and the hint is gone from the problems", ds is not None and
+                      not any("is never changed" in d["message"] for d in ds), ds)
+        else:
+            check("engine hint for source.fixAll and the rule", False, ds)
+        r = c.request("workspace/executeCommand", {"command": "nedls.nothing", "arguments": []})
+        check("an unknown command → an error", r and "error" in r, r)
+        # Fix with AI: the model's first answer does not compile — nim check says so, the model is asked again
+        # with the error, and only the answer that compiles is sent to the client to apply
+        if have_nim:
+            open_doc(c, ai_p, AIFIX)
+            c.notify("textDocument/didSave", {"textDocument": {"uri": uri(ai_p)}})
+            ds = c.wait_diagnostics(uri(ai_p), lambda ds: any(d["severity"] == 1 for d in ds), timeout=90)
+            err = [d for d in ds or [] if d["severity"] == 1]
+            acts = code_actions(c, ai_p, err[0]["range"]) if err else []
+            ai = named(acts, "Fix with AI (checked with nim check)")
+            cmd = (ai or {}).get("command") or {}
+            check("quick fix: Fix with AI, a command (a model is set up)", cmd.get("command") == "nedls.aiFix",
+                  [a["title"] for a in acts])
+            if cmd:
+                n0 = len(c.server_requests)
+                r = c.request("workspace/executeCommand", {"command": cmd["command"], "arguments": cmd["arguments"]})
+                check("nedls.aiFix answers at once (the work goes on)", r is not None and "error" not in r, r)
+                end = time.time() + 120
+                edit = None
+                while time.time() < end and edit is None:
+                    for m in c.server_requests[n0:]:
+                        if m["method"] == "workspace/applyEdit":
+                            edit = m["params"]["edit"]
+                    time.sleep(0.2)
+                t = apply_edits(AIFIX, edits_of(edit, ai_p)) if edit else None
+                check("Fix with AI: the edit sent is the answer that compiles (the second)",
+                      t and "var sum = 0" in t and "sum += x +" not in t, (edit, t))
+                asks = []
+                try:
+                    for ln in open(mock_log):
+                        b = json.loads(ln).get("body") or {}
+                        txt = json.dumps(b)
+                        if "Fix this compiler error" in txt:
+                            asks.append(txt)
+                except OSError:
+                    pass
+                check("… the model was asked twice, the second time with nim check's error",
+                      len(asks) == 2 and "Your previous answer was" in asks[1] and "still reports" in asks[1],
+                      len(asks))
+                prog = [m for m in c.server_requests[n0:] if m["method"] == "window/workDoneProgress/create"]
+                check("… with progress in the client", prog, [m["method"] for m in c.server_requests[n0:]])
+                time.sleep(0.5)
+                msgs = [m["params"]["message"] for m in c.notes if m.get("method") == "window/showMessage"]
+                check("… and a message that it was applied", any("nim check passes" in m for m in msgs), msgs[-3:])
+            # answers that never compile: after the second, the user is asked — "Apply anyway" applies it
+            stuck_p = os.path.join(src, "aistuck.nim")
+            open_doc(c, stuck_p, AISTUCK)
+            c.notify("textDocument/didSave", {"textDocument": {"uri": uri(stuck_p)}})
+            ds = c.wait_diagnostics(uri(stuck_p), lambda ds: any(d["severity"] == 1 for d in ds), timeout=90)
+            err = [d for d in ds or [] if d["severity"] == 1]
+            ai = named(code_actions(c, stuck_p, err[0]["range"]), "Fix with AI (checked with nim check)") if err else None
+            if ai:
+                c.button = "Apply anyway"
+                n0 = len(c.server_requests)
+                c.request("workspace/executeCommand", ai["command"])
+                end = time.time() + 120
+                got = []
+                while time.time() < end and "workspace/applyEdit" not in got:
+                    got = [m["method"] for m in c.server_requests[n0:]]
+                    time.sleep(0.2)
+                asked = [m for m in c.server_requests[n0:] if m["method"] == "window/showMessageRequest"]
+                check("Fix with AI that never compiles: the user is asked (Apply anyway / Leave it), then it is applied",
+                      asked and "still does not compile" in asked[0]["params"]["message"] and
+                      "workspace/applyEdit" in got and got.index("window/showMessageRequest") <
+                      got.index("workspace/applyEdit"), got)
+                c.button = None
+            else:
+                check("Fix with AI offered on a second error", False, ds)
+        else:
+            print("SKIP  Fix with AI (no nim on PATH)")
+        c.request("shutdown", None)
+        c.notify("exit", {})
+        c.close()
+        # a client that cannot resolve: the edit comes with the action
+        c, init = new_client(nedls, root, log=log, env=env)
+        open_doc(c, act_p, ACT)
+        acts = code_actions(c, act_p, at(ACT, "Point* = object", after=1))
+        g = named(acts, "Generate `$`")
+        check("a client without resolve: the refactoring's edit is in the list", g and "edit" in g,
+              [a["title"] for a in acts])
+        check("… and no Fix with AI where edits cannot be sent (no workspace/applyEdit)",
+              not any("AI" in a["title"] for a in acts))
+        c.request("shutdown", None)
+        c.notify("exit", {})
+        c.close()
+    finally:
+        if mock:
+            mock.kill()
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def random_edit(rnd, text):
@@ -944,6 +1265,7 @@ def main():
         with open(os.path.join(root, "proj.nimble"), "w") as f:
             f.write('version = "0.1.0"\nauthor = "t"\ndescription = "t"\nlicense = "MIT"\nsrcDir = "src"\n')
         run_checks(nedls, root, have_nim, log)
+        run_actions(nedls, have_nim, log)
         if edits > 0:
             run_stress(nedls, root, edits, log)
     finally:

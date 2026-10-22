@@ -152,16 +152,18 @@ proc ghostUnknownName(b: Buffer, at: Pos, t: string): string =
   ""
 
 proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.closure.},
-               onRetry: proc() {.closure.} = nil): Job =
-  ## a short request to the quick model (the suggestions'): its reply's text goes to onText. A refusal it can learn
-  ## from (a parameter, the endpoint) or a quick model that is gone (the chat model then) calls onRetry instead
+               onRetry: proc() {.closure.} = nil, model = "", timeoutS = 30,
+               onFail: proc(why: string) {.closure.} = nil): Job =
+  ## a short request to the quick model (the suggestions') — or to `model`: its reply's text goes to onText. A
+  ## refusal it can learn from (a parameter, the endpoint) or a quick model that is gone (the chat model then)
+  ## calls onRetry instead; any other failure onFail (when given), with what went wrong
   if not haveExe("curl"): return nil
   let key = aiKey()
   if key.len == 0 and cfgAiProvider notin ["ollama", "custom"]: return nil
   let base = aiProviderBase()
   if base.len == 0: return nil
   let anth = cfgAiProvider == "anthropic"
-  let gm = ghostModel()
+  let gm = if model.len > 0: model else: ghostModel()
   let reasoning = cfgAiProvider == "openai" and isReasoningModel(gm)
   let resp = cfgAiProvider == "openai" and ((gm & "|responses") in aiQuirks or sStr("ai.openaiApi") == "responses")
   var body: JsonNode
@@ -169,14 +171,14 @@ proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.cl
     body = %*{"model": gm, "max_tokens": maxTokens, "temperature": 0, "system": instr,
               "messages": [{"role": "user", "content": user}]}
   elif resp:
-    body = %*{"model": gm, "max_output_tokens": (if reasoning: 2000 else: maxTokens + 32), "store": false,
-              "instructions": instr, "input": [{"role": "user", "content": user}]}
+    body = %*{"model": gm, "max_output_tokens": (if reasoning: max(2000, maxTokens) else: maxTokens + 32),
+              "store": false, "instructions": instr, "input": [{"role": "user", "content": user}]}
   else:
     body = %*{"model": gm, "stream": false,
               "messages": [{"role": (if reasoning: "developer" else: "system"), "content": instr},
                            {"role": "user", "content": user}]}
     let mct = (cfgAiProvider == "openai" and (gm & "|maxtokens") notin aiQuirks) or (gm & "|mct") in aiQuirks
-    body[(if mct: "max_completion_tokens" else: "max_tokens")] = %(if reasoning: 2000 else: maxTokens)
+    body[(if mct: "max_completion_tokens" else: "max_tokens")] = %(if reasoning: max(2000, maxTokens) else: maxTokens)
     if not reasoning and (gm & "|notemp") notin aiQuirks: body["temperature"] = %0
   var hdr = "Content-Type: application/json\n"
   if anth: hdr.add "x-api-key: " & key & "\nanthropic-version: 2023-06-01\n"
@@ -190,13 +192,16 @@ proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.cl
     setFilePermissions(bf, {fpUserRead, fpUserWrite})
   except CatchableError: return nil
   let url = if anth: base & "/v1/messages" elif resp: base & "/responses" else: base & "/chat/completions"
-  let cmd = "curl -sS --max-time 30 -X POST " & quoteShell(url) & " -H @" & quoteShell(hf) & " --data-binary @" & quoteShell(bf)
+  let cmd = "curl -sS --max-time " & $timeoutS & " -X POST " & quoteShell(url) & " -H @" & quoteShell(hf) &
+            " --data-binary @" & quoteShell(bf)
   startJob(jkTool, cmd, rootDir, proc(j: Job) =
     try:
       removeFile(hf)
       removeFile(bf)
     except CatchableError: discard
-    if j.code != 0: return
+    if j.code != 0:
+      if onFail != nil: onFail("the request failed: " & truncTo(j.output.strip.splitLines()[^1], 160))
+      return
     var t = ""
     try:
       let r = parseJson(j.output)
@@ -214,6 +219,7 @@ proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.cl
           ghostFallback = aiModel()           # the default suggestion model is gone: use the chat model
           if onRetry != nil: onRetry()
         elif learned and onRetry != nil: onRetry()   # ask again, adjusted; other errors wait for the next edit
+        elif onFail != nil: onFail(truncTo(em, 200))
         return
       if anth:
         if r{"content"} != nil and r["content"].kind == JArray:
@@ -226,7 +232,9 @@ proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.cl
               if c{"type"}.getStr == "output_text": t.add c{"text"}.getStr
       elif r{"choices"} != nil and r["choices"].kind == JArray and r["choices"].len > 0:
         t = r["choices"][0]{"message", "content"}.getStr
-    except CatchableError: return
+    except CatchableError:
+      if onFail != nil: onFail("the answer was not JSON: " & truncTo(j.output.strip, 160))
+      return
     if t.strip.startsWith("```"):
       var ls = t.strip.splitLines()
       if ls.len >= 2:
