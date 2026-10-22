@@ -6,6 +6,7 @@ type FOut* = object
   blank*: bool
   comment*: bool
   verbatim*: bool
+  keep*: bool           # (NimScript) kept exactly as written
   origText*: string
   cont*: int            # extra indentation for physical lines kept as written
   complexKind*: int
@@ -780,7 +781,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       if enumDepth >= 0 and l.depth <= enumDepth: enumDepth = -1
       if secDepth >= 0 and l.depth <= secDepth: secDepth = -1
     var o = FOut(depth: l.depth, toks: l.toks, blank: l.blank, comment: l.comment, verbatim: l.verbatim,
-                 origText: l.origText, importish: l.origText == "import")
+                 keep: l.keep, origText: l.origText, importish: l.origText == "import")
     if not l.comment:
       let k0 = l.toks[0]
       o.declLike = (secDepth >= 0 and l.depth == secDepth + 1) or typeDepth >= 0 or
@@ -4479,6 +4480,81 @@ proc fAlignRuns(entries: seq[FOut], res: var seq[string], firstLine, parentOf: s
 
 var fNoCheck* = false      # (the formatter's own tests: the result unchecked, to see what a refused one would be)
 
+func fScriptField(o: FOut): bool =
+  ## a package field of a NimScript file: `name = value` at the top (version, author, srcDir, bin …)
+  o.keep and o.depth == 0 and not o.comment and o.toks.len >= 3 and o.toks[0].kind == fkIdent and
+    o.toks[1].kind == fkOp and o.toks[1].text == "="
+
+proc fScriptKeep(lines: var seq[FLine]) =
+  ## NimScript (.nims, .nimble): what scripts write their own way stays as written — the package's `name = value`
+  ## lines (lined up after: fScriptAlign), compiler switches (`--opt:speed`), task and hook headers (`task build,
+  ## "…":`, `before install:`), a short `if x: y`, and a line with a comment at its end (it stays there)
+  for l in lines.mitems:
+    if l.comment or l.toks.len == 0: continue
+    let t0 = l.toks[0]
+    var last = l.toks.high
+    while last > 0 and l.toks[last].kind == fkComment: dec last
+    var keep = false
+    if l.depth == 0 and t0.kind == fkIdent and fTopEq(l.toks, 0, l.toks.len) > 0:
+      keep = true                                   # version = "1.0" · namedBin["x"] = "y"
+    elif t0.kind == fkOp and t0.text in ["--", "-"]:
+      keep = true                                   # --opt:speed · --path:"../src"
+    elif t0.kind == fkIdent and t0.text in ["task", "before", "after", "feature"] and l.toks[last].kind == fkColon:
+      keep = true
+    elif t0.kind == fkKw and t0.text in ["if", "when", "elif", "else", "for", "while"]:
+      let c = fTopColon(l.toks, 0, l.toks.len)
+      if c > 0 and c < last: keep = true            # `if x: y` on one line
+    if not keep and last < l.toks.high and last > 0: keep = true    # a comment at the end of the line
+    if keep:
+      l.verbatim = true
+      l.keep = true
+
+proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int], gap: seq[bool]) =
+  ## NimScript: the `=` of a run of package fields lined up, as nimble's own template writes them
+  ## (`version       = "0.1.0"`): at the column they share already when there is room, else one after the
+  ## longest name. A value continued on the lines below moves with its `=`
+  var i = 0
+  while i < entries.len:
+    if not fScriptField(entries[i]):
+      inc i
+      continue
+    var run = @[i]
+    var j = i + 1
+    while j < entries.len and fScriptField(entries[j]) and not gap[j]:
+      run.add j
+      inc j
+    i = j
+    if run.len < 2: continue
+    var longest = 0
+    var cols: seq[int]
+    for e in run:
+      let name = entries[e].toks[0].text
+      longest = max(longest, name.len)
+      cols.add res[firstLine[e]].find('=', name.len)
+    if -1 in cols: continue
+    var shared = true
+    for c in cols:
+      if c != cols[0]: shared = false
+    let target = if shared and cols[0] >= longest + 1: cols[0] else: longest + 1
+    for n, e in run:
+      let line = res[firstLine[e]]
+      let name = entries[e].toks[0].text
+      # (`name<pad>= value`: one space after the `=` — with none, Nim would read it as a prefix operator)
+      var vs = cols[n] + 1
+      while vs < line.len and line[vs] == ' ': inc vs
+      let fresh = name & spaces(target - name.len) & "= " & line[vs .. ^1]
+      let delta = (target + 2) - vs
+      if fresh == line: continue
+      res[firstLine[e]] = fresh
+      if delta == 0: continue
+      for k in 1 ..< entries[e].lineCount:
+        let at = firstLine[e] + k
+        if at >= res.len or res[at].len == 0: continue
+        if delta > 0: res[at] = spaces(delta) & res[at]
+        else:
+          let lead = leadingWs(res[at]).len
+          res[at] = res[at][min(lead, -delta) .. ^1]
+
 proc fFormat*(text: string, err: var string): string =
   var ok = true
   let toks = fLex(text, ok)
@@ -4488,6 +4564,7 @@ proc fFormat*(text: string, err: var string): string =
   var lines = fGroupLines(toks)
   fDepths(lines)
   fNormalize(lines)
+  if FmtScript: fScriptKeep(lines)
   if FmtImports > 0: fImports(lines)
   var normToks: seq[FTok]
   for l in lines: normToks.add l.toks
@@ -4539,7 +4616,7 @@ proc fFormat*(text: string, err: var string): string =
     firstLine[i] = res.len
     var rendered: seq[string]
     # a statement holding a long string: as nph lays it out, when it is one fNphLayout knows
-    if o.verbatim and FmtArgs == fwFit and FmtColl == fwFit and FmtParams == fwFit:
+    if o.verbatim and not o.keep and FmtArgs == fwFit and FmtColl == fwFit and FmtParams == fwFit:
       # (not statements in parentheses a line apart: their line breaks are the code's)
       var parenStmts = false
       var dd = 0
@@ -4588,6 +4665,7 @@ proc fFormat*(text: string, err: var string): string =
       res.add line
     prevDepth = o.depth
   if FmtAlign: fAlignRuns(entries, res, firstLine, parentOf, gap)
+  if FmtScript: fScriptAlign(entries, res, firstLine, gap)
   while res.len > 0 and res[^1].len == 0: res.setLen(res.len - 1)
   var total = 1
   for r in res: total += r.len + 1
@@ -4629,7 +4707,7 @@ const FChunkMemoMax = 24 * 1048576
 
 proc fSettingsKey(): string =
   $FmtWidth & "," & $FmtMax & "," & $FmtParams & "," & $FmtArgs & "," & $FmtColl & "," & $FmtBlank & "," &
-    $FmtImports & "," & $FmtAlign & "," & $FmtReflow & "," & $FmtReflowPlain & "," & $fNoCheck
+    $FmtImports & "," & $FmtAlign & "," & $FmtReflow & "," & $FmtReflowPlain & "," & $fNoCheck & "," & $FmtScript
 
 proc fChunkStarts*(toks: seq[FTok]): seq[int] =
   ## the tokens where a piece may start (each first on its line, column 0, after an empty line)
@@ -4651,7 +4729,7 @@ proc fChunkStarts*(toks: seq[FTok]): seq[int] =
 proc fFormatPieces*(text: string, err: var string, fresh: var seq[(string, string)]): string =
   ## fFormat's result, made piece by piece and remembered (fresh: the pieces formatted this time, for a second
   ## check). Settings that look across statements (imports sorted, lining up) format the whole file
-  if FmtImports > 0 or FmtAlign or text.len < 4096:
+  if FmtImports > 0 or FmtAlign or FmtScript or text.len < 4096:
     result = fFormat(text, err)
     if err.len == 0 and result != text: fresh.add (text, result)
     return

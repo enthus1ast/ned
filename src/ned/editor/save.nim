@@ -72,6 +72,7 @@ proc saveBuffer(b: Buffer, path = "", force = false): bool =
   if b.path.len == 0:
     openPrompt(pSaveAs, "Save as", "")
     return false
+  plugBeforeSave(b)                                # (plugins' "before saving" events: what they change is saved)
   if cfgFormatOnSave and not b.readOnly and b.lines.len < 50_000 and
      (cfgFormatOnSaveLangs.len == 0 or b.lang.id.toLowerAscii in cfgFormatOnSaveLangs or
       b.lang.name.toLowerAscii in cfgFormatOnSaveLangs):
@@ -83,6 +84,21 @@ proc saveBuffer(b: Buffer, path = "", force = false): bool =
   let eol = if b.crlf: "\r\n" else: "\n"
   var content = b.lines.join(eol)
   if not b.noEol and (b.lines.len > 1 or b.lines[0].len > 0 or b.blankNl): content.add eol
+  if b.enc.len > 0:
+    # (written in the encoding it was read in — UTF-16, Windows-1252 …)
+    let (ok, bytes, at) = encodeFile(content, b.enc)
+    if not ok:
+      if at >= 0:
+        let ln = content[0 ..< at].count('\n')
+        let col = at - (content.rfind('\n', 0, max(0, at - 1)) + 1)
+        var e = at + 1
+        while e < content.len and (content[e].ord and 0xC0) == 0x80: inc e
+        error("Not saved: " & content[at ..< e] & " (line " & $(ln + 1) & ", column " & $(col + 1) & ") cannot be written in " &
+              encLabel(b.enc) & " — the status bar's " & encLabel(b.enc) & " › Save with encoding… (UTF-8)")
+        b.setSingle(b.clampPos(Pos(line: ln, col: col)))
+      else: error("Not saved: iconv could not write " & encLabel(b.enc))
+      return false
+    content = bytes
   try:
     createDir(parentDir(b.path))
     snapshotHistory(b.path)
@@ -97,11 +113,12 @@ proc saveBuffer(b: Buffer, path = "", force = false): bool =
   (b.mtime, b.fsize) = fileStamp(b.path)
   b.diskChanged = false
   writeUndo(b)
-  info("Saved " & relPath(b.path) & "  (" & $b.lines.len & " lines)")
+  info("Saved " & relPath(b.path) & "  (" & $b.lines.len & (if b.lines.len == 1: " line)" else: " lines)"))
   addRecent(b.path)
   if b.path == configFile() or b.path == projectSettingsFile():
     reloadSettings()
     info("Settings applied")
+    keysCheckAtStart()
   if b.path.startsWith(themesDir() & "/"): reloadThemes()     # your theme file: see it at once
   if extractFilename(b.path) == ".editorconfig":
     refreshEditorConfig()
@@ -114,6 +131,8 @@ proc saveBuffer(b: Buffer, path = "", force = false): bool =
   copiesCheck(b)
   testsOnSave(b)
   refreshGit(b)
+  plugSaved(b)
+  plugFileSaved(b.path)                            # (a plugin's own file: the plugins reload)
   # (a remote folder's file goes to the server too: writeFileSafe → fileWritten)
   true
 
@@ -134,6 +153,9 @@ proc reloadBuffer(b: Buffer) =
     return
   try:
     var content = readFile(b.path)
+    if b.enc.len > 0:
+      let (ok, t) = decodeFile(content, b.enc)
+      if ok or b.enc in [EncUtf16Le, EncUtf16Be, EncUtf8Bom]: content = t
     var tmp = newBuffer()
     tmp.lang = b.lang
     tmp.setContent(content)
@@ -156,6 +178,7 @@ proc reloadBuffer(b: Buffer) =
 proc closeBufferAt(i: int) =
   if i < 0 or i >= bufs.len: return
   let b = bufs[i]
+  plugClosed(b)
   rememberPos(b)
   writeUndo(b)
   if b.path.len > 0 and b.title.len == 0:

@@ -930,6 +930,30 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
   var ws = min(col, text.len)
   while ws > 0 and nxIsIdent(text[ws - 1]): dec ws
   let lead = text[0 ..< ws].strip(trailing = false)
+  if nxIsScript(f.path):
+    # NimScript: a compiler switch (`--op…`, `--opt:sp…`, switch("op…"), switch("opt", "sp…"))
+    let sw = nxSwitchAt(text, col)
+    if sw.ok:
+      result.known = true
+      if not sw.value:
+        for i, s in NxSwitches:
+          let d = (if s[2].len > 0: ":" & s[2] & " · " else: "") & s[3]
+          result.items.add NxItem(label: s[0], detail: (if d.len > 60: d[0 ..< 57] & "…" else: d), kind: nxConst,
+                                  rank: 0, local: NxSym(name: s[0], kind: nxConst, typ: "switch", doc: nxSwitchDoc(i)))
+      else:
+        let i = nxSwitchFind(sw.name)
+        if i >= 0:
+          for v in nxSwitchValues(i):
+            result.items.add NxItem(label: v, detail: "--" & NxSwitches[i][0] & ":" & v, kind: nxEnumVal, rank: 0,
+                                    local: NxSym(name: v, kind: nxEnumVal, typ: "switch value", doc: nxSwitchDoc(i)))
+      return
+    # a package's name in `requires "…"`: the packages nimble knows
+    if nxIsNimbleFile(f.path) and nxRequiresStringAt(text, col)[0]:
+      result.known = true
+      for (n, d) in nxPackageNames():
+        result.items.add NxItem(label: n, detail: (if d.len > 60: d[0 ..< 57] & "…" else: d), kind: nxModule, rank: 2,
+                                local: NxSym(name: n, kind: nxModule, typ: "package", doc: d))
+      return
   block pragmas:
     # inside {. … .}: pragmas, and the macros and templates that can be used as one ({.async.})
     let po = text[0 ..< ws].rfind("{.")

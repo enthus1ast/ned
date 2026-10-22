@@ -8,6 +8,7 @@ import ../core/text
 include index/lex
 include index/text
 include index/parse
+include index/nimscript
 include index/macrosyms
 include index/scope
 include index/diskcache

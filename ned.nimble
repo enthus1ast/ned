@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.18.0"
+version       = "6.19.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
@@ -62,6 +62,9 @@ task termux, "Build into $PREFIX/bin: ned, nedfmt and nedls (Termux)":
     exec "nim c " & flags & " -o:" & prefix & "/bin/nedfmt src/nedfmt.nim"
     exec "nim c " & flags & " -o:" & prefix & "/bin/nedls src/nedls.nim"
 
+task termuxdeb, "Cross-build ned, nedls and nedfmt for Termux (Android arm64, with zig) and make the .deb (build/termux/)":
+  exec "bash tests/build/termux.sh"
+
 task local, "Build into ~/.local/bin: ned, nedfmt and nedls":
   let dir = getEnv("HOME") & "/.local/bin"
   mkDir dir
@@ -80,17 +83,21 @@ task android, "Check that ned compiles for Android (arm64) — generates C only"
   exec "nim c --os:android --cpu:arm64 -d:release --compileOnly --hints:off --nimcache:" &
        tmpDir() & "ned_android " & main
 
-task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies, the CSS / HTML / SQL engines":
+task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies, the CSS / HTML / SQL engines, text encodings":
   for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim",
             "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim", "tests/unit/tdiskcache.nim", "tests/unit/tversions.nim",
             "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim", "tests/unit/tgcov.nim",
             "tests/unit/teffects.nim", "tests/unit/ttext.nim", "tests/unit/tbinfmt.nim", "tests/unit/twebdata.nim",
-            "tests/unit/tweb.nim", "tests/unit/twebfmt.nim", "tests/unit/tjs.nim"]:
+            "tests/unit/tweb.nim", "tests/unit/twebfmt.nim", "tests/unit/tjs.nim", "tests/unit/tencodings.nim"]:
     exec "nim r -d:release --hints:off " & t
 
 task lsptest, "nedls driven by a test client: every feature, and 2000 random edits (needs python3)":
   exec "nim c " & flags & " -o:nedls src/nedls.nim"
   exec "python3 tests/lsp/tnedls.py ./nedls"
+
+task plugintest, "The plugins' host (nim e and compiled) with the example plugins, the API, a NimScript language server through ned --lsp-bridge (needs python3)":
+  exec "nim c " & flags & " -o:ned " & main
+  exec "python3 tests/plugins/tplugins.py ./ned --native"
 
 task parsecheck, "The Nim formatter checked by Nim's own parser over the compiler and stdlib (needs their sources)":
   exec "sh tests/format/parsecheck.sh"

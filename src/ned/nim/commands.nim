@@ -536,6 +536,13 @@ proc createNimProject(name0: string) =
 
 proc nimbleAct(task: string): Action = (proc() = runNimble(task))
 
+proc nimbleAtLeast(major, minor: int): bool =
+  ## the nimble on PATH is this version or newer (as `nimble --version` said; unknown yet: no)
+  let v = toolVersions.getOrDefault("nimble").split('.')
+  if v.len < 2: return false
+  try: (parseInt(v[0]), parseInt(v[1])) >= (major, minor)
+  except ValueError: false
+
 proc nimbleTaskActions(): seq[(string, string, proc() {.closure.})] =
   loadNimbleInfo()
   result.add act("build", "nimble build", proc() = runNimble("build"))
@@ -543,7 +550,10 @@ proc nimbleTaskActions(): seq[(string, string, proc() {.closure.})] =
   result.add act("test", "nimble test", proc() = runNimble("test"))
   result.add act("install deps", "nimble install -d -y", proc() = runNimble("install -d -y"))
   result.add act("check", "nimble check", proc() = runNimble("check"))
-  result.add act("refresh packages", "nimble refresh", proc() = runNimble("refresh"))
+  # (0.26's refresh in a project also fetches every dependency's repository — slow; the package list is what this
+  # means, and Nimble: newer versions of the dependencies lists those)
+  let rf = if nimbleAtLeast(0, 26): "refresh --packageListOnly" else: "refresh"
+  result.add act("refresh packages", "nimble " & rf, proc() = runNimble(rf))
   for (t, d) in nimble.tasks:
     result.add act(t, (if d.len > 0: d else: "nimble " & t), nimbleAct(t))
 

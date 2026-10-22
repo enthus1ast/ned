@@ -713,4 +713,33 @@ suite "Nim 3 (Nimony)":
     let sg = nxScope(g)
     check nxLookup(sg, "foo_bar").len == 1
 
+suite "NimScript: config.nims and a .nimble (6.19)":
+  proc scriptFixture(name, text: string): (NxFile, seq[string]) =
+    let m = dir / ("ns" & $getCurrentProcessId() & "_" & $n)
+    inc n
+    createDir(m)
+    writeFile(m / name, text)
+    (nxLoad(m / name), text.split('\n'))
+
+  test "a program does not see NimScript's procs; config.nims does":
+    let (f, ls) = fixture("import std/os\nlet d = thisD\n")
+    check "thisDir" notin nxComplete(f, ls, 1, ls[1].len).labels
+    let (g, gs) = scriptFixture("config.nims", "let d = thisD\n")
+    check "thisDir" in nxComplete(g, gs, 0, gs[0].len).labels
+
+  test "a .nimble sees nimble's API: namedBin, taskRequires, before, strutils":
+    let (f, ls) = scriptFixture("x.nimble", "version = \"1.0\"\nnamedBin[\"a\"] = \"b\"\n" &
+                                "taskRequires \"test\", \"unittest2\"\nbefore install:\n  echo \"x\".toUpperAscii\n")
+    check "namedBin" in nxHover(f, ls, 1, 1)
+    check "taskRequires" in nxHover(f, ls, 2, 1)
+    check "before" in nxHover(f, ls, 3, 1)
+    check nxHover(f, ls, 4, colOf(ls, 4, "toUpperAscii")).len > 0
+
+  test "switches: completion, values, hover":
+    let (f, ls) = scriptFixture("config.nims", "--op\n--opt:sp\nswitch(\"thre\n")
+    check "opt" in nxComplete(f, ls, 0, ls[0].len).labels
+    check "speed" in nxComplete(f, ls, 1, ls[1].len).labels
+    check "threads" in nxComplete(f, ls, 2, ls[2].len).labels
+    check "optimize" in nxHover(f, ls, 1, 3)
+
 removeDir(dir)

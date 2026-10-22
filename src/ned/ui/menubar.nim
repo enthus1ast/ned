@@ -92,6 +92,8 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("AI assistant", "Assistant", chk(rightOpen and rightView == svAssistant)),
       mc("Outline panel", "Outline", chk(rightOpen and rightView == svOutline)),
       mc("TODOs panel", "TODOs", chk(rightOpen and rightView == svTodos)),
+      mc("Plugins panel", "Plugins", chk(rightOpen and rightView == svPlugins)),
+      mc("Plugins: run a plugin's command…", "Plugin commands…"),
       mc("Timeline", "Timeline", chk(rightOpen and rightView == svTimeline)), msep(),
       mc("Show problems", "Problems"), mc("Problems: all of them with their code (multibuffer)", "Problems with their code"),
       mc("Toggle output panel", "Output"), mc("Toggle terminal", "Terminal"),

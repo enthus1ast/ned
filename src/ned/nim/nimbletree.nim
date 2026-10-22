@@ -138,6 +138,9 @@ proc depAct(kind, a, b: string): Action =
       let ob = openFile(a)
       if ob != nil: focus = fEditor
     of "install":
+      if not gitArgSafe(a):                      # (a name a .nimble gives: never one nimble reads as an option)
+        error("Not a package name: " & truncTo(a, 60))
+        return
       askConfirm("Install " & a & (if b.len > 0: " " & b else: "") & " with nimble? (y/n)", proc(c: char) =
         if c == 'y': runCommand("nimble install -y " & quoteShell(a & (if b.len > 0: "@" & b.replace(" ", "") else: "")), rootDir))
     else: discard

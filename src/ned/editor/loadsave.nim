@@ -93,6 +93,31 @@ proc refreshEditorConfig() =
     b.applyEditorConfig()
     if b.ecInfo.len == 0 and b.dirty: b.indent = ind
 
+proc iconvConvert(bytes, frm, to: string): (bool, string) =
+  ## through iconv (an encoding ned does not convert itself)
+  if findExe("iconv").len == 0: return (false, "")
+  let base = getTempDir() / ("ned_iconv_" & $getCurrentProcessId())
+  try:
+    writeFile(base & ".in", bytes)
+    let code = execShellCmd("iconv -f " & quoteShell(frm) & " -t " & quoteShell(to) & " < " & quoteShell(base & ".in") &
+                            " > " & quoteShell(base & ".out") & " 2>/dev/null")
+    let o = if code == 0: readFile(base & ".out") else: ""
+    removeFile(base & ".in")
+    removeFile(base & ".out")
+    (code == 0, o)
+  except CatchableError: (false, "")
+
+proc decodeFile(bytes, enc: string): (bool, string) =
+  ## a file's bytes in `enc` → the UTF-8 ned keeps
+  if enc in BuiltinEncodings: decode(bytes, enc) else: iconvConvert(bytes, enc, "UTF-8")
+
+proc encodeFile(text, enc: string): (bool, string, int) =
+  ## the text → the file's bytes in `enc` (false: a character it cannot hold, at that byte; -1: iconv failed)
+  if enc in BuiltinEncodings: encode(text, enc)
+  else:
+    let (ok, o) = iconvConvert(text, "UTF-8", enc)
+    (ok, o, -1)
+
 proc setContent(b: Buffer, content: string) =
   # one pass to count line ends; the text is split without a copy unless it has CRLF line ends
   b.nesHas = false
@@ -248,11 +273,29 @@ proc loadFile(b: Buffer, path: string): bool =
         if open(f, b.path):
           head.setLen(f.readBuffer(addr head[0], 8000))
           close(f)
-        if '\0' notin head and b.setContentStream(b.path): streamed = true
+        let bom = head.startsWith("\xFF\xFE") or head.startsWith("\xFE\xFF") or head.startsWith("\xEF\xBB\xBF")
+        if '\0' notin head and not bom and b.setContentStream(b.path): streamed = true
       if not streamed: content = readFile(b.path)
     except CatchableError as e:
       error("Cannot read " & path & ": " & e.msg)
       return false
+    b.enc = EncUtf8
+    if content.len > 0 and not streamed:
+      # (a BOM: UTF-8 or UTF-16; not UTF-8: files.encoding — Windows-1252 unless you said otherwise)
+      let fb = if cfgFileEncoding in ["", "auto"]: EncCp1252 else: cfgFileEncoding.toLowerAscii
+      let head = content[0 ..< min(content.len, 8000)]
+      let enc = if '\0' in head and not (content.startsWith("\xFF\xFE") or content.startsWith("\xFE\xFF")): EncUtf8
+                else: detectEncoding(content, fb)
+      if enc != EncUtf8:
+        let (ok, t) = decodeFile(content, enc)
+        if ok or enc in [EncUtf16Le, EncUtf16Be, EncUtf8Bom]:
+          content = t
+          b.enc = enc
+          if not ok: warn(extractFilename(path) & ": some bytes are not " & encLabel(enc) & " (shown as �)")
+        else:
+          warn(extractFilename(path) & " is not UTF-8 and could not be read as " & encLabel(enc) &
+               (if enc notin BuiltinEncodings and findExe("iconv").len == 0: " (iconv is not installed)" else: "") &
+               " — shown as it is")
     if content.len > 0 and '\0' in content[0 ..< min(content.len, 8000)]:
       # a binary file: the hex editor (its bytes as they are, nothing turned into lines)
       b.binary = true

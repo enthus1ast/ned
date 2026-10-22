@@ -502,6 +502,7 @@ def t_522_shortcuts_markdown():
     palette('Keyboard shortcuts'); time.sleep(0.4)
     text('Toggle soft wrap'); time.sleep(0.4); keys('Enter'); time.sleep(0.3)
     keys('M-z'); time.sleep(0.5)
+    if "alt+z runs" in screen(): keys('y'); time.sleep(0.5)      # (6.19: Alt+Z is zen mode's — asked first)
     c = open(CFG + '/ned/config.json').read()
     check('shortcuts editor binds a key', re.search(r'"alt\+z":\s*"Toggle soft wrap"', c) is not None, c[-400:])
     palette('Markdown: open preview'); time.sleep(0.8)
@@ -6790,4 +6791,236 @@ def t_618_nedls_in_ned():
     check("618 ned with nedls: nedls's Organize imports from the quick-fix list, applied", ok and
           t.startswith('import std/[os, strutils]\n'), (t, screen()))
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned]
+def t_619_nimble_resolve():
+    # nimble 0.26's explanation of a dependency conflict (PubGrub's prose): a problem on each requires line of the
+    # package it is about, the whole explanation its message (a fake nimble prints what 0.26.1 does)
+    setup()
+    d = TMP + '/fakenimble619'
+    os.makedirs(d, exist_ok=True)
+    open(d + '/nimble', 'w').write(
+        '#!/bin/sh\n[ "$1" = "--version" ] && { echo "nimble v0.26.1 compiled at 2026-10-22"; exit 0; }\n'
+        'echo "    Error:  Dependency resolution failed:"\n'
+        'echo "        ... Because every version of b depends on a (-inf, 1.0) and demo depends on a [1.0, inf), '
+        'every version of b is forbidden."\n'
+        'echo "        ... So, because demo depends on b *, version solving failed."\nexit 1\n')
+    os.chmod(d + '/nimble', 0o755)
+    open(W + '/demo.nimble', 'a').write('requires "a >= 1.0"\nrequires "b"\n')
+    start('demo.nimble', w=140, h=40, path=d + ':' + TOOLS + ':$PATH'); time.sleep(0.5)
+    palette('Nimble: build')
+    ok = wait_for('Exit code 1', 15)
+    s = screen()
+    check("619 nimble: the explanation points at the .nimble's requires line", ok and
+          'demo.nimble:7' in s and 'cannot resolve the dependencies' in s, s)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    rows = s.splitlines()
+    marked = lambda t: any(t in r and '● nimble cannot resolve' in r for r in rows)
+    check("619 nimble: a problem on each requires line it is about (a >= 1.0, b), none on nim",
+          marked('requires "a >= 1.0"') and marked('requires "b"') and not marked('requires "nim') and
+          'PROBLEMS 2' in s, s)
+
+HELLO_PLUGIN = '''import nedplugin
+
+command "Hello: upper-case the line", "ctrl+alt+u":
+  let b = current()
+  let l = b.cursor.line
+  b.replace(b.lineRange(l), b.line(l).toUpperAscii)
+  b.insert(pos(l, b.line(l).len), "!")
+
+command "Hello: problems":
+  let b = current()
+  var p = Problem(range: rng(pos(0, 0), pos(0, 3)), severity: 2, message: "three letters here")
+  p.fixes.add Fix(title: "Make it four", edits: @[Edit(range: rng(pos(0, 0), pos(0, 3)), text: "four")])
+  b.setProblems([p])
+  b.sign(1, "★", "warn")
+  b.virtualText(1, "a plugin's note")
+
+onSave("*.txt") do (ev: Event):
+  status("hello: saved " & $ev.buf.lineCount & " lines")
+
+onOpen("*.md") do (ev: Event):
+  log("opened " & ev.path.split('/')[^1])
+
+onChange("lang:markdown") do (ev: Event):
+  log("changed: " & ev.buf.line(0))
+'''
+
+def plugins_ready(t=30):
+    """the Plugins dock says they run"""
+    palette('Plugins panel')
+    ok = wait_for('running · nim e', t)
+    keys('Escape'); time.sleep(0.2)
+    return ok
+
+def t_619_plugins():
+    # a plugin of yours (~/.config/ned/plugins/hello): its command from the palette and on its key (its two edits
+    # one undo step), its event after saving (a status-bar item), a problem with a fix (Alt+Enter), a sign and a
+    # note after a line, the Plugins dock listing what it has
+    setup()
+    d = CFG + '/ned/plugins/hello'
+    os.makedirs(d, exist_ok=True)
+    open(d + '/plugin.nims', 'w').write(HELLO_PLUGIN)
+    # (and one that does not compile: left out, its error in Problems, the other runs)
+    os.makedirs(CFG + '/ned/plugins/broken', exist_ok=True)
+    open(CFG + '/ned/plugins/broken/plugin.nims', 'w').write('import nedplugin\ncommand "x":\n  undefinedThing()\n')
+    open(W + '/notes.txt', 'w').write('abc def\nsecond\n')
+    start('notes.txt', w=140, h=40); time.sleep(0.5)
+    palette('Plugins panel')
+    ok = wait_for('running · nim e · 1 plugin', 30) and wait_for("broke the plugins' start", 5)
+    s = screen()
+    keys('Escape'); time.sleep(0.2)
+    check("619 plugins: the dock — the host runs, the plugin and its commands listed; a broken one left out", ok, s)
+    palette('Show problems'); time.sleep(0.6)
+    s = screen()
+    check("619 plugins: the broken plugin's error in Problems", "undeclared identifier: 'undefinedThing'" in s, s)
+    keys('Escape'); time.sleep(0.2)
+    palette('Hello: upper-case the line')
+    ok = wait_for('ABC DEF!', 10)
+    check("619 plugins: a plugin's command from the palette edits the text", ok, screen())
+    keys('C-z'); time.sleep(0.4)
+    s = screen()
+    check("619 plugins: its edits are one undo step", 'abc def' in s and 'ABC' not in s, s)
+    keys('C-M-u'); time.sleep(0.2)
+    ok = wait_for('ABC DEF!', 8)
+    check("619 plugins: … and on the key it gave it (ctrl+alt+u)", ok, screen())
+    keys('C-s')
+    ok = wait_for('hello: saved 2 lines', 10)
+    check("619 plugins: an event after saving → its status-bar item", ok, screen())
+    palette('Hello: problems')
+    ok = wait_for('three letters here', 10)
+    s = screen()
+    check("619 plugins: its problem, a sign in the gutter, a note after a line",
+          ok and '★' in s and "a plugin's note" in s, s)
+    keys('C-g'); text('1:1'); keys('Enter'); time.sleep(0.3); keys('M-Enter')
+    ok = wait_for('Quick fixes', 8)
+    if ok:
+        text('Make it four'); time.sleep(0.3); keys('Enter'); time.sleep(0.6)
+    check("619 plugins: Alt+Enter offers its fix, which applies", ok and 'four DEF!' in screen(), screen())
+    open(W + '/readme.md', 'w').write('# title\n')
+    keys('C-p'); time.sleep(0.3); text('readme.md'); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    keys('End'); text(' more'); time.sleep(1.5)
+    palette('Plugins panel')
+    ok = wait_for('hello: opened readme.md', 8) and wait_for('hello: changed: # title more', 8)
+    check("619 plugins: events when a file opens and after a pause in the typing (their log lines)", ok, screen())
+
+def t_619_plugins_vim():
+    # the commentary example (vim): gcc, gc with a motion, gc in visual mode, the ie text object, :Comment
+    setup({"editor.vimMode": True})
+    shutil.copytree(REPO + '/examples/plugins/commentary', CFG + '/ned/plugins/commentary')
+    open(W + '/v.nim', 'w').write('let a = 1\nlet b = 2\nlet c = 3\n')
+    start('v.nim', w=120, h=34); time.sleep(0.5)
+    check("619 vim plugin: ready", plugins_ready(), screen())
+    keys('Escape'); keys('g', 'g'); text('gcc'); time.sleep(1.0)
+    check("619 vim plugin: gcc comments the line", wait_for('# let a = 1', 6), screen())
+    text('u'); time.sleep(0.5)
+    text('gcj'); time.sleep(1.0)
+    s = screen()
+    check("619 vim plugin: u (one undo step), then gcj comments two lines",
+          '# # let a' not in s and '# let a = 1' in s and '# let b = 2' in s and '# let c' not in s, s)
+    text('Vjgc'); time.sleep(1.0)
+    s = screen()
+    check("619 vim plugin: gc on a visual selection uncomments them", '# let' not in s, s)
+    text(':Comment 3'); keys('Enter'); time.sleep(1.0)
+    s = screen()
+    check("619 vim plugin: :Comment 3", '# let a = 1' in s and '# let c = 3' in s, s)
+    text('die'); time.sleep(1.0)
+    keys(':'); text('w'); keys('Enter'); time.sleep(0.5)
+    check("619 vim plugin: die — the ie text object (the whole text) deleted", ftext('v.nim').strip() == '',
+          ftext('v.nim'))
+
+def t_619_plugins_lsp_lang():
+    # the wordinfo-lsp example: a language server written in NimScript (ned --lsp-bridge) — its diagnostics and
+    # hover; zig-lite: a language ned does not have, formatted by a formatter written in NimScript
+    setup()
+    for ex in ['wordinfo-lsp', 'zig-lite']:
+        shutil.copytree(REPO + '/examples/plugins/' + ex, CFG + '/ned/plugins/' + ex)
+    open(W + '/fruit.txt', 'w').write('apple banana apple\nTODO: more apples\n')
+    open(W + '/m.zig', 'w').write('const x = 1;   \n\n\n\n\tconst y = 2;\n')
+    start('fruit.txt', w=140, h=40); time.sleep(0.5)
+    check("619 plugins (lsp, language): ready", plugins_ready(), screen())
+    keys('C-g'); text('2:1'); keys('Enter')
+    ok = wait_for('a TODO: something left to do', 25)
+    check("619 plugins: a NimScript language server's diagnostic", ok, screen())
+    keys('C-g'); text('1:2'); keys('Enter'); time.sleep(0.3); keys('M-h')
+    ok = wait_for('apple.{0,6}— 2 times', 10)
+    check("619 plugins: … and its hover", ok, screen())
+    keys('Escape')
+    keys('C-p'); time.sleep(0.3); text('m.zig'); time.sleep(0.4); keys('Enter'); time.sleep(1.0)
+    s = screen()
+    check("619 plugins: zig-lite — the language (status bar)", ' Zig ' in s, s)
+    palette('Format document'); time.sleep(1.5)
+    keys('C-s'); time.sleep(0.5)
+    t = ftext('m.zig')
+    check("619 plugins: zig-lite — formatted by its NimScript formatter",
+          t == 'const x = 1;\n\n    const y = 2;\n' or (shutil.which('zig') is not None), repr(t))
+
+def t_619_hot_exit():
+    # files.hotExit: quitting with unsaved edits asks nothing; they come back, unsaved, in their tabs (a file and an
+    # untitled one) the next time ned opens the folder — the file on disk untouched meanwhile
+    setup({"files.hotExit": True})
+    before = ftext('src/demo.nim')
+    start('src/demo.nim', w=120, h=34); time.sleep(0.4)
+    keys('C-End'); text('# kept for later'); time.sleep(0.3)
+    keys('C-n'); time.sleep(0.3); text('untitled words'); time.sleep(0.3)
+    keys('C-q'); time.sleep(1.2)
+    ex = open(W + '/exit').read() if os.path.exists(W + '/exit') else ''
+    check("619 hot exit: quit without a question", 'EXITED 0' in ex, (ex, screen()))
+    check("619 hot exit: the file on disk is as it was", ftext('src/demo.nim') == before, ftext('src/demo.nim')[-200:])
+    tm('kill-server'); time.sleep(0.3)
+    os.remove(W + '/exit')
+    start(w=120, h=34); time.sleep(1.0)
+    s = screen()
+    check("619 hot exit: the edits are back, unsaved (a toast says so)",
+          'untitled words' in s and 'still unsaved' in s, s)
+    keys('C-p'); time.sleep(0.3); text('src/demo.nim'); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    s = screen()
+    check("619 hot exit: … in the file's tab too, marked unsaved", '# kept for later' in s and '• demo.nim' in s, s)
+
+def t_619_encodings():
+    # a file that is not UTF-8 (Windows-1252) and one in UTF-16: read as them (the status bar says which), written
+    # back as them; a character the encoding cannot hold stops the save (where it is said); Save with encoding…
+    setup()
+    open(W + '/latin.txt', 'wb').write(b'caf\xe9 cr\xe8me \x80\n')
+    open(W + '/u16.txt', 'wb').write('h\u00e9llo\n'.encode('utf-16'))      # (with its BOM)
+    start('latin.txt', w=120, h=30); time.sleep(0.5)
+    s = screen()
+    check("619 encodings: Windows-1252 read as such (é, è, €), the status bar says so",
+          'café crème €' in s and 'Windows-1252' in s, s)
+    keys('End'); text('!'); keys('C-s'); time.sleep(0.5)
+    check("619 encodings: written back in Windows-1252", open(W + '/latin.txt', 'rb').read() == b'caf\xe9 cr\xe8me \x80!\n',
+          open(W + '/latin.txt', 'rb').read())
+    text(' \u0161\u20ac\u4e2d'); keys('C-s'); time.sleep(0.5)
+    s = screen()
+    check("619 encodings: a character it cannot hold — not saved, and which one", 'Not saved: 中' in s and
+          open(W + '/latin.txt', 'rb').read() == b'caf\xe9 cr\xe8me \x80!\n', s)
+    palette('File: save with encoding…'); time.sleep(0.4); text('UTF-8'); time.sleep(0.3); keys('Enter'); time.sleep(0.6)
+    check("619 encodings: Save with encoding… UTF-8", open(W + '/latin.txt', 'rb').read() ==
+          'café crème €! š€中\n'.encode('utf-8'), open(W + '/latin.txt', 'rb').read())
+    keys('C-p'); time.sleep(0.3); text('u16.txt'); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    s = screen()
+    check("619 encodings: UTF-16 (its BOM) read, the status bar says so", 'héllo' in s and 'UTF-16 LE' in s, s)
+    keys('End'); text('!'); keys('C-s'); time.sleep(0.5)
+    check("619 encodings: written back in UTF-16 with its BOM",
+          open(W + '/u16.txt', 'rb').read() == b'\xff\xfe' + 'héllo!\n'.encode('utf-16-le'),
+          open(W + '/u16.txt', 'rb').read())
+
+def t_619_key_conflicts():
+    # the "keys" setting: a command that does not exist and a key terminals do not send are pointed out (a note at
+    # the start, the shortcuts list); binding a key another command has asks first, naming it
+    setup({"keys": {"ctrl+shift+a": "Save", "alt+z": "Fromat document"}})
+    start('src/demo.nim', w=140, h=40); time.sleep(0.8)
+    s = screen()
+    check("619 keys: a note about the setting at the start", 'keys' in s and 'Fromat document' in s, s)
+    palette('Keyboard shortcuts…'); time.sleep(0.6)
+    s = screen()
+    check("619 keys: the shortcuts list shows the setting's problems",
+          '"Format document"?' in s and 'ctrl+shift+a' in s and 'send it as ctrl+a' in s, s)
+    text('Find next'); time.sleep(0.3); keys('Enter'); time.sleep(0.3)
+    keys('C-s'); time.sleep(0.5)
+    s = screen()
+    check("619 keys: a key another command has — asked first, naming it", "ctrl+s runs ned's “Save”" in s, s)
+    keys('y'); time.sleep(0.4)
+    cfg = json.load(open(CFG + '/ned/config.json'))
+    check("619 keys: … and bound when you say yes", cfg.get('keys', {}).get('ctrl+s') == 'Find next', cfg.get('keys'))
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts]

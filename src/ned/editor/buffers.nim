@@ -77,6 +77,7 @@ proc openFile(path: string, line = -1, col = -1): Buffer =
     lspAttach(b)
     refreshGit(b)
     offerRecovery(b)
+    plugOpened(b)
     if b.lang != nil and b.lang.mode == lmNim and b.id notin ffiQueue: ffiQueue.add b.id    # (checked when idle)
     smark("  opened " & extractFilename(full))
     if not fileExists(full): info("New file: " & relPath(full))

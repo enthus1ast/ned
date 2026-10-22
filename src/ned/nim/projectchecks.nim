@@ -8,6 +8,7 @@ type PcRequire = object
   text: string                         # as written: "jsony >= 1.1"
   name: string                         # lower case
   cons: string                         # ">= 1.1" ("" any)
+  feature: string                      # inside `feature "x":` (or `dev:`): that feature's — not the package's own
 
 func pcNorm(name: string): string =
   ## a package's name as nimble compares them (case and - _ aside)
@@ -19,11 +20,19 @@ proc pcRequires(lines: openArray[string]): seq[PcRequire] =
   ## taskRequires and feature requires are not the package's own
   var inReq = false
   var depth = 0
+  var feature = ""                     # (the `feature "x":` / `dev:` block the lines are in)
   for l, raw in lines:
     let t = raw.strip
     if t.len == 0 or t.startsWith("#"):
       if depth == 0: inReq = false
       continue
+    if raw[0] notin {' ', '\t'} and depth == 0 and not inReq:
+      feature = ""
+      if t.startsWith("feature") and t.endsWith(":"):
+        let q1 = t.find('"')
+        let q2 = if q1 >= 0: t.find('"', q1 + 1) else: -1
+        feature = if q2 > q1: t[q1 + 1 ..< q2] else: "?"
+      elif t == "dev:": feature = "dev"
     let k = raw.find("requires")
     let starts = k >= 0 and (k == 0 or raw[k - 1] in {' ', '\t'}) and k + 8 < raw.len and raw[k + 8] in {' ', '('} and
                  raw[0 ..< k].strip.len == 0
@@ -39,7 +48,8 @@ proc pcRequires(lines: openArray[string]): seq[PcRequire] =
         if e < 0: break
         let txt = raw[i + 1 ..< e]
         let (nm, cons) = nxSplitRequire(txt)
-        result.add PcRequire(line: l, col: i + 1, ecol: e, text: txt, name: nm.toLowerAscii, cons: cons)
+        result.add PcRequire(line: l, col: i + 1, ecol: e, text: txt, name: nm.toLowerAscii, cons: cons,
+                             feature: (if raw.len > 0 and raw[0] in {' ', '\t'}: feature else: ""))
         i = e + 1
       else:
         if raw[i] == '(': inc depth
@@ -51,6 +61,41 @@ proc pcNimbleLines(nb: string): seq[string] =
   let i = bufIndexByPath(nb)
   if i >= 0: return bufs[i].lines
   try: readFile(nb).splitLines except CatchableError: @[]
+
+proc pcResolveDiags(nb: string, expl: seq[string]): seq[Diag] =
+  ## nimble's explanation of why the dependencies cannot be resolved, on the requires lines it is about: the
+  ## package's own "<name> depends on <pkg> …" (0.26, PubGrub's prose), the "+ pkg >= x" of 0.24's minimal set
+  let lines = pcNimbleLines(nb)
+  let reqs = pcRequires(lines)
+  let root = pcNorm(splitFile(nb).name)
+  let msg = "nimble cannot resolve the dependencies: " & expl.join(" ")
+  var named: seq[string]
+  for x in expl:
+    if x.startsWith("+ "):
+      let w = x[2 .. ^1].strip.splitWhitespace
+      if w.len > 0: named.add pcNorm(w[0])
+      continue
+    var k = x.find(" depends on ")
+    while k >= 0:
+      var a = k
+      while a > 0 and x[a - 1] notin {' ', ','}: dec a
+      let subject = pcNorm(x[a ..< k])
+      let rest = x[k + 12 .. ^1].splitWhitespace
+      if rest.len > 0 and subject == root: named.add pcNorm(rest[0].strip(chars = {',', '.'}))
+      k = x.find(" depends on ", k + 12)
+  if named.len == 0:
+    # (worded otherwise: the requires it names at all)
+    let words = expl.join(" ").multiReplace([(",", " "), (".", " "), ("(", " "), (")", " ")]).splitWhitespace
+    var ws: HashSet[string]
+    for w in words: ws.incl pcNorm(w)
+    for r in reqs:
+      if r.feature.len == 0 and pcNorm(r.name) in ws: named.add pcNorm(r.name)
+  for r in reqs:
+    if r.feature.len == 0 and pcNorm(r.name) in named:
+      result.add Diag(line: r.line, col: r.col, eline: r.line, ecol: r.ecol, sev: 1, msg: msg, src: "nimble",
+                      rule: "nimble")
+  if result.len == 0 and lines.len > 0:
+    result.add Diag(line: 0, col: 0, eline: 0, ecol: lines[0].len, sev: 1, msg: msg, src: "nimble", rule: "nimble")
 
 proc pcPackageOf(path: string): seq[string] =
   ## the nimble package a file belongs to — its folder's name and its .nimble's ("" none: not an installed
@@ -193,11 +238,12 @@ proc pcNimbleChecks*(b: Buffer): seq[Diag] =
       continue
     let cons = r.cons.strip
     if not pcConsOk(cons):
-      if pcNorm(r.name) notin seen: seen[pcNorm(r.name)] = r.line
+      if (r.feature & "\0" & pcNorm(r.name)) notin seen: seen[r.feature & "\0" & pcNorm(r.name)] = r.line
       add(r.line, r.col, r.ecol, 2, "requires \"" & r.text & "\": not a version nimble reads (>= 1.2 · ^= 1.2 · " &
           "~= 1.2.3 · == 1.2.3 · 1.2 & < 2.0 · #head)")
       continue
-    let key = pcNorm(r.name)
+    # (twice among the package's own, or twice in one feature — a feature may ask for more of a package)
+    let key = r.feature & "\0" & pcNorm(r.name)
     if key in seen:
       add(r.line, r.col, r.ecol, 2, "'" & r.name & "' is required twice (also line " & $(seen[key] + 1) & ")")
     else: seen[key] = r.line
@@ -225,7 +271,8 @@ proc pcRequireUnused*(nb: string, imported: HashSet[string]): seq[Diag] =
   let lines = pcNimbleLines(nb)
   var seen: HashSet[string]
   for r in pcRequires(lines):
-    if r.name.len == 0 or r.name == "nim" or "://" in r.name or r.name.startsWith("git@") or not pcConsOk(r.cons):
+    if r.name.len == 0 or r.name == "nim" or "://" in r.name or r.name.startsWith("git@") or not pcConsOk(r.cons) or
+       r.feature.len > 0:
       continue
     if pcNorm(r.name) in imported or pcNorm(r.name) in seen: continue
     seen.incl pcNorm(r.name)

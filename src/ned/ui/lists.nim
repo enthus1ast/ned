@@ -14,6 +14,7 @@ proc buildItems(v: SideView): seq[SideItem] =
     b.outline
   of svTimeline: buildTimelineItems()
   of svTodos: buildTodoItems()
+  of svPlugins: buildPluginItems()
 
 proc showSide(v: SideView) =
   if v in RightViews:

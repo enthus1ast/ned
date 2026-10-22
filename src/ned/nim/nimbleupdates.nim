@@ -173,7 +173,13 @@ proc depDone() =
 proc depFetch(i: int) =
   ## the newest version-looking tag of one dependency's repository
   let url = depRows[i].url
-  let cmd = (if haveExe("timeout"): "timeout 30 " else: "") & "env GIT_TERMINAL_PROMPT=0 git ls-remote --tags --refs " &
+  if not gitArgSafe(url):
+    # (a URL a .nimble or the package list gives: never one git could read as an option)
+    depRows[i].err = "not a repository URL: " & truncTo(url, 60)
+    dec depPending
+    if depPending == 0: depShow()
+    return
+  let cmd = (if haveExe("timeout"): "timeout 30 " else: "") & "env GIT_TERMINAL_PROMPT=0 git ls-remote --tags --refs -- " &
             quoteShell(url) & " 2>&1"
   let j = startJob(jkAux, cmd, nimble.dir, proc(jj: Job) =
     if i < depRows.len:

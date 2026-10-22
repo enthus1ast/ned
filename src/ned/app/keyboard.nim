@@ -37,11 +37,17 @@ proc keyName(k: Key): string =
   parts.join("+")
 
 proc customKey(k: Key): bool =
-  if cfgKeys.len == 0: return false
+  ## your "keys" setting, then the keys plugins gave their commands
+  if cfgKeys.len == 0 and plugKeys.len == 0: return false
   let n = keyName(k)
-  if n.len == 0 or n notin cfgKeys: return false
-  runCmd(cfgKeys[n])
-  true
+  if n.len == 0: return false
+  if n in cfgKeys:
+    runCmd(cfgKeys[n])
+    return true
+  if n in plugKeys:
+    runCmd(plugKeys[n])
+    return true
+  false
 
 proc toggleTerminal() =
   if panelOpen and panelKind == pkTerminal and focus == fPanel:
@@ -399,16 +405,143 @@ proc helpKey(k: Key) =
   of kPgDn: helpScroll += 10
   else: helpOpen = false
 
+const KeyWords = ["enter", "tab", "backspace", "delete", "escape", "up", "down", "left", "right", "home", "end",
+                  "pageup", "pagedown", "insert", "space"]
+
+func keyTokens(display: string): seq[string] =
+  ## a command's shortcut as the palette shows it ("Ctrl+S", "Alt+. / F12", "Ctrl+Shift+P") → key names as the
+  ## "keys" setting writes them ("ctrl+s" …); words that describe instead of naming a key are left out
+  for part0 in display.split({'/', ','}):
+    let part = part0.strip
+    if part.len == 0 or ' ' in part: continue
+    var mods: seq[string]
+    var key = ""
+    var ok = true
+    let ws = if part == "+": @["+"] elif part.endsWith("++"): part[0 ..< part.len - 2].split('+') & @["+"]
+             else: part.split('+')
+    for i, w in ws:
+      let lw = w.toLowerAscii
+      if i < ws.high:
+        case lw
+        of "ctrl", "control": mods.add "ctrl"
+        of "alt", "meta", "option": mods.add "alt"
+        of "shift": mods.add "shift"
+        else: ok = false
+      else:
+        key = case lw
+          of "esc": "escape"
+          of "del": "delete"
+          of "ins": "insert"
+          of "pgup": "pageup"
+          of "pgdn", "pgdown": "pagedown"
+          of "return": "enter"
+          else: lw
+    if not ok or key.len == 0: continue
+    if key.len > 1 and key notin KeyWords and not (key[0] == 'f' and key[1 .. ^1].allCharsInSet(Digits)): continue
+    var res: seq[string]
+    for m in ["ctrl", "alt", "shift"]:
+      if m in mods: res.add m
+    res.add key
+    result.add res.join("+")
+
+proc keyOwners(kn: string): seq[(string, string)] =
+  ## the commands a key name runs: (command, built-in · yours · a plugin's)
+  for c in commands:
+    if kn in keyTokens(c.keys): result.add (c.name, "built-in")
+  if kn in cfgKeys: result.add (cfgKeys[kn], "yours")
+  if kn in plugKeys: result.add (plugKeys[kn], "a plugin's")
+
+proc keyTerminalProblem(kn: string): string =
+  ## why a terminal may never send this key ("" none) — the kitty keyboard protocol sends them all
+  if tcKitty: return ""
+  let parts = kn.split('+')
+  let key = parts[^1]
+  let ctrl = "ctrl" in parts
+  let shift = "shift" in parts
+  if ctrl and shift and key.len == 1 and key[0] in {'a'..'z'}:
+    return "most terminals send it as ctrl+" & key & " (the kitty keyboard protocol tells them apart)"
+  if ctrl and key.len == 1 and key[0] in {'0'..'9', ';', '\'', ',', '.', '=', '-', '/'}:
+    return "most terminals send nothing for it, or another key"
+  if ctrl and not shift and key in ["i", "m", "h", "["]:
+    return "terminals send it as " & (case key
+      of "i": "Tab"
+      of "m": "Enter"
+      of "h": "Backspace"
+      else: "Escape")
+  if ctrl and key in ["tab", "enter", "backspace"]: return "most terminals send it as plain " & key
+  if shift and not ctrl and "alt" notin parts and key == "enter": return "most terminals send it as plain Enter"
+  ""
+
+proc commandSuggest(name: string): string =
+  ## the command a misspelled name in "keys" probably means
+  var best = ""
+  var bd = max(3, name.len div 4)
+  for c in commands:
+    let d = editDistanceAscii(name.toLowerAscii, c.name.toLowerAscii)
+    if d < bd:
+      bd = d
+      best = c.name
+  best
+
+proc keysSettingProblems(): seq[string] =
+  ## your "keys" setting: commands that do not exist, keys a terminal cannot send, a key bound twice
+  var seen: Table[string, string]
+  var unknown, unsent, twice: seq[string]
+  let cur = sval("keys")
+  if cur == nil or cur.kind != JObject: return
+  for k, v in cur.pairs:
+    let kn = k.toLowerAscii.replace(" ", "")
+    let name = v.getStr
+    if cmdByName(name) < 0:
+      let s = commandSuggest(name)
+      unknown.add "\"" & k & "\": no command \"" & name & "\"" & (if s.len > 0: " — \"" & s & "\"?" else: "")
+    let tp = keyTerminalProblem(kn)
+    if tp.len > 0: unsent.add "\"" & k & "\": " & tp
+    if kn in seen and seen[kn] != name: twice.add "\"" & k & "\" is in the setting twice"
+    seen[kn] = name
+  unknown & unsent & twice
+
+var keysToldAbout = ""
+
+proc keysCheckAtStart() =
+  ## a note (once per change of the setting) when the "keys" setting has a problem
+  let ps = keysSettingProblems()
+  let sig = ps.join("|")
+  if ps.len == 0 or sig == keysToldAbout: return
+  keysToldAbout = sig
+  toast("Your \"keys\" setting: " & ps[0] & (if ps.len > 1: " (and " & $(ps.len - 1) & " more)" else: ""), 2,
+        "Keyboard shortcuts…", proc() = runCmd("Keyboard shortcuts…"), 15000)
+
 proc cmdKeyboardShortcuts() =
   ## every command with its keys; pick one, then press its new key
   var items: seq[(string, string, Action)]
   var search: seq[string]
+  # (the setting's problems first: a command that does not exist, a key no terminal sends, one bound twice)
+  for p in keysSettingProblems():
+    items.add act("⚠ " & p, "open the settings", proc() = runCmd("Open settings file"))
+    search.add p.toLowerAscii
+  # a key that two commands claim: who wins (yours over a plugin's over the built-in one)
+  # (ned's own keys that two commands share are on purpose — Alt+\ splits, or goes to the other pane: only a key
+  # of yours or a plugin's that another command has is shown)
+  var claims: Table[string, seq[string]]
+  for k, v in cfgKeys: claims.mgetOrPut(k, @[]).add v
+  for k, v in plugKeys: claims.mgetOrPut(k, @[]).add v
+  for c in commands:
+    for kn in keyTokens(c.keys):
+      if kn in claims: claims[kn].add c.name
   for c in commands:
     var mine: seq[string]
     for k, v in cfgKeys:
       if v == c.name: mine.add k
+    for k, v in plugKeys:
+      if v == c.name and k notin cfgKeys: mine.add k & " (plugin)"
     let name = c.name
-    let detail = (if mine.len > 0: mine.join(", ") & " (yours)" & (if c.keys.len > 0: " · " & c.keys else: "") else: c.keys)
+    var clash = ""
+    for kn in keyTokens(c.keys) & mine:
+      let k0 = kn.replace(" (plugin)", "")
+      for other in claims.getOrDefault(k0):
+        if other != name and clash.len == 0: clash = "  ⚠ " & k0 & " is also “" & other & "”"
+    let detail = (if mine.len > 0: mine.join(", ") & " (yours)" & (if c.keys.len > 0: " · " & c.keys else: "") else: c.keys) & clash
     capture name:
       items.add act(name, detail, proc() =
         keyCaptureFor = name
@@ -439,10 +572,27 @@ proc captureKey(k: Key) =
   if kn.len == 0:
     warn("That key cannot be bound — try another")
     return
-  let was = if keys.hasKey(kn): keys[kn].getStr else: ""
-  keys[kn] = %name
-  setSetting("keys", keys)
-  info(kn & " → " & name & (if was.len > 0 and was != name: " (was: " & was & ")" else: ""))
+  proc bindIt() =
+    let was = if keys.hasKey(kn): keys[kn].getStr else: ""
+    keys[kn] = %name
+    setSetting("keys", keys)
+    let tp = keyTerminalProblem(kn)
+    info(kn & " → " & name & (if was.len > 0 and was != name: " (was: " & was & ")" else: "") &
+         (if tp.len > 0: " — careful: " & tp else: ""))
+  # (the key runs another command already: say which, and ask)
+  var others: seq[string]
+  for (c, who) in keyOwners(kn):
+    if c != name: others.add (case who
+      of "built-in": "ned's"
+      of "yours": "your"
+      else: who) & " “" & c & "”"
+  if others.len > 0:
+    # (no parentheses before the buttons: the dialog reads its buttons from the first one)
+    askConfirm(kn & " runs " & others.join(", ") & " — give it to “" & name & "”? Your key wins (y)es (c)ancel",
+      proc(c: char) =
+        if c in {'y', 'Y'}: bindIt()
+        else: info("Not changed"))
+  else: bindIt()
 
 proc handleKey(k: Key) =
   needRender = true

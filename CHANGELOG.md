@@ -1,6 +1,54 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-618). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-619). Older releases:
+
+## What's new in 6.18
+
+6.18 gives nedls — ned's engine as a language server, for VS Code, Neovim, Helix, Zed, Emacs, Kate and Sublime —
+the rest of what ned offers on Alt+Enter, and the AI fix that the compiler checks before it reaches your code.
+
+**ned's quick-fix list, as code actions.** nedls sent the fixes for the compiler's problems; it now sends
+everything in ned's list that is an edit of your text:
+
+- the fix for the problem under the cursor and *Fix all N like this in the file*, as before;
+- refactorings: generate `$`, `==`, hash and a constructor for an object type; add the missing case branches; fill
+  in the missing fields of a constructor; reorder fields to save bytes; inline a variable, or a one-expression proc
+  into its calls; extract the selection into a variable (named as ned proposes — rename it after); turn
+  `"a" & x` into a fmt string; a doc comment naming the parameters; the body of a forward declaration; format the
+  JSON, SQL, CSS … in a string;
+- *Organize imports* (`source.organizeImports`: the unused ones the compiler found removed, the rest sorted into
+  one `import std/[…]`) and *Fix all* (`source.fixAll`: every problem ned fixes the same way everywhere — unused
+  results, unused imports, var → let, proc → func, bare `except`, deprecated names — in one edit). Editors can run
+  them on save (VS Code: `"editor.codeActionsOnSave": {"source.organizeImports": "explicit"}`); on an import line
+  Organize imports is in the list too, for editors that have no source-action menu;
+- *Turn off a rule for this project*: nedls writes `.ned/lint.json` itself and checks the open files again.
+
+An editor that can resolve code actions gets the list at once (under a millisecond to a few on ned's own source)
+and each edit when you pick it; the others get the edits with the list (up to 13 ms on a type of ned's source).
+What needs a dialog or runs something — change signature, move to another module, evaluate, run the selection,
+debug a test — stays in ned.
+
+**Fix with AI, checked with `nim check`.** On a compiler error, nedls offers *Fix with AI (checked with nim check)*
+when ned's settings name a model (`ai.provider` and its key — ned's own Alt+Enter has done this since 5.16). The
+model gets the declaration with the error, the declarations it uses and the compiler's message; its answer goes
+into a private copy of the file — inside the file that includes it, for an include file — and `nim check` looks at
+it. An answer that does not compile goes back once, with the compiler's error; only one that compiles is sent to
+your editor to apply (`workspace/applyEdit`, tied to the document's version: a file you changed meanwhile is left
+alone). When the second answer does not compile either, the editor asks whether to apply it anyway. The steps
+show as progress in the editor; `"aiFix": false` in nedls's settings turns it off.
+
+**Fewer entries in ned's own list that do nothing.** *Add the missing case branches* is offered inside a `case`
+that misses values (it showed for any line up to 60 below a `case`), *Inline this variable* on the name a `let`
+declares, *Use fmt* on a joined string it can rewrite, *Add a doc comment* where there is none. ned with nedls as
+its server lists an action both offer once.
+
+**The debugger where DEBUGINFOD_URLS is set** (Ubuntu 24.04 sets it for every shell): gdb asked whether to download
+debug information, and the question took the place of an answer ned waited for — a logpoint printed once, then the
+program ran to its end. ned starts gdb without it.
+
+`nimble lsptest` drives the new actions: each refactoring, resolving, Organize imports, Fix all, the rule command,
+and Fix with AI against a mock of the OpenAI API — the first answer does not compile, the second does, and only the
+second reaches the editor.
 
 ## What's new in 6.17
 

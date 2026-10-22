@@ -233,7 +233,11 @@ proc fmtTextOf*(kind, text, path: string, nimFmt: FmtFn = nil): (string, string)
     of "nim":
       if nimFmt != nil: return nimFmt(text, path)
       var err = ""
-      let r = fFormat(text, err)
+      let keepS = FmtScript
+      FmtScript = fIsScriptPath(path)          # (.nims, .nimble: NimScript's layout)
+      var r = ""
+      try: r = fFormat(text, err)
+      finally: FmtScript = keepS
       if err.len > 0: return (text, err)
       let why = verifyNim(text, r)
       if why.len > 0: return (text, why)

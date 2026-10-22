@@ -33,11 +33,12 @@ when defined(windows):
 
 import std/[os, strutils, tables, sets, algorithm, json, posix, termios,
             times, monotimes, base64, sugar, editdistance]
+from std/hashes import hash
 from std/math import pow
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
 import ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
-       ned/nim/arccopies, ned/c/cindex, ned/version, ned/testing/gcovdata, ned/editor/binfmt, ned/web/web
+       ned/nim/arccopies, ned/c/cindex, ned/version, ned/testing/gcovdata, ned/editor/binfmt, ned/web/web, ned/core/encodings
 
 const
   Version = NedVersion
@@ -83,6 +84,7 @@ include ned/core/lexgeneric
 include ned/core/lexers
 include ned/core/todos
 include ned/core/messages
+include ned/plugins/decor
 include ned/editor/buffer
 include ned/editor/loadsave
 include ned/editor/softwrap
@@ -275,6 +277,8 @@ include ned/nim/nimbleupdates
 include ned/editor/bookmarks
 include ned/editor/localhistoryview
 include ned/editor/recovery
+include ned/editor/hotexit
+include ned/editor/encodingcmds
 include ned/git/changesview
 include ned/git/marks
 include ned/app/keyboard
@@ -298,6 +302,7 @@ include ned/app/usercommands
 include ned/app/lint
 include ned/web/webui
 include ned/nim/worker
+include ned/plugins/host
 include ned/app/commandlist
 include ned/app/control
 include ned/app/main

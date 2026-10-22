@@ -135,3 +135,24 @@ proc macroNoteKey(k: Key)
 proc loadMacros()
 proc macroBadge(): string
 proc keyName(k: Key): string
+# (plugins/host)
+proc plugOpened(b: Buffer)
+proc plugBeforeSave(b: Buffer)
+proc plugSaved(b: Buffer)
+proc plugFileSaved(path: string)
+proc plugClosed(b: Buffer)
+proc plugFormat(b: Buffer): bool
+proc plugTextObject(b: Buffer, kind, obj: char, p: Pos): (bool, bool, Pos, Pos)
+proc plugExCommand(cmd: string): bool
+proc plugVimKey(b: Buffer, ch: char, visual: bool): bool
+proc plugVimReset()
+proc plugFixActions(b: Buffer, l0, l1: int): seq[(string, string, Action)]
+proc buildPluginItems(): seq[SideItem]
+proc plugAskDone(text: string)
+proc plugNew(name0: string)
+proc plugInstall(url0: string)
+proc plugReload()
+proc cmdEncodingMenu()
+proc hotExitOn(): bool
+proc hotExitSave(): bool
+proc keysCheckAtStart()

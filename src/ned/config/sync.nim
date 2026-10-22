@@ -135,6 +135,9 @@ proc syncRepoOk(url: string): bool =
   if k > 0 and url[k + 3 .. ^1].find('@') > 0 and url[k + 3 .. ^1].find('@') < max(0, url[k + 3 .. ^1].find('/')):
     error("Keep the token out of the URL — use an ssh URL (git@…) or git's credential helper")
     return false
+  if url.len > 0 and not gitArgSafe(url):
+    error("Not a repository URL: " & url)
+    return false
   url.len > 0
 
 proc syncGit(push: bool) =
@@ -152,7 +155,7 @@ proc syncGit(push: bool) =
   let q = quoteShell(d)
   var sh = "set -e; "
   if not dirExists(d / ".git"):
-    sh.add "rm -rf " & q & "; git clone -q " & quoteShell(url) & " " & q & " 2>&1; "
+    sh.add "rm -rf " & q & "; git clone -q -- " & quoteShell(url) & " " & q & " 2>&1; "
   sh.add "cd " & q & "; B=$(git symbolic-ref --short HEAD 2>/dev/null || echo main); git fetch -q origin 2>&1 || true; "
   if push:
     try:

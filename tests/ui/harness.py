@@ -155,6 +155,7 @@ def setup(cfg=None):
     worker_in_sync()
     shutil.rmtree(W, ignore_errors=True); shutil.copytree(demo_template(), W)
     shutil.rmtree(STATE, ignore_errors=True)
+    shutil.rmtree(CFG + '/ned/plugins', ignore_errors=True)     # (a test's plugins are its own)
     os.makedirs(CFG + '/ned', exist_ok=True)
     c = {"ai.provider": "openai", "ai.baseUrl": "http://127.0.0.1:%d/v1" % AI_PORT, "ai.apiKey": "sk-test",
          "ai.model": "gpt-6"}
@@ -164,6 +165,7 @@ def setup(cfg=None):
     c["nim.testOnSave"] = "off"        # (nor tests; t_66_test_on_save turns them on)
     c["git.checksBeforeCommit"] = "off"  # (commits as they were; t_67_commit_checks turns the checks on)
     c["lsp.linters"] = False           # (no ruff next to the test servers; t_67_two_servers turns it on)
+    c["files.hotExit"] = False         # (quitting asks, as the tests were written; t_619_hot_exit turns it on)
     c.update(cfg or {})
     c = {k: v for k, v in c.items() if v is not None}
     json.dump(c, open(CFG + '/ned/config.json', 'w'))

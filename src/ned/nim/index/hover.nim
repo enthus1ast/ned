@@ -108,6 +108,15 @@ proc nxCallInstance*(f: NxFile, lines: seq[string], line, col: int, s: NxSym): s
   result.add "   (" & bs.join(", ") & ")"
 
 proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
+  if f != nil and nxIsScript(f.path) and line >= 0 and line < lines.len:
+    # a compiler switch in a NimScript file: `--opt:speed`, switch("opt", "speed")
+    let sw = nxSwitchAt(lines[line], col)
+    if sw.ok:
+      let i = nxSwitchFind(sw.name)
+      if i >= 0:
+        let d = nxSwitchDoc(i)
+        let nl = d.find('\n')
+        return "```\n" & d[0 ..< nl] & "\n```\n" & d[nl + 2 .. ^1]
   let wv = nxWhenHover(f, lines, line, col)
   let f = nxAt(f, lines, line)
   if wv.len > 0: return wv

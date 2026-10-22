@@ -65,7 +65,8 @@ proc cmdCodeActions() =
         "range": {"start": es.lspPos(b, a), "end": es.lspPos(b, e)}, "context": {"diagnostics": diags}},
         LspReq(kind: lrCodeAction, bufId: b.id, extra: $fixRound))
       return
-  pendingLocalFixes = localFixes(b)
+  # (the fixes of plugins' problems here first: they are for what is underlined)
+  pendingLocalFixes = plugFixActions(b, b.primary.range[0].line, b.primary.range[1].line) & localFixes(b)
   pendingInlineFixes.setLen(0)
   pendingFixBuf = b.id
   # the main server and the linters next to it (lsp.alsoRun): each asked about its own problems, the answers merged
