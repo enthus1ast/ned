@@ -157,13 +157,16 @@ proc formatLineRange(b: Buffer, l0, l1: int, quiet: bool): bool =
     src.add (if s.len >= ind: s[ind .. ^1] else: "") & "\n"
   var err = ""
   let keepW = FmtWidth
+  let keepS = FmtScript
   FmtWidth = nimLineLength(b.path)
   FmtMax = max(40, FmtWidth - ind)
+  FmtScript = fIsScriptPath(b.path)
   var res = ""
   try: res = fFormat(src, err)
   except CatchableError, Defect: err = "the built-in formatter failed on this selection"
   FmtWidth = keepW
   FmtMax = FmtWidth
+  FmtScript = keepS
   if err.len == 0:
     fmtVerifyExe = fmtCheckerExe()
     err = verifyNim(src, res)
@@ -228,7 +231,12 @@ proc formatBuffer(b: Buffer) =
             ") — or use ned's own: \"nim.formatter\": \"builtin\"")
       return
   else:
+    # (yours — the "formatters" setting — then a plugin's command, a plugin's NimScript formatter, the language's)
     if b.lang.id in cfgUserFmt: cmds.add cfgUserFmt[b.lang.id]
+    elif b.lang.id in plugFmtCmd: cmds.add plugFmtCmd[b.lang.id]
+    elif b.lang.id in plugFmtCb:
+      discard plugFormat(b)
+      return
     for c in b.lang.fmt: cmds.add c
   for c in cmds:
     let exe = c.firstWord
@@ -480,6 +488,10 @@ proc formatOnSave0(b: Buffer) =
       return
   else:
     if b.lang.id in cfgUserFmt: cmds.add cfgUserFmt[b.lang.id]
+    elif b.lang.id in plugFmtCmd: cmds.add plugFmtCmd[b.lang.id]
+    elif b.lang.id in plugFmtCb:
+      discard plugFormat(b)
+      return
     for c in b.lang.fmt: cmds.add c
   for c in cmds:
     let w = c.splitWhitespace()

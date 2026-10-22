@@ -141,6 +141,9 @@ proc gitCloneFromLink(link = "") =
   proc withLink(l: string) =
     let (url, branch) = gitLinkParts(l)
     if url.len == 0: return
+    if not gitArgSafe(url) or (branch.len > 0 and not gitArgSafe(branch)):
+      error("That is not a link git can clone: " & truncTo(l, 60))
+      return
     if gitLinkHasSecret(url):
       error("That link has a password or token in it — use the link without it: git asks for the login in the " &
             "terminal, and nothing secret stays in the project's .git/config")
@@ -168,7 +171,7 @@ proc gitCloneFromLink(link = "") =
           error("Cannot make " & parentDir(d) & ": " & e.msg)
           return
         let args = (if c == 'l': " --depth 1" else: "") & (if branch.len > 0: " -b " & quoteShell(branch) else: "") &
-                   " " & quoteShell(url) & " " & quoteShell(d)
+                   " -- " & quoteShell(url) & " " & quoteShell(d)
         info("Cloning " & url & "…")
         # (no password prompts in the background: when git needs your login, the clone runs in the terminal)
         runCommand(gitBatchEnv(parentDir(d)) & "git clone" & args, parentDir(d), proc(code: int) =

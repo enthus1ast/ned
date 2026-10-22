@@ -242,6 +242,13 @@ proc initSettingDefs() =
   defS("Vim", "vim.relativeNumbers", %false, "Relative line numbers while vim mode is on")
   # ── Files ──
   defS("Files", "files.showHidden", %false, "Show dot-files in the file tree and file finder")
+  defS("Files", "files.encoding", %"auto", "What a file that is not UTF-8 is read as (a BOM says UTF-8 or UTF-16 " &
+       "itself): auto = Windows-1252, or an encoding's name (iso-8859-1, iso-8859-15, koi8-r, shift_jis … — other " &
+       "than Windows-1252, ISO-8859-1 and UTF-16 through iconv). A file is saved in the encoding it was read in; the " &
+       "status bar shows it — click: reopen or save with another")
+  defS("Files", "files.hotExit", %true, "Quit without being asked about unsaved edits: they are kept and come " &
+       "back, still unsaved, the next time ned opens the folder (the files and untitled tabs). Off: asked to save or " &
+       "discard them")
   defS("Files", "security.folderTrust", %"ask",
        "Before ned runs a folder's code — the Nim compiler (its config.nims, .nims files and macros can run " &
        "commands), nimble, nimsuggest, the folder's tests — you trust the folder, once (palette › Workspace: trust " &
@@ -514,6 +521,17 @@ proc initSettingDefs() =
        "closing tag that closes the wrong element, a table no CREATE TABLE makes, a query given more values than its " &
        "`?`), in their files and in Nim strings: auto = when no language server does it · on · off",
        @["auto", "on", "off"])
+  defS("Plugins", "plugins.enabled", %true, "Run your plugins (~/.config/ned/plugins/<name>/plugin.nims) and, in a " &
+       "folder you trust, the project's (.ned/plugins/<name>) — NimScript, all in one `nim e` process (Plugins dock)")
+  defS("Plugins", "plugins.disabled", newJArray(), "Plugins that are off (by name): [\"zig-lite\"]")
+  defS("Plugins", "plugins.native", %false, "Compile the plugins (nim c, in the background) instead of running them " &
+       "with nim e: a faster start and less memory; a plugin that uses what only NimScript has stays with nim e")
+  defS("Plugins", "plugins.timeoutMs", %1500, "How long ned waits for a plugin that must answer before it goes on " &
+       "(an event before saving, a NimScript formatter, a vim text object)")
+  defS("Plugins", "plugins", newJObject(), "Each plugin's own settings: {\"zig-lite\": {\"width\": 80}} — or " &
+       "\"plugins.zig-lite.width\": 80 (a plugin reads them with setting(\"width\", 80))")
+  defS("Plugins", "plugins.idleStopMinutes", %10, "Stop the plugins' process after this many minutes without a " &
+       "call (0: never); it starts again when a plugin is needed. Plugins with timers or events keep it running")
   defS("Languages", "formatters", newJObject(), "Formatter command per language id (stdin → stdout), e.g. {\"nim\": \"nph -\"}")
   defS("Languages", "run", newJObject(), "Run command per language id ($file, $dir, $name), e.g. {\"python\": \"python3 $file\"}")
   defS("Languages", "languages", newJObject(), "Your own languages (or changes to built-in ones): {\"zig\": " &
@@ -652,6 +670,7 @@ const SettingSections = ["editor", "ui", "nim", "ai", "terminal", "files", "git"
 proc unknownSettingNote(k: string): string =
   ## a key ned does not know: "did you mean …" for a near miss (wrong case, a typo, the wrong section),
   ## a plain note for keys in ned's own sections, nothing for other tools' keys
+  if k == "plugins" or (k.startsWith("plugins.") and k.count('.') >= 2): return ""   # (a plugin's own settings)
   for (old, _) in LegacyKeys:
     if k == old: return ""
   let lk = k.toLowerAscii
@@ -891,6 +910,7 @@ proc applySettings() =
   cfgLiveCheck = sBool("nim.liveDiagnostics")
   cfgCheckOnSave = sBool("nim.checkOnSave")
   cfgFolderTrust = sStr("security.folderTrust")
+  cfgFileEncoding = sStr("files.encoding")
   cfgCheckWrappers = sBool("nim.checkWrappers")
   cfgEmitClangd = sBool("nim.emitClangd")
   cfgFormatEmitC = sBool("nim.formatEmitC")
@@ -1028,6 +1048,8 @@ proc codeTrusted(dir: string): bool =
   if cfgFolderTrust != "ask" or dir.len == 0: return true
   if folderTrusted(dir): return true
   let d = trustKey(dir)
+  let own = trustKey(configDir())                  # (your own settings folder: your plugins run from it)
+  if d == own or d.startsWith(own & "/"): return true
   let lib = nimLibDir()
   if lib.len > 0:
     let k = trustKey(lib)
@@ -1041,12 +1063,23 @@ var userLangIds: seq[string]           # languages that come from the "languages
 proc applyUserLanguages() =
   ## the "languages" setting: new languages (coloured by the generic lexer) or changes to built-in ones
   embedLangCache.clear()
-  let j = settingNode("languages")
+  let own = settingNode("languages")
+  # (the plugins' languages first, then yours: a field of yours wins over a plugin's)
+  var j = newJObject()
+  for (_, id, spec) in plugLangSpecs:
+    if not j.hasKey(id): j[id] = newJObject()
+    for k, v in spec: j[id][k] = v
+  if own != nil and own.kind == JObject:
+    for id0, d in own:
+      let id = id0.toLowerAscii
+      if d.kind != JObject: continue
+      if not j.hasKey(id): j[id] = newJObject()
+      for k, v in d: j[id][k] = v
   for id in userLangIds:                     # the ones from last time go (they may have changed)
     for i in countdown(langs.high, 0):
       if langs[i].id == id: langs.delete(i)
   userLangIds.setLen(0)
-  if j == nil or j.kind != JObject: return
+  if j.len == 0: return
   proc words(n: JsonNode): seq[string] =
     if n == nil: return
     if n.kind == JString: return n.getStr.splitWhitespace()
@@ -1331,16 +1364,20 @@ proc nimLineLength(path: string): int =
   cfgFmtWidth
 
 template withNimLineLength(path: string, body: untyped) =
-  ## `body` with the formatter wrapping at the file's line length (nimLineLength)
+  ## `body` with the formatter wrapping at the file's line length (nimLineLength) — and as NimScript for a .nims
+  ## or .nimble (FmtScript)
   let keepW = FmtWidth
   let keepM = FmtMax
+  let keepS = FmtScript
   FmtWidth = nimLineLength(path)
   FmtMax = FmtWidth
+  FmtScript = fIsScriptPath(path)
   try:
     body
   finally:
     FmtWidth = keepW
     FmtMax = keepM
+    FmtScript = keepS
 
 proc lineLengthFor(b: Buffer): int =
   ## where a file's lines should end: for Nim where its formatter wraps (nimLineLength; nph's 88, nimpretty's 80),

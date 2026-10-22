@@ -4,7 +4,7 @@
 
 const
   LeftViews = [svFiles, svSearch, svGit, svProject, svTests]
-  RightViews = [svAssistant, svOutline, svTodos, svTimeline]
+  RightViews = [svAssistant, svOutline, svTodos, svTimeline, svPlugins]
 
 proc viewIcon(v: SideView): string =
   case v
@@ -17,6 +17,7 @@ proc viewIcon(v: SideView): string =
   of svOutline: ic("outline")
   of svTimeline: ic("timeline")
   of svTodos: ic("todo")
+  of svPlugins: ic("gear")
 
 func viewTitle(v: SideView): string =
   case v
@@ -29,6 +30,7 @@ func viewTitle(v: SideView): string =
   of svOutline: "OUTLINE"
   of svTimeline: "TIMELINE"
   of svTodos: "TODOS"
+  of svPlugins: "PLUGINS"
 
 func sideItem(text: string, role = 0, icon = "", detail = "", action: Action = nil, path = "", line = -1,
               depth = 0, data = ""): SideItem =

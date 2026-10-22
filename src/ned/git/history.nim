@@ -302,7 +302,11 @@ proc gitSubmodules() =
       if nm.endsWith(".git"): nm = nm[0 ..< nm.len - 4]
       askText("Folder for it", nm, proc(p: string) =
         if p.strip.len > 0:
-          gitShell("git submodule add " & quoteShell(url) & " " & quoteShell(p.strip), "Submodule added: " & p.strip, nil, root))))
+          if not gitArgSafe(url) or not gitArgSafe(p.strip):
+            error("Not a repository URL and folder git can take: " & truncTo(url, 60))
+            return
+          gitShell("git submodule add -- " & quoteShell(url) & " " & quoteShell(p.strip), "Submodule added: " & p.strip,
+                   nil, root))))
   openActions((if items.len > 1: "Submodules" else: "No submodules yet"), items)
 
 # GitHub through gh

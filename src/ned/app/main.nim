@@ -87,6 +87,8 @@ proc mainLoop() =
         if b.dirty:
           b.swapAt = -1
           writeSwap(b, force = true)
+      if hotExitOn() and hotExitSave():
+        for b in bufs: removeSwap(b)       # (the hot-exit file has them: back, unsaved, next time — no recovery asked)
       quitting = true
       break
     if gResized:
@@ -144,6 +146,7 @@ proc mainLoop() =
       if not s.dead and s.pr.outFd >= 0: fds.add TPollfd(fd: s.pr.outFd, events: POLLIN)
     mcpFds(fds)
     ctlFds(fds)
+    plugFds(fds)
     for fd in termFds(): fds.add TPollfd(fd: fd, events: POLLIN)
     wkFds(fds)
     if dbgOn and dbgProc.outFd >= 0: fds.add TPollfd(fd: dbgProc.outFd, events: POLLIN)
@@ -182,6 +185,7 @@ proc mainLoop() =
       if t.replQ.len > 0: timeout = min(timeout, 250)
     if reapPids.len > 0: timeout = min(timeout, 500)
     if startTrace: timeout = min(timeout, 20)
+    timeout = min(timeout, plugNextDueMs())             # (a plugin's timer, the plugins' start, a change to tell them)
     if workDeferred: timeout = min(timeout, 5)
     if frameHeld: timeout = min(timeout, max(1, (if slowTerminal(): 33 else: 16) - int(msSince(frameAt))))
     if cfgWebEngine != "off" and cb0.path.len > 0 and cb0.lang != nil and
@@ -256,7 +260,9 @@ proc mainLoop() =
           todoFiles.clear()
           todoScanned = false
           todoScanProject()
-        if todoQueue.len > 0: timedWork("TODOs"): todoPump(4)
+        # (the project's TODOs only in a round with room left: with the engine reading imports after it, two
+        # slices made one 13-16 ms round)
+        if todoQueue.len > 0 and msSince(busyFrom) < 3: timedWork("TODOs"): todoPump(4)
         timedWork("TODOs"): todoRefreshBufs()
         if ffiQueue.len > 0:
           let fb = bufById(ffiQueue[0])
@@ -271,6 +277,7 @@ proc mainLoop() =
       timedWork("terminals"): pumpTerms(ready)
       if reapPids.len > 0: timedWork("ended programs"): reapPending()
       if mcpServers.len > 0: timedWork("MCP servers"): mcpPump(ready)
+      timedWork("plugins"): plugPump(ready)
       if mcpWaitReq and not mcpStarting():
         mcpWaitReq = false
         aiRequest()
@@ -291,10 +298,10 @@ proc mainLoop() =
       if progressAnimating() or progressStarting(): needRender = true      # (the progress band, or its first frame)
       # (one heavy piece of work a round: hints, the engine's checks, reading imports, counts and macro names each
       # take up to a few dozen ms on a phone — two in one round and a key waits for both)
-      let roundT0 = getMonoTime()
       workDeferred = false
       template roomLeft(): bool =
-        (if msSince(roundT0) < 15: true else: (workDeferred = true; false))
+        # (from the round's start: keys, the TODOs' slice and the hints count too)
+        (if msSince(busyFrom) < 8: true else: (workDeferred = true; false))
       if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0 and not away: timedWork("type and parameter hints"): requestInlays(buf())
       if cfgCSigHints and inBuf.len == 0 and not away: timedWork("C signature hints"): cSigHintsUpdate(buf())
       if inBuf.len == 0 and not away: timedWork("language server requests"): lspExtras(buf())
@@ -516,6 +523,8 @@ proc usage() =
   echo "                        argument counts, unused imports and locals, a var that can be a let, deprecated or"
   echo "                        too-new library names … — text, GitHub annotations or JSON; --staged, --install-hook"
   echo "                        (git pre-commit): ned --lint --help"
+  echo "  --lsp-bridge FILE.nims  run a language server written in NimScript (import nedlsp) with the protocol's"
+  echo "                        framing on stdin/stdout — the command for ned's plugins and for other editors"
   echo "  --wait FILE…          in ned's terminal (or with --remote): open the files in the running ned and wait"
   echo "                        until their tabs are closed — git's editor: GIT_EDITOR=\"ned --wait\""
   echo "  --new                 start a new ned, even in ned's own terminal (where `ned FILE` opens FILE there)"
@@ -733,6 +742,10 @@ proc main() =
         formatFiles(cl[ai .. ^1])
       of "--lint":
         quit lintMain(cl[ai .. ^1])
+      of "--lsp-bridge":
+        # (a language server written in NimScript — nedlsp — given the protocol's framing: for ned and other editors)
+        if ai >= cl.len: quit "ned: --lsp-bridge needs a .nims file", 2
+        quit lspBridge(cl[ai])
       of "--new": wantNew = true
       of "--wait": wantWait = true
       of "--remote": wantRemote = true
@@ -878,7 +891,9 @@ proc main() =
   if not opened: restoreSession()
   else: restoreBreakpoints()
   restoreLayout()
+  hotExitRestore()                     # (files.hotExit: the unsaved edits of last time, in their tabs)
   checkRecoveryAtStart()
+  keysCheckAtStart()                   # (the "keys" setting: an unknown command, a key no terminal sends)
   smark("session restored")
   if gitRepoRoots().len > 0: refreshGitStatus()
   smark("git status started")
@@ -913,6 +928,7 @@ proc main() =
   killTerminals()
   lspShutdown()
   mcpStopAll()
+  plugStop()
   nsShutdown()
   wkStop()
   if haveExe("ssh"):

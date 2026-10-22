@@ -736,6 +736,59 @@ def run_checks(nedls, root, have_nim, log):
     c.notify("exit", {})
     c.close()
 
+    if have_nim:
+        run_nimscript(nedls, root, log)
+
+
+def run_nimscript(nedls, root, log):
+    """6.19: config.nims and a .nimble are NimScript — their API there, not in a program; switches known"""
+    ns = os.path.join(root, "ns")
+    os.makedirs(os.path.join(ns, "src"), exist_ok=True)
+    files = {
+        "src/prog.nim": 'let d = thisDir()\nexec "ls"\necho d\n',
+        "config.nims": '--threds:on\n--opt:speed\nswitch("defne", "x")\n--hint[Processing]:off\nlet d = thisDir()\n',
+        "x.nimble": 'version = "1.0"\nauthor = "t"\ndescription = "t"\nlicense = "MIT"\n'
+                    'namedBin["a"] = "b"\ntaskRequires "test", "unittest2"\nfeature "f":\n  requires "jsony"\n'
+                    'requires "jsony >= 1.1"\n',
+    }
+    for n, t in files.items():
+        with open(os.path.join(ns, n), "w") as f:
+            f.write(t)
+    c, init = new_client(nedls, ns, log=log)
+    prog = os.path.join(ns, "src/prog.nim")
+    open_doc(c, prog, files["src/prog.nim"])
+    r = c.request("textDocument/completion", {"textDocument": {"uri": uri(prog)}, "position": {"line": 0, "character": 13}})
+    check("NimScript: thisDir not offered in a program", "thisDir" not in labels(r), labels(r)[:8])
+    ds = c.wait_diagnostics(uri(prog), lambda ds: sum("NimScript's" in d["message"] for d in ds) >= 2, timeout=30) or []
+    msgs = [d["message"] for d in ds if "NimScript's" in d["message"]]
+    check("NimScript: thisDir and exec in a program → what a program uses",
+          len(msgs) == 2 and "execCmd" in msgs[1], msgs)
+    cfg = os.path.join(ns, "config.nims")
+    open_doc(c, cfg, files["config.nims"])
+    ds = c.wait_diagnostics(uri(cfg), lambda ds: len(ds) >= 2, timeout=20) or []
+    msgs = sorted(d["message"] for d in ds)
+    check("NimScript: misspelled switches → the switch meant (and none for hint[…], thisDir)",
+          len(msgs) == 2 and "--defne" in msgs[0] and "--define?" in msgs[0] and "--threads?" in msgs[1], msgs)
+    r = c.request("textDocument/hover", {"textDocument": {"uri": uri(cfg)}, "position": {"line": 1, "character": 3}})
+    hv = json.dumps((r or {}).get("result") or {})
+    check("NimScript: hover on a switch → its help", "optimize" in hv, hv[:100])
+    r = c.request("textDocument/completion", {"textDocument": {"uri": uri(cfg)}, "position": {"line": 1, "character": 6}})
+    check("NimScript: a switch's values completed", "speed" in labels(r) and "size" in labels(r), labels(r)[:8])
+    r = c.request("textDocument/completion", {"textDocument": {"uri": uri(cfg)}, "position": {"line": 4, "character": 12}})
+    check("NimScript: config.nims sees thisDir", "thisDir" in labels(r), labels(r)[:8])
+    nb = os.path.join(ns, "x.nimble")
+    open_doc(c, nb, files["x.nimble"])
+    for w in ["namedBin", "taskRequires", "feature"]:
+        r = c.request("textDocument/hover", {"textDocument": {"uri": uri(nb)}, "position": pos_of(files["x.nimble"], w, after=1)})
+        hv = json.dumps((r or {}).get("result") or {})
+        check("NimScript: a .nimble knows nimble's " + w, w in hv and "pragma" not in hv, hv[:100])
+    ds = c.wait_diagnostics(uri(nb), lambda ds: True, timeout=10) or []
+    check("NimScript: a feature's requires is not \"required twice\"",
+          not any("twice" in d["message"] for d in ds), [d["message"] for d in ds])
+    c.request("shutdown", None)
+    c.notify("exit", {})
+    c.close()
+
 
 # ── stress: random incremental edits must keep the server's text the client's ──
 

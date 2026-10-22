@@ -16,7 +16,9 @@ tests/engine/ned-cengine
 # unit tests built by nim c -r
 tests/unit/t*
 !tests/unit/t*.nim
-# tests/build/cross.sh
+# tests/build/cross.sh, tests/build/termux.sh
 /build/
+*.deb
+*.zip
 # python
 __pycache__/

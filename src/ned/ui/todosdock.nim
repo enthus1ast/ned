@@ -115,6 +115,8 @@ proc todoPump(budgetMs: int) =
     var toks: seq[TokKind]
     let stop = min(todoCur.lines.len, todoCur.l + 400)
     while todoCur.l < stop:
+      # (the clock looked at every 32 lines: a slice of dense code lexed in one go took up to 14 ms)
+      if (todoCur.l and 31) == 0 and msSince(t0) >= budgetMs: break
       let s = todoCur.lines[todoCur.l]
       if s.len <= 20000:
         if todoCur.exact: todoCur.st = lexLine(todoCur.lang, s, todoCur.st, toks)

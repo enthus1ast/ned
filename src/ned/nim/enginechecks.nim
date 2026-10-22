@@ -103,6 +103,75 @@ func ecIndent(s: string): int =
   while k < s.len and s[k] == ' ': inc k
   k
 
+proc ecNimscriptOnly(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## a program (a .nim) calling system's NimScript procs — exec, thisDir, mkDir …: config.nims and a .nimble have
+  ## them, a program does not (the compiler says "undeclared identifier") — and what a program uses instead
+  if b.path.len == 0 or nxIsScript(b.path): return
+  var only: Table[string, string]
+  for (n, instead) in NxScriptOnly: only[n] = instead
+  var sc: NxScope = nil
+  for l, s in code:
+    var i = 0
+    while i < s.len:
+      if s[i] notin {'a'..'z', 'A'..'Z', '_'}:
+        inc i
+        continue
+      var e = i
+      while e < s.len and s[e] in IdentChars: inc e
+      let w = s[i ..< e]
+      if w in only and (i == 0 or s[i - 1] notin {'.', '`'}):
+        var k = e
+        while k < s.len and s[k] == ' ': inc k
+        let stmtStart = s[0 ..< i].strip.len == 0
+        # (called: `exec(…)`, `exec "…"` — a string is 0s in `code` — or `exec cmd` starting a statement)
+        if k < s.len and (s[k] == '(' or (k > e and s[k] == '0') or
+                          (k > e and stmtStart and s[k] in {'a'..'z', 'A'..'Z', '_'})):
+          if sc == nil: sc = nxScope(f)
+          var declared = nxLookup(sc, w).len > 0
+          if not declared:
+            for x in nxLocals(f, b.lines, l, i):
+              if nxNorm(x.name) == nxNorm(w): declared = true
+          if not declared:
+            res.add Diag(line: l, col: i, eline: l, ecol: e, sev: 2, src: "ned", rule: "nimscript-only",
+                         msg: "'" & w & "' is NimScript's (config.nims, a .nimble): a program has none — " &
+                              only[w])
+      i = e
+
+proc ecSwitches(b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## NimScript: a compiler switch the compiler does not have (`--optt:speed`, `switch("thread", "on")`) — and
+  ## the one meant
+  if not nxIsScript(b.path): return
+  proc check(l, at: int, name: string, res: var seq[Diag]) =
+    if name.len == 0 or nxSwitchFind(name) >= 0: return
+    var best = ""
+    var bestD = 3
+    for sw in NxSwitches:
+      let d = nxTypoDist(sw[0].toLowerAscii, name.toLowerAscii)
+      if d < bestD:
+        bestD = d
+        best = sw[0]
+    res.add Diag(line: l, col: at, eline: l, ecol: at + name.len, sev: 2, src: "ned", rule: "switch",
+                 msg: "--" & name & " is not a switch of the compiler" &
+                      (if best.len > 0: " — did you mean --" & best & "?" else: " (nim --fullhelp lists them)"))
+  for l, raw in b.lines:
+    if l >= code.len or code[l].strip.len == 0: continue
+    let t = raw.strip(trailing = false)
+    let ind = raw.len - t.len
+    if t.startsWith("-") and not t.startsWith("->"):
+      var n0 = ind
+      while n0 < raw.len and raw[n0] == '-': inc n0
+      var n1 = n0
+      while n1 < raw.len and raw[n1] in {'a'..'z', 'A'..'Z', '0'..'9', '_'}: inc n1
+      if n0 - ind == 2 and n1 > n0 and (n1 >= raw.len or raw[n1] in {':', ' ', '#', '['}):
+        check(l, n0, raw[n0 ..< n1], res)
+    var k = code[l].find("switch(")
+    if k >= 0 and (k == 0 or code[l][k - 1] notin IdentChars):
+      var p = k + 7
+      while p < raw.len and raw[p] == ' ': inc p
+      if p < raw.len and raw[p] == '"':
+        let q = raw.find('"', p + 1)
+        if q > p: check(l, p + 1, raw[p + 1 ..< q], res)
+
 proc ecUnreachable(lines: seq[string], code: seq[string], res: var seq[Diag]) =
   ## a statement after `return`, `raise`, `break`, `continue` or `quit(…)` in the same block can never run
   const Enders = ["return", "raise", "break", "continue"]
@@ -1690,6 +1759,8 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("import-not-required", "an import of a package the .nimble does not require", 2),
   ("require-unused", "a package the .nimble requires that nothing imports", 4),
   ("nimble", "a problem in a .nimble file", 2),
+  ("nimscript-only", "a NimScript proc (exec, thisDir, mkDir …) called in a program, and what a program uses", 2),
+  ("switch", "a compiler switch the compiler does not have, in config.nims or a .nimble", 2),
   ("nim3", "Nim 3 (Nimony): what Nim 2 code must change — in a Nim 3 project, or when asked", 2),
   # (ned's own CSS, HTML and SQL — in their files and in Nim strings)
   ("sql-args", "a query given more (or fewer) values than it has `?` (db_connector's exec, getRow …)", 1),
@@ -1885,6 +1956,8 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
       # (the project's .nimble: its requires)
       if on("import-not-required"): result.add pcImportsNotRequired(f, b, code)
       if b.path.endsWith(".nimble") and on("nimble"): result.add pcNimbleChecks(b)
+      if on("nimscript-only"): ecNimscriptOnly(f, b, code, result)
+      if on("switch"): ecSwitches(b, code, result)
       if port3 and on("nim3"): nim3Checks(f, b, code, result)
     except CatchableError, Defect: discard
     if live:

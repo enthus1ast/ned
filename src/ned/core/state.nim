@@ -63,6 +63,7 @@ var
   cfgNimTarget = "c"           # c | cpp | js | objc
   cfgCheckWrappers = true      # importc wrappers checked against their C headers
   cfgFolderTrust = "ask"       # security.folderTrust: ask (a folder's code runs once you trust it) | off
+  cfgFileEncoding = "auto"     # files.encoding: what a file that is not UTF-8 (and has no BOM) is read as
   cfgEmitClangd = true         # C in {.emit.} goes through clangd when it is installed
   cfgFormatEmitC = true        # formatting a Nim file formats the C in its emits too
   quickFixDryRun = false       # (nedls works out what a quick fix would change by running it: one that writes a file

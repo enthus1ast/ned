@@ -206,6 +206,10 @@ proc drawStatusBar() =
                theme.dim, bg)
   if runningJob() != nil:
     x = button(x, y, " " & ic("run") & " running ", proc() = setPanel(pkOutput), "Show output", theme.accent, bg)
+  if plugStatusItems.len > 0 and scrW >= 60:
+    for (pid, t) in plugStatusItems:
+      x = button(x, y, " " & truncTo(t, 30) & " ", proc() = showSide(svPlugins), "Plugin " & pid & " (Plugins dock)",
+                 theme.dim, bg)
   let msgX = x + 1
   # ── right ──
   var right: seq[(string, Rgb, Action, string)]
@@ -222,7 +226,8 @@ proc drawStatusBar() =
              (if b.ecInfo.len > 0: " (EditorConfig)" else: ""), theme.dim,
              Action(proc() = openMenu(@[mc("Indent with 2 spaces"), mc("Indent with 4 spaces"), mc("Indent with tabs")],
                                       mouseX - 10, y - 4)), "Indentation")
-  right.add ("UTF-8", theme.dim, nil, "Encoding")
+  right.add (encLabel(b.enc), (if b.enc.len > 0: theme.accent else: theme.dim), Action(proc() = cmdEncodingMenu()),
+             "Encoding — reopen or save with another")
   right.add ((if b.crlf: "CRLF" else: "LF"), theme.dim, Action(proc() = runCmd("Toggle line endings (LF/CRLF)")), "Line endings")
   right.add (b.lang.name, theme.dim, Action(proc() = cmdLanguages()), "Select language mode")
   if b.lang.mode == lmNim and b.path.len > 0:
@@ -234,8 +239,18 @@ proc drawStatusBar() =
   let ais = aiStatus()
   right.add ((if ais.len > 0: ic("ai") & " " & ais else: ic("ai")), (if ais.len > 0: theme.accent else: theme.dim),
              Action(proc() = toggleAssistant()), "AI assistant (Alt+C)")
-  # priority: keep position and AI, drop encoding/eol first
-  let order = [0, 5, 4, 1, 3, 2, 6]
+  # what goes first when there is no room: LF, UTF-8 and the indentation before the language, an encoding that is
+  # not UTF-8 or CRLF later (they say something about the file), the position and the AI never
+  var prio: seq[int]
+  for r in right:
+    let t = r[0]
+    prio.add (if t == pos: 100
+              elif r[3].startsWith("AI"): 90
+              elif r[3] == "Encoding — reopen or save with another": (if b.enc.len > 0: 70 else: 10)
+              elif r[3] == "Line endings": (if b.crlf: 40 else: 20)
+              elif r[3] == "Indentation": 30
+              elif r[3] == "Build settings": 50
+              else: 60)
   var keep: seq[bool]
   for _ in right: keep.add true
   proc total(): int =
@@ -243,9 +258,11 @@ proc drawStatusBar() =
       if keep[i]: result += strWidth(r[0]) + 2
   let showMsg = msg.len > 0 and msSince(msgTime) < 6000
   let minMsg = if showMsg: min(strWidth(msg), 30) + 2 else: 0
-  for k in countdown(order.high, 0):
-    let i = order[k]
-    if i < right.len and msgX + minMsg + total() > scrW and i != 0: keep[i] = false
+  var byPrio: seq[int]
+  for i in 0 ..< right.len: byPrio.add i
+  byPrio.sort(proc(x, y: int): int = cmp(prio[x], prio[y]))
+  for i in byPrio:
+    if msgX + minMsg + total() > scrW and prio[i] < 100: keep[i] = false
   var rx = scrW - total()
   for i, (t, fg, a, tip) in right:
     if not keep[i]: continue

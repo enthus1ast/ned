@@ -147,6 +147,7 @@ type
     hlValid: int
     topLine, topSub, leftCol: int
     crlf: bool
+    enc: string                        # the file's encoding ("" UTF-8; core/encodings): read as it, written back as it
     indent: string
     mtime, fsize: int64
     lspVersion: int
@@ -230,7 +231,8 @@ type
     pNone, pFind, pReplaceFind, pReplaceWith, pGoto, pSaveAs, pRunCmd, pSearch,
     pNewFile, pNewFolder, pRenamePath, pLspRename, pNewProject, pAtlasUse, pAtlasSearch, pGitCommit,
     pNimbleTask, pVimCmd, pVimSearch, pOpenFolder, pAiEdit, pSetting, pNimbleAdd, pNimbleSearch,
-    pBpCond, pBpLog, pDbgWp, pDbgWatch, pUserCmdName, pUserCmdRun, pPipeCmd, pGitInput, pPathInput
+    pBpCond, pBpLog, pDbgWp, pDbgWatch, pUserCmdName, pUserCmdRun, pPipeCmd, pGitInput, pPathInput,
+    pPluginAsk, pPluginNew, pPluginInstall
   PickKind = enum pickNone, pickCmd, pickFile, pickSymbol, pickBuffer, pickTheme, pickRecent, pickLang, pickAction
   PanelKind = enum pkOutput, pkSearch, pkProblems, pkTerminal, pkDebug
 
@@ -288,6 +290,8 @@ type
     bufId: int
     onDone: proc(j: Job) {.closure.}
     deadlineMs: int           # > 0: stopped after this long (tests run on save)
+    resolve: seq[string]      # nimble's "Dependency resolution failed" explanation, a line at a time
+    inResolve: bool
 
   LspReqKind = enum lrInit, lrCompletion, lrHover, lrDefinition, lrRename, lrFormat, lrSymbols, lrShutdown,
                     lrSignature, lrReferences, lrExpand, lrInlay, lrCodeAction, lrResolve, lrOther,
@@ -345,7 +349,7 @@ type
     memAt: MonoTime           # when its memory use was last looked at
     usedAt: MonoTime          # the last request (an idle nimsuggest is stopped, and started again on demand)
 
-  SideView = enum svFiles, svSearch, svGit, svProject, svTests, svAssistant, svOutline, svTimeline, svTodos
+  SideView = enum svFiles, svSearch, svGit, svProject, svTests, svAssistant, svOutline, svTimeline, svTodos, svPlugins
   SideItem = object
     text, detail, path, icon, data: string
     line, col, depth, role: int     # role: 0 text, 1 accent, 2 dim, 3 error, 4 warn, 5 ok, 6 header, 7 func, 8 type

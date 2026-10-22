@@ -169,3 +169,8 @@ func textDistance(a, b: string): int =
 # thousands of items carry one string each)
 template compFilter(it: CompItem): string = (if it.filter.len > 0: it.filter else: it.label)
 template compInsert(it: CompItem): string = (if it.insert.len > 0: it.insert else: it.label)
+
+func gitArgSafe*(s: string): bool =
+  ## a URL, folder or revision a project or a link gives that git can take as itself — not as one of its options
+  ## (`--upload-pack=…` runs a command: what nimble 0.26.1 closed in its own git calls), nor two lines
+  s.len > 0 and s[0] != '-' and '\n' notin s and '\r' notin s and '\0' notin s

@@ -37,7 +37,11 @@ Only the newest release gets security fixes — updating is always the remedy.
   atlas, nimony — also inside `sh -c`, behind `env`, `nice`, `timeout` and the like, and says why (`--version` and
   `--help` pass). ned's own Nim and C engines still read the code. A folder's own settings that run programs (`.ned/settings.json`: `lsp`, `run`,
   `formatters`, `commands`, `ai.*` with MCP servers, `nim.nimsuggestPath`, `sync.repository` …) are ignored too,
-  so opening a cloned repository cannot start programs or send your code elsewhere.
+  so opening a cloned repository cannot start programs or send your code elsewhere. A project's plugins
+  (`.ned/plugins/`) are not loaded either; yours (`~/.config/ned/plugins/`) run with your rights, like any program
+  you install — *Install from git…* refuses a link that starts with `-` and passes it after `--`.
+- **git links that start with `-`** are refused wherever ned runs git with a link or a branch (clone, a
+  submodule, settings sync, a dependency's tags), and they come after `--`: a link cannot become an option.
 - **Tests run on save or before a commit, and the copies check** (`nim.testOnSave`, `git.checksBeforeCommit`,
   `nim.showCopies`) build into private folders (0700), removed afterwards; tests are stopped after two minutes.
 - **Signing in to GitHub** never asks for, sees or stores a token: the GitHub CLI signs you in in the browser and

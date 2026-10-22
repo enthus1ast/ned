@@ -11,6 +11,10 @@ proc requestQuit() =
   if names.len == 0:
     quitting = true
     return
+  if hotExitOn() and hotExitSave():
+    # (files.hotExit: nothing asked — the edits are kept and come back, unsaved, next time)
+    quitting = true
+    return
   askConfirm("Unsaved: " & names.join(", ") & " — (s)ave all & quit, (d)iscard & quit, (c)ancel",
     proc(c: char) =
       case c

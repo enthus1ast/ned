@@ -26,6 +26,7 @@ type
     comment*: bool
     phys*: int         # physical lines it spans
     verbatim*: bool    # holds a multi-line token: keep its layout
+    keep*: bool        # (NimScript) kept exactly as written — not laid out again as nph would (fScriptKeep)
     origText*: string
     complexKind*: int  # 1 routine with a body · 2 type section · 3 object/enum type member
 
@@ -45,6 +46,12 @@ var
   FmtAlign* = false    # object field types and the `=` of const/let/var sections lined up
   FmtReflow* = false   # long ## doc comments re-wrapped at the line length
   FmtReflowPlain* = false   # … and long # comments of prose (not commented-out code, banners or directives)
+  FmtScript* = false   # a NimScript file (.nims, .nimble): its package fields lined up, switches, task headers,
+                       # short `if x: y` and lines with a comment at the end kept as written
+
+func fIsScriptPath*(path: string): bool =
+  ## NimScript: config.nims, build.nims, a package's .nimble
+  path.endsWith(".nims") or path.endsWith(".nimble")
 
 const
   FKeywords* = ["addr", "and", "as", "asm", "bind", "block", "break", "case", "cast", "concept", "const",

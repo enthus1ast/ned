@@ -150,6 +150,18 @@ proc submitPrompt() =
     return
   of pNimbleTask:
     if t.strip.len > 0: runCommand("nimble " & t.strip, (if nimble.dir.len > 0: nimble.dir else: rootDir))
+  of pPluginAsk:
+    closePrompt()
+    plugAskDone(t)
+    return
+  of pPluginNew:
+    closePrompt()
+    if t.strip.len > 0: plugNew(t)
+    return
+  of pPluginInstall:
+    closePrompt()
+    if t.strip.len > 0: plugInstall(t)
+    return
   of pVimCmd:
     closePrompt()
     vimEx(t)

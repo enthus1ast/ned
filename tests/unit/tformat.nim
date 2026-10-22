@@ -701,3 +701,34 @@ suite "YAML and TOML":
   test "TOML: an array over several lines keeps its layout":
     let src = "deps = [\n  \"a\",\n  \"b\",\n]\n"
     check fmtToml(src)[0] == src
+
+suite "NimScript: .nimble and .nims (6.19)":
+  proc scriptFmt(s: string): string =
+    FmtScript = true
+    defer: FmtScript = false
+    nimFmt(s)
+
+  test "a package's fields lined up as nimble's template writes them, comments kept at the end of their line":
+    check scriptFmt("# Package\nversion = \"1.0\"\nauthor =   \"me\"\ndescription = \"a tool\"\nlicense=\"MIT\"\n" &
+                    "bin = @[\"x\"]   # the program\n") ==
+          "# Package\nversion     = \"1.0\"\nauthor      = \"me\"\ndescription = \"a tool\"\nlicense     = \"MIT\"\n" &
+          "bin         = @[\"x\"]   # the program\n"
+
+  test "fields already lined up further out stay there; a value continued below moves with its `=`":
+    let ok = "version       = \"6.18.0\"\ndescription   = \"one \" &\n                \"two\"\nlicense       = \"MIT\"\n"
+    check scriptFmt(ok) == ok
+    check scriptFmt("version = \"1\"\ndescription = \"one \" &\n              \"two\"\n") ==
+          "version     = \"1\"\ndescription = \"one \" &\n              \"two\"\n"
+
+  test "task headers, hooks, switches and a one-line if stay as written; the rest is formatted":
+    check scriptFmt("task test, \"Run every test of the project, from the first to the last, and say how it went\":\n" &
+                    "  exec   \"nim r t.nim\"\nbefore install:\n  echo   \"x\"\n--opt:speed\n--path:\"../src\"\n" &
+                    "when defined(linux):\n  --passL:\"-lm\"\nif existsEnv(\"X\"): echo \"x\"\nlet  y=1\n") ==
+          "task test, \"Run every test of the project, from the first to the last, and say how it went\":\n" &
+          "  exec \"nim r t.nim\"\nbefore install:\n  echo \"x\"\n--opt:speed\n--path:\"../src\"\n" &
+          "when defined(linux):\n  --passL:\"-lm\"\nif existsEnv(\"X\"): echo \"x\"\nlet y = 1\n"
+
+  test "an ordinary Nim file is not lined up":
+    check nimFmt("version = \"1\"\nauthor = \"me\"\nif y > 0: echo y\n") ==
+          "version = \"1\"\nauthor = \"me\"\nif y > 0:\n  echo y\n"
+    check fIsScriptPath("x/config.nims") and fIsScriptPath("p.nimble") and not fIsScriptPath("p.nim")

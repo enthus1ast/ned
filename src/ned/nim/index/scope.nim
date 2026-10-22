@@ -1263,7 +1263,28 @@ proc nxScope*(f: NxFile): NxScope =
   if sys.len > 0 and f.path != sys and not f.path.startsWith(parentDir(sys) / "system" & "/"):
     let before = result.refs.len
     nxExports(sys, 0, seen, result.refs)
-    for k in before ..< result.refs.len: result.refs[k].origin = 3
+    # system's NimScript part (exec, thisDir, switch …): a NimScript file's only — and a .nimble sees nimble's own
+    # versions of some, its other API and strutils, as nimble's wrapper gives them (nxNimbleApiPath)
+    let script = nxIsScript(f.path)
+    let nimble = nxIsNimbleFile(f.path)
+    var w = before
+    for k in before ..< result.refs.len:
+      let r = result.refs[k]
+      if nxFromNimscriptApi(r.file.path) and
+         (not script or (nimble and r.file.syms[r.idx].name in NxNimbleOverrides)): continue
+      result.refs[w] = r
+      result.refs[w].origin = 3
+      inc w
+    result.refs.setLen(w)
+    if nimble:
+      for p in [nxNimbleApiPath(), nxResolve(f.path, "std/strutils")]:
+        if p.len == 0: continue
+        var got: seq[NxRef]
+        nxExports(p, 0, seen, got)
+        for r in got:
+          var r2 = r
+          r2.origin = 3
+          result.refs.add r2
   for im in f.imports:
     if im.isInclude: continue
     let p = nxResolve(f.path, im.spec)

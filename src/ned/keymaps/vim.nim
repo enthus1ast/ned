@@ -247,7 +247,10 @@ proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
   result.p = q
 
 proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
-  ## iw aw i( a( i[ i{ i< i" i' i`  (returns a half-open range)
+  ## iw aw i( a( i[ i{ i< i" i' i`  (returns a half-open range) — and plugins' (ie …)
+  if plugTextObjKeys.len > 0 and ($kind & $obj) in plugTextObjKeys:
+    let (_, ok, a, e) = plugTextObject(b, kind, obj, p)
+    return (ok, a, e)
   let s = b.lines[p.line]
   case obj
   of 'w', 'W':
@@ -392,6 +395,7 @@ proc vimEx(cmd: string) =
   let b = buf()
   let c = cmd.strip
   if c.len == 0: return
+  if plugExCommand(c): return                       # (a plugin's :Name)
   if c.allCharsInSet(Digits):
     b.centerOn(b.firstNonBlank(clamp(parseInt(c) - 1, 0, b.lines.high)))
     return

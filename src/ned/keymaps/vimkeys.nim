@@ -47,6 +47,7 @@ proc vimKey(k: Key): bool =
     vimPending = ""
     vimCount = ""
     vimOpCount = ""
+    plugVimReset()
     if visual:
       vimSetMode(vmNormal)
       b.setSingle(b.clampNormal(b.primary.head))
@@ -98,6 +99,7 @@ proc vimKey(k: Key): bool =
     else: return false
   if ch == '\0': return false
   let p = b.primary.head
+  if plugVimKey(b, ch, visual): return true          # (a plugin's mapping, operator or what it waits for)
   # counts
   if ch in {'1'..'9'} or (ch == '0' and vimCount.len > 0):
     if vimPending in ["", "d", "c", "y", ">", "<", "gu", "gU", "gc", "~"] or vimPending.len == 0:

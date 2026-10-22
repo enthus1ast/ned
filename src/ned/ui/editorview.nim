@@ -443,6 +443,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       else:
         guideW = visColOf(s, leadingWs(s).len)
         prevIndent = guideW
+    let plugHl = if plugDecor.len > 0: b.plugHighlights(line) else: @[]
     for si in sub0 ..< segs.len:
       if row >= h: break
       let y = y0 + row
@@ -464,6 +465,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                               fg: sevColor(worst), bg: rowBg))                # letters, not only colours
         elif b.marks.len > 0 and line in b.marks:
           setCell(x0, y, Cell(ch: (if cfgAccessible: uint32(ord('M')) else: 0x25C6'u32), fg: theme.accent, bg: rowBg))  # ◆ bookmark
+        elif plugDecor.len > 0 and (let (sg, sc) = b.plugSignAt(line); sg.len > 0):
+          discard putStr(x0, y, sg, sc, rowBg, {aBold}, x0 + 1)                  # a plugin's sign
         elif cfgCodeLens and b.path.len > 0:
           let (lens, _) = b.lensAt(line)
           if lens.len > 0:
@@ -568,6 +571,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         if i < gcol.len and gcol[i] != NoColor:
           fg = gcol[i]
           if s[i] == '*': at.incl aBold
+        for (a, e, hc) in plugHl:
+          if i >= a and i < e: bg = blend(rowBg, hc, 0.28)                   # a plugin's highlight
         for (a, e) in matchR:
           if i >= a and i < e:
             bg = if isFind: theme.match else: theme.wordHl
@@ -670,6 +675,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                 bb.setSingle(bb.clampPos(Pos(line: dl, col: dc)))
                 if fixable: cmdCodeActions() else: cmdHover(),
                 (if fixable: "Fix it (" & fixKey() & ")" else: "The whole message (Alt+H)"))
+        elif plugDecor.len > 0 and (let (vt, vc) = b.plugTextAfter(line); vt.len > 0) and ex + 4 < limX:
+          discard putStr(ex + 3, y, vt, vc, rowBg, {aItalic}, limX)            # a plugin's text after the line
         elif b.path.len > 0 and (let rn = reviewNoteAt(b.path, line); rn.len > 0) and ex + 6 < limX:
           # a review comment of the branch's pull request (GitHub)
           discard putStr(ex + 3, y, rn, blend(theme.info, theme.inlay, 0.3), rowBg, {aItalic}, limX)

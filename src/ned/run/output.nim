@@ -78,6 +78,39 @@ proc addPanelLine(pl: PanelLine) =
     panelScrollA[pkOutput] = max(0, panelScrollA[pkOutput] - 2000)
   needRender = true
 
+proc pcResolveDiags(nb: string, expl: seq[string]): seq[Diag]
+
+proc nimbleResolveLine(j: Job, s: string) =
+  ## nimble's "Dependency resolution failed" and the explanation under it (0.26: PubGrub's "Because …"; 0.24: the
+  ## "Minimal set of conflicting dependencies"), its "… " lines kept for the requires lines they are about
+  let t = s.strip
+  if "Dependency resolution failed" in t or "Minimal set of conflicting dependencies" in t:
+    j.inResolve = true
+  elif j.inResolve:
+    if t.startsWith("..."):
+      let x = t[3 .. ^1].strip
+      if x.len > 0 and x != "Final error message:" and x notin j.resolve and
+         "Dependency resolution failed" notin x and "Minimal set of conflicting" notin x:
+        j.resolve.add x
+    else: j.inResolve = false
+
+proc nimbleResolveDone(j: Job) =
+  ## the explanation as problems on the .nimble's requires lines it names (the first: where Alt+N goes)
+  if j.resolve.len == 0: return
+  var nb = ""
+  var d = j.cwd
+  for _ in 0 .. 3:
+    for k, p in walkDir(d):
+      if k in {pcFile, pcLinkToFile} and p.endsWith(".nimble"): nb = p
+    if nb.len > 0 or d.len <= 1: break
+    d = parentDir(d)
+  if nb.len == 0: return
+  let ds = pcResolveDiags(nb, j.resolve)
+  if ds.len == 0: return
+  diagsBuild.mgetOrPut(nb, @[]).add ds
+  addPanelLine(PanelLine(text: "→ " & extractFilename(nb) & ":" & $(ds[0].line + 1) & "  " & ds[0].msg, path: nb,
+                         line: ds[0].line, col: ds[0].col, sev: 1))
+
 proc addRunLine(j: Job, raw: string) =
   var s = stripAnsi(raw)
   for r in remotes:                         # the server's paths in compiler messages: the local copies
@@ -86,6 +119,7 @@ proc addRunLine(j: Job, raw: string) =
   let cr = s.rfind('\r')
   if cr >= 0: s = s[cr + 1 .. ^1]
   var pl = PanelLine(text: s, line: -1)
+  if j.inResolve or "resolution failed" in s or "Minimal set of conflicting" in s: nimbleResolveLine(j, s)
   let (ok, path, l, c, sev, m) = parseErrLine(s, j.cwd)
   if ok:
     pl.path = path
@@ -155,6 +189,7 @@ proc runCommand(cmd0, cwd: string, after: proc(code: int) {.closure.} = nil) =
     if j.partial.len > 0:
       addRunLine(j, j.partial)
       j.partial = ""
+    nimbleResolveDone(j)
     let dt = float(msSince(j.started)) / 1000.0
     var errs = 0
     for ds in diagsBuild.values:
