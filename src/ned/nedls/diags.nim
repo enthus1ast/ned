@@ -154,6 +154,20 @@ proc lsPumpCheckQueue() =
     else: runCheckPath(p, "nim", keepExamples = not saved)
   except Exception as e: lsLog("check of " & p & ": " & e.msg)
 
+proc lsEngineChecks(d: LsDoc) =
+  ## ned's own checks of a document now: a misspelled name around the last edit (the editor looks around the
+  ## screen), the rules of .ned/lint.json
+  let cb = d.b
+  let keepTop = cb.topLine
+  let keepH = textH
+  cb.topLine = max(0, d.editPos.line - 150)
+  textH = 300
+  cb.setSingle(cb.clampPos(d.editPos))
+  engineTypos(cb)
+  cb.topLine = keepTop
+  textH = keepH
+  lsDiagsDirty = true
+
 proc lsPumpChecks() =
   ## the editor's main-loop rules, for the document typed into last
   lsPumpCheckQueue()
@@ -175,16 +189,7 @@ proc lsPumpChecks() =
       else: cb.chkAt = cb.changeId
     if (cb.dirty or engineChecksOnOpen(cb)) and typoAt.getOrDefault(cb.id, -1) != cb.changeId and
        quiet > LsTyposPauseMs:
-      # a misspelled name: looked for around the last edit (the editor looks around the screen)
-      let keepTop = cb.topLine
-      let keepH = textH
-      cb.topLine = max(0, d.editPos.line - 150)
-      textH = 300
-      cb.setSingle(cb.clampPos(d.editPos))
-      engineTypos(cb)
-      cb.topLine = keepTop
-      textH = keepH
-      lsDiagsDirty = true
+      lsEngineChecks(d)
     if cfgMacroNames and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and quiet > 1500:
       macroNamesFor(cb)                  # names its macro calls make: from the compiler, once
   except Exception as e: lsLog("checks: " & e.msg)

@@ -28,6 +28,24 @@ proc applyInlineEdit() =
 
 proc foldHeaderFor(b: Buffer, l: int): int
 
+proc aiInlinePrompt(b: Buffer, a, e: Pos, instruction: string): string =
+  ## what the model is asked for an edit of the text between a and e: that code, what is around it, the
+  ## declarations it uses, the instruction — and to answer with the replacement only (the AI fix in nedls asks
+  ## the same)
+  let code = b.getText(a, e)
+  let ctxLo = max(0, a.line - 40)
+  var before = ""
+  for i in ctxLo ..< a.line: before.add b.lines[i] & "\n"
+  var after = ""
+  for i in e.line + 1 .. min(b.lines.high, e.line + 20): after.add b.lines[i] & "\n"
+  let defs = codeDefinitionsFor(b, ctxLo, min(b.lines.high, e.line + 20))   # (so it uses the real APIs)
+  "Rewrite the code in <code> according to the instruction. Reply with ONLY the " &
+    "replacement code (no explanation, no Markdown fences), keeping the surrounding indentation. Use only the " &
+    "names that exist: the code and <definitions> show them.\n" &
+    "Language: " & b.lang.name & "\nFile: " & (if b.path.len > 0: relPath(b.path) else: b.name) & "\n" &
+    "<before>\n" & before & "</before>\n<code>\n" & code & "\n</code>\n<after>\n" & after & "</after>\n" &
+    (if defs.len > 0: defs & "\n" else: "") & "Instruction: " & instruction
+
 proc aiInlineEdit(instruction: string) =
   let b = buf()
   if instruction.strip.len == 0: return
@@ -51,20 +69,8 @@ proc aiInlineEdit(instruction: string) =
   aiInlineBuf = b.id
   aiInlineText = ""
   aiInlineMode = true
-  let code = b.getText(a, e)
-  let ctxLo = max(0, a.line - 40)
-  var before = ""
-  for i in ctxLo ..< a.line: before.add b.lines[i] & "\n"
-  var after = ""
-  for i in e.line + 1 .. min(b.lines.high, e.line + 20): after.add b.lines[i] & "\n"
   let saved = aiMsgs
-  let defs = codeDefinitionsFor(b, ctxLo, min(b.lines.high, e.line + 20))   # (so it uses the real APIs)
-  aiMsgs = @[AiMsg(role: 0, text: "Rewrite the code in <code> according to the instruction. Reply with ONLY the " &
-    "replacement code (no explanation, no Markdown fences), keeping the surrounding indentation. Use only the " &
-    "names that exist: the code and <definitions> show them.\n" &
-    "Language: " & b.lang.name & "\nFile: " & (if b.path.len > 0: relPath(b.path) else: b.name) & "\n" &
-    "<before>\n" & before & "</before>\n<code>\n" & code & "\n</code>\n<after>\n" & after & "</after>\n" &
-    (if defs.len > 0: defs & "\n" else: "") & "Instruction: " & instruction)]
+  aiMsgs = @[AiMsg(role: 0, text: aiInlinePrompt(b, a, e, instruction))]
   aiRequest()
   aiMsgs = saved
   info("Asking the AI to edit the selection…")

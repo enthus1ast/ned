@@ -1,6 +1,59 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-617). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-618). Older releases:
+
+## What's new in 6.17
+
+6.17 makes ned answer sooner in a big program and take less memory while it works on one, and it comes with the
+test that keeps it that way.
+
+**What it changed**, measured on ned's own source (a program of about 290 include files) on two processor cores: the
+longest moment ned did not read a key in each step, the time a completion takes, and the memory of the editor and
+its engine worker at the end (`tests/perf/rounds.py`, three sessions; 6.17 measured twice):
+
+| | 6.16 | 6.17 |
+|---|---|---|
+| opening a file of it, nothing in the index's cache yet | 53 ms | 18–20 ms |
+| opening a file of it | 65 ms | 17–28 ms |
+| typing a few lines, completion popping up | 37 ms | 16–19 ms |
+| asking for completions | 29 ms | 15–16 ms |
+| an import added, then completion | 43 ms | 20–25 ms |
+| a completion: median · longest | 17.5 · 48 ms | 8 · 19–36 ms |
+| memory: editor + engine worker | 42 + 59 MB | 42–44 + 24–28 MB |
+
+**Completion.** What the rest of the scope offers — the imports, system, the program's other files: some twenty
+thousand names in ned's own source — stays the same while you type in one file. It is now made once, a slice at a
+time in the quiet moments after a file opens, and shared by every completion until an import or another file
+changes; before, every first letter made it again. Of those names only the ones on screen get their details, and
+the list is sorted with each entry's score worked out once.
+
+**A file's scope is made in a third of the time** (14 ms → 4–5 ms for a file of ned): names are compared by a hash
+that copies nothing, the file of an import is found once rather than every time the scope is asked for (again when
+the project's nimble.lock or settings change), and an edit that keeps the imports patches the scope instead of
+making it again.
+
+**No pauses of half a second at start.** The index's disk cache was tidied in the editor — thousands of files looked
+at, some deleted — and that took 200–800 ms at times. The engine worker does it now, and only counts the files unless
+there are more than it keeps. The cache files a scope needs are asked from the disk ahead (Linux, Termux) and read once
+they are in memory, so a slow disk does not hold up a round.
+
+**The engine worker no longer grows as you edit.** Nim 2.2's ARC/ORC compiles one pattern wrong — a procedure that
+adds to its seq result and then assigns it a new one keeps the old one — and it cost 2.7 MB an edit on ned's own
+source. ned no longer uses the pattern; the worker stays at about 25 MB. Loops over a file's names no longer copy
+each name.
+
+**More work off the keys.** Recovery files are written and flushed to disk on a thread of their own. The C
+compiler's system include folders are asked for in the background. The TODO dock reads the open files a slice at a
+time, the semantic colours of imported names are worked out a few modules a round, and a language server's answers
+are handled 8 ms at a time at most — a burst (a whole project's problems) waits for the next rounds — without
+copying the rest of what the server sent after each message.
+
+**Measured on every push.** `tests/perf/rounds.py` runs ned in a pseudo-terminal on its own source — opens a file,
+scrolls, types, asks for completions, adds an import, opens another program — and checks the longest wait of each
+step, the completion times and the memory against `tests/perf/budget.json`; `nimble perf` runs it, and so does CI.
+`NED_PERF_TRACE=file` writes what it reads: every round of the main loop over 4 ms, with what it did, how much of it
+the processor gave ned and the heap. Help › Performance shows the index's parsed files and scopes, the editor's heap
+and what the engine worker holds.
 
 ## What's new in 6.16
 

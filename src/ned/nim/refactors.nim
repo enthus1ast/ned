@@ -14,8 +14,9 @@ func stmtStart(b: Buffer, line: int): int =
     if not cont: break
     dec result
 
-proc extractVariable() =
-  ## the selected expression into a variable declared above the statement (and its other copies in the block)
+proc extractVariable(direct = false) =
+  ## the selected expression into a variable declared above the statement (and its other copies in the block).
+  ## direct: no name asked — the one it would propose, this copy only (nedls: a code action is one edit)
   let b = buf()
   if not b.canEdit(): return
   let (sa, se) = b.primary.range
@@ -75,6 +76,9 @@ proc extractVariable() =
     bb.endEdit()
     bb.setSingle(Pos(line: sl, col: ind.len + decl.find("$1")))
     info("Extracted " & name & (if all and others.len > 0: " (" & $(others.len + 1) & " places)" else: ""))
+  if direct:
+    doIt(guess, false)
+    return
   askText("Name of the variable", guess, proc(name: string) =
     let n = name.strip
     if not n.validIdentifier:
@@ -151,12 +155,9 @@ proc inlineVariable() =
   b.setSingle(b.clampPos(Pos(line: dl, col: ind)))
   info("Inlined " & w & " (" & $uses.len & " use" & (if uses.len == 1: ")" else: "s)"))
 
-proc concatToFmt() =
-  ## Nim: "Hello, " & name & "!" → fmt"Hello, {name}!" (imports std/strformat)
-  let b = buf()
-  if not b.canEdit() or b.lang.mode != lmNim: return
-  let p = b.primary.head
-  let s = b.lines[p.line]
+proc fmtPlan(s: string, col: int): tuple[a, e: int, lit, why: string] =
+  ## Nim: the `"text" & value & …` around column col of line s as a fmt string — (where it starts and ends, the
+  ## fmt"…" for it) — or why there is none (why non-empty)
   # the innermost brackets around the cursor (outside strings), then the comma-separated slot in them
   var depthAt = newSeq[int](s.len + 1)
   var inStr = newSeq[bool](s.len + 1)
@@ -196,7 +197,7 @@ proc concatToFmt() =
       dec depth
       depthAt[i] = depth
     inc i
-  let cur = min(p.col, max(0, stop - 1))
+  let cur = min(col, max(0, stop - 1))
   let d = depthAt[cur]
   var ra = cur
   while ra > 0 and not (depthAt[ra - 1] < d or (depthAt[ra - 1] == d and not inStr[ra - 1] and s[ra - 1] == ',')): dec ra
@@ -217,7 +218,7 @@ proc concatToFmt() =
   for j, (a, e) in segs:
     if cur >= a and cur <= e: si = j
   if si < 0:
-    info("Put the cursor on a string joined with &")
+    result.why = "Put the cursor on a string joined with &"
     return
   if s[segs[si][0] ..< segs[si][1]] == "&": dec si
   var cs = si
@@ -225,7 +226,7 @@ proc concatToFmt() =
   var ce = si
   while ce + 2 < segs.len and s[segs[ce + 1][0] ..< segs[ce + 1][1]] == "&": ce += 2
   if cs < 0 or ce - cs < 2:
-    info("No `\"text\" & value` here to turn into fmt")
+    result.why = "No `\"text\" & value` here to turn into fmt"
     return
   var ops: seq[string]
   var j = cs
@@ -241,7 +242,7 @@ proc concatToFmt() =
     elif op.len == 3 and op[0] == '\'' and op[2] == '\'': discard
     elif '"' in op or '\\' in op: amp = true
   if not anyLit:
-    info("No string literal in this & chain")
+    result.why = "No string literal in this & chain"
     return
   var body = ""
   for op in ops:
@@ -265,8 +266,19 @@ proc concatToFmt() =
       if ':' in e: e = "(" & e & ")"
       body.add "{" & e & "}"
   let lit = (if amp: "&\"" else: "fmt\"") & body & "\""
+  (segs[cs][0], segs[ce][1], lit, "")
+
+proc concatToFmt() =
+  ## Nim: "Hello, " & name & "!" → fmt"Hello, {name}!" (imports std/strformat)
+  let b = buf()
+  if not b.canEdit() or b.lang.mode != lmNim: return
+  let p = b.primary.head
+  let (a, e, lit, why) = fmtPlan(b.lines[p.line], p.col)
+  if why.len > 0:
+    info(why)
+    return
   b.beginEdit()
-  discard b.replaceText(Pos(line: p.line, col: segs[cs][0]), Pos(line: p.line, col: segs[ce][1]), lit)
+  discard b.replaceText(Pos(line: p.line, col: a), Pos(line: p.line, col: e), lit)
   b.endEdit()
   var hasImport = false
   for l in b.lines:

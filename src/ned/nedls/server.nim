@@ -31,9 +31,10 @@ Usage: nedls [--stdio] [--verbose] [--log:FILE]
 
 Editors start it and talk to it over stdin/stdout. It gives what ned gives in its own editor — completion with
 documentation, hover, signature help, definition, references, rename, symbols, semantic colours, inlay hints,
-formatting (ned's nph-style formatter), folding, quick fixes, and problems as you type (`nim check` on the unsaved
-text) and on save — without nimsuggest or nimlangserver. Nim itself (nim on PATH) is needed only for the
-compiler's checks and for finding the standard library.
+formatting (ned's nph-style formatter), folding, code actions (quick fixes, refactorings, Organize imports, Fix
+all, Fix with AI checked by `nim check`), and problems as you type (`nim check` on the unsaved text) and on save —
+without nimsuggest or nimlangserver. Nim itself (nim on PATH) is needed only for the compiler's checks and for
+finding the standard library.
 
 Options
   --stdio          talk over stdin/stdout (the default and only transport)
@@ -52,6 +53,8 @@ Settings (initializationOptions, or workspace/didChangeConfiguration under "nedl
                               else the file's .editorconfig max_line_length
   raisesHints       false     what a routine can raise, as a hint after its header ({.raises: [IOError].})
   nedSettings       true      also read ned's settings files (~/.config/ned/config.json, .ned/settings.json)
+  aiFix             true      offer Fix with AI on a compiler error when ned's settings name a model (ai.provider
+                              and its key): the answer is checked with `nim check` before the editor applies it
 """
 
 proc onLsSignal(sig: cint) {.noconv.} = lsSignal = sig.int
@@ -130,6 +133,14 @@ proc lsInitialize(params: JsonNode): JsonNode =
   lsInlayRefresh = caps{"workspace"}{"inlayHint"}{"refreshSupport"}.getBool(false)
   lsWatchFiles = caps{"workspace"}{"didChangeWatchedFiles"}{"dynamicRegistration"}.getBool(false)
   lsPullConfig = caps{"workspace"}{"configuration"}.getBool(false)
+  # code actions: an edit filled in when chosen; edits and progress nedls sends (Fix with AI); buttons
+  lsActionResolve = false
+  for p in jitems(td{"codeAction"}{"resolveSupport"}{"properties"}):
+    if p.getStr == "edit": lsActionResolve = true
+  lsApplyEdit = caps{"workspace"}{"applyEdit"}.getBool(false)
+  lsDocChanges = caps{"workspace"}{"workspaceEdit"}{"documentChanges"}.getBool(false)
+  lsProgress = caps{"window"}{"workDoneProgress"}.getBool(false)
+  lsAskButtons = caps{"window"}{"showMessage"} != nil
   lsParentPid = params{"processId"}.getInt(0)
   lsParentAt = getMonoTime()
   if params{"initializationOptions"} != nil and params["initializationOptions"].kind == JObject:
@@ -178,7 +189,8 @@ proc lsInitialize(params: JsonNode): JsonNode =
       "documentFormattingProvider": true,
       "documentRangeFormattingProvider": true,
       "foldingRangeProvider": true,
-      "codeActionProvider": {"codeActionKinds": ["quickfix"]},
+      "codeActionProvider": {"codeActionKinds": LsActionKinds, "resolveProvider": true},
+      "executeCommandProvider": {"commands": [LsCmdRuleOff, LsCmdAiFix]},
       "workspace": {"workspaceFolders": {"supported": true, "changeNotifications": true}}
     },
     "serverInfo": {"name": "nedls", "version": NedVersion}
@@ -273,6 +285,8 @@ proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
   of "textDocument/rangeFormatting": lsReply(id, lsRangeFormatting(p))
   of "textDocument/foldingRange": lsReply(id, lsFoldingRanges(p))
   of "textDocument/codeAction": lsReply(id, lsCodeActions(p))
+  of "codeAction/resolve": lsReply(id, lsCodeActionResolve(p))
+  of "workspace/executeCommand": lsReply(id, lsExecuteCommand(p))
   else:
     lsReplyError(id, ErrMethodNotFound, "method not found: " & meth)
 
@@ -339,7 +353,13 @@ proc lsHandle(msg: JsonNode) =
   let id = msg{"id"}
   let methNode = msg{"method"}
   if methNode == nil:
-    # an answer to one of nedls's requests: the settings it asked for (the others need nothing)
+    # an answer to one of nedls's requests: the settings it asked for, an edit it sent, a button pressed …
+    if id != nil and id.kind == JString and id.getStr in lsAnswers:
+      let cb = lsAnswers[id.getStr]
+      lsAnswers.del id.getStr
+      try: cb(msg)
+      except Exception as e: lsLog("answer " & id.getStr & ": " & e.msg)
+      return
     if id != nil and id.kind == JString and id.getStr == lsConfigReq and lsConfigReq.len > 0:
       lsConfigReq = ""
       let r = msg{"result"}

@@ -478,12 +478,17 @@ proc dapLaunch(b: Buffer, ad: JsonNode, port: int, exe, cargoExe, root: string) 
                  (if ad{"install"}.getStr.len > 0: " — palette › Debug: install the debugger" else: "")
     dbgPanel()
     return
+  # (gdb: no debuginfod — its question where DEBUGINFOD_URLS is set would wait for an answer nobody gives)
+  let diu = if cmd.len > 0 and extractFilename(cmd[0]) == "gdb": getEnv("DEBUGINFOD_URLS") else: ""
+  if diu.len > 0: delEnv("DEBUGINFOD_URLS")
   try:
     dbgProc = spawnProc(cmd, parentDir(b.path), siPipe, (if ad{"connect"}.getBool: erMerge else: erNull))
   except OSError as e:
     dbgState = "could not start " & cmd[0] & ": " & e.msg
     dbgPanel()
     return
+  finally:
+    if diu.len > 0: putEnv("DEBUGINFOD_URLS", diu)
   dbgOn = true
   dbgDap = true
   dapPort = port

@@ -667,11 +667,10 @@ proc nimFixKind(d: Diag): string =
   elif "has no side effects: it can be a func" in f: "canBeFunc"
   else: ""
 
-proc nimFixAll(b: Buffer, kind: string): (int, Action) =
-  ## every problem of this kind in the file fixed at once: (how many, the action)
-  var edits: seq[QEdit]
+proc nimFixEdits(b: Buffer, kind: string, edits: var seq[QEdit], imports: var seq[string]): int =
+  ## the edits that fix every problem of this kind in the file (unused imports: their names), added to the lists;
+  ## how many problems they fix
   var n = 0
-  var imports: seq[string]
   for d in diagsFor(b.path):
     let dk = nimFixKind(d)
     # (Nim 3's changes take the breaks that leave a block with them: Nim 3 needs those too)
@@ -728,12 +727,40 @@ proc nimFixAll(b: Buffer, kind: string): (int, Action) =
         if at >= 0:
           edits.add (Pos(line: d.line, col: at), Pos(line: d.line, col: at + old.len), repl)
           inc n
+  n
+
+proc nimFixAllAct(b: Buffer, n: int, edits: seq[QEdit], imports: seq[string]): Action =
   let id = b.id
   let imps = imports
-  let es = edits
-  (n, proc() =
+  var es = edits
+  # (one edit per place: two kinds may want the same spot — the first one wins)
+  es.sort(proc(x, y: QEdit): int = cmp((x[0].line, x[0].col), (y[0].line, y[0].col)))
+  var k = 1
+  while k < es.len:
+    if es[k][0] < es[k - 1][1] or es[k][0] == es[k - 1][0]: es.delete(k) else: inc k
+  result = proc() =
     let x = bufById(id)
     if x == nil: return
     if es.len > 0: qApply(x, es, "")
     for nm in imps: removeImportAct(id, nm)()
-    info("Fixed " & $n & " in this file"))
+    info("Fixed " & $n & " in this file")
+
+proc nimFixAll(b: Buffer, kind: string): (int, Action) =
+  ## every problem of this kind in the file fixed at once: (how many, the action)
+  var edits: seq[QEdit]
+  var imports: seq[string]
+  let n = nimFixEdits(b, kind, edits, imports)
+  (n, nimFixAllAct(b, n, edits, imports))
+
+proc nimFixAllKinds(b: Buffer): (int, Action) =
+  ## every problem in the file whose fix is the same everywhere, of every kind, fixed at once (nedls's "Fix all":
+  ## an editor's fix-all on save) — not Nim 3's changes, which are a port to choose
+  var kinds: seq[string]
+  for d in diagsFor(b.path):
+    let k = nimFixKind(d)
+    if k.len > 0 and k != "nim3" and k notin kinds: kinds.add k
+  var edits: seq[QEdit]
+  var imports: seq[string]
+  var n = 0
+  for k in kinds: n += nimFixEdits(b, k, edits, imports)
+  (n, nimFixAllAct(b, n, edits, imports))

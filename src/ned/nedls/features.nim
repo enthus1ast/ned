@@ -803,35 +803,3 @@ proc lsFoldingRanges(params: JsonNode): JsonNode =
       stack.add (l, ind)
       lastCode = l
   # (nested ranges come out innermost first: the client sorts them)
-
-# ── quick fixes ──
-
-proc lsCodeActions(params: JsonNode): JsonNode =
-  let d = lsDocOf(params)
-  result = newJArray()
-  if not lsEngineOn(d) or d.b.path.len == 0: return
-  let only = params{"context"}{"only"}
-  if only != nil and only.kind == JArray and only.len > 0:
-    var want = false
-    for k in only.elems:
-      if k.getStr == "quickfix" or "quickfix".startsWith(k.getStr): want = true
-    if not want: return
-  let b = d.b
-  let r = params{"range"}
-  let a = lsToPos(b, r{"start"})
-  let e = lsToPos(b, r{"end"})
-  lsFocus(d, a)
-  var ds: seq[Diag]
-  for x in diagsFor(b.path):
-    if x.line <= e.line and max(x.line, x.eline) >= a.line: ds.add x
-  ds.sort(proc(x, y: Diag): int = cmp(x.sev, y.sev))
-  if ds.len == 0: return
-  var fixes: seq[(string, string, Action)]
-  try: fixes = nimProblemFixes(b, ds)
-  except Exception as ex: lsLog("quick fixes: " & ex.msg)
-  for (title, detail, act) in fixes:
-    let ch = lsDryRun(act)
-    let we = lsWorkspaceEdit(ch)
-    if we == nil: continue
-    var j = %*{"title": title, "kind": "quickfix", "edit": we}
-    result.add j
