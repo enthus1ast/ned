@@ -447,6 +447,8 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
   var valDoc = -1            # a const/let/var whose value is on the lines below (`AltSep* =⏎ when …⏎ ## doc`): the
   var valDocInd = 0          # ## lines after the value, at the value's indentation, are its doc
   var valInd = -1
+  var trailDoc = -1          # a declaration whose line ends in `## …`: the ## lines right below go on with it, at
+                             # any indentation — one comment, as Nim's lexer reads it (`x = 1 ## \⏎  ## more`)
   var moduleDocOpen = true
   var lastContent = 0
   var code, doc: string
@@ -466,7 +468,9 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
     posFrom = (pl, pc + f.syms[^1].name.len)
     docTarget = f.syms.high
     docInd = ind
-    if doc.len > 0: f.syms[^1].doc = doc
+    if doc.len > 0:
+      f.syms[^1].doc = doc
+      trailDoc = f.syms.high
 
   template enumValues(textT: string, ownerT: string, expT: bool) =
     for v in nxSplitTop(textT, {','}):
@@ -611,13 +615,17 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
         elif docTarget >= 0 and ind > docInd:
           let d = f.syms[docTarget].doc
           f.syms[docTarget].doc = (if d.len > 0: d & "\n" else: "") & doc
+        elif trailDoc >= 0 and trailDoc < f.syms.len:
+          let d = f.syms[trailDoc].doc
+          f.syms[trailDoc].doc = (if d.len > 0: d & "\n" else: "") & doc
         elif docTarget < 0 and valDoc >= 0 and valDoc < f.syms.len and ind == valInd:
           docTarget = valDoc
           docInd = valDocInd
           let d = f.syms[docTarget].doc
           f.syms[docTarget].doc = (if d.len > 0: d & "\n" else: "") & doc
-      elif raw.strip.len == 0 and docTarget >= 0:
-        discard                  # a blank line inside a doc comment keeps it going
+      elif raw.strip.len == 0:
+        trailDoc = -1            # (an empty line ends a comment that went on from a declaration's line)
+        if docTarget >= 0: discard     # a blank line inside a doc comment keeps it going
       continue
     moduleDocOpen = false
     # join continuation lines: open brackets, or a trailing comma
@@ -693,9 +701,14 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
     for fr in stack:
       if fr.kind == bkRoutine: inc localDepth
     docTarget = -1               # a code line ends a doc comment run (its own trailing ## aside)
+    trailDoc = -1
     if valDoc >= 0:
       if ind <= valDocInd: valDoc = -1
       elif valInd < 0: valInd = ind
+      # (`x: string =⏎ when …⏎ else:⏎ "open" ## \⏎ ## the doc`: the ## at the end of the value's last line is x's)
+      if valDoc >= 0 and doc.len > 0 and valDoc < f.syms.len and f.syms[valDoc].doc.len == 0:
+        f.syms[valDoc].doc = doc
+        trailDoc = valDoc
     if t.startsWith("{.pragma:"):
       let (pn, _) = nxName(t, 9)
       if pn.len > 0: f.pragmas.add (pn, startLine)

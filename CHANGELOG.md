@@ -1,6 +1,60 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-622). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-623). Older releases:
+
+## What's new in 6.22
+
+6.22 makes ned answer in NimScript files and plugins as it does in a program — hover, completion, signatures and
+the outline for config.nims, build scripts, .nimble files and plugins — reads doc comments the way `nim doc` does,
+measures its answers against nimsuggest, formats scripts from the shell as it does in the editor, and gives the
+Settings window controls you can tell apart and a scroll bar a finger can use.
+
+**NimScript files.** In a config.nims, a build script (`nim e`) or a .nimble, system's NimScript part — `exec`,
+`cpFile`, `mkDir`, `thisDir`, `switch`, `mode`, `task` … — has its hover with its doc ("system · NimScript") and is
+offered by completion (ned took system's `when defined(nimconfig)` for false and left it all out). A task's name on
+hover says how to run it (`nimble test`, `nim build`) and what it does, `before`/`after` hooks too, and the tasks
+are in the Outline, *Go to symbol* (in the file and in the project) and nedls' document and workspace symbols.
+Importing a module the VM cannot run (osproc, net, asyncdispatch, httpclient, terminal, re, threadpool …) is a
+problem on its line, with what a script uses instead (`exec`, `gorgeEx`, `staticExec` …) — rule `nimscript-only`.
+`import "$nim"/compiler/ast` and `"$lib"/…` resolve, and a named argument (`strip(s, trailing = false)`) and
+`std/`/`pkg/` in an import line have hovers.
+
+**Plugins.** In a plugin (`plugin.nims`, `plugin.nim`, anything that imports `nedplugin` or `nedlsp`) the plugin API
+resolves wherever the file is, and every proc, type and field of `nedplugin` and `nedlsp` has its doc: hover and
+completion say what each one does ("nedplugin · ned's plugin API").
+
+**Doc comments as `nim doc` reads them.** A `##` on the declaration's own line that goes on below it is one doc; a
+line ending in `\` is joined with the next (`## hwad \` and `## hello` show as "hwad hello", not with the `\`); a
+constant written over several lines (`defined(linux) or⏎ defined(macosx) ## \`) gets the doc below it, and so
+does one whose value is on the lines below (`AltSep* =⏎ when …⏎ else: DirSep⏎ ## …`).
+
+**Closer to nimsuggest.** Signature help finds a routine of the file itself first, go to definition on a forward
+declaration goes to its body, a `do (x: T):` block's parameters are known inside it, a name in `from m import a, b`
+is m's (not this module's of the same name), and the foot of an overloaded name's hover says std/x or system.
+`tests/engine/parity.py` asks nedls (ned's engine, what the editor answers) and nimsuggest the same questions — in
+.nim files at random places, and in scripts and plugins against the API's own docs (nimsuggest reads a .nims as a
+program). On 13 modules of the standard library, the compiler, atlas and nimble, five of their scripts and the five
+example plugins: a hover wherever nimsuggest knows the name (370 of 370), the declaration nimsuggest names at 367,
+its doc comment at 91 of 92, completion 353 of 354, signature help 99 of 99 — and in the scripts and plugins every
+API name used has its hover with its doc, is offered by completion and goes to its definition (160 of 160). On the
+way, `import std / [os, strutils]` (written with spaces, as atlas does) is read as the import it is.
+
+**The formatter on scripts.** `ned --format` lays out a .nims and a .nimble as NimScript too, as the editor and
+nedfmt did (switches such as `--path:"../src"` and `--d:release` kept as written, task headers, the package's
+fields). Fields written `name = value` each stay so — a run lined up already, or written unevenly, is lined up — a
+`requires` over several lines stays as written, and an empty file stays empty. All 80 .nims and .nimble files of
+Nim, atlas, nimble and their packages format, and formatting again changes nothing.
+
+**The Settings window.** Each kind of control looks like itself: a check box is filled with ✓ when on and an empty
+frame when off, text and number fields are boxes, a number has − and + beside it, a list shows ▾, links (*Edit…*)
+are buttons; the focused row is tinted and marked, the setting's key is on the line over its help, and ↺ at the end
+of a changed row puts the default back. The scroll bar is two columns wide with ▲ and ▼ to tap; a tap on its track
+jumps there (Termux sends taps, not drags), the thumb drags with a mouse, and the wheel — a swipe in Termux —
+scrolls (scrolling no longer snaps back to the focused field). The editor's scroll bar shows its track, and in
+Termux the column beside it takes a tap too.
+
+**Fixes.** A file saved right after typing — before the pause the engine waits for — had its checks made again only
+at the next edit; scripts, which `nim check` does not check on save, showed none.
 
 ## What's new in 6.21
 

@@ -14,6 +14,7 @@ include nim
 include json
 include markdown
 include css
+include cstyle
 include cfmt
 include yamltoml
 include html

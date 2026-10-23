@@ -157,6 +157,7 @@ proc nimRefactors(b: Buffer, lsp = false): seq[(string, string, Action)] =
       try: fw = forwardDeclAt(b)[1]
       except Exception as e: internalError("Nim index", e)
       if fw >= 0: result.add act("Write its body", "at the end of the file", proc() = writeForwardBody())
+    result.add nimRewrites(b)
     block ctor:
       var ci: CtorInfo
       try: ci = ctorAtCursor(b)
@@ -198,6 +199,7 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
       if t.len > 0 and t notin seenInc:
         seenInc.incl t
         result.add act(t, dsc, a)
+    result.add cFixItActions(b, ds)
   for d in ds:
     if d.src != "C header": continue
     let u = d.msg.find(" — use ")

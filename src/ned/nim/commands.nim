@@ -221,12 +221,13 @@ proc cmdShowC() =
 proc cmdCallHierarchy() =
   ## who calls the routine at the cursor (←) and what it calls (→), from the Nim index
   let b = buf()
+  if cEngCallHierarchy(b): return                 # (C: ned's own engine)
   if not nimEngineOn(b):
     let s = lspReady(b)
     if s != nil and s.caps != nil and s.caps{"callHierarchyProvider"} != nil:
       discard s.lspRequest("textDocument/prepareCallHierarchy", %*{"textDocument": b.docId,
         "position": s.lspPos(b, b.primary.head)}, LspReq(kind: lrCallPrep, bufId: b.id))
-    else: info("Call hierarchy needs the Nim engine or a language server that offers it")
+    else: info("Call hierarchy needs the Nim or C engine, or a language server that offers it")
     return
   let f = nxFileFor(b)
   if f == nil: return

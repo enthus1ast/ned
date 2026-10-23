@@ -248,13 +248,42 @@ proc afterType(ch: int) =
   let plen = p.col - ws
   if (plen == 1 and (s != nil or ns)) or plen == 2: startCompletion(false)
 
+proc callSnippet(b: Buffer, it: CompItem): string =
+  ## a routine's call with its parameters as placeholders — `area(${1:width}, ${2:height})` —, the receiver left out
+  ## after a `.`; "" for anything else, a call already there (`(` after the cursor) or an import line
+  let x = compNxAt(it.nx)
+  if x == nil or x[].kind notin {nxProc, nxFunc, nxMethod, nxTemplate, nxMacro, nxConverter} or x[].refs.len == 0:
+    return ""
+  let h = b.primary.head
+  let line = b.lines[h.line]
+  if h.col < line.len and line[h.col] in {'(', '[', '`'}: return ""
+  let t = line.strip(trailing = false)
+  if t.startsWith("import ") or t.startsWith("from ") or t.startsWith("export ") or t.startsWith("include "): return ""
+  let member = compStartCol > 0 and compStartCol - 1 < line.len and line[compStartCol - 1] == '.'
+  let name = if it.insert.len > 0: it.insert else: it.label
+  if x[].refs.len > 1:
+    return name & "($0)"                      # (overloads: the parentheses, signature help tells the rest)
+  var ps: seq[string]
+  let params = x[].refs[0].sym.params
+  for i, prm in params:
+    if i == 0 and member: continue
+    if prm.default.len > 0 or prm.typ.startsWith("varargs"): break
+    ps.add "${" & $(ps.len + 1) & ":" & prm.name & "}"
+  if ps.len == 0:
+    return (if member or params.len > 0: "" else: name & "()$0")
+  name & "(" & ps.join(", ") & ")$0"
+
 proc acceptComp() =
   if not compOpen or compShown.len == 0: return
   if not compValid():
     closeComp()
     return
-  let it = compItems[compShown[compSel]]
+  var it = compItems[compShown[compSel]]
   let b = buf()
+  if it.snippet.len == 0 and it.nx != 0 and cfgCallArgs and it.addImport.len == 0:
+    # (nim.completeCallArguments: a routine with its parameters to fill in, as clangd and rust-analyzer do)
+    let sn = callSnippet(b, it)
+    if sn.len > 0: it.snippet = sn
   if it.snippet.len > 0:
     let h = b.primary.head
     closeComp()

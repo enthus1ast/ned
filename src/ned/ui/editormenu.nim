@@ -65,6 +65,9 @@ proc editorMenu(): seq[MenuItem] =
     result.add mc("Git: stage this change", "Stage this change")
     if b.id in multiBufs and b.title == "Git: changes": result.add mc("Git: unstage this change", "Unstage this change")
     result.add mc("Git: revert this change", "Revert this change")
+  if b.lang != nil and b.lang.id in ["c", "cpp"]:
+    result.add mc("C: switch between header and source", (if splitFile(b.path).ext.toLowerAscii in
+                  [".h", ".hh", ".hpp", ".hxx"]: "Go to the source (.c)" else: "Go to the header (.h)"))
   if b.lang.mode == lmNim:
     result.add msep()
     result.add msub("Refactor", @[mc("Nim: change signature…", "Change signature…"),

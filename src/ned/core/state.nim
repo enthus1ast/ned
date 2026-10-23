@@ -82,6 +82,9 @@ var
   cfgParamHints = "literals"   # nim.parameterHints: names before call arguments — literals | all | off
   cfgRaisesHints = false       # nim.raisesHints: what a routine can raise, after its header (the engine's inference)
   cfgCEngine = "auto"          # c.engine: auto (ned's own when clangd is not installed) | builtin | clangd | both
+  cfgCFormatter = "auto"       # c.formatter: auto (clang-format while clangd is in use) | clang-format | builtin
+  cfgCStyleName = "auto"       # c.format.style
+  cfgCStyleOpts: seq[(string, string)]   # c.format.options
   cSigHints: Table[int, Table[int, (int, string)]]   # buffer id → line → (column, the C signature shown there)
   copyMarks: Table[int, Table[int, seq[CopyMark]]]    # buffer id → line → where ARC/ORC copies on it
   ghAccount = ""                                      # who the GitHub CLI is signed in as ("" not known)
@@ -171,6 +174,8 @@ var
   cfgPanelH = 0
   cfgLineHl = true
   cfgHighlightOcc = true
+  cfgCallArgs = false          # nim.completeCallArguments: a routine completed with its parameters to fill in
+  cfgContinueComments = true   # editor.continueComments: Enter in a doc comment (## /// /** *) starts the next line with it
   cfgAutoPairs = true
   cfgSnippets = true
   cfgInlayHints = true

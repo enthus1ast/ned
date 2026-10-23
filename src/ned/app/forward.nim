@@ -88,6 +88,9 @@ proc cEngReferences(b: Buffer, p: Pos): bool
 proc cEngRename(b: Buffer, p: Pos, newName: string): bool
 proc cEngSignature(b: Buffer, p: Pos): bool
 proc cEngOutline(b: Buffer): seq[SideItem]
+proc cEngCallHierarchy(b: Buffer): bool
+proc cEngInlays(b: Buffer, lo, hi: int)
+proc cmdSwitchHeaderSource()
 proc lspAttach(b: Buffer)
 proc lspDidSave(b: Buffer)
 proc lspDidClose(b: Buffer)

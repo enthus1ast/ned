@@ -1,6 +1,7 @@
 # ── inlay hints (LSP textDocument/inlayHint) ──
 
 var engineInlayBudget = 60                 # ms for the type hints of the lines around the screen
+var engineTypesFull = false                # (a type written out — Alt+Enter: the whole of it, not cut at 40)
 
 var inlayRetries: Table[int, (int, int)]     # buffer id → (changeId, rounds cut short for it)
 
@@ -135,7 +136,7 @@ proc engineTypeHints(b: Buffer, f: NxFile, sc: NxScope, lo, hi: int, hints: var 
   proc hintFor(s: NxSym, typ: string) =
     var t = typ.strip.replace("system.", "")
     if t.len == 0 or t in ["untyped", "typed", "auto", "void"] or s.line >= b.lines.len: return
-    if t.len > 40: t = t[0 ..< 39] & "…"
+    if t.len > 40 and not engineTypesFull: t = t[0 ..< 39] & "…"
     let line = b.lines[s.line]
     var c = s.col + s.name.len
     if c > line.len or line.find(s.name, s.col) != s.col:
@@ -420,6 +421,13 @@ proc requestInlays(b: Buffer) =
     if msSince(b.inlayReqTime) < 900 or msSince(b.lspChangeAt) < 600: return
     b.inlayReqTime = getMonoTime()
     discard nsRequest(b, nsInlay, Pos(line: lo), $lo & "/" & $hi & "/" & $b.changeId)
+    return
+  if cEngineOn(b) and cfgCEngine != "both":
+    # C without clangd: ned's own engine names the parameters (nim.parameterHints: literals, all, off)
+    let (lo, hi) = inlayWindow(b)
+    if inlayCovered(b) or msSince(b.lspChangeAt) < 300: return
+    try: cEngInlays(b, lo, hi)
+    except CatchableError as e: internalError("C parameter hints", e)
     return
   let s = lspReady(b)
   if s == nil or s.caps == nil or s.caps{"inlayHintProvider"} == nil: return

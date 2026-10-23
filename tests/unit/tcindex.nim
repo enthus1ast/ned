@@ -516,3 +516,28 @@ suite "C++":
     let e = cxLoad(cdir / "lib.nim", emit, "emit1", cpp = true)
     check labelsAt(e, 8, 4) == @["total", "add"]
   cxDirs = @[]
+
+suite "C hover: values, layouts, expansions (6.23)":
+  let src = "#define SIZE 16\n#define TWICE(x) ((x) * 2)\n" &
+            "enum color { RED, GREEN = 5, BLUE, MASK = 1 << 4, BOTH = GREEN | MASK };\n" &
+            "struct point { int x, y; };\nstruct item {\n  char name[SIZE];\n  struct point *where;\n  double weight;\n" &
+            "  unsigned char flags;\n  struct point at;\n  long counts[3];\n};\n" &
+            "int use(void) { return TWICE(SIZE) + BLUE; }\n"
+  let d = getTempDir() / "ned_tcindex_623"
+  createDir(d)
+  writeFile(d / "s.c", src)
+  let f = cxLoad(d / "s.c", src, "s623")
+  test "an enum constant's value (implicit, and an expression of others)":
+    check "**= 6**" in cxHover(f, 2, src.split('\n')[2].find("BLUE"))
+    check "**= 21** (0x15)" in cxHover(f, 2, src.split('\n')[2].find("BOTH"))
+  test "a struct's size, alignment, offsets and padding (64-bit); a field's offset; an array shown as written":
+    let h = cxHover(f, 4, 8)
+    check "**72 bytes**, aligned to 8" in h
+    check "at: offset 36, 8 bytes" in h and "· 3 bytes of padding" in h and "counts: offset 48, 24 bytes" in h
+    let hf = cxHover(f, 5, 8)
+    check "char name[SIZE]" in hf and "offset 0 · 16 bytes" in hf
+  test "a macro's value; a function-like macro's expansion where it is used":
+    check "**= 16** (0x10)" in cxHover(f, 0, 9)
+    let l = src.split('\n')[12]
+    check "Expands to:\n```c\n((SIZE) * 2)\n```" in cxHover(f, 12, l.find("TWICE"))
+    check cxEvalConst(@[f], "(SIZE << 2) | 1") == (true, 65'i64)

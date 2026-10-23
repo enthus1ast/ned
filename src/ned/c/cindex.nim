@@ -41,7 +41,10 @@ type
                                 # method defined outside its class: the namespace it is defined in. "" in C
     bases*: seq[string]         # C++ classes: the classes they derive from, as written
     tparams*: seq[string]       # C++ templates: their parameters' names
-    init*: string               # C++ `auto` variables: what initializes them (their type is its type)
+    init*: string               # C++ `auto` variables: what initializes them (their type is its type); enum
+                                # constants: their value as written (`= 1 << 4`)
+    dims*: string               # fields: their array dimensions as written (`[SIZE][2]`)
+    bits*: string               # fields: a bit-field's width (`3`)
   CxFile* = ref object
     path*: string
     stamp*: string
@@ -427,6 +430,23 @@ func cxTypeEnd(toks: seq[CxTok], a, b: int): int =
     if words == 2 and toks[a].text in ["struct", "union", "enum"] and (j >= b or toks[j].text == ";"): return b
     return lastWord
   j
+
+func cxDimsAt(toks: seq[CxTok], ni, b: int): (string, string) =
+  ## after a declarator's name: its array dimensions as written (`[SIZE][2]`) and a bit-field's width
+  var k = ni + 1
+  while k < b and toks[k].text == "[":
+    var d = 0
+    while k < b:
+      let t = toks[k].text
+      result[0].add t
+      if t == "[": inc d
+      elif t == "]":
+        dec d
+        if d == 0:
+          inc k
+          break
+      inc k
+  if k + 1 < b and toks[k].text == ":" and toks[k + 1].kind == ctNum: result[1] = toks[k + 1].text
 
 func cxDeclarators(toks: seq[CxTok], a, b: int): seq[(int, string, int)] =
   ## the declarators of toks[a ..< b] after the type: (index of the name, the pointer stars and array part, the
@@ -1127,6 +1147,19 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
         if toks[k].kind == ctWord:
           addSym(CxSym(name: toks[k].text, kind: cxEnumConst, line: toks[k].line, col: toks[k].col, endLine: toks[k].line,
                        owner: owner, typ: "enum " & owner, text: toks[k].text & " (" & owner & ")"))
+          # its value as written: after `=`, to the next comma
+          if k + 1 < b and toks[k + 1].text == "=":
+            var j = k + 2
+            var dd = 0
+            var v = ""
+            while j < b:
+              let tj = toks[j].text
+              if toks[j].kind == ctPunct and tj in ["(", "[", "{"]: inc dd
+              elif toks[j].kind == ctPunct and tj in [")", "]", "}"]: dec dd
+              elif tj == "," and dd == 0: break
+              v.add (if v.len > 0: " " else: "") & tj
+              inc j
+            f.syms[^1].init = v
           # past its value, to the next comma
           var d = 0
           while k < b:
@@ -1175,8 +1208,13 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
             let base = cxTypeText(toks, st, typeEnd)
             for (ni, stars, _) in cxDeclarators(toks, typeEnd, k):
               let typ = (base & (if stars.len > 0: " " & stars else: "")).strip
+              let (dims, bits) = cxDimsAt(toks, ni, k)
+              # (an array: shown as written — `char name[16]` — though typed as its pointer for `x.name[0]`)
+              let shown = if dims.len > 0 and typ.endsWith("*"): typ[0 ..< typ.high].strip & " " & toks[ni].text & dims
+                          else: typ & " " & toks[ni].text
               addSym(CxSym(name: toks[ni].text, kind: cxField, line: toks[ni].line, col: toks[ni].col,
-                           endLine: toks[ni].line, owner: owner, typ: typ, text: typ & " " & toks[ni].text))
+                           endLine: toks[ni].line, owner: owner, typ: typ, text: shown,
+                           dims: dims, bits: bits))
         st = k + 1
       inc k
   proc parseDecl(a, b: int) =
@@ -3374,6 +3412,331 @@ proc cxBodyIn*(paths: openArray[string], name: string, kind = cxFunc, owner = ""
         return (h, k)
   (nil, -1)
 
+# ── what hover adds: constants' values, a macro's expansion where it is used, a struct's layout ──
+
+proc cxEvalConst*(files: seq[CxFile], expr: string, depth = 0): (bool, int64)
+
+proc cxEnumValue*(files: seq[CxFile], s: CxSym, depth = 0): (bool, int64) =
+  ## an enum constant's value: what it says (`= 1 << 4`), else the one before it plus one
+  if depth > 30: return (false, 0)
+  # (its enum's constants, in order)
+  var consts: seq[CxSym]
+  for g in files:
+    for k in cxFields(@[g], s.owner):
+      if g.syms[k[1]].kind == cxEnumConst: consts.add g.syms[k[1]]
+    if consts.len > 0: break
+  if consts.len == 0:
+    for g in files:
+      for x in g.syms:
+        if x.kind == cxEnumConst and x.owner == s.owner: consts.add x
+      if consts.len > 0: break
+  var v: int64 = -1
+  for x in consts:
+    if x.init.len > 0:
+      let (ok, n) = cxEvalConst(files, x.init, depth + 1)
+      if not ok: return (false, 0)
+      v = n
+    else: v += 1
+    if x.name == s.name and x.line == s.line: return (true, v)
+  (false, 0)
+
+proc cxEvalConst*(files: seq[CxFile], expr: string, depth = 0): (bool, int64) =
+  ## an integer constant expression of C — numbers, characters, other enum constants and macros, ( ) and the
+  ## arithmetic, bitwise, shift, comparison and logical operators, `?:`
+  if depth > 30: return (false, 0)
+  # tokens
+  var ts: seq[string]
+  var i = 0
+  let e0 = expr.strip
+  while i < e0.len:
+    let c = e0[i]
+    if c in Whitespace: inc i
+    elif c in Digits:
+      var j = i
+      while j < e0.len and (e0[j].isAlphaNumeric or e0[j] == '.'): inc j
+      ts.add e0[i ..< j]
+      i = j
+    elif c in IdentStartChars:
+      var j = i
+      while j < e0.len and e0[j] in IdentChars: inc j
+      ts.add e0[i ..< j]
+      i = j
+    elif c == '\'':
+      let j = e0.find('\'', i + 1)
+      if j < 0: return (false, 0)
+      ts.add e0[i .. j]
+      i = j + 1
+    else:
+      var op = $c
+      if i + 1 < e0.len and e0[i .. i + 1] in ["<<", ">>", "<=", ">=", "==", "!=", "&&", "||"]: op = e0[i .. i + 1]
+      ts.add op
+      i += op.len
+  var p = 0
+  var ok = true
+  proc num(t: string): int64 =
+    var x = t.toLowerAscii
+    while x.len > 1 and x[^1] in {'u', 'l'}: x.setLen(x.len - 1)
+    try:
+      if x.startsWith("0x"): result = int64(parseHexInt(x))
+      elif x.startsWith("0b"): result = int64(parseBinInt(x))
+      elif x.len > 1 and x[0] == '0': result = int64(parseOctInt(x))
+      else: result = parseBiggestInt(x)
+    except ValueError: ok = false
+  proc expr(prec: int): int64
+  proc unary(): int64 =
+    if p >= ts.len:
+      ok = false
+      return
+    let t = ts[p]
+    inc p
+    case t
+    of "(":
+      # (a cast `(int)x`: the type skipped)
+      if p < ts.len and ts[p] in ["int", "unsigned", "long", "char", "short", "signed", "size_t", "uint32_t",
+                                  "int32_t", "uint64_t", "int64_t", "uint8_t", "uint16_t"]:
+        while p < ts.len and ts[p] != ")": inc p
+        inc p
+        return unary()
+      result = expr(0)
+      if p < ts.len and ts[p] == ")": inc p
+      else: ok = false
+    of "-": result = -unary()
+    of "+": result = unary()
+    of "~": result = not unary()
+    of "!": result = (if unary() == 0: 1 else: 0)
+    else:
+      if t[0] in Digits: result = num(t)
+      elif t[0] == '\'' and t.len >= 3:
+        result = (if t[1] == '\\' and t.len >= 4:
+                    (case t[2]
+                     of 'n': 10
+                     of 't': 9
+                     of '0': 0
+                     of 'r': 13
+                     else: int64(ord(t[2])))
+                  else: int64(ord(t[1])))
+      elif t[0] in IdentStartChars:
+        if t in ["sizeof", "defined"]:
+          ok = false
+          return
+        let (g, k) = cxFindSym(files, t, {cxEnumConst, cxMacro})
+        if g == nil:
+          ok = false
+          return
+        let x = g.syms[k]
+        if x.kind == cxEnumConst:
+          let (ok2, v) = cxEnumValue(files, x, depth + 1)
+          if not ok2: ok = false
+          result = v
+        else:
+          # (an object-like macro: its body)
+          if x.params.len > 0 or x.varargs:
+            ok = false
+            return
+          let body = x.text["#define ".len + x.name.len .. ^1]
+          let (ok2, v) = cxEvalConst(files, body, depth + 1)
+          if not ok2: ok = false
+          result = v
+      else: ok = false
+  proc precOf(op: string): int =
+    case op
+    of "?": 1
+    of "||": 2
+    of "&&": 3
+    of "|": 4
+    of "^": 5
+    of "&": 6
+    of "==", "!=": 7
+    of "<", ">", "<=", ">=": 8
+    of "<<", ">>": 9
+    of "+", "-": 10
+    of "*", "/", "%": 11
+    else: -1
+  proc expr(prec: int): int64 =
+    result = unary()
+    while ok and p < ts.len:
+      let op = ts[p]
+      let pr = precOf(op)
+      if pr < 0 or pr < prec: break
+      inc p
+      if op == "?":
+        let a = expr(0)
+        if p < ts.len and ts[p] == ":": inc p
+        else:
+          ok = false
+          return
+        let b = expr(1)
+        result = (if result != 0: a else: b)
+        continue
+      let r = expr(pr + 1)
+      result = case op
+               of "||": (if result != 0 or r != 0: 1 else: 0)
+               of "&&": (if result != 0 and r != 0: 1 else: 0)
+               of "|": result or r
+               of "^": result xor r
+               of "&": result and r
+               of "==": (if result == r: 1 else: 0)
+               of "!=": (if result != r: 1 else: 0)
+               of "<": (if result < r: 1 else: 0)
+               of ">": (if result > r: 1 else: 0)
+               of "<=": (if result <= r: 1 else: 0)
+               of ">=": (if result >= r: 1 else: 0)
+               of "<<": (if r >= 0 and r < 63: result shl r else: 0)
+               of ">>": (if r >= 0 and r < 63: result shr r else: 0)
+               of "+": result + r
+               of "-": result - r
+               of "*": result * r
+               of "/": (if r != 0: result div r else: (ok = false; 0))
+               of "%": (if r != 0: result mod r else: (ok = false; 0))
+               else: result
+  if ts.len == 0: return (false, 0)
+  let v = expr(0)
+  (ok and p == ts.len, v)
+
+const CxBaseSizes = {"char": 1, "signed char": 1, "unsigned char": 1, "_Bool": 1, "bool": 1, "short": 2,
+  "short int": 2, "unsigned short": 2, "unsigned short int": 2, "int": 4, "signed": 4, "unsigned": 4,
+  "signed int": 4, "unsigned int": 4, "long": 8, "long int": 8, "unsigned long": 8, "unsigned long int": 8,
+  "long long": 8, "long long int": 8, "unsigned long long": 8, "unsigned long long int": 8, "float": 4,
+  "double": 8, "long double": 16, "size_t": 8, "ssize_t": 8, "ptrdiff_t": 8, "intptr_t": 8, "uintptr_t": 8,
+  "int8_t": 1, "uint8_t": 1, "int16_t": 2, "uint16_t": 2, "int32_t": 4, "uint32_t": 4, "int64_t": 8,
+  "uint64_t": 8, "off_t": 8, "time_t": 8, "pid_t": 4, "uid_t": 4, "gid_t": 4, "mode_t": 4, "wchar_t": 4,
+  "char16_t": 2, "char32_t": 4}.toTable
+
+proc cxRecordLayout*(files: seq[CxFile], tag: string, isUnion: bool, depth = 0):
+    (bool, int, int, seq[(string, int, int)])
+
+proc cxSizeAlign*(files: seq[CxFile], typ0, dims: string, depth = 0): (bool, int, int) =
+  ## the size and alignment of a C type on a 64-bit Unix (LP64): base types, pointers, enums, arrays, structs
+  ## and unions made of those — (false, …) when a part is not known
+  if depth > 12: return (false, 0, 0)
+  var typ = typ0.strip
+  for q in ["const ", "volatile ", "static ", "register ", "restrict ", "__restrict ", "_Atomic "]:
+    typ = typ.replace(q, "")
+  typ = typ.strip
+  var count = 1
+  if dims.len > 0:
+    # ([N][M]…: each dimension's value)
+    var rest = dims
+    while rest.startsWith("["):
+      let e = rest.find(']')
+      if e < 0: return (false, 0, 0)
+      let (ok, n) = cxEvalConst(files, rest[1 ..< e])
+      if not ok or n < 0 or n > 1 shl 32: return (false, 0, 0)
+      count *= int(n)
+      rest = rest[e + 1 .. ^1]
+  if '*' in typ or "(*)" in typ: return (true, 8 * count, 8)
+  if typ in CxBaseSizes:
+    let sz = CxBaseSizes[typ]
+    return (true, sz * count, min(sz, 16))
+  if typ.startsWith("enum "): return (true, 4 * count, 4)
+  let isUnion = typ.startsWith("union ")
+  if typ.startsWith("struct ") or isUnion:
+    let tag = typ.splitWhitespace[^1]
+    let lay = cxRecordLayout(files, tag, isUnion, depth + 1)
+    if not lay[0]: return (false, 0, 0)
+    return (true, lay[1] * count, lay[2])
+  # a typedef: what it names
+  let (g, k) = cxFindSym(files, typ, {cxTypedef})
+  if g != nil:
+    let x = g.syms[k]
+    if x.typ.len > 0 and x.typ != typ:
+      let (ok, sz, al) = cxSizeAlign(files, x.typ, "", depth + 1)
+      if ok: return (true, sz * count, al)
+    # (`typedef struct x {…} X;`: the struct named the same)
+  let (g2, k2) = cxFindSym(files, typ, {cxStruct, cxUnion})
+  if g2 != nil:
+    let lay = cxRecordLayout(files, typ, g2.syms[k2].kind == cxUnion, depth + 1)
+    if lay[0]: return (true, lay[1] * count, lay[2])
+  (false, 0, 0)
+
+proc cxRecordLayout*(files: seq[CxFile], tag: string, isUnion: bool, depth = 0):
+    (bool, int, int, seq[(string, int, int)]) =
+  ## a struct's (or union's) size, alignment and its fields' (name, offset, size), as the C compiler lays them out
+  ## (LP64; no packing; a bit-field: not known)
+  if depth > 12: return
+  var fields: seq[CxSym]
+  for (g, k) in cxFields(files, tag):
+    if g.syms[k].kind == cxField: fields.add g.syms[k]
+  if fields.len == 0: return
+  fields.sort(proc(a, b: CxSym): int = cmp((a.line, a.col), (b.line, b.col)))
+  var off = 0
+  var align = 1
+  var size = 0
+  var res: seq[(string, int, int)]
+  for x in fields:
+    if x.bits.len > 0: return
+    let (ok, sz, al) = cxSizeAlign(files, x.typ.replace(" *", " *").strip(chars = {' '}), x.dims, depth + 1)
+    var typ = x.typ
+    if x.dims.len > 0 and typ.endsWith("*"):
+      # (an array is typed as a pointer by the index: `char name[16]` → `char *` — the element type, then)
+      typ = typ[0 ..< typ.high].strip
+    let (ok2, sz2, al2) = if x.dims.len > 0: cxSizeAlign(files, typ, x.dims, depth + 1) else: (ok, sz, al)
+    if not ok2: return
+    align = max(align, al2)
+    if isUnion:
+      res.add (x.name, 0, sz2)
+      size = max(size, sz2)
+    else:
+      off = (off + al2 - 1) div al2 * al2
+      res.add (x.name, off, sz2)
+      off += sz2
+  if not isUnion: size = off
+  size = (size + align - 1) div align * align
+  (true, size, align, res)
+
+proc cxMacroExpansion*(f: CxFile, s: CxSym, line, col: int): string =
+  ## a macro where it is used: its body with the arguments of this use in place of its parameters (one level)
+  let body0 = s.text["#define ".len + s.name.len .. ^1]
+  var body = body0
+  var params: seq[string]
+  if body.startsWith("("):
+    let e = body.find(')')
+    if e < 0: return ""
+    for p in body[1 ..< e].split(','): params.add p.strip
+    body = body[e + 1 .. ^1]
+  body = body.strip
+  if params.len == 0: return body
+  # the arguments written after the name on this line
+  if line >= f.lines.len: return ""
+  let t = f.lines[line]
+  var k = col
+  while k < t.len and t[k] in IdentChars: inc k
+  while k < t.len and t[k] == ' ': inc k
+  if k >= t.len or t[k] != '(': return ""
+  var args: seq[string]
+  var d = 0
+  var cur = ""
+  inc k
+  while k < t.len:
+    let c = t[k]
+    if c in {'(', '[', '{'}: inc d
+    elif c in {')', ']', '}'}:
+      if d == 0: break
+      dec d
+    if c == ',' and d == 0:
+      args.add cur.strip
+      cur = ""
+    else: cur.add c
+    inc k
+  if k >= t.len: return ""
+  args.add cur.strip
+  # (each parameter, as a whole word, replaced)
+  var outp = ""
+  var i = 0
+  while i < body.len:
+    if body[i] in IdentStartChars:
+      var j = i
+      while j < body.len and body[j] in IdentChars: inc j
+      let w = body[i ..< j]
+      let pi = params.find(w)
+      outp.add (if pi >= 0 and pi < args.len: args[pi] elif w == "__VA_ARGS__": args[params.len - 1 .. ^1].join(", ")
+                else: w)
+      i = j
+    else:
+      outp.add body[i]
+      inc i
+  outp
+
 proc cxHover*(f: CxFile, line, col: int): string =
   let ts = cxTargets(f, line, col)
   if ts.len == 0 and f != nil and f.cpp and line < f.lines.len:
@@ -3441,6 +3804,46 @@ proc cxHover*(f: CxFile, line, col: int): string =
       for (g2, k) in cxFields(cxClosure(f), s.name):
         if fl.len < 12: fl.add g2.syms[k].text & ";"
     if fl.len > 0: result.add "\n```" & fence & "\n{ " & fl.join(" ") & " }\n```"
+  # (C, 64-bit: a struct's layout; a field's offset; an enum constant's value; a macro's value or its expansion
+  # where it is used)
+  if not f.cpp:
+    let files = cxClosure(f)
+    case s.kind
+    of cxStruct, cxUnion:
+      let (ok, size, align, fields) = cxRecordLayout(files, s.name, s.kind == cxUnion)
+      if ok:
+        result.add "\n\n**" & $size & " bytes**, aligned to " & $align & " (64-bit)"
+        var prev = 0
+        var lines: seq[string]
+        for (nm, off, sz) in fields:
+          if off > prev and s.kind == cxStruct: lines.add "  · " & $(off - prev) & " bytes of padding"
+          lines.add "  " & nm & ": offset " & $off & ", " & $sz & " byte" & (if sz == 1: "" else: "s")
+          prev = off + sz
+        if s.kind == cxStruct and size > prev: lines.add "  · " & $(size - prev) & " bytes of padding at the end"
+        if lines.len <= 16: result.add "\n" & lines.join("\n")
+    of cxField:
+      let (ok, _, _, fields) = cxRecordLayout(files, s.owner, false)
+      if ok:
+        for (nm, off, sz) in fields:
+          if nm == s.name:
+            result.add "\n\noffset " & $off & " · " & $sz & " byte" & (if sz == 1: "" else: "s") & " (64-bit)"
+    of cxEnumConst:
+      let (ok, v) = cxEnumValue(files, s)
+      if ok: result.add "\n\n**= " & $v & "**" & (if v >= 10 or v < 0: " (0x" & toHex(v).strip(trailing = false,
+                                                     chars = {'0'}).toLowerAscii & ")" else: "")
+    of cxMacro:
+      if s.params.len == 0 and not s.varargs:
+        let (ok, v) = cxEvalConst(files, s.text["#define ".len + s.name.len .. ^1])
+        if ok: result.add "\n\n**= " & $v & "**" & (if v >= 10 or v < 0: " (0x" & toHex(v).strip(trailing = false,
+                                                       chars = {'0'}).toLowerAscii & ")" else: "")
+      if (line != s.line or g.path != f.path) and (s.params.len > 0 or s.varargs):
+        let ex = cxMacroExpansion(f, s, line, col - (block:
+          var a = col
+          let t = f.lines[min(line, f.lines.high)]
+          while a > 0 and t[a - 1] in IdentChars: dec a
+          col - a))
+        if ex.len > 0 and ex.len < 600: result.add "\n\nExpands to:\n```c\n" & ex & "\n```"
+    else: discard
 
 proc cxSignature*(f: CxFile, line, col: int): (CxSym, int) =
   ## the call around line:col: the function (kind cxFunc, or a function-like macro) and the parameter being typed

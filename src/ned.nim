@@ -269,6 +269,7 @@ include ned/nim/refactor/core
 include ned/nim/refactor/signature
 include ned/nim/refactor/inline
 include ned/nim/refactor/move
+include ned/nim/rewrites
 include ned/nim/quickfixes
 include ned/testing/coverage
 include ned/nim/profile

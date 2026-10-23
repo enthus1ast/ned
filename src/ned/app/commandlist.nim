@@ -27,6 +27,7 @@ proc initCommands() =
   add("Go to line…", "Ctrl+G", openPrompt(pGoto, "Go to line[:col]"))
   add("Go to symbol…", "Ctrl+T", cmdSymbols())
   add("Go to definition", "Alt+. / F12", cmdDefinition())
+  add("C: switch between header and source", "", cmdSwitchHeaderSource())
   add("Open the link at the cursor", "", cmdOpenLink())
   add("Jump back", "Alt+,", jumpBack())
   add("Go forward", "Alt+Shift+, (Alt+<)", jumpForward())

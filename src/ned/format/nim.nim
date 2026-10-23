@@ -2934,6 +2934,32 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
     o = FOut(depth: o0.depth, comment: o0.comment, importish: o0.importish, exprLine: o0.exprLine,
              complexKind: o0.complexKind, declLike: o0.declLike, lambdaCmd: o0.lambdaCmd, identDef: o0.identDef)
     o.toks = o0.toks            # shares the tokens (refs): no copy of the line
+  # (nim.format.magicTrailingComma: the statement's list written with a comma before its bracket stays one
+  # element per line — black's and ruff's "magic trailing comma")
+  # Only a list written so — on one line (`f(a, b,)`), or one element a line — counts: one packed over several
+  # lines with a comma at its end is how nph wraps, and stays nph's (else formatting again would change it)
+  var magic = false
+  var magicCount = 0
+  if FmtMagicComma and hasTrailing and not o0.comment and not o0.importish and
+     not (o0.toks[0].kind == fkKw and o0.toks[0].text in ["import", "include", "export", "from"]):
+    let (mo, mc, mk) = fListAt(o0.toks)
+    if mo > 0 and mc > mo + 2 and mk != 3 and o0.toks[mc - 1].kind == fkComma and
+       not (o0.toks[mo].text == "(" and mk == 2 and fListCount(o0.toks[mo + 1 ..< mc], false) == 1):
+      var d = 0
+      var oneLine = not o0.toks[mc].nl
+      var each = true
+      var typed = false
+      for k in mo + 1 ..< mc:
+        let t = o0.toks[k]
+        if t.nl: oneLine = false
+        if t.kind in {fkOpen, fkPragOpen}: inc d
+        elif t.kind in {fkClose, fkPragClose}: dec d
+        elif d == 0 and (t.kind == fkColon or (t.kind == fkOp and t.text == "=")): typed = true
+        elif d == 0 and t.kind in {fkComma, fkSemi} and (mk != 0 or typed):
+          typed = false
+          if k + 1 < mc and not o0.toks[k + 1].nl and o0.toks[k + 1].kind != fkComment: each = false
+      magicCount = fListCount(o0.toks[mo + 1 ..< mc], mk == 0)
+      magic = (oneLine or each) and magicCount >= 2
   # (trailing commas go, and come back wherever a list is laid out one per line: the next run decides alike)
   if hasTrailing and not o.comment: o.toks = fDropTrailing(o.toks)
   let ind = o.depth * 2
@@ -2943,6 +2969,29 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
     for t in o.toks:
       s.add (if s.len > 0: " " else: "") & t.text
     return @[pad & s]
+  if magic:
+    # (nph's own layout when it gives the list a line per element already: the next run gives the same)
+    FmtMagicComma = false
+    var r0: seq[string]
+    try: r0 = fRenderLine(o0, lines)
+    finally: FmtMagicComma = true
+    var commaLines = 0
+    for x in r0:
+      let xs = x.strip
+      if xs.endsWith(",") or (", #" in xs) or (",  #" in xs): inc commaLines
+    if r0.len >= magicCount + 2 and commaLines >= magicCount: return r0
+    let (open, close, kind) = fListAt(o.toks)
+    var innerComment = false
+    for k in 0 ..< o.toks.high:
+      if o.toks[k].kind == fkComment and (k < open or k > close): innerComment = true
+    if open > 0 and close > open + 1 and not innerComment:
+      let t0 = o.toks[0]
+      let routine = t0.kind == fkKw and t0.text in FRoutineKw
+      let hasBody = o.toks[^1].kind == fkOp and o.toks[^1].text == "="
+      let innerInd = if routine: ind + (if hasBody: 4 else: 2) else: ind + 2
+      let r = fWrapGroup(o.toks[0 .. open], o.toks[open + 1 ..< close], o.toks[close .. ^1], ind, innerInd, true,
+                         params = kind == 0, importish = o.importish)
+      if r.len > 0: return r
   let one = pad & fRender(o.toks, importish = o.importish)
   var hasInnerComment = false
   var opComment = false
@@ -4654,6 +4703,78 @@ proc fScriptKeep(lines: var seq[FLine]) =
       l.verbatim = true
       l.keep = true
 
+func fCols(s: string): int =
+  ## columns a line takes (UTF-8: one a character)
+  for c in s:
+    if (c.uint8 and 0xC0) != 0x80: inc result
+
+proc fAlignComments(entries: seq[FOut], res: var seq[string], firstLine: seq[int], gap: seq[bool]) =
+  ## nim.format.alignComments: the trailing comments (`## doc`, `# note`) of lines that follow each other at one
+  ## column — the one they share already when there is room, else two after the longest line's code. A line the column would take past the line length (and that fits without it) keeps its comment one
+  ## space after its code; a comment-only line under a line goes with it; an empty line ends a run
+  # (each line's tail: where its code ends and where its comment starts in its line — (-1, -1): no trailing comment)
+  var tails = newSeq[(int, int)](entries.len)
+  for i in 0 ..< entries.len:
+    tails[i] = (-1, -1)
+    let o = entries[i]
+    if o.comment or o.lineCount != 1 or o.toks.len < 2 or o.toks[^1].kind != fkComment or
+       firstLine[i] >= res.len: continue
+    let line = res[firstLine[i]]
+    let c = o.toks[^1].text
+    if not line.endsWith(c): continue
+    let cs = line.len - c.len
+    var ce = cs
+    while ce > 0 and line[ce - 1] == ' ': dec ce
+    if ce == 0 or ce == cs: continue
+    tails[i] = (ce, cs)
+  var i = 0
+  while i < entries.len:
+    if tails[i][0] < 0:
+      inc i
+      continue
+    var run = @[i]
+    var j = i + 1
+    while j < entries.len and not gap[j]:
+      if entries[j].comment:            # (a comment on a line of its own — a type's doc under its header: passed)
+        inc j
+        continue
+      if tails[j][0] < 0: break         # (a line without one ends the run; its depth does not: `Buf* = object  ## …`
+      run.add j                         # and its fields line up together, as clang-format's AlignTrailingComments)
+      inc j
+    i = j
+    if run.len < 2: continue
+    # (where each comment was in the source, in the output's columns: the same for all — kept, when there is room)
+    var shared = -1
+    var same = true
+    var inRun = run
+    for guard in 0 .. 4:
+      var longest = 0
+      for e in inRun: longest = max(longest, fCols(res[firstLine[e]][0 ..< tails[e][0]]))
+      shared = -1
+      same = true
+      for e in inRun:
+        let o = entries[e]
+        let was = o.toks[^1].col - o.toks[0].col + o.depth * 2
+        if shared < 0: shared = was
+        elif was != shared: same = false
+      let target = if same and shared >= longest + 1: shared else: longest + 2
+      var keep: seq[int]
+      for e in inRun:
+        let line = res[firstLine[e]]
+        let codeW = fCols(line[0 ..< tails[e][0]])
+        let comW = fCols(line[tails[e][1] .. ^1])
+        if target + comW > FmtMax and codeW + 1 + comW <= FmtMax: continue   # (it would go past the line length)
+        keep.add e
+      if keep.len == inRun.len:
+        if keep.len >= 2:
+          for e in keep:
+            let line = res[firstLine[e]]
+            let code = line[0 ..< tails[e][0]]
+            res[firstLine[e]] = code & spaces(max(1, target - fCols(code))) & line[tails[e][1] .. ^1]
+        break
+      inRun = keep
+      if inRun.len < 2: break
+
 proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int], gap: seq[bool]) =
   ## NimScript: the `=` of a run of package fields lined up, as nimble's own template writes them
   ## (`version       = "0.1.0"`): at the column they share already when there is room, else one after the
@@ -4709,7 +4830,7 @@ proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int],
           let lead = leadingWs(res[at]).len
           res[at] = res[at][min(lead, -delta) .. ^1]
 
-proc fFormat*(text: string, err: var string): string =
+proc fFormatCore(text: string, err: var string): string =
   if text.len == 0: return ""                       # (an empty file stays empty)
   var ok = true
   let toks = fLex(text, ok)
@@ -4821,6 +4942,7 @@ proc fFormat*(text: string, err: var string): string =
     prevDepth = o.depth
   if FmtAlign: fAlignRuns(entries, res, firstLine, parentOf, gap)
   if FmtScript: fScriptAlign(entries, res, firstLine, gap)
+  if FmtAlignComments: fAlignComments(entries, res, firstLine, gap)
   while res.len > 0 and res[^1].len == 0: res.setLen(res.len - 1)
   var total = 1
   for r in res: total += r.len + 1
@@ -4848,6 +4970,329 @@ proc fFormat*(text: string, err: var string): string =
     err = "the built-in formatter would change the block structure, so nothing was changed (please report this file)"
     return text
 
+# ── what the formatter leaves alone, and what it writes one way before laying the code out:
+#    `# fmt: off` … `# fmt: on` and `# fmt: skip` (black, ruff; nph's `#!fmt: off` too) — those statements as
+#    written, only moved to their new indentation; number literals written one way (nim.format.normalizeNumbers);
+#    the Nim code in doc comments formatted (nim.format.docCode) ──
+
+func fMarker(c: string): string =
+  ## "off" / "on" / "skip" for a `# fmt: off` comment (`#!fmt: off`, `# fmt:off` …), else ""
+  var t = c
+  if t.startsWith("##"): return ""
+  if t.startsWith("#!"): t = t[2 .. ^1]
+  elif t.startsWith("#"): t = t[1 .. ^1]
+  else: return ""
+  t = t.strip.toLowerAscii
+  if not t.startsWith("fmt:"): return ""
+  t = t[4 .. ^1].strip
+  if t in ["off", "on", "skip"]: t else: ""
+
+func fHasMarkers(text: string): bool {.inline.} = "fmt:" in text or "FMT:" in text
+
+proc fLineStarts(text: string): seq[int] =
+  result = @[0]
+  for i, c in text:
+    if c == '\n': result.add i + 1
+
+func fLineOf(starts: seq[int], pos: int): int =
+  ## the line (0-based) the byte at pos is on
+  var lo = 0
+  var hi = starts.high
+  while lo < hi:
+    let m = (lo + hi + 1) div 2
+    if starts[m] <= pos: lo = m
+    else: hi = m - 1
+  lo
+
+proc fOffRegions(text: string, toks: seq[FTok], starts: seq[int]): seq[(int, int, int)] =
+  ## the parts formatting leaves alone: (first line, last line, their indentation) — from `# fmt: off` to
+  ## `# fmt: on` (without one: to the end of its block), a statement ending in `# fmt: skip`
+  var offAt = -1
+  var offCol = 0
+  var offTok = -1
+  for k, t in toks:
+    if t.kind != fkComment: continue
+    let m = fMarker(t.text)
+    if m.len == 0: continue
+    let l = fLineOf(starts, t.pos)
+    case m
+    of "off":
+      if t.nl and offAt < 0: (offAt, offCol, offTok) = (l, t.col, k)
+    of "on":
+      if t.nl and offAt >= 0:
+        result.add (offAt, l, offCol)
+        offAt = -1
+    else:
+      if not t.nl and offAt < 0:
+        var j = k - 1
+        while j > 0 and not toks[j].nl: dec j
+        result.add (fLineOf(starts, toks[j].pos), l, toks[j].col)
+  if offAt >= 0:
+    var last = fLineOf(starts, max(0, text.len - 1))
+    for k in offTok + 1 ..< toks.len:
+      let t = toks[k]
+      if t.nl and t.col < offCol and t.kind != fkComment:
+        last = fLineOf(starts, t.pos) - 1
+        break
+    let ls = text.split('\n')
+    while last > offAt and last < ls.len and ls[last].strip.len == 0: dec last
+    result.add (offAt, last, offCol)
+
+func fNormalNumber(t: string): string =
+  ## 0X1f → 0x1F, 0B1 → 0b1, 1E5 → 1e5 (the type suffix after ' as written)
+  result = t
+  let q = t.find('\'')
+  let e = if q >= 0: q else: t.len
+  # (a suffix of the program's own — 0xff'big — gets the literal's text as written: left as it is)
+  if q >= 0 and t[q + 1 .. ^1].toLowerAscii notin ["i", "i8", "i16", "i32", "i64", "u", "u8", "u16", "u32", "u64",
+                                                   "f", "f32", "f64", "f128", "d"]:
+    return
+  if t.len > 2 and t[0] == '0' and t[1] in {'x', 'X', 'b', 'B', 'o', 'O', 'c', 'C'}:
+    result[1] = toLowerAscii(t[1])
+    if t[1] in {'x', 'X'}:
+      for i in 2 ..< e: result[i] = toUpperAscii(t[i])
+  else:
+    for i in 1 ..< e:
+      if t[i] == 'E' and i + 1 < e and t[i + 1] in {'0'..'9', '+', '-'}: result[i] = 'e'
+
+proc fDocCodeLines(body: seq[string]): seq[string] =
+  ## the doc comment's lines (after their `## `) with the Nim code in them formatted: ```nim fences and
+  ## `.. code-block:: nim` blocks
+  result = body
+  var i = 0
+  proc fmtCode(code: seq[string], width: int): seq[string] =
+    var c = code
+    while c.len > 0 and c[^1].strip.len == 0: c.setLen(c.len - 1)
+    if c.len == 0: return
+    let keep = FmtMax
+    FmtMax = max(40, width)
+    var e = ""
+    let src = c.join("\n") & "\n"
+    var r = ""
+    try: r = fFormatCore(src, e)
+    except CatchableError: e = "x"
+    finally: FmtMax = keep
+    if e.len > 0 or r == src: return
+    r.strip(leading = false, chars = {'\n'}).split('\n')
+  var outl: seq[string]
+  while i < result.len:
+    let b1 = result[i]
+    let st = b1.strip
+    let ind = b1.len - b1.strip(trailing = false).len
+    if st == "```nim" or st.startsWith("```nim ") or st == "``` nim":
+      var j = i + 1
+      while j < result.len and result[j].strip != "```": inc j
+      if j >= result.len:
+        outl.add result[i .. ^1]
+        break
+      var code: seq[string]
+      for l in i + 1 ..< j: code.add (if result[l].len >= ind: result[l][ind .. ^1] else: result[l].strip)
+      let r = fmtCode(code, FmtMax - ind)
+      outl.add b1
+      if r.len > 0:
+        for x in r: outl.add (if x.len == 0: "" else: spaces(ind) & x)
+      else: outl.add result[i + 1 ..< j]
+      outl.add result[j]
+      i = j + 1
+      continue
+    if st in [".. code-block:: nim", ".. code-block:: Nim", ".. code-block::", ".. code:: nim", ".. code:: Nim"]:
+      var j = i + 1
+      outl.add b1
+      while j < result.len and result[j].strip.startsWith(":") and
+            result[j].len - result[j].strip(trailing = false).len > ind:
+        outl.add result[j]                       # (its options: :test: …)
+        inc j
+      while j < result.len and result[j].strip.len == 0:
+        outl.add result[j]
+        inc j
+      if j >= result.len:
+        i = j
+        continue
+      let cInd = result[j].len - result[j].strip(trailing = false).len
+      if cInd <= ind:
+        i = j
+        continue
+      var e = j
+      var code: seq[string]
+      while e < result.len and (result[e].strip.len == 0 or result[e].len - result[e].strip(trailing = false).len >= cInd):
+        code.add (if result[e].len >= cInd: result[e][cInd .. ^1] else: "")
+        inc e
+      var tailBlank = 0
+      while code.len > 0 and code[^1].strip.len == 0:
+        code.setLen(code.len - 1)
+        inc tailBlank
+      let r = fmtCode(code, FmtMax - cInd)
+      if r.len > 0:
+        for x in r: outl.add (if x.len == 0: "" else: spaces(cInd) & x)
+        for _ in 1 .. tailBlank: outl.add ""
+      else: outl.add result[j ..< e]
+      i = e
+      continue
+    outl.add b1
+    inc i
+  result = outl
+
+proc fPrepass(text: string, regions: seq[(int, int, int)], toks: seq[FTok], starts: seq[int]): string =
+  ## numbers written one way (nim.format.normalizeNumbers) and the code in doc comments formatted
+  ## (nim.format.docCode) — not in the parts left alone
+  result = text
+  var off = newSeq[bool](starts.len)
+  for (a, e, _) in regions:
+    for l in a .. min(e, off.high): off[l] = true
+  if FmtNumbers:
+    for t in toks:
+      if t.kind != fkNum: continue
+      if off[fLineOf(starts, t.pos)]: continue
+      let n = fNormalNumber(t.text)
+      if n != t.text:
+        for i in 0 ..< n.len: result[t.pos + i] = n[i]
+  if FmtDocCode and "##" in result:
+    var ls = result.split('\n')
+    var changed = false
+    var k = 0
+    var newLs: seq[string]
+    var done = 0                                # (lines of ls copied to newLs)
+    while k < toks.len:
+      let t = toks[k]
+      if t.kind == fkComment and t.nl and t.text.startsWith("##") and not t.text.startsWith("##[") and
+         not off[fLineOf(starts, t.pos)]:
+        # a block: ## lines one after the other at one column
+        let l0 = fLineOf(starts, t.pos)
+        var j = k
+        var l1 = l0
+        while j + 1 < toks.len and toks[j + 1].kind == fkComment and toks[j + 1].nl and toks[j + 1].col == t.col and
+              toks[j + 1].text.startsWith("##") and not toks[j + 1].text.startsWith("##[") and
+              fLineOf(starts, toks[j + 1].pos) == l1 + 1:
+          inc j
+          inc l1
+        var body: seq[string]
+        for q in k .. j:
+          var x = toks[q].text[2 .. ^1]
+          if x.startsWith(" "): x = x[1 .. ^1]
+          body.add x
+        if body.len >= 2 and ("```" in body.join("\n") or "code" in body.join("\n")):
+          let nb = fDocCodeLines(body)
+          if nb != body:
+            changed = true
+            for l in done ..< l0: newLs.add ls[l]
+            for x in nb: newLs.add spaces(t.col) & "##" & (if x.len > 0: " " & x else: "")
+            done = l1 + 1
+        k = j + 1
+        continue
+      inc k
+    if changed:
+      for l in done ..< ls.len: newLs.add ls[l]
+      result = newLs.join("\n")
+
+proc fVerify(orig, res: string, err: var string): bool =
+  ## the result reads as the original: the same tokens (as the formatter normalizes them) and block structure
+  var ok = true
+  let toks = fLex(orig, ok)
+  if not ok: return false
+  var lines = fGroupLines(toks)
+  fDepths(lines)
+  fNormalize(lines)
+  if FmtScript: fScriptKeep(lines)
+  if FmtImports > 0: fImports(lines)
+  var normToks: seq[FTok]
+  for l in lines: normToks.add l.toks
+  var normNl = newSeq[bool](normToks.len)
+  var normStart = newSeq[int16](normToks.len)
+  block:
+    var k = 0
+    for l in lines:
+      if l.toks.len > 0: normStart[k] = int16(min(l.depth + 1, high(int16)))
+      k += l.toks.len
+    for k in 0 ..< normToks.len: normNl[k] = normToks[k].nl
+  var ok2 = true
+  let toks2 = fLex(res, ok2)
+  var map = newSeq[int32](toks2.len)
+  for m in map.mitems: m = -1
+  if not ok2 or not fSameTokensMap(normToks, toks2, map) or not fBreaksOk(normToks, normNl, normStart, toks2, map):
+    return false
+  var lines2 = fGroupLines(toks2)
+  fDepths(lines2)
+  fStructureOf(lines) == fStructureOf(lines2)
+
+proc fFormatKeeping(text: string, regions: seq[(int, int, int)], toks: seq[FTok], err: var string): string =
+  ## formatted around the parts left alone (`# fmt: off` …): each replaced by a statement that stands for it,
+  ## the rest formatted, the part put back at the new indentation
+  let ls = text.split('\n')
+  var ph: seq[string]
+  var at = 0
+  for i, (a, e, ind) in regions:
+    if a < at or e >= ls.len: continue
+    for l in at ..< a: ph.add ls[l]
+    ph.add spaces(ind) & "discard \"ned:fmt:off:" & $i & "\""
+    at = e + 1
+  for l in at ..< ls.len: ph.add ls[l]
+  var e2 = ""
+  let r = fFormatCore(ph.join("\n"), e2)
+  if e2.len > 0:
+    err = "a `# fmt: off` / `# fmt: skip` part must hold whole statements — formatted nothing"
+    return text
+  let starts = fLineStarts(text)
+  var outl: seq[string]
+  var found = newSeq[bool](regions.len)
+  for line in r.split('\n'):
+    let st = line.strip
+    if st.startsWith("discard \"ned:fmt:off:") and st.endsWith("\""):
+      var i = -1
+      try: i = parseInt(st["discard \"ned:fmt:off:".len ..< st.high])
+      except ValueError: discard
+      if i >= 0 and i < regions.len and not found[i]:
+        found[i] = true
+        let (a, e, ind) = regions[i]
+        let delta = (line.len - line.strip(trailing = false).len) - ind
+        if delta != 0:
+          for t in toks:
+            if t.kind == fkStr and t.multi:
+              let tl = fLineOf(starts, t.pos)
+              if tl >= a and tl <= e:
+                err = "a `# fmt: off` part with a string over several lines would move — formatted nothing"
+                return text
+        for l in a .. e:
+          let x = ls[l]
+          if delta > 0 and x.len > 0: outl.add spaces(delta) & x
+          elif delta < 0:
+            var k = 0
+            while k < -delta and k < x.len and x[k] == ' ': inc k
+            outl.add x[k .. ^1]
+          else: outl.add x
+        continue
+    outl.add line
+  for f in found:
+    if not f:
+      err = "could not keep the `# fmt: off` parts — formatted nothing"
+      return text
+  result = outl.join("\n")
+  if not result.endsWith("\n"): result.add '\n'
+  if not fNoCheck and not fVerify(text, result, err):
+    err = "the built-in formatter would change the code around a `# fmt: off` part, so nothing was changed"
+    return text
+
+proc fFormat*(text: string, err: var string): string =
+  ## the text formatted (err: why it was left alone)
+  if text.len == 0: return ""                       # (an empty file stays empty)
+  if not (FmtNumbers or FmtDocCode or fHasMarkers(text)): return fFormatCore(text, err)
+  var ok = true
+  let toks = fLex(text, ok)
+  if not ok: return fFormatCore(text, err)
+  let starts = fLineStarts(text)
+  let regions = if fHasMarkers(text): fOffRegions(text, toks, starts) else: @[]
+  var t = text
+  if FmtNumbers or FmtDocCode: t = fPrepass(text, regions, toks, starts)
+  if regions.len == 0:
+    result = fFormatCore(t, err)
+    if err.len > 0: return text
+    return
+  var toks2 = toks
+  if t != text:
+    toks2 = fLex(t, ok)
+    if not ok: return text
+  result = fFormatKeeping(t, regions, toks2, err)
+  if err.len > 0: return text
+
 # ── formatting only what changed: a file cut into its top-level statements where an empty line comes before one,
 #    each piece formatted on its own and kept (the same text, the same settings: the same result), so formatting
 #    a big file again costs only the statements that changed. Cut only where the whole-file formatter writes
@@ -4862,7 +5307,8 @@ const FChunkMemoMax = 24 * 1048576
 
 proc fSettingsKey(): string =
   $FmtWidth & "," & $FmtMax & "," & $FmtParams & "," & $FmtArgs & "," & $FmtColl & "," & $FmtBlank & "," &
-    $FmtImports & "," & $FmtAlign & "," & $FmtReflow & "," & $FmtReflowPlain & "," & $fNoCheck & "," & $FmtScript
+    $FmtImports & "," & $FmtAlign & "," & $FmtReflow & "," & $FmtReflowPlain & "," & $fNoCheck & "," & $FmtScript &
+    "," & $FmtAlignComments & "," & $FmtMagicComma & "," & $FmtNumbers & "," & $FmtDocCode
 
 proc fChunkStarts*(toks: seq[FTok]): seq[int] =
   ## the tokens where a piece may start (each first on its line, column 0, after an empty line)
@@ -4884,7 +5330,7 @@ proc fChunkStarts*(toks: seq[FTok]): seq[int] =
 proc fFormatPieces*(text: string, err: var string, fresh: var seq[(string, string)]): string =
   ## fFormat's result, made piece by piece and remembered (fresh: the pieces formatted this time, for a second
   ## check). Settings that look across statements (imports sorted, lining up) format the whole file
-  if FmtImports > 0 or FmtAlign or FmtScript or text.len < 4096:
+  if FmtImports > 0 or FmtAlign or FmtAlignComments or FmtScript or text.len < 4096 or fHasMarkers(text):
     result = fFormat(text, err)
     if err.len == 0 and result != text: fresh.add (text, result)
     return

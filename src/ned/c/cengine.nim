@@ -287,6 +287,123 @@ proc cEngSignature(b: Buffer, p: Pos): bool =
   needRender = true
   true
 
+func cArgIsLiteral(a: string): bool =
+  ## a number, string, character, NULL / true / false / nullptr — an argument whose meaning the parameter's name tells
+  var t = a.strip
+  while t.startsWith("(") and t.endsWith(")") and t.len > 2: t = t[1 .. ^2].strip
+  if t.len == 0: return false
+  if t[0] in Digits or (t[0] in {'-', '+', '.'} and t.len > 1 and t[1] in Digits): return true
+  if t[0] in {'"', '\''} or t.startsWith("L\"") or t.startsWith("u8\"") or t.startsWith("L'"): return true
+  t in ["NULL", "true", "false", "nullptr", "0"]
+
+proc cEngInlays(b: Buffer, lo, hi: int) =
+  ## the names of the parameters before a call's arguments, as clangd shows them: `pt_move(p, dx: 1, dy: 2)` —
+  ## before literals unless nim.parameterHints is "all"; not for one-parameter functions, single-letter names, an
+  ## argument that is the name already, a call over several lines, or a macro's (…) beyond its parameters
+  b.inlays.clear()
+  b.inlayAt = b.changeId
+  b.inlayLo = lo
+  b.inlayHi = hi
+  needRender = true
+  if cfgParamHints == "off": return
+  let all = cfgParamHints == "all"
+  let f = cxFileOf(b)
+  if f == nil: return
+  let t0 = getMonoTime()
+  var inBlock = false
+  for l in lo .. min(hi, b.lines.high):
+    if msSince(t0) > 40: break
+    let s = b.lines[l]
+    if s.len > 500: continue
+    # where the code is on this line (not in comments, strings, characters)
+    var code = newSeq[bool](s.len)
+    var i = 0
+    while i < s.len:
+      if inBlock:
+        let e = s.find("*/", i)
+        if e < 0:
+          i = s.len
+          break
+        inBlock = false
+        i = e + 2
+        continue
+      if s[i] == '/' and i + 1 < s.len and s[i + 1] == '/': break
+      if s[i] == '/' and i + 1 < s.len and s[i + 1] == '*':
+        inBlock = true
+        i += 2
+        continue
+      if s[i] in {'"', '\''}:
+        let q = s[i]
+        code[i] = true
+        inc i
+        while i < s.len and s[i] != q:
+          if s[i] == '\\': inc i
+          inc i
+        if i < s.len: code[i] = true
+        inc i
+        continue
+      code[i] = true
+      inc i
+    if '(' notin s or s.strip(trailing = false).startsWith("#"): continue
+    var hs: seq[(int, string)]
+    for open in 1 ..< s.len:
+      if s[open] != '(' or not code[open]: continue
+      var e = open
+      while e > 0 and s[e - 1] == ' ': dec e
+      var a = e
+      while a > 0 and s[a - 1] in IdentChars: dec a
+      if a == e or s[a] in Digits: continue
+      let name = s[a ..< e]
+      if name in ["if", "for", "while", "switch", "return", "sizeof", "case", "do", "else", "catch", "alignof",
+                  "_Alignof", "typeof", "__typeof__", "decltype", "defined", "_Generic", "static_assert",
+                  "_Static_assert"]:
+        continue
+      # its arguments, when they close on this line
+      var d = 0
+      var close = -1
+      var args: seq[(int, int)]
+      var argStart = open + 1
+      var k = open
+      while k < s.len:
+        if code[k]:
+          let c = s[k]
+          if c in {'"', '\''}:
+            let q = c
+            inc k
+            while k < s.len and s[k] != q:
+              if s[k] == '\\': inc k
+              inc k
+          elif c in {'(', '[', '{'}: inc d
+          elif c in {')', ']', '}'}:
+            dec d
+            if d == 0:
+              close = k
+              break
+          elif c == ',' and d == 1:
+            args.add (argStart, k)
+            argStart = k + 1
+        inc k
+      if close < 0 or close == open + 1: continue
+      args.add (argStart, close)
+      var want = false
+      for (x, y) in args:
+        if all or cArgIsLiteral(s[x ..< y]): want = true
+      if not want: continue
+      var sym: CxSym
+      try: sym = cxSignature(f, l, open + 1)[0]
+      except CatchableError: continue
+      if sym.name != name or sym.params.len < 2: continue
+      for ai, (x, y) in args:
+        if ai >= sym.params.len: break
+        let txt = s[x ..< y]
+        if not (all or cArgIsLiteral(txt)): continue
+        let pn = sym.params[ai].name
+        if pn.len <= 1 or txt.strip == pn or pn == "...": continue
+        var c = x
+        while c < y and s[c] == ' ': inc c
+        hs.add (c, pn & ": ")
+    if hs.len > 0: b.inlays[l] = hs
+
 proc cEngOutline(b: Buffer): seq[SideItem] =
   if not cEngineOn(b): return
   try:
@@ -316,6 +433,94 @@ proc cEngOutline(b: Buffer): seq[SideItem] =
 
 var cTypingChecks: Table[string, (int, string)]      # path → (changeId checked, the copy)
 
+proc cFixItEdit(t: string): (Pos, Pos, string) =
+  ## fix-it:"<stdin>":{L1:C1-L2:C2}:"text" (clang's and gcc's -fdiagnostics-parseable-fixits: 1-based, bytes,
+  ## the end not included, the text with C's escapes) — "\0" as the text when the line is not one
+  result[2] = "\0"
+  let a = t.find('{')
+  let z = t.find('}', a + 1)
+  if a < 0 or z < 0 or z + 2 >= t.len or t[z + 1] != ':' or t[z + 2] != '"' or not t.endsWith("\""): return
+  let r = t[a + 1 ..< z].split('-')
+  if r.len != 2: return
+  let p0 = r[0].split(':')
+  let p1 = r[1].split(':')
+  if p0.len != 2 or p1.len != 2: return
+  try:
+    result[0] = Pos(line: parseInt(p0[0]) - 1, col: parseInt(p0[1]) - 1)
+    result[1] = Pos(line: parseInt(p1[0]) - 1, col: parseInt(p1[1]) - 1)
+  except ValueError: return
+  if result[0].line < 0 or result[0].col < 0 or result[1] < result[0]: return
+  let q = t[z + 3 ..< t.len - 1]
+  var txt = ""
+  var i = 0
+  while i < q.len:
+    if q[i] == '\\' and i + 1 < q.len:
+      inc i
+      case q[i]
+      of 'n': txt.add '\n'
+      of 't': txt.add '\t'
+      of '0'..'7':
+        var v = 0
+        var k = 0
+        while k < 3 and i < q.len and q[i] in {'0'..'7'}:
+          v = v * 8 + ord(q[i]) - ord('0')
+          inc i
+          inc k
+        txt.add chr(v and 255)
+        continue
+      else: txt.add q[i]
+    else: txt.add q[i]
+    inc i
+  result[2] = txt
+
+proc cFixItJson(b: Buffer, edits: seq[(Pos, Pos, string)], note: string, at: int): JsonNode =
+  ## one fix as the quick-fix list takes it: its title (the note's words, or what it changes), its edits
+  var title = ""
+  if note.len > 0:
+    title = note
+    for tail in [" to silence this warning", " to silence this diagnostic"]:
+      if title.endsWith(tail): title = title[0 ..< title.len - tail.len]
+    if title.len > 0: title[0] = title[0].toUpperAscii
+  elif edits.len == 1:
+    let (p0, p1, nt) = edits[0]
+    var old = ""
+    if b != nil and p0.line == p1.line and p0.line < b.lines.len and p1.col <= b.lines[p0.line].len:
+      old = b.lines[p0.line][p0.col ..< p1.col]
+    title = if old.len == 0: "Insert '" & nt & "'"
+            elif nt.len == 0: "Remove '" & old & "'"
+            else: "Change '" & old & "' to '" & nt & "'"
+  else: title = "Apply the compiler's fix (" & $edits.len & " changes)"
+  var es = newJArray()
+  for (p0, p1, nt) in edits:
+    es.add %*{"range": {"start": {"line": p0.line, "col": p0.col}, "stop": {"line": p1.line, "col": p1.col}},
+              "text": nt}
+  %*{"title": truncTo(title.replace("\n", " "), 70), "nedEdits": es, "at": at}
+
+proc cFixItActions*(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
+  ## the compiler's fixes for the problems here (C/C++ without clangd: cc -fsyntax-only's fix-its)
+  let bid = b.id
+  for d in ds:
+    if d.src != "cc" or d.fixes == nil: continue
+    for f in jitems(d.fixes):
+      let edits = f{"nedEdits"}
+      let at = f{"at"}.getInt(-1)
+      result.add act(f{"title"}.getStr, "the compiler's fix", proc() =
+        let x = bufById(bid)
+        if x == nil or not x.canEdit(): return
+        if x.changeId != at:
+          info("The file changed since the compiler looked — save or pause typing, then try again")
+          return
+        var es: seq[(Pos, Pos, string)]
+        for e in jitems(edits):
+          es.add (Pos(line: e{"range", "start", "line"}.getInt, col: e{"range", "start", "col"}.getInt),
+                  Pos(line: e{"range", "stop", "line"}.getInt, col: e{"range", "stop", "col"}.getInt), e{"text"}.getStr)
+        # (from the last edit back: the earlier ranges stay where they are)
+        es.sort(proc(p, q: (Pos, Pos, string)): int = (if q[0] < p[0]: -1 elif p[0] < q[0]: 1 else: 0))
+        x.beginEdit()
+        for (a, e, t) in es: discard x.replaceText(x.clampPos(a), x.clampPos(e), t)
+        x.endEdit()
+        needRender = true)
+
 proc cTypingCheck(b: Buffer) =
   let cpp = cxIsCppBuf(b)
   if b.path in cTypingChecks or not haveExe(if cpp: "c++" else: "cc"): return
@@ -333,7 +538,8 @@ proc cTypingCheck(b: Buffer) =
     if d != parentDir(path) and not cSystemIncludeDirs().contains(d): inc.add " -I" & quoteShell(d)
   for d in cxCompileDefs: inc.add " " & quoteShell(d)
   let cc = if cpp: "c++ -std=c++17" else: "cc"
-  discard startJob(jkCheck, "LC_ALL=C " & cc & " -fsyntax-only -Wall -fdiagnostics-color=never" & inc &
+  discard startJob(jkCheck, "LC_ALL=C " & cc & " -fsyntax-only -Wall -fdiagnostics-color=never" &
+                   " -fdiagnostics-parseable-fixits" & inc &
                    (if cpp: " -x c++ - < " else: " -x c - < ") & quoteShell(copy),
                    parentDir(path), proc(j: Job) =
     cTypingChecks.del path
@@ -342,8 +548,21 @@ proc cTypingCheck(b: Buffer) =
     let x = bufById(bid)
     if x == nil or x.changeId != id: return
     var ds: seq[Diag]
+    # the compiler's own fixes (fix-it: lines after a problem or after one of its notes): Alt+Enter, as clangd's
+    var owner = -1                 # (the problem the fix-its below belong to)
+    var noteWords = ""             # (the note they follow: what the fix does, in its words)
+    var edits: seq[(Pos, Pos, string)]
+    proc flush() =
+      if edits.len > 0 and owner >= 0:
+        if ds[owner].fixes == nil: ds[owner].fixes = newJArray()
+        ds[owner].fixes.add cFixItJson(x, edits, noteWords, id)
+      edits.setLen(0)
     for raw in j.output.splitLines:
       var t = stripAnsi(raw)
+      if t.startsWith("fix-it:\"<stdin>\":{"):
+        let e = cFixItEdit(t)
+        if e[2] != "\0": edits.add e
+        continue
       if not t.startsWith("<stdin>:"): continue
       t = t["<stdin>:".len .. ^1]
       let parts = t.split(':', 3)
@@ -358,8 +577,15 @@ proc cTypingCheck(b: Buffer) =
                 elif parts[2].strip == "warning": 2
                 elif parts[2].strip == "note": 3
                 else: 0
-      if sev == 0 or sev == 3: continue
+      if sev == 0: continue
+      flush()
+      if sev == 3:
+        noteWords = rest
+        continue
+      noteWords = ""
       ds.add Diag(line: max(0, l), col: max(0, c), eline: max(0, l), ecol: -1, sev: sev, msg: rest, src: "cc")
+      owner = ds.high
+    flush()
     diagsBuild[path] = ds
     needRender = true)
 
@@ -429,3 +655,135 @@ proc cIncludeFix(b: Buffer, d: Diag): (string, string, Action) =
     x.endEdit()
     x.normalize()
     info("Added #include " & h))
+
+proc cEngCallHierarchy(b: Buffer): bool =
+  ## who calls the function at the cursor (←) and what it calls (→): its references in the project's C files, each
+  ## under the function it is in — and the calls in its body, each to its declaration
+  if not cEngineOn(b): return false
+  let f = cxFileOf(b)
+  let p = b.primary.head
+  var fn: CxSym
+  var fnFile: CxFile
+  var have = false
+  if b.wordAt(p).len > 0:
+    try:
+      let ts = cxTargets(f, p.line, p.col)
+      if ts.len > 0 and ts[0][1].kind in {cxFunc, cxMethod}:
+        (fnFile, fn, have) = (ts[0][0], ts[0][1], true)
+    except CatchableError: discard
+  if not have:
+    for s in f.syms:
+      if s.kind in {cxFunc, cxMethod} and s.isDef and s.line <= p.line and p.line <= s.endLine:
+        (fnFile, fn, have) = (f, s, true)
+  if not have:
+    info("Put the cursor on a function's name, or in its body")
+    return true
+  # (its body: where it is defined — this file, or the one cxTargets found)
+  if not fn.isDef:
+    try:
+      let defs = cxTargets(f, p.line, p.col, jump = true)
+      for (g, s) in defs:
+        if s.kind == fn.kind and s.isDef: (fnFile, fn) = (g, s)
+    except CatchableError: discard
+  var items: seq[PickItem]
+  # ← its callers
+  let at = if fnFile != nil and fnFile.path == b.path: Pos(line: fn.line, col: fn.col)
+           elif b.wordAt(p) == fn.name: p
+           else: Pos(line: -1)
+  if at.line >= 0:
+    var hits: seq[(string, int, int)]
+    try: hits = cEngReferenceHits(b, at)[0]
+    except CatchableError: discard
+    var loaded: Table[string, CxFile]
+    var seen: Table[string, int]
+    for (path, l, c) in hits:
+      var g: CxFile
+      if path == b.path: g = f
+      elif path in loaded: g = loaded[path]
+      else:
+        try: g = cxLoad(path, readFile(path), "ch:" & path)
+        except CatchableError: g = nil
+        loaded[path] = g
+      if g == nil or l >= g.lines.len: continue
+      # (a call: the name followed by `(`)
+      var k = c + fn.name.len
+      let t = g.lines[l]
+      while k < t.len and t[k] == ' ': inc k
+      if k >= t.len or t[k] != '(': continue
+      var caller = ""
+      var callerLine = -1
+      for s in g.syms:
+        if s.kind in {cxFunc, cxMethod} and s.isDef and s.line <= l and l <= s.endLine: (caller, callerLine) = (s.name, s.line)
+      if callerLine == l and caller == fn.name: continue        # (its own declaration)
+      if caller.len == 0: caller = "(file level)"
+      let key = path & ":" & caller
+      if key in seen:
+        inc items[seen[key]].score
+        items[seen[key]].detail = relPath(path) & ":" & $(items[seen[key]].line + 1) & " · " &
+                                  $items[seen[key]].score & " calls"
+        continue
+      seen[key] = items.len
+      items.add PickItem(label: "← " & caller, detail: relPath(path) & ":" & $(l + 1), icon: "ƒ", path: path, line: l,
+                         col: c, score: 1)
+  # → what it calls
+  if fn.isDef and fnFile != nil:
+    var outSeen: HashSet[string]
+    for l in fn.line .. min(fn.endLine, fnFile.lines.high):
+      let t = fnFile.lines[l]
+      var i = 0
+      while i < t.len:
+        if t[i] in IdentStartChars and (i == 0 or t[i - 1] notin IdentChars):
+          var e = i
+          while e < t.len and t[e] in IdentChars: inc e
+          var k = e
+          while k < t.len and t[k] == ' ': inc k
+          let w = t[i ..< e]
+          if k < t.len and t[k] == '(' and w != fn.name and w notin CxKeywords and w notin outSeen and
+             not (l == fn.line):
+            var ts: seq[(CxFile, CxSym)]
+            try: ts = cxTargets(fnFile, l, i, jump = true)
+            except CatchableError: discard
+            if ts.len > 0 and ts[0][1].kind in {cxFunc, cxMethod, cxMacro}:
+              outSeen.incl w
+              items.add PickItem(label: "→ " & w, detail: relPath(ts[0][0].path) & ":" & $(ts[0][1].line + 1),
+                                 icon: (if ts[0][1].kind == cxMacro: "#" else: "ƒ"), path: ts[0][0].path,
+                                 line: ts[0][1].line, col: ts[0][1].col)
+          i = e
+        else: inc i
+  if items.len == 0:
+    info("No calls to or from " & fn.name)
+    return true
+  openPicker(pickSymbol, "Call hierarchy — " & fn.name & "  (← called by · → calls)", items)
+  true
+
+proc cOtherFile(path: string): string =
+  ## a C file's header, a header's C file: the same name next to it, else in the project
+  let (dir, name, ext) = splitFile(path)
+  let lext = ext.toLowerAscii
+  let wanted = if lext in [".h", ".hh", ".hpp", ".hxx", ".inl"]: @[".c", ".cc", ".cpp", ".cxx", ".m", ".mm"]
+               elif lext in [".c", ".cc", ".cpp", ".cxx", ".m", ".mm"]: @[".h", ".hpp", ".hh", ".hxx"]
+               else: @[]
+  for e in wanted:
+    if fileExists(dir / name & e): return dir / name & e
+  for e in wanted:
+    for sub in ["include", "src", "../include", "../src"]:
+      if fileExists(dir / sub / name & e): return normalizedPath(dir / sub / name & e)
+  if rootDir.len > 0:
+    for rel in projectFiles():
+      let (_, n2, e2) = splitFile(rel)
+      if n2 == name and e2.toLowerAscii in wanted: return (if rel.isAbsolute: rel else: rootDir / rel)
+  ""
+
+proc cmdSwitchHeaderSource() =
+  ## C, C++: from a .c to its .h and back (clangd's switch between source and header)
+  let b = buf()
+  if b.path.len == 0:
+    info("Save the file first")
+    return
+  let o = cOtherFile(b.path)
+  if o.len == 0:
+    let (_, name, ext) = splitFile(b.path)
+    info("No " & (if ext.toLowerAscii in [".h", ".hh", ".hpp", ".hxx"]: "source" else: "header") & " named " & name &
+         " here or in the project")
+    return
+  discard openFile(o)
