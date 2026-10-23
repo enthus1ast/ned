@@ -4641,6 +4641,9 @@ proc fScriptKeep(lines: var seq[FLine]) =
       keep = true                                   # version = "1.0" · namedBin["x"] = "y"
     elif t0.kind == fkOp and t0.text in ["--", "-"]:
       keep = true                                   # --opt:speed · --path:"../src"
+    elif l.depth == 0 and l.phys > 1 and t0.kind == fkIdent and
+         t0.text in ["requires", "taskRequires", "foreignDep"]:
+      keep = true                                   # requires "nim >= 2.0",⏎ "results", … (one a line, as written)
     elif t0.kind == fkIdent and t0.text in ["task", "before", "after", "feature"] and l.toks[last].kind == fkColon:
       keep = true
     elif t0.kind == fkKw and t0.text in ["if", "when", "elif", "else", "for", "while"]:
@@ -4654,7 +4657,8 @@ proc fScriptKeep(lines: var seq[FLine]) =
 proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int], gap: seq[bool]) =
   ## NimScript: the `=` of a run of package fields lined up, as nimble's own template writes them
   ## (`version       = "0.1.0"`): at the column they share already when there is room, else one after the
-  ## longest name. A value continued on the lines below moves with its `=`
+  ## longest name. A value continued on the lines below moves with its `=`. A run written `name = value` each
+  ## (nph's way) is left as it is
   var i = 0
   while i < entries.len:
     if not fScriptField(entries[i]):
@@ -4674,6 +4678,14 @@ proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int],
       longest = max(longest, name.len)
       cols.add res[firstLine[e]].find('=', name.len)
     if -1 in cols: continue
+    var plain = true            # (every field written `name = value`, as nph writes it: left that way)
+    for n, e in run:
+      let line = res[firstLine[e]]
+      let name = entries[e].toks[0].text
+      if cols[n] != name.len + 1 or line[name.len] != ' ' or cols[n] + 2 >= line.len or line[cols[n] + 1] != ' ' or
+         line[cols[n] + 2] == ' ':
+        plain = false
+    if plain: continue
     var shared = true
     for c in cols:
       if c != cols[0]: shared = false
@@ -4698,6 +4710,7 @@ proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int],
           res[at] = res[at][min(lead, -delta) .. ^1]
 
 proc fFormat*(text: string, err: var string): string =
+  if text.len == 0: return ""                       # (an empty file stays empty)
   var ok = true
   let toks = fLex(text, ok)
   if not ok:

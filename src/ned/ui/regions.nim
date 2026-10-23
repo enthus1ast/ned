@@ -75,6 +75,14 @@ proc dropShadow(x, y, w, h: int) =
   for xx in x + 1 ..< x + w: put(xx, y + h, 0x2580)      # ▀
   put(x + w, y + h, 0x2598)                              # ▘
 
+func rgbDist(a, b: Rgb): int =
+  abs(int((a shr 16) and 0xFF) - int((b shr 16) and 0xFF)) + abs(int((a shr 8) and 0xFF) - int((b shr 8) and 0xFF)) +
+    abs(int(a and 0xFF) - int(b and 0xFF))
+
+proc seenOn(c, under: Rgb, k = 0.12): Rgb =
+  ## c — or, too close to the colour under it to be told apart, a step from that towards the text colour
+  if rgbDist(c, under) < 30: blend(under, theme.fg, k) else: c
+
 proc drawFrame(x, y, w, h: int, bg, border: Rgb, title = "", titleFg: Rgb = NoColor, shadow = true) =
   fillRect(x, y, w, h, theme.fg, bg)
   for xx in x + 1 ..< x + w - 1:
@@ -107,7 +115,7 @@ proc pill(x, y: int, label: string, act: Action, tip = "", fg: Rgb = NoColor, bg
   ## a button with rounded-looking ends — half blocks in its colour — for dialogs and toasts; returns the x after it
   let w = strWidth(label) + 4
   let under = grid[clamp(y, 0, scrH - 1) * scrW + clamp(x, 0, scrW - 1)].bg
-  let base = if bg == NoColor: theme.btnBg else: bg
+  let base = if bg == NoColor: seenOn(theme.btnBg, under, 0.16) else: bg     # (a button you can see as one)
   let b = if hov(x, y, w): (if hoverBg == NoColor: blend(base, theme.fg, 0.14) else: hoverBg) else: base
   setCell(x, y, Cell(ch: 0x2590, fg: b, bg: under))              # ▐
   discard putStr(x + 1, y, " " & label & " ", (if fg == NoColor: theme.fg else: fg), b, at)

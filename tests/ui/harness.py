@@ -181,6 +181,8 @@ def start(*files, w=140, h=40, path=None, env_extra=''):
 
 def check(name, cond, info=''):
     results.append((name, bool(cond)))
+    if not cond and os.environ.get('NED_UI_FULL') == '1':       # (the whole screen of a failure: NED_UI_FULL=1)
+        print('FAIL ' + name + '\n' + info, flush=True); return
     print(('PASS ' if cond else 'FAIL ') + name + ('' if cond else '  ' + info[:400].replace('\n', ' | ')), flush=True)
 
 def ftext(p): return open(os.path.join(W, p)).read()

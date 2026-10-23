@@ -1434,7 +1434,23 @@ proc nxRstToMd*(doc0: string): string =
   var outp: seq[string]
   var inBlock = false
   var blockInd = 0
+  # a line ending in a backslash goes on in the next one (an escaped line break: `nim doc` joins them)
+  var src: seq[string]
+  var fence = false
   for l in doc.splitLines:
+    let t = l.strip
+    if t.startsWith("```"): fence = not fence
+    var nb = 0
+    while nb < t.len and t[t.len - 1 - nb] == '\\': inc nb
+    let indented = l.len - l.strip(trailing = false).len >= 2     # (an RST code block's line: as it is)
+    if not fence and src.len > 0 and src[^1].endsWith("\x01"):
+      src[^1] = src[^1][0 ..< ^1] & " " & t
+    else: src.add l
+    if not fence and not indented and nb mod 2 == 1:
+      src[^1] = src[^1].strip(leading = false)
+      src[^1] = src[^1][0 ..< ^1].strip(leading = false) & "\x01"
+  if src.len > 0 and src[^1].endsWith("\x01"): src[^1].setLen(src[^1].len - 1)
+  for l in src:
     let t = l.strip
     if t.startsWith(".. code-block::") or t.startsWith(".. code::"):
       outp.add "```nim"
@@ -1459,6 +1475,19 @@ proc nxRstToMd*(doc0: string): string =
   if inBlock: outp.add "```"
   outp.join("\n").strip
 
+proc nxWhereOf(f: NxFile): (string, bool) =
+  ## where a declaration lives, for the foot of its hover (and whether its file:line goes with it): std/x, system,
+  ## system's NimScript part, nimble's API, ned's plugin API — else its module
+  result = (f.module, true)
+  if nxLibDir.len > 0 and f.path.startsWith(nxLibDir):
+    result[0] = if nxFromNimscriptApi(f.path): "system · NimScript (config.nims, .nimble, nim e)"
+                elif f.module == "system" or f.path.startsWith(nxLibDir / "system" & "/"): "system"
+                else: "std/" & f.module
+  elif extractFilename(f.path).startsWith("nimbleapi_") and "/ned/nimscript/" in f.path:
+    result = ("nimble · what a .nimble file has", false)    # (nimble's API, as ned writes it for the engine)
+  elif nxPluginLibDir.len > 0 and f.path.startsWith(nxPluginLibDir):
+    result[0] = f.module & " · ned's plugin API"
+
 proc nxDoc*(r: NxRef, ufcs = false, withSig = true): string =
   ## Markdown for the documentation panel and hover: signature, doc comment, where it lives
   template s: untyped = r.sym
@@ -1481,10 +1510,8 @@ proc nxDoc*(r: NxRef, ufcs = false, withSig = true): string =
       let q2 = if q1 >= 0: rest.find('"', q1 + 1) else: -1
       if q2 > q1: cn = rest[q1 + 1 ..< q2].replace("$1", s.name)
     result.add "\n\n**C name:** `" & cn & "` (exportc)"
-  var where = r.file.module
-  if nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir):
-    where = "std/" & r.file.module
-  result.add "\n\n" & where & " · " & extractFilename(r.file.path) & ":" & $(s.line + 1)
+  let (where, withAt) = nxWhereOf(r.file)
+  result.add "\n\n" & where & (if withAt: " · " & extractFilename(r.file.path) & ":" & $(s.line + 1) else: "")
 
 proc nxDocItem*(it: NxItem, maxOverloads = 6): string =
   if it.refs.len == 0:
@@ -1533,4 +1560,4 @@ proc nxDocItem*(it: NxItem, maxOverloads = 6): string =
     if shown >= maxOverloads: break
     result.add "\n\n**" & nxSig(r.sym) & "**\n" & nxRstToMd(d)
     inc shown
-  result.add "\n\n" & $it.refs.len & " overloads · " & it.refs[0].file.module
+  result.add "\n\n" & $it.refs.len & " overloads · " & nxWhereOf(it.refs[0].file)[0]

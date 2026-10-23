@@ -117,6 +117,14 @@ proc openSettingsForm(filter = "") =
     ff.group = d.cat
     ff.search = d.key
     ff.tag = $d.kind
+    if d.def != nil and d.kind in {skBool, skEnum, skInt, skStr}:
+      # (↺ beside it when it is not its default: a click puts the default back)
+      ff.hasDef = true
+      ff.def = case d.def.kind
+               of JBool: $d.def.getBool
+               of JInt: $d.def.getInt
+               of JString: d.def.getStr
+               else: ""
     initial[d.key] = f.formValue(d.key)
   f.addButton("Settings file (JSON)", "file", left = true)
   f.addButton("Cancel", "cancel")

@@ -7456,7 +7456,7 @@ def t_621_settings_form():
           'Search every setting' not in screen(), c[-600:])
     palette('Settings'); time.sleep(0.8)
     text('format on save'); time.sleep(0.5)
-    p = find_on_screen('] Format on save')
+    p = find_on_screen('▏ Format on save')                  # (an empty box: ▕ ▏; a ticked one: ▐✓▌)
     if p: click(p[0] + 1, p[1])
     time.sleep(0.3)
     p = find_on_screen(' OK ')
@@ -7674,4 +7674,159 @@ def t_621_new_project():
     check("621 new project: made — its .nimble, its source, its tests", os.path.exists(W + '/hello621/hello621.nimble')
           and os.path.exists(W + '/hello621/src/hello621.nim') and os.path.isdir(W + '/hello621/tests'), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list, t_621_emit_format, t_621_reset, t_621_settings_form, t_621_fields, t_621_context_menus, t_621_drag_drop, t_621_atlas, t_621_decompile, t_621_new_project]
+# ── ned 6.22 ──
+
+def t_622_settings_controls():
+    # the Settings window: each control looks like itself; the scroll bar has ▲ ▼ to tap and a track a tap jumps
+    # on (touch screens send taps, not drags); a number has − and + beside it; ↺ puts a changed setting's default
+    # back
+    setup({"editor.tabSize": None})
+    start('src/demo.nim', w=130, h=36); time.sleep(0.5)
+    palette('Settings'); time.sleep(0.8)
+    s = screen()
+    check("622 settings: the scroll bar's arrows", '▲' in s and '▼' in s, s)
+    first = any('Theme ' in l for l in s.split('\n')[3:7])
+    p = find_on_screen('▼')
+    if p:
+        for _ in range(4): click(p[0] - 1, p[1])
+    time.sleep(0.3)
+    s2 = screen()
+    check("622 settings: ▼ scrolls the settings down", first and s2 != s and 'Pointer shapes' in s2, s2)
+    p = find_on_screen('▲')
+    if p: click(p[0] - 1, p[1] + 2)                 # (a tap at the top of the track: back to the top)
+    time.sleep(0.3)
+    check("622 settings: a tap on the track jumps there", re.search(r'Theme\s', screen()) is not None, screen())
+    # the wheel (a swipe on a touch screen) over the fields scrolls them; a drag of the thumb follows the pointer
+    p = find_on_screen('Theme ')
+    for _ in range(6):
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<65;%d;%dM' % (p[0] + 4, p[1] + 3)); time.sleep(0.08)
+    time.sleep(0.3)
+    check("622 settings: the wheel scrolls the settings", 'Pointer shapes' in screen(), screen())
+    a, b = find_on_screen('▲'), find_on_screen('▼')
+    if a and b:
+        x = a[0] - 1
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<0;%d;%dM' % (x, a[1] + 1)); time.sleep(0.1)
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<32;%d;%dM' % (x, (a[1] + b[1]) // 2)); time.sleep(0.1)
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<32;%d;%dM' % (x, b[1] - 1)); time.sleep(0.1)
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<0;%d;%dm' % (x, b[1] - 1)); time.sleep(0.4)
+    check("622 settings: the thumb dragged to the end — the last settings", re.search(r'Theme\s', screen()) is None and
+          'Restore layout' in screen(), screen())
+    p = find_on_screen('▲')
+    if p: click(p[0] - 1, p[1] + 2)
+    time.sleep(0.3)
+    text('tab size'); time.sleep(0.5)
+    p = find_on_screen(' + ')
+    if p: click(p[0], p[1])
+    time.sleep(0.3)
+    s = screen()
+    check("622 settings: + beside a number adds one (and ↺ shows: not the default now)",
+          re.search(r'Tab size\s.*\b5\b', s) is not None and '↺' in s, s)
+    p = find_on_screen('↺')
+    if p: click(p[0] - 1, p[1])
+    time.sleep(0.3)
+    s = screen()
+    check("622 settings: ↺ — the default back", re.search(r'Tab size\s.*\b4\b', s) is not None and '↺' not in s, s)
+    p = find_on_screen(' + ')
+    if p: click(p[0], p[1]); click(p[0], p[1])
+    keys('Enter')
+    for _ in range(20):
+        time.sleep(0.2)
+        c = open(CFG + '/ned/config.json').read()
+        if 'tabSize' in c: break
+    check("622 settings: OK writes the number the steps made", re.search(r'"editor\.tabSize":\s*6', c) is not None,
+          c[-400:])
+
+NIMS622 = """mode = ScriptMode.Verbose
+task build, "build it":
+  exec "nim c src/demo.nim"
+  cpF
+"""
+
+def t_622_nimscript():
+    # NimScript files: system's NimScript part (exec, cpFile, task …) on hover and in completion; a module the VM
+    # cannot run is a problem; a task's name on hover
+    setup({"nim.nimsuggest": False})
+    open(W + '/build.nims', 'w').write(NIMS622)
+    start('build.nims', w=130, h=36); time.sleep(1.5)
+    keys('C-g'); text('3:4'); keys('Enter'); keys('M-h')
+    check("622 nims: hover on exec — its doc (system's NimScript part)", wait_for('Executes an external process', 8),
+          screen())
+    keys('Escape')
+    keys('C-g'); text('2:7'); keys('Enter'); keys('M-h')
+    check("622 nims: hover on a task's name", wait_for('nim build runs it — build it', 8), screen())
+    keys('Escape')
+    keys('C-g'); text('4:6'); keys('Enter'); keys('End'); time.sleep(0.2); keys('C-space'); time.sleep(1.0)
+    check("622 nims: completion — cpFile", re.search(r'cpFile', screen()) is not None, screen())
+    keys('Escape')
+    keys('C-Home'); text('import std/osproc\n'); keys('C-s'); time.sleep(1.0)
+    palette('Show problems')
+    check("622 nims: a module NimScript cannot run, a problem", wait_for('std/osproc does not run in NimScript', 12),
+          screen())
+    # ned --format on scripts: switches (--path:"../src") and the package's lined-up fields stay as written
+    open(W + '/t622.nims', 'w').write('--path:"../src"\n--d:release\nswitch("path", "x")\n')
+    open(W + '/t622.nimble', 'w').write('version       = "0.1.0"\nauthor        = "me"\nlicense       = "MIT"\n\n'
+                                        'requires "nim >= 2.0"\n')
+    r = subprocess.run([BIN, '--format', W + '/t622.nims', W + '/t622.nimble'], capture_output=True, text=True)
+    a, b = open(W + '/t622.nims').read(), open(W + '/t622.nimble').read()
+    check("622 nims: ned --format keeps a script's switches and lined-up fields", r.returncode == 0 and
+          '--path:"../src"\n--d:release\n' in a and 'version       = "0.1.0"' in b, r.stdout + r.stderr + a + b)
+
+PLUG622 = """import nedplugin
+
+proc toggle(b: Buf) =
+  let cm = b.lineComment
+  message("no line comment " & cm)
+  b.
+"""
+
+def t_622_plugin_api():
+    # a plugin: `import nedplugin` resolves — its API on hover (with its doc) and in completion
+    setup({"nim.nimsuggest": False})
+    d = CFG + '/ned/plugins/p622'
+    os.makedirs(d, exist_ok=True)
+    open(d + '/plugin.nims', 'w').write(PLUG622)
+    start(d + '/plugin.nims', w=130, h=36); time.sleep(1.5)
+    keys('C-g'); text('5:4'); keys('Enter'); keys('M-h')
+    check("622 plugin: hover on message — the plugin API's doc", wait_for('the status line', 8), screen())
+    keys('Escape')
+    keys('C-g'); text('4:18'); keys('Enter'); keys('M-h')
+    check("622 plugin: hover on b.lineComment", wait_for("the language's line comment", 8), screen())
+    keys('Escape')
+    keys('C-g'); text('6:5'); keys('Enter'); keys('End'); text('lineCo'); keys('C-space'); time.sleep(1.0)
+    s = screen()
+    keys('Escape'); keys('BSpace', 'BSpace', 'BSpace', 'BSpace', 'BSpace', 'BSpace'); text('setCu')
+    keys('C-space'); time.sleep(1.0)
+    s2 = screen()
+    check("622 plugin: completion after b. — the Buf procs", re.search(r'ƒ lineComment', s) is not None and
+          re.search(r'ƒ setCursor', s2) is not None, s + s2)
+    keys('Escape')
+
+DOC622 = """iterator oddNumbers(a: openArray[int]): int = ## hwad \\
+  ## hello
+  for x in a:
+    if x mod 2 == 1: yield x
+
+const flag* = defined(linux) or
+    defined(macosx) ## \\
+  ## Whether it is a Unix
+  ## we know.
+
+for o in oddNumbers([1, 2, 3]): echo o, flag
+"""
+
+def t_622_doc_comments():
+    # a doc comment that starts on the declaration's line and goes on below, a line ending in \\ (joined, as
+    # nim doc does): the hover shows it as one text
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/docs.nim', 'w').write(DOC622)
+    start('src/docs.nim', w=130, h=36); time.sleep(1.5)
+    keys('C-g'); text('11:12'); keys('Enter'); keys('M-h')
+    ok = wait_for('hwad hello', 8)
+    check("622 docs: ## on the header line, \\ joining the next one", ok and re.search(r'│ hwad hello\s', screen()),
+          screen())
+    keys('Escape')
+    keys('C-g'); text('11:42'); keys('Enter'); keys('M-h')
+    check("622 docs: a constant over two lines, its ## \\ doc below it", wait_for('Whether it is a Unix we know', 8),
+          screen())
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list, t_621_emit_format, t_621_reset, t_621_settings_form, t_621_fields, t_621_context_menus, t_621_drag_drop, t_621_atlas, t_621_decompile, t_621_new_project, t_622_settings_controls, t_622_nimscript, t_622_plugin_api, t_622_doc_comments]

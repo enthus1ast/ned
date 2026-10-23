@@ -14,8 +14,15 @@ type
     start*: int
     chain*: int            # (keepInactive) the conditions of the left-out branches it is in: index into `chains`
 
+func nxTightSlash(s: string): string =
+  ## `std / [os, strutils]`, `basic / versions`: the path without the spaces around its `/` (not in a "string")
+  result = s
+  if '"' in s or '/' notin s: return
+  while " /" in result: result = result.replace(" /", "/")
+  while "/ " in result: result = result.replace("/ ", "/")
+
 proc nxParseImports*(f: NxFile, rest: string, line: int, kw: string) =
-  var r = rest.strip
+  var r = nxTightSlash(rest.strip)
   if kw == "export":
     for p in nxSplitTop(r, {','}):
       let x = p.strip
@@ -128,7 +135,8 @@ proc nxWhen*(cond: string): int =
                        "zephyr", "freertos", "standalone", "useNimRtl", "nimdoc", "gcRefc", "gcMarkAndSweep", "gcBoehm",
                        "gcGo", "gcRegions", "nogc", "nimHasCompiles", "nimNoLibc", "lwip", "nimdoc", "vcc", "msvc",
                        "createNimRtl", "booting", "nimTypeNames", "nimHasCursor"]
-          if arg in nxDefines: toks.add "1"
+          if arg == "nimconfig": toks.add "?"      # (system's NimScript part: read, then a script's only — scope)
+          elif arg in nxDefines: toks.add "1"
           elif arg in known or arg == "android" or arg == "amd64" or arg == "arm64" or arg == "i386" or
                nxDefinesComplete: toks.add "0"
           else: toks.add "?"
@@ -436,6 +444,9 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
   var stack: seq[NxFrame]
   var docTarget = -1         # symbol that following ## lines document
   var docInd = 0
+  var valDoc = -1            # a const/let/var whose value is on the lines below (`AltSep* =⏎ when …⏎ ## doc`): the
+  var valDocInd = 0          # ## lines after the value, at the value's indentation, are its doc
+  var valInd = -1
   var moduleDocOpen = true
   var lastContent = 0
   var code, doc: string
@@ -600,14 +611,21 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
         elif docTarget >= 0 and ind > docInd:
           let d = f.syms[docTarget].doc
           f.syms[docTarget].doc = (if d.len > 0: d & "\n" else: "") & doc
+        elif docTarget < 0 and valDoc >= 0 and valDoc < f.syms.len and ind == valInd:
+          docTarget = valDoc
+          docInd = valDocInd
+          let d = f.syms[docTarget].doc
+          f.syms[docTarget].doc = (if d.len > 0: d & "\n" else: "") & doc
       elif raw.strip.len == 0 and docTarget >= 0:
         discard                  # a blank line inside a doc comment keeps it going
       continue
     moduleDocOpen = false
     # join continuation lines: open brackets, or a trailing comma
     var guard = 0
-    while (depth > 0 or t.endsWith(",") or t.endsWith("|")) and i < n and guard < 60 and not st.inTriple and
-          st.blockDepth == 0:          # (and `A = B |⏎ C`: one type)
+    while (depth > 0 or t.endsWith(",") or t.endsWith("|") or t.endsWith(" or") or t.endsWith(" and") or
+           t.endsWith(" xor") or t.endsWith("&") or t.endsWith(" +")) and i < n and guard < 60 and
+          not st.inTriple and st.blockDepth == 0:
+      # (and `A = B |⏎ C`: one type; `const X* = defined(linux) or⏎ defined(osx) ## doc`: one value, its doc)
       var c2, d2: string
       nxSplitLine(lines[i], st, c2, d2, depth)
       t.add " " & c2.strip
@@ -675,6 +693,9 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
     for fr in stack:
       if fr.kind == bkRoutine: inc localDepth
     docTarget = -1               # a code line ends a doc comment run (its own trailing ## aside)
+    if valDoc >= 0:
+      if ind <= valDocInd: valDoc = -1
+      elif valInd < 0: valInd = ind
     if t.startsWith("{.pragma:"):
       let (pn, _) = nxName(t, 9)
       if pn.len > 0: f.pragmas.add (pn, startLine)
@@ -841,6 +862,8 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       else:
         varMember(t, stack[k].secKind)
         if opensBlock: stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
+        if t.endsWith("=") and f.syms.len > 0:
+          (valDoc, valDocInd, valInd) = (f.syms.high, ind, -1)
     of bkRoutine, bkLocal:
       # a routine's body: what it declares is local, but its types are worth knowing (their fields, for `x.`)
       if w0 == "type":

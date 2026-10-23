@@ -10,7 +10,8 @@ proc dragHandleAt(x, y: int): DragTarget =
     if rightOpen and lay.rightW > 0 and not lay.rightFloat and x == lay.rightX - 1: return dtRightDock
   if panelTopY >= 0 and y == panelTopY and x >= lay.edX and x < lay.edX + lay.edW and hitRegion(x, y) < 0:
     return dtPanel
-  if sbCol >= 0 and x == sbCol and y >= sbTop and y < sbTop + sbH: return dtScroll
+  # (the scroll bar: on a touch screen — Termux — the column before it too, a finger is wider than a column)
+  if sbCol >= 0 and (x == sbCol or (x == sbCol - 1 and isTermux())) and y >= sbTop and y < sbTop + sbH: return dtScroll
   if mmRect.x >= 0 and x >= mmRect.x and x < mmRect.x + mmRect.w and y >= mmRect.y and y < mmRect.y + mmRect.h:
     return dtMinimap
   dtNone

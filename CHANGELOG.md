@@ -1,6 +1,70 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-621). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-622). Older releases:
+
+## What's new in 6.21
+
+6.21 makes ned work more like a desktop app — real dialogs, right-click menus everywhere, drag and drop, text
+fields you select with the mouse — puts a decompiler beside your code, takes Atlas projects further, builds ned for
+Windows itself, can reset everything to a first start, and fixes the formatter on emits and a few other shapes.
+
+**Dialogs and forms.** The Settings window has the categories on the left, a search over every setting, check
+boxes, lists and number fields, and OK, Apply and Cancel — OK writes only what you changed, with the file's comments
+kept; a bad number is refused before anything is written. *New Nim project…* is a form (name, folder, program or
+library, description, license, nimble or atlas for the dependencies, git, tests), and so are Atlas's commands
+(below) and *Reset everything*. Prompts and pickers get OK and Cancel under them (`ui.formButtons`); Tab moves
+between a dialog's fields, Enter is its default button, Esc closes it.
+
+**Text fields you can select in.** Every field — the palette, Find, a prompt, a dock's filter, a dialog's — takes
+the mouse: a click places the cursor, a drag selects, a double-click takes a word and a triple-click all of it;
+Shift+arrows and Ctrl+Shift+arrows select, Ctrl+A selects all, Ctrl+C/X copy and cut the selection, typing replaces
+it, and a right-click gives Cut, Copy, Paste, Select all.
+
+**Right-click everywhere.** Tabs (close the others, split with it, show it in the other pane, copy its path),
+the gutter (breakpoint, conditional breakpoint, logpoint, bookmark, fold, the git change on that line, copy a link
+to it), every item of every dock (open, open to the side, references, rename, run or debug a test, copy its path),
+each part of the status bar (the position, line endings, the language, the AI, the terminal, the language server,
+the problems), the title bar, breadcrumbs, the minimap, the panel and its lines, messages, a split's pane header,
+a picker's rows, the welcome page's recent files.
+
+**Drag and drop.** A tab dragged out of the tab bar goes onto a pane, or to the editor's right or bottom edge to
+split with it; a file from the tree opens where you drop it (or splits at the edges), moves into a folder you drop
+it on (after asking), or puts its path in the terminal; selected text moves where you drop it — with Ctrl or Alt
+held it is copied — in one undo step. The places it can go light up while you drag (`ui.dragAndDrop`).
+
+**A decompiler beside your code.** *Nim: decompile this proc (side by side)* builds the program with debug
+information and shows the proc at the cursor as C (radare2 with r2ghidra or r2dec, rizin with rz-ghidra, RetDec)
+or as assembly with the Nim lines it came from (radare2, rizin, objdump, llvm-objdump) — whichever is installed
+(`decompiler.tool`) — in the pane beside it; it follows the cursor into the next proc. In the hex editor, *Hex:
+decompile a function…* (or its ⇄ button) lists a program's functions; *Decompile a program…* opens one. In Termux,
+`pkg install radare2` (or binutils, for objdump) is enough; on Linux, radare2 (`r2pm -ci r2ghidra` for C), rizin,
+RetDec or binutils; on Windows, radare2 or LLVM's llvm-objdump.
+
+**Atlas.** An Atlas project (atlas.config, or nim.cfg's Atlas section) shows its dependencies first in the Nim
+panel — the version atlas chose, *linked*, *≠ lock* when the checkout is not what atlas.lock pins, *not on the path*
+when nim.cfg leaves it out — each with its own menu (update it, unlink, its history, its .nimble); the Nims `atlas
+env` installed (one click makes it the project's Nim). Install, update all or one, add a dependency (from the
+package list, with a version), link and unlink a project, pin, replay, what changed, outdated, the dependency tree,
+a Nim for the project, atlas-run's tasks, build and tests are in the palette and *Atlas…*; atlas's errors go to
+Problems on the .nimble's requires line of the package they name. atlas.config's keys have hovers; a nimble
+install asked from a .nimble uses atlas in an Atlas project.
+
+**Windows, natively (experimental).** ned builds for Windows itself: the console (Windows Terminal) is its
+terminal, a pseudo-console (ConPTY) runs PowerShell in its terminal panel, its commands run through Git for Windows'
+sh, and the clipboard is Windows'. CI builds and checks it on every push; WSL stays the tried way. See
+[Windows](README.md#windows).
+
+**Reset everything.** File › Preferences › *Reset everything (start fresh)…* shows what ned keeps — settings,
+plugins, sessions and history, caches, downloads (and, if you tick it, the project's `.ned`) — with their sizes,
+removes what you tick, and starts ned again as on its first run; `ned --reset` does the same from the shell, for
+when ned no longer starts as it should.
+
+**The formatter.** `{.emit: """` stays on its line (it was split into `{.` and `emit: """`, which also lost the
+C's colours — C in that split form is coloured again too). A comment after `=`, `return f(…):` with a block,
+`x = if/try/case …` with the first branch on the same line, a `case` inside a value, `else: name: x`, `quote do:`,
+`expect E: body`, a long proc type and a `doAssert not …` are formatted (or left alone) instead of refused. On 761
+files of Nim's standard library, its compiler, atlas, nph and other packages, every file now formats, and formatting
+again changes nothing.
 
 ## What's new in 6.20
 

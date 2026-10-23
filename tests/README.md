@@ -12,7 +12,7 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 | [`format/`](format) | the Nim formatter on 463 files of Nim's compiler and standard library, each checked by Nim's own parser | minutes | `nimble parsecheck` |
 | [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 1300 checks | ~1 hour | `nimble uitest` |
 | [`fuzz/`](fuzz) | random keys, mouse events, pastes, palette commands and resizes; crashes, hangs and internal errors reported | as long as you like | `tests/fuzz/batch.sh 120 mixed vim palette` |
-| [`engine/`](engine) | ned's Nim engine against nimsuggest on the standard library, nimble packages and the compiler; its C engine against clangd | ~1 hour | `tests/engine/build.sh && tests/engine/corpus.sh /tmp/out` · `tests/engine/ccompare.py` |
+| [`engine/`](engine) | ned's Nim engine against nimsuggest on the standard library, nimble packages and the compiler; what the editor answers (through nedls) in .nim, .nims, .nimble and plugins against nimsuggest and the APIs' docs; its C engine against clangd | ~1 hour | `tests/engine/build.sh && tests/engine/corpus.sh /tmp/out` · `tests/engine/parity.py FILE…` · `tests/engine/ccompare.py` |
 | [`build/`](build) | ned built for every target: gcc, clang, and with zig macOS (arm64, x86_64) and Android/Linux arm64 — nedfmt and nedls too | minutes | `tests/build/cross.sh` |
 | [`themes/`](themes) | every built-in theme's colours against its background; ned's own must pass | a second | `python3 tests/themes/contrast.py` |
 
@@ -26,6 +26,7 @@ pseudo-terminal.
 nimble release                                   # ./ned
 python3 tests/ui/run.py ./ned                    # all of them
 python3 tests/ui/run.py ./ned t_528_refs t_57_ai # some of them (--list shows the names)
+NED_UI_FULL=1 python3 tests/ui/run.py ./ned t_622_nimscript   # a failure prints the whole screen
 ```
 
 They need **tmux**, **git**, **python3** and **nim** on PATH. Each test starts ned in a private tmux server, in a

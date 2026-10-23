@@ -22,6 +22,8 @@ type
     act: Action                   # ffAction: what a click does
     tag: string                   # what the field is for (free: the settings keep their key's kind here)
     onChange: proc(f: FormField)
+    def: string                   # its default (hasDef): ↺ beside it when it differs, a click puts it back
+    hasDef: bool
   FormButton = object
     label, id: string
     primary, danger, left: bool   # left: on the left of the row (a secondary action)
@@ -45,12 +47,15 @@ type
     # (the last drawing: for the mouse wheel, the scroll bar, keeping the focus in view)
     contentY, contentH, contentRows: int
     sbX: int
+    sbTop, sbH, sbThumbH: int     # (the scroll bar's track and thumb: a press puts the thumb's middle there)
+    shownFocus: int               # the field last brought into view (the scroll bar and the wheel move away from it;
+                                  # a key or another focus brings it back)
 
 var forms: seq[Form]
 
 proc formOpen(): bool {.inline.} = forms.len > 0
 
-proc newForm(title: string, intro = ""): Form = Form(title: title, intro: intro, sbX: -1)
+proc newForm(title: string, intro = ""): Form = Form(title: title, intro: intro, sbX: -1, shownFocus: -2)
 
 proc addField(f: Form, ff: FormField): FormField {.discardable.} =
   f.fields.add ff
@@ -218,18 +223,43 @@ proc formScroll(d: int) =
   needRender = true
 
 proc formScrollTo(y: int) =
-  ## the scroll bar's thumb follows the pointer
+  ## the scroll bar's thumb under the pointer (its middle there): a tap on the track jumps, a drag follows
   if forms.len == 0: return
   let f = forms[^1]
   if f.contentH <= 1 or f.contentRows <= f.contentH: return
-  f.scroll = clamp((y - f.contentY) * (f.contentRows - f.contentH) div max(1, f.contentH - 1), 0,
-                   f.contentRows - f.contentH)
+  let span = max(1, f.sbH - f.sbThumbH)
+  let top = y - f.sbTop - f.sbThumbH div 2
+  f.scroll = clamp(top * (f.contentRows - f.contentH) div span, 0, f.contentRows - f.contentH)
   needRender = true
+
+proc formValueOf(ff: FormField): string =
+  case ff.kind
+  of ffChoice: (if ff.sel >= 0 and ff.sel < ff.opts.len: ff.opts[ff.sel] else: "")
+  of ffCheck: $ff.on
+  else: ff.text
+
+proc formReset(f: Form, ff: FormField) =
+  ## the field back to its default
+  case ff.kind
+  of ffCheck: ff.on = ff.def == "true"
+  of ffChoice:
+    let k = ff.opts.find(ff.def)
+    if k >= 0: ff.sel = k
+  of ffText, ffNumber:
+    ff.text = ff.def
+    ff.cur = ff.text.len
+  else: discard
+  f.formChanged(ff)
+
+proc boxEdges(x, y, w: int, under, edge: Rgb) =
+  ## a one-row box's sides: thin lines just outside it (▕ before, ▏ after)
+  if x - 1 >= 0: setCell(x - 1, y, Cell(ch: 0x2595, fg: edge, bg: under))
+  if x + w < scrW: setCell(x + w, y, Cell(ch: 0x258F, fg: edge, bg: under))
 
 proc formLabelW(f: Form, vis: seq[int], areaW: int): int =
   for i in vis:
     if i >= 0 and f.fields[i].kind in {ffText, ffNumber, ffChoice}:
-      result = max(result, strWidth(f.fields[i].label) + 2)
+      result = max(result, strWidth(f.fields[i].label) + 4)
   result = clamp(result, 10, max(10, areaW * 2 div 5))
 
 proc formRowsOf(f: Form, i, areaW, lw: int): int =
@@ -242,15 +272,36 @@ proc formRowsOf(f: Form, i, areaW, lw: int): int =
   else: 1
 
 proc drawFormField(f: Form, i, ax, ry, n, areaW, lw, bodyTop, bodyBot: int): (string, int, int) =
-  ## one field of a form at row ry (its label, its box): (its help when it has the focus, the cursor's x and y)
+  ## one field of a form at row ry (its label, its control): (its help when it has the focus, the cursor's x and y).
+  ## Each kind of control looks like itself: a check box is a small box (filled when ticked), a text field a box
+  ## with thin sides, a number one with − and + beside it, a list a box with ▾, a link a button; the row the
+  ## pointer is on is tinted, the one with the focus more and marked ▍ on the left; ↺ at the end puts back a
+  ## setting's default
   result = ("", -1, -1)
   let bg = theme.menuBg
   let ff = f.fields[i]
   let focused = i == f.focus and f.zone == 0
   let fg = if ff.disabled: theme.dim else: theme.fg
+  let rowH = (if n == 2: 2 else: 1)
   template inView(yy: int): bool = yy >= bodyTop and yy < bodyBot
-  if focused and inView(ry): discard putStr(ax - 1, ry, "▍", theme.accent, bg)
+  let rowBg = if focused: blend(bg, theme.accent, 0.10)
+              elif ff.kind notin {ffHeader, ffLabel} and hov(ax - 1, ry, areaW + 1, rowH): blend(bg, theme.fg, 0.05)
+              else: bg
+  if rowBg != bg:
+    for k in 0 ..< rowH:
+      if inView(ry + k): fillRect(ax - 1, ry + k, areaW + 1, 1, fg, rowBg)
+  if focused and inView(ry): discard putStr(ax - 1, ry, "▍", theme.accent, rowBg)
+  let fieldBg = seenOn(theme.inputBg, rowBg, 0.10)
+  let edge = seenOn(theme.inputBorder, rowBg, 0.30)
+  let endX = ax + areaW - (if f.groups.len > 0: 3 else: 0)      # (settings: a column for ↺)
   let idx = i
+  # ↺: back to the default (a setting changed from it)
+  if ff.hasDef and ff.formValueOf != ff.def and inView(ry) and not ff.disabled:
+    capture idx:
+      discard button(ax + areaW - 2, ry, "↺", proc() =
+        f.zone = 0
+        f.focus = idx
+        f.formReset(ff), "Back to the default: " & (if ff.def.len > 0: ff.def else: "(empty)"), theme.accent, rowBg)
   case ff.kind
   of ffHeader:
     if inView(ry):
@@ -261,40 +312,44 @@ proc drawFormField(f: Form, i, ax, ry, n, areaW, lw, bodyTop, bodyBot: int): (st
       if inView(ry + k): discard putStr(ax, ry + k, l, theme.dim, bg, {}, ax + areaW)
   of ffCheck:
     if inView(ry):
-      let rowBg = if hov(ax, ry, areaW) and not ff.disabled: blend(bg, theme.fg, 0.06) else: bg
-      fillRect(ax, ry, areaW, 1, fg, rowBg)
-      var xx = putStr(ax, ry, "[", theme.dim, rowBg)
-      xx = putStr(xx, ry, (if ff.on: "✓" else: " "), theme.accent, rowBg, {aBold})
-      xx = putStr(xx, ry, "] ", theme.dim, rowBg)
-      discard putStr(xx, ry, ff.label, (if focused: theme.accent else: fg), rowBg, (if focused: {aBold} else: {}),
-                     ax + areaW)
+      # ▐✓▌ — a box of its own colour: the accent when ticked
+      let boxBg = if ff.on: (if ff.disabled: theme.dim else: theme.accent) else: fieldBg
+      setCell(ax, ry, Cell(ch: 0x2590, fg: boxBg, bg: rowBg))
+      discard putStr(ax + 1, ry, (if ff.on: "✓" else: " "), (if ff.on: theme.badgeFg else: theme.dim), boxBg, {aBold})
+      setCell(ax + 2, ry, Cell(ch: 0x258C, fg: boxBg, bg: rowBg))
+      if not ff.on: boxEdges(ax + 1, ry, 1, rowBg, edge)
+      discard putStr(ax + 4, ry, ff.label, (if focused: theme.accent else: fg), rowBg, (if focused: {aBold} else: {}),
+                     endX)
       capture idx:
-        region(ax, ry, areaW, 1, proc() =
+        region(ax - 1, ry, endX - ax + 1, 1, proc() =
           f.zone = 0
           f.focus = idx
           f.formActivate(idx), ff.help)
   of ffAction:
     if inView(ry):
-      let label = "› " & ff.label
-      let e = button(ax, ry, label, proc() =
-        f.zone = 0
-        f.focus = idx
-        f.formActivate(idx), ff.help, (if ff.disabled: theme.dim else: theme.accent), bg,
-        (if focused: {aBold, aUnder} else: {aUnder}))
-      discard e
+      # a link: a button
+      let bb = seenOn(theme.btnBg, rowBg, 0.14)
+      capture idx:
+        discard pill(ax, ry, "› " & truncTo(ff.label, max(4, endX - ax - 6)), proc() =
+          f.zone = 0
+          f.focus = idx
+          f.formActivate(idx), ff.help, (if ff.disabled: theme.dim else: theme.accent), (if focused: blend(bb, theme.accent, 0.25) else: bb),
+          (if focused: {aBold} else: {}))
   of ffText, ffNumber, ffChoice:
     let two = n == 2
     if inView(ry):
-      discard putStr(ax, ry, ff.label, (if focused: theme.accent else: fg), bg, (if focused: {aBold} else: {}),
-                     ax + (if two: areaW else: lw - 1))
+      discard putStr(ax + 1, ry, ff.label, (if focused: theme.accent else: fg), rowBg, (if focused: {aBold} else: {}),
+                     ax + (if two: areaW else: lw - 2))
       capture idx:
-        region(ax, ry, (if two: areaW else: lw), 1, proc() =
+        region(ax - 1, ry, (if two: areaW else: lw), 1, proc() =
           f.zone = 0
           f.focus = idx, ff.help)
     let fy = if two: ry + 1 else: ry
-    let fx = if two: ax + 2 else: ax + lw
-    let fw = ax + areaW - fx
+    let fx = if two: ax + 3 else: ax + lw
+    let room = max(6, endX - fx - 1)
     if inView(fy):
+      let fbg = if focused: blend(fieldBg, theme.accent, 0.12)
+                elif hov(fx, fy, room): blend(fieldBg, theme.fg, 0.06) else: fieldBg
       if ff.kind == ffChoice:
         let cur = if ff.sel >= 0 and ff.sel < ff.opts.len:
                     (if ff.sel < ff.optLabels.len and ff.optLabels[ff.sel].len > 0: ff.optLabels[ff.sel] else: ff.opts[ff.sel])
@@ -302,12 +357,11 @@ proc drawFormField(f: Form, i, ax, ry, n, areaW, lw, bodyTop, bodyBot: int): (st
         var mw = 0
         for k, o in ff.opts:
           mw = max(mw, strWidth(if k < ff.optLabels.len and ff.optLabels[k].len > 0: ff.optLabels[k] else: o))
-        let cw = min(fw, max(12, mw + 4))
-        let cbg = if focused: blend(theme.inputBg, theme.accent, 0.12)
-                  elif hov(fx, fy, cw): blend(theme.inputBg, theme.fg, 0.06) else: theme.inputBg
-        fillRect(fx, fy, cw, 1, fg, cbg)
-        discard putStr(fx + 1, fy, cur, fg, cbg, {}, fx + cw - 2)
-        discard putStr(fx + cw - 2, fy, "▾", theme.accent, cbg, {aBold})
+        let cw = min(room, max(14, mw + 4))
+        fillRect(fx, fy, cw, 1, fg, fbg)
+        boxEdges(fx, fy, cw, rowBg, (if focused: theme.accent else: edge))
+        discard putStr(fx + 1, fy, cur, fg, fbg, {}, fx + cw - 2)
+        discard putStr(fx + cw - 2, fy, "▾", theme.accent, fbg, {aBold})
         let ffx = fx
         let ffy = fy
         capture idx, ffx, ffy:
@@ -316,11 +370,27 @@ proc drawFormField(f: Form, i, ax, ry, n, areaW, lw, bodyTop, bodyBot: int): (st
             f.focus = idx
             f.formActivate(idx, ffx, ffy + 1), ff.help)
       else:
-        let cx = drawField(fx, fy, fw, ff.text, ff.cur, focused and not ff.disabled, fg,
-                           (if focused: blend(theme.inputBg, theme.accent, 0.08) else: theme.inputBg),
+        # a number: a narrow box and − + beside it (a tap each: no keyboard needed on a phone)
+        let bw = max(4, if ff.kind == ffNumber: min(room - 9, 12) else: min(room, 52))
+        fillRect(fx, fy, bw, 1, fg, fbg)                          # (a space inside each side)
+        let cx = drawField(fx + 1, fy, bw - 2, ff.text, ff.cur, focused and not ff.disabled, fg, fbg,
                            ff.placeholder, ff.secret, onFocus = proc() =
                              f.zone = 0
                              f.focus = idx)
+        boxEdges(fx, fy, bw, rowBg, (if focused: theme.accent else: edge))
+        if ff.kind == ffNumber and not ff.disabled:
+          let sb = seenOn(theme.btnBg, rowBg, 0.14)
+          proc step(d: int) =
+            var v = 0
+            try: v = parseInt(ff.text.strip)
+            except ValueError: v = 0
+            ff.text = $(v + d)
+            ff.cur = ff.text.len
+            f.zone = 0
+            f.focus = idx
+            f.formChanged(ff)
+          let px = pill(fx + bw + 2, fy, "−", proc() = step(-1), "One less", theme.fg, sb)
+          discard pill(px, fy, "+", proc() = step(1), "One more", theme.fg, sb)
         if focused: result = (ff.help, cx, fy)
   if i == f.focus and f.zone == 0 and result[0].len == 0: result[0] = f.fields[i].help
 
@@ -334,7 +404,7 @@ proc drawForm() =
   let hasSide = f.groups.len > 0 and w >= 70
   let sideW = if hasSide: clamp(w div 4, 18, 28) else: 0
   let areaX0 = 2 + (if hasSide: sideW + 1 else: 0)            # (from the frame's left edge)
-  let areaW = w - areaX0 - 3                                    # (a column for the scroll bar)
+  let areaW = w - areaX0 - 4                                    # (two columns for the scroll bar)
   let vis = f.formVisible
   let lw = f.formLabelW(vis, areaW)
   # the content's height: the intro, the fields
@@ -413,8 +483,9 @@ proc drawForm() =
   f.contentY = bodyTop
   f.contentH = viewH
   f.contentRows = contentRows
-  # (the focused field in view)
-  block:
+  # (the focused field in view — when it changed, or a key was pressed: not against the scroll bar or the wheel)
+  if f.focus != f.shownFocus:
+    f.shownFocus = f.focus
     var r = 0
     for i in vis:
       let n = f.formRowsOf(i, areaW, lw)
@@ -442,21 +513,37 @@ proc drawForm() =
     if cx >= 0:
       cursorX = cx
       cursorY = cyy
-  # the scroll bar (when the fields are more than the room)
+  # the scroll bar (when the fields are more than the room): two columns wide — ▲ and ▼ to tap, the track a tap
+  # jumps on (touch screens: Termux sends taps, not drags), the thumb a mouse drags
   f.sbX = -1
-  if contentRows > viewH:
-    let sx = x + w - 2
+  if contentRows > viewH and viewH >= 3:
+    let sx = x + w - 3
     f.sbX = sx
-    let thumbH = max(1, viewH * viewH div contentRows)
-    let thumbY = bodyTop + (viewH - thumbH) * f.scroll div max(1, contentRows - viewH)
-    for yy in bodyTop ..< bodyBot:
-      setCell(sx, yy, Cell(ch: (if yy >= thumbY and yy < thumbY + thumbH: 0x2588'u32 else: 0x2502'u32),
-                           fg: (if yy >= thumbY and yy < thumbY + thumbH: theme.scrollThumb else: theme.border), bg: bg))
-    region(sx, bodyTop, 1, viewH, proc() =
+    let trackTop = bodyTop + 1
+    let trackH = max(1, viewH - 2)
+    let thumbH = clamp(trackH * viewH div contentRows, 1, trackH)
+    let thumbY = trackTop + (trackH - thumbH) * f.scroll div max(1, contentRows - viewH)
+    f.sbTop = trackTop
+    f.sbH = trackH
+    f.sbThumbH = thumbH
+    let track = blend(bg, theme.fg, 0.07)
+    let thumb = seenOn(theme.scrollThumb, track, 0.35)
+    for yy in trackTop ..< trackTop + trackH:
+      let on = yy >= thumbY and yy < thumbY + thumbH
+      for xx in sx .. sx + 1: setCell(xx, yy, Cell(ch: 32, fg: theme.fg, bg: (if on: thumb else: track)))
+    discard button(sx, bodyTop, "▲ ", proc() = formScroll(-3), "Up", theme.accent, track)
+    discard button(sx, bodyBot - 1, "▼ ", proc() = formScroll(3), "Down", theme.accent, track)
+    region(sx, trackTop, 2, trackH, proc() =
       dragTarget = dtFormScroll
-      formScrollTo(mouseY), "Drag to scroll")
+      formScrollTo(mouseY), "Drag, or tap where to go")
   # the help of the focused field, an error, the buttons
   let hy = y + h - 1 - helpRows - 1
+  for xx in x + 2 ..< x + w - 2: setCell(xx, hy - 1, Cell(ch: 0x2500, fg: theme.border, bg: bg))
+  if f.groups.len > 0 and f.focus >= 0 and f.focus < f.fields.len and f.zone == 0 and f.error.len == 0 and
+     f.fields[f.focus].key.len > 0 and '.' in f.fields[f.focus].key:
+    # (the settings: the key it has in the file, over the line)
+    let k = " " & f.fields[f.focus].key & " "
+    discard putStr(x + w - 3 - strWidth(k), hy - 1, k, theme.accent, bg, {}, x + w - 2)
   if f.error.len > 0:
     discard putStr(x + 3, hy, ic("error") & " " & f.error, theme.err, bg, {aBold}, x + w - 2)
   elif helpText.len > 0:
@@ -474,7 +561,7 @@ proc drawForm() =
   for k, b in f.buttons:
     let fi = f.fields.len + k
     let focused = f.focus == fi and f.zone == 0
-    let base = if b.danger: theme.warn elif b.primary: theme.accent else: theme.btnBg
+    let base = if b.danger: theme.warn elif b.primary: theme.accent else: seenOn(theme.btnBg, bg, 0.16)
     let bfg = if b.primary or b.danger: theme.badgeFg else: theme.fg
     let bbg = if focused and not b.primary: blend(base, theme.accent, 0.35) else: base
     let id = b.id
@@ -491,6 +578,7 @@ proc formKey(k: Key) =
   let f = forms[^1]
   f.formFix()
   needRender = true
+  if k.kind notin {kPgUp, kPgDn}: f.shownFocus = -2       # (the field the keys go to: in view again)
   if k.kind == kEsc:
     f.formCancel()
     return

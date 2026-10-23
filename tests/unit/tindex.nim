@@ -754,4 +754,83 @@ suite "concepts at a call (6.20)":
     check "area(Foo): float" in h
     check "Not a match" notin nxHover(f, ls, 9, colOf(ls, 9, "total"))
 
+suite "NimScript, plugins and doc comments (6.22)":
+  proc scriptAt(name, text: string): (NxFile, seq[string]) =
+    let m = dir / ("s622_" & $n)
+    inc n
+    createDir(m)
+    writeFile(m / name, text)
+    (nxLoad(m / name), text.split('\n'))
+
+  test "a .nims sees system's NimScript part: exec, cpFile — with their docs":
+    let (f, ls) = scriptAt("build.nims", "mode = ScriptMode.Verbose\nexec \"nim c x.nim\"\ncpF\n")
+    let h = nxHover(f, ls, 1, 1)
+    check "Executes an external process" in h
+    check "system · NimScript" in h
+    check "cpFile" in nxComplete(f, ls, 2, ls[2].len).labels
+
+  test "a task's name: hover (how it runs, its description), the file's tasks":
+    let (f, ls) = scriptAt("build.nims", "task build, \"build it\":\n  exec \"nim c x\"\n")
+    check "`nim build` runs it — build it" in nxHover(f, ls, 0, 6)
+    let (g, gs) = scriptAt("p.nimble", "version = \"1.0\"\ntask test, \"run the tests\":\n  exec \"nim r t\"\n")
+    check "`nimble test` runs it — run the tests" in nxHover(g, gs, 1, 6)
+    let t = nxScriptTasks(gs)
+    check t.len == 1 and t[0].name == "test" and t[0].line == 1 and t[0].desc == "run the tests"
+
+  test "a doc comment on the declaration's line, going on below; a line ending in \\ joined (as nim doc does)":
+    let (f, ls) = fixture("iterator oddNumbers(a: openArray[int]): int = ## hwad \\\n  ## hello\n" &
+                          "  for x in a:\n    if x mod 2 == 1: yield x\n" &
+                          "const flag* = defined(linux) or\n    defined(macosx) ## \\\n  ## Whether it is a Unix\n" &
+                          "  ## we know.\n" &
+                          "for o in oddNumbers([1, 2, 3]): echo o, flag\n")
+    let h = nxHover(f, ls, 8, colOf(ls, 8, "oddNumbers"))
+    check "hwad hello" in h
+    check "\\" notin h.split("```")[^1]
+    check "Whether it is a Unix we know" in nxHover(f, ls, 8, colOf(ls, 8, "flag")).splitWhitespace.join(" ")
+
+  test "a constant whose value is on the lines below: the ## after the value is its doc":
+    let (f, ls) = fixture("const\n  Sep* =\n    when defined(windows): '\\\\'\n    else: '/'\n" &
+                          "    ## The separator.\n    ## Of paths.\n  Other* = 1\necho Sep, Other\n")
+    check "The separator. Of paths." in nxHover(f, ls, 7, colOf(ls, 7, "Sep")).splitWhitespace.join(" ")
+    check "separator" notin nxHover(f, ls, 7, colOf(ls, 7, "Other"))
+
+  test "a name in `from m import a, b`: m's own (not this module's of that name)":
+    let (f, ls) = fixture("from std/strutils import strip, split\n" &
+                          "proc strip(x: int): int = x\necho strip(\" a \")\n")
+    let h = nxHover(f, ls, 0, colOf(ls, 0, "strip"))
+    check "std/strutils" in h
+    check "x: int" notin h
+
+  test "an import written `std / [os, strutils]` (spaces around the /), as atlas does":
+    let (f, ls) = fixture("import std / [strutils, os]\nfrom std / sets import toHashSet\n" &
+                          "echo \"a\".strip, dirExists(\"x\"), toHashSet([1])\n")
+    check "std/strutils" in nxHover(f, ls, 2, colOf(ls, 2, "strip"))
+    check "std/os" in nxHover(f, ls, 2, colOf(ls, 2, "dirExists"))
+    check "std/sets" in nxHover(f, ls, 2, colOf(ls, 2, "toHashSet"))
+
+  test "a do block's parameters are known inside it":
+    let (f, ls) = fixture("proc each(a: seq[int], cb: proc(x: int)) = discard\n" &
+                          "each(@[1]) do (item: int):\n  echo item + 1\n")
+    check "item: int" in nxHover(f, ls, 2, colOf(ls, 2, "item"))
+
+  test "signature help on a routine of the file itself; go to definition on a forward declaration: its body":
+    let (f, ls) = fixture("proc later(a: int, b: string): int\n" &
+                          "echo later(1, \"x\")\n" &
+                          "proc later(a: int, b: string): int =\n  a + b.len\n")
+    let sh = nxSignatureHelp(f, ls, 1, colOf(ls, 1, "1"))
+    check sh.overloads.len >= 1
+    let d = nxDefinition(f, ls, 0, colOf(ls, 0, "later"))
+    check d.len == 1 and d[0][1] == 2
+
+  test "a plugin: import nedplugin resolves (ned's plugin API) — its procs documented":
+    let keep = nxPluginLibDir
+    nxPluginLibDir = currentSourcePath().parentDir.parentDir.parentDir / "src" / "ned" / "plugins" / "lib"
+    defer: nxPluginLibDir = keep
+    let (f, ls) = scriptAt("plugin.nims", "import nedplugin\n\nproc go(b: Buf) =\n  message(\"hi\")\n  b.\n")
+    let h = nxHover(f, ls, 3, 3)
+    check "plugin API" in h
+    check "status line" in h
+    let c = nxComplete(f, ls, 4, ls[4].len).labels
+    check "lineComment" in c and "setCursor" in c
+
 removeDir(dir)

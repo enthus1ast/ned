@@ -30,38 +30,43 @@ when not defined(nimscript):
 
 type
   Pos* = object
-    line*, col*: int
+    ## a place in a file
+    line*, col*: int             ## its line (from 0) and column (from 0, a byte offset in the line)
   Range* = object
     start*, stop*: Pos           ## from start up to stop (stop not included)
   Buf* = object                  ## an open file (or an unsaved one) in ned
-    id*: int
+    id*: int                     ## ned's number for it (-1: none)
   Event* = object
-    buf*: Buf
+    ## what an event (onOpen, onSave …) is about
+    buf*: Buf                    ## the file
     path*, lang*: string         ## the file and its language id ("nim", "zig" …)
   Edit* = object
-    range*: Range
-    text*: string
+    ## one change: the range's text replaced with text
+    range*: Range                ## what it replaces (empty: an insertion at its start)
+    text*: string                ## what goes there
   Fix* = object
-    title*: string
-    edits*: seq[Edit]
+    ## a fix Alt+Enter offers: its title in the list, its edits when chosen
+    title*: string               ## what the list shows ("Use `foo`")
+    edits*: seq[Edit]            ## the changes it makes (one undo step)
   Problem* = object
-    range*: Range
+    ## a problem in a file: underlined, in the Problems panel and the gutter
+    range*: Range                ## the text it is about
     severity*: int               ## 1 error, 2 warning, 3 information, 4 hint
-    message*: string
+    message*: string             ## what is wrong
     fixes*: seq[Fix]             ## Alt+Enter offers them
   LangSpec* = object
     ## a language ned colours with its generic lexer (or changes to one it has): the "languages" setting's fields
-    name*: string
-    extensions*, files*: seq[string]
-    lineComment*: string
+    name*: string                ## its name in the status bar and the language list ("Zig")
+    extensions*, files*: seq[string]  ## its files: by extension (@["zig", "zon"]) or whole name (@["build.zig"])
+    lineComment*: string         ## its line comment ("//")
     blockComment*: seq[string]   ## @["/*", "*/"]
     quotes*: string              ## "\"'"
-    keywords*, types*, constants*, builtins*: seq[string]
+    keywords*, types*, constants*, builtins*: seq[string]  ## words coloured as keywords, types, constants, builtins
     functionWords*, classWords*: seq[string]  ## the words before a function's or a class's name (outline)
     indentAfter*: seq[string]    ## "{" ":" … or words: the next line is indented
     dedent*: string              ## typing one of these takes a level off ("}")
-    indentSize*: int
-    tabs*: bool
+    indentSize*: int             ## spaces to an indentation level (0: the editor's setting)
+    tabs*: bool                  ## indent with tabs
     run*: string                 ## the command F5 runs ($file …)
     pairs*: string               ## "()[]{}\"\"" — what typing an opening one closes
 
@@ -188,16 +193,21 @@ proc nedRun*() =
 # ── JSON ⇄ the types ──
 
 proc `%`*(p: Pos): JsonNode = %*{"line": p.line, "col": p.col}
+  ## the position as ned's JSON
 proc `%`*(r: Range): JsonNode = %*{"start": %r.start, "stop": %r.stop}
+  ## the range as ned's JSON
 proc toPos(j: JsonNode): Pos = Pos(line: j{"line"}.getInt, col: j{"col"}.getInt)
 proc toRange(j: JsonNode): Range =
   if j == nil or j.kind != JObject: return Range(start: Pos(line: -1), stop: Pos(line: -1))
   Range(start: toPos(j{"start"}), stop: toPos(j{"stop"}))
 proc `%`*(e: Edit): JsonNode = %*{"range": %e.range, "text": e.text}
+  ## the edit as ned's JSON
 proc `%`*(f: Fix): JsonNode =
+  ## the fix as ned's JSON
   result = %*{"title": f.title, "edits": newJArray()}
   for e in f.edits: result["edits"].add %e
 proc `%`*(p: Problem): JsonNode =
+  ## the problem as ned's JSON
   result = %*{"range": %p.range, "severity": (if p.severity == 0: 2 else: p.severity), "message": p.message,
               "fixes": newJArray()}
   for f in p.fixes: result["fixes"].add %f
@@ -205,8 +215,11 @@ proc toEvent(j: JsonNode): Event =
   Event(buf: Buf(id: j{"buf"}.getInt(-1)), path: j{"path"}.getStr, lang: j{"lang"}.getStr)
 
 func pos*(line, col: int): Pos = Pos(line: line, col: col)
+  ## a position: line and column (both from 0; the column a byte offset in the line)
 func rng*(a, b: Pos): Range = Range(start: a, stop: b)
+  ## the range from a up to b (b itself not included)
 func isEmpty*(r: Range): bool = r.start.line < 0 or (r.start.line == r.stop.line and r.start.col >= r.stop.col)
+  ## no text in it: start == stop (or noRange())
 func noRange*(): Range = Range(start: Pos(line: -1), stop: Pos(line: -1))
   ## what a text object returns when there is none at the cursor
 
@@ -218,37 +231,56 @@ proc openFile*(path: string, line = -1, col = -1): Buf =
   ## open a file (or go to it), at a line when given
   Buf(id: api("open", %*{"path": path, "line": line, "col": col}).getInt(-1))
 proc buffers*(): seq[Buf] =
+  ## every open file (and the unsaved ones), in the order of their tabs
   for x in api("buffers"): result.add Buf(id: x.getInt)
 proc valid*(b: Buf): bool = b.id >= 0
+  ## a file ned has (current() and openFile() give -1 when there is none)
 proc path*(b: Buf): string = api("path", %*{"buf": b.id}).getStr
+  ## the file's path ("" for an unsaved one)
 proc lang*(b: Buf): string = api("lang", %*{"buf": b.id}).getStr
+  ## its language id ("nim", "python", "zig" …)
 proc lineCount*(b: Buf): int = api("lineCount", %*{"buf": b.id}).getInt
+  ## how many lines it has (an empty file: 1)
 proc line*(b: Buf, i: int): string = api("line", %*{"buf": b.id, "line": i}).getStr
+  ## line i, without its line end ("" past the end)
 proc lines*(b: Buf, first = 0, last = -1): seq[string] =
   ## lines first .. last (-1: to the end)
   for x in api("lines", %*{"buf": b.id, "first": first, "last": last}): result.add x.getStr
 proc text*(b: Buf): string = api("text", %*{"buf": b.id}).getStr
+  ## the whole text (lines joined with \n)
 proc textIn*(b: Buf, r: Range): string = api("textIn", %*{"buf": b.id, "range": %r}).getStr
+  ## the text in the range (lines joined with \n)
 proc setText*(b: Buf, s: string) = discard api("setText", %*{"buf": b.id, "text": s})
   ## the whole text (ned changes only the lines that differ: the cursor and the undo stay sensible)
 proc replace*(b: Buf, r: Range, s: string) = discard api("replace", %*{"buf": b.id, "range": %r, "text": s})
+  ## the range's text replaced with s (one undo step with the plugin's other edits of this call)
 proc insert*(b: Buf, p: Pos, s: string) = b.replace(rng(p, p), s)
+  ## s inserted at p
 proc delete*(b: Buf, r: Range) = b.replace(r, "")
+  ## the range's text removed
 proc cursor*(b: Buf): Pos = toPos(api("cursor", %*{"buf": b.id}))
+  ## where the (main) cursor is
 proc setCursor*(b: Buf, p: Pos) = discard api("setCursor", %*{"buf": b.id, "pos": %p})
+  ## the cursor moved to p (the selection goes)
 proc selection*(b: Buf): Range = toRange(api("selection", %*{"buf": b.id}))
   ## the main selection (empty: start == stop, the cursor)
 proc selections*(b: Buf): seq[Range] =
+  ## every cursor's selection (several with multiple cursors)
   for x in api("selections", %*{"buf": b.id}): result.add toRange(x)
 proc select*(b: Buf, r: Range) = discard api("select", %*{"buf": b.id, "range": %r})
+  ## the range selected (the cursor at its stop)
 proc wordAt*(b: Buf, p: Pos): string = api("wordAt", %*{"buf": b.id, "pos": %p}).getStr
+  ## the word at p (letters, digits, _), "" when there is none
 proc dirty*(b: Buf): bool = api("dirty", %*{"buf": b.id}).getBool
+  ## changed since it was last saved
 proc save*(b: Buf) = discard api("save", %*{"buf": b.id})
+  ## written to its file (as Ctrl+S does — but plugins get no save events for it)
 proc indentUnit*(b: Buf): string = api("indent", %*{"buf": b.id}).getStr
   ## two spaces, four, a tab … what this file indents with
 proc lineComment*(b: Buf): string = api("lineComment", %*{"buf": b.id}).getStr
   ## the language's line comment ("#", "//"; "" none)
 proc lineRange*(b: Buf, line: int): Range = rng(pos(line, 0), pos(line, b.line(line).len))
+  ## line `line` without its line end, as a Range
 proc wholeLines*(b: Buf, first, last: int): Range =
   ## lines first .. last with their line ends
   if last + 1 < b.lineCount: rng(pos(first, 0), pos(last + 1, 0))
@@ -259,6 +291,7 @@ proc wholeLines*(b: Buf, first, last: int): Range =
 proc message*(s: string) = discard api("message", %*{"text": s})
   ## the status line
 proc warn*(s: string) = discard api("message", %*{"text": s, "level": "warn"})
+  ## the status line, as a warning (its colour)
 proc toast*(s: string) = discard api("toast", %*{"text": s})
   ## a note in the corner that goes away by itself
 proc pick*(title: string, items: openArray[string], details: openArray[string] = []): int =
@@ -268,6 +301,7 @@ proc ask*(prompt: string, default = ""): string =
   ## a line of text ("" when cancelled)
   api("ask", %*{"prompt": prompt, "default": default}).getStr
 proc confirm*(question: string): bool = api("confirm", %*{"text": question}).getBool
+  ## a yes / no question: true for yes
 proc runCommand*(name: string) = discard api("runCommand", %*{"name": name})
   ## a command of ned's palette, by its name ("Format document", "Save" …)
 
@@ -290,6 +324,7 @@ proc setProblems*(b: Buf, problems: openArray[Problem]) =
   for p in problems: a.add %p
   discard api("problems", %*{"buf": b.id, "problems": a})
 proc clearProblems*(b: Buf) = b.setProblems([])
+  ## the problems this plugin set in the file removed
 proc sign*(b: Buf, line: int, text: string, color = "accent") =
   ## a mark in the gutter (one character); colors: error warn info hint accent add del, or "#rrggbb"
   discard api("sign", %*{"buf": b.id, "line": line, "text": text, "color": color})
@@ -312,23 +347,28 @@ proc setting*(key: string, default: string): string =
   let v = settingNode(key)
   if v == nil or v.kind != JString: default else: v.getStr
 proc setting*(key: string, default: int): int =
+  ## plugins.<this plugin>.<key> from your settings, a whole number (`default` when it is not one)
   let v = settingNode(key)
   if v == nil or v.kind != JInt: default else: v.getInt
 proc setting*(key: string, default: bool): bool =
+  ## plugins.<this plugin>.<key> from your settings, true or false (`default` when it is not set)
   let v = settingNode(key)
   if v == nil or v.kind != JBool: default else: v.getBool
 proc setting*(key: string, default: float): float =
+  ## plugins.<this plugin>.<key> from your settings, a number (`default` when it is not one)
   let v = settingNode(key)
   if v == nil or v.kind notin {JFloat, JInt}: default else: v.getFloat
 proc dataDir*(): string = api("dataDir").getStr
   ## a folder of this plugin's own (made when asked for)
 proc pluginDir*(): string = api("pluginDir").getStr
+  ## the plugin's own folder (where its plugin.nims or plugin.nim is)
 proc log*(s: string) = discard api("log", %*{"text": s})
   ## a line in the plugin's log (the Plugins dock)
 
 # ── registering: what the top-level code of a plugin does ──
 
 proc regCommand*(file, title, keys: string, cb: proc()) =
+  ## (what `command` uses: call `command`)
   let f = cb
   discard register(file, "command", %*{"title": title, "keys": keys}, proc(a: JsonNode): JsonNode =
     f()
@@ -342,6 +382,7 @@ template command*(title, keys: string, body: untyped) =
   regCommand(instantiationInfo(-1, true).filename, title, keys, proc() = body)
 
 proc regEvent*(file, kind, pattern: string, cb: proc(ev: Event)) =
+  ## (what onOpen, onSave … use: call those)
   let f = cb
   discard register(file, "event", %*{"event": kind, "pattern": pattern}, proc(a: JsonNode): JsonNode =
     f(toEvent(a))
@@ -354,7 +395,9 @@ template onOpen*(pattern: string, cb: proc(ev: Event)) = regEvent(instantiationI
 template onBeforeSave*(pattern: string, cb: proc(ev: Event)) = regEvent(instantiationInfo(-1, true).filename, "beforeSave", pattern, cb)
   ## about to be written: what the plugin changes is saved (ned waits plugins.timeoutMs for it)
 template onSave*(pattern: string, cb: proc(ev: Event)) = regEvent(instantiationInfo(-1, true).filename, "save", pattern, cb)
+  ## a file saved (written). `pattern`: "*", "*.md", "src/*.nim", or "lang:nim"
 template onClose*(pattern: string, cb: proc(ev: Event)) = regEvent(instantiationInfo(-1, true).filename, "close", pattern, cb)
+  ## a file's tab closed
 template onChange*(pattern: string, cb: proc(ev: Event)) = regEvent(instantiationInfo(-1, true).filename, "change", pattern, cb)
   ## the text changed (after a pause in the typing: not every key)
 template autocmd*(event, pattern: string, cb: proc(ev: Event)) =
@@ -390,11 +433,13 @@ proc toJson(s: LangSpec): JsonNode =
   if s.pairs.len > 0: result["pairs"] = %s.pairs
 
 proc regLanguage*(file, id: string, spec: LangSpec) = discard register(file, "language", %*{"id": id, "spec": toJson(spec)})
+  ## (what `language` uses: call `language`)
 template language*(id: string, spec: LangSpec) =
   ## a new language (or changes to one ned has); your "languages" setting wins over it
   regLanguage(instantiationInfo(-1, true).filename, id, spec)
 
 proc regFiletype*(file, lang: string, indentSize: int, tabs: int, lineComment: string) =
+  ## (what `filetype` uses: call `filetype`)
   var j = newJObject()
   if indentSize > 0: j["indentSize"] = %indentSize
   if tabs >= 0: j["tabs"] = %(tabs == 1)
@@ -405,7 +450,9 @@ template filetype*(lang: string, indentSize = 0, tabs = -1, lineComment = "") =
   regFiletype(instantiationInfo(-1, true).filename, lang, indentSize, tabs, lineComment)
 
 proc regFormatterCmd*(file, lang, cmd: string) = discard register(file, "formatter", %*{"lang": lang, "cmd": cmd})
+  ## (what `formatter` with a command uses: call `formatter`)
 proc regFormatter*(file, lang: string, f: proc(text: string): string) =
+  ## (what `formatter` with a proc uses: call `formatter`)
   let ff = f
   discard register(file, "formatter", %*{"lang": lang}, proc(a: JsonNode): JsonNode = %ff(a{"text"}.getStr))
 template formatter*(lang: string, cmd: string) =
@@ -416,6 +463,7 @@ template formatter*(lang: string, f: proc(text: string): string) =
   regFormatter(instantiationInfo(-1, true).filename, lang, f)
 
 proc regLsp*(file, lang: string, cmd: seq[string], script: string) =
+  ## (what languageServer and languageServerScript use: call those)
   discard register(file, "lsp", %*{"lang": lang, "cmd": cmd, "script": script})
 template languageServer*(lang: string, cmd: seq[string]) =
   ## a language server for the language's files (["zls"], ["pyright-langserver", "--stdio"])
@@ -428,6 +476,7 @@ template languageServerScript*(lang, script: string) =
 # ── vim (editor.vimMode) ──
 
 proc regVimMap*(file, mode, keys: string, cb: proc(count: int)) =
+  ## (what nmap and vmap use: call those)
   let f = cb
   discard register(file, "vimMap", %*{"mode": mode, "keys": keys}, proc(a: JsonNode): JsonNode =
     f(a{"count"}.getInt(1))
@@ -440,6 +489,7 @@ template vmap*(keys: string, cb: proc(count: int)) =
   regVimMap(instantiationInfo(-1, true).filename, "v", keys, cb)
 
 proc regEx*(file, name: string, cb: proc(args: string)) =
+  ## (what exCommand uses: call exCommand)
   let f = cb
   discard register(file, "ex", %*{"name": name}, proc(a: JsonNode): JsonNode =
     f(a{"args"}.getStr)
@@ -449,6 +499,7 @@ template exCommand*(name: string, cb: proc(args: string)) =
   regEx(instantiationInfo(-1, true).filename, name, cb)
 
 proc regOperator*(file, keys: string, cb: proc(b: Buf, r: Range, linewise: bool)) =
+  ## (what `operator` uses: call `operator`)
   let f = cb
   discard register(file, "operator", %*{"keys": keys}, proc(a: JsonNode): JsonNode =
     f(Buf(id: a{"buf"}.getInt), toRange(a{"range"}), a{"linewise"}.getBool)
@@ -459,6 +510,7 @@ template operator*(keys: string, cb: proc(b: Buf, r: Range, linewise: bool)) =
   regOperator(instantiationInfo(-1, true).filename, keys, cb)
 
 proc regTextObject*(file, keys: string, cb: proc(b: Buf, p: Pos): Range) =
+  ## (what textObject uses: call textObject)
   let f = cb
   discard register(file, "textObject", %*{"keys": keys}, proc(a: JsonNode): JsonNode =
     %f(Buf(id: a{"buf"}.getInt), toPos(a{"pos"})))
@@ -481,11 +533,13 @@ template after*(ms: int, cb: proc()): int =
   ## cb once, ms milliseconds from now
   regTimer(instantiationInfo(-1, true).filename, ms, false, cb)
 proc stopTimer*(id: int) = discard api("stopTimer", %*{"cb": id})
+  ## the timer `every` or `after` started (its id) stopped
 
 # ── language features for a language (6.20): completions, hover, code actions, symbols, snippets ──
 
 type
   CompletionItem* = object
+    ## one item of the completion list
     label*: string               ## what the list shows (and what is typed over)
     insert*: string              ## what goes in ("": the label)
     detail*: string              ## beside it in the list (a type, a signature)
@@ -493,18 +547,22 @@ type
     kind*: string                ## function method variable field type class keyword constant module snippet text
     snippet*: bool               ## insert is a snippet: $1 $2 … ${1:default} $0
   Symbol* = object
-    name*: string
+    ## one entry of the outline
+    name*: string                ## what it shows
     kind*: string                ## function method type class variable constant heading section …
     detail*: string
-    line*, col*: int
+    line*, col*: int             ## where it is (both from 0)
     depth*: int                  ## how deep in the outline (0 at the top)
 
 proc `%`*(c: CompletionItem): JsonNode =
+  ## the item as ned's JSON
   %*{"label": c.label, "insert": c.insert, "detail": c.detail, "doc": c.doc, "kind": c.kind, "snippet": c.snippet}
 proc `%`*(s: Symbol): JsonNode =
+  ## the symbol as ned's JSON
   %*{"name": s.name, "kind": s.kind, "detail": s.detail, "line": s.line, "col": s.col, "depth": s.depth}
 
 proc regCompletions*(file, lang: string, cb: proc(b: Buf, p: Pos, prefix: string): seq[CompletionItem]) =
+  ## (what `completions` uses: call `completions`)
   let f = cb
   discard register(file, "completion", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
     result = newJArray()
@@ -515,6 +573,7 @@ template completions*(lang: string, cb: proc(b: Buf, p: Pos, prefix: string): se
   regCompletions(instantiationInfo(-1, true).filename, lang, cb)
 
 proc regHover*(file, lang: string, cb: proc(b: Buf, p: Pos): string) =
+  ## (what `hover` uses: call `hover`)
   let f = cb
   discard register(file, "hover", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
     %f(Buf(id: a{"buf"}.getInt), toPos(a{"pos"})))
@@ -523,6 +582,7 @@ template hover*(lang: string, cb: proc(b: Buf, p: Pos): string) =
   regHover(instantiationInfo(-1, true).filename, lang, cb)
 
 proc regCodeActions*(file, lang: string, cb: proc(b: Buf, r: Range): seq[Fix]) =
+  ## (what codeActions uses: call codeActions)
   let f = cb
   discard register(file, "codeActions", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
     result = newJArray()
@@ -532,6 +592,7 @@ template codeActions*(lang: string, cb: proc(b: Buf, r: Range): seq[Fix]) =
   regCodeActions(instantiationInfo(-1, true).filename, lang, cb)
 
 proc regSymbols*(file, lang: string, cb: proc(b: Buf): seq[Symbol]) =
+  ## (what `symbols` uses: call `symbols`)
   let f = cb
   discard register(file, "symbols", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
     result = newJArray()
@@ -541,6 +602,7 @@ template symbols*(lang: string, cb: proc(b: Buf): seq[Symbol]) =
   regSymbols(instantiationInfo(-1, true).filename, lang, cb)
 
 proc regSnippet*(file, lang, trigger, body, description: string) =
+  ## (what `snippet` uses: call `snippet`)
   discard register(file, "snippet", %*{"lang": lang, "trigger": trigger, "body": body, "description": description})
 template snippet*(lang, trigger, body: string, description = "") =
   ## a snippet ($1 $2 … ${1:default} $0) for the language's files ("*": every file); yours (the "snippets"
@@ -550,6 +612,7 @@ template snippet*(lang, trigger, body: string, description = "") =
 # ── the assistant: tools it may call (6.20) ──
 
 proc regAiTool*(file, name, description: string, params: JsonNode, readOnly: bool, cb: proc(args: JsonNode): string) =
+  ## (what aiTool and aiToolReadOnly use: call those)
   let f = cb
   discard register(file, "aiTool", %*{"name": name, "description": description, "params": params,
                                        "readOnly": readOnly}, proc(a: JsonNode): JsonNode = %f(a))
@@ -566,19 +629,22 @@ template aiToolReadOnly*(name, description: string, params: JsonNode, cb: proc(a
 
 type
   ViewItem* = object
-    text*, detail*: string
+    ## one row of a view in the Plugins dock
+    text*, detail*: string       ## its text, and the dimmer text beside it
     icon*: string                ## one character ("●", "✓" …)
     color*: string               ## error warn info hint accent add del
     id*: string                  ## what the view's click callback gets
     path*: string                ## a file: clicking opens it (at line, when no click callback takes it)
-    line*: int
-    depth*: int
+    line*: int                   ## (with path) the line clicking opens it at (from 0)
+    depth*: int                  ## how far it is indented (a tree: 0 at the top)
 
 proc `%`*(v: ViewItem): JsonNode =
+  ## the item as ned's JSON
   %*{"text": v.text, "detail": v.detail, "icon": v.icon, "color": v.color, "id": v.id, "path": v.path,
      "line": v.line, "depth": v.depth}
 
 proc regView*(file, title: string, getItems: proc(): seq[ViewItem], click: proc(id: string)) =
+  ## (what `view` uses: call `view`)
   let f = getItems
   discard register(file, "view", %*{"title": title}, proc(a: JsonNode): JsonNode =
     result = newJArray()
@@ -600,20 +666,24 @@ proc refreshView*(title: string) = discard api("refreshView", %*{"title": title}
 proc progress*(text: string, percent = -1) = discard api("progress", %*{"text": text, "percent": percent})
   ## work under way, in the status bar ("Indexing", 40); percent -1: not known
 proc progressDone*() = progress("")
+  ## the status bar's progress item for this plugin removed
 proc output*(text: string) = discard api("output", %*{"text": text})
   ## lines in the Output panel (file:line:col in them can be clicked)
 proc showOutput*() = discard api("showOutput")
+  ## the Output panel shown (what `output` wrote)
 proc runInTerminal*(cmd: string, dir = "") = discard api("terminal", %*{"cmd": cmd, "dir": dir})
   ## a command in ned's integrated terminal (in dir; else the project's folder)
 
 # ── what the plugin needs, its settings (6.20) ──
 
 proc regRequires*(file, spec: string) = discard register(file, "requires", %*{"spec": spec})
+  ## (what requiresNed uses: call requiresNed)
 template requiresNed*(spec: string) =
   ## the ned it needs (">= 6.20"): an older ned leaves the plugin out and says why
   regRequires(instantiationInfo(-1, true).filename, spec)
 
 proc regSettingDef*(file, key: string, default: JsonNode, description: string) =
+  ## (what settingDef uses: call settingDef)
   discard register(file, "setting", %*{"key": key, "default": default, "description": description})
 template settingDef*(key: string, default: string | int | bool | float, description: string) =
   ## one of the plugin's settings, shown in ned's Settings panel as plugins.<plugin>.<key>

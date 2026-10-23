@@ -717,7 +717,7 @@ suite "NimScript: .nimble and .nims (6.19)":
   test "fields already lined up further out stay there; a value continued below moves with its `=`":
     let ok = "version       = \"6.18.0\"\ndescription   = \"one \" &\n                \"two\"\nlicense       = \"MIT\"\n"
     check scriptFmt(ok) == ok
-    check scriptFmt("version = \"1\"\ndescription = \"one \" &\n              \"two\"\n") ==
+    check scriptFmt("version = \"1\"\ndescription =  \"one \" &\n               \"two\"\n") ==
           "version     = \"1\"\ndescription = \"one \" &\n              \"two\"\n"
 
   test "task headers, hooks, switches and a one-line if stay as written; the rest is formatted":
@@ -727,6 +727,16 @@ suite "NimScript: .nimble and .nims (6.19)":
           "task test, \"Run every test of the project, from the first to the last, and say how it went\":\n" &
           "  exec \"nim r t.nim\"\nbefore install:\n  echo \"x\"\n--opt:speed\n--path:\"../src\"\n" &
           "when defined(linux):\n  --passL:\"-lm\"\nif existsEnv(\"X\"): echo \"x\"\nlet y = 1\n"
+
+  test "fields written `name = value` each (nph's way) stay so; a requires over several lines stays as written (6.22)":
+    let plain = "version = \"0.14.7\"\nauthor = \"Araq\"\nlicense = \"MIT\"\n"
+    check scriptFmt(plain) == plain
+    let req = "requires \"nim >= 1.6.16\",\n         \"results\",\n         \"stew >= 0.5.0\",\n" &
+              "         \"bearssl >= 0.2.8\",\n         \"httputils\",\n         \"unittest2\"\n"
+    check scriptFmt(req) == req
+    check scriptFmt("--path:\"$nim\"\n--d:atlasUnitTests\nswitch(\"path\", \"$projectDir/../src\")\n") ==
+          "--path:\"$nim\"\n--d:atlasUnitTests\nswitch(\"path\", \"$projectDir/../src\")\n"
+    check nimFmt("") == ""
 
   test "an ordinary Nim file is not lined up":
     check nimFmt("version = \"1\"\nauthor = \"me\"\nif y > 0: echo y\n") ==

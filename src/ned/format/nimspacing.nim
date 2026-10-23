@@ -43,6 +43,9 @@ proc fSpaceBefore*(toks: openArray[FTok], k: int, importLine: bool): bool {.inli
   elif t.kind in {fkClose, fkPragClose, fkComma, fkSemi, fkColon}: space = false
   elif p.kind == fkColon and k >= 2 and toks[k - 2].kind == fkOpen and toks[k - 2].text == "[":
     space = false                                  # fromBin[:int16] — explicit generic arguments
+  elif p.kind == fkColon and toks[0].kind == fkOp and toks[0].text in ["--", "-"] and
+       toks.len > 1 and toks[1].kind == fkIdent:
+    space = tsp                                    # NimScript switches: --path:"../src", --d:release (as written)
   elif p.kind in {fkComma, fkSemi, fkColon}: space = true
   elif t.kind == fkDot or p.kind == fkDot: space = false
   elif t.kind == fkPragOpen: space = true

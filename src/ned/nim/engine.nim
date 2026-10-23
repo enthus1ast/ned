@@ -55,6 +55,7 @@ proc nxGuessLib(): string =
 var nxNim3Applied = false               # the engine set up for Nim 3 (Nimony's library, names as written)
 
 proc nxApplyToolchain() =
+  nxPluginLibDir = plugLibDir()          # (a plugin's `import nedplugin`: completion, hover, F12 in it too)
   nxNim3Applied = nim3On()
   nxExact = nxNim3Applied
   if nxNim3Applied:
@@ -237,10 +238,10 @@ proc engineAgain(path: string) =
   if i >= 0: typoAt.del bufs[i].id
 
 proc engineChecksOnOpen(b: Buffer): bool =
-  ## a project file just opened, not looked at yet: its problems without waiting for an edit (not a library's,
-  ## not a file outside the project)
-  typoAt.getOrDefault(b.id, -1) == -1 and b.path.len > 0 and rootDir.len > 0 and b.path.startsWith(rootDir & "/") and
-    not isLibraryFile(b.path)
+  ## a project file just opened, not looked at yet — or saved (reloaded) since its last check, before a pause in the
+  ## typing let it be checked: its problems without waiting for an edit (not a library's, not a file outside the
+  ## project). (The callers: when its text is not the one last checked)
+  b.path.len > 0 and rootDir.len > 0 and b.path.startsWith(rootDir & "/") and not isLibraryFile(b.path)
 
 var typosLast: Table[int, (string, seq[(int, int, string, string)])]   # buffer → (what it was worked out for, typos)
 

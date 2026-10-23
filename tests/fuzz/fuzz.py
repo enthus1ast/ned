@@ -207,7 +207,8 @@ def start():
     script = HOME + '/run.sh'
     with open(script, 'w') as f:
         f.write(('#!/bin/bash\nexport HOME=%s PATH=' + (NIM_BIN + ':' if NIM_BIN else '') + os.environ.get('PATH', '/usr/bin:/bin') + ' TERM=xterm-256color COLORTERM=truecolor\n'
-                 'cd %s\nexport NED_WK_VERIFY=1\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'blob.bin prog m.nim' if MODE == 'hex' else 'style.css page.html q.sql web.nim' if MODE == 'web' else 'app.js shape.cpp m.nim src/demo.nim' if MODE == 'edit' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode\nsleep 3600\n') % (HOME, PROJ, BIN, HOME, HOME))
+                 'cd %s\nexport NED_WK_VERIFY=1\n' + os.environ.get('FZPRE', '') + '%s ' + ('words.nim m.nim wrap.nim' if MODE == 'emit' else 'web.nim words.nim notes.md' if MODE == 'strings' else 'qf.nim m.nim' if MODE == 'fixes' else 'cmain.c mathx.h mathx.c' if MODE == 'c' else 'blob.bin prog m.nim' if MODE == 'hex' else 'style.css page.html q.sql web.nim' if MODE == 'web' else 'app.js shape.cpp m.nim src/demo.nim' if MODE == 'edit' else 'src/demo/utils.nim src/demo.nim' if MODE in ('refactor', 'ai', 'git') else 'both.ned-workspace' if MODE == 'ws' else 'm.nim src/demo.nim uni.txt web.nim page.nimf notes.md wrap.nim mathx.h words.nim') + ' 2> %s/stderr.txt\necho $? > %s/exitcode.part; mv %s/exitcode.part %s/exitcode\nsleep 3600\n') %
+                (HOME, PROJ, BIN, HOME, HOME, HOME, HOME))
     os.chmod(script, 0o755); own(script)
     tm('-f ' + TESTS + '/ui/tmux.conf new-session -d -s fz -x %d -y %d %s' % (w, h, script))
     time.sleep(1.5)
@@ -402,7 +403,7 @@ def send(s):
 
 def status():
     ec = None
-    try: ec = open(HOME + '/exitcode').read().strip()
+    try: ec = open(HOME + '/exitcode').read().strip() or None     # (written whole: a mv — '' is not an exit code)
     except Exception: pass
     errs = ''
     try: errs = open(HOME + '/.local/state/ned/errors.log').read()

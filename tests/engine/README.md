@@ -23,6 +23,37 @@ nimsuggest the same questions about one file and counts where they agree:
 package that is not installed is skipped (`nimble install chronos jsony pixie jester cligen karax vmath` for
 all of them). nimsuggest comes from `PATH`.
 
+### What the editor answers: parity.py (6.22)
+
+`parity.py` asks nedls — ned's engine as a language server, so what ned's editor answers too — and nimsuggest the
+same questions. In a `.nim`, at `--n` random places: is there a hover where nimsuggest's `def` knows the name, does
+it name the same declaration (file and line) and show its doc comment, is a name nimsuggest's `sug` offers offered,
+is the signature help just inside `name(` that routine's. In a `.nims`, a `.nimble` and a plugin (nimsuggest reads a
+script as a program, so there the file's own API is the reference): does every name of system's NimScript part,
+nimble's API and ned's plugin API used in it have a hover with its doc comment, is it offered by completion, does go
+to definition reach it, and are the tasks in the outline.
+
+```sh
+nim c -d:release -o:/tmp/nedls src/nedls.nim
+tests/engine/parity.py --nedls /tmp/nedls --n 40 ~/Nim/lib/pure/json.nim ~/Nim/config/config.nims \
+  ~/Nim/dist/atlas/atlas.nimble examples/plugins/*/plugin.nim*
+```
+
+It prints each file's misses (`--show K` of each kind) and the totals; `--min-hover P` makes it exit 1 when a share is
+under P (for CI), `--json OUT` writes the counts. 6.22, `--n 40`, on parseutils, strformat, json, paths, times,
+sequtils, tables, ospaths2, the compiler's lineinfos and options, atlas.nim and its context.nim, nimble.nim, Nim's,
+atlas' and nimble's config.nims and .nimble files and the five example plugins:
+
+| | |
+|---|---|
+| hover where nimsuggest knows the name · the same declaration · its doc comment | 370/370 · 367/370 · 91/92 |
+| completion · signature help | 353/354 · 99/99 |
+| scripts and plugins: API names with a hover and its doc · offered · go to definition | 160/160 · 160/160 · 136/136 |
+| scripts and plugins: names with a hover · tasks in the outline | 444/444 · 3/3 |
+
+The three declarations that differ: `x.string.dup(normalizePath)` (ned offers the three overloads), `setLen` under
+ARC (nimsuggest names seqs_v2's, ned system's declaration) and a field nimsuggest takes for the iterator `items`.
+
 ### Speed and memory
 
 `bench.nim` reads files and everything they import, answers again after an edit, completes at the end, and

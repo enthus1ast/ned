@@ -20,6 +20,12 @@ proc engineOutline(b: Buffer): seq[SideItem] =
     result.add SideItem(text: s.name & (if s.exported: "*" else: ""), detail: detail, path: b.path, line: s.line,
                         col: s.col, depth: depth, icon: nxIconText(s.kind),
                         role: (if s.kind in NxRoutineKinds: 7 elif s.kind == nxType: 8 else: 0))
+  if nxIsScript(b.path):
+    # a .nimble's, a config.nims' tasks
+    for t in nxScriptTasks(b.lines):
+      result.add SideItem(text: "task " & t.name, detail: t.desc, path: b.path, line: t.line, col: t.col,
+                          icon: "▶", role: 7)
+    result.sort(proc(a, c: SideItem): int = cmp(a.line, c.line))
 
 proc engineSymbols(b: Buffer): seq[PickItem] =
   ## Ctrl+T: the file's declarations, with their signatures
@@ -30,3 +36,6 @@ proc engineSymbols(b: Buffer): seq[PickItem] =
     let owner = if s.kind == nxField: s.owner & "." else: ""
     result.add PickItem(label: owner & s.name, detail: truncTo(nxShortDetail(s), 60), icon: nxIconText(s.kind),
                         path: b.path, line: s.line, col: s.col)
+  if nxIsScript(b.path):
+    for t in nxScriptTasks(b.lines):
+      result.add PickItem(label: "task " & t.name, detail: t.desc, icon: "▶", path: b.path, line: t.line, col: t.col)

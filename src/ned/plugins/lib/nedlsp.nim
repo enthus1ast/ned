@@ -46,14 +46,19 @@ proc onNotification*(meth: string, cb: proc(params: JsonNode)) =
   notes[meth] = cb
 
 proc notify*(meth: string, params: JsonNode) = send(%*{"jsonrpc": "2.0", "method": meth, "params": params})
+  ## a notification to the client (the editor): `notify("window/logMessage", %*{"type": 3, "message": "hi"})`
 proc logMessage*(s: string, kind = 3) = notify("window/logMessage", %*{"type": kind, "message": s})
+  ## a line in the client's log of this server (kind: 1 error, 2 warning, 3 information, 4 log)
 proc showMessage*(s: string, kind = 3) = notify("window/showMessage", %*{"type": kind, "message": s})
+  ## a message the client shows (kind: 1 error, 2 warning, 3 information)
 proc publishDiagnostics*(uri: string, diagnostics: JsonNode) =
   ## diagnostics: [{"range": …, "severity": 1, "message": "…"}]
   notify("textDocument/publishDiagnostics", %*{"uri": uri, "diagnostics": diagnostics})
 
 proc docText*(uri: string): string = docs.getOrDefault(uri)
+  ## the document's text as the client has it now (its unsaved edits too); "" for one not open
 proc docLines*(uri: string): seq[string] = docText(uri).split('\n')
+  ## the document's lines (docText split at its line ends)
 
 proc byteCol*(line: string, character: int): int =
   ## the client's column → a byte offset in the line

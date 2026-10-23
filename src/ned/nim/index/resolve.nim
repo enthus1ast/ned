@@ -362,6 +362,24 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
         if nxModuleName(im.spec) == w or im.spec.endsWith("/" & w):
           let p = nxResolve(f.path, im.spec)
           if p.len > 0: return (@[], @[], p)
+    # a name of `from m import a, b` (or of `import m except a`): m's own, not one of this module's that has it too
+    var best = -1
+    for k, im in f.imports:
+      if im.line <= line and line - im.line < 20 and (best < 0 or im.line > f.imports[best].line): best = k
+    if best >= 0:
+      let im = f.imports[best]
+      var named = false
+      for x in im.only & im.excepts:
+        if nxNorm(x.strip(chars = {'`', ' '})) == nxNorm(w): named = true
+      if named:
+        let p = nxResolve(f.path, im.spec)
+        if p.len > 0:
+          var got: seq[NxRef]
+          var seen: HashSet[string]
+          nxExports(p, 0, seen, got)
+          for r in got:
+            if nxNorm(r.sym.name) == nxNorm(w): result[0].add r
+          if result[0].len > 0: return
   let own = nxSymAt(f, line, a)
   if own >= 0 and nxNorm(f.syms[own].name) == nxNorm(w):
     if nxIsForward(lines, f.syms[own]):

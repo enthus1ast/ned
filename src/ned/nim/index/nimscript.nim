@@ -11,6 +11,21 @@ func nxIsScript*(path: string): bool =
 
 func nxIsNimbleFile*(path: string): bool = path.endsWith(".nimble")
 
+func nxScriptTasks*(lines: openArray[string]): seq[tuple[name: string, line, col: int, desc: string]] =
+  ## a NimScript file's tasks (`task build, "Build it":` at the top level): the outline, Go to symbol
+  for i, l in lines:
+    if not l.startsWith("task ") and not l.startsWith("task\t"): continue
+    var a = 4
+    while a < l.len and l[a] in {' ', '\t'}: inc a
+    var e = a
+    while e < l.len and nxIsIdent(l[e]): inc e
+    if e == a: continue
+    var desc = ""
+    let q1 = l.find('"', e)
+    let q2 = if q1 >= 0: l.find('"', q1 + 1) else: -1
+    if q2 > q1: desc = l[q1 + 1 ..< q2]
+    result.add (l[a ..< e], i, a, desc)
+
 func nxFromNimscriptApi*(path: string): bool =
   ## a declaration of system's NimScript part (lib/system/nimscript.nim): exec, thisDir, switch, mkDir …
   path.endsWith("/system/nimscript.nim")
@@ -145,6 +160,22 @@ const
 """
 
 var nxNimbleApiMemo = ""
+
+const NxVmCannot* = [
+    ## modules of the standard library NimScript cannot run (`nim e`, config.nims, a .nimble — checked with Nim
+    ## 2.2: they call C, threads or the OS where the VM has none), and what a script uses instead
+    ("osproc", "exec, or gorgeEx (output and exit code), or staticExec"),
+    ("net", "exec curl or wget"), ("nativesockets", "exec curl or wget"), ("httpclient", "exec curl or wget"),
+    ("asyncdispatch", "a program of its own (nim r)"), ("asyncnet", "a program of its own (nim r)"),
+    ("selectors", "a program of its own (nim r)"), ("terminal", "plain echo"),
+    ("memfiles", "readFile / writeFile"), ("sha1", "exec sha1sum, or std/hashes"), ("oids", "a counter, or exec"),
+    ("re", "std/strutils (find, replace), or std/pegs"), ("typedthreads", "a program of its own (nim r)"),
+    ("threadpool", "a program of its own (nim r)"), ("tempfiles", "a name of your own under getTempDir()"),
+    ("browsers", "exec xdg-open / open"), ("logging", "echo"), ("marshal", "std/json (%*, to)"),
+    ("unittest", "doAssert, or nimble test"), ("endians", "std/bitops"),
+    ("dirs", "the NimScript procs: mkDir, rmDir, listDirs"), ("files", "the NimScript procs: rmFile, cpFile, mvFile"),
+    ("paths", "std/os's procs on strings"),
+    ("posix", "a program of its own"), ("winlean", "a program of its own")]
 
 proc nxNimbleApiPath*(): string =
   ## nimble's API as a module (written once into ned's cache): what a .nimble sees besides system and strutils
