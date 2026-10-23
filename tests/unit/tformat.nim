@@ -801,3 +801,112 @@ suite "Nim: fixes (6.21)":
                  "the excluded old regex release\"\n") ==
           "proc f() =\n  doAssert not result.pkgs[unicodeplusUrl].active,\n    \"unicodeplus belongs only to " &
           "the excluded old regex release\"\n"
+
+suite "Nim: 6.23":
+  proc alignFmt(s: string): string =
+    FmtAlignComments = true
+    defer: FmtAlignComments = false
+    nimFmt(s)
+
+  test "nim.format.alignComments: trailing comments of lines that follow each other at one column":
+    check alignFmt("type\n  Fix* = object\n    ## a fix\n    title*: string ## what the list shows\n" &
+                   "    edits*: seq[Edit] ## the changes it makes\n    n: int # a count\n") ==
+          "type Fix* = object   ## a fix\n  title*: string     ## what the list shows\n" &
+          "  edits*: seq[Edit]  ## the changes it makes\n  n: int             # a count\n"
+
+  test "… already lined up further out: kept there; an empty line ends a run; off: one space (nph)":
+    let ok = "const\n  a* = 1                 ## the a\n  bb* = 22               ## the bb\n\n  c = 3 ## c\n" &
+             "  dd = 4 ## d\n"
+    check alignFmt(ok) == "const\n  a* = 1                 ## the a\n  bb* = 22               ## the bb\n\n" &
+                          "  c = 3   ## c\n  dd = 4  ## d\n"
+    check alignFmt(alignFmt(ok)) == alignFmt(ok)
+    check nimFmt(ok) == "const\n  a* = 1 ## the a\n  bb* = 22 ## the bb\n\n  c = 3 ## c\n  dd = 4 ## d\n"
+
+  test "… a line the column would take past the line length keeps its comment one space after its code":
+    let long = "x".repeat(72)                # (fits one space after `a = 1`, not at the column)
+    let src = "let\n  a = 1 ## " & long & "\n  bbbbbbbbbb = 2 ## b\n  cc = 3 ## c\n"
+    let r = alignFmt(src)
+    check "  a = 1 ## " & long & "\n" in r
+    check "  bbbbbbbbbb = 2  ## b\n  cc = 3          ## c\n" in r
+
+  test "# fmt: off … # fmt: on, #!fmt: off, # fmt: skip: those statements as written, moved to their indentation":
+    let src = "proc f(a, b: int): int = a+b\n# fmt: off\nlet m = [\n  1, 0,\n  0, 1,\n]\n# fmt: on\n" &
+              "let  x   =   f( 1,2 )\nlet y  = [1,2,3]  # fmt: skip\nproc g() =\n    #!fmt: off\n    echo   \"kept\"\n" &
+              "    #!fmt: on\n    echo   \"formatted\"\n"
+    check nimFmt(src) == "proc f(a, b: int): int =\n  a + b\n\n# fmt: off\nlet m = [\n  1, 0,\n  0, 1,\n]\n" &
+                         "# fmt: on\nlet x = f(1, 2)\nlet y  = [1,2,3]  # fmt: skip\nproc g() =\n  #!fmt: off\n" &
+                         "  echo   \"kept\"\n  #!fmt: on\n  echo \"formatted\"\n"
+    check nimFmt(nimFmt(src)) == nimFmt(src)
+    # (inside brackets: not whole statements — the file is left as it is)
+    let inList = "let a = [\n  1,\n  # fmt: off\n  2,   3,\n  # fmt: on\n  4]\n"
+    var err = ""
+    check fFormat(inList, err) == inList
+    check "whole statements" in err
+
+  test "nim.format.magicTrailingComma: a list ending in a comma stays one element a line":
+    FmtMagicComma = true
+    defer: FmtMagicComma = false
+    check nimFmt("let z = f(\n  1,\n  2,\n)\nlet w = f(1, 2,)\nlet t = (1,)\n") ==
+          "let z = f(\n  1,\n  2,\n)\nlet w = f(\n  1,\n  2,\n)\nlet t = (1,)\n"
+    check nimFmt("let z = f(\n  1,\n  2,\n)\n") == "let z = f(\n  1,\n  2,\n)\n"
+    FmtMagicComma = false
+    check nimFmt("let z = f(\n  1,\n  2,\n)\n") == "let z = f(1, 2)\n"
+
+  test "nim.format.normalizeNumbers: 0x, 0b, 0o lower case, hex digits upper case, e for an exponent":
+    FmtNumbers = true
+    defer: FmtNumbers = false
+    check nimFmt("const a = 0Xff'u8\nconst b = 0B1010\nconst c = 1E10\nconst d = 0xdead_beef\nconst e = 2.5E-3'f32\n") ==
+          "const a = 0xFF'u8\nconst b = 0b1010\nconst c = 1e10\nconst d = 0xDEAD_BEEF\nconst e = 2.5e-3'f32\n"
+    # (a literal of the program's own type gets its text as written: as it is)
+    check nimFmt("let x = 0xdeadbeaf'big\n") == "let x = 0xdeadbeaf'big\n"
+
+  test "nim.format.docCode: the Nim in ```nim fences and .. code-block:: nim in ## comments":
+    FmtDocCode = true
+    defer: FmtDocCode = false
+    check nimFmt("proc f*() =\n  ## Use it:\n  ##\n  ## ```nim\n  ## let   q=f(1,2)\n  ## ```\n  ##\n" &
+                 "  ## .. code-block:: nim\n  ##   echo  q\n  ##   let r=3\n  discard\n") ==
+          "proc f*() =\n  ## Use it:\n  ##\n  ## ```nim\n  ## let q = f(1, 2)\n  ## ```\n  ##\n" &
+          "  ## .. code-block:: nim\n  ##   echo q\n  ##   let r = 3\n  discard\n"
+    # (code that is not Nim on its own: as written)
+    check nimFmt("## ```nim\n## foo(\n## ```\nlet a = 1\n") == "## ```nim\n## foo(\n## ```\nlet a = 1\n"
+
+suite "C: clang-format's styles in ned's own formatter (6.23)":
+  const sample = "int main( void )\n{\n  int x=1; int *p=&x;\n  if(x) return 1;\n  switch(x){case 1: x++; break;}\n" &
+                 "  call_something_long(first_argument_value, second_argument_value, third_argument_value);\n" &
+                 "  return 0; // done\n}\n#define F(a,b) {a; b;}\n// clang-format off\nint   keep_this   =   1 ;\n" &
+                 "// clang-format on\n"
+  test "LLVM: as clang-format writes it (braces, one statement a line, the column limit, a macro as code)":
+    let (r, err) = fmtCWith(sample, cStylePreset("LLVM"))
+    check err == ""
+    check r == "int main(void) {\n  int x = 1;\n  int *p = &x;\n  if (x)\n    return 1;\n  switch (x) {\n  case 1:\n" &
+               "    x++;\n    break;\n  }\n  call_something_long(first_argument_value, second_argument_value,\n" &
+               "                      third_argument_value);\n  return 0; // done\n}\n" &
+               "#define F(a, b)" & spaces(64) & "\\\n  {" & spaces(76) & "\\\n    a;" & spaces(73) & "\\\n    b;" &
+               spaces(73) & "\\\n  }\n// clang-format off\nint   keep_this   =   1 ;\n// clang-format on\n"
+    check fmtCWith(r, cStylePreset("LLVM"))[0] == r
+
+  test "Google: case labels indented, short ifs on one line, two spaces before //, \\ after the longest line":
+    let (r, err) = fmtCWith(sample, cStylePreset("Google"))
+    check err == ""
+    check "  if (x) return 1;\n  switch (x) {\n    case 1:\n      x++;\n      break;\n  }\n" in r
+    check "  return 0;  // done\n" in r
+    check "#define F(a, b) \\\n  {             \\\n    a;          \\\n    b;          \\\n  }\n" in r
+
+  test "a .clang-format: BasedOnStyle, IndentWidth, BreakBeforeBraces, PointerAlignment, AlignConsecutiveMacros":
+    let st = cStyleFromClangFormat("BasedOnStyle: LLVM\nIndentWidth: 4\nBreakBeforeBraces: Allman\n" &
+                                   "PointerAlignment: Left\nAlignConsecutiveMacros: true\n")
+    let (r, err) = fmtCWith("int f(int *a, char *b) {\n  if (a) { b[0] = 1; } else { b[1] = 2; }\n  return 0;\n}\n" &
+                            "#define A 1\n#define LONGER_NAME 2\n", st)
+    check err == ""
+    check r == "int f(int* a, char* b)\n{\n    if (a)\n    {\n        b[0] = 1;\n    }\n    else\n    {\n" &
+               "        b[1] = 2;\n    }\n    return 0;\n}\n#define A           1\n#define LONGER_NAME 2\n"
+
+  test "Linux: tabs, a function's brace on its own line; #if 0 left as it is":
+    let (r, err) = fmtCWith("int f(void) {\n  return 1;\n}\n#if 0\nint   x ;\n#endif\n", cStylePreset("Linux"))
+    check err == ""
+    check r == "int f(void)\n{\n\treturn 1;\n}\n#if 0\nint   x ;\n#endif\n"
+
+  test "keep (ned's own way, the default without a .clang-format): line breaks as written, as before":
+    check fmtC("int f() { if (a) b(); c(); }\n")[0] == "int f() { if (a) b(); c(); }\n"
+    check cStyleFor("", "auto", @[]).name == "keep"
+    check cStyleFor("", "keep", @[("ColumnLimit", "100")]).colLimit == 100

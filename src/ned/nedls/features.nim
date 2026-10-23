@@ -63,7 +63,10 @@ proc lsCompletion(params: JsonNode): JsonNode =
   let n = min(compShown.len, lsCompLimit)
   for k in 0 ..< n:
     let i = compShown[k]
-    let it = compItems[i]
+    var it = compItems[i]
+    if it.snippet.len == 0 and it.nx != 0 and cfgCallArgs and it.addImport.len == 0 and lsSnippets:
+      let sn = callSnippet(b, it)               # (nim.completeCallArguments: the call with its parameters)
+      if sn.len > 0: it.snippet = sn
     var start = min(compStartCol, p.col)
     var filter = compFilter(it)
     if it.postfix > 0:

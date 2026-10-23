@@ -111,6 +111,10 @@ Last run (clangd 22, ned 6.5, `--n 40`):
 | each answer after: ned · clangd | 0.33 ms · 0.2 ms | 0.46 ms · 0.3 ms |
 | memory at the end: ned · clangd | 37 MB · 274 MB | 31 MB · 160 MB |
 
+With clangd 18 on Lua's sources (8 files, ned 6.23, `--n 40`, no `compile_commands.json`): go to definition
+the same at 94.0% of the places both answer (299 of 318), member completion ned 98.1% · clangd 91.3% (of 104), a
+file's first answer 5 ms · 0.10 s, each answer after 0.19 ms · 0.4 ms, memory 16 MB · 62 MB.
+
 Where they differ, it is mostly what only the build's configuration decides: ned does not run the preprocessor,
 so of two `#ifdef` branches that declare the same name it takes the first (`#ifndef HAVE_STRUCT_ADDRINFO` and the
 system's own), and a name that is also a macro (`#define stdout stdout`) goes to the declaration, not the macro.

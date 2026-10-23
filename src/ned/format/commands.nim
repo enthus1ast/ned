@@ -34,12 +34,29 @@ proc clangStyleKey(dir: string): string =
     d = up
   ""
 
+proc cClangdInUse(): bool =
+  ## clangd answers for C (c.engine clangd or both, or auto with clangd installed)
+  cfgCEngine in ["clangd", "both"] or (cfgCEngine == "auto" and haveExe("clangd"))
+
+proc cWantsClangFormat(): bool =
+  ## C (a file, an emit) formatted with clang-format: c.formatter = clang-format, or auto while clangd is in use —
+  ## else ned's own (the style of c.format.style / the project's .clang-format)
+  if not haveExe("clang-format"): return false
+  case cfgCFormatter
+  of "builtin": false
+  of "clang-format": true
+  else: cClangdInUse()
+
+proc cStyleOf(path: string, indentW = 2): CStyle =
+  cStyleFor(path, cfgCStyleName, cfgCStyleOpts, indentW)
+
 proc formatEmitBlocks(text, path: string): (string, int, string) =
-  ## the C in each {.emit: """…""".} of a Nim file formatted (nim.formatEmitC): clang-format when it is installed
-  ## (your .clang-format applies), else ned's own C formatter — (new text, blocks changed, what formatted them).
-  ## A block clang-format answered for before, with the same style file, is not sent again
+  ## the C in each {.emit: """…""".} of a Nim file formatted (nim.formatEmitC): with clang-format when clangd is
+  ## the C engine (your .clang-format applies), else with ned's own C formatter at the Nim formatter's settings —
+  ## (new text, blocks changed, what formatted them). A block clang-format answered for before, with the same style
+  ## file, is not sent again
   if not cfgFormatEmitC or "emit" notin text: return (text, 0, "")
-  let clang: ClangFn = if haveExe("clang-format"):
+  let clang: ClangFn = if cWantsClangFormat():
       proc(c, fake, dir: string): string =
         let key = clangStyleKey(dir) & "\0" & fake & "\0" & c
         if key in emitClangMemo: return emitClangMemo[key]
@@ -49,7 +66,7 @@ proc formatEmitBlocks(text, path: string): (string, int, string) =
           if emitClangMemo.len > 2000: emitClangMemo.clear()
           emitClangMemo[key] = result
     else: nil
-  formatEmitC(text, path, cfgNimTarget == "cpp", clang, rootDir)
+  formatEmitC(text, path, cfgNimTarget == "cpp", clang, rootDir, cStyleOf(path))
 
 var
   fmtCheckerBuilding = false
@@ -110,8 +127,8 @@ proc builtinFormatText(kind, text: string, indentW = 2, path = ""): (string, str
   try:
     case kind
     of "nim": nimFormatAll(text, path)
-    of "c": fmtC(text, max(1, indentW), looksCpp(text))
-    of "cpp": fmtC(text, max(1, indentW), true)
+    of "c": fmtCWith(text, cStyleOf(path, max(1, indentW)), looksCpp(text))
+    of "cpp": fmtCWith(text, cStyleOf(path, max(1, indentW)), true)
     of "json": fmtJson(text, max(1, indentW))
     of "markdown": fmtMarkdown(text)
     of "css": fmtCss(text, max(1, indentW))
@@ -240,7 +257,9 @@ proc formatBuffer(b: Buffer) =
     elif b.lang.id in plugFmtCb:
       discard plugFormat(b)
       return
-    for c in b.lang.fmt: cmds.add c
+    # (C: clang-format while clangd is in use — c.formatter — else ned's own, below)
+    if b.lang.id notin ["c", "cpp"] or cWantsClangFormat():
+      for c in b.lang.fmt: cmds.add c
   for c in cmds:
     let exe = c.firstWord
     if findExe(exe).len == 0: continue
@@ -283,8 +302,9 @@ proc formatBuffer(b: Buffer) =
       info("Already formatted")
       return
     b.setTextMinimal(res)
-    info("Formatted (built-in" & (if bk == "markdown": ": tables lined up" elif bk == "yaml": " YAML: indentation and spacing" elif bk == "toml": " TOML: spacing" elif bk == "c": " C formatter: " &
-         "indentation and spaces — clang-format does more" else: "") & ") in " & $msSince(t0) & " ms")
+    info("Formatted (built-in" & (if bk == "markdown": ": tables lined up" elif bk == "yaml": " YAML: indentation and spacing" elif bk == "toml": " TOML: spacing" elif bk in ["c", "cpp"]: " C formatter, " &
+         (let sn = cStyleOf(b.path, b.indentW()).name; if sn == "keep": "your line breaks kept" else: sn & " style")
+         else: "") & ") in " & $msSince(t0) & " ms")
   if bk == "json":
     builtin(b)
     return

@@ -808,6 +808,16 @@ suite "NimScript, plugins and doc comments (6.22)":
     check "std/os" in nxHover(f, ls, 2, colOf(ls, 2, "dirExists"))
     check "std/sets" in nxHover(f, ls, 2, colOf(ls, 2, "toHashSet"))
 
+  test "`## \\` at a declaration's end, its ## lines below at the declaration's own indentation (6.23)":
+    let (f, ls) = fixture("const\n  blank*: string = \"about:blank\" ## \\\n  ##  Blank page string.\n" &
+                          "  ## * RFC 6694\n  openCmd: string =\n    when defined(windows):\n      \"start\"\n" &
+                          "    else:\n      \"open\" ## \\\n  ## Opens a file\n  ## the OS's way.\n" &
+                          "  other = 1\n\n## not a doc of other\necho blank, openCmd, other\n")
+    let h = nxHover(f, ls, 14, colOf(ls, 14, "blank")).splitWhitespace.join(" ")
+    check "Blank page string." in h and "RFC 6694" in h and "\\" notin h.split("```")[^1]
+    check "Opens a file the OS's way." in nxHover(f, ls, 14, colOf(ls, 14, "openCmd")).splitWhitespace.join(" ")
+    check "not a doc" notin nxHover(f, ls, 14, colOf(ls, 14, "other"))
+
   test "a do block's parameters are known inside it":
     let (f, ls) = fixture("proc each(a: seq[int], cb: proc(x: int)) = discard\n" &
                           "each(@[1]) do (item: int):\n  echo item + 1\n")

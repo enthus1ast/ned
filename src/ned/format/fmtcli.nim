@@ -47,8 +47,26 @@ type ClangFn* = proc(c, fakeName, dir: string): string {.closure.}
 var
   fmtEmitC* = true       ## nim.formatEmitC: the C in {.emit: """…""".} blocks formatted with the Nim around it
   fmtEmitCpp* = false    ## nim.backend is cpp: that C is C++
+  fmtCStyleName* = "auto"                   ## c.format.style
+  fmtCStyleOpts*: seq[(string, string)]     ## c.format.options (clang-format's keys)
+  fmtCEngine* = "auto"                      ## c.engine: clangd for C → the emits' C with clang-format
+  fmtCFormatter* = "auto"                   ## c.formatter
 
-proc formatEmitC*(text, path: string, cpp: bool, clang: ClangFn = nil, baseDir = ""): (string, int, string) =
+proc fmtClangdForC*(): bool =
+  ## clangd answers for C here (c.engine clangd or both, or auto with clangd installed): C is formatted as clangd
+  ## formats it — with clang-format
+  fmtCEngine in ["clangd", "both"] or (fmtCEngine == "auto" and findExe("clangd").len > 0)
+
+proc fmtUseClangFormat*(): bool =
+  ## clang-format for C (files and emits): c.formatter = clang-format, or auto with clangd in use — when installed
+  if findExe("clang-format").len == 0: return false
+  case fmtCFormatter
+  of "builtin": false
+  of "clang-format": true
+  else: fmtClangdForC()
+
+proc formatEmitC*(text, path: string, cpp: bool, clang: ClangFn = nil, baseDir = "",
+                  style = cStyleKeep()): (string, int, string) =
   ## the C in each {.emit: """…""".} of a Nim file formatted: clang-format when given (your .clang-format applies),
   ## else ned's own C formatter — (new text, blocks changed, what formatted them). A block with `nim symbols` in
   ## backticks, or on the string's first line, stays as it is
@@ -85,7 +103,13 @@ proc formatEmitC*(text, path: string, cpp: bool, clang: ClangFn = nil, baseDir =
       if o.strip.len > 0: res = o
       result[2] = "clang-format"
     if res.len == 0:
-      let (r, e) = fmtC(c, 2, cpp)
+      # (ned's own: the style chosen for C, at the Nim's indentation and its line length less the block's own)
+      var est = style
+      est.indent = 2
+      est.contIndent = min(est.contIndent, 4)
+      est.useTab = false
+      est.colLimit = (if FmtWidth > 0: max(40, FmtWidth - base) else: est.colLimit)
+      let (r, e) = fmtCWith(c, est, cpp)
       if e.len > 0: continue
       res = r
       if result[2].len == 0: result[2] = "ned's C formatter"
@@ -246,9 +270,9 @@ proc fmtTextOf*(kind, text, path: string, nimFmt: FmtFn = nil): (string, string)
       let why = verifyNim(text, r)
       if why.len > 0: return (text, why)
       if not fmtEmitC: return (r, "")
-      let clang: ClangFn = if findExe("clang-format").len > 0: clangFormatCli else: nil
-      (formatEmitC(r, path, fmtEmitCpp, clang)[0], "")
-    of "c": fmtC(text, 2, looksCppText(text))
+      let clang: ClangFn = if fmtUseClangFormat(): clangFormatCli else: nil
+      (formatEmitC(r, path, fmtEmitCpp, clang, "", cStyleFor(path, fmtCStyleName, fmtCStyleOpts))[0], "")
+    of "c": fmtCWith(text, cStyleFor(path, fmtCStyleName, fmtCStyleOpts), looksCppText(text))
     of "json": fmtJson(text, 2)
     of "markdown": fmtMarkdown(text)
     of "css": fmtCss(text, 2)
@@ -335,6 +359,14 @@ proc applySettingsFile(p: string) =
                  else: 0
   n = settingOf(j, "nim.format.align")
   if n != nil and n.kind == JBool: FmtAlign = n.getBool
+  n = settingOf(j, "nim.format.alignComments")
+  if n != nil and n.kind == JBool: FmtAlignComments = n.getBool
+  n = settingOf(j, "nim.format.magicTrailingComma")
+  if n != nil and n.kind == JBool: FmtMagicComma = n.getBool
+  n = settingOf(j, "nim.format.normalizeNumbers")
+  if n != nil and n.kind == JBool: FmtNumbers = n.getBool
+  n = settingOf(j, "nim.format.docCode")
+  if n != nil and n.kind == JBool: FmtDocCode = n.getBool
   n = settingOf(j, "nim.format.reflowDocComments")
   if n != nil and n.kind == JBool: FmtReflow = n.getBool
   n = settingOf(j, "nim.format.reflowComments")
@@ -347,6 +379,14 @@ proc applySettingsFile(p: string) =
   if n != nil and n.kind == JBool: fmtEmitC = n.getBool
   n = settingOf(j, "nim.backend")
   if n != nil and n.kind == JString: fmtEmitCpp = n.getStr == "cpp"
+  n = settingOf(j, "c.format.style")
+  if n != nil and n.kind == JString: fmtCStyleName = n.getStr
+  n = settingOf(j, "c.format.options")
+  if n != nil and n.kind == JObject: fmtCStyleOpts = cStyleOptions(n)
+  n = settingOf(j, "c.engine")
+  if n != nil and n.kind == JString: fmtCEngine = n.getStr
+  n = settingOf(j, "c.formatter")
+  if n != nil and n.kind == JString: fmtCFormatter = n.getStr
 
 proc userSettingsFile(): string =
   getEnv("XDG_CONFIG_HOME", getHomeDir() / ".config") / "ned" / "config.json"
@@ -370,11 +410,19 @@ proc applySettingsFor*(path: string) =
   FmtColl = fwFit
   FmtImports = 0
   FmtAlign = false
+  FmtAlignComments = false
+  FmtMagicComma = false
+  FmtNumbers = false
+  FmtDocCode = false
   FmtReflow = false
   FmtReflowPlain = false
   FmtBlank = 1
   fmtEmitC = true
   fmtEmitCpp = false
+  fmtCStyleName = "auto"
+  fmtCStyleOpts = @[]
+  fmtCEngine = "auto"
+  fmtCFormatter = "auto"
   fmtVerifyWanted = false
   fmtWidthSaid = false
   applySettingsFile(userSettingsFile())

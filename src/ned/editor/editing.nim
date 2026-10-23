@@ -141,6 +141,21 @@ proc newline(b: Buffer) =
           b.cursors[i] = cur(Pos(line: a.line, col: 0))
           continue
         text = "\n" & ind & marker
+    # a doc comment goes on (editor.continueComments): `##` in Nim, `///` `//!` in C, C++, Rust …, ` * ` in a
+    # /** … */ block — when the line is that comment (not code with a comment after it)
+    if cfgContinueComments and lang.mode != lmMarkdown and isBlank(after):
+      let t = before.strip(trailing = false)
+      var mark = ""
+      if lang.docLine.len > 0 and t.startsWith(lang.docLine) and not t.startsWith(lang.docLine & "[") and
+         t.len >= lang.docLine.len:
+        mark = lang.docLine & " "
+      elif lang.lineComment == "//" and t.startsWith("//!"):
+        mark = "//! "
+      elif lang.blockStart == "/*" and b.tokenAt(Pos(line: a.line, col: max(0, a.col - 1))) in {tkComment, tkDoc} and
+           "*/" notin t and (t.startsWith("/**") or t.startsWith("* ") or t == "*"):
+        mark = (if t.startsWith("/**"): " * " else: "* ")
+      if mark.len > 0 and b.tokenAt(Pos(line: a.line, col: max(0, a.col - 1))) in {tkComment, tkDoc}:
+        text = "\n" & ind & mark
     # split brackets: {|} -> {\n  |\n}
     let prevC = if trimmed.len > 0: trimmed[^1] else: '\0'
     let afterT = after.strip(trailing = false)

@@ -44,6 +44,10 @@ var
   FmtBlank* = 1        # empty lines kept in a row (nim.format.maxBlankLines)
   FmtImports* = 0      # 0 as written · 1 sorted · 2 sorted, std modules merged into std/[a, b]
   FmtAlign* = false    # object field types and the `=` of const/let/var sections lined up
+  FmtAlignComments* = false   # the trailing comments of lines that follow each other at one column
+  FmtMagicComma* = false   # a list ending in a comma before its bracket stays one element per line (black, ruff)
+  FmtNumbers* = false      # number literals written one way: 0x 0b 0o, hex digits in upper case, e (ruff)
+  FmtDocCode* = false      # the Nim code in ## comments (```nim, .. code-block:: nim) formatted too
   FmtReflow* = false   # long ## doc comments re-wrapped at the line length
   FmtReflowPlain* = false   # … and long # comments of prose (not commented-out code, banners or directives)
   FmtScript* = false   # a NimScript file (.nims, .nimble): its package fields lined up, switches, task headers,

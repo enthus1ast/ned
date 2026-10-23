@@ -1099,6 +1099,16 @@ def run_actions(nedls, have_nim, log):
         t = after_action(c, ACT, act_p, x)
         check("refactor.inline: Inline a one-expression proc into its calls",
               x and x["kind"] == "refactor.inline" and t and "double(3)" not in t, (x and x["kind"], t))
+        # 6.23: rewrites learned from other servers — the type written out, f(x) → x.f, the arguments named
+        t = after_action(c, ACT, act_p, named(code_actions(c, act_p, at(ACT, "msg = ", after=1)),
+                                              "Write the type: string"))
+        check("refactor (6.23): Write the type", t and 'let msg: string = "total: "' in t, t)
+        x = named(code_actions(c, act_p, at(ACT, "double(4)", after=2)), "Write as 4.double")
+        t = after_action(c, ACT, act_p, x)
+        check("refactor (6.23): f(x) → x.f", t and "double(3) + 4.double" in t, t)
+        x = named(code_actions(c, act_p, at(ACT, "Point(x: 1)", after=9)), "Write 1 as 0x1")
+        check("refactor (6.23): an integer literal in another base", x is not None,
+              [a["title"] for a in code_actions(c, act_p, at(ACT, "Point(x: 1)", after=9))])
         check("refactor: nothing that runs or asks (Run the selection, Change signature …)",
               not any(a["title"].startswith(("Run the", "Change signature", "Move ", "Evaluate", "Debug"))
                       for a in acts + code_actions(c, act_p, at(ACT, "double(3)", length=9))),

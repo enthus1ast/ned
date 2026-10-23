@@ -192,6 +192,8 @@ proc initSettingDefs() =
        "them itself, in any terminal (Termux too): ─→ ═⇒ ≠ ≤ ≥ ≔ in the same columns, the real text on the line " &
        "with the cursor · off", @["off", "font", "symbols"])
   defS("Editor", "editor.highlightOccurrences", %true, "Highlight other occurrences of the word under the cursor")
+  defS("Editor", "editor.continueComments", %true,
+       "Enter in a doc comment starts the next line with it: ## (Nim), /// and //! (C, C++, Rust …), * in /** … */")
   defS("Editor", "editor.autoClosePairs", %true, "Type the closing bracket/quote automatically")
   defS("Editor", "editor.autoComplete", %true, "Show completions while typing (Ctrl+Space always works)")
   defS("Editor", "editor.completionDocs", %true,
@@ -308,6 +310,9 @@ proc initSettingDefs() =
   defS("Nim", "nim.richColors", %true,
        "With semantic colours: a `var` tinted (a `let` stays plain), the module's own variables in bold, deprecated " &
        "names faded and struck through, cast/addr/unsafeAddr/ptr in the warning colour")
+  defS("Nim", "nim.completeCallArguments", %false,
+       "Completion of a routine writes its call with the parameters to fill in — area(width, height), Tab to the next " &
+       "(as clangd and rust-analyzer do); off: the name only, for command syntax (echo x) and method calls")
   defS("Nim", "nim.autoImport", %true,
        "Completion also offers standard-library names whose module is not imported yet; choosing one adds the import")
   defS("Nim", "nim.postfixCompletion", %true,
@@ -358,6 +363,17 @@ proc initSettingDefs() =
        @["keep", "sort", "merge"])
   defS("Nim", "nim.format.align", %false, "Built-in formatter: line up the types of an object's fields and the `=` of " &
        "const / let / var section members")
+  defS("Nim", "nim.format.alignComments", %false, "Built-in formatter: the comments at the end of lines that follow " &
+       "each other (`x: int  ## the x`) lined up at one column — the one they share already when there is room, else " &
+       "two after the longest line; a line the column would take past nim.format.lineLength keeps its comment " &
+       "one space after its code (off: one space each, as nph writes them)")
+  defS("Nim", "nim.format.magicTrailingComma", %false, "Built-in formatter: a list you end with a comma before " &
+       "its bracket — written one element a line, `f(⏎ a, ⏎ b, ⏎ )`, or on one line, `f(a, b,)` — stays one element " &
+       "per line, as black and ruff keep it (off: joined when it fits, as nph does)")
+  defS("Nim", "nim.format.normalizeNumbers", %false, "Built-in formatter: number literals written one way — " &
+       "0x, 0b, 0o in lower case, hexadecimal digits in upper case (0xFF), e for an exponent (1e10), as ruff does")
+  defS("Nim", "nim.format.docCode", %false, "Built-in formatter: the Nim code in doc comments formatted too — " &
+       "```nim fences and .. code-block:: nim blocks in ## comments (ruff's docstring-code-format)")
   defS("Nim", "nim.format.reflowDocComments", %false, "Built-in formatter: a ## doc comment paragraph with a line " &
        "longer than nim.format.lineLength is re-wrapped to fit (lists, code and tables stay as they are)")
   defS("Nim", "nim.format.reflowComments", %false, "Built-in formatter: a paragraph of # comments with a line longer " &
@@ -368,6 +384,17 @@ proc initSettingDefs() =
   defS("Nim", "nim.format.verify", %false, "Built-in formatter: check each result with Nim's own parser as well (the " &
        "formatter checks its tokens and blocks anyway). Needs the compiler sources — choosenim and source builds have " &
        "them, or `nimble install compiler`; ned builds a small checker from them once, in the background")
+  defS("C", "c.formatter", %"auto", "What formats C files and the C in a Nim file's emits: auto = clang-format while " &
+       "clangd is the C engine (c.engine), else ned's own · clang-format (when installed) · builtin = ned's own (in " &
+       "c.format.style)", @["auto", "clang-format", "builtin"])
+  defS("C", "c.format.style", %"auto", "ned's own C formatter's style: auto = the project's .clang-format (its keys " &
+       "ned knows: IndentWidth, ColumnLimit, BreakBeforeBraces, PointerAlignment, AlignTrailingComments …) when it " &
+       "has one, else keep · keep = indentation and spaces, your line breaks kept · or clang-format's presets: " &
+       "LLVM, Google, Chromium, Mozilla, WebKit, Microsoft, GNU — and Linux (the kernel's)",
+       @["auto", "keep", "LLVM", "Google", "Chromium", "Mozilla", "WebKit", "Microsoft", "GNU", "Linux"])
+  defS("C", "c.format.options", newJObject(), "clang-format's keys on top of the style, as a .clang-format writes " &
+       "them: {\"ColumnLimit\": 100, \"PointerAlignment\": \"Left\", \"IndentCaseLabels\": true, " &
+       "\"AlignConsecutiveMacros\": true, \"BreakBeforeBraces\": \"Linux\"}")
   defS("C", "c.engine", %"auto",
        "What answers in C files: builtin = ned's own engine (completion with struct members, hover with the " &
        "comment above a declaration, F12 through #includes, references, rename, outline, signature help, the C " &
@@ -763,6 +790,7 @@ proc applySettings() =
   cfgTouchKeys.setLen(0)
   for x in jitems(sval("ui.touchBarKeys")): cfgTouchKeys.add x.getStr
   cfgAutoImport = sBool("nim.autoImport")
+  cfgCallArgs = sBool("nim.completeCallArguments")
   cfgPostfix = sBool("nim.postfixCompletion")
   cfgShowCopies = sBool("nim.showCopies")
   cfgTestOnSave = sStr("nim.testOnSave")
@@ -859,6 +887,7 @@ proc applySettings() =
     cfgLigatures = if v.kind == JBool: (if v.getBool: "font" else: "off")
                    elif v.getStr in ["font", "symbols"]: v.getStr else: "off"
   cfgHighlightOcc = sBool("editor.highlightOccurrences")
+  cfgContinueComments = sBool("editor.continueComments")
   cfgAutoPairs = sBool("editor.autoClosePairs")
   cfgAutoComplete = sBool("editor.autoComplete")
   cfgSnippets = sBool("editor.snippets")
@@ -957,6 +986,9 @@ proc applySettings() =
     cfgRaisesHints = sBool("nim.raisesHints")
     for b in bufs: b.inlayAt = -1             # (the hints again, with or without what routines raise)
   cfgCEngine = sStr("c.engine")
+  cfgCFormatter = sStr("c.formatter")
+  cfgCStyleName = sStr("c.format.style")
+  cfgCStyleOpts = cStyleOptions(sval("c.format.options"))
   if not cfgCSigHints: cSigHints.clear()
   cSigHintsAt.clear()
   cfgPasteFmt = sStr("editor.formatOnPaste")
@@ -972,6 +1004,10 @@ proc applySettings() =
                of "merge": 2
                else: 0
   FmtAlign = sBool("nim.format.align")
+  FmtAlignComments = sBool("nim.format.alignComments")
+  FmtMagicComma = sBool("nim.format.magicTrailingComma")
+  FmtNumbers = sBool("nim.format.normalizeNumbers")
+  FmtDocCode = sBool("nim.format.docCode")
   FmtReflow = sBool("nim.format.reflowDocComments")
   FmtReflowPlain = sBool("nim.format.reflowComments")
   FmtBlank = clamp(sInt("nim.format.maxBlankLines"), 1, 3)
