@@ -732,6 +732,9 @@ proc nxSetActiveFile*(path: string) =
 
 proc nxResolve0(fromPath, spec0: string, proj: NxProject): string
 
+var nxPluginLibDir* = ""
+  ## the folder of the library ned's plugins import (nedplugin.nim, nedlsp.nim): set by ned (plugins/host)
+
 proc nxResolve*(fromPath, spec0: string): string =
   ## the file an import refers to, searched like the compiler does: next to the importing module,
   ## then the search paths (stdlib, --path, config), then nimble packages — the versions the project builds with.
@@ -753,6 +756,19 @@ proc nxResolve*(fromPath, spec0: string): string =
 proc nxResolve0(fromPath, spec0: string, proj: NxProject): string =
   var spec = spec0.strip(chars = {'"', ' '})
   if spec.len == 0: return ""
+  if spec[0] == '$':
+    # the compiler's path variables: import "$nim"/compiler/ast, "$lib"/pure/os, "$home"/…
+    spec = spec.replace("\"", "")
+    let slash = spec.find('/')
+    let v = (if slash > 0: spec[1 ..< slash] else: spec[1 .. ^1]).toLowerAscii
+    let rest = if slash > 0: spec[slash + 1 .. ^1] else: ""
+    let base = case v
+               of "nim": (if nxLibDir.len > 0: parentDir(nxLibDir) else: "")
+               of "lib": nxLibDir
+               of "home": getHomeDir().strip(leading = false, chars = {'/'})
+               else: ""
+    if base.len == 0 or rest.len == 0: return ""
+    spec = base / rest
   let dir = parentDir(fromPath)
   let key = proj.key & "\t" & dir & "\t" & spec
   if key in nxModCache: return nxModCache[key]
@@ -787,6 +803,9 @@ proc nxResolve0(fromPath, spec0: string, proj: NxProject): string =
     if found.len == 0:
       let ps = nxPackageSrc(dir)
       if ps.len > 0: try1(ps / spec)
+  # a plugin's `import nedplugin` / `import nedlsp`: the library ned gives its plugins (nim e / nim c --path:)
+  if found.len == 0 and nxPluginLibDir.len > 0 and spec in ["nedplugin.nim", "nedlsp.nim"]:
+    try1(nxPluginLibDir / spec)
   nxModCache[key] = found
   found
 

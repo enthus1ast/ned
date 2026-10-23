@@ -455,7 +455,16 @@ proc lsDocumentSymbol(params: JsonNode): JsonNode =
     let det = lsSymDetail(s)
     if det.len > 0: result["detail"] = %det
     if "deprecated" in s.pragmas: result["tags"] = %*[1]
+  # (a .nimble's, a config.nims' tasks: functions named "task name")
+  var tasks = newJArray()
+  if nxIsScript(b.path):
+    for t in nxScriptTasks(b.lines):
+      let r = lsRangeIn(b.lines, t.line, 0, t.line, b.lines[t.line].len)
+      let sel = lsRangeIn(b.lines, t.line, t.col, t.line, t.col + t.name.len)
+      tasks.add %*{"name": "task " & t.name, "kind": 12, "range": r, "selectionRange": sel, "detail": t.desc}
   if not lsHierSymbols:
+    for t in tasks:
+      result.add %*{"name": t["name"], "kind": 12, "location": {"uri": d.uri, "range": t["range"]}}
     for s in f.syms:
       if s.kind == nxModule or s.local: continue
       let j = symJson(s)
@@ -479,6 +488,7 @@ proc lsDocumentSymbol(params: JsonNode): JsonNode =
       continue
     result.add j
     if s.kind == nxType: typeAt[s.name] = result.len - 1
+  for t in tasks: result.add t
 
 proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
   ## the project's declarations whose names fit the query (as ned's Go to symbol in project matches them)
@@ -495,7 +505,7 @@ proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
       seen.incl d.b.path
       paths.add d.b.path
   for rel in projectFiles():
-    if not (rel.endsWith(".nim") or rel.endsWith(".nims")): continue
+    if not (rel.endsWith(".nim") or rel.endsWith(".nims") or rel.endsWith(".nimble")): continue
     let p = if rel.isAbsolute: rel else: rootDir / rel
     if p notin seen:
       seen.incl p
@@ -513,6 +523,16 @@ proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
         score = fuzzyMatch(q, s.name, hl)
         if score == low(int): continue
       hits.add (score, path, s)
+    if nxIsScript(path):
+      # (a NimScript file's tasks: `task build, "…":`)
+      let d = lsDocByPath(path)
+      let ls = if d != nil: d.b.lines else: (try: readFile(path).split('\n') except CatchableError: @[])
+      for t in nxScriptTasks(ls):
+        var score = 0
+        if q.len > 0:
+          score = fuzzyMatch(q, t.name, hl)
+          if score == low(int): continue
+        hits.add (score, path, NxSym(name: "task " & t.name, kind: nxProc, line: t.line, col: t.col))
   hits.sort(proc(a, b: (int, string, NxSym)): int = cmp(b[0], a[0]))
   for k in 0 ..< min(hits.len, 500):
     let (_, path, s) = hits[k]

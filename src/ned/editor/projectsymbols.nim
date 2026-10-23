@@ -18,6 +18,13 @@ proc cmdProjectSymbols() =
             let owner = if s.kind in {nxField, nxEnumVal}: s.owner & "." else: ""
             items.add PickItem(label: owner & s.name, detail: rel & ":" & $(s.line + 1), icon: nxIconText(s.kind),
                                path: path, line: s.line, col: s.col)
+          if nxIsScript(path):
+            # (a NimScript file's tasks: `task build, "…":`)
+            let bi = bufIndexByPath(path)
+            let ls = if bi >= 0: bufs[bi].lines else: readFile(path).splitLines
+            for t in nxScriptTasks(ls):
+              items.add PickItem(label: "task " & t.name, detail: rel & ":" & $(t.line + 1) & "  " & t.desc,
+                                 icon: "▶", path: path, line: t.line, col: t.col)
       except Exception as e: internalError("Nim index", e)
       if msSince(t0) > 2500 or items.len > 200_000: break
       continue

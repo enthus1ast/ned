@@ -137,6 +137,25 @@ proc ecNimscriptOnly(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]
                               only[w])
       i = e
 
+proc ecScriptImports(f: NxFile, b: Buffer, res: var seq[Diag]) =
+  ## a NimScript file (config.nims, build.nims, a .nimble, a NimScript plugin) importing a module the VM cannot
+  ## run — `nim e` stops at it — and what a script uses instead
+  if b.path.len == 0 or not nxIsScript(b.path): return
+  for im in f.imports:
+    if im.isInclude: continue
+    let m = im.spec.strip(chars = {'"', ' '}).replace("std/", "").replace("pure/", "")
+    let name = m.split('/')[^1]
+    for (bad, instead) in NxVmCannot:
+      if name != bad: continue
+      if im.line < 0 or im.line >= b.lines.len: break
+      let l = b.lines[im.line]
+      var c = l.find(name)
+      if c < 0: c = 0
+      res.add Diag(line: im.line, col: c, eline: im.line, ecol: c + name.len, sev: 2, src: "ned",
+                   rule: "nimscript-only",
+                   msg: "std/" & name & " does not run in NimScript (nim e, config.nims, a .nimble) — " & instead)
+      break
+
 proc ecEmitNames(f: NxFile, b: Buffer, res: var seq[Diag]) =
   ## a `name` in an emit that no Nim name is here (the compiler stops at it), and a routine called there with a
   ## number of arguments none of its overloads takes
@@ -2005,7 +2024,8 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("import-not-required", "an import of a package the .nimble does not require", 2),
   ("require-unused", "a package the .nimble requires that nothing imports", 4),
   ("nimble", "a problem in a .nimble file", 2),
-  ("nimscript-only", "a NimScript proc (exec, thisDir, mkDir …) called in a program, and what a program uses", 2),
+  ("nimscript-only", "a NimScript proc (exec, thisDir, mkDir …) called in a program, and what a program uses; a " &
+   "module NimScript cannot run imported in a script", 2),
   ("switch", "a compiler switch the compiler does not have, in config.nims or a .nimble (or one it says otherwise now: --gc, --threads:on)", 2),
   ("emit-nim", "a `name` in an emit that no Nim name is, or a routine called there with the wrong number of arguments", 1),
   ("async", "async code: a Future discarded, await outside an async proc, what blocks the event loop in one", 2),
@@ -2206,7 +2226,9 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
       # (the project's .nimble: its requires)
       if on("import-not-required"): result.add pcImportsNotRequired(f, b, code)
       if b.path.endsWith(".nimble") and on("nimble"): result.add pcNimbleChecks(b)
-      if on("nimscript-only"): ecNimscriptOnly(f, b, code, result)
+      if on("nimscript-only"):
+        ecNimscriptOnly(f, b, code, result)
+        ecScriptImports(f, b, result)
       if on("switch"): ecSwitches(b, code, result)
       if on("emit-nim"): ecEmitNames(f, b, result)
       if on("async"): ecAsync(f, b, code, result)

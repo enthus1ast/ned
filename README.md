@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.21](#whats-new-in-621) · [6.20](CHANGELOG.md#whats-new-in-620) · [6.19](CHANGELOG.md#whats-new-in-619) · [6.18](CHANGELOG.md#whats-new-in-618) · [older releases](CHANGELOG.md)
+- [What's new in 6.22](#whats-new-in-622) · [6.21](CHANGELOG.md#whats-new-in-621) · [6.20](CHANGELOG.md#whats-new-in-620) · [6.19](CHANGELOG.md#whats-new-in-619) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -41,71 +41,61 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.21
+## What's new in 6.22
 
-6.21 makes ned work more like a desktop app — real dialogs, right-click menus everywhere, drag and drop, text
-fields you select with the mouse — puts a decompiler beside your code, takes Atlas projects further, builds ned for
-Windows itself, can reset everything to a first start, and fixes the formatter on emits and a few other shapes.
+6.22 makes ned answer in NimScript files and plugins as it does in a program — hover, completion, signatures and
+the outline for config.nims, build scripts, .nimble files and plugins — reads doc comments the way `nim doc` does,
+measures its answers against nimsuggest, formats scripts from the shell as it does in the editor, and gives the
+Settings window controls you can tell apart and a scroll bar a finger can use.
 
-**Dialogs and forms.** The Settings window has the categories on the left, a search over every setting, check
-boxes, lists and number fields, and OK, Apply and Cancel — OK writes only what you changed, with the file's comments
-kept; a bad number is refused before anything is written. *New Nim project…* is a form (name, folder, program or
-library, description, license, nimble or atlas for the dependencies, git, tests), and so are Atlas's commands
-(below) and *Reset everything*. Prompts and pickers get OK and Cancel under them (`ui.formButtons`); Tab moves
-between a dialog's fields, Enter is its default button, Esc closes it.
+**NimScript files.** In a config.nims, a build script (`nim e`) or a .nimble, system's NimScript part — `exec`,
+`cpFile`, `mkDir`, `thisDir`, `switch`, `mode`, `task` … — has its hover with its doc ("system · NimScript") and is
+offered by completion (ned took system's `when defined(nimconfig)` for false and left it all out). A task's name on
+hover says how to run it (`nimble test`, `nim build`) and what it does, `before`/`after` hooks too, and the tasks
+are in the Outline, *Go to symbol* (in the file and in the project) and nedls' document and workspace symbols.
+Importing a module the VM cannot run (osproc, net, asyncdispatch, httpclient, terminal, re, threadpool …) is a
+problem on its line, with what a script uses instead (`exec`, `gorgeEx`, `staticExec` …) — rule `nimscript-only`.
+`import "$nim"/compiler/ast` and `"$lib"/…` resolve, and a named argument (`strip(s, trailing = false)`) and
+`std/`/`pkg/` in an import line have hovers.
 
-**Text fields you can select in.** Every field — the palette, Find, a prompt, a dock's filter, a dialog's — takes
-the mouse: a click places the cursor, a drag selects, a double-click takes a word and a triple-click all of it;
-Shift+arrows and Ctrl+Shift+arrows select, Ctrl+A selects all, Ctrl+C/X copy and cut the selection, typing replaces
-it, and a right-click gives Cut, Copy, Paste, Select all.
+**Plugins.** In a plugin (`plugin.nims`, `plugin.nim`, anything that imports `nedplugin` or `nedlsp`) the plugin API
+resolves wherever the file is, and every proc, type and field of `nedplugin` and `nedlsp` has its doc: hover and
+completion say what each one does ("nedplugin · ned's plugin API").
 
-**Right-click everywhere.** Tabs (close the others, split with it, show it in the other pane, copy its path),
-the gutter (breakpoint, conditional breakpoint, logpoint, bookmark, fold, the git change on that line, copy a link
-to it), every item of every dock (open, open to the side, references, rename, run or debug a test, copy its path),
-each part of the status bar (the position, line endings, the language, the AI, the terminal, the language server,
-the problems), the title bar, breadcrumbs, the minimap, the panel and its lines, messages, a split's pane header,
-a picker's rows, the welcome page's recent files.
+**Doc comments as `nim doc` reads them.** A `##` on the declaration's own line that goes on below it is one doc; a
+line ending in `\` is joined with the next (`## hwad \` and `## hello` show as "hwad hello", not with the `\`); a
+constant written over several lines (`defined(linux) or⏎ defined(macosx) ## \`) gets the doc below it, and so
+does one whose value is on the lines below (`AltSep* =⏎ when …⏎ else: DirSep⏎ ## …`).
 
-**Drag and drop.** A tab dragged out of the tab bar goes onto a pane, or to the editor's right or bottom edge to
-split with it; a file from the tree opens where you drop it (or splits at the edges), moves into a folder you drop
-it on (after asking), or puts its path in the terminal; selected text moves where you drop it — with Ctrl or Alt
-held it is copied — in one undo step. The places it can go light up while you drag (`ui.dragAndDrop`).
+**Closer to nimsuggest.** Signature help finds a routine of the file itself first, go to definition on a forward
+declaration goes to its body, a `do (x: T):` block's parameters are known inside it, a name in `from m import a, b`
+is m's (not this module's of the same name), and the foot of an overloaded name's hover says std/x or system.
+`tests/engine/parity.py` asks nedls (ned's engine, what the editor answers) and nimsuggest the same questions — in
+.nim files at random places, and in scripts and plugins against the API's own docs (nimsuggest reads a .nims as a
+program). On 13 modules of the standard library, the compiler, atlas and nimble, five of their scripts and the five
+example plugins: a hover wherever nimsuggest knows the name (370 of 370), the declaration nimsuggest names at 367,
+its doc comment at 91 of 92, completion 353 of 354, signature help 99 of 99 — and in the scripts and plugins every
+API name used has its hover with its doc, is offered by completion and goes to its definition (160 of 160). On the
+way, `import std / [os, strutils]` (written with spaces, as atlas does) is read as the import it is.
 
-**A decompiler beside your code.** *Nim: decompile this proc (side by side)* builds the program with debug
-information and shows the proc at the cursor as C (radare2 with r2ghidra or r2dec, rizin with rz-ghidra, RetDec)
-or as assembly with the Nim lines it came from (radare2, rizin, objdump, llvm-objdump) — whichever is installed
-(`decompiler.tool`) — in the pane beside it; it follows the cursor into the next proc. In the hex editor, *Hex:
-decompile a function…* (or its ⇄ button) lists a program's functions; *Decompile a program…* opens one. In Termux,
-`pkg install radare2` (or binutils, for objdump) is enough; on Linux, radare2 (`r2pm -ci r2ghidra` for C), rizin,
-RetDec or binutils; on Windows, radare2 or LLVM's llvm-objdump.
+**The formatter on scripts.** `ned --format` lays out a .nims and a .nimble as NimScript too, as the editor and
+nedfmt did (switches such as `--path:"../src"` and `--d:release` kept as written, task headers, the package's
+fields). Fields written `name = value` each stay so — a run lined up already, or written unevenly, is lined up — a
+`requires` over several lines stays as written, and an empty file stays empty. All 80 .nims and .nimble files of
+Nim, atlas, nimble and their packages format, and formatting again changes nothing.
 
-**Atlas.** An Atlas project (atlas.config, or nim.cfg's Atlas section) shows its dependencies first in the Nim
-panel — the version atlas chose, *linked*, *≠ lock* when the checkout is not what atlas.lock pins, *not on the path*
-when nim.cfg leaves it out — each with its own menu (update it, unlink, its history, its .nimble); the Nims `atlas
-env` installed (one click makes it the project's Nim). Install, update all or one, add a dependency (from the
-package list, with a version), link and unlink a project, pin, replay, what changed, outdated, the dependency tree,
-a Nim for the project, atlas-run's tasks, build and tests are in the palette and *Atlas…*; atlas's errors go to
-Problems on the .nimble's requires line of the package they name. atlas.config's keys have hovers; a nimble
-install asked from a .nimble uses atlas in an Atlas project.
+**The Settings window.** Each kind of control looks like itself: a check box is filled with ✓ when on and an empty
+frame when off, text and number fields are boxes, a number has − and + beside it, a list shows ▾, links (*Edit…*)
+are buttons; the focused row is tinted and marked, the setting's key is on the line over its help, and ↺ at the end
+of a changed row puts the default back. The scroll bar is two columns wide with ▲ and ▼ to tap; a tap on its track
+jumps there (Termux sends taps, not drags), the thumb drags with a mouse, and the wheel — a swipe in Termux —
+scrolls (scrolling no longer snaps back to the focused field). The editor's scroll bar shows its track, and in
+Termux the column beside it takes a tap too.
 
-**Windows, natively (experimental).** ned builds for Windows itself: the console (Windows Terminal) is its
-terminal, a pseudo-console (ConPTY) runs PowerShell in its terminal panel, its commands run through Git for Windows'
-sh, and the clipboard is Windows'. CI builds and checks it on every push; WSL stays the tried way. See
-[Windows](#windows).
+**Fixes.** A file saved right after typing — before the pause the engine waits for — had its checks made again only
+at the next edit; scripts, which `nim check` does not check on save, showed none.
 
-**Reset everything.** File › Preferences › *Reset everything (start fresh)…* shows what ned keeps — settings,
-plugins, sessions and history, caches, downloads (and, if you tick it, the project's `.ned`) — with their sizes,
-removes what you tick, and starts ned again as on its first run; `ned --reset` does the same from the shell, for
-when ned no longer starts as it should.
-
-**The formatter.** `{.emit: """` stays on its line (it was split into `{.` and `emit: """`, which also lost the
-C's colours — C in that split form is coloured again too). A comment after `=`, `return f(…):` with a block,
-`x = if/try/case …` with the first branch on the same line, a `case` inside a value, `else: name: x`, `quote do:`,
-`expect E: body`, a long proc type and a `doAssert not …` are formatted (or left alone) instead of refused. On 761
-files of Nim's standard library, its compiler, atlas, nph and other packages, every file now formats, and formatting
-again changes nothing.
-
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.20](CHANGELOG.md#whats-new-in-620) took plugins further (a language's completions, hover, actions, outline; plugins in full Nim), showed a macro's tree and a module's docs beside the code, checked async, raises and gcsafe before compiling and opened files of any size, [6.19](CHANGELOG.md#whats-new-in-619) brought plugins in NimScript,
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.21](CHANGELOG.md#whats-new-in-621) made ned work like a desktop app (dialogs, right-click menus, drag and drop, text fields you select in), put a decompiler beside the code, took Atlas projects further and built ned for Windows itself, [6.20](CHANGELOG.md#whats-new-in-620) took plugins further (a language's completions, hover, actions, outline; plugins in full Nim), showed a macro's tree and a module's docs beside the code, checked async, raises and gcsafe before compiling and opened files of any size, [6.19](CHANGELOG.md#whats-new-in-619) brought plugins in NimScript,
 NimScript files known as such, nimble 0.26's conflicts on their lines, hot exit, encodings and checked key bindings,
 [6.18](CHANGELOG.md#whats-new-in-618) gave nedls ned's quick-fix list as code actions and Fix with AI checked by nim check, [6.17](CHANGELOG.md#whats-new-in-617) halved the waits on a big program
 and kept the engine worker from growing, [6.16](CHANGELOG.md#whats-new-in-616) moved the engine's hints, checks
@@ -262,7 +252,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.21.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.22.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -1061,6 +1051,10 @@ in the palette. Your own `formatters` entry for `nim` always wins.
   shows what nimble.lock pins and what changed since the last commit. In config.nims and a .nimble, `-d:` completes
   what the project's code asks about (`defined(x)`, `{.intdefine.}`, `{.strdefine: "pkg.name".}`) and `--path:` the
   folders; `--gc:orc` is "deprecated: --mm:orc" and `--threads:on` "the default since Nim 2.0", each with its fix.
+- NimScript files (config.nims, a build script for `nim e`, a .nimble) and plugins: system's NimScript part
+  (`exec`, `cpFile`, `mkDir`, `switch`, `task` …), nimble's API and ned's plugin API on hover with their docs, in
+  completion and signature help; a task's name says how to run it; the tasks in the Outline and *Go to symbol*; a
+  module the VM cannot run (osproc, net, asyncdispatch …) is a problem with what to use instead (`nimscript-only`).
 - *Nimble: add a dependency by name…* (adds `requires` and offers `nimble install -d`), *dependency tree*, *search packages*, tasks,
   build modes (debug / release / danger), backends (C, C++, JS, ObjC), Nim 3 with Nimony (*Nim › Nim 3 (Nimony)*: see
   [What's new in 6.12](#whats-new-in-612)).
@@ -1236,10 +1230,12 @@ Regex syntax: `.` `[abc]` `[^a-z]` `[[:digit:]]` `\d \w \s \b` (and negations) `
 
 Everything is in one commented JSON file: **`~/.config/ned/config.json`** (palette › *Open settings file*),
 or use the Settings window (palette › *Settings*, ⚙ in the title bar): the categories on the left, a search over
-every setting (its name or words from its description), check boxes, lists and fields; OK or Apply writes what you
-changed into the file, its comments kept (*Settings: quick list…* is the older one-line list; `"ui.formButtons":
-false` brings it back, with prompts and pickers without their OK/Cancel buttons). Saving the file applies it
-immediately.
+every setting (its name or words from its description), check boxes (▐✓▌ on, an empty frame off), lists (▾), text
+and number fields in boxes (a number with − and + beside it); ↺ at the end of a row you changed puts its default
+back, a • after a name says your settings file sets it, and the line over the help shows the setting's key. Its scroll bar has ▲ and ▼ to tap, a tap on the track
+jumps there (touch screens), the thumb drags, the wheel or a swipe scrolls. OK or Apply writes what you changed into
+the file, its comments kept (*Settings: quick list…* is the older one-line list; `"ui.formButtons": false` brings it
+back, with prompts and pickers without their OK/Cancel buttons). Saving the file applies it immediately.
 `ned --default-settings` prints every option with its default and a description.
 
 A few examples:
@@ -1318,7 +1314,9 @@ the folder. *Plugins: new plugin…* (and *new plugin in full Nim…*) makes one
 example…* copies one of the five below, *Plugins: install from git…* clones a repository that has a `plugin.nims`
 (or `plugin.nim`) at its top, *Plugins: browse the plugin list…* installs from a list (`plugins.indexUrl`: a URL or a
 file of JSON, `[{"name", "url", "description"}]`), and *Plugins: update* pulls the ones that came from git. Saving a
-plugin's file reloads it (*Plugins: reload one…* too).
+plugin's file reloads it (*Plugins: reload one…* too). While you write one, `import nedplugin` (and `nedlsp`)
+resolves wherever the plugin is: every proc, type and field of the API has its hover with its doc, completion
+after `b.` lists what a buffer offers, and NimScript's own procs (`exec`, `readFile` …) are there too.
 
 ```nim
 import nedplugin

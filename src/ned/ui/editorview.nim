@@ -836,6 +836,10 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     let total = b.lines.len
     let thumbH = max(1, h * h div total)
     let thumbY = y0 + (h - thumbH) * b.topLine div max(1, total - 1)
+    # (its track, faint: there is a scroll bar to tap — and the thumb on it)
+    let trackC = blend(theme.bg, theme.border, 0.45)
+    for yy in y0 ..< y0 + h:
+      if yy < thumbY or yy >= thumbY + thumbH: setCell(x0 + w - 1, yy, Cell(ch: 0x2595, fg: trackC, bg: theme.bg))
     for yy in thumbY ..< min(y0 + h, thumbY + thumbH):
       setCell(x0 + w - 1, yy, Cell(ch: 0x2590, fg: theme.border, bg: theme.bg))
     if cfgTodoHl and tagCols.len > 0:

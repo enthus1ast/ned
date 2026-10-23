@@ -287,6 +287,7 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
   var indents = newSeq[int](max(0, last - a + 1))
   var lastS, lastFor = 0
   var open = 0
+  var stmtInd = 0
   # `when` opens no scope: what its branches declare is the enclosing block's (headers: (indentation, a `when`))
   var hdrs: seq[(int, bool)]
   var chainWhen: Table[int, bool]
@@ -306,7 +307,9 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
     indents[l - a] = -1
     if t.len == 0 or inStr: continue
     let ind = raw.len - raw.strip(trailing = false).len
-    if not wasOpen: indents[l - a] = ind
+    if not wasOpen:
+      indents[l - a] = ind
+      stmtInd = ind                              # (a statement over several lines: where it starts)
     lastS = ind
     lastFor = ind
     if not wasOpen:
@@ -376,6 +379,33 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
               result.add NxSym(name: pn, kind: nxParam, typ: p.typ, value: p.default, line: pl, col: pc)
               scopes.add ind + 1
         k = t.find("proc", k + 4)
+    if "do" in t and (not wasOpen or t.endsWith(":")):
+      # a block given as a proc with `do`: operator("gc") do (b: Buf, r: Range): … — its parameters in its body
+      var k = t.find("do")
+      while k >= 0:
+        var j = k + 2
+        while j < t.len and t[j] == ' ': inc j
+        if (k == 0 or not nxIsIdent(t[k - 1])) and k + 2 < t.len and not nxIsIdent(t[k + 2]) and j < t.len and
+           t[j] == '(':
+          let wt = whole(t)[j .. ^1]
+          let ce = nxMatchClose(wt, 0)
+          if ce > 0:
+            flushScopes()
+            var rk = raw.find("do")
+            while rk >= 0:
+              var rj = rk + 2
+              while rj < raw.len and raw[rj] == ' ': inc rj
+              if (rk == 0 or not nxIsIdent(raw[rk - 1])) and rj < raw.len and raw[rj] == '(': break
+              rk = raw.find("do", rk + 2)
+            var at3 = (l, max(0, if rk >= 0: raw.find('(', rk) else: 0))
+            for p in nxParseParams(wt[1 ..< ce]):
+              let pn = p.name.strip(chars = {'`'})
+              if pn.len == 0: continue
+              let (pl, pc) = nxLocate(lines, pn, l, min(l + 12, lines.high), at3)
+              at3 = (pl, pc + pn.len)
+              result.add NxSym(name: pn, kind: nxParam, typ: p.typ, value: p.default, line: pl, col: pc)
+              scopes.add (if wasOpen: stmtInd else: ind) + 1
+        k = t.find("do", k + 2)
     if secInd >= 0:
       if memberInd < 0: memberInd = ind
       if ind == memberInd:

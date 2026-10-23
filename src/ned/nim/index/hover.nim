@@ -187,7 +187,65 @@ proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
       let t = nxTypeOfName(f, sc, all, s.name, line, 0)
       if t.typ.len > 0: s.typ = t.typ
     return nxDocItem(NxItem(label: s.name, kind: s.kind, local: s))
-  if refs.len == 0: return ""
+  if refs.len == 0:
+    if line < 0 or line >= lines.len: return ""
+    let t = lines[line]
+    var a = min(col, t.len)
+    var e = a
+    while a > 0 and nxIsIdent(t[a - 1]): dec a
+    while e < t.len and nxIsIdent(t[e]): inc e
+    if e <= a: return ""
+    let w = t[a ..< e]
+    let head = t.strip
+    if (w == "std" or w == "pkg") and e < t.len and t[e] == '/' and
+       (head.startsWith("import") or head.startsWith("from") or head.startsWith("include") or head.startsWith("export")):
+      # import std/strutils — `std/`: the standard library; `pkg/`: a package (not a module of the project)
+      return (if w == "std": "```nim\nstd/\n```\nThe standard library: `std/name` is a module of Nim's own library " &
+                            "(lib/std, lib/pure …) — never a file of the project with that name."
+              else: "```nim\npkg/\n```\nA package: `pkg/name` is a module of an installed package (nimble, atlas) — " &
+                    "never a file of the project with that name.")
+    if f != nil and nxIsScript(f.path):
+      # task build, "…": the task's name · before install: / after build: nimble's action
+      let ws = head.splitWhitespace()
+      if ws.len >= 2 and ws[0] in ["task", "taskRequires"] and ws[1].strip(chars = {',', ':'}) == w:
+        var desc = ""
+        let q1 = head.find('"')
+        let q2 = if q1 >= 0: head.find('"', q1 + 1) else: -1
+        if q2 > q1: desc = head[q1 + 1 ..< q2]
+        let run = if nxIsNimbleFile(f.path): "nimble " & w else: "nim " & w
+        let tail = if desc.len > 0: " — " & desc elif ws[0] == "task": " (no description: `nimble tasks` leaves it out)"
+                   else: ""
+        return "```nim\ntask " & w & "\n```\n`" & run & "` runs it" & tail &
+               (if tail.len > 0 and tail[^1] in {'.', '!', '?', ')'}: "" else: ".")
+      if ws.len >= 2 and ws[0] in ["before", "after"] and ws[1].strip(chars = {':'}) == w:
+        return "```nim\n" & ws[0] & " " & w & "\n```\nRuns " & ws[0] & " nimble's `" & w & "` (`nimble " & w & "`)" &
+               (if ws[0] == "before": "; `result = false` in it stops the action." else: ".")
+    # an argument given by name: strip(trailing = false) — the routine's parameter
+    var k = e
+    while k < t.len and t[k] == ' ': inc k
+    var b = a - 1
+    while b >= 0 and t[b] == ' ': dec b
+    let byName = k < t.len and t[k] == '=' and (k + 1 >= t.len or t[k + 1] != '=')
+    if byName and (b < 0 or t[b] in {'(', ','}):
+      let h = nxSignatureHelp(f, lines, line, a)
+      for r in h.overloads:
+        for p in r.sym.params:
+          if nxNorm(p.name.strip(chars = {'`', '*'})) != nxNorm(w): continue
+          var typ = p.typ
+          if typ.len == 0:                      # (a default alone: the type it says)
+            let d = p.default.strip
+            typ = if d in ["true", "false"]: "bool"
+                  elif d.len > 0 and d[0] == '"': "string"
+                  elif d.len > 0 and d[0] == '\'': "char"
+                  elif d.len > 0 and (d[0] in {'0'..'9'} or (d[0] == '-' and d.len > 1)) and '.' notin d: "int"
+                  elif d.len > 0 and d[0] in {'0'..'9'}: "float"
+                  else: ""
+          let sig = p.name & (if typ.len > 0: ": " & typ else: "") & (if p.default.len > 0: " = " & p.default else: "")
+          var where = r.file.module
+          if nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir): where = "std/" & r.file.module
+          return "```nim\n" & sig & "\n```\nthe argument `" & p.name & "` of `" & r.sym.name & "` — " & where &
+                 " · " & extractFilename(r.file.path) & ":" & $(r.sym.line + 1)
+    return ""
   var done = false
   if refs.len == 1 and refs[0].sym.kind in {nxLet, nxVar, nxConst} and refs[0].sym.typ.len == 0:
     # show the type we can work out:  let p: Person = Person(…)
@@ -220,7 +278,9 @@ proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
   elif s0.kind == nxTemplate and not (refs[0].file == f and s0.line == line):
     # what this call becomes
     let (_, ex) = nxExpandTemplate(f, lines, line, col)
-    if ex.len > 0:
+    # (nimble's API is described, not implemented: its templates have no body to show)
+    let stub = extractFilename(refs[0].file.path).startsWith("nimbleapi_")
+    if ex.len > 0 and not stub:
       var ls = ex.splitLines
       if ls.len > 12: ls = ls[0 ..< 12] & @["…"]
       result.add "\n\n**Here it becomes:**\n```nim\n" & ls.join("\n") & "\n```"
@@ -241,7 +301,20 @@ proc nxDefinition*(f: NxFile, lines: seq[string], line, col: int): seq[(string, 
   let (refs, locals, modPath) = nxTargets(f, lines, line, col)
   if modPath.len > 0: return @[(modPath, 0, 0, "module " & nxModuleName(modPath))]
   if locals.len > 0: return @[(f.path, locals[0].line, locals[0].col, nxSig(locals[0]))]
-  for r in refs: result.add (r.file.path, r.sym.line, r.sym.col, nxSig(r.sym))
+  for r in refs:
+    var (ln, cl) = (r.sym.line, r.sym.col)
+    if r.sym.kind in NxRoutineKinds and r.sym.endLine <= r.sym.line and not r.sym.pragmas.contains("importc"):
+      # a forward declaration (`proc p*(…): T` with no body): the routine itself, further down its file
+      for s2 in r.file.syms:
+        if s2.name == r.sym.name and s2.kind == r.sym.kind and s2.line > r.sym.line and s2.endLine > s2.line and
+           s2.params.len == r.sym.params.len and not s2.local:
+          var same = true
+          for k in 0 ..< s2.params.len:
+            if s2.params[k].typ != r.sym.params[k].typ: same = false
+          if same:
+            (ln, cl) = (s2.line, s2.col)
+            break
+    result.add (r.file.path, ln, cl, nxSig(r.sym))
 
 
 proc nxSignatureHelp*(f: NxFile, lines: seq[string], line, col: int): NxSigHelp =
@@ -299,6 +372,11 @@ proc nxSignatureHelp*(f: NxFile, lines: seq[string], line, col: int): NxSigHelp 
         if v.typ.len == 0 or nxCompatP(sc, r.sym.params[0], r.sym.generics, v.typ) > 0:
           result.overloads.add r
       return
+  # a routine declared in this one (a local template, a nested proc): its own signature first
+  for x in locals:
+    if x.kind in NxRoutineKinds and nxNorm(x.name) == nxNorm(name):
+      result.overloads.add NxRef(file: NxFile(path: f.path, module: f.module, syms: @[x]), idx: 0)
+  if result.overloads.len > 0: return
   for r in nxLookup(sc, name):
     if r.sym.kind in NxRoutineKinds: result.overloads.add r
     elif r.sym.kind == nxType:

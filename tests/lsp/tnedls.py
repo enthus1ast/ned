@@ -740,6 +740,7 @@ def run_checks(nedls, root, have_nim, log):
         run_nimscript(nedls, root, log)
         run_effects(nedls, root, log)
         run_nimscript620(nedls, root, log)
+        run_nimscript622(nedls, root, log)
 
 
 EFFECTS = '''import std/[asyncdispatch, os, strutils]
@@ -870,6 +871,48 @@ def run_nimscript620(nedls, root, log):
           "useFancy" in ls and "level" in ls and "prog.tag" in ls and "release" in ls, ls[:12])
     r = c.request("textDocument/completion", {"textDocument": {"uri": uri(cfg)}, "position": {"line": 3, "character": 11}})
     check("NimScript 6.20: --path: completes folders", labels(r) == ["inner"], labels(r)[:8])
+    c.request("shutdown", None)
+    c.notify("exit", {})
+    c.close()
+
+
+def run_nimscript622(nedls, root, log):
+    """6.22: system's NimScript part on hover and in completion, a task's hover, the tasks among the document's
+    and the workspace's symbols, a module the VM cannot run, a doc comment joined by a trailing \\"""
+    ns = os.path.join(root, "ns622")
+    os.makedirs(ns, exist_ok=True)
+    text = ('import std/osproc\nmode = ScriptMode.Verbose\n'
+            'proc one(name: string, release = true) = ## builds \\\n  ## one program\n  exec "nim c " & name\n'
+            'task build, "build every program":\n  one("app", release = false)\n  cpF\n')
+    path = os.path.join(ns, "build.nims")
+    with open(path, "w") as f:
+        f.write(text)
+    c, init = new_client(nedls, ns, log=log)
+    open_doc(c, path, text)
+    ds = c.wait_diagnostics(uri(path), lambda ds: any("does not run in NimScript" in d["message"] for d in ds),
+                            timeout=20) or []
+    check("NimScript 6.22: a module the VM cannot run (std/osproc), with what to use instead",
+          any("std/osproc does not run in NimScript" in d["message"] and "gorgeEx" in d["message"] for d in ds),
+          [d["message"] for d in ds])
+    def hover(l, ch):
+        r = c.request("textDocument/hover", {"textDocument": {"uri": uri(path)}, "position": {"line": l, "character": ch}})
+        v = ((r or {}).get("result") or {}).get("contents") or {}
+        return v.get("value", "") if isinstance(v, dict) else str(v)
+    h = hover(4, 3)
+    check("NimScript 6.22: hover on exec — its doc, system's NimScript part",
+          "Executes an external process" in h and "system · NimScript" in h, h[:300])
+    check("NimScript 6.22: hover on a task's name", "`nim build` runs it — build every program" in hover(5, 6),
+          hover(5, 6))
+    check("NimScript 6.22: a doc comment on the header line, joined by \\", "builds one program" in hover(6, 3),
+          hover(6, 3))
+    r = c.request("textDocument/completion", {"textDocument": {"uri": uri(path)}, "position": {"line": 7, "character": 5}})
+    check("NimScript 6.22: completion — cpFile", "cpFile" in labels(r), labels(r)[:10])
+    r = c.request("textDocument/documentSymbol", {"textDocument": {"uri": uri(path)}})
+    names = [x.get("name") for x in (r or {}).get("result") or []]
+    check("NimScript 6.22: the task among the document's symbols", "task build" in names and "one" in names, names)
+    r = c.request("workspace/symbol", {"query": "build"})
+    names = [x.get("name") for x in (r or {}).get("result") or []]
+    check("NimScript 6.22: … and the workspace's", "task build" in names, names)
     c.request("shutdown", None)
     c.notify("exit", {})
     c.close()

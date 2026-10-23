@@ -182,6 +182,7 @@ proc drawDnd()                                       # ui/dragdrop.nim
 proc dndShow(bufId: int)                              # ui/dragdrop.nim
 proc dndSplitWith(id: int, down: bool)
 proc moveToOtherPane()                               # ui/split.nim
+proc plugLibDir(): string                            # plugins/host.nim
 proc toSidePane()                                    # ui/split.nim
 proc openToSide(path: string, line = -1, col = -1): Buffer   # ui/split.nim
 proc splitEditor(down = false)                       # ui/split.nim

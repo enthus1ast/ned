@@ -87,6 +87,9 @@ proc nimFormatAll(text, path: string, ownWidth = true): (string, string) =
   var err = ""
   var r = ""
   var fresh: seq[(string, string)]       # (the statements formatted this time: the rest are remembered)
+  let keepS = FmtScript
+  if path.len > 0: FmtScript = fIsScriptPath(path)    # (.nims, .nimble: NimScript's layout — ned --format too)
+  defer: FmtScript = keepS
   if ownWidth and path.len > 0:
     withNimLineLength(path):
       r = fFormatPieces(text, err, fresh)
