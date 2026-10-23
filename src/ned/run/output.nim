@@ -79,6 +79,8 @@ proc addPanelLine(pl: PanelLine) =
   needRender = true
 
 proc pcResolveDiags(nb: string, expl: seq[string]): seq[Diag]
+proc atlasProblemLine(j: Job, s: string): int
+proc atlasProblemsDone(j: Job)
 
 proc nimbleResolveLine(j: Job, s: string) =
   ## nimble's "Dependency resolution failed" and the explanation under it (0.26: PubGrub's "Because …"; 0.24: the
@@ -120,6 +122,7 @@ proc addRunLine(j: Job, raw: string) =
   if cr >= 0: s = s[cr + 1 .. ^1]
   var pl = PanelLine(text: s, line: -1)
   if j.inResolve or "resolution failed" in s or "Minimal set of conflicting" in s: nimbleResolveLine(j, s)
+  if j.cmd.startsWith("atlas ") and s.startsWith("["): pl.sev = atlasProblemLine(j, s)
   let (ok, path, l, c, sev, m) = parseErrLine(s, j.cwd)
   if ok:
     pl.path = path
@@ -190,6 +193,7 @@ proc runCommand(cmd0, cwd: string, after: proc(code: int) {.closure.} = nil) =
       addRunLine(j, j.partial)
       j.partial = ""
     nimbleResolveDone(j)
+    if j.cmd.startsWith("atlas "): atlasProblemsDone(j)
     let dt = float(msSince(j.started)) / 1000.0
     var errs = 0
     for ds in diagsBuild.values:

@@ -160,9 +160,9 @@ suite "Nim: nph's layouts (6.9)":
           "  if expectedElementType != nil and typeAllowed(expectedElementType, skLet, c) == nil and\n" &
           "      moreChecks(x):\n    discard\n"
 
-  test "a pragma holding a long string: `{.` ⏎ the pragma ⏎ `.}`":
+  test "a pragma holding a long string: on its line, the string where it starts (6.21: not `{.` ⏎ `emit:`)":
     check nimFmt("proc len(x: JsObject): int =\n  {.emit: \"\"\"\n  `result` = `x`.length;\n\"\"\".}\n") ==
-          "proc len(x: JsObject): int =\n  {.\n    emit: \"\"\"\n  `result` = `x`.length;\n\"\"\"\n  .}\n"
+          "proc len(x: JsObject): int =\n  {.emit: \"\"\"\n  `result` = `x`.length;\n\"\"\".}\n"
 
   test "`var a, b: T` too long: the type on the next line":
     check nimFmt("proc f() =\n" &
@@ -569,7 +569,7 @@ suite "Nim layout settings (nim.format.*)":
     FmtColl = fwAlways
     check nimFmt("template t(a: int, b) =\n  b\n") == "template t(\n    a: int,\n    b;\n) =\n  b\n"
     check nimFmt("type\n  array*[I, T] {.magic: \"Array\".}\n") == "type array*[I, T] {.magic: \"Array\".}\n"
-    check nimFmt("let a2 = collect: (for k,v in a: (k,v))\n") == "let a2 = collect: (for k, v in a: (k, v))\n"
+    check nimFmt("let a2 = collect: (for k,v in a: (k,v))\n") == "let a2 = collect:\n  (for k, v in a: (k, v))\n"
 
   test "a doc comment after an argument stays on that line (Nim reads it there), however long":
     FmtMax = 60
@@ -732,3 +732,62 @@ suite "NimScript: .nimble and .nims (6.19)":
     check nimFmt("version = \"1\"\nauthor = \"me\"\nif y > 0: echo y\n") ==
           "version = \"1\"\nauthor = \"me\"\nif y > 0:\n  echo y\n"
     check fIsScriptPath("x/config.nims") and fIsScriptPath("p.nimble") and not fIsScriptPath("p.nim")
+
+suite "Nim: fixes (6.21)":
+  test "{.emit: \"\"\"…\"\"\".} stays on its line — the C under it, as written (nph would move `emit:` down)":
+    let ok = "{.emit: \"\"\"\n#include <stdio.h>\nvoid n(void) { printf(\"hi\\n\"); }\n\"\"\".}\n"
+    check nimFmt(ok) == ok
+    check nimFmt("{.\n  emit: \"\"\"\nint x = 1;\n\"\"\"\n.}\n") == "{.emit: \"\"\"\nint x = 1;\n\"\"\".}\n"
+    check nimFmt("proc f() =\n  {.emit: \"\"\"\nint x = 1;\n\"\"\".}\n") == "proc f() =\n  {.emit: \"\"\"\nint x = 1;\n\"\"\".}\n"
+
+  test "a comment after `=`, the value on the next line: kept apart from the value (like nph)":
+    check nimFmt("let x = # c\n  5\nvar y = # c\n  f(1)\n") == "let x =\n  # c\n  5\nvar y =\n  # c\n  f(1)\n"
+    check nimFmt("proc f() =\n  x = # c\n    g(1, 2)\n") == "proc f() =\n  x = # c\n    g(1, 2)\n"
+    check nimFmt("type\n  KUQueue = # a comment\n    KeyedQueue[uint,uint]\n") ==
+          "type KUQueue = # a comment\n  KeyedQueue[uint, uint]\n"
+
+  test "`return f(…):` with a block keeps the block on its call":
+    check nimFmt("proc readOnce() =\n  fsTranslateErrors readingErrMsg:\n    return implementSingleRead(s.buffers, " &
+                 "dst, dstLen, ReadFlags {},\n                               readStartAddr, readLen):\n      " &
+                 "await s.pipe.readInto(readStartAddr, readLen)\n") ==
+          "proc readOnce() =\n  fsTranslateErrors readingErrMsg:\n    return implementSingleRead(\n      s.buffers, " &
+          "dst, dstLen, ReadFlags {}, readStartAddr, readLen\n    ):\n      await s.pipe.readInto(readStartAddr, readLen)\n"
+
+  test "if/try/case values whose branches follow at the value's level, or deeper":
+    check nimFmt("proc f() =\n  state = if a: x\n  elif b: y\n  else: z\n") ==
+          "proc f() =\n  state =\n    if a:\n      x\n    elif b:\n      y\n    else:\n      z\n"
+    check nimFmt("proc f() =\n  let t = try: f()\n  except E: 1\n") ==
+          "proc f() =\n  let t =\n    try:\n      f()\n    except E:\n      1\n"
+    check nimFmt("proc f() =\n  let j = case x\n  of 1: a\n  else: b\n") ==
+          "proc f() =\n  let j =\n    case x\n    of 1: a\n    else: b\n"
+    check nimFmt("proc p() =\n  if a:\n    hasLevel = try: parseEnum[L](str)\n      except ValueError:\n        quit 1\n") ==
+          "proc p() =\n  if a:\n    hasLevel =\n      try:\n        parseEnum[L](str)\n      except ValueError:\n        quit 1\n"
+
+  test "a case value inside another's branch: the same in one run":
+    let src = "func g(): Node =\n  result = case sc.peek\n  of 'a':\n    var k = case sc.peek\n      of 1: a\n      else: d\n" &
+              "    k\n  else: b\n"
+    let once = nimFmt(src)
+    check nimFmt(once) == once
+    check "      var k =\n        case sc.peek\n" in once
+
+  test "blocks given to calls on the line: `name:` ⏎ the body (like nph)":
+    check nimFmt("when x:\n  if c: ignoreExceptions: styled\n  else: ignoreExceptions: unstyled\n") ==
+          "when x:\n  if c:\n    ignoreExceptions:\n      styled\n  else:\n    ignoreExceptions:\n      unstyled\n"
+    check nimFmt("test \"x\":\n  expect GlobSyntaxError: discard g(\"a\")\n") ==
+          "test \"x\":\n  expect GlobSyntaxError:\n    discard g(\"a\")\n"
+    check nimFmt("proc f() =\n  quote do: not `wordMatch`\n  let n = quote do: `p`.ni\n") ==
+          "proc f() =\n  quote:\n    not `wordMatch`\n  let n = quote:\n    `p`.ni\n"
+    check nimFmt("proc f() =\n  return quote do:\n    x\n") == "proc f() =\n  return quote:\n    x\n"
+    check "  terms.add case k\n" in nimFmt("proc f() =\n  terms.add case k:\n    of 1: a\n    else: b\n")
+
+  test "a long proc type: its parameters wrapped, not left on one long line":
+    check nimFmt("type\n  Sig = proc (\n    smA, smB, capts, captIdx, matched, text, start: NimNode,\n    nfa: Nfa,\n" &
+                 "    look: Lookaround,\n    flags: set[MatchFlag]\n  ): NimNode {.nimcall, noSideEffect, raises: [].}\n") ==
+          "type Sig = proc(\n  smA, smB, capts, captIdx, matched, text, start: NimNode,\n  nfa: Nfa,\n" &
+          "  look: Lookaround,\n  flags: set[MatchFlag],\n): NimNode {.nimcall, noSideEffect, raises: [].}\n"
+
+  test "a long command whose first argument starts with `not`: its other arguments under it":
+    check nimFmt("proc f() =\n  doAssert not result.pkgs[unicodeplusUrl].active, \"unicodeplus belongs only to " &
+                 "the excluded old regex release\"\n") ==
+          "proc f() =\n  doAssert not result.pkgs[unicodeplusUrl].active,\n    \"unicodeplus belongs only to " &
+          "the excluded old regex release\"\n"

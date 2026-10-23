@@ -11,7 +11,9 @@
 ## arguments put in for its parameters in member types), references, `auto` from what initializes it, enum class.
 ## The C++ standard library's headers are not read: `std::` offers a known list of its names instead.
 
-import std/[os, strutils, tables, sets, times, algorithm]
+import std/[strutils, tables, sets, times, algorithm]
+when defined(windows): import ../sys/winos as os   # (std/os, with '/' in the paths it makes)
+else: import std/os
 
 type
   CxKind* = enum

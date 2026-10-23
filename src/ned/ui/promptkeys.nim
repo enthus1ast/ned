@@ -21,6 +21,21 @@ proc cmdOpenFolder() =
   let start = if projectMarks(rootDir).len > 0 and parentDir(rootDir).len > 0: parentDir(rootDir) else: rootDir
   browseFolder(start)
 
+proc movePath(src, dest: string, what = "Moved to ") =
+  ## a file or folder moved (renamed): its open buffers follow it, a Nim module's importers are fixed
+  if src == dest: return
+  try:
+    createDir(parentDir(dest))
+    if dirExists(src): moveDir(src, dest) else: moveFile(src, dest)
+    remoteFileOp("mv", src, dest)
+    for b in bufs:
+      if b.path == src: b.path = dest
+      elif b.path.startsWith(src & "/"): b.path = dest & b.path[src.len .. ^1]
+    refreshTree()
+    info(what & relPath(dest))
+    if src.endsWith(".nim") and fileExists(dest): fixImportsAfterMove(src, dest)
+  except CatchableError as e: error(e.msg)
+
 proc submitPrompt() =
   let kind = promptKind
   let t = promptText
@@ -89,17 +104,7 @@ proc submitPrompt() =
     if t.strip.len > 0 and treeTarget.len > 0:
       let p = expandTilde(t.strip)
       let dest = if p.isAbsolute: p else: rootDir / p
-      try:
-        createDir(parentDir(dest))
-        if dirExists(treeTarget): moveDir(treeTarget, dest) else: moveFile(treeTarget, dest)
-        remoteFileOp("mv", treeTarget, dest)
-        for b in bufs:
-          if b.path == treeTarget: b.path = dest
-          elif b.path.startsWith(treeTarget & "/"): b.path = dest & b.path[treeTarget.len .. ^1]
-        refreshTree()
-        info("Renamed to " & relPath(dest))
-        if treeTarget.endsWith(".nim") and fileExists(dest): fixImportsAfterMove(treeTarget, dest)
-      except CatchableError as e: error(e.msg)
+      movePath(treeTarget, dest, "Renamed to ")
   of pLspRename:
     let b = buf()
     let s = lspReady(b)
@@ -123,7 +128,7 @@ proc submitPrompt() =
       let (a, _) = b.wordRangeAt(b.primary.head)
       discard nsRequest(b, nsRename, a, b.wordAt(b.primary.head) & "\t" & t)
   of pNewProject:
-    if t.strip.len > 0: createNimProject(t.strip)
+    if t.strip.len > 0: discard createNimProject(t.strip)
   of pAtlasUse:
     if t.strip.len > 0: runCommand("atlas use " & quoteShell(t.strip), rootDir)
   of pAtlasSearch:

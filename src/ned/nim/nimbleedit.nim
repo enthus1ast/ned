@@ -230,6 +230,10 @@ proc nbInsertRequire(spec: string): int =
   at
 
 proc nbAskInstall(spec: string) =
+  if atlasIsProject():
+    askConfirm("Added requires \"" & spec & "\" — install it now (atlas install)? (y/n)", proc(c: char) =
+      if c in {'y', 'Y'}: atlasRun("install"))
+    return
   askConfirm("Added requires \"" & spec & "\" — install it now (nimble install -d)? (y/n)", proc(c: char) =
     if c in {'y', 'Y'}: runCommand("nimble install -d -y", nimble.dir))
 

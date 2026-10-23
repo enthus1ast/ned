@@ -8,6 +8,7 @@ proc drawTitleBar() =
   let y = lay.titleY
   if y < 0: return
   fillRect(0, y, scrW, 1, theme.titleFg, theme.titleBg)
+  ctxRegion(0, y, scrW, 1, proc() = ctxOpen(titleBarMenu()))
   menuBarRanges.setLen(0)
   # right-hand buttons first so the rest knows how much room is left
   type Btn = tuple[label, tip: string, fg: Rgb, act: Action, on: bool]
@@ -56,7 +57,10 @@ proc drawTitleBar() =
     let ab = (if gitAhead > 0: " ↑" & $gitAhead else: "") & (if gitBehind > 0: " ↓" & $gitBehind else: "")
     if branch.len > 0 and x + strWidth(branch) + strWidth(ab) + 4 < rightEdge:
       x = button(x, y, ic("branch") & " " & branch & ab & " ", proc() = cmdBranches(),
-                 "Branch — switch, create, merge…", theme.dim, theme.titleBg)
+                 "Branch — switch, create, merge…", theme.dim, theme.titleBg, rightAct = proc() =
+                   ctxOpen(@[mc("Git: branches…", "Branches…"), mc("Git: pull"), mc("Git: push"),
+                             mc("Git: sync (pull, then push)", "Sync (pull, then push)"), mc("Git: fetch"), msep(),
+                             mc("Git: stash…", "Stash…"), mc("Git: history…", "History…"), mc("Git panel")]))
       if ab.len > 0 and x + 4 < rightEdge:
         x = button(x, y, "⟳ ", proc() = gitSync(), "Sync: pull, then push", theme.accent, theme.titleBg)
   # search box, centred in the space that is left

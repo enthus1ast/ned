@@ -215,6 +215,8 @@ proc drawHexView(b: Buffer, x0, y0, w, h: int, active: bool) =
     x = putStr(x + 2, y0, "in " & (if s.nimName.len > 0: s.nimName & " (" & s.nimModule & ")" else: s.name),
                theme.syn[tkFunc], theme.bg, {}, x0 + w)
   if info.format.len > 0 and info.symbols.len > 0 and x + 12 < x0 + w:
+    x = button(x + 2, y0, " Decompile ", proc() = runCmd("Hex: decompile a function…"),
+               "A function as C (or machine code), beside the bytes", theme.badgeFg, theme.accent) - 1
     x = button(x + 2, y0, " Symbols ", proc() = runCmd("Hex: symbols…"), "The symbols, Nim's procs by their names",
                theme.fg, theme.btnBg)
     if info.nim and x + 14 < x0 + w:

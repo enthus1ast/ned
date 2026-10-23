@@ -4,6 +4,7 @@ type Region = object
   x, y, w, h: int
   act, rightAct: Action
   tip: string
+  ctxOnly: bool            # only a right click's (a context menu over an area): a left click goes through it
 
 var
   regions: seq[Region]
@@ -17,10 +18,24 @@ proc region(x, y, w, h: int, act: Action, tip = "", rightAct: Action = nil) =
   if w <= 0 or h <= 0: return
   regions.add Region(x: x, y: y, w: w, h: h, act: act, rightAct: rightAct, tip: tip)
 
+proc ctxRegion(x, y, w, h: int, rightAct: Action) =
+  ## a context menu for an area (a right click, a long press), under what is drawn on it
+  if w <= 0 or h <= 0 or rightAct == nil: return
+  regions.add Region(x: x, y: y, w: w, h: h, rightAct: rightAct, ctxOnly: true)
+
 proc hitRegion(x, y: int, fromIdx = 0): int =
   for i in countdown(regions.high, max(0, fromIdx)):
     let r = regions[i]
-    if x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h: return i
+    if not r.ctxOnly and x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h: return i
+  -1
+
+proc hitContext(x, y: int, fromIdx = 0): int =
+  ## the topmost region at x, y with a context menu (a button's own, or its area's)
+  for i in countdown(regions.high, max(0, fromIdx)):
+    let r = regions[i]
+    if x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h:
+      if r.rightAct != nil: return i
+      if not r.ctxOnly and fromIdx > 0: return -1          # (in a modal: what is under its own regions is not it)
   -1
 
 proc hov(x, y, w: int, h = 1): bool {.inline.} =
@@ -78,17 +93,17 @@ proc drawFrame(x, y, w, h: int, bg, border: Rgb, title = "", titleFg: Rgb = NoCo
   if shadow: dropShadow(x, y, w, h)
 
 proc button(x, y: int, label: string, act: Action, tip = "", fg: Rgb = NoColor, bg: Rgb = NoColor,
-            at: set[Attr] = {}, hoverBg: Rgb = NoColor): int =
+            at: set[Attr] = {}, hoverBg: Rgb = NoColor, rightAct: Action = nil): int =
   ## a flat button; returns the x after it
   let w = strWidth(label)
   let baseBg = if bg == NoColor: grid[clamp(y, 0, scrH - 1) * scrW + clamp(x, 0, scrW - 1)].bg else: bg
   let isH = hov(x, y, w)
   let b2 = if isH: (if hoverBg == NoColor: blend(baseBg, theme.fg, 0.14) else: hoverBg) else: baseBg
   result = putStr(x, y, label, (if fg == NoColor: theme.fg else: fg), b2, at)
-  region(x, y, w, 1, act, tip)
+  region(x, y, w, 1, act, tip, rightAct)
 
 proc pill(x, y: int, label: string, act: Action, tip = "", fg: Rgb = NoColor, bg: Rgb = NoColor,
-          at: set[Attr] = {}, hoverBg: Rgb = NoColor): int =
+          at: set[Attr] = {}, hoverBg: Rgb = NoColor, rightAct: Action = nil): int =
   ## a button with rounded-looking ends — half blocks in its colour — for dialogs and toasts; returns the x after it
   let w = strWidth(label) + 4
   let under = grid[clamp(y, 0, scrH - 1) * scrW + clamp(x, 0, scrW - 1)].bg
@@ -97,5 +112,5 @@ proc pill(x, y: int, label: string, act: Action, tip = "", fg: Rgb = NoColor, bg
   setCell(x, y, Cell(ch: 0x2590, fg: b, bg: under))              # ▐
   discard putStr(x + 1, y, " " & label & " ", (if fg == NoColor: theme.fg else: fg), b, at)
   setCell(x + w - 1, y, Cell(ch: 0x258C, fg: b, bg: under))      # ▌
-  region(x, y, w, 1, act, tip)
+  region(x, y, w, 1, act, tip, rightAct)
   x + w

@@ -177,3 +177,26 @@ proc menuKey(k: Key) =
   else: discard
   if lv < menus.len: menus[lv].menuKeepSel()
   needRender = true
+
+# (the context menus, ui/contextmenus.nim)
+proc fieldMenu(tp: ptr string, cp: ptr int): seq[MenuItem]        # ui/contextmenus.nim
+proc gutterMenu(l: int): seq[MenuItem]
+proc statusBarMenu(): seq[MenuItem]
+proc statusPosMenu(): seq[MenuItem]
+proc statusEolMenu(): seq[MenuItem]
+proc statusLangMenu(): seq[MenuItem]
+proc statusAiMenu(): seq[MenuItem]
+proc statusTermMenu(): seq[MenuItem]
+proc statusLsMenu(): seq[MenuItem]
+proc statusProblemsMenu(): seq[MenuItem]
+proc titleBarMenu(): seq[MenuItem]
+proc dockHeaderMenu(side: DockSide): seq[MenuItem]
+proc dockItemMenu(it: SideItem, v: SideView, isRight: bool): seq[MenuItem]
+proc panelHeaderMenu(): seq[MenuItem]
+proc panelLineMenu(i: int): seq[MenuItem]
+proc breadcrumbMenu(): seq[MenuItem]
+proc minimapMenu(): seq[MenuItem]
+proc toastMenu(i: int): seq[MenuItem]
+proc paneHeaderMenu(i: int): seq[MenuItem]
+proc ctxOpen(items: seq[MenuItem])
+proc ctxCopy(label, text: string): MenuItem

@@ -100,7 +100,8 @@ proc runsProjectCode(argv: seq[string], depth = 0): bool =
       return true
   false
 
-proc c_setpriority(which, who, prio: cint): cint {.importc: "setpriority", header: "<sys/resource.h>".}
+when not defined(windows):
+  proc c_setpriority(which, who, prio: cint): cint {.importc: "setpriority", header: "<sys/resource.h>".}
 when defined(linux) or defined(android):
   type CSchedParam {.importc: "struct sched_param", header: "<sched.h>".} = object
     sched_priority: cint
@@ -120,52 +121,66 @@ proc spawnProc(argv: seq[string], cwd: string, sin = siNull, serr = erMerge, nic
     if not codeTrusted(where):
       askTrust(where)
       raise newException(OSError, TrustRefusal & " " & where)
-  var pin, pout, perr: array[0..1, cint]
-  pin = [-1.cint, -1]
-  perr = [-1.cint, -1]
-  if pipe(pout) != 0: raise newException(OSError, "pipe() failed")
-  if sin == siPipe and pipe(pin) != 0: raise newException(OSError, "pipe() failed")
-  if serr == erPipe and pipe(perr) != 0: raise newException(OSError, "pipe() failed")
-  for fd in [pin[0], pin[1], pout[0], pout[1], perr[0], perr[1]]:
-    if fd >= 0: discard fcntl(fd, F_SETFD, FD_CLOEXEC)
-  let devnull = posix.open("/dev/null", O_RDWR)
-  let args = allocCStringArray(argv)
-  let ccwd: cstring = cwd
-  let pid = fork()
-  if pid < 0:
+  when defined(windows):
+    # CreateProcess: its output (and errors) on pipes, its input a pipe or nothing; `sh -c` through Git for
+    # Windows' sh (or cmd.exe); a lower priority class for niceness
+    let errMode = case serr
+                  of erMerge: 0
+                  of erPipe: 1
+                  of erNull: 2
+    let w = winSpawn(argv, cwd, sin == siPipe, errMode, niceness)
+    result.pid = w.pid
+    result.inFd = w.inFd
+    result.outFd = w.outFd
+    result.errFd = w.errFd
+    return
+  else:
+    var pin, pout, perr: array[0..1, cint]
+    pin = [-1.cint, -1]
+    perr = [-1.cint, -1]
+    if pipe(pout) != 0: raise newException(OSError, "pipe() failed")
+    if sin == siPipe and pipe(pin) != 0: raise newException(OSError, "pipe() failed")
+    if serr == erPipe and pipe(perr) != 0: raise newException(OSError, "pipe() failed")
+    for fd in [pin[0], pin[1], pout[0], pout[1], perr[0], perr[1]]:
+      if fd >= 0: discard fcntl(fd, F_SETFD, FD_CLOEXEC)
+    let devnull = posix.open("/dev/null", O_RDWR)
+    let args = allocCStringArray(argv)
+    let ccwd: cstring = cwd
+    let pid = fork()
+    if pid < 0:
+      deallocCStringArray(args)
+      raise newException(OSError, "fork() failed")
+    if pid == 0:
+      # child: only async-signal-safe calls from here on. A session of its own (and a process group): no
+      # controlling terminal, so nothing it starts (a debugger's launcher …) can take ned's terminal away
+      if setsid() < 0: discard setpgid(0, 0)
+      signal(SIGPIPE, SIG_DFL)
+      signal(SIGQUIT, SIG_DFL)          # (ned ignores it; what it starts must not)
+      discard dup2((if sin == siPipe: pin[0] else: devnull), 0)
+      discard dup2(pout[1], 1)
+      case serr
+      of erMerge: discard dup2(pout[1], 2)
+      of erPipe: discard dup2(perr[1], 2)
+      of erNull: discard dup2(devnull, 2)
+      if cwd.len > 0: discard chdir(ccwd)
+      if niceness > 0: discard c_setpriority(0, 0, niceness.cint)     # (PRIO_PROCESS, this process)
+      when defined(linux) or defined(android):
+        # (the compiler's checks and other work no one waits for: only when the core is idle — on one core, nice 10
+        # still took the editor's core in the middle of a frame)
+        if niceness >= 10:
+          var sp = CSchedParam(sched_priority: 0)
+          discard c_sched_setscheduler(0, 5, addr sp)                 # SCHED_IDLE
+      discard execvp(args[0], args)
+      exitnow(127)
     deallocCStringArray(args)
-    raise newException(OSError, "fork() failed")
-  if pid == 0:
-    # child: only async-signal-safe calls from here on. A session of its own (and a process group): no
-    # controlling terminal, so nothing it starts (a debugger's launcher …) can take ned's terminal away
-    if setsid() < 0: discard setpgid(0, 0)
-    signal(SIGPIPE, SIG_DFL)
-    signal(SIGQUIT, SIG_DFL)          # (ned ignores it; what it starts must not)
-    discard dup2((if sin == siPipe: pin[0] else: devnull), 0)
-    discard dup2(pout[1], 1)
-    case serr
-    of erMerge: discard dup2(pout[1], 2)
-    of erPipe: discard dup2(perr[1], 2)
-    of erNull: discard dup2(devnull, 2)
-    if cwd.len > 0: discard chdir(ccwd)
-    if niceness > 0: discard c_setpriority(0, 0, niceness.cint)     # (PRIO_PROCESS, this process)
-    when defined(linux) or defined(android):
-      # (the compiler's checks and other work no one waits for: only when the core is idle — on one core, nice 10
-      # still took the editor's core in the middle of a frame)
-      if niceness >= 10:
-        var sp = CSchedParam(sched_priority: 0)
-        discard c_sched_setscheduler(0, 5, addr sp)                 # SCHED_IDLE
-    discard execvp(args[0], args)
-    exitnow(127)
-  deallocCStringArray(args)
-  if devnull >= 0: discard posix.close(devnull)
-  if pin[0] >= 0: discard posix.close(pin[0])
-  discard posix.close(pout[1])
-  if perr[1] >= 0: discard posix.close(perr[1])
-  result.pid = pid
-  result.inFd = pin[1]
-  result.outFd = pout[0]
-  result.errFd = perr[0]
+    if devnull >= 0: discard posix.close(devnull)
+    if pin[0] >= 0: discard posix.close(pin[0])
+    discard posix.close(pout[1])
+    if perr[1] >= 0: discard posix.close(perr[1])
+    result.pid = pid
+    result.inFd = pin[1]
+    result.outFd = pout[0]
+    result.errFd = perr[0]
 
 proc reap(p: var Proc): bool =
   ## non-blocking: true once the process has exited (exit code in p.code)

@@ -84,7 +84,16 @@ proc dragTo(x, y: int) =
     cfgPanelH = clamp(lay.bodyBot - y, 4, max(4, lay.bodyBot - lay.bodyTop - 4))
   of dtScroll: scrollbarJump(y)
   of dtMinimap: minimapJump(y)
-  of dtTab: tabDragTo(x)
+  of dtTab:
+    if cfgDragDrop and lay.tabY >= 0 and y != lay.tabY and bufs.len > 0 and not buf().isWelcome():
+      # off the tab bar: onto a pane or an edge of the editor
+      dndBufId = buf().id
+      dragTarget = dtTabOut
+      dropHover(x, y)
+    else: tabDragTo(x)
+  of dtField: fieldDragTo(x)
+  of dtTabOut, dtFile, dtText: dropHover(x, y)
+  of dtFormScroll: formScrollTo(y)
   of dtNone: discard
   needRender = true
 
@@ -172,6 +181,7 @@ proc handleMouse(k: Key) =
           menuScroll(lv, d)
           break
     elif dialogOpen(): discard
+    elif formOpen(): formScroll(d)
     elif pickKind != pickNone:
       if pickShown.len > 0: pickSel = clamp(pickSel + (if d < 0: -1 else: 1), 0, pickShown.high)
     elif compOpen and compDocRect.w > 0 and x >= compDocRect.x and x < compDocRect.x + compDocRect.w and
@@ -187,6 +197,16 @@ proc handleMouse(k: Key) =
     mouseDragging = false
     termSelecting = false
     boxAnchor = Pos(line: -1)
+    if dragTarget in {dtTabOut, dtFile, dtText}:
+      dndDrop(x, y, k.mods)
+      pressLeft = false
+      return
+    if dndArmed == dtText:
+      # a click in the selection, without a drag: the cursor there
+      dndArmed = dtNone
+      buf().setSingle(buf().clampPos(dndPressPos))
+      mouseDragging = false
+    dndArmed = dtNone
     if dragTarget != dtNone:
       let t = dragTarget
       dragTarget = dtNone
@@ -209,6 +229,8 @@ proc handleMouse(k: Key) =
     return
   if k.drag:
     if x != pressX or y != pressY: pressMoved = true
+    if dndArmed != dtNone and (abs(x - pressX) + abs(y - pressY) >= (if dndArmed == dtFile: 2 else: 1)):
+      dndStart(dndArmed)
     if dragTarget != dtNone:
       dragTo(x, y)
       return
@@ -245,11 +267,40 @@ proc handleMouse(k: Key) =
   # ── right click: context menus ──
   if k.mb == 2:
     closeMenus()
-    let i = hitRegion(x, y)
-    if i >= 0 and regions[i].rightAct != nil:
+    let modal = dialogOpen() or formOpen()
+    let i = hitContext(x, y, (if modal: max(0, modalStart) else: 0))
+    if i >= 0:
       regions[i].rightAct()
       return
+    if pickKind != pickNone and not modal:
+      # a row of the list: open it (here or beside), copy its path
+      let (bx, _, bw, _) = pickBox
+      if y >= pickListY and y < pickListY + pickListN and x > bx and x < bx + bw - 1:
+        let si = pickScroll + (y - pickListY)
+        if si < pickShown.len:
+          pickSel = si
+          var items = @[mi("Open", "Enter", proc() = acceptPicker())]
+          if pickKind in {pickFile, pickRecent, pickBuffer, pickSymbol}:
+            items.add mi("Open to the side", "", proc() =
+              toSidePane()
+              acceptPicker())
+          if pickKind in {pickFile, pickRecent}:
+            let it = pickItems[pickShown[si]]
+            let path = pickPath(it)
+            if path.len > 0:
+              items.add msep()
+              items.add ctxCopy("Copy the path", path)
+          openMenu(items, x, y + 1)
+      return
+    if modal: return     # (over a dialog: nothing under it)
     let (ex, ey, ew, eh) = editorRect
+    if x >= ex and x < ex + gutterW and y >= ey and y < ey + eh and not buf().isWelcome() and buf().hex == nil:
+      # the gutter: the line's breakpoint, bookmark, fold, git change
+      let (ok, p) = editorPosAt(ex + gutterW, y)
+      if ok:
+        focus = fEditor
+        openMenu(gutterMenu(p.line), x, y + 1)
+      return
     if x >= ex and x < ex + ew and y >= ey and y < ey + eh and not buf().isWelcome():
       let b = buf()
       let (ok, p) = editorPosAt(x, y)
@@ -271,6 +322,8 @@ proc handleMouse(k: Key) =
   pressMoved = false
   pressLeft = true
   dragTarget = dtNone          # (a release lost outside the window never leaves a drag behind)
+  dndArmed = dtNone
+  dndPrevBufId = (if bufs.len > 0: buf().id else: -1)
   if menuOpen():
     let i = hitRegion(x, y, modalStart)
     if i >= 0: regions[i].act()
@@ -283,7 +336,7 @@ proc handleMouse(k: Key) =
             return
       closeMenus()
     return
-  if dialogOpen():
+  if dialogOpen() or formOpen():
     let i = hitRegion(x, y, modalStart)
     if i >= 0: regions[i].act()
     return
@@ -293,6 +346,11 @@ proc handleMouse(k: Key) =
     return
   if pickKind != pickNone:
     let (bx, by, bw, bh) = pickBox
+    if not (y >= pickListY and y < pickListY + pickListN) and pickRegions >= 0:
+      let i = hitRegion(x, y, pickRegions)
+      if i >= 0:
+        regions[i].act()                # the query field (the cursor, a selection), the buttons
+        return
     if y >= pickListY and y < pickListY + pickListN and x > bx and x < bx + bw - 1:
       let i = pickScroll + (y - pickListY)
       if i < pickShown.len:
@@ -314,7 +372,9 @@ proc handleMouse(k: Key) =
     closeComp()
   if promptKind notin {pNone, pFind, pReplaceFind, pReplaceWith}:
     let i = hitRegion(x, y, max(0, modalStart))
-    if modalStart >= 0 and i >= modalStart: return
+    if modalStart >= 0 and i >= modalStart:
+      regions[i].act()                  # (the field: the cursor there, a drag selects — or a button)
+      return
     closePrompt()
   # drag handles: the split divider, dock edges, the bottom panel's header, the scrollbar
   let dt = dragHandleAt(x, y)
@@ -327,7 +387,12 @@ proc handleMouse(k: Key) =
     return
   let i = hitRegion(x, y)
   if i >= 0:
+    let tip = regions[i].tip
     regions[i].act()
+    # a press on a file tree row: a drag takes the file (onto the editor, a folder, the terminal)
+    if treeOpen and sideView == svFiles and x < lay.leftW and tip.len > 0 and tip != rootDir and
+       (fileExists(tip) or dirExists(tip)):
+      dndArmFile(tip)
     # a press on a tab can become a drag that moves the tab
     if lay.tabY >= 0 and y == lay.tabY:
       for (a, e, ti) in tabRanges:
@@ -382,5 +447,9 @@ proc handleMouse(k: Key) =
     if mShift in k.mods:
       b.cursors = @[Cursor(anchor: b.primary.anchor, head: p, goalX: -1)]
       b.prim = 0
+    elif cfgDragDrop and b.cursors.len == 1 and b.primary.hasSel and
+         inSel(p, b.primary.range[0], b.primary.range[1]):
+      dndArmText(b, p)                          # (a drag moves the selection; a click puts the cursor here)
+      return
     else: b.setSingle(p)
     mouseDragging = true

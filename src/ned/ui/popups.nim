@@ -248,22 +248,38 @@ proc drawPicker() =
   var title = pickTitle
   if pickKind == pickFile and scanning: title = "Open file — indexing " & $fileCache.len & " files…"
   elif pickKind == pickFile and scanTruncated: title = pickTitle & " — first " & $cfgScanLimit & " files"
+  # (the buttons under the list, a desktop dialog's: a row more when there is room for it)
+  let btnRow = cfgFormButtons and not pickNear and py + ph + 1 < scrH - 1
+  if btnRow: ph += 1
   drawBox(px, py, pw, ph, title)
   let lq = pickQueryNorm()
   pickBox = (px, py, pw, ph)
   pickListY = py + 3
   pickListN = n
+  pickRegions = regions.len
   let iy = py + 1
   let x = putStr(px + 2, iy, "› ", theme.accent, theme.popupBg, {aBold})
   let cnt = $pickShown.len & "/" & $pickItems.len
   let fieldW = pw - (x - px) - strWidth(cnt) - 4
-  let curVis = strWidth(pickQuery[0 ..< pickCur])
-  let off = max(0, curVis - fieldW + 1)
-  let bi = colAtVis(pickQuery, off)
-  discard putStr(x, iy, pickQuery[bi .. ^1], theme.fg, theme.popupBg, {}, x + fieldW)
-  cursorX = x + curVis - visColOf(pickQuery, bi)
+  cursorX = drawField(x, iy, fieldW, pickQuery, pickCur, true, theme.fg, theme.popupBg)
   cursorY = iy
   discard putStr(px + pw - strWidth(cnt) - 2, iy, cnt, theme.dim, theme.popupBg)
+  if btnRow:
+    let by = py + ph - 2
+    fillRect(px + 1, by, pw - 2, 1, theme.fg, theme.popupBg)
+    let okLabel = case pickKind
+                  of pickFile, pickRecent, pickBuffer: "Open"
+                  of pickTheme: "Use"
+                  of pickSymbol: "Go"
+                  else: "OK"
+    var bx = px + pw - 2 - (strWidth(okLabel) + 4) - 1 - (strWidth("Cancel") + 4)
+    let hintW = bx - px - 3
+    if hintW > 12:
+      discard putStr(px + 2, by, truncTo("↑↓ choose · Enter " & okLabel.toLowerAscii & " · Esc cancel", hintW), theme.dim,
+                     theme.popupBg, {aItalic})
+    bx = pill(bx, by, "Cancel", proc() = closePicker(), "Esc", theme.fg, theme.btnBg) + 1
+    discard pill(bx, by, okLabel, proc() = acceptPicker(), "Enter", theme.badgeFg, theme.accent, {aBold},
+                 blend(theme.accent, theme.fg, 0.15))
   setCell(px, py + 2, Cell(ch: 0x251C, fg: theme.border, bg: theme.popupBg))
   setCell(px + pw - 1, py + 2, Cell(ch: 0x2524, fg: theme.border, bg: theme.popupBg))
   for xx in px + 1 ..< px + pw - 1: setCell(xx, py + 2, Cell(ch: 0x2500, fg: theme.border, bg: theme.popupBg))

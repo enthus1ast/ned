@@ -618,6 +618,9 @@ proc handleKey(k: Key) =
   if menuOpen():
     menuKey(k)
     return
+  if formOpen():
+    formKey(k)
+    return
   if helpOpen:
     helpKey(k)
     return

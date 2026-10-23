@@ -10,27 +10,32 @@
 #  server.nims` gives them the Language Server Protocol's framing)
 # ════════════════════════════════════════════════════════════════════════════
 
+func plugSrcUp(p: string, n: int): string =
+  ## (compile time) p's folder n levels up — with '/' whatever the target (parentDir writes '\' for Windows)
+  result = p
+  for _ in 1 .. n: result.setLen(max(0, result.rfind({'/', '\\'})))
+
 const
-  PlugLibSrc = currentSourcePath().parentDir / "lib"
-  NedPluginLib = staticRead(PlugLibSrc / "nedplugin.nim")
-  NedLspLib = staticRead(PlugLibSrc / "nedlsp.nim")
+  PlugLibSrc = currentSourcePath().plugSrcUp(1) & "/" & "lib"
+  NedPluginLib = staticRead(PlugLibSrc & "/" & "nedplugin.nim")
+  NedLspLib = staticRead(PlugLibSrc & "/" & "nedlsp.nim")
   PlugMark = '\x1e'                       # (the start of a line of the host's that is a message)
   PlugShared = "*"                        # (the name of the process the NimScript plugins share)
-  PlugExDir = currentSourcePath().parentDir.parentDir.parentDir.parentDir / "examples" / "plugins"
+  PlugExDir = currentSourcePath().plugSrcUp(4) & "/" & "examples" & "/" & "plugins"
   PlugExamples = [
     ("zig-lite", "a language ned does not have (Zig), its formatter (zig fmt, or one in NimScript), zls",
-     @[("plugin.nims", staticRead(PlugExDir / "zig-lite" / "plugin.nims"))]),
+     @[("plugin.nims", staticRead(PlugExDir & "/" & "zig-lite" & "/" & "plugin.nims"))]),
     ("wordinfo-lsp", "a language server written in NimScript (hover, completion, diagnostics) for text files",
-     @[("plugin.nims", staticRead(PlugExDir / "wordinfo-lsp" / "plugin.nims")),
-       ("server.nims", staticRead(PlugExDir / "wordinfo-lsp" / "server.nims"))]),
+     @[("plugin.nims", staticRead(PlugExDir & "/" & "wordinfo-lsp" & "/" & "plugin.nims")),
+       ("server.nims", staticRead(PlugExDir & "/" & "wordinfo-lsp" & "/" & "server.nims"))]),
     ("commentary", "vim: the gc operator (gcc, gcip, gc in visual mode), the ie text object, :Comment",
-     @[("plugin.nims", staticRead(PlugExDir / "commentary" / "plugin.nims"))]),
+     @[("plugin.nims", staticRead(PlugExDir & "/" & "commentary" & "/" & "plugin.nims"))]),
     ("ini-tools", "a language's features: completions, hover, symbols (the outline), code actions, snippets — " &
      "for .ini files; a dock view, progress and the Output panel; a tool for the assistant",
-     @[("plugin.nims", staticRead(PlugExDir / "ini-tools" / "plugin.nims"))]),
+     @[("plugin.nims", staticRead(PlugExDir & "/" & "ini-tools" & "/" & "plugin.nims"))]),
     ("clock-native", "a plugin in full Nim (plugin.nim), compiled into a program of its own: std/times, a timer, " &
      "a status-bar clock",
-     @[("plugin.nim", staticRead(PlugExDir / "clock-native" / "plugin.nim"))])]
+     @[("plugin.nim", staticRead(PlugExDir & "/" & "clock-native" & "/" & "plugin.nim"))])]
   PlugTemplate = """## $1 — a ned plugin (NimScript). ned runs it when it starts; edit it and save: the plugins reload.
 ## The API: the comments of nedplugin.nim (Plugins dock › ⓘ) — commands, keys, events, the text, problems,
 ## signs, languages, formatters, language servers, completions, hover, symbols, vim mappings, timers.

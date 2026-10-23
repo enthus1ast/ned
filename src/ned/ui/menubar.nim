@@ -61,7 +61,9 @@ proc menuItems(i: int): seq[MenuItem] =
           mc("Settings sync: import from a file…", "Import from a file…"), msep(),
           mc("Settings sync: push (save to your settings repository)", "Push to your repository"),
           mc("Settings sync: pull (load from your settings repository)", "Pull from your repository"),
-          mc("Settings sync: set the repository…", "Set the repository…")])]), msep(),
+          mc("Settings sync: set the repository…", "Set the repository…")]), msep(),
+        mc("Settings: reset to defaults", "Reset the settings to their defaults…"),
+        mc("Reset everything: remove all settings and state…", "Reset everything (start fresh)…")]), msep(),
       mc("Close tab"), mc("Reopen closed tab"), mc("Quit")]
   of "Edit":
     @[mc("Undo"), mc("Redo"), mc("Undo history…"), msep(), mc("Cut"), mc("Copy"), mc("Paste"), msep(), mc("Find"), mc("Replace"),

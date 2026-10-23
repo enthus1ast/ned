@@ -9,7 +9,9 @@ proc treeMenu(n: TreeNode): seq[MenuItem] =
   if n != nil:
     let node = n
     result.add msep()
-    if not n.isDir: result.add mi("Open", "Enter", proc() = discard openFile(node.path))
+    if not n.isDir:
+      result.add mi("Open", "Enter", proc() = discard openFile(node.path))
+      result.add mi("Open to the side", "", proc() = discard openToSide(node.path))
     if findGitRoot(dir).len > 0: result.add mi("Add to .gitignore", "", proc() = gitIgnore(node.path))
     result.add mi("Rename…", "r", proc() =
       treeTarget = node.path

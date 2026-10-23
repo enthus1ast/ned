@@ -26,13 +26,11 @@
 ## files and local history.
 
 {.warning[BareExcept]: off.}
-when defined(windows):
-  {.error: "ned is a Unix terminal program (pseudo-terminals, termios, poll) and does not build natively on " &
-           "Windows. Use WSL: run `wsl --install` in PowerShell, open Ubuntu, install Nim there and build ned " &
-           "inside it — see README › Installing › Windows.".}
-
-import std/[os, strutils, tables, sets, algorithm, json, posix, termios,
-            times, monotimes, base64, sugar, editdistance]
+import std/[strutils, tables, sets, algorithm, json, times, monotimes, base64, sugar, editdistance]
+when defined(windows): import ned/sys/winos as os   # (std/os, with '/' in the paths it makes)
+else: import std/os
+when defined(windows): import ned/sys/winposix as posix   # (Win32 and the C runtime behind the same names)
+else: import std/[posix, termios]
 from std/hashes import hash
 from std/math import pow
 
@@ -149,6 +147,7 @@ include ned/format/folder
 include ned/nim/commands
 include ned/git/status
 include ned/ui/outline
+include ned/ui/fieldsel
 include ned/ui/pickers
 include ned/ui/prompts
 include ned/nim/toolchain
@@ -161,7 +160,10 @@ include ned/ui/icons
 include ned/ui/regions
 include ned/ui/dialogs
 include ned/ui/menus
+include ned/ui/fields
 include ned/ui/popupdraw
+include ned/ui/forms
+include ned/nim/atlas
 include ned/ui/layout
 include ned/ui/menubar
 include ned/ui/titlebar
@@ -177,6 +179,7 @@ include ned/ui/statusbar
 include ned/ui/quickinput
 include ned/ui/minimap
 include ned/ui/settingsui
+include ned/config/reset
 include ned/term/pty
 include ned/term/shell
 include ned/term/vt
@@ -209,6 +212,8 @@ include ned/ui/editorview
 include ned/ui/popups
 include ned/ui/zen
 include ned/ui/split
+include ned/ui/contextmenus
+include ned/editor/decompile
 include ned/nim/astview
 include ned/git/mergeeditor
 include ned/ui/frame
@@ -237,6 +242,7 @@ include ned/debug/gdbterm
 include ned/project/workspaces
 include ned/project/remotesync
 include ned/ui/editormenu
+include ned/ui/dragdrop
 include ned/ui/mouse
 include ned/nim/aifix
 include ned/testing/aifixtest

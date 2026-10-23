@@ -73,9 +73,9 @@ proc tcTopOfExe(exe: string): string =
 
 proc tcFindOn(path, name: string): string =
   ## `name` in the folders of a PATH value ("" none)
-  for d in path.split(':'):
+  for d in path.split(PathSep):
     if d.len == 0: continue
-    let p = d / name
+    let p = d / name.addFileExt(ExeExt)
     if fileExists(p):
       try:
         if fpUserExec in getFilePermissions(p): return p
@@ -86,7 +86,7 @@ proc tcInstalled(): seq[(seq[int], string)] =
   ## the Nims choosenim and grabnim installed: (version, folder), newest first
   var dirs: seq[string]
   for root in [getHomeDir() / ".choosenim" / "toolchains", getHomeDir() / ".grabnim", getHomeDir() / ".local" / "share" / "grabnim",
-               getEnv("NED_NIM_TOOLCHAINS")]:
+               getEnv("NED_NIM_TOOLCHAINS"), (if rootDir.len > 0: rootDir / "deps" else: "")]:
     if root.len == 0 or not dirExists(root): continue
     try:
       for k, d in walkDir(root):
@@ -176,7 +176,7 @@ proc applyNimToolchain() =
   let bin = if top.len > 0: top / "bin" else: ""
   if bin != tcBin:
     tcBin = bin
-    putEnv("PATH", if bin.len > 0: bin & ":" & tcBasePath else: tcBasePath)
+    putEnv("PATH", if bin.len > 0: bin & PathSep & tcBasePath else: tcBasePath)
     resetExeCache()
     # (the index, nimsuggest and the language server follow the new Nim)
     nxLibGuessed = false

@@ -178,3 +178,13 @@ proc lfShowAt(b: Buffer, absLine, col: int)
 proc lfFind(b: Buffer, q: string, forward = true)
 proc lfClose(b: Buffer)
 proc lfStatus(b: Buffer): string
+proc drawDnd()                                       # ui/dragdrop.nim
+proc dndShow(bufId: int)                              # ui/dragdrop.nim
+proc dndSplitWith(id: int, down: bool)
+proc moveToOtherPane()                               # ui/split.nim
+proc toSidePane()                                    # ui/split.nim
+proc openToSide(path: string, line = -1, col = -1): Buffer   # ui/split.nim
+proc splitEditor(down = false)                       # ui/split.nim
+proc atlasConfigHover(b: Buffer, p: Pos): string           # nim/atlas.nim
+proc verCmp(a, b: string): int                        # nim/nimbleupdates.nim
+proc rebuildProblems()                                # ui/panel.nim

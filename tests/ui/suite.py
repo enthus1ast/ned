@@ -7343,4 +7343,335 @@ def t_620_plugin_list():
     palette('Greeter: hello')
     check("620 plugin list: … and it reloads", wait_for('hello v2', 15), screen())
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list]
+# ── ned 6.21 ──
+
+EMIT621 = """proc a(): cint =
+  {.emit: \"\"\"
+  int x = 42;
+  return x;
+  \"\"\".}
+
+proc b(): cint =
+  {.
+    emit: \"\"\"
+  long y = 7;
+  return y;
+  \"\"\"
+  .}
+
+let s = "long text"
+echo a(), b(), s
+"""
+
+def t_621_emit_format():
+    # the formatter keeps `{.emit: \"\"\"` on its line (it used to split it into `{.` ⏎ `emit: \"\"\"`, and the C lost
+    # its colours); C in the nph-style split form is coloured as C too
+    setup()
+    open(W + '/src/em.nim', 'w').write(EMIT621)
+    start('src/em.nim', w=120, h=36); time.sleep(1.0)
+    row_int, row_long, row_str = ansi_row('int x = 42;'), ansi_row('long y = 7;'), ansi_row('let s = "long text"')
+    c_int, c_long, c_str = fg_at(row_int, 'int'), fg_at(row_long, 'long'), fg_at(row_str, 'long')
+    check("621 emit: C coloured in {.emit: and in the split {. ⏎ emit: form", c_int is not None and c_int == c_long and
+          c_long != c_str, str((c_int, c_long, c_str)))
+    palette('Format document'); time.sleep(1.5)
+    keys('C-s'); time.sleep(0.5)
+    t = ftext('src/em.nim')
+    check("621 emit: formatting keeps {.emit: \"\"\" on its line", '  {.emit: """\n  int x = 42;\n' in t and
+          '{.\n    emit: """' not in t.split('proc b')[0], t)
+    row_int = ansi_row('int x = 42;')
+    check("621 emit: … and its C keeps its colours", fg_at(row_int, 'int') == c_int, screen())
+
+def t_621_reset():
+    # Reset everything: a dialog with each part (its size), Cancel the default; Reset and restart removes the
+    # settings, plugins, state, caches and downloads, and ned starts again (as on its first run). ned --reset too
+    setup({"editor.tabSize": 3})
+    cache, data = TMP + '/cache621', TMP + '/data621'
+    shutil.rmtree(cache, ignore_errors=True); shutil.rmtree(data, ignore_errors=True)
+    os.makedirs(cache + '/ned/index'); os.makedirs(data + '/ned/dicts')
+    open(cache + '/ned/index/x.idx', 'w').write('x' * 5000)
+    open(data + '/ned/dicts/en.dic', 'w').write('word\n')
+    os.makedirs(CFG + '/ned/plugins/p621', exist_ok=True)
+    open(CFG + '/ned/plugins/p621/plugin.nims', 'w').write('import nedplugin\n')
+    env = 'XDG_CACHE_HOME=%s XDG_DATA_HOME=%s' % (cache, data)
+    start('src/demo.nim', w=140, h=40, env_extra=env); time.sleep(1.5)
+    palette('Reset everything: remove all settings and state…')
+    if not wait_for('Reset and restart', 6):
+        palette('Reset everything: remove all settings and state…'); wait_for('Reset and restart', 6)
+    s = screen()
+    check("621 reset: the dialog — each part and its size", all(w in s for w in [
+        'Reset everything', 'Settings', 'Plugins you installed', 'Sessions and history', 'Caches', 'Downloads',
+        'Reset and restart', 'Cancel']) and re.search(r'Caches\s+·\s+\d+ files?, [\d.]+ [KM]?B', s) is not None and
+        re.search(r'Downloads\s+·\s+1 file, 5 B', s) is not None, s[s.find('Reset everything'):])
+    keys('Enter'); time.sleep(0.5)
+    check("621 reset: Enter is Cancel — nothing removed", os.path.exists(CFG + '/ned/config.json') and
+          os.path.exists(cache + '/ned/index/x.idx') and 'Reset everything' not in screen(), screen())
+    palette('Reset everything: remove all settings and state…'); time.sleep(1.0)
+    p = find_on_screen('Reset and restart')
+    if p: click(*p)
+    ok = wait_for('Open folder…', 10)
+    time.sleep(1.0)
+    cfg = open(CFG + '/ned/config.json').read() if os.path.exists(CFG + '/ned/config.json') else ''
+    st = open(STATE + '/ned/state.json').read() if os.path.exists(STATE + '/ned/state.json') else ''
+    check("621 reset: settings, plugins, state, caches and downloads removed",
+          '"editor.tabSize": 3' not in cfg and not os.path.exists(CFG + '/ned/plugins') and 'demo.nim' not in st and
+          not os.path.exists(cache + '/ned') and not os.path.exists(data + '/ned'), (cfg[:200], st[:200]))
+    check("621 reset: … and ned started again (its first-run page)", ok and 'EXITED' not in screen(), screen())
+    keys('C-q'); time.sleep(0.5)
+    # from the shell
+    open(CFG + '/ned/config.json', 'w').write('{"editor.tabSize": 5}')
+    os.makedirs(cache + '/ned', exist_ok=True); open(cache + '/ned/y', 'w').write('y')
+    r = subprocess.run('env XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s %s %s --reset --yes' % (CFG, STATE, env, BIN),
+                       shell=True, capture_output=True, text=True)
+    check("621 reset: ned --reset --yes (what it removes, then done)", r.returncode == 0 and 'Settings' in r.stdout and
+          'Done' in r.stdout and not os.path.exists(CFG + '/ned/config.json') and not os.path.exists(cache + '/ned'),
+          r.stdout + r.stderr)
+    r = subprocess.run('env XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s %s %s --reset --yes' % (CFG, STATE, env, BIN),
+                       shell=True, capture_output=True, text=True)
+    check("621 reset: … nothing left: says so", 'nothing' in r.stdout, r.stdout)
+
+def t_621_settings_form():
+    # the Settings window: categories, a search over every setting, check boxes, lists, numbers; OK writes what
+    # changed (and only that); a bad number is refused
+    setup({"ui.formButtons": None})
+    start('src/demo.nim', w=140, h=40); time.sleep(0.5)
+    palette('Settings'); time.sleep(0.8)
+    s = screen()
+    check("621 settings: a window — its categories, the search, the buttons", 'Settings' in s and 'Editor' in s and
+          'Search every setting' in s and 'OK' in s and 'Cancel' in s and 'Apply' in s, s)
+    text('tab size'); time.sleep(0.5)
+    s = screen()
+    check("621 settings: the search finds a setting", 'Tab size' in s, s)
+    keys('Tab'); time.sleep(0.2)
+    keys('C-a'); tm('send-keys', '-t', 'f', '-l', '--', '--'); time.sleep(0.2); keys('Enter'); time.sleep(0.4)
+    s = screen()
+    check("621 settings: a bad number is refused (the window stays)", 'Tab size' in s and 'is not a number' in s and
+          'tabSize' not in open(CFG + '/ned/config.json').read(), s)
+    keys('C-a'); text('6'); time.sleep(0.3)
+    keys('Enter')
+    for _ in range(20):                                   # (written: within a few hundred ms)
+        time.sleep(0.2)
+        c = open(CFG + '/ned/config.json').read()
+        if 'tabSize' in c: break
+    check("621 settings: OK writes what changed", re.search(r'"editor\.tabSize":\s*6', c) is not None and
+          'Search every setting' not in screen(), c[-600:])
+    palette('Settings'); time.sleep(0.8)
+    text('format on save'); time.sleep(0.5)
+    p = find_on_screen('] Format on save')
+    if p: click(p[0] + 1, p[1])
+    time.sleep(0.3)
+    p = find_on_screen(' OK ')
+    if p: click(*p)
+    time.sleep(0.6)
+    c = open(CFG + '/ned/config.json').read()
+    check("621 settings: a check box clicked, OK", re.search(r'"editor\.formatOnSave":\s*true', c) is not None, c[-600:])
+    palette('Settings'); time.sleep(0.8)
+    text('tab size'); keys('Tab'); keys('C-a'); text('9'); keys('Escape'); time.sleep(0.5)
+    c = open(CFG + '/ned/config.json').read()
+    check("621 settings: Esc — nothing written", re.search(r'"editor\.tabSize":\s*6', c) is not None and
+          'Search every setting' not in screen(), c[-600:])
+
+def t_621_fields():
+    # text fields: Shift+arrows select, typing replaces it; Ctrl+A all; double-click a word; a right-click menu
+    # (Cut, Copy, Paste, Select all)
+    setup()
+    start('src/demo.nim', w=140, h=40); time.sleep(0.5)
+    keys('C-p'); time.sleep(0.4)
+    text('demo utils'); time.sleep(0.3)
+    keys('S-Left', 'S-Left', 'S-Left', 'S-Left', 'S-Left'); text('types'); time.sleep(0.4)
+    s = screen()
+    check("621 fields: Shift+Left selects, typing replaces it", 'demo types' in s and 'demo utils' not in s, s)
+    keys('C-a'); text('test'); time.sleep(0.4)
+    check("621 fields: Ctrl+A selects all", 'test_demo.nim' in screen() and 'demo types' not in screen(), screen())
+    p = find_on_screen('› test')                                           # (the query, under the picker's title)
+    if p:
+        mouse(2, p[0] + 2, p[1]); mouse(2, p[0] + 2, p[1], up=True); time.sleep(0.4)
+    s = screen()
+    check("621 fields: right-click — Cut, Copy, Paste, Select all", 'Cut' in s and 'Copy' in s and 'Paste' in s and
+          'Select all' in s, s)
+    keys('Escape'); time.sleep(0.2)
+    keys('Escape'); time.sleep(0.2)
+    keys('C-f'); text('greet who'); time.sleep(0.3)
+    p = find_on_screen('greet who')
+    if p:
+        x, y = p[0] + 7, p[1]                                            # (a double-click: the word)
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<0;%d;%dM\x1b[<0;%d;%dm\x1b[<0;%d;%dM\x1b[<0;%d;%dm' % (x, y, x, y, x, y, x, y))
+        time.sleep(0.3)
+        text('me')
+    time.sleep(0.3)
+    check("621 fields: a double-click selects the word", 'greet me' in screen(), screen())
+
+def t_621_context_menus():
+    # right-click: a tab (split with it), the gutter (breakpoint, bookmark, fold …), the status bar, a file in the
+    # tree; the menus' entries run
+    setup()
+    start('src/demo.nim', 'src/demo/utils.nim', w=150, h=40); time.sleep(0.8)
+    k = screen().split('\n')[1].find('demo.nim')                            # (its tab: the second row)
+    if k >= 0: mouse(2, k + 2, 2); mouse(2, k + 2, 2, up=True)
+    time.sleep(0.4)
+    s = screen()
+    check("621 context menus: a tab — close, split with it, copy its path", 'Split right with it' in s and
+          'Copy relative path' in s, s)
+    p = find_on_screen('Split right with it')
+    if p: click(*p)
+    time.sleep(0.6)
+    s = screen()
+    check("621 context menus: … split right with it (both files shown)", 'proc greet*' in s and 'proc shout' in s, s)
+    p = find_on_screen('proc greet*')
+    if p:
+        mouse(2, 2, p[1]); mouse(2, 2, p[1], up=True)     # (the gutter, left of the line)
+    time.sleep(0.4)
+    s = screen()
+    check("621 context menus: the gutter — breakpoint, bookmark, fold", 'Toggle breakpoint' in s and
+          'Toggle bookmark' in s and 'Fold or unfold here' in s, s)
+    keys('Escape')
+    r = len(screen().rstrip('\n').split('\n'))
+    mouse(2, 60, r); mouse(2, 60, r, up=True); time.sleep(0.4)
+    s = screen()
+    check("621 context menus: the status bar", 'Problems' in s and 'Hide the status bar' in s, s)
+    keys('Escape')
+    keys('C-b'); time.sleep(0.5)
+    p = find_in_tree('demo.nimble')
+    if p: mouse(2, p[0], p[1]); mouse(2, p[0], p[1], up=True)
+    time.sleep(0.4)
+    s = screen()
+    check("621 context menus: a file in the tree", 'Open to the side' in s and 'Copy relative path' in s, s)
+    p = find_on_screen('Open to the side')
+    if p: click(*p)
+    time.sleep(0.6)
+    check("621 context menus: … open to the side", 'version' in screen() and 'proc shout' in screen(), screen())
+
+def find_in_tree(word, maxx=30):
+    """where `word` is in the left dock (not the tab bar or the editor)"""
+    for i, l in enumerate(screen().split('\n')):
+        k = l.find(word)
+        if 0 <= k < maxx and i >= 2: return (k + 2, i + 1)
+    return None
+
+def t_621_drag_drop():
+    # drag and drop: a tab to the editor's right edge (a split), a file from the tree into the editor (opened),
+    # a file onto a folder (moved, after asking), selected text to another place (moved)
+    setup()
+    open(W + '/notes.txt', 'w').write('alpha beta gamma\nsecond line\n')
+    start('src/demo.nim', 'src/demo/utils.nim', w=150, h=40); time.sleep(0.8)
+    k = screen().split('\n')[1].find('utils.nim')                           # (its tab: the second row)
+    if k >= 0:
+        press(k + 2, 2); drag(k + 4, 7); drag(140, 20); release(140, 20)
+    time.sleep(0.6)
+    s = screen()
+    check("621 drag: a tab to the right edge — split right", 'proc greet*' in s and 'proc shout' in s, s)
+    keys('C-b'); time.sleep(0.5)
+    p = find_in_tree('notes.txt')
+    if p:
+        press(p[0], p[1]); drag(p[0] + 3, p[1]); drag(60, 15); release(60, 15)
+    time.sleep(0.6)
+    check("621 drag: a file from the tree into the editor — opened", 'alpha beta gamma' in screen(), screen())
+    keys('C-Home'); keys('S-End'); time.sleep(0.2)          # (the first line selected)
+    p = find_on_screen('alpha beta gamma')
+    q = find_on_screen('second line')
+    if p and q:
+        press(p[0] + 2, p[1]); drag(p[0] + 4, p[1] + 1); drag(q[0] + 10, q[1]); release(q[0] + 10, q[1])
+    time.sleep(0.4)
+    keys('C-s'); time.sleep(0.4)
+    t = ftext('notes.txt')
+    check("621 drag: selected text moved", t.startswith('\nsecond line') or 'second linealpha beta gamma' in t, t)
+    p = find_in_tree('notes.txt')
+    q = find_in_tree('examples')
+    if p and q:
+        press(p[0], p[1]); drag(p[0] + 2, p[1]); drag(q[0], q[1]); release(q[0], q[1])
+    time.sleep(0.5)
+    s = screen()
+    check("621 drag: a file onto a folder — asks first", 'Move notes.txt' in s or 'move' in s.lower(), s)
+    keys('y'); time.sleep(0.8)
+    check("621 drag: … moved", os.path.exists(W + '/examples/notes.txt') and not os.path.exists(W + '/notes.txt'),
+          screen())
+
+def fake_atlas621():
+    d = TMP + '/atlas621bin'
+    shutil.rmtree(d, ignore_errors=True); os.makedirs(d)
+    log = TMP + '/atlas621.log'
+    if os.path.exists(log): os.remove(log)
+    open(d + '/atlas', 'w').write('#!/bin/sh\necho "$@" >> %s\n'
+                                  'case "$*" in *install*) echo "[Error]  (jsony) cannot resolve jsony: no versions"; '
+                                  'exit 1;; esac\necho "[Success] done"\n' % log)
+    os.chmod(d + '/atlas', 0o755)
+    return d, log
+
+def t_621_atlas():
+    # an Atlas project: its dependencies in the Nim panel (the version, ≠ lock when the checkout is not what
+    # atlas.lock pins, not on the path), atlas run from it, its errors in Problems on the .nimble's requires line
+    setup()
+    d, log = fake_atlas621()
+    os.makedirs(W + '/deps/stew/.git'); os.makedirs(W + '/deps/.cache'); os.makedirs(W + '/deps/results/.git')
+    open(W + '/deps/stew/.git/HEAD', 'w').write('1' * 40 + '\n')
+    open(W + '/deps/results/.git/HEAD', 'w').write('2' * 40 + '\n')
+    json.dump({"deps": "deps"}, open(W + '/atlas.config', 'w'))
+    json.dump({"packages": [
+        {"url": "https://github.com/status-im/nim-stew", "name": "nim-stew", "version": "0.2.0@" + '1' * 40,
+         "commit": '1' * 40, "description": "stew helpers", "ondisk": W + '/deps/stew', "features": [], "isRoot": False},
+        {"url": "https://github.com/arnetheduck/nim-results", "name": "results", "version": "0.5.1@" + '2' * 40,
+         "commit": '2' * 40, "description": "Result type", "ondisk": W + '/deps/results', "features": [],
+         "isRoot": False}]}, open(W + '/deps/.cache/atlas.active.json', 'w'))
+    json.dump({"items": {"stew": {"dir": "$deps/stew", "url": "x", "commit": '9' * 40, "version": "0.1.0"}}},
+              open(W + '/atlas.lock', 'w'))
+    open(W + '/nim.cfg', 'w').write('############# begin Atlas config section ##########\n--noNimblePath\n'
+                                    '--path:"deps/stew"\n############# end Atlas config section   ##########\n')
+    with open(W + '/demo.nimble', 'a') as f: f.write('requires "jsony"\n')
+    start('src/demo.nim', w=150, h=40, path=d + ':' + TOOLS + ':$PATH'); time.sleep(0.5)
+    keys('M-e'); time.sleep(1.0)
+    s = screen()
+    check("621 atlas: the dependencies in the Nim panel", 'ATLAS' in s and '2 dependencies in deps' in s and
+          re.search(r'stew\s+0\.2\.0\s+≠ lock', s) is not None and re.search(r'results\s+0\.5\.1\s+not on the', s)
+          is not None, s)
+    palette('Atlas: install'); time.sleep(2.0)
+    lg = open(log).read() if os.path.exists(log) else ''
+    check("621 atlas: atlas run (no colours)", '--colors:off install' in lg, lg)
+    palette('Show problems'); time.sleep(0.6)
+    s = screen()
+    check("621 atlas: its error in Problems, on the requires line", 'atlas: jsony: cannot resolve jsony' in s, s)
+    keys('Escape'); keys('Escape')
+    palette('Atlas: update one…'); time.sleep(0.6)
+    s = screen()
+    check("621 atlas: update one — the dependencies to choose from", 'stew' in s and 'results' in s and
+          'Result type' in s, s)
+    keys('Enter'); time.sleep(1.5)
+    lg = open(log).read() if os.path.exists(log) else ''
+    check("621 atlas: … atlas update it", '--colors:off update results' in lg, lg)
+
+DC621 = """import std/os
+proc add3(x: int): int {.noinline.} = x + 3
+proc twice(x: int): int {.noinline.} =
+  result = x * 2
+  if result > 100: result = 100
+echo add3(paramCount()) + twice(paramCount() + 5)
+"""
+
+def t_621_decompile():
+    # a Nim proc decompiled (here disassembled with objdump) beside its source; the view follows the cursor
+    need('objdump')
+    setup({"decompiler.tool": "objdump", "nim.nimsuggest": False})
+    open(W + '/src/dc.nim', 'w').write(DC621)
+    start('src/dc.nim', w=160, h=40); time.sleep(0.8)
+    keys('C-g'); text('2:8'); keys('Enter'); time.sleep(0.2)
+    palette('Nim: decompile this proc (side by side)')
+    ok = wait_for('add3.*objdump', 60)
+    time.sleep(1.5)
+    s = screen()
+    check("621 decompile: the proc beside its source (objdump)", ok and re.search(r'(ret|mov|lea|add)', s) is not None, s)
+    keys('C-g'); text('4:5'); keys('Enter')
+    ok = wait_for('twice.*objdump', 20)
+    check("621 decompile: the view follows the cursor (another proc)", ok, screen())
+
+def t_621_new_project():
+    # New Nim project: a form (name, folder, kind, license, deps, git, tests) → the project made and opened
+    setup()
+    start('src/demo.nim', w=140, h=40); time.sleep(0.5)
+    palette('Nim: new project…'); time.sleep(0.6)
+    s = screen()
+    check("621 new project: the form", 'New Nim project' in s and 'Kind' in s and 'License' in s and 'Create' in s, s)
+    keys('Enter'); time.sleep(0.4)
+    check("621 new project: a name is needed", 'The project needs a name' in screen(), screen())
+    text('hello621'); keys('Enter'); time.sleep(2.0)
+    check("621 new project: made — its .nimble, its source, its tests", os.path.exists(W + '/hello621/hello621.nimble')
+          and os.path.exists(W + '/hello621/src/hello621.nim') and os.path.isdir(W + '/hello621/tests'), screen())
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list, t_621_emit_format, t_621_reset, t_621_settings_form, t_621_fields, t_621_context_menus, t_621_drag_drop, t_621_atlas, t_621_decompile, t_621_new_project]

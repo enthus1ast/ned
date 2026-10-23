@@ -276,6 +276,10 @@ def ned_single_file():
             # (a file read at compile time, next to its source: by its full path now)
             line = re.sub(r'staticRead\("([^"/][^"]*)"\)', lambda mm: 'staticRead("' + os.path.abspath(os.path.join(base, mm.group(1))) + '")', line)
             line = line.replace('currentSourcePath().parentDir', '"' + os.path.abspath(base) + '"')
+            # (… and the folders n levels up, as the plugin host and the index cache name them)
+            line = re.sub(r'currentSourcePath\(\)\.plugSrcUp\((\d+)\)', lambda mm: '"' + os.path.abspath(
+                os.path.join(base, *(['..'] * (int(mm.group(1)) - 1)))) + '"', line)
+            line = line.replace('currentSourcePath().nxSrcUp', '"' + os.path.abspath(base) + '"')
             out.append(line)
     out = []
     inline(src + '/ned.nim', out)

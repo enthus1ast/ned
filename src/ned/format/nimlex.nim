@@ -550,7 +550,7 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
     var parenStmt = -1       # bracket depth of statements in parentheses (`(let a = f(); a > 0)`)
     var brackets: seq[char]  # (the open brackets)
     var prev {.cursor.}: FTok = nil
-    for t in l.toks:
+    for ti, t in l.toks:
       if t.multi: l.verbatim = true
       # (statements in parentheses a line apart, `(let a = f()` ⏎ `a > 0)`, no `;` between them: those line
       # breaks are the code's — and any line in `(…)` or `{…}` starting an operand right after one, `{` ⏎
@@ -579,7 +579,9 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
         if lambdaAt > d: lambdaAt = -1
         if parenStmt > d: parenStmt = -1
       elif t.kind == fkKw:
-        if t.text == "do" and stmtAt < 0:
+        # (`quote do: f(` ⏎ `a, b)` on the statement's own level: the line breaks only wrap the body's call)
+        if t.text == "do" and stmtAt < 0 and
+           not (d == 0 and ti + 1 < l.toks.len and l.toks[ti + 1].kind == fkColon):
           stmtAt = d
           stmtIf = false
         elif d > 0 and t.text in FRoutineKw and lambdaAt < 0 and

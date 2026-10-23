@@ -222,37 +222,58 @@ proc acceptPicker() =
   needRender = true
 
 proc editLine(text: var string, cur: var int, k: Key): bool =
-  ## shared single-line input editing; returns true if handled
+  ## shared single-line input editing (with its selection: ui/fieldsel); returns true if handled
   cur = clamp(cur, 0, text.len)
   let ctrl = mCtrl in k.mods
   let alt = mAlt in k.mods
+  let shift = mShift in k.mods
+  if not fieldOwns(text):
+    fieldSelClear()                      # (another field had the selection: this one starts with none)
+    fieldSelOwner = cast[pointer](addr text)
+  proc move(text: var string, cur: var int, to: int, shift: bool) =
+    if shift:
+      if fieldSelAnchor < 0: fieldSelect(text, cur, cur)
+    else: fieldSelClear()
+    cur = clamp(to, 0, text.len)
+  proc insertText(text: var string, cur: var int, t: string) =
+    discard fieldDeleteSel(text, cur)
+    text.insert(t, cur)
+    cur += t.len
   case k.kind
   of kChar:
     if ctrl and k.ch == ord('u'):
+      fieldSelClear()
       text = text[cur .. ^1]
       cur = 0
     elif ctrl and k.ch == ord('k'):
+      fieldSelClear()
       text.setLen(cur)
-    elif ctrl and k.ch == ord('a'): cur = 0
-    elif ctrl and k.ch == ord('e'): cur = text.len
+    elif ctrl and k.ch == ord('a'):
+      # everything selected, as in any text box
+      fieldSelect(text, 0, text.len)
+      cur = text.len
+    elif ctrl and k.ch == ord('e'): move(text, cur, text.len, shift)
+    elif ctrl and k.ch in [ord('c'), ord('x')]:
+      let t = fieldSelText(text, cur)
+      if t.len == 0: return false        # (nothing selected: the key is the caller's)
+      clipSet(t)
+      if k.ch == ord('x'): discard fieldDeleteSel(text, cur)
     elif ctrl and k.ch == ord('v'):
       var t = if clipLineMode: clipParts.join("") else: clipParts.join("\n")
       let sys = clipGet()
       if sys.len > 0: t = sys
       t = t.splitLines()[0]
-      text.insert(t, cur)
-      cur += t.len
+      insertText(text, cur, t)
     elif ctrl or alt: return false
     else:
       var s = ""
       s.addUtf8(k.ch)
-      text.insert(s, cur)
-      cur += s.len
+      insertText(text, cur, s)
   of kPaste:
     let t = if k.text.len > 0: k.text.splitLines()[0] else: ""
-    text.insert(t, cur)
-    cur += t.len
+    insertText(text, cur, t)
   of kBackspace:
+    if fieldDeleteSel(text, cur): return true
     if cur > 0:
       var a = prevCluster(text, cur)
       if ctrl or alt:
@@ -264,13 +285,22 @@ proc editLine(text: var string, cur: var int, k: Key): bool =
         text.delete(a ..< cur)
         cur = a
   of kDelete:
+    if fieldDeleteSel(text, cur): return true
     if cur < text.len and nextCluster(text, cur) > cur: text.delete(cur ..< nextCluster(text, cur))
   of kLeft:
-    if cur > 0: cur = prevCluster(text, cur)
+    let (a, _) = fieldSelRange(text, cur)
+    if not shift and a != cur and not ctrl: move(text, cur, a, false)      # (a selection: to its start)
+    elif ctrl or alt: move(text, cur, fieldWordStart(text, cur), shift)
+    elif cur > 0: move(text, cur, prevCluster(text, cur), shift)
+    else: move(text, cur, cur, shift)
   of kRight:
-    if cur < text.len: cur = nextCluster(text, cur)
-  of kHome: cur = 0
-  of kEnd: cur = text.len
+    let (_, b) = fieldSelRange(text, cur)
+    if not shift and b != cur and not ctrl: move(text, cur, b, false)
+    elif ctrl or alt: move(text, cur, fieldWordEnd(text, cur), shift)
+    elif cur < text.len: move(text, cur, nextCluster(text, cur), shift)
+    else: move(text, cur, cur, shift)
+  of kHome: move(text, cur, 0, shift)
+  of kEnd: move(text, cur, text.len, shift)
   else: return false
   true
 

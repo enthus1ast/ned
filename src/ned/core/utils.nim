@@ -130,8 +130,11 @@ proc wsFoldersJson(): JsonNode =
 
 proc uriFromPath(p: string): string =
   result = "file://"
-  for c in p:
-    if c in {'a'..'z', 'A'..'Z', '0'..'9', '-', '_', '.', '~', '/'}: result.add c
+  when defined(windows):
+    if p.len >= 2 and p[1] == ':': result.add '/'          # file:///C:/… (the drive's colon as it is)
+  for c in (when defined(windows): p.replace('\\', '/') else: p):
+    if c == ':' and defined(windows): result.add c
+    elif c in {'a'..'z', 'A'..'Z', '0'..'9', '-', '_', '.', '~', '/'}: result.add c
     else: result.add '%' & toHex(ord(c), 2)
 
 func pathFromUri(u: string): string =
@@ -147,6 +150,9 @@ func pathFromUri(u: string): string =
       except ValueError: discard
     result.add s[i]
     inc i
+  when defined(windows):
+    if result.len >= 3 and result[0] == '/' and result[2] == ':': result = result[1 .. ^1]   # (/C:/… → C:/…)
+    if result.len >= 2 and result[1] == ':': result[0] = result[0].toUpperAscii                # (c: → C:, as ned writes it)
 
 func textDistance(a, b: string): int =
   ## edit distance in characters — by bytes when either is not valid UTF-8 (std's own would read past its end)

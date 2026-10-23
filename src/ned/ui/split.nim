@@ -48,7 +48,7 @@ proc focusPane(i: int) =
   focus = fEditor
   needRender = true
 
-proc splitEditor(down = false) =
+proc splitEditor(down: bool) =
   let b = buf()
   if b.isWelcome():
     info("Open a file first")
@@ -74,6 +74,15 @@ proc closeSplit() =
 
 proc toggleSplitFocus() =
   if splitOn: focusPane(1 - activePane) else: splitEditor()
+
+proc toSidePane() =
+  ## (Open to the side) the other pane gets the focus — split first: what this pane shows stays there
+  if splitOn: focusPane(1 - activePane)
+  elif bufs.len > 0 and not buf().isWelcome(): splitEditor(false)   # (the new pane, the focus: the same file for now)
+
+proc openToSide(path: string, line = -1, col = -1): Buffer =
+  toSidePane()
+  openFile(path, line, col)
 
 proc moveToOtherPane() =
   ## show the current file in the other pane too (split first when needed)
@@ -102,7 +111,7 @@ proc drawPaneHeader(b: Buffer, i, x, y, w: int) =
       discard putStr(xx + 2, y, truncTo(dir, max(1, lim - xx - 2)), blend(theme.dim, bg, 0.3), bg, {}, lim)
   let pi = i
   capture pi:
-    region(x, y, max(1, w - 2), 1, proc() = focusPane(pi), "")
+    region(x, y, max(1, w - 2), 1, proc() = focusPane(pi), "", proc() = ctxOpen(paneHeaderMenu(pi)))
     discard button(x + w - 2, y, ic("close"), proc() =
       if pi == activePane: focusPane(1 - pi)     # the other pane stays
       closeSplit(), "Close this pane (Alt+|)", theme.dim, bg)

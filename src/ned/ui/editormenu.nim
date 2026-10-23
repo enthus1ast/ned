@@ -83,6 +83,7 @@ proc editorMenu(): seq[MenuItem] =
       mc("Debug: add a watch expression…", "Watch…")])
     result.add mc("Nim: expand macro/template at cursor", "Expand macro")
     result.add mc("Nim: ARC/ORC view of current proc (expandArc)", "ARC/ORC view")
+    result.add mc("Nim: decompile this proc (side by side)", "Decompile this proc")
   result.add msep()
   result.add mc("AI: ask about selection", (if hasSel: "Ask AI about selection" else: "Ask AI about this file"))
   result.add mc("AI: edit selection…", "Edit with AI…")

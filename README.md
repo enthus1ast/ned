@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.20](#whats-new-in-620) · [6.19](CHANGELOG.md#whats-new-in-619) · [6.18](CHANGELOG.md#whats-new-in-618) · [6.17](CHANGELOG.md#whats-new-in-617) · [older releases](CHANGELOG.md)
+- [What's new in 6.21](#whats-new-in-621) · [6.20](CHANGELOG.md#whats-new-in-620) · [6.19](CHANGELOG.md#whats-new-in-619) · [6.18](CHANGELOG.md#whats-new-in-618) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -41,69 +41,71 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.20
+## What's new in 6.21
 
-6.20 takes plugins further — a language's completions, hover, code actions, outline and snippets, tools for the
-assistant, views of their own, plugins in full Nim — shows a macro's tree and a module's docs beside the code,
-checks async, raises and gcsafe before you compile, makes a .nimble easier to edit, understands Nim names in an
-emit, and opens files of any size.
+6.21 makes ned work more like a desktop app — real dialogs, right-click menus everywhere, drag and drop, text
+fields you select with the mouse — puts a decompiler beside your code, takes Atlas projects further, builds ned for
+Windows itself, can reset everything to a first start, and fixes the formatter on emits and a few other shapes.
 
-**Plugins v2.** A plugin can now give a language what a language server gives: `completions` (merged with ned's
-and a server's), `hover` (under ned's own), `codeActions` (Alt+Enter), `symbols` (the Outline, Go to symbol, the
-breadcrumbs) and `snippet`s. It can give the assistant a tool (`aiTool`; `aiToolReadOnly` for one that only reads
-and runs without asking), a section of the Plugins dock (`view`, with clicks), progress in the status bar, lines
-in the Output panel (`file:line` clickable) and a command in ned's terminal; `settingDef` puts its settings in the
-Settings panel and `requiresNed(">= 6.20")` keeps it off an older ned. A folder with a `plugin.nim` is a plugin in
-**full Nim**: ned compiles it (in the background, again when it changes) into a program of its own — the whole
-standard library, threads, sockets — and its errors go to Problems. The NimScript plugins still share one process;
-`plugins.alone` gives one its own (a slow one never holds up the others), and `plugins.native: auto` compiles a set
-of plugins you keep for the next start (calls 0.3 ms instead of 3–6). The dock shows each process (restart, stop),
-the views and each plugin (reload just it, its own process); *Plugins: browse the plugin list…* installs from a list
-of yours (`plugins.indexUrl`), *Plugins: update* pulls the ones from git. Two more examples: **ini-tools** (every
-language feature for INI files, a view, progress, a tool for the assistant) and **clock-native** (full Nim). See
-[Plugins](#plugins).
+**Dialogs and forms.** The Settings window has the categories on the left, a search over every setting, check
+boxes, lists and number fields, and OK, Apply and Cancel — OK writes only what you changed, with the file's comments
+kept; a bad number is refused before anything is written. *New Nim project…* is a form (name, folder, program or
+library, description, license, nimble or atlas for the dependencies, git, tests), and so are Atlas's commands
+(below) and *Reset everything*. Prompts and pickers get OK and Cancel under them (`ui.formButtons`); Tab moves
+between a dialog's fields, Enter is its default button, Esc closes it.
 
-**The AST view and the docs preview.** *Nim: AST view* shows the statement at the cursor — or the selection — as
-the tree a macro gets as `body: untyped`, from Nim's own parser, beside the code, made again after each pause; on a
-macro or template call, what it expands to under it. *Nim: preview this file's docs* shows the module the way
-`nim doc` will: its doc comment, each exported declaration with its signature and doc comment, and whether its
-runnableExamples passed — it follows your edits.
+**Text fields you can select in.** Every field — the palette, Find, a prompt, a dock's filter, a dialog's — takes
+the mouse: a click places the cursor, a drag selects, a double-click takes a word and a triple-click all of it;
+Shift+arrows and Ctrl+Shift+arrows select, Ctrl+A selects all, Ctrl+C/X copy and cut the selection, typing replaces
+it, and a right-click gives Cut, Copy, Paste, Select all.
 
-**Async, raises and gcsafe before compiling.** A discarded Future (its error lost), `await` outside an
-`{.async.}` proc, `waitFor` or `os.sleep` inside one, a `{.raises: [...].}` that leaves out what the body raises, and
-a `{.gcsafe.}` or `{.thread.}` routine using a global seq, string, ref or Table are problems as you type, each
-saying what to do instead. A call that passes a type that is not the concept the routine takes says on hover what
-the type lacks.
+**Right-click everywhere.** Tabs (close the others, split with it, show it in the other pane, copy its path),
+the gutter (breakpoint, conditional breakpoint, logpoint, bookmark, fold, the git change on that line, copy a link
+to it), every item of every dock (open, open to the side, references, rename, run or debug a test, copy its path),
+each part of the status bar (the position, line endings, the language, the AI, the terminal, the language server,
+the problems), the title bar, breadcrumbs, the minimap, the panel and its lines, messages, a split's pane header,
+a picker's rows, the welcome page's recent files.
 
-**Editing a .nimble and config.nims.** `requires "jsony >= ` completes the package's versions — those installed and
-its repository's tags; the hover on a package says what it is, the versions installed, the one the project builds
-with and the newest release; Alt+Enter on `version =` bumps it. *Nimble: add a dependency…* picks from the package
-list, then the versions, writes the `requires` line and offers `nimble install -d`; *Nimble: lock file* shows what
-nimble.lock pins and what changed since the last commit. In config.nims, `-d:` completes what your code asks
-about (`defined(x)`, `{.intdefine.}` …) and `--path:` the folders; `--gc:orc` says `--mm:orc` now and
-`--threads:on` is the default, each with its fix. *Nim: the configuration the compiler ends up with* runs `nim
-dump` and shows the config files read, in order, and where they disagree.
+**Drag and drop.** A tab dragged out of the tab bar goes onto a pane, or to the editor's right or bottom edge to
+split with it; a file from the tree opens where you drop it (or splits at the edges), moves into a folder you drop
+it on (after asking), or puts its path in the terminal; selected text moves where you drop it — with Ctrl or Alt
+held it is copied — in one undo step. The places it can go light up while you drag (`ui.dragAndDrop`).
 
-**Nim names in an emit.** In `{.emit: """ `counter` = `add`(1, 2); """.}` the backticked names are Nim's: completed,
-with their Nim hover (and the C name they become), F12, renamed with the Nim name, and checked — a name that is not
-there (with the one meant), a routine given a number of arguments it does not take. An `exportc` proc's hover gives
-its C name.
+**A decompiler beside your code.** *Nim: decompile this proc (side by side)* builds the program with debug
+information and shows the proc at the cursor as C (radare2 with r2ghidra or r2dec, rizin with rz-ghidra, RetDec)
+or as assembly with the Nim lines it came from (radare2, rizin, objdump, llvm-objdump) — whichever is installed
+(`decompiler.tool`) — in the pane beside it; it follows the cursor into the next proc. In the hex editor, *Hex:
+decompile a function…* (or its ⇄ button) lists a program's functions; *Decompile a program…* opens one. In Termux,
+`pkg install radare2` (or binutils, for objdump) is enough; on Linux, radare2 (`r2pm -ci r2ghidra` for C), rizin,
+RetDec or binutils; on Windows, radare2 or LLVM's llvm-objdump.
 
-**Files of any size.** A text file over 512 MB (`editor.viewerSize`) — a log, a dump — opens in the large-file
-viewer instead of being refused: read-only, with a window of its lines in memory and an index of where its lines
-start made in the background, so Go to line, Ctrl+End, Find and F3 reach any of its lines, and the status bar says
-*Ln 1000000 of 30000000*.
+**Atlas.** An Atlas project (atlas.config, or nim.cfg's Atlas section) shows its dependencies first in the Nim
+panel — the version atlas chose, *linked*, *≠ lock* when the checkout is not what atlas.lock pins, *not on the path*
+when nim.cfg leaves it out — each with its own menu (update it, unlink, its history, its .nimble); the Nims `atlas
+env` installed (one click makes it the project's Nim). Install, update all or one, add a dependency (from the
+package list, with a version), link and unlink a project, pin, replay, what changed, outdated, the dependency tree,
+a Nim for the project, atlas-run's tasks, build and tests are in the palette and *Atlas…*; atlas's errors go to
+Problems on the .nimble's requires line of the package they name. atlas.config's keys have hovers; a nimble
+install asked from a .nimble uses atlas in an Atlas project.
 
-**Waits.** On ned's own source (`tests/perf/rounds.py`, two sessions) no round of ned's main loop is over 16 ms any
-more — the longest 15 ms, where 6.19 had 16–20 ms while a big program opened: the open files' TODOs take a round of
-their own, a big file the engine reads starts one, and the engine reads only early in a round (the frame after it
-takes 5–6 ms). The first completion after an import changes takes 8 ms instead of 13–35: the last list is used,
-with the new module's names, while the whole list is made again in quiet moments. A completion takes 4.7 ms
-(median); the editor and its engine worker hold 70 MB. `rounds.py --one-core` runs everything on one core, a phone's
-slow cores' stand-in: 14 ms at most while typing and completing, about 20 ms for the first frames of a big file just
-opened. The compiler's checks and other work no one waits for run only when a core is idle (Linux, Android).
+**Windows, natively (experimental).** ned builds for Windows itself: the console (Windows Terminal) is its
+terminal, a pseudo-console (ConPTY) runs PowerShell in its terminal panel, its commands run through Git for Windows'
+sh, and the clipboard is Windows'. CI builds and checks it on every push; WSL stays the tried way. See
+[Windows](#windows).
 
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.19](CHANGELOG.md#whats-new-in-619) brought plugins in NimScript,
+**Reset everything.** File › Preferences › *Reset everything (start fresh)…* shows what ned keeps — settings,
+plugins, sessions and history, caches, downloads (and, if you tick it, the project's `.ned`) — with their sizes,
+removes what you tick, and starts ned again as on its first run; `ned --reset` does the same from the shell, for
+when ned no longer starts as it should.
+
+**The formatter.** `{.emit: """` stays on its line (it was split into `{.` and `emit: """`, which also lost the
+C's colours — C in that split form is coloured again too). A comment after `=`, `return f(…):` with a block,
+`x = if/try/case …` with the first branch on the same line, a `case` inside a value, `else: name: x`, `quote do:`,
+`expect E: body`, a long proc type and a `doAssert not …` are formatted (or left alone) instead of refused. On 761
+files of Nim's standard library, its compiler, atlas, nph and other packages, every file now formats, and formatting
+again changes nothing.
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.20](CHANGELOG.md#whats-new-in-620) took plugins further (a language's completions, hover, actions, outline; plugins in full Nim), showed a macro's tree and a module's docs beside the code, checked async, raises and gcsafe before compiling and opened files of any size, [6.19](CHANGELOG.md#whats-new-in-619) brought plugins in NimScript,
 NimScript files known as such, nimble 0.26's conflicts on their lines, hot exit, encodings and checked key bindings,
 [6.18](CHANGELOG.md#whats-new-in-618) gave nedls ned's quick-fix list as code actions and Fix with AI checked by nim check, [6.17](CHANGELOG.md#whats-new-in-617) halved the waits on a big program
 and kept the engine worker from growing, [6.16](CHANGELOG.md#whats-new-in-616) moved the engine's hints, checks
@@ -260,7 +262,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.19.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.21.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -305,10 +307,27 @@ in Terminal.app set *Use Option as Meta key* (Settings › Profiles › Keyboard
 debugger panel uses `gdb`, which macOS only lets run once it is code-signed (`brew install gdb`, then its signing
 steps); without it, *Nim: debug with gdb* in the palette falls back to `lldb` in the terminal.
 
-### Windows (WSL)
+### Windows
 
-ned is a Unix terminal program, so on Windows it runs inside **WSL** (Windows Subsystem for Linux) — the Linux
-build, in Windows Terminal:
+**Native (experimental, since 6.21).** ned builds for Windows itself — the same program, with Win32 and the C
+runtime behind its terminal calls: the console is its terminal (Windows Terminal, or the console of Windows 10
+1809 and later — virtual-terminal input and output, UTF-8), its terminal panel is a pseudo-console (ConPTY) running
+PowerShell (or `terminal.shell`), its commands (tasks, builds, `nim check`) run through Git for Windows' `sh` when it
+is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths are written with `/` (Windows
+takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
+line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
+
+```powershell
+scoop install nim git                       # or the official Nim zip, and Git for Windows (its sh runs ned's commands)
+nim c -d:release --opt:speed -d:strip -o:ned.exe src/ned.nim
+.\ned.exe --check
+.\ned.exe
+```
+
+What it does not have there: the remote-control socket needs Windows 10 1803 or later (AF_UNIX); the formatter of
+nedls runs in-process instead of in a child of its own (no fork); `nice` is a lower priority class.
+
+**WSL.** The Linux build, inside WSL (Windows Subsystem for Linux), in Windows Terminal:
 
 ```powershell
 wsl --install                               # once, in PowerShell as administrator; then restart and open Ubuntu
@@ -330,7 +349,7 @@ inside the Linux file system (`~/code`, not `/mnt/c/…`): it is much faster the
 ### Ready-made binaries
 
 The project's GitHub Actions workflow (`.github/workflows/build.yml`) builds ned on every push for Linux (x86_64
-and arm64), macOS (Apple silicon and Intel), Termux (aarch64) and Windows through WSL, runs it in a real
+and arm64), macOS (Apple silicon and Intel), Termux (aarch64), Windows (native, and through WSL), runs it in a real
 pseudo-terminal, and attaches the binaries to the release when you push a tag such as `v5.6.1` — `nedfmt` (the
 formatter) and `nedls` (the language server) beside each `ned`.
 
@@ -389,8 +408,9 @@ can add your own (see [Settings](#settings)).
 | F6 / Shift+F6 | move focus editor → docks → panel |
 | Alt+Z | zen mode (Esc Esc leaves) |
 | Alt+T | themes (live preview) · Alt+W soft wrap · Alt+L line numbers · Alt+U mouse on/off |
-| right click | context menus (editor, files, tabs, git, search results, terminal) — on touch: press and hold |
-| drag | split divider, dock edges, the bottom panel's header, the scrollbar, the minimap, a tab (reorder) |
+| right click | context menus everywhere: the editor, its gutter, tabs, files, every dock's items, the status bar's items, the title bar, breadcrumbs, the minimap, the panel, messages, text fields, a picker's rows — on touch: press and hold |
+| drag | split divider, dock edges, the bottom panel's header, the scrollbar, the minimap, a tab (reorder — or out of the tab bar: onto a pane, or to the editor's right or bottom edge to split with it) · a file from the tree: into the editor (opened, or split at the edges), onto a folder (moved, after asking), into the terminal (its path) · selected text: moved (Ctrl or Alt held: copied) — `ui.dragAndDrop` |
+| text fields | click places the cursor, drag or Shift+arrows select, double-click a word, triple-click all, Ctrl+A/C/X/V, right-click for Cut/Copy/Paste |
 | wheel | scroll · Shift+wheel or tilt wheel: sideways · over the tabs: switch tabs |
 
 ### Files and navigation
@@ -1215,8 +1235,11 @@ Regex syntax: `.` `[abc]` `[^a-z]` `[[:digit:]]` `\d \w \s \b` (and negations) `
 ## Settings
 
 Everything is in one commented JSON file: **`~/.config/ned/config.json`** (palette › *Open settings file*),
-or use the settings UI (palette › *Settings*, ⚙ in the title bar), where you can type a setting's name or words
-from its description. Saving the file applies it immediately.
+or use the Settings window (palette › *Settings*, ⚙ in the title bar): the categories on the left, a search over
+every setting (its name or words from its description), check boxes, lists and fields; OK or Apply writes what you
+changed into the file, its comments kept (*Settings: quick list…* is the older one-line list; `"ui.formButtons":
+false` brings it back, with prompts and pickers without their OK/Cancel buttons). Saving the file applies it
+immediately.
 `ned --default-settings` prints every option with its default and a description.
 
 A few examples:
@@ -1399,6 +1422,10 @@ off), `plugins.timeoutMs`, `plugins.idleStopMinutes`, `plugins.indexUrl`, and ea
 | `~/.local/state/ned/settings-sync/` | the clone of your settings repository (*Settings sync: push / pull*) |
 | `$TMPDIR/ned-UID/remote-PID.sock` | the socket a running ned answers on (`ned --remote …`, `ned FILE` in its terminal; only you can reach it; gone when it quits) |
 
+*Reset everything* (File › Preferences, the palette) — or `ned --reset` from the shell — removes all of these but
+the project's own `.ned` (unless you tick it), and ned starts again as on its first run. On Windows the same paths
+are under your user folder (`C:/Users/you/.config/ned` …) and the socket's folder is `%TEMP%/ned-0`.
+
 ## Building, tasks and performance
 
 ```sh
@@ -1450,7 +1477,7 @@ checks those numbers on every push.
 
 ### The source
 
-ned is one program in about 300 files, standard library only:
+ned is one program in about 310 files, standard library only:
 
 ```
 src/ned.nim            the program: the parts below, in the order they build on each other
@@ -1465,6 +1492,7 @@ src/ned/
   lsp/                 the language-server client, code actions, inlay hints, servers for code inside strings
   ai/                  the assistant: requests, agent tools, MCP, chats, inline suggestions
   plugins/             the plugin host (its processes, the API) and the library plugins import (lib/nedplugin.nim)
+  sys/                 Windows: its POSIX calls done with Win32 and the C runtime (winposix), std/os with '/' (winos)
   git/  term/  debug/  c/  run/  testing/  project/  config/  keymaps/  app/
 tests/                 unit tests, the UI suite, the fuzzer, the engine comparison, the plugins, cross builds
 examples/showcase.nim  one Nim file that tours what ned does for Nim

@@ -17,10 +17,23 @@ proc tabMenu(i: int): seq[MenuItem] =
         if not bufs[j].dirty and bufs.len > 1: closeBufferAt(j)),
     mi("Reopen closed tab", "Alt+Shift+T", proc() = reopenClosedTab()),
     msep(),
+    mi("Split right with it", "", proc() =
+      if idx < bufs.len: dndSplitWith(bufs[idx].id, false)),
+    mi("Split down with it", "", proc() =
+      if idx < bufs.len: dndSplitWith(bufs[idx].id, true)),
+    mi("Show it in the other pane", "", proc() =
+      if idx < bufs.len:
+        curBuf = idx
+        moveToOtherPane()),
+    msep(),
     mi("Copy path", "", proc() =
       if idx < bufs.len and bufs[idx].path.len > 0:
         clipSet(bufs[idx].path)
         info("Copied " & bufs[idx].path)),
+    mi("Copy relative path", "", proc() =
+      if idx < bufs.len and bufs[idx].path.len > 0:
+        clipSet(relPath(bufs[idx].path))
+        info("Copied " & relPath(bufs[idx].path))),
     mi("Reveal in files", "", proc() =
       if idx < bufs.len and bufs[idx].path.len > 0:
         showSide(svFiles)

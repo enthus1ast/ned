@@ -78,6 +78,17 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
        (not lang.commentNeedsSpace or i == 0 or s[i-1] in {' ', '\t'}):
       mark(i, n, tkComment)
       return st
+    if lang.mode == lmNim and c == 'e' and s.startsAt("emit", i) and (i + 4 >= n or not isWordByte(s[i+4])) and
+       s[0 ..< i].strip.len == 0:
+      # `emit:` opening a line — a pragma list laid out over lines (`{.` ⏎ `emit: """…` as nph writes it): its
+      # strings are C too
+      var m = i + 4
+      while m < n and s[m] == ' ': inc m
+      if m < n and s[m] == ':' and (m + 1 >= n or s[m+1] != ':'):
+        mark(i, m + 1, tkPragma)
+        i = m + 1
+        emitCtx = true
+        continue
     if lang.mode == lmNim and c == '{' and i + 1 < n and s[i+1] == '.':
       var k = i + 2
       while k < n and s[k] == ' ': inc k

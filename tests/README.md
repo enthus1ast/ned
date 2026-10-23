@@ -10,7 +10,7 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 | [`plugins/`](plugins) | the plugin host without the editor (the example plugins and an API test plugin, this script playing ned: every registration, call and API request), the LSP bridge, the compiled host and a plugin in full Nim | a minute | `python3 tests/plugins/tplugins.py ./ned --native` |
 | [`perf/`](perf) | the longest rounds of ned's main loop and completion times on ned's own source (`--one-core`: on one core) | minutes | `python3 tests/perf/rounds.py ./ned` |
 | [`format/`](format) | the Nim formatter on 463 files of Nim's compiler and standard library, each checked by Nim's own parser | minutes | `nimble parsecheck` |
-| [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 1200 checks | ~1 hour | `nimble uitest` |
+| [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 1300 checks | ~1 hour | `nimble uitest` |
 | [`fuzz/`](fuzz) | random keys, mouse events, pastes, palette commands and resizes; crashes, hangs and internal errors reported | as long as you like | `tests/fuzz/batch.sh 120 mixed vim palette` |
 | [`engine/`](engine) | ned's Nim engine against nimsuggest on the standard library, nimble packages and the compiler; its C engine against clangd | ~1 hour | `tests/engine/build.sh && tests/engine/corpus.sh /tmp/out` · `tests/engine/ccompare.py` |
 | [`build/`](build) | ned built for every target: gcc, clang, and with zig macOS (arm64, x86_64) and Android/Linux arm64 — nedfmt and nedls too | minutes | `tests/build/cross.sh` |

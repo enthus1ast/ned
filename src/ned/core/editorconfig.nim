@@ -2,7 +2,9 @@
 ## editor (indentation, line ends, whitespace, the ruler) and by nedfmt and nedls (max_line_length: where Nim lines
 ## wrap when nim.format.lineLength is not set)
 
-import std/[os, strutils, tables, times]
+import std/[strutils, tables, times]
+when defined(windows): import ../sys/winos as os   # (std/os, with '/' in the paths it makes)
+else: import std/os
 
 proc ecStamp(path: string): int64 =
   try:

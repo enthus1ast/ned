@@ -15,6 +15,10 @@ proc detectTrueColor(): bool =
 proc installHint(termuxPkg, linuxPkg: string): string =
   ## the command that installs a missing package on this system
   if isTermux(): return "pkg install " & termuxPkg
+  when defined(windows):
+    return (if haveExe("scoop"): "scoop install " & linuxPkg
+            elif haveExe("winget"): "winget install " & linuxPkg
+            else: "install " & linuxPkg & " (scoop or winget)")
   if haveExe("apt"): "sudo apt install " & linuxPkg
   elif haveExe("dnf"): "sudo dnf install " & linuxPkg
   elif haveExe("pacman"): "sudo pacman -S " & linuxPkg
@@ -104,7 +108,8 @@ proc setupRows(inEditor: bool): seq[SetupRow] =
   tool("Tools", "rg", "fast project search (grep is used without it)", false, installHint("ripgrep", "ripgrep"))
   tool("Tools", "curl", "AI assistant, playground sharing", false, installHint("curl", "curl"))
   # clipboard: OSC 52 always copies; reading (paste from other apps) needs a helper
-  let clip = if haveExe("termux-clipboard-get"): "termux-clipboard"
+  let clip = if defined(windows): "the Windows clipboard"
+             elif haveExe("termux-clipboard-get"): "termux-clipboard"
              elif haveExe("pbpaste"): "pbcopy / pbpaste"
              elif getEnv("WAYLAND_DISPLAY").len > 0 and haveExe("wl-paste"): "wl-clipboard"
              elif getEnv("DISPLAY").len > 0 and haveExe("xclip"): "xclip"

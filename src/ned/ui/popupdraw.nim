@@ -27,7 +27,7 @@ proc drawToasts(bottom: int) =
     let isMsg = t.fromMsg
     capture ri, isMsg:
       region(x, y, w, h, proc() =
-        if isMsg and ri < toasts.len: toasts.delete(ri))      # a click closes a message
+        if isMsg and ri < toasts.len: toasts.delete(ri), "", proc() = ctxOpen(toastMenu(ri)))   # a click closes a message
     let (icn, icc) = sevIcon(t.sev)
     discard putStr(x + 2, y + 1, icn, icc, theme.toastBg, {aBold})
     for i in 0 ..< n:
