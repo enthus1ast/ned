@@ -137,11 +137,112 @@ proc ecNimscriptOnly(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]
                               only[w])
       i = e
 
+proc ecEmitNames(f: NxFile, b: Buffer, res: var seq[Diag]) =
+  ## a `name` in an emit that no Nim name is here (the compiler stops at it), and a routine called there with a
+  ## number of arguments none of its overloads takes
+  let names = emitTickNames(b.lines)
+  if names.len == 0: return
+  var ew = emitWork(b.lines)
+  for (l, s, n) in names:
+    let (rs, ls) = emitNimTargetsIn(ew, b.lines, f, l, s, s + n.len)
+    if rs.len == 0 and ls.len == 0:
+      var best = ""
+      var bestD = 3
+      for sym in f.syms:
+        if sym.local or sym.kind in {nxField, nxEnumVal, nxParam, nxForVar, nxResult}: continue
+        let d = nxTypoDist(nxNorm(sym.name).toLowerAscii, nxNorm(n).toLowerAscii)
+        if d < bestD:
+          bestD = d
+          best = sym.name
+      res.add Diag(line: l, col: s, eline: l, ecol: s + n.len, sev: 1, src: "ned", rule: "emit-nim",
+                   msg: "`" & n & "` in the emit is no Nim name here — the compiler stops at it" &
+                        (if best.len > 0: " (`" & best & "`?)" else: ""),
+                   code: (if best.len > 0: %*{"nedfix": "Use `" & best & "`", "edits": [[l, s, l, s + n.len, best]]}
+                          else: nil))
+      continue
+    if ls.len > 0: continue
+    # `name`(…): as many arguments as one of the routines takes
+    let t = b.lines[l]
+    var k = s + n.len + 1
+    while k < t.len and t[k] == ' ': inc k
+    if k >= t.len or t[k] != '(': continue
+    var depth = 0
+    var args = 0
+    var any = false
+    var closed = false
+    var j = k
+    while j < t.len:
+      let ch = t[j]
+      if ch in {'(', '[', '{'}:
+        inc depth
+      elif ch in {')', ']', '}'}:
+        dec depth
+        if depth == 0:
+          closed = true
+          break
+      elif ch == ',' and depth == 1: inc args
+      elif ch notin {' ', '\t'} and depth >= 1: any = true
+      inc j
+    if not closed: continue
+    let given = if any: args + 1 else: 0
+    var fits = false
+    var counts: seq[string]
+    var routines = 0
+    for r in rs:
+      if r.sym.kind notin {nxProc, nxFunc, nxConverter, nxMethod}: continue
+      inc routines
+      var req = 0
+      var varargs = false
+      for p in r.sym.params:
+        if p.typ.startsWith("varargs"): varargs = true
+        elif p.default.len == 0: inc req
+      let total = r.sym.params.len
+      if varargs or (given >= req and given <= total): fits = true
+      let c = if req == total: $total else: $req & "–" & $total
+      if c notin counts: counts.add c
+    if routines > 0 and not fits:
+      res.add Diag(line: l, col: s, eline: l, ecol: s + n.len, sev: 1, src: "ned", rule: "emit-nim",
+                   msg: "`" & n & "` takes " & counts.join(" or ") & " argument" &
+                        (if counts == @["1"]: "" else: "s") & " — the emit passes " & $given)
+
 proc ecSwitches(b: Buffer, code: seq[string], res: var seq[Diag]) =
   ## NimScript: a compiler switch the compiler does not have (`--optt:speed`, `switch("thread", "on")`) — and
   ## the one meant
   if not nxIsScript(b.path): return
+  proc fixOf(title: string, edits: seq[(int, int, int, int, string)]): JsonNode =
+    var js = newJArray()
+    for (l0, c0, l1, c1, t) in edits: js.add %*[l0, c0, l1, c1, t]
+    %*{"nedfix": title, "edits": js}
   proc check(l, at: int, name: string, res: var seq[Diag]) =
+    # (switches the compiler still takes but says otherwise now — and the line the default made needless)
+    let raw = b.lines[l]
+    let ln = name.toLowerAscii
+    var value = ""
+    var k = at + name.len
+    if k < raw.len and raw[k] == ':':
+      var e = k + 1
+      while e < raw.len and raw[e] notin {' ', '#', '"'}: inc e
+      value = raw[k + 1 ..< e]
+    elif k < raw.len and raw[k] == '"':
+      let q1 = raw.find('"', k + 1)
+      let q2 = if q1 > 0: raw.find('"', q1 + 1) else: -1
+      if q2 > q1: value = raw[q1 + 1 ..< q2]
+    let wholeLine = raw.strip.startsWith("--") or raw.strip.startsWith("switch(")
+    if ln == "gc":
+      res.add Diag(line: l, col: at, eline: l, ecol: at + name.len, sev: 2, src: "ned", rule: "switch",
+                   msg: "--gc is deprecated: --mm" & (if value.len > 0: ":" & value else: "") & " says it now",
+                   code: fixOf("Use --mm" & (if value.len > 0: ":" & value else: ""), @[(l, at, l, at + name.len, "mm")]))
+      return
+    if ln == "threads" and value.toLowerAscii == "on" and wholeLine:
+      res.add Diag(line: l, col: at, eline: l, ecol: at + name.len, sev: 3, src: "ned", rule: "switch",
+                   msg: "threads are on by default since Nim 2.0 — this line can go",
+                   code: fixOf("Remove the line (threads are on anyway)", @[(l, 0, l + 1, 0, "")]))
+      return
+    if ln == "newruntime":
+      res.add Diag(line: l, col: at, eline: l, ecol: at + name.len, sev: 2, src: "ned", rule: "switch",
+                   msg: "--newruntime is gone: --mm:arc is what it became",
+                   code: fixOf("Use --mm:arc", @[(l, at, l, at + name.len, "mm:arc")]))
+      return
     if name.len == 0 or nxSwitchFind(name) >= 0: return
     var best = ""
     var bestD = 3
@@ -152,7 +253,8 @@ proc ecSwitches(b: Buffer, code: seq[string], res: var seq[Diag]) =
         best = sw[0]
     res.add Diag(line: l, col: at, eline: l, ecol: at + name.len, sev: 2, src: "ned", rule: "switch",
                  msg: "--" & name & " is not a switch of the compiler" &
-                      (if best.len > 0: " — did you mean --" & best & "?" else: " (nim --fullhelp lists them)"))
+                      (if best.len > 0: " — did you mean --" & best & "?" else: " (nim --fullhelp lists them)"),
+                 code: (if best.len > 0: fixOf("Use --" & best, @[(l, at, l, at + name.len, best)]) else: nil))
   for l, raw in b.lines:
     if l >= code.len or code[l].strip.len == 0: continue
     let t = raw.strip(trailing = false)
@@ -569,6 +671,150 @@ proc ecArgCounts(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) = 
                        msg: name & " takes " & want & " argument" & (if hi == 1 and lo == 1: "" else: "s") &
                             ", here " & $nargs & (if byDot: " (with the one before the dot)" else: ""))
       k = s.find('(', k + 1)
+
+func ecWordsOf(s: string): seq[(int, int)] =
+  ## the identifiers of a line (code only: comments and strings already blanked), as (start, end); not after a `.`
+  var i = 0
+  while i < s.len:
+    if s[i] in {'a'..'z', 'A'..'Z', '_'} and (i == 0 or s[i - 1] notin IdentChars):
+      var e = i
+      while e < s.len and s[e] in IdentChars: inc e
+      if i == 0 or s[i - 1] notin {'.', '`'}: result.add (i, e)
+      i = e
+    else: inc i
+
+func ecIsAsync(s: NxSym): bool = "async" in s.pragmas
+
+proc ecAsync(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## async code: a Future discarded (its error is lost: asyncCheck it), `await` outside an {.async.} proc, and in
+  ## one what blocks the event loop (sleep, waitFor, readLine of stdin)
+  var touches = false
+  for s in code:
+    if "await" in s or "async" in s or "Future" in s or "waitFor" in s:
+      touches = true
+      break
+  if not touches: return
+  let sc = nxScope(f)
+  if sc == nil: return
+  let skip = ecSkipLines(f, sc, code)
+  proc futureCall(name: string): bool =
+    let refs = nxLookup(sc, name)
+    if refs.len == 0: return false
+    for r in refs:
+      if r.sym.kind notin NxRoutineKinds: return false
+      if not (ecIsAsync(r.sym) or r.sym.ret.strip.startsWith("Future[") or r.sym.ret.strip == "Future"):
+        return false
+    true
+  for l, s in code:
+    if skip[l] or s.strip.len == 0: continue
+    let t = s.strip
+    let ind = ecIndent(s)
+    # discard aFuture(…)
+    if t.startsWith("discard ") and t.len > 8:
+      var k = 8
+      while k < t.len and t[k] == ' ': inc k
+      var e = k
+      while e < t.len and t[e] in IdentChars: inc e
+      if e > k and e < t.len and t[e] == '(' and futureCall(t[k ..< e]):
+        res.add Diag(line: l, col: ind, eline: l, ecol: ind + 7, sev: 2, src: "ned", rule: "async",
+                     msg: "discarding the Future of " & t[k ..< e] & " loses its error — asyncCheck it, or await it")
+    let encl = nxEnclosing(f, l)
+    let inAsync = encl >= 0 and ecIsAsync(f.syms[encl])
+    for (a, e) in ecWordsOf(s):
+      let w = s[a ..< e]
+      case w
+      of "await":
+        if not inAsync and encl >= 0 and f.syms[encl].kind in NxRoutineKinds and f.syms[encl].line != l:
+          res.add Diag(line: l, col: a, eline: l, ecol: e, sev: 2, src: "ned", rule: "async",
+                       msg: "await works in an {.async.} proc only — " & f.syms[encl].name & " is not one " &
+                            "(waitFor, outside one)")
+      of "waitFor":
+        if inAsync:
+          res.add Diag(line: l, col: a, eline: l, ecol: e, sev: 2, src: "ned", rule: "async",
+                       msg: "waitFor inside an {.async.} proc blocks the event loop — await it")
+      of "sleep":
+        var k = e
+        while k < s.len and s[k] == ' ': inc k
+        if inAsync and k < s.len and s[k] == '(':
+          var isOs = false
+          for r in nxLookup(sc, "sleep"):
+            if r.file.path.endsWith("/os.nim") or r.file.path.endsWith("/std/private/ossleep.nim") or
+               r.file.path.endsWith("/osproc.nim"): isOs = true
+          if isOs or nxLookup(sc, "sleep").len == 0:
+            res.add Diag(line: l, col: a, eline: l, ecol: e, sev: 2, src: "ned", rule: "async",
+                         msg: "sleep inside an {.async.} proc stops every other task too — await sleepAsync(ms)")
+      else: discard
+
+proc ecRaisesDeclared(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## a routine whose {.raises: […].} leaves out what its body can raise (the compiler refuses it): which, and from
+  ## where — the engine only says so when it is sure of every call in the body
+  var n = 0
+  let t0 = getMonoTime()
+  for i in 0 ..< f.syms.len:
+    let s = f.syms[i]
+    if s.kind notin {nxProc, nxFunc, nxIterator, nxConverter} or s.local or s.made or "raises" notin s.pragmas: continue
+    if msSince(t0) > 700 or n >= 40: break
+    inc n
+    let r = NxRef(file: f, idx: int32(i))
+    let (has, list) = nxRaisesDeclared(r)
+    if not has: continue
+    let x = nxRaisesOfBody(r, 4000, 400)
+    if not x.known: continue
+    var allowed: HashSet[string]
+    for w in list.split(','):
+      let nm = nxNorm(w.strip)
+      if nm.len > 0: allowed.incl nm
+    var extra: seq[string]
+    for ex in x.excs:
+      var ok = nxNorm(ex.name) in allowed
+      for a in ex.anc:
+        if a in allowed: ok = true
+      if not ok: extra.add ex.name
+    if extra.len > 0:
+      res.add Diag(line: s.line, col: s.col, eline: s.line, ecol: s.col + s.name.len, sev: 2, src: "ned",
+                   rule: "raises", msg: s.name & " says {.raises: [" & list.strip & "].} but it can raise " &
+                   extra.join(", ") & " — the compiler refuses it: catch it, or add it to the list")
+
+proc ecGcsafe(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## a {.gcsafe.} or {.thread.} routine that reads or writes a global of a type the garbage collector owns (a seq,
+  ## a string, a ref, a table …): the compiler refuses it
+  var any = false
+  for s in f.syms:
+    if s.kind in NxRoutineKinds and ("gcsafe" in s.pragmas or "thread" in s.pragmas.split({',', ' ', ':', '{', '.', '}'})):
+      any = true
+      break
+  if not any: return
+  let sc = nxScope(f)
+  if sc == nil: return
+  for s in f.syms:
+    if s.kind notin NxRoutineKinds or s.local or s.endLine <= s.line: continue
+    if not ("gcsafe" in s.pragmas or "thread" in s.pragmas.split({',', ' ', ':', '{', '.', '}'})): continue
+    var told: HashSet[string]
+    for l in s.line + 1 .. min(s.endLine, code.high):
+      let ln = code[l]
+      for (a, e) in ecWordsOf(ln):
+        let w = ln[a ..< e]
+        if w in told: continue
+        let refs = nxLookup(sc, w)
+        if refs.len != 1: continue
+        let g = refs[0].sym
+        if g.kind notin {nxVar, nxLet} or g.local or "threadvar" in g.pragmas or "global" in g.pragmas: continue
+        # (a local of the same name hides it)
+        var shadow = false
+        for x in nxLocals(f, b.lines, l, a):
+          if nxNorm(x.name) == nxNorm(w): shadow = true
+        if shadow: continue
+        let ty = g.typ.strip
+        let gcd = ty.startsWith("seq") or ty == "string" or ty.startsWith("ref ") or ty.startsWith("Table") or
+                  ty.startsWith("OrderedTable") or ty.startsWith("HashSet") or ty.startsWith("JsonNode") or
+                  (ty.len == 0 and (g.value.startsWith("@[") or g.value.startsWith("\"") or
+                                    g.value.startsWith("newSeq") or g.value.startsWith("initTable")))
+        if not gcd: continue
+        told.incl w
+        res.add Diag(line: l, col: a, eline: l, ecol: e, sev: 2, src: "ned", rule: "gcsafe",
+                     msg: s.name & " is {.gcsafe.} but uses the global " & w & " (" &
+                          (if ty.len > 0: ty else: "garbage-collected") & ") — the compiler refuses it: pass it in, " &
+                          "or make it a {.threadvar.}")
 
 proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
   ## a statement that is a call `f(a, b)` of a routine that gives a value — every routine of that name taking that
@@ -1760,7 +2006,11 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("require-unused", "a package the .nimble requires that nothing imports", 4),
   ("nimble", "a problem in a .nimble file", 2),
   ("nimscript-only", "a NimScript proc (exec, thisDir, mkDir …) called in a program, and what a program uses", 2),
-  ("switch", "a compiler switch the compiler does not have, in config.nims or a .nimble", 2),
+  ("switch", "a compiler switch the compiler does not have, in config.nims or a .nimble (or one it says otherwise now: --gc, --threads:on)", 2),
+  ("emit-nim", "a `name` in an emit that no Nim name is, or a routine called there with the wrong number of arguments", 1),
+  ("async", "async code: a Future discarded, await outside an async proc, what blocks the event loop in one", 2),
+  ("raises", "a {.raises.} list that leaves out what the body can raise", 2),
+  ("gcsafe", "a {.gcsafe.} routine that uses a garbage-collected global", 2),
   ("nim3", "Nim 3 (Nimony): what Nim 2 code must change — in a Nim 3 project, or when asked", 2),
   # (ned's own CSS, HTML and SQL — in their files and in Nim strings)
   ("sql-args", "a query given more (or fewer) values than it has `?` (db_connector's exec, getRow …)", 1),
@@ -1958,6 +2208,10 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
       if b.path.endsWith(".nimble") and on("nimble"): result.add pcNimbleChecks(b)
       if on("nimscript-only"): ecNimscriptOnly(f, b, code, result)
       if on("switch"): ecSwitches(b, code, result)
+      if on("emit-nim"): ecEmitNames(f, b, result)
+      if on("async"): ecAsync(f, b, code, result)
+      if on("gcsafe"): ecGcsafe(f, b, code, result)
+      if cfgEngineMoreChecks and on("raises"): ecRaisesDeclared(f, b, code, result)
       if port3 and on("nim3"): nim3Checks(f, b, code, result)
     except CatchableError, Defect: discard
     if live:

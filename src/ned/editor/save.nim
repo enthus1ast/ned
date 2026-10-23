@@ -185,6 +185,7 @@ proc closeBufferAt(i: int) =
     closedTabs.add (b.path, b.primary.head)
     if closedTabs.len > 30: closedTabs.delete(0)
   lspDidClose(b)
+  lfClose(b)
   emitClose(b)
   embClose(b)
   removeSwap(b)

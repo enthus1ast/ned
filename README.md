@@ -21,7 +21,7 @@ library, and builds to one binary of about 9 MB.
 
 ## Contents
 
-- [What's new in 6.19](#whats-new-in-619) · [6.18](CHANGELOG.md#whats-new-in-618) · [6.17](CHANGELOG.md#whats-new-in-617) · [6.16](CHANGELOG.md#whats-new-in-616) · [older releases](CHANGELOG.md)
+- [What's new in 6.20](#whats-new-in-620) · [6.19](CHANGELOG.md#whats-new-in-619) · [6.18](CHANGELOG.md#whats-new-in-618) · [6.17](CHANGELOG.md#whats-new-in-617) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -41,69 +41,71 @@ library, and builds to one binary of about 9 MB.
 
 ---
 
-## What's new in 6.19
+## What's new in 6.20
 
-6.19 brings plugins written in NimScript — commands, events, languages, formatters, language servers and vim
-mappings of your own — tells a NimScript file from a program, explains nimble's dependency conflicts on the lines
-that cause them, keeps your unsaved edits when you quit, reads and writes files in other encodings, and checks your
-key bindings.
+6.20 takes plugins further — a language's completions, hover, code actions, outline and snippets, tools for the
+assistant, views of their own, plugins in full Nim — shows a macro's tree and a module's docs beside the code,
+checks async, raises and gcsafe before you compile, makes a .nimble easier to edit, understands Nim names in an
+emit, and opens files of any size.
 
-**Plugins, in NimScript.** A folder with a `plugin.nims` in `~/.config/ned/plugins/` (or a trusted project's
-`.ned/plugins/`) adds commands to the palette and on keys, answers events (open, before and after saving, close,
-start, changes), reads and edits the text, asks you things (a list, a line, yes or no), puts problems with fixes,
-gutter signs, text after a line, highlights and a status-bar item in the editor, keeps time, and has settings of
-its own. It can teach ned a language (colours, comments, indentation, F5), format it (a command, or a formatter
-written in NimScript), give it a language server — an installed one, or one written in NimScript with `nedlsp`,
-which `ned --lsp-bridge server.nims` serves to ned and to any other editor — and give vim mappings, operators, text
-objects and `:` commands. All plugins run in one `nim e` process that starts when one is needed (about a second)
-and stops when idle, or compiled (`plugins.native`); one that does not compile is left out with its error in
-Problems. The Plugins dock lists them, turns them on and off, reloads them and shows their log; *New plugin…*,
-*Add an example…* and *Install from git…* start one. The examples: a language with its formatter (Zig), a language
-server written in NimScript, and vim's `gc` operator with an `ie` text object. See [Plugins](#plugins).
+**Plugins v2.** A plugin can now give a language what a language server gives: `completions` (merged with ned's
+and a server's), `hover` (under ned's own), `codeActions` (Alt+Enter), `symbols` (the Outline, Go to symbol, the
+breadcrumbs) and `snippet`s. It can give the assistant a tool (`aiTool`; `aiToolReadOnly` for one that only reads
+and runs without asking), a section of the Plugins dock (`view`, with clicks), progress in the status bar, lines
+in the Output panel (`file:line` clickable) and a command in ned's terminal; `settingDef` puts its settings in the
+Settings panel and `requiresNed(">= 6.20")` keeps it off an older ned. A folder with a `plugin.nim` is a plugin in
+**full Nim**: ned compiles it (in the background, again when it changes) into a program of its own — the whole
+standard library, threads, sockets — and its errors go to Problems. The NimScript plugins still share one process;
+`plugins.alone` gives one its own (a slow one never holds up the others), and `plugins.native: auto` compiles a set
+of plugins you keep for the next start (calls 0.3 ms instead of 3–6). The dock shows each process (restart, stop),
+the views and each plugin (reload just it, its own process); *Plugins: browse the plugin list…* installs from a list
+of yours (`plugins.indexUrl`), *Plugins: update* pulls the ones from git. Two more examples: **ini-tools** (every
+language feature for INI files, a view, progress, a tool for the assistant) and **clock-native** (full Nim). See
+[Plugins](#plugins).
 
-**NimScript files: config.nims and a .nimble.** The engine knows which file is which: `exec`, `thisDir`, `mkDir`,
-`switch` … are offered and known in config.nims and a .nimble only — in a program they are a problem that says
-what a program uses instead; a .nimble knows nimble's own API (`namedBin`, `taskRequires`, `before`/`after`,
-`feature`, `getPaths` …) with hover, and completes package names in its `requires` strings. Compiler switches are
-completed (`--opt:` then its values), explained on hover and checked — `--threds:on` is "did you mean --threads?".
-A feature's `requires` is no longer "required twice". The formatter formats NimScript as NimScript: a .nimble's
-`version = "1.0"` block stays lined up, `--switch` lines, task headers and one-line `if`s stay as written, comments
-after a line stay where they are.
+**The AST view and the docs preview.** *Nim: AST view* shows the statement at the cursor — or the selection — as
+the tree a macro gets as `body: untyped`, from Nim's own parser, beside the code, made again after each pause; on a
+macro or template call, what it expands to under it. *Nim: preview this file's docs* shows the module the way
+`nim doc` will: its doc comment, each exported declaration with its signature and doc comment, and whether its
+runnableExamples passed — it follows your edits.
 
-**nimble 0.26.** When nimble cannot resolve the dependencies — PubGrub's explanation in 0.26 ("Because every version
-of b depends on a < 1.0 and demo depends on a >= 1.0 …"), the conflicting set in 0.24 — the explanation is a problem
-on each `requires` line of your .nimble it is about, and the Output panel links there. *refresh packages* refreshes
-the package list on 0.26 (whose `nimble refresh` in a project fetches every dependency), and git URLs that start
-with `-` are refused wherever ned runs git with one (clone, submodules, settings sync, nimble's dependency checks) —
-the option-injection fix nimble 0.26.1 made too.
+**Async, raises and gcsafe before compiling.** A discarded Future (its error lost), `await` outside an
+`{.async.}` proc, `waitFor` or `os.sleep` inside one, a `{.raises: [...].}` that leaves out what the body raises, and
+a `{.gcsafe.}` or `{.thread.}` routine using a global seq, string, ref or Table are problems as you type, each
+saying what to do instead. A call that passes a type that is not the concept the routine takes says on hover what
+the type lacks.
 
-**Hot exit.** Quitting with unsaved edits no longer asks: they are kept, and the next time ned opens the folder they
-are back in their tabs — files and untitled ones — still unsaved, where your cursor was (`files.hotExit`; off: asked
-as before). Closing the terminal (Termux) keeps them the same way.
+**Editing a .nimble and config.nims.** `requires "jsony >= ` completes the package's versions — those installed and
+its repository's tags; the hover on a package says what it is, the versions installed, the one the project builds
+with and the newest release; Alt+Enter on `version =` bumps it. *Nimble: add a dependency…* picks from the package
+list, then the versions, writes the `requires` line and offers `nimble install -d`; *Nimble: lock file* shows what
+nimble.lock pins and what changed since the last commit. In config.nims, `-d:` completes what your code asks
+about (`defined(x)`, `{.intdefine.}` …) and `--path:` the folders; `--gc:orc` says `--mm:orc` now and
+`--threads:on` is the default, each with its fix. *Nim: the configuration the compiler ends up with* runs `nim
+dump` and shows the config files read, in order, and where they disagree.
 
-**Encodings.** A file that is not UTF-8 is read as Windows-1252 (or what `files.encoding` names), a UTF-16 or UTF-8
-file with a BOM as such, and each is written back the way it was read; the status bar says which (click: *Reopen
-with encoding…*, *Save with encoding…* — other encodings through iconv). A character the encoding cannot hold stops
-the save and is pointed out, instead of a file written wrong. A UTF-8 file with a stray broken byte stays UTF-8.
+**Nim names in an emit.** In `{.emit: """ `counter` = `add`(1, 2); """.}` the backticked names are Nim's: completed,
+with their Nim hover (and the C name they become), F12, renamed with the Nim name, and checked — a name that is not
+there (with the one meant), a routine given a number of arguments it does not take. An `exportc` proc's hover gives
+its C name.
 
-**Key bindings.** *Keyboard shortcuts…* asks before giving a key that another command has ("ctrl+s runs ned's
-“Save” — give it to …?"), marks a key of yours or a plugin's that another command also has, and lists the problems
-of your `keys` setting — a command that does not exist (with the one meant), a key most terminals never send
-(Ctrl+Shift+letter without the kitty keyboard protocol, Ctrl+1, Ctrl+I …); a note says so when ned starts.
+**Files of any size.** A text file over 512 MB (`editor.viewerSize`) — a log, a dump — opens in the large-file
+viewer instead of being refused: read-only, with a window of its lines in memory and an index of where its lines
+start made in the background, so Go to line, Ctrl+End, Find and F3 reach any of its lines, and the status bar says
+*Ln 1000000 of 30000000*.
 
-**Waits.** The project's TODO scan and the engine reading imports no longer share a round — together they made rounds
-of 13–16 ms while a project opened — and a slice of the TODO scan stops when its time is up. On ned's own source
-(`tests/perf/rounds.py`, three sessions) the longest round while typing is 16 ms, a completion takes 8.5 ms (median),
-and the editor with its engine worker holds 69 MB, as in 6.18; what is left above 20 ms is once per opened program
-(the scope of its main module, about 20 ms) and the first completion after an import changes (about 35 ms).
-The plugins cost nothing without plugins, and a call with two API requests takes about 6 ms in `nim e` (0.2 ms
-compiled).
+**Waits.** On ned's own source (`tests/perf/rounds.py`, two sessions) no round of ned's main loop is over 16 ms any
+more — the longest 15 ms, where 6.19 had 16–20 ms while a big program opened: the open files' TODOs take a round of
+their own, a big file the engine reads starts one, and the engine reads only early in a round (the frame after it
+takes 5–6 ms). The first completion after an import changes takes 8 ms instead of 13–35: the last list is used,
+with the new module's names, while the whole list is made again in quiet moments. A completion takes 4.7 ms
+(median); the editor and its engine worker hold 70 MB. `rounds.py --one-core` runs everything on one core, a phone's
+slow cores' stand-in: 14 ms at most while typing and completing, about 20 ms for the first frames of a big file just
+opened. The compiler's checks and other work no one waits for run only when a core is idle (Linux, Android).
 
-**Smaller.** The status bar keeps an encoding that is not UTF-8, and CRLF, longer than LF and UTF-8 when it is
-narrow; "Saved x (1 line)"; *Plugins: the API* opens read-only; the `plugins` setting holds each plugin's own
-settings.
-
-Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.18](CHANGELOG.md#whats-new-in-618) gave nedls ned's quick-fix list as code actions and Fix with AI checked by nim check, [6.17](CHANGELOG.md#whats-new-in-617) halved the waits on a big program
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.19](CHANGELOG.md#whats-new-in-619) brought plugins in NimScript,
+NimScript files known as such, nimble 0.26's conflicts on their lines, hot exit, encodings and checked key bindings,
+[6.18](CHANGELOG.md#whats-new-in-618) gave nedls ned's quick-fix list as code actions and Fix with AI checked by nim check, [6.17](CHANGELOG.md#whats-new-in-617) halved the waits on a big program
 and kept the engine worker from growing, [6.16](CHANGELOG.md#whats-new-in-616) moved the engine's hints, checks
 and counts to the engine worker on another core, [6.15](CHANGELOG.md#whats-new-in-615) brought selection by
 code structure, surround, the undo tree, next-edit suggestions, the Git changes view, ned's own JavaScript and C++,
@@ -155,12 +157,14 @@ HTML, SQL, YAML and TOML; a whole project at once; or only the lines you changed
 (Alt+Shift+J), a preview beside the file and symbol pickers,
 files in their encoding (UTF-16, Windows-1252 … written back as read), unsaved edits kept when you quit (hot exit),
 rulers at the columns you choose or where the formatter wraps (`"editor.rulers": ["lineLength"]`; long lines tinted), colour swatches, `.editorconfig` support (its `max_line_length` is the formatter's too), spell check,
-CSV and TSV files as tables (columns lined up, sort by a column, a column's sum and mean), large-file mode, a 3-pane merge editor, keyboard macros, vim, Emacs and Helix key bindings, operator ligatures
+CSV and TSV files as tables (columns lined up, sort by a column, a column's sum and mean), large-file mode and a viewer for files of any size, a 3-pane merge editor, keyboard macros, vim, Emacs and Helix key bindings, operator ligatures
 (`editor.fontLigatures`: drawn by ned in any terminal — `─→ ═⇒ ≠ ≤ ≥` — or kept whole for a ligature font).
 
-**Plugins** — written in NimScript: commands, keys, events, the text, problems with fixes, signs and highlights,
-languages, formatters, language servers (also written in NimScript, for any editor: `ned --lsp-bridge`), vim
-mappings, operators and text objects, timers — one process for all of them, a dock to manage them.
+**Plugins** — written in NimScript (or full Nim, compiled): commands, keys, events, the text, problems with fixes,
+signs and highlights, languages with their completions, hover, code actions, outline and snippets, formatters,
+language servers (also written in NimScript, for any editor: `ned --lsp-bridge`), tools for the assistant, views
+in their dock, progress and output, vim mappings, operators and text objects, timers — the NimScript ones in one
+process, a dock to manage them, a list to install from.
 
 **Languages** — syntax highlighting for Nim, C, C++, JS/TS, Rust, Go, Python, Kotlin, C#, PHP, SQL, Java, Lua,
 Ruby, shell, Markdown, JSON, YAML, TOML, HTML, CSS, Makefiles, diffs, Nim templates (`.nimf`) and more — and your
@@ -623,7 +627,16 @@ there is no hint. For 1,422 routines compared with the compiler's `{.effects.}`,
 hover a type to see the concepts it satisfies; *Go to implementation* on a concept lists those types. The new
 syntax (routines on `Self`) is matched as the compiler matches it, the old one (`concept x, y`) in its common forms
 (`x.f is T`, `f(x)`, `x < y is bool`, `x.field`, `x[i]`, `$x`). A type is listed only when ned is sure: for 700
-answers compared with the compiler's `T is C`, they agree.
+answers compared with the compiler's `T is C`, they agree. A call of a routine that takes a concept, given an
+argument whose type is not one, says so on hover, with what the type lacks (*`Foo` is not a `Shape` — it has no
+`proc area(s: Foo): float`*).
+
+**Async, raises and gcsafe, before compiling.** The engine's checks say what the compiler would — or what only
+shows when the program runs: a discarded Future (`discard fetch()` loses its error: `asyncCheck` it, or `await`
+it), `await` outside an `{.async.}` proc, `waitFor` inside one, `os.sleep` in an async proc (it stops every task:
+`await sleepAsync`); a routine whose `{.raises: [...].}` leaves out an exception its body can raise (with
+`nim.engineMoreChecks`, the compiler refuses it); a `{.gcsafe.}` or `{.thread.}` routine that uses a global
+`seq`, `string`, `ref` or `Table` (rules `async`, `raises`, `gcsafe`).
 
 **The package versions your build uses.** The engine reads each nimble package in the version your project builds
 with: the package folders your config puts on the path (nimble.paths, atlas' nim.cfg), then the versions
@@ -978,6 +991,13 @@ in the palette. Your own `formatters` entry for `nim` always wins.
 
 - Alt+M expands the macro/template call under the cursor; *expand one level*; ARC/ORC view
   (`expandArc`); show generated C; check the project; generate docs.
+- *Nim: AST view*: the statement at the cursor (or the selection) as the tree a macro gets — `parseStmt(…).treeRepr`
+  from Nim's own parser — beside the code, made again after each pause in the typing; on a macro or template call,
+  what it expands to under it. *Nim: preview this file's docs*: the module's doc comment and each exported
+  declaration with its signature and doc comment as `nim doc` shows them, and whether its runnableExamples passed.
+- *Nim: the configuration the compiler ends up with*: `nim dump` for the project's main module — the config files
+  read, in order, where they disagree (`--mm:refc` in nim.cfg, `--mm:orc` in config.nims: the last read wins), the
+  defined symbols, the search paths, where the output goes.
 - Quick fixes (Alt+Enter): *Import std/tables* for `undeclared identifier: 'initTable'` (from an index of
   the standard library's exports, built once and cached), *Remove unused import os*, and fixes worked out from
   the compiler's messages (let → var, discard, conversions, did you mean, export, create the proc, missing case
@@ -996,6 +1016,10 @@ in the palette. Your own `formatters` entry for `nim` always wins.
 - C in `{.emit}` edits as C: indentation, `//` comments, completion from its headers and `nimbase.h`, hover,
   F12 between the Nim declaration and the C, C compiler errors on the emit's lines (on save and from builds);
   with clangd installed, clangd's completion, errors while typing, fixes and parameter hints (`nim.emitClangd`).
+  A Nim name in an emit's backticks (`` `counter` ``) is completed, has its Nim hover (and the C name it becomes),
+  F12 to its declaration, is renamed with the Nim name, and is checked: no such name (with the one meant), a
+  routine called there with a number of arguments none of its overloads takes (rule `emit-nim`). An `exportc`
+  proc's hover gives its C name.
 - HTML, CSS, SQL and JSON in strings go to their language servers: errors on the Nim line, completion, hover,
   fixes.
 - *Nim: extract selection into a proc*, *change signature…*, *inline this proc*, *move to another module…* (see the
@@ -1009,7 +1033,15 @@ in the palette. Your own `formatters` entry for `nim` always wins.
   (`editor.dimInactiveCode`).
 - Debugger panel with gdb: F9 breakpoints, F5 start/continue, F10/F11 stepping (see the 5.2 notes); conditional
   breakpoints, logpoints and stops when a value changes (5.24).
-- *Nimble: add dependency…* (adds `requires` and offers `nimble install -d`), *dependency tree*, *search packages*, tasks,
+- A .nimble's `requires` completes the package's versions (those installed, and its repository's tags — `git
+  ls-remote`, kept a day) after `>=`, `@` …; the hover on a package says what it is, the versions installed, the one
+  the project builds with and the newest release; Alt+Enter on `version = "1.2.3"` bumps it (patch, minor, major).
+  *Nimble: add a dependency…* picks a package from the list (name, description), then the versions (`>= newest`,
+  `^=`, any, one release, `#head`), writes the `requires` line and offers `nimble install -d`; *Nimble: lock file*
+  shows what nimble.lock pins and what changed since the last commit. In config.nims and a .nimble, `-d:` completes
+  what the project's code asks about (`defined(x)`, `{.intdefine.}`, `{.strdefine: "pkg.name".}`) and `--path:` the
+  folders; `--gc:orc` is "deprecated: --mm:orc" and `--threads:on` "the default since Nim 2.0", each with its fix.
+- *Nimble: add a dependency by name…* (adds `requires` and offers `nimble install -d`), *dependency tree*, *search packages*, tasks,
   build modes (debug / release / danger), backends (C, C++, JS, ObjC), Nim 3 with Nimony (*Nim › Nim 3 (Nimony)*: see
   [What's new in 6.12](#whats-new-in-612)).
 - Test explorer (Tests dock) for `std/unittest` suites, with ▶ buttons in the gutter; tests run on save, ✓ or ✗
@@ -1156,8 +1188,12 @@ Regex syntax: `.` `[abc]` `[^a-z]` `[[:digit:]]` `\d \w \s \b` (and negations) `
 - **No silent overwrites**: if a file changed on disk since you opened it, saving asks whether to overwrite or
   reload; if another running ned has unsaved edits to the same file, you are warned.
 - **Binary files** open in the hex editor: what you type changes only the bytes you type over (or insert), saving
-  writes the bytes as they are (a new file renamed over the old one, its permissions kept); files over 512 MB are
-  refused.
+  writes the bytes as they are (a new file renamed over the old one, its permissions kept); binary files over
+  512 MB are refused.
+- **Huge text files** — over `editor.viewerSize` (512 MB): a log, a dump — open in the large-file viewer, read-only,
+  with a window of their lines in memory: where every 1024th line starts is indexed in the background, so scrolling,
+  Go to line, Ctrl+End, Find and F3 (through the whole file, in the background) reach any line, and Copy copies from
+  it; the status bar says *Ln 1 000 000 of 30 000 000*.
 - **Libraries open read-only**: files of the Nim toolchain (the standard library, the compiler) and of installed
   nimble packages — where go to definition often lands — cannot be changed by a stray key; *Read-only* in the
   status bar (or *File: allow editing this file*) unlocks one. The project you have open is never locked.
@@ -1253,13 +1289,18 @@ belongs to vim: leave with Alt+Z or `:zen`; the corner shows the vim mode.
 
 ## Plugins
 
-A plugin is a folder with a `plugin.nims` — NimScript, the Nim of `config.nims`. Yours are in
-`~/.config/ned/plugins/<name>/`; a project's in `.ned/plugins/<name>/` run once you trust the folder. *Plugins: new
-plugin…* makes one from a template, *Plugins: add an example…* copies one of the three below, *Plugins: install from
-git…* clones a repository that has a `plugin.nims` at its top. Saving a plugin's file reloads the plugins.
+A plugin is a folder with a `plugin.nims` — NimScript, the Nim of `config.nims` — or a `plugin.nim`, a plugin in
+full Nim. Yours are in `~/.config/ned/plugins/<name>/`; a project's in `.ned/plugins/<name>/` run once you trust
+the folder. *Plugins: new plugin…* (and *new plugin in full Nim…*) makes one from a template, *Plugins: add an
+example…* copies one of the five below, *Plugins: install from git…* clones a repository that has a `plugin.nims`
+(or `plugin.nim`) at its top, *Plugins: browse the plugin list…* installs from a list (`plugins.indexUrl`: a URL or a
+file of JSON, `[{"name", "url", "description"}]`), and *Plugins: update* pulls the ones that came from git. Saving a
+plugin's file reloads it (*Plugins: reload one…* too).
 
 ```nim
 import nedplugin
+
+requiresNed(">= 6.20")                               # an older ned leaves it out, and says why
 
 command "Upper-case the line", "ctrl+alt+u":       # the palette (and the Plugins dock), on a key
   let b = current()
@@ -1268,19 +1309,27 @@ command "Upper-case the line", "ctrl+alt+u":       # the palette (and the Plugin
 
 onSave("*.md") do (ev: Event):
   status("saved " & $ev.buf.lineCount & " lines")    # an item in the status bar
+
+hover("zig") do (b: Buf, p: Pos) -> string:          # under ned's own hover
+  "**" & b.wordAt(p) & "**"
 ```
 
-**How it runs.** Every plugin is imported into one host program that ned starts with `nim e` (about a second,
-once) and talks to in JSON lines: the plugins register what they have, ned calls them back, and they ask ned for
-the text, to edit it, to show things. One process for all of them keeps a phone's memory free. It starts only
-when a plugin is needed — ned keeps what they registered (`~/.cache/ned/plugins/manifest.json`), so their commands
-and keys are there at once — or right after ned starts when a plugin answers events, keeps time or formats; it
-stops after `plugins.idleStopMinutes` without a call. With `plugins.native` the host is compiled (`nim c`, in the
-background): a faster start and less memory. A plugin that does not compile is left out — its error is in
-Problems and its file — and the others start without it; an exception in a callback is that call's error, in the
-plugin's log. The **Plugins dock** (View › Plugins panel) lists them, what each registered, on/off, reload, and
-their log (`echo` goes there). ned waits `plugins.timeoutMs` (1500) for what it must have before it goes on: an
-event before saving, a NimScript formatter, a text object.
+**How it runs.** The NimScript plugins are imported into one host program that ned starts with `nim e` (about a
+second, once) and talks to in JSON lines: the plugins register what they have, ned calls them back, and they ask
+ned for the text, to edit it, to show things. One process for all of them keeps a phone's memory free; a plugin in
+`plugins.alone` runs in a process of its own (a slow or crashing one never holds up the others). A process starts
+only when one of its plugins is needed — ned keeps what they registered (`~/.cache/ned/plugins/manifest.json`), so
+their commands and keys are there at once — or right after ned starts when a plugin answers events, keeps time,
+formats, completes, hovers, lists symbols or shows a view; it stops after `plugins.idleStopMinutes` without a call.
+`plugins.native` (auto): a set of plugins started before as it is now is compiled (`nim c`, in the background) for
+the next start — a faster start, calls 0.3 ms instead of 3–6, less memory; on: always; off: never. A **plugin in
+full Nim** (`plugin.nim`) is always compiled into a program of its own: the whole standard library (std/times,
+osproc, threads, sockets …); while it is built the dock says *compiling…*, and its errors go to Problems. A plugin
+that does not compile is left out — its error is in Problems and its file — and the others start without it; an
+exception in a callback is that call's error, in the plugin's log. The **Plugins dock** (View › Plugins panel) lists
+the processes (click: restart, stop), the plugins' views, each plugin with what it registered (on/off, reload, its
+own process), and their log (`echo` goes there). ned waits `plugins.timeoutMs` (1500) for what it must have before
+it goes on: an event before saving, a NimScript formatter, a text object, code actions (1 s).
 
 **The API** (`nedplugin.nim` — *Plugins: the API* opens it; lines and columns from 0, columns in bytes, a `Range`
 from `start` up to `stop`):
@@ -1292,13 +1341,16 @@ from `start` up to `stop`):
 | the text | `current()`, `openFile(path, line)`, `buffers()`; `b.path`, `b.lang`, `b.lineCount`, `b.line(i)`, `b.lines(a, e)`, `b.text`, `b.textIn(r)`, `b.setText(s)` (only the lines that differ change), `b.replace(r, s)`, `b.insert(p, s)`, `b.delete(r)`, `b.cursor`, `b.setCursor(p)`, `b.selection`, `b.selections`, `b.select(r)`, `b.wordAt(p)`, `b.dirty`, `b.save()`, `b.indentUnit`, `b.lineComment` |
 | you | `message(s)`, `warn(s)`, `toast(s)`, `pick(title, items)` (the index, -1), `ask(prompt, default)`, `confirm(question)` |
 | problems | `b.setProblems([Problem(range, severity, message, fixes)])` — Problems, the underline, and Alt+Enter applies a `Fix(title, edits)` |
-| in the editor | `b.sign(line, "★", "warn")` (the gutter), `b.virtualText(line, text)` (after the line), `b.highlight(r, "accent")`, `b.clearDecorations`, `status(text)` |
+| in the editor | `b.sign(line, "★", "warn")` (the gutter), `b.virtualText(line, text)` (after the line), `b.highlight(r, "accent")`, `b.clearDecorations`, `status(text)`, `progress("Indexing", 40)` / `progressDone()` (the status bar), `output(text)` / `showOutput()` (the Output panel; `file:line:col` in it can be clicked), `runInTerminal(cmd, dir)` (ned's terminal) |
+| a language's features | `completions("zig") do (b: Buf, p: Pos, prefix: string) -> seq[CompletionItem]: …` (`label`, `insert`, `detail`, `doc`, `kind`, `snippet`; merged with ned's and a language server's), `hover("zig") do (b, p) -> string` (Markdown, under ned's own), `codeActions("zig") do (b: Buf, r: Range) -> seq[Fix]` (Alt+Enter), `symbols("zig") do (b: Buf) -> seq[Symbol]` (`name`, `kind`, `detail`, `line`, `col`, `depth`: the Outline, Go to symbol, the breadcrumbs), `snippet("zig", "fn", "fn ${1:name}() {\n\t$0\n}", "a function")`; `"*"` for every language |
 | languages | `language("zig", LangSpec(extensions, lineComment, blockComment, keywords, types, constants, builtins, functionWords, indentAfter, dedent, indentSize, tabs, run, pairs))`; `filetype("python", indentSize = 4)`; your `languages` setting wins over a plugin's |
 | formatters | `formatter("zig", "zig fmt --stdin")` or one in NimScript: `formatter("zig") do (text: string) -> string: …` (Alt+F and format on save; your `formatters` setting wins) |
 | language servers | `languageServer("zig", @["zls"])`, or one written in NimScript: `languageServerScript("lang", "server.nims")` |
+| the assistant | `aiTool("name", "what it does", %*{"path": {"type": "string"}}) do (args: JsonNode) -> string: …` — a tool ned's AI agent may call (it asks you first, as for a command); `aiToolReadOnly(…)` for one that only reads (no question) |
+| views | `view("Title") do () -> seq[ViewItem]: …` — a section of the Plugins dock (`text`, `detail`, `icon`, `color`, `id`, `path`, `line`, `depth`), with `do (id: string): …` for a click; `refreshView("Title")` |
 | vim | `nmap("<leader>f") do (count: int): …`, `vmap`, `operator("gc") do (b: Buf, r: Range, linewise: bool): …` (with motions, text objects, `gcc`, visual), `textObject("ie") do (b: Buf, p: Pos) -> Range: …` (after `d c y`, a plugin's operator, in visual mode), `exCommand("Name") do (args: string): …`; the leader is the space bar |
 | time | `every(ms) do (): …`, `after(ms) do (): …`, `stopTimer(id)` |
-| settings, files | `setting("width", 80)` reads `plugins.<name>.width`; `dataDir()` (`~/.local/share/ned/plugins/<name>`), `pluginDir()`, `shell(cmd)` (output, exit code), `log(s)` |
+| settings, files | `settingDef("width", 80, "…")` (in ned's Settings panel as `plugins.<name>.width`), `setting("width", 80)`; `dataDir()` (`~/.local/share/ned/plugins/<name>`), `pluginDir()`, `shell(cmd)` (output, exit code), `log(s)`; `requiresNed(">= 6.20")` |
 
 **A language server in NimScript.** `import nedlsp`, answer requests with `onRequest("textDocument/hover") do
 (params: JsonNode) -> JsonNode: …`, take notifications with `onNotification`, and end with
@@ -1312,11 +1364,15 @@ other editor.
 zls when it is installed; **wordinfo-lsp** — a language server in NimScript for text files (hover: how often a word
 occurs; completion of the text's words; a TODO or a long line as a diagnostic); **commentary** — vim's `gc`
 operator (`gcc`, `gcj`, `gcip`, in visual mode), an `ie` text object (the whole text: `yie`, `die`, `vie`) and
-`:Comment`.
+`:Comment`; **ini-tools** — a language's features for INI-style files (completions of the keys other sections
+have, hover, the sections and keys as the outline, code actions: sort a section, remove a key given twice, a
+snippet), a view of the file's sections in the Plugins dock, a command with progress and lines in the Output panel,
+its own setting, and `ini_get`, a tool for the assistant; **clock-native** — a plugin in full Nim (std/times): a
+clock in the status bar, two commands.
 
-**Settings:** `plugins.enabled`, `plugins.disabled` (names), `plugins.native`, `plugins.timeoutMs`,
-`plugins.idleStopMinutes`, and each plugin's own `plugins.<name>.<key>`. Plugins run with your rights, like any
-program: read one before you install it.
+**Settings:** `plugins.enabled`, `plugins.disabled` (names), `plugins.alone` (names), `plugins.native` (auto · on ·
+off), `plugins.timeoutMs`, `plugins.idleStopMinutes`, `plugins.indexUrl`, and each plugin's own
+`plugins.<name>.<key>`. Plugins run with your rights, like any program: read one before you install it.
 
 ## Files ned uses
 
@@ -1387,13 +1443,14 @@ instant; a 1-million-line file scrolls and edits normally.
 the terminal's speed, the moments ned could not read input and what kept it busy, the engine's timings, memory and
 what runs in the background, with the settings that would make it lighter. `NED_PERF_LOG=file` writes it when ned
 exits; `NED_PERF_TRACE=file` writes every round of its main loop over 4 ms with what it did (and how much of it the
-processor gave ned — the rest it waited), which is what `tests/perf/rounds.py` reads. `ned --bench FILE` gives the time and bytes per frame without a terminal, and
+processor gave ned — the rest it waited), which is what `tests/perf/rounds.py` reads (`--one-core`: ned, its worker
+and what they run on one core, a phone's stand-in). `ned --bench FILE` gives the time and bytes per frame without a terminal, and
 `ned --startup-time [file …]` where the time goes when ned starts, and the memory it uses (see the 5.22 notes); CI
 checks those numbers on every push.
 
 ### The source
 
-ned is one program in about 260 files, standard library only:
+ned is one program in about 300 files, standard library only:
 
 ```
 src/ned.nim            the program: the parts below, in the order they build on each other
@@ -1407,9 +1464,11 @@ src/ned/
   web/                 ned's own CSS, HTML, SQL and JavaScript: what they know, completion, hover, problems (a module)
   lsp/                 the language-server client, code actions, inlay hints, servers for code inside strings
   ai/                  the assistant: requests, agent tools, MCP, chats, inline suggestions
+  plugins/             the plugin host (its processes, the API) and the library plugins import (lib/nedplugin.nim)
   git/  term/  debug/  c/  run/  testing/  project/  config/  keymaps/  app/
-tests/                 unit tests, the UI suite, the fuzzer, the engine comparison, cross builds
+tests/                 unit tests, the UI suite, the fuzzer, the engine comparison, the plugins, cross builds
 examples/showcase.nim  one Nim file that tours what ned does for Nim
+examples/plugins/      the example plugins
 ```
 
 Most files are parts of the program (`include`d in order: each sees the ones before it). The Nim index, the

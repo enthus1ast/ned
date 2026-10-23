@@ -40,6 +40,9 @@ proc findStep(forward: bool) =
     if findQuery.len == 0:
       info("Nothing to find")
       return
+  if b.viewer != nil:
+    b.lfFind(findQuery, forward)                # (the viewer: the whole file, in the background)
+    return
   let (s, e) = b.primary.range
   var frm = if forward: e else: s
   if findRegex and forward and s == e:

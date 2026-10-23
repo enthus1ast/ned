@@ -6,9 +6,10 @@ while this script opens a file, scrolls, types, asks for completions, adds an im
 For each step it prints the longest round (a moment ned did not read a key), and the completion times; the
 memory of the editor and its engine worker at the end. Each number is checked against tests/perf/budget.json.
 
-Usage: rounds.py path/to/ned [--runs N] [--steps K] [--keep]
+Usage: rounds.py path/to/ned [--runs N] [--steps K] [--keep] [--one-core]
   a first session with nothing in the index's disk cache, then N sessions (1) with what it kept: their median.
   The program worked on is a copy of this repository's src/ and ned.nimble. Linux (memory is read from /proc).
+  --one-core: everything on one core (a phone's slow cores as a stand-in).
 Exit status 1 when a number is over its budget. NED_PERF_NO_BUDGET=1: print only."""
 import json, os, pty, re, select, shutil, signal, statistics, struct, subprocess, sys, tempfile, time
 import fcntl, termios
@@ -18,6 +19,9 @@ NED = os.path.abspath(ARGS[0] if ARGS else './ned')
 RUNS = 1
 if '--runs' in sys.argv: RUNS = int(sys.argv[sys.argv.index('--runs') + 1])
 KEEP = '--keep' in sys.argv
+if '--one-core' in sys.argv:
+    # (a phone's slow cores as a stand-in: ned, its engine worker and what they run share one core with this script)
+    os.sched_setaffinity(0, {sorted(os.sched_getaffinity(0))[0]})
 STEPS = int(sys.argv[sys.argv.index('--steps') + 1]) if '--steps' in sys.argv else 99
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))

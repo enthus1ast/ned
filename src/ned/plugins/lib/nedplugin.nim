@@ -1,8 +1,11 @@
 ## nedplugin — what a ned plugin imports.
 ##
-## A plugin is a folder with a `plugin.nims` (NimScript: ned runs every plugin in one `nim e` process, or compiled
-## when `plugins.native` is on). Its top-level code runs once when the plugins start: it registers commands, keys,
-## events, languages, formatters, language servers, vim mappings … with the procs below. ned calls them back.
+## A plugin is a folder with a `plugin.nims` (NimScript: ned runs the NimScript plugins together in one `nim e`
+## process — compiled when `plugins.native` says so: auto compiles a set of plugins you keep) or a `plugin.nim`
+## (full Nim: ned compiles it into a program of its own — the whole standard library, threads, sockets). Its
+## top-level code runs once when it starts: it registers commands, keys, events, languages, formatters, language
+## servers, completions, hover, code actions, symbols, snippets, tools for the assistant, views in the Plugins dock,
+## vim mappings … with the procs below. ned calls them back.
 ##
 ## ```nim
 ## import nedplugin
@@ -21,7 +24,7 @@
 ## `echo` in a plugin goes to its log (the Plugins dock).
 
 import std/[json, tables, strutils, os]
-export json, strutils
+export json, strutils, os
 when not defined(nimscript):
   import std/osproc
 
@@ -478,3 +481,140 @@ template after*(ms: int, cb: proc()): int =
   ## cb once, ms milliseconds from now
   regTimer(instantiationInfo(-1, true).filename, ms, false, cb)
 proc stopTimer*(id: int) = discard api("stopTimer", %*{"cb": id})
+
+# ── language features for a language (6.20): completions, hover, code actions, symbols, snippets ──
+
+type
+  CompletionItem* = object
+    label*: string               ## what the list shows (and what is typed over)
+    insert*: string              ## what goes in ("": the label)
+    detail*: string              ## beside it in the list (a type, a signature)
+    doc*: string                 ## Markdown, shown beside the list
+    kind*: string                ## function method variable field type class keyword constant module snippet text
+    snippet*: bool               ## insert is a snippet: $1 $2 … ${1:default} $0
+  Symbol* = object
+    name*: string
+    kind*: string                ## function method type class variable constant heading section …
+    detail*: string
+    line*, col*: int
+    depth*: int                  ## how deep in the outline (0 at the top)
+
+proc `%`*(c: CompletionItem): JsonNode =
+  %*{"label": c.label, "insert": c.insert, "detail": c.detail, "doc": c.doc, "kind": c.kind, "snippet": c.snippet}
+proc `%`*(s: Symbol): JsonNode =
+  %*{"name": s.name, "kind": s.kind, "detail": s.detail, "line": s.line, "col": s.col, "depth": s.depth}
+
+proc regCompletions*(file, lang: string, cb: proc(b: Buf, p: Pos, prefix: string): seq[CompletionItem]) =
+  let f = cb
+  discard register(file, "completion", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
+    result = newJArray()
+    for it in f(Buf(id: a{"buf"}.getInt), toPos(a{"pos"}), a{"prefix"}.getStr): result.add %it)
+template completions*(lang: string, cb: proc(b: Buf, p: Pos, prefix: string): seq[CompletionItem]) =
+  ## completions for the language's files ("zig"; "*": every file) — merged with ned's own and a language
+  ## server's; `prefix` is the word typed so far (ned narrows the list as you type)
+  regCompletions(instantiationInfo(-1, true).filename, lang, cb)
+
+proc regHover*(file, lang: string, cb: proc(b: Buf, p: Pos): string) =
+  let f = cb
+  discard register(file, "hover", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
+    %f(Buf(id: a{"buf"}.getInt), toPos(a{"pos"})))
+template hover*(lang: string, cb: proc(b: Buf, p: Pos): string) =
+  ## what the hover (Alt+H, the mouse) shows at p — Markdown, "" for nothing; added under ned's own
+  regHover(instantiationInfo(-1, true).filename, lang, cb)
+
+proc regCodeActions*(file, lang: string, cb: proc(b: Buf, r: Range): seq[Fix]) =
+  let f = cb
+  discard register(file, "codeActions", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
+    result = newJArray()
+    for x in f(Buf(id: a{"buf"}.getInt), toRange(a{"range"})): result.add %x)
+template codeActions*(lang: string, cb: proc(b: Buf, r: Range): seq[Fix]) =
+  ## fixes and refactorings for the selection or the cursor's line: the Quick fixes list (Alt+Enter)
+  regCodeActions(instantiationInfo(-1, true).filename, lang, cb)
+
+proc regSymbols*(file, lang: string, cb: proc(b: Buf): seq[Symbol]) =
+  let f = cb
+  discard register(file, "symbols", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
+    result = newJArray()
+    for s in f(Buf(id: a{"buf"}.getInt)): result.add %s)
+template symbols*(lang: string, cb: proc(b: Buf): seq[Symbol]) =
+  ## the file's symbols: the Outline dock, Go to symbol, the breadcrumbs (asked again after each pause in the typing)
+  regSymbols(instantiationInfo(-1, true).filename, lang, cb)
+
+proc regSnippet*(file, lang, trigger, body, description: string) =
+  discard register(file, "snippet", %*{"lang": lang, "trigger": trigger, "body": body, "description": description})
+template snippet*(lang, trigger, body: string, description = "") =
+  ## a snippet ($1 $2 … ${1:default} $0) for the language's files ("*": every file); yours (the "snippets"
+  ## setting) win over it
+  regSnippet(instantiationInfo(-1, true).filename, lang, trigger, body, description)
+
+# ── the assistant: tools it may call (6.20) ──
+
+proc regAiTool*(file, name, description: string, params: JsonNode, readOnly: bool, cb: proc(args: JsonNode): string) =
+  let f = cb
+  discard register(file, "aiTool", %*{"name": name, "description": description, "params": params,
+                                       "readOnly": readOnly}, proc(a: JsonNode): JsonNode = %f(a))
+template aiTool*(name, description: string, params: JsonNode, cb: proc(args: JsonNode): string) =
+  ## a tool the assistant (ned's AI agent) may call: params — its arguments as JSON schema properties
+  ## (%*{"path": {"type": "string", "description": "…"}}); the text returned is what it gets back (raise to report
+  ## an error). It asks you first, as for a command (ai.autoApprove)
+  regAiTool(instantiationInfo(-1, true).filename, name, description, params, false, cb)
+template aiToolReadOnly*(name, description: string, params: JsonNode, cb: proc(args: JsonNode): string) =
+  ## … one that only reads: it runs without asking, as reading a file does
+  regAiTool(instantiationInfo(-1, true).filename, name, description, params, true, cb)
+
+# ── views in the Plugins dock, progress, output, the terminal (6.20) ──
+
+type
+  ViewItem* = object
+    text*, detail*: string
+    icon*: string                ## one character ("●", "✓" …)
+    color*: string               ## error warn info hint accent add del
+    id*: string                  ## what the view's click callback gets
+    path*: string                ## a file: clicking opens it (at line, when no click callback takes it)
+    line*: int
+    depth*: int
+
+proc `%`*(v: ViewItem): JsonNode =
+  %*{"text": v.text, "detail": v.detail, "icon": v.icon, "color": v.color, "id": v.id, "path": v.path,
+     "line": v.line, "depth": v.depth}
+
+proc regView*(file, title: string, getItems: proc(): seq[ViewItem], click: proc(id: string)) =
+  let f = getItems
+  discard register(file, "view", %*{"title": title}, proc(a: JsonNode): JsonNode =
+    result = newJArray()
+    for v in f(): result.add %v)
+  if click != nil:
+    let c = click
+    discard register(file, "viewClick", %*{"title": title}, proc(a: JsonNode): JsonNode =
+      c(a{"id"}.getStr)
+      newJNull())
+template view*(title: string, getItems: proc(): seq[ViewItem]) =
+  ## a section of the Plugins dock: its items (asked when the dock shows, and after refreshView)
+  regView(instantiationInfo(-1, true).filename, title, getItems, nil)
+template view*(title: string, getItems: proc(): seq[ViewItem], click: proc(id: string)) =
+  ## … and what clicking an item does (it gets the item's id)
+  regView(instantiationInfo(-1, true).filename, title, getItems, click)
+proc refreshView*(title: string) = discard api("refreshView", %*{"title": title})
+  ## the view's items again (they changed)
+
+proc progress*(text: string, percent = -1) = discard api("progress", %*{"text": text, "percent": percent})
+  ## work under way, in the status bar ("Indexing", 40); percent -1: not known
+proc progressDone*() = progress("")
+proc output*(text: string) = discard api("output", %*{"text": text})
+  ## lines in the Output panel (file:line:col in them can be clicked)
+proc showOutput*() = discard api("showOutput")
+proc runInTerminal*(cmd: string, dir = "") = discard api("terminal", %*{"cmd": cmd, "dir": dir})
+  ## a command in ned's integrated terminal (in dir; else the project's folder)
+
+# ── what the plugin needs, its settings (6.20) ──
+
+proc regRequires*(file, spec: string) = discard register(file, "requires", %*{"spec": spec})
+template requiresNed*(spec: string) =
+  ## the ned it needs (">= 6.20"): an older ned leaves the plugin out and says why
+  regRequires(instantiationInfo(-1, true).filename, spec)
+
+proc regSettingDef*(file, key: string, default: JsonNode, description: string) =
+  discard register(file, "setting", %*{"key": key, "default": default, "description": description})
+template settingDef*(key: string, default: string | int | bool | float, description: string) =
+  ## one of the plugin's settings, shown in ned's Settings panel as plugins.<plugin>.<key>
+  regSettingDef(instantiationInfo(-1, true).filename, key, %default, description)

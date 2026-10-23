@@ -164,10 +164,194 @@ func cKindIcon(kind: string): int =
   of "variable": 6
   else: 1
 
+# ── Nim names in an emit (`name` — the compiler writes its C name there): completed, resolved, renamed, checked ──
+
+proc emitTickAt(line: string, col: int): (bool, int, int) =
+  ## inside `…` on the line (the backticks of an emit): (yes, where the name starts, where it ends)
+  var open = -1
+  for k in 0 ..< min(col, line.len):
+    if line[k] == '`': open = (if open < 0: k else: -1)
+  if open < 0: return
+  for k in open + 1 ..< min(col, line.len):
+    if line[k] notin IdentChars: return
+  var e = min(col, line.len)
+  while e < line.len and line[e] in IdentChars: inc e
+  (true, open + 1, e)
+
+proc emitStmtAt(ls: seq[string], line: int): (int, int) =
+  ## the lines of the emit statement `line` is in: from its pragma to the closing quotes (one line for a one-line
+  ## emit), (-1, -1) when it is in none
+  for (l, c, body) in emitBlocks(ls):
+    if line >= l and line <= l + body.high:
+      let first = if l > 0 and "emit" notin ls[l][0 ..< max(0, c - 3)] and "emit" in ls[l - 1]: l - 1 else: l
+      return (first, l + body.high)
+  if line < ls.len and "emit" in ls[line]: return (line, line)
+  (-1, -1)
+
+proc emitAsCode(ls: seq[string], line, start, stop: int): (seq[string], int, int) =
+  ## the lines with the emit statement around `line` blanked, and its first line the Nim name at start ..< stop
+  ## alone, at the statement's indentation: what the engine reads to complete or resolve it — (the lines, the line
+  ## the name is on now, its column; -1: not in an emit). (The statement's own line: a routine's body ends, for the
+  ## engine, at the last line of code — the string's lines are not)
+  let (a, e) = emitStmtAt(ls, line)
+  if a < 0: return (@[], -1, -1)
+  var res = ls
+  let ind = leadingWs(ls[a])
+  for k in a .. e: res[k] = ""
+  res[a] = ind & ls[line][start ..< stop]
+  (res, a, ind.len)
+
+proc emitStmts(ls: seq[string]): seq[(int, int)] =
+  ## each emit statement's first and last line (a one-line emit with backticks: its line)
+  for (l, c, body) in emitBlocks(ls):
+    let first = if l > 0 and "emit" notin ls[l][0 ..< max(0, c - 3)] and "emit" in ls[l - 1]: l - 1 else: l
+    result.add (first, l + body.high)
+  let n = result.len
+  for l, t in ls:
+    let k = t.find("emit:")
+    let q = if k >= 0: t.find('"', k) else: -1
+    if q >= 0 and t.find('`', q) > q:
+      var inside = false
+      for i in 0 ..< n:
+        if l >= result[i][0] and l <= result[i][1]: inside = true
+      if not inside: result.add (l, l)
+
+proc emitTickNames(ls: seq[string]): seq[(int, int, string)] =
+  ## every `name` in the file's emits: (line, column of the name, the name)
+  var any = false
+  for l in ls:
+    if "emit" in l:
+      any = true
+      break
+  if not any: return
+  for (a, z) in emitStmts(ls):
+    for l in a .. z:
+      let t = ls[l]
+      if '`' notin t: continue
+      var k = 0
+      while k < t.len:
+        if t[k] == '`':
+          let e = t.find('`', k + 1)
+          if e < 0: break
+          let n = t[k + 1 ..< e]
+          if n.len > 0 and n[0] in {'a'..'z', 'A'..'Z', '_'} and n.allCharsInSet(IdentChars): result.add (l, k + 1, n)
+          k = e + 1
+        else: inc k
+
+proc emitNimComplete(b: Buffer, p: Pos, manual: bool): bool =
+  ## in an emit's backticks: the Nim names the statement's place sees (the engine's completion there)
+  if not nimEngineOn(b) or p.line >= b.lines.len: return false
+  let (ok, start, _) = emitTickAt(b.lines[p.line], p.col)
+  if not ok: return false
+  let (ls, at, ind) = emitAsCode(b.lines, p.line, start, p.col)
+  if ind < 0: return false
+  var c: NxCompletion
+  try:
+    let f = nxFileFor(b)
+    if f == nil: return false
+    c = nxComplete(f, ls, at, ind + p.col - start)
+  except Exception as e:
+    internalError("Nim index", e)
+    return false
+  var items: seq[CompItem]
+  for i, it in c.items: items.add compItemOf(it, i + 1)
+  compLine = p.line
+  compStartCol = start
+  compManual = manual
+  compNx = move c.items
+  compRest = nil
+  compItems = items
+  compFromLsp = true
+  refilterComp()
+  true
+
+proc emitWork(ls: seq[string]): EmitWork =
+  ## the file once with every emit statement blanked, for the engine to resolve each `name` in (one copy for all)
+  result.lines = ls
+  result.stmts = emitStmts(ls)
+  for (a, e) in result.stmts:
+    for k in a .. e: result.lines[k] = ""
+
+proc emitNimTargetsIn(w: var EmitWork, src: seq[string], f: NxFile, l, s, e: int): (seq[NxRef], seq[NxSym]) =
+  ## what the `name` at (l, s ..< e) of an emit names (the engine, as if it were Nim at the statement's place)
+  if f == nil: return
+  for (a, z) in w.stmts:
+    if l < a or l > z: continue
+    let ind = leadingWs(src[a])
+    w.lines[a] = ind & src[l][s ..< e]
+    let (rs, locals, _) = nxTargets(f, w.lines, a, ind.len)
+    w.lines[a] = ""
+    return (rs, locals)
+
+proc emitNimTargets(lines: seq[string], f: NxFile, l, s, e: int): (seq[NxRef], seq[NxSym]) =
+  var w = emitWork(lines)
+  emitNimTargetsIn(w, lines, f, l, s, e)
+
+func emitCName(s: NxSym): string =
+  ## the C name a Nim symbol has when it says (exportc, importc), "" when the compiler chooses it
+  for prag in ["exportc", "importc", "importcpp"]:
+    let k = s.pragmas.find(prag)
+    if k < 0: continue
+    let after = k + prag.len
+    if after < s.pragmas.len and s.pragmas[after] in {'a'..'z', 'A'..'Z'}: continue
+    let rest = s.pragmas[after .. ^1].strip(trailing = false)
+    if rest.startsWith(":"):
+      let q1 = rest.find('"')
+      let q2 = if q1 >= 0: rest.find('"', q1 + 1) else: -1
+      if q2 > q1: return rest[q1 + 1 ..< q2].replace("$1", s.name)
+    return s.name
+
+proc emitNimHover(b: Buffer, p: Pos): string =
+  ## the hover on a `name` in an emit: the Nim declaration, and the C name the compiler writes there
+  if not nimEngineOn(b) or p.line >= b.lines.len: return ""
+  let (ok, s, e) = emitTickAt(b.lines[p.line], p.col)
+  if not ok or e <= s: return ""
+  try:
+    let f = nxFileFor(b)
+    let (ls, at, ind) = emitAsCode(b.lines, p.line, s, e)
+    if f == nil or ind < 0: return ""
+    result = nxHover(f, ls, at, ind)
+    if result.len == 0:
+      return "`" & b.lines[p.line][s ..< e] & "` — no Nim name here has it: the compiler stops at it (undeclared identifier)"
+    let (rs, _, _) = nxTargets(f, ls, at, ind)
+    let cn = if rs.len > 0: emitCName(rs[0].sym) else: ""
+    result.add "\n\n**In the C:** " & (if cn.len > 0: "`" & cn & "`" else: "the name the compiler gives it (exportc fixes one)")
+  except Exception as e:
+    internalError("Nim index", e)
+    result = ""
+
+proc emitNimGoto(b: Buffer, p: Pos): bool =
+  ## F12 on a `name` in an emit: its Nim declaration
+  if not nimEngineOn(b) or p.line >= b.lines.len: return false
+  let (ok, s, e) = emitTickAt(b.lines[p.line], p.col)
+  if not ok or e <= s: return false
+  var defs: seq[(string, int, int, string)]
+  try:
+    let f = nxFileFor(b)
+    let (ls, at, ind) = emitAsCode(b.lines, p.line, s, e)
+    if f == nil or ind < 0: return false
+    defs = nxDefinition(f, ls, at, ind)
+    for d in defs.mitems:
+      if d[0] == f.path: d[0] = b.path
+  except Exception as e:
+    internalError("Nim index", e)
+    return false
+  if defs.len == 0:
+    info("No Nim name " & b.lines[p.line][s ..< e] & " here — the compiler stops at it")
+    return true
+  pushJump()
+  let nb = if defs[0][0] == b.path or defs[0][0].len == 0: b else: openFile(defs[0][0])
+  if nb != nil:
+    let at = nb.clampPos(Pos(line: defs[0][1], col: defs[0][2]))
+    nb.cursors = @[cur(at)]
+    nb.centerOn(at)
+  true
+
 proc emitComplete(b: Buffer, p: Pos, manual: bool): bool =
   ## completion in emitted C: the file's own C names, the headers' (its #includes and header: pragmas,
-  ## nimbase.h), C keywords and types
+  ## nimbase.h), C keywords and types — in backticks, the Nim names
   if not emitIsC(b, p): return false
+  if emitNimComplete(b, p, manual): return true
   let ws = b.wordStart(p)
   if compOpen and compLine == p.line and compStartCol == ws and compFromLsp and compItems.len > 0:
     refilterComp()
@@ -225,6 +409,8 @@ proc emitDecl(b: Buffer, w: string): (CProto, string) =
 proc emitHoverInfo(b: Buffer, p: Pos): string =
   ## the hover on a name in emitted C: its C declaration, and the Nim proc that imports it
   if not emitIsC(b, p): return ""
+  let nh = emitNimHover(b, p)                         # (a `name`: the Nim one)
+  if nh.len > 0: return nh
   if emitIsCpp(b, p):
     let w = b.wordAt(p)
     if w.len == 0 or w in CxxKeywords: return ""
@@ -290,6 +476,7 @@ proc emitCxxGoto(b: Buffer, p: Pos): bool =
 proc emitGoto(b: Buffer, p: Pos): bool =
   ## F12 in emitted C: from a definition to the Nim proc that imports it; from a use to the definition
   if not emitIsC(b, p): return false
+  if emitNimGoto(b, p): return true                   # (a `name`: its Nim declaration)
   if emitIsCpp(b, p): return emitCxxGoto(b, p)
   let w = b.wordAt(p)
   if w.len == 0 or w in CKeywords: return false

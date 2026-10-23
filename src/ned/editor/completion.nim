@@ -16,6 +16,7 @@ proc compPrefix(): string =
   b.lines[p.line][compStartCol ..< p.col]
 
 proc refilterComp() =
+  plugCompMerge()                               # (a plugin's completions, when they came for this word)
   let pre = compPrefix()
   if pre == "\0":
     closeComp()
@@ -105,6 +106,8 @@ proc startCompletion(manual: bool) =
   compLine = p.line
   compStartCol = ws
   compManual = manual
+  if b.lang.mode == lmNim and nbVersionComplete(b, p, manual): return   # a .nimble's requires: the versions
+  plugComplete(b, p)                                                  # (a plugin's: they join when they come)
   if b.lang.mode == lmNim and pragmaStringComplete(b, p, manual): return
   if b.lang.mode == lmNim and cWrapperComplete(b, p, manual): return  # proc ⟨C function⟩: the whole wrapper
   if b.lang.mode == lmNim and emitComplete(b, p, manual): return      # C in an emit
@@ -149,6 +152,8 @@ proc afterType(ch: int) =
   if p.col == 0: return
   # lexing a huge line on every key would make typing in it quadratic; such lines are data, not code
   let long = b.lines[p.line].len > 2000
+  if not long and b.path.endsWith(".nimble") and ch < 128 and char(ch) in {' ', '=', '>', '<', '@', '#', '^', '~', '.', '0'..'9'}:
+    if nbVersionComplete(b, p, false): return                # (a requires' version: the package's versions)
   if not long and cEngineOn(b) and b.lines[p.line].strip(trailing = false).startsWith("#include"):
     # C: the headers there, in the quotes or <> of an #include, as the name is typed
     let c = if ch < 128: char(ch) else: 'a'
@@ -192,11 +197,14 @@ proc afterType(ch: int) =
        (c == ':' and p.col >= 2 and b.lines[p.line][p.col - 2] == ':' and cxIsCppBuf(b)):   # (C++: ns::, Class::)
       closeComp()
       discard cEngComplete(b, p, false)
+      plugComplete(b, p)
       return
     if not isWordByte(c) or ws >= p.col or b.lines[p.line][ws] in Digits:
       closeComp()
       return
-    if p.col - ws == 2: discard cEngComplete(b, p, false)
+    if p.col - ws == 2:
+      discard cEngComplete(b, p, false)
+      plugComplete(b, p)
     return
   if nimEngineOn(b):
     # the index answers at once: after `.` the receiver's members, else names once a word starts
@@ -206,11 +214,14 @@ proc afterType(ch: int) =
     if c == '.' and not (p.col >= 2 and b.lines[p.line][p.col - 2] == '.'):
       closeComp()
       discard engineComplete(b, false)
+      plugComplete(b, p)
       return
     if not isWordByte(c) or ws >= p.col or b.lines[p.line][ws] in Digits:
       closeComp()
       return
-    if p.col - ws == 1: discard engineComplete(b, false)
+    if p.col - ws == 1:
+      discard engineComplete(b, false)
+      plugComplete(b, p)
     return
   let ns = s == nil and nsUsable(b)
   if compOpen and compLine == p.line and ws == compStartCol and isWordByte(c):

@@ -18,6 +18,7 @@ var
   cfgWrap = true               # soft wrap for the buffer being drawn or edited (off in large-file mode)
   cfgWrapUser = true           # editor.softWrap
   cfgLargeMB = 16              # editor.largeFileSize: files this big (MB) open in large-file mode
+  cfgViewerMB = 512            # editor.viewerSize: files bigger than this (MB) open in the large-file viewer
   cfgLongLine = 10000          # editor.longLineLimit: … and so do files with a line this long (0: never)
   cfgLineNums = 1          # 0 off, 1 absolute, 2 relative
   cfgMouse = true

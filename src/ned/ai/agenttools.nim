@@ -1,6 +1,11 @@
-func toolKind(name: string): int =
-  ## 0 read-only, 1 edits files, 2 runs commands (an MCP server's tool counts as a command)
+proc toolKind(name: string): int =
+  ## 0 read-only, 1 edits files, 2 runs commands (an MCP server's tool counts as a command; a plugin's too, unless
+  ## it said it only reads)
   if name.startsWith("mcp__"): return 2
+  if name.startsWith("plugin__"):
+    for t in plugAiTools:
+      if t.name == name: return (if t.readOnly: 0 else: 2)
+    return 2
   case name
   of "edit_file", "write_file": 1
   of "run_command": 2
@@ -362,6 +367,16 @@ proc runCall(mi, ci: int) =
     else: start()
     inline = false
   else:
+    if c.name.startsWith("plugin__"):
+      aiPhase = c.name[8 .. ^1].replace("__", ": ")
+      let m = mi
+      let k = ci
+      var inline = true
+      plugAiRun(c.name, j, proc(text: string, isError: bool) =
+        finishCall(m, k, text, isError)
+        if not inline: aiContinue())
+      inline = false
+      return
     let (srv, tool) = mcpFind(c.name)
     if srv == nil or srv.dead:
       finishCall(mi, ci, "unknown tool " & c.name & (if c.name.startsWith("mcp__"): " (its MCP server is not running)" else: ""), true)
@@ -519,6 +534,7 @@ proc aiContinue() =
         needRender = true
         if focus != fRight or rightView != svAssistant:
           toast("The assistant wants to " & (if aiMsgs[mi].calls[ci].name.startsWith("mcp__"): "use an MCP tool"
+                                              elif aiMsgs[mi].calls[ci].name.startsWith("plugin__"): "use a plugin's tool"
                                               elif toolKind(aiMsgs[mi].calls[ci].name) == 2: "run a command" else: "edit files"),
                 3, "Review", proc() = showSide(svAssistant))
         return

@@ -9,6 +9,10 @@ proc gotoLineText(t: string) =
     if s[0] in {'+', '-'}: l = b.primary.head.line + 1 + l
     let c = if parts.len > 1 and parts[1].len > 0: parseInt(parts[1]) - 1 else: 0
     pushJump()
+    if b.viewer != nil:
+      if s[0] in {'+', '-'}: l += b.viewer.base
+      b.lfShowAt(l - 1, c)                       # (the viewer: the file's line, wherever it is)
+      return
     b.centerOn(b.clampPos(Pos(line: l - 1, col: c)))
   except ValueError:
     error("Not a line number: " & s)
@@ -146,6 +150,10 @@ proc cmdSymbols() =
     if items.len > 0:
       openPicker(pickSymbol, "Go to symbol", items)
       return
+  let pp = plugSymbolPicks(b)                      # (a plugin's symbols for the language)
+  if pp.len > 0:
+    openPicker(pickSymbol, "Go to symbol", pp)
+    return
   let s = lspReady(b)
   if s != nil and s.caps != nil and s.caps{"documentSymbolProvider"} != nil:
     discard s.lspRequest("textDocument/documentSymbol", %*{"textDocument": b.docId},
@@ -528,6 +536,12 @@ proc prettyNimError(msg: string): string =
 proc cmdHover(auto = false) =
   let b = buf()
   let p = b.primary.head
+  let plugAsked = plugHover(b, p, auto)            # (a plugin's text: under ned's own, or alone, when it comes)
+  if b.path.endsWith(".nimble"):
+    let nh = nbHover(b, p)                         # a package a requires names: its versions, the one used
+    if nh.len > 0:
+      showHoverAuto(nh, auto)
+      return
   # a selected expression: its type
   let (sa, se) = b.primary.range
   if not auto and sa != se and sa.line == se.line and nimEngineOn(b):
@@ -574,6 +588,10 @@ proc cmdHover(auto = false) =
     if wh.len > 0:
       showHoverAuto(hoverPrefix & wh, auto)
       return
+    let tickH = emitNimHover(b, p)               # a `name` in an emit: the Nim one
+    if tickH.len > 0:
+      showHoverAuto(hoverPrefix & tickH, auto)
+      return
     if emitLspHover(b, p, auto):                 # C in an emit: clangd's hover, when installed
       if lines.len > 0: showHoverAuto(hoverPrefix, auto)
       return
@@ -614,7 +632,7 @@ proc cmdHover(auto = false) =
     elif compilerAnswer(b, (if auto: nsAutoHover else: nsHover), p):          # (nimsuggest off: the compiler, once)
       if lines.len > 0: showHoverAuto(hoverPrefix, auto)
     elif lines.len > 0: showHoverAuto(lines.join("\n"), auto)
-    elif not auto: info("Nothing known about " & w)
+    elif not auto and not plugAsked: info("Nothing known about " & w)
   elif onSymbol and cInfo.len > 0 and (s == nil or s.caps == nil or s.caps{"hoverProvider"} == nil) and
        not nsUsable(b):
     showHoverAuto(hoverPrefix & cInfo.strip, auto)
@@ -629,7 +647,7 @@ proc cmdHover(auto = false) =
     if lines.len > 0 or cInfo.len > 0: showHoverAuto(hoverPrefix, auto)
   elif lines.len > 0: showHoverAuto(lines.join("\n"), auto)
   elif onSymbol and b.lang.mode == lmNim and nimDocFor(w).len > 0: showHoverAuto(nimDocFor(w), auto)
-  elif not auto:
+  elif not auto and not plugAsked:
     info("Nothing to show here" & (if lspFor(b, false) == nil and not nsUsable(b): " (no language server)" else: ""))
 
 proc cmdRename() =

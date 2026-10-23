@@ -117,6 +117,12 @@ proc snippetList(langId: string): seq[(string, string, string)] =
   ## (prefix, description, body): yours first (they win), then the built-in ones
   for (l, k, d, body) in cfgUserSnippets:
     if l == langId or l == "*": result.add (k, d, body)
+  for (l, k, d, body) in plugSnippets:              # (the plugins': after yours)
+    if l == langId or l == "*":
+      var dup = false
+      for x in result:
+        if x[0] == k: dup = true
+      if not dup: result.add (k, d, body)
   for (l, k, d, body) in Snippets:
     if l == langId:
       var dup = false

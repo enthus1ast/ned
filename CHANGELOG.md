@@ -1,6 +1,68 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-619). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-620). Older releases:
+
+## What's new in 6.19
+
+6.19 brings plugins written in NimScript — commands, events, languages, formatters, language servers and vim
+mappings of your own — tells a NimScript file from a program, explains nimble's dependency conflicts on the lines
+that cause them, keeps your unsaved edits when you quit, reads and writes files in other encodings, and checks your
+key bindings.
+
+**Plugins, in NimScript.** A folder with a `plugin.nims` in `~/.config/ned/plugins/` (or a trusted project's
+`.ned/plugins/`) adds commands to the palette and on keys, answers events (open, before and after saving, close,
+start, changes), reads and edits the text, asks you things (a list, a line, yes or no), puts problems with fixes,
+gutter signs, text after a line, highlights and a status-bar item in the editor, keeps time, and has settings of
+its own. It can teach ned a language (colours, comments, indentation, F5), format it (a command, or a formatter
+written in NimScript), give it a language server — an installed one, or one written in NimScript with `nedlsp`,
+which `ned --lsp-bridge server.nims` serves to ned and to any other editor — and give vim mappings, operators, text
+objects and `:` commands. All plugins run in one `nim e` process that starts when one is needed (about a second)
+and stops when idle, or compiled (`plugins.native`); one that does not compile is left out with its error in
+Problems. The Plugins dock lists them, turns them on and off, reloads them and shows their log; *New plugin…*,
+*Add an example…* and *Install from git…* start one. The examples: a language with its formatter (Zig), a language
+server written in NimScript, and vim's `gc` operator with an `ie` text object. See [Plugins](README.md#plugins).
+
+**NimScript files: config.nims and a .nimble.** The engine knows which file is which: `exec`, `thisDir`, `mkDir`,
+`switch` … are offered and known in config.nims and a .nimble only — in a program they are a problem that says
+what a program uses instead; a .nimble knows nimble's own API (`namedBin`, `taskRequires`, `before`/`after`,
+`feature`, `getPaths` …) with hover, and completes package names in its `requires` strings. Compiler switches are
+completed (`--opt:` then its values), explained on hover and checked — `--threds:on` is "did you mean --threads?".
+A feature's `requires` is no longer "required twice". The formatter formats NimScript as NimScript: a .nimble's
+`version = "1.0"` block stays lined up, `--switch` lines, task headers and one-line `if`s stay as written, comments
+after a line stay where they are.
+
+**nimble 0.26.** When nimble cannot resolve the dependencies — PubGrub's explanation in 0.26 ("Because every version
+of b depends on a < 1.0 and demo depends on a >= 1.0 …"), the conflicting set in 0.24 — the explanation is a problem
+on each `requires` line of your .nimble it is about, and the Output panel links there. *refresh packages* refreshes
+the package list on 0.26 (whose `nimble refresh` in a project fetches every dependency), and git URLs that start
+with `-` are refused wherever ned runs git with one (clone, submodules, settings sync, nimble's dependency checks) —
+the option-injection fix nimble 0.26.1 made too.
+
+**Hot exit.** Quitting with unsaved edits no longer asks: they are kept, and the next time ned opens the folder they
+are back in their tabs — files and untitled ones — still unsaved, where your cursor was (`files.hotExit`; off: asked
+as before). Closing the terminal (Termux) keeps them the same way.
+
+**Encodings.** A file that is not UTF-8 is read as Windows-1252 (or what `files.encoding` names), a UTF-16 or UTF-8
+file with a BOM as such, and each is written back the way it was read; the status bar says which (click: *Reopen
+with encoding…*, *Save with encoding…* — other encodings through iconv). A character the encoding cannot hold stops
+the save and is pointed out, instead of a file written wrong. A UTF-8 file with a stray broken byte stays UTF-8.
+
+**Key bindings.** *Keyboard shortcuts…* asks before giving a key that another command has ("ctrl+s runs ned's
+“Save” — give it to …?"), marks a key of yours or a plugin's that another command also has, and lists the problems
+of your `keys` setting — a command that does not exist (with the one meant), a key most terminals never send
+(Ctrl+Shift+letter without the kitty keyboard protocol, Ctrl+1, Ctrl+I …); a note says so when ned starts.
+
+**Waits.** The project's TODO scan and the engine reading imports no longer share a round — together they made rounds
+of 13–16 ms while a project opened — and a slice of the TODO scan stops when its time is up. On ned's own source
+(`tests/perf/rounds.py`, three sessions) the longest round while typing is 16 ms, a completion takes 8.5 ms (median),
+and the editor with its engine worker holds 69 MB, as in 6.18; what is left above 20 ms is once per opened program
+(the scope of its main module, about 20 ms) and the first completion after an import changes (about 35 ms).
+The plugins cost nothing without plugins, and a call with two API requests takes about 6 ms in `nim e` (0.2 ms
+compiled).
+
+**Smaller.** The status bar keeps an encoding that is not UTF-8, and CRLF, longer than LF and UTF-8 when it is
+narrow; "Saved x (1 line)"; *Plugins: the API* opens read-only; the `plugins` setting holds each plugin's own
+settings.
 
 ## What's new in 6.18
 

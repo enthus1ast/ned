@@ -209,6 +209,7 @@ include ned/ui/editorview
 include ned/ui/popups
 include ned/ui/zen
 include ned/ui/split
+include ned/nim/astview
 include ned/git/mergeeditor
 include ned/ui/frame
 include ned/app/commands
@@ -274,11 +275,13 @@ include ned/ai/review
 include ned/ui/compare
 include ned/nim/refactor/extract
 include ned/nim/nimbleupdates
+include ned/nim/nimbleedit
 include ned/editor/bookmarks
 include ned/editor/localhistoryview
 include ned/editor/recovery
 include ned/editor/hotexit
 include ned/editor/encodingcmds
+include ned/editor/lfview
 include ned/git/changesview
 include ned/git/marks
 include ned/app/keyboard

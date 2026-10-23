@@ -738,6 +738,54 @@ def run_checks(nedls, root, have_nim, log):
 
     if have_nim:
         run_nimscript(nedls, root, log)
+        run_effects(nedls, root, log)
+        run_nimscript620(nedls, root, log)
+
+
+EFFECTS = '''import std/[asyncdispatch, os, strutils]
+proc fetch(): Future[int] {.async.} =
+  sleep(10)
+  result = 1
+proc main() =
+  discard fetch()
+  let x = await fetch()
+  echo x
+proc parseIt(s: string): int {.raises: [].} =
+  parseInt(s)
+var names: seq[string]
+proc worker() {.gcsafe.} =
+  names.add "x"
+main()
+echo parseIt("1")
+worker()
+'''
+
+
+def run_effects(nedls, root, log):
+    """6.20: the engine's async, raises and gcsafe checks"""
+    d = os.path.join(root, "fx")
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "fx.nim")
+    with open(p, "w") as f:
+        f.write(EFFECTS)
+    c, init = new_client(nedls, d, log=log)
+    open_doc(c, p, EFFECTS)
+    want = lambda ds: all(any(k in x["message"] for x in ds) for k in ("sleepAsync", "asyncCheck", "can raise",
+                                                                      "uses the global"))
+    ds = c.wait_diagnostics(uri(p), want, timeout=40) or []
+    by = {}
+    for x in ds:
+        by.setdefault(x["range"]["start"]["line"], []).append(x["message"])
+    msgs = lambda l: " | ".join(by.get(l, []))
+    check("async: sleep in an async proc → await sleepAsync", "sleepAsync" in msgs(2), by)
+    check("async: a discarded Future → asyncCheck it", "asyncCheck" in msgs(5), by)
+    check("async: await outside an async proc (the engine's word, or the compiler's)",
+          "await works in an {.async.} proc only" in msgs(6) or "Can only 'await' inside a proc marked" in msgs(6), by)
+    check("raises: the list leaves out ValueError", "can raise ValueError" in msgs(8), by)
+    check("gcsafe: a global seq in a {.gcsafe.} proc", "uses the global names" in msgs(12), by)
+    c.request("shutdown", None)
+    c.notify("exit", {})
+    c.close()
 
 
 def run_nimscript(nedls, root, log):
@@ -785,6 +833,43 @@ def run_nimscript(nedls, root, log):
     ds = c.wait_diagnostics(uri(nb), lambda ds: True, timeout=10) or []
     check("NimScript: a feature's requires is not \"required twice\"",
           not any("twice" in d["message"] for d in ds), [d["message"] for d in ds])
+    c.request("shutdown", None)
+    c.notify("exit", {})
+    c.close()
+
+
+def run_nimscript620(nedls, root, log):
+    """6.20: deprecated switches (with their fix), -d: completed from the project's defined(x), --path: folders"""
+    ns = os.path.join(root, "ns620")
+    os.makedirs(os.path.join(ns, "src", "inner"), exist_ok=True)
+    files = {
+        "src/prog.nim": 'when defined(useFancy): echo 1\nconst level {.intdefine.} = 2\nconst tag {.strdefine: "prog.tag".} = ""\n',
+        "config.nims": '--gc:orc\n--threads:on\n-d:\n--path:src/\n',
+    }
+    for n, t in files.items():
+        with open(os.path.join(ns, n), "w") as f:
+            f.write(t)
+    c, init = new_client(nedls, ns, log=log)
+    cfg = os.path.join(ns, "config.nims")
+    open_doc(c, cfg, files["config.nims"])
+    ds = c.wait_diagnostics(uri(cfg), lambda ds: len(ds) >= 2, timeout=20) or []
+    msgs = sorted(d["message"] for d in ds)
+    check("NimScript 6.20: --gc deprecated (--mm), --threads:on the default",
+          len(msgs) == 2 and "--mm:orc says it now" in msgs[0] and "on by default since Nim 2.0" in msgs[1], msgs)
+    gc = [d for d in ds if "--gc" in d["message"]]
+    if gc:
+        r = c.request("textDocument/codeAction", {"textDocument": {"uri": uri(cfg)}, "range": gc[0]["range"],
+                                                  "context": {"diagnostics": gc}})
+        acts = (r or {}).get("result") or []
+        fix = [a for a in acts if a["title"] == "Use --mm:orc"]
+        ok = fix and apply_edits(files["config.nims"], fix[0]["edit"]["changes"][uri(cfg)]).startswith("--mm:orc\n")
+        check("NimScript 6.20: the fix — Use --mm:orc", ok, [a["title"] for a in acts])
+    r = c.request("textDocument/completion", {"textDocument": {"uri": uri(cfg)}, "position": {"line": 2, "character": 3}})
+    ls = labels(r)
+    check("NimScript 6.20: -d: completes what the project asks about (defined, {.intdefine.}, {.strdefine: name.})",
+          "useFancy" in ls and "level" in ls and "prog.tag" in ls and "release" in ls, ls[:12])
+    r = c.request("textDocument/completion", {"textDocument": {"uri": uri(cfg)}, "position": {"line": 3, "character": 11}})
+    check("NimScript 6.20: --path: completes folders", labels(r) == ["inner"], labels(r)[:8])
     c.request("shutdown", None)
     c.notify("exit", {})
     c.close()

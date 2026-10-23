@@ -40,7 +40,7 @@ proc dockActions(v: SideView): seq[(string, string, Action)] =
   of svOutline: @[("⟳", "Refresh", Action(proc() = (buf().outlineAt = -1)))]
   of svTodos: @[("⎘", "Copy the list as Markdown (c)", Action(proc() = todoCopyMarkdown())),
                 ("⟳", "Rescan the project (r)", Action(proc() = todoScanProject()))]
-  of svPlugins: @[(ic("plus"), "New plugin…", Action(proc() = openPrompt(pPluginNew, "Name of the new plugin", ""))),
+  of svPlugins: @[(ic("plus"), "New plugin…", Action(proc() = runCmd("Plugins: new plugin…"))),
                   ("⇣", "Install a plugin from git…", Action(proc() =
                     openPrompt(pPluginInstall, "Plugin repository (https://…)", ""))),
                   ("ⓘ", "The plugin API (nedplugin.nim)", Action(proc() = runCmd("Plugins: the API (nedplugin.nim)"))),

@@ -371,8 +371,8 @@ proc callSummary(c: AiCall): string =
   of "run_command": "$ " & j{"command"}.getStr
   of "get_diagnostics": "diagnostics " & j{"path"}.getStr
   else:
-    if c.name.startsWith("mcp__"):
-      let parts = c.name[5 .. ^1].split("__", 1)
+    if c.name.startsWith("mcp__") or c.name.startsWith("plugin__"):
+      let parts = c.name[(if c.name.startsWith("mcp__"): 5 else: 8) .. ^1].split("__", 1)
       (if parts.len == 2: parts[0] & " · " & parts[1] else: c.name) & " " & truncTo($j, 60)
     else: c.name
 

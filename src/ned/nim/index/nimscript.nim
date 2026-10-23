@@ -272,3 +272,91 @@ func nxRequiresStringAt*(line: string, col: int): (bool, int) =
   for k in start ..< c:
     if line[k] in {' ', '<', '>', '=', '~', '^', '@', '#'}: return
   (true, start)
+
+# ── what a project's code asks -d: about: the names a config's --define can set ──
+
+var nxDefMemo: Table[string, (float, seq[(string, string)])]
+
+const NxCommonDefines* = [
+  ("release", "optimised, checks on (nim c -d:release)"), ("danger", "optimised, every check off"),
+  ("ssl", "std/net, httpclient: TLS through OpenSSL"), ("useMalloc", "the C allocator instead of Nim's"),
+  ("nimStackTraceOverride", "your own stack traces"), ("nimPreviewSlimSystem", "a smaller system module"),
+  ("nimDebugDlOpen", "say why a dynamic library did not load"), ("checkAbi", "check the C types' sizes"),
+  ("noSignalHandler", "no SIGSEGV handler of Nim's"), ("nimNoLentIterators", "iterators yield copies"),
+  ("strip", "strip the binary (-s)"), ("lto", "link-time optimisation (with a toolchain that has it)")]
+
+proc nxProjectDefines*(root: string): seq[(string, string)] =
+  ## the names the project's code asks about — `defined(x)`, and the consts with {.strdefine.} {.intdefine.}
+  ## {.booldefine.} (or {.strdefine: "pkg.name".}): (name, where it is asked); a few hundred milliseconds at most,
+  ## kept for 20 s
+  if root.len == 0 or not dirExists(root): return
+  let m = nxDefMemo.getOrDefault(root, (0.0, newSeq[(string, string)]()))
+  if epochTime() - m[0] < 20: return m[1]
+  let t0 = epochTime()
+  var seen: Table[string, string]
+  var order: seq[string]
+  var files = 0
+  proc note(name, where: string) =
+    if name.len == 0 or not name[0].isAlphaAscii: return
+    if name notin seen:
+      seen[name] = where
+      order.add name
+  try:
+    for path in walkDirRec(root, skipSpecial = true):
+      if epochTime() - t0 > 0.3 or files > 4000: break
+      if not path.endsWith(".nim"): continue
+      let rel = path[min(path.len, root.len + 1) .. ^1]
+      if rel.startsWith(".") or "/." in rel or rel.startsWith("nimcache") or rel.startsWith("nimbledeps") or
+         "node_modules" in rel:
+        continue
+      inc files
+      var text = ""
+      try: text = readFile(path)
+      except CatchableError: continue
+      if "define" notin text: continue
+      var ln = 0
+      for line in text.splitLines:
+        inc ln
+        var k = line.find("defined(")
+        while k >= 0:
+          var e = k + 8
+          while e < line.len and line[e] in {'a'..'z', 'A'..'Z', '0'..'9', '_', '.'}: inc e
+          note(line[k + 8 ..< e], "when defined(…) — " & rel & ":" & $ln)
+          k = line.find("defined(", e)
+        for pr in ["strdefine", "intdefine", "booldefine", "define"]:
+          let p = line.find("{." & pr)
+          if p < 0: continue
+          let after = p + 2 + pr.len
+          if after < line.len and line[after] in {'a'..'z', 'A'..'Z'}: continue     # (a longer name)
+          var name = ""
+          let colon = line.find(':', after)
+          let close = line.find(".}", after)
+          if colon >= 0 and (close < 0 or colon < close):
+            let q1 = line.find('"', colon)
+            let q2 = if q1 > 0: line.find('"', q1 + 1) else: -1
+            if q2 > q1: name = line[q1 + 1 ..< q2]
+          if name.len == 0:
+            var e = p
+            while e > 0 and line[e - 1] in {' ', '*'}: dec e
+            var s = e
+            while s > 0 and line[s - 1] in {'a'..'z', 'A'..'Z', '0'..'9', '_'}: dec s
+            name = line[s ..< e]
+          let dflt = if '=' in line[after .. ^1]: " = " & line[line.find('=', after) + 1 .. ^1].strip else: ""
+          note(name, "const {." & pr & ".}" & dflt & " — " & rel & ":" & $ln)
+          break
+  except CatchableError: discard
+  for n in order: result.add (n, seen[n])
+  nxDefMemo[root] = (epochTime(), result)
+
+proc nxPathItems*(dir, typed: string): seq[string] =
+  ## --path:… — the folders under `dir` that what is typed leads to (the last part's candidates)
+  let k = typed.rfind('/')
+  let base = if k >= 0: typed[0 ..< k] else: ""
+  let d = if base.isAbsolute: base elif base.startsWith("~"): expandTilde(base) else: dir / base
+  try:
+    for kind, p in walkDir(d):
+      if kind in {pcDir, pcLinkToDir}:
+        let n = extractFilename(p)
+        if not n.startsWith(".") and n notin ["nimcache", "node_modules"]: result.add n
+  except CatchableError: discard
+  result.sort()

@@ -59,6 +59,14 @@ proc embClose(b: Buffer)
 proc embDocAt(b: Buffer, p: Pos): (LspServer, Buffer)
 proc mergeShadowDiags(path: string)
 proc emitHoverInfo(b: Buffer, p: Pos): string
+proc emitNimHover(b: Buffer, p: Pos): string
+type EmitWork = object
+  lines: seq[string]          # the file with its emit statements blanked
+  stmts: seq[(int, int)]      # each emit statement's first and last line
+proc emitTickNames(ls: seq[string]): seq[(int, int, string)]
+proc emitNimTargets(lines: seq[string], f: NxFile, l, s, e: int): (seq[NxRef], seq[NxSym])
+proc emitWork(ls: seq[string]): EmitWork
+proc emitNimTargetsIn(w: var EmitWork, src: seq[string], f: NxFile, l, s, e: int): (seq[NxRef], seq[NxSym])
 proc emitGoto(b: Buffer, p: Pos): bool
 proc emitLspHover(b: Buffer, p: Pos, auto: bool): bool
 proc emitSignature(b: Buffer, p: Pos): bool
@@ -149,10 +157,24 @@ proc plugVimReset()
 proc plugFixActions(b: Buffer, l0, l1: int): seq[(string, string, Action)]
 proc buildPluginItems(): seq[SideItem]
 proc plugAskDone(text: string)
+proc nbVersionComplete(b: Buffer, p: Pos, manual: bool, force = false): bool
+proc nbHover(b: Buffer, p: Pos): string
+proc nbVersionFixes(b: Buffer): seq[(string, string, Action)]
+proc plugComplete(b: Buffer, p: Pos)
+proc plugCompMerge()
+proc plugHover(b: Buffer, p: Pos, auto: bool): bool
+proc plugOutline(b: Buffer): (bool, seq[SideItem])
+proc plugSymbolPicks(b: Buffer): seq[PickItem]
+proc plugAiRun(name: string, args: JsonNode, done: proc(text: string, isError: bool) {.closure.})
 proc plugNew(name0: string)
-proc plugInstall(url0: string)
+proc plugInstall(url0: string, name0 = "")
 proc plugReload()
 proc cmdEncodingMenu()
 proc hotExitOn(): bool
 proc hotExitSave(): bool
 proc keysCheckAtStart()
+proc docPvText(b: Buffer): string
+proc lfShowAt(b: Buffer, absLine, col: int)
+proc lfFind(b: Buffer, q: string, forward = true)
+proc lfClose(b: Buffer)
+proc lfStatus(b: Buffer): string
