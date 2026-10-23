@@ -21,6 +21,11 @@ proc ensureOutline(b: Buffer) =
     b.outlineAt = b.changeId
     b.outlineReqAt = b.changeId
     return
+  let (plugHas, plugItems) = plugOutline(b)        # a plugin's symbols for the language (the newest it gave)
+  if plugHas and plugItems.len > 0:
+    b.outline = plugItems
+    b.outlineAt = b.changeId
+    return
   if b.outlineReqAt != b.changeId:
     b.outlineReqAt = b.changeId
     if nsUsable(b): discard nsRequest(b, nsOutline, Pos())

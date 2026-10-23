@@ -220,6 +220,7 @@ proc nxOwnTypesKey(f: NxFile): Hash =
 
 var
   nxPlainMemo: (Hash, NxRest)                         # (key, a plain name's items from the rest of the scope)
+  nxPlainFor: (string, int, Table[string, string])    # (the file it was made for, nxGen, the scope's modules then)
   nxMemberMemo: (Hash, Table[string, array[3, seq[NxRef]]])   # (key, receiver type → the rest of the scope's
                                                                #   routines that take it: exact, related, generic)
 
@@ -259,6 +260,7 @@ proc nxCompletionPrepare*(f: NxFile, budgetMs: int): bool =
       if (getMonoTime() - t0).inMilliseconds >= budgetMs: return false
   if chunk.len > 0: nxAddRefsIx(nxPrep.items, nxPrep.ix, f, chunk, lazy = true)
   nxPlainMemo = (gk, NxRest(items: move nxPrep.items, ix: move nxPrep.ix))
+  nxPlainFor = (f.path, nxGen, sc.modules)
   reset(nxPrep)
   true
 
@@ -942,6 +944,24 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
                                   rank: 0, local: NxSym(name: s[0], kind: nxConst, typ: "switch", doc: nxSwitchDoc(i)))
       else:
         let i = nxSwitchFind(sw.name)
+        let ln = sw.name.toLowerAscii
+        if ln in ["d", "define", "u", "undef"]:
+          # -d:… — what the project's code asks about (defined(x), {.strdefine.} consts), then the usual ones
+          var seen: HashSet[string]
+          for (n, where) in nxProjectDefines(parentDir(f.path)):
+            seen.incl n
+            result.items.add NxItem(label: n, detail: (if where.len > 60: where[0 ..< 57] & "…" else: where),
+                                    kind: nxConst, rank: 0, local: NxSym(name: n, kind: nxConst, typ: "define", doc: where))
+          for (n, d) in NxCommonDefines:
+            if n notin seen:
+              result.items.add NxItem(label: n, detail: d, kind: nxConst, rank: 1,
+                                      local: NxSym(name: n, kind: nxConst, typ: "define", doc: d))
+          return
+        if ln in ["p", "path"]:
+          for n in nxPathItems(parentDir(f.path), text[sw.start ..< min(col, text.len)]):
+            result.items.add NxItem(label: n, detail: "folder", kind: nxModule, rank: 0,
+                                    local: NxSym(name: n, kind: nxModule, typ: "folder"))
+          return
         if i >= 0:
           for v in nxSwitchValues(i):
             result.items.add NxItem(label: v, detail: "--" & NxSwitches[i][0] & ":" & v, kind: nxEnumVal, rank: 0,
@@ -1264,7 +1284,20 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
   nxAddRefs(result.items, f, plain, lazy = true)
   # the rest of the scope's names: made once while it stays as it is
   let gk = nxOthersKey(sc, f)
-  if nxPlainMemo[1] == nil or nxPlainMemo[0] != gk:
+  if nxPlainMemo[1] != nil and nxPlainMemo[0] != gk and nxPlainFor[0] == f.path and nxPlainFor[1] == nxGen:
+    # the same file's list from before its imports (or another file it sees) changed: used as it is while the new
+    # one is made in quiet moments (nxCompletionPrepare) — the modules imported since, their names added here (a
+    # big program's whole list made at once took 12 ms, at the first letter after an import)
+    var fresh: seq[NxRef]
+    for m, mp in sc.modules:
+      var had = false
+      for _, op in nxPlainFor[2]:
+        if op == mp: had = true
+      if not had:
+        var seen: HashSet[string]
+        nxExports(mp, 0, seen, fresh)
+    if fresh.len > 0: nxAddRefs(result.items, f, fresh, lazy = true)
+  elif nxPlainMemo[1] == nil or nxPlainMemo[0] != gk:
     var others: seq[NxRef]
     for r in sc.refs:
       if r.sym.kind == nxField or r.sym.local or r.file == f or r.file.path == f.path: continue
@@ -1272,6 +1305,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
     var its: seq[NxItem]
     nxAddRefs(its, f, others, lazy = true)
     nxPlainMemo = (gk, nxRestOf(its))
+    nxPlainFor = (f.path, nxGen, sc.modules)
   nxNote("this file's names", tt)
   tt = getMonoTime()
   # this file's names and the locals take the declarations of the same name from the rest (one item a name)
@@ -1436,6 +1470,17 @@ proc nxDoc*(r: NxRef, ufcs = false, withSig = true): string =
     why = if why.startsWith("\"") and q > 0: why[1 ..< q] else: ""
     result.add "\n**deprecated**" & (if why.len > 0: " — " & why else: "")
   if s.doc.strip.len > 0: result.add (if result.len > 0: "\n" else: "") & nxRstToMd(s.doc)
+  block cname:
+    # (exportc: the name C code — an emit, a C file — calls it by)
+    let k = s.pragmas.find("exportc")
+    if k < 0 or s.kind notin {nxProc, nxFunc, nxVar, nxLet, nxConst, nxType, nxMethod, nxConverter}: break cname
+    var cn = s.name
+    let rest = s.pragmas[k + 7 .. ^1].strip(trailing = false)
+    if rest.startsWith(":"):
+      let q1 = rest.find('"')
+      let q2 = if q1 >= 0: rest.find('"', q1 + 1) else: -1
+      if q2 > q1: cn = rest[q1 + 1 ..< q2].replace("$1", s.name)
+    result.add "\n\n**C name:** `" & cn & "` (exportc)"
   var where = r.file.module
   if nxLibDir.len > 0 and r.file.path.startsWith(nxLibDir):
     where = "std/" & r.file.module

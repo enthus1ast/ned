@@ -101,6 +101,11 @@ proc runsProjectCode(argv: seq[string], depth = 0): bool =
   false
 
 proc c_setpriority(which, who, prio: cint): cint {.importc: "setpriority", header: "<sys/resource.h>".}
+when defined(linux) or defined(android):
+  type CSchedParam {.importc: "struct sched_param", header: "<sched.h>".} = object
+    sched_priority: cint
+  proc c_sched_setscheduler(pid: cint, policy: cint, p: ptr CSchedParam): cint {.importc: "sched_setscheduler",
+    header: "<sched.h>".}
 
 proc spawnProc(argv: seq[string], cwd: string, sin = siNull, serr = erMerge, niceness = 0): Proc =
   ## starts `argv` (PATH lookup) in its own session and process group; raises OSError on failure — and when it would
@@ -144,6 +149,12 @@ proc spawnProc(argv: seq[string], cwd: string, sin = siNull, serr = erMerge, nic
     of erNull: discard dup2(devnull, 2)
     if cwd.len > 0: discard chdir(ccwd)
     if niceness > 0: discard c_setpriority(0, 0, niceness.cint)     # (PRIO_PROCESS, this process)
+    when defined(linux) or defined(android):
+      # (the compiler's checks and other work no one waits for: only when the core is idle — on one core, nice 10
+      # still took the editor's core in the middle of a frame)
+      if niceness >= 10:
+        var sp = CSchedParam(sched_priority: 0)
+        discard c_sched_setscheduler(0, 5, addr sp)                 # SCHED_IDLE
     discard execvp(args[0], args)
     exitnow(127)
   deallocCStringArray(args)

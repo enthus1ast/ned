@@ -210,11 +210,17 @@ proc drawStatusBar() =
     for (pid, t) in plugStatusItems:
       x = button(x, y, " " & truncTo(t, 30) & " ", proc() = showSide(svPlugins), "Plugin " & pid & " (Plugins dock)",
                  theme.dim, bg)
+  if plugProgress.len > 0 and scrW >= 50:
+    for (pid, t, pct) in plugProgress:
+      let bar = if pct >= 0: " " & repeat("▰", pct div 20) & repeat("▱", 5 - pct div 20) & " " & $pct & "%" else: "…"
+      x = button(x, y, " ⟳ " & truncTo(t, 24) & bar & " ", proc() = showSide(svPlugins),
+                 "Plugin " & pid & " is working (Plugins dock)", theme.accent, bg)
   let msgX = x + 1
   # ── right ──
   var right: seq[(string, Rgb, Action, string)]
   let p = b.primary.head
   var pos = if b.hex != nil: "0x" & toHex(b.hex.cur, 8).toLowerAscii & " / " & $b.hex.data.len
+            elif b.viewer != nil: lfStatus(b) & ", Col " & $(b.visColAt(p.line, p.col) + 1)
             else: "Ln " & $(p.line + 1) & ", Col " & $(b.visColAt(p.line, p.col) + 1)
   if b.cursors.len > 1: pos.add " (" & $b.cursors.len & " cursors)"
   elif b.primary.hasSel:

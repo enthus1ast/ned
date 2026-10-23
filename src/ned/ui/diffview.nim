@@ -162,8 +162,10 @@ proc drawMdPreview(b: Buffer, x0, y0, w, h: int) =
     return
   let tw = max(20, min(w - 4, 100))
   var c = mdPreviewCache.getOrDefault(b.id, (-1, -1, @[]))
-  if c[0] != src.changeId or c[1] != tw:
-    c = (src.changeId, tw, markdownLines(src.lines.join("\n"), tw, theme.bg))
+  # (a Nim file's docs: made again after a pause in the typing, not at every key)
+  let wait = b.mdNimDocs and c[2].len > 0 and c[1] == tw and msSince(lastInputAt) < 400
+  if (c[0] != src.changeId or c[1] != tw) and not wait:
+    c = (src.changeId, tw, markdownLines((if b.mdNimDocs: docPvText(src) else: src.lines.join("\n")), tw, theme.bg))
     mdPreviewCache[b.id] = c
     b.lines = newSeq[string](max(1, c[2].len))
   let hd = b.primary.head.line

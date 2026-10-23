@@ -124,7 +124,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   let bpLines = if b.path.len > 0: breakpoints.getOrDefault(b.path) else: initHashSet[int]()
   let spellOnHere = b.spellOn() and b.id notin diffViews and b.id notin multiBufs
   let hasConflicts = conflicts.len > 0
-  let numW = if cfgLineNums == 0 or (zenMode and cfgZenHideNums): 0 else: max(3, len($b.lines.len))
+  let numW = if cfgLineNums == 0 or (zenMode and cfgZenHideNums): 0
+             else: max(3, len($(b.lines.len + (if b.viewer != nil: b.viewer.base else: 0))))
   let gw = 2 + numW + (if numW > 0: 1 else: 0)
   gutterW = gw
   textW = max(4, w - gw - 1)
@@ -478,7 +479,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
             let (fok, _) = b.foldRange(line)
             if fok: discard putStr(x0 + gw - 1, y, ic("chevD"), theme.dim, rowBg)
         if numW > 0:
-          let n = if cfgLineNums == 2 and line != ph.line: abs(line - ph.line) else: line + 1
+          let n = if cfgLineNums == 2 and line != ph.line: abs(line - ph.line)
+                  else: line + 1 + (if b.viewer != nil: b.viewer.base else: 0)
           let cov = if covLines.len > 0 and b.path in covLines: covLines[b.path].getOrDefault(line, false) else: false
           let covKnown = covLines.len > 0 and b.path in covLines and line in covLines[b.path]
           discard putStr(x0 + 1, y, align($n, numW), (if covKnown: (if cov: theme.gitAdd else: theme.err)

@@ -742,4 +742,16 @@ suite "NimScript: config.nims and a .nimble (6.19)":
     check "threads" in nxComplete(f, ls, 2, ls[2].len).labels
     check "optimize" in nxHover(f, ls, 1, 3)
 
+suite "concepts at a call (6.20)":
+  test "an argument whose type does not satisfy the concept: said on hover, with what it lacks":
+    let (f, ls) = fixture("type\n  Shape = concept\n    proc area(s: Self): float\n  Foo = object\n  Sq = object\n" &
+                          "proc area(s: Sq): float = 1.0\n" &
+                          "proc total[T: Shape](a: T): float = a.area\n" &
+                          "let x = Foo()\necho total(x)\necho total(Sq())\n")
+    let h = nxHover(f, ls, 8, colOf(ls, 8, "total"))
+    check "Not a match" in h
+    check "`Foo` is not a `Shape`" in h
+    check "area(Foo): float" in h
+    check "Not a match" notin nxHover(f, ls, 9, colOf(ls, 9, "total"))
+
 removeDir(dir)

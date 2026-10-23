@@ -7,6 +7,10 @@ type
     kind: int                     # 0 a sign in the gutter, 1 text after the line, 2 a highlight
     line, col, eline, ecol: int
     text, color: string
+  PlugAiTool = object
+    name, desc, plugin, key: string     # name: plugin__<plugin>__<tool> (what the model calls)
+    schema: JsonNode
+    readOnly: bool
 
 var
   plugDecor: Table[string, seq[PlugDecor]]      # a file's path (or "#<buffer id>") → what plugins put on it
@@ -16,6 +20,9 @@ var
   plugFmtCb: Table[string, (string, int)]       # language id → a plugin's NimScript formatter (plugin, callback)
   plugKeys: Table[string, string]               # key name ("ctrl+alt+u") → a plugin's command
   plugTextObjKeys: HashSet[string]              # vim: the text objects plugins have ("ie" …)
+  plugSnippets: seq[(string, string, string, string)]   # language id ("*" any), trigger, description, body
+  plugAiTools: seq[PlugAiTool]                  # tools the assistant may call
+  plugProgress: seq[(string, string, int)]      # plugin, what it is doing, percent (-1 not known)
 
 proc plugDecorKey(b: Buffer): string = (if b.path.len > 0: b.path else: "#" & $b.id)
 

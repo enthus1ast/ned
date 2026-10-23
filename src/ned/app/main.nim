@@ -186,6 +186,8 @@ proc mainLoop() =
     if reapPids.len > 0: timeout = min(timeout, 500)
     if startTrace: timeout = min(timeout, 20)
     timeout = min(timeout, plugNextDueMs())             # (a plugin's timer, the plugins' start, a change to tell them)
+    if astOn or docPvSrc >= 0: timeout = min(timeout, 500)
+    if lfBusy(): timeout = min(timeout, 30)            # (the viewer's index, a search: on while it lasts)   # (the AST view, the docs preview: after a pause)
     if workDeferred: timeout = min(timeout, 5)
     if frameHeld: timeout = min(timeout, max(1, (if slowTerminal(): 33 else: 16) - int(msSince(frameAt))))
     if cfgWebEngine != "off" and cb0.path.len > 0 and cb0.lang != nil and
@@ -263,7 +265,8 @@ proc mainLoop() =
         # (the project's TODOs only in a round with room left: with the engine reading imports after it, two
         # slices made one 13-16 ms round)
         if todoQueue.len > 0 and msSince(busyFrom) < 3: timedWork("TODOs"): todoPump(4)
-        timedWork("TODOs"): todoRefreshBufs()
+        # (the open files' tags in a round of their own: after the engine's reading, the two made a 16-20 ms round)
+        if msSince(busyFrom) < 3: timedWork("TODOs"): todoRefreshBufs()
         if ffiQueue.len > 0:
           let fb = bufById(ffiQueue[0])
           ffiQueue.delete(0)
@@ -278,6 +281,9 @@ proc mainLoop() =
       if reapPids.len > 0: timedWork("ended programs"): reapPending()
       if mcpServers.len > 0: timedWork("MCP servers"): mcpPump(ready)
       timedWork("plugins"): plugPump(ready)
+      if lfBusy() or buf().viewer != nil: timedWork("the large-file viewer"): lfPump()
+      if astOn: astPump()
+      if docPvSrc >= 0: docPvPump()
       if mcpWaitReq and not mcpStarting():
         mcpWaitReq = false
         aiRequest()
@@ -305,7 +311,11 @@ proc mainLoop() =
       if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0 and not away: timedWork("type and parameter hints"): requestInlays(buf())
       if cfgCSigHints and inBuf.len == 0 and not away: timedWork("C signature hints"): cSigHintsUpdate(buf())
       if inBuf.len == 0 and not away: timedWork("language server requests"): lspExtras(buf())
-      if inBuf.len == 0 and not away and roomLeft(): timedWork("the engine reading imports"): engineWarm(buf())
+      # (the engine's reading: early in a round only — the frame drawn after it takes 5-6 ms of its own)
+      if inBuf.len == 0 and not away:
+        if msSince(busyFrom) < 3:
+          timedWork("the engine reading imports"): engineWarm(buf())
+        else: workDeferred = true
       if inBuf.len == 0 and not away and roomLeft(): timedWork("semantic colours"): semImportsPump(buf())
       if inBuf.len == 0 and not away:
         timedWork("AI suggestions"): ghostTick()
@@ -928,7 +938,7 @@ proc main() =
   killTerminals()
   lspShutdown()
   mcpStopAll()
-  plugStop()
+  plugStopAll()
   nsShutdown()
   wkStop()
   if haveExe("ssh"):

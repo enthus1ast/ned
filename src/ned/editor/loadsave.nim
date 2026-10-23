@@ -250,6 +250,7 @@ proc hexInfo(b: Buffer): BinInfo =
   b.hex.info
 
 var loadingHook: proc(msg: string)      # a big file: say so on screen before reading it
+var lfOpenHook: proc(b: Buffer, path: string, size: int64): bool   # a file too big to edit: the viewer (lfview)
 
 proc readUndo(b: Buffer)
 proc writeUndo(b: Buffer)
@@ -259,14 +260,19 @@ proc loadFile(b: Buffer, path: string): bool =
   if fileExists(b.path):
     var content: string
     var streamed = false
+    var viewed = false
     try:
       let size = getFileSize(b.path)
-      if size > 512 * 1024 * 1024:
-        error("Cannot open " & path & ": " & $(size div (1024 * 1024)) & " MB is too big to edit safely")
-        return false
-      if size > 16 * 1024 * 1024 and loadingHook != nil:
+      if size > int64(cfgViewerMB) * 1024 * 1024:
+        # (too big to edit: the large-file viewer — a window of its lines, read-only)
+        if lfOpenHook == nil or not lfOpenHook(b, b.path, size):
+          error("Cannot open " & path & ": " & $(size div (1024 * 1024)) & " MB is too big to edit safely")
+          return false
+        viewed = true
+        streamed = true
+      if not viewed and size > 16 * 1024 * 1024 and loadingHook != nil:
         loadingHook("Opening " & extractFilename(path) & " (" & $(size div (1024 * 1024)) & " MB)…")
-      if size >= 8 * 1024 * 1024:
+      if not viewed and size >= 8 * 1024 * 1024:
         # a big file: is it text? (its first bytes) — then it is read straight into lines
         var head = newString(8000)
         var f: File
@@ -279,7 +285,7 @@ proc loadFile(b: Buffer, path: string): bool =
     except CatchableError as e:
       error("Cannot read " & path & ": " & e.msg)
       return false
-    b.enc = EncUtf8
+    if not viewed: b.enc = EncUtf8
     if content.len > 0 and not streamed:
       # (a BOM: UTF-8 or UTF-16; not UTF-8: files.encoding — Windows-1252 unless you said otherwise)
       let fb = if cfgFileEncoding in ["", "auto"]: EncCp1252 else: cfgFileEncoding.toLowerAscii
@@ -306,7 +312,7 @@ proc loadFile(b: Buffer, path: string): bool =
            (if bi.nim: ", built with Nim" else: "") else: "") & " (Tab: hex ↔ text · Insert: insert mode · Ctrl+G offset)")
       content = ""
     if not b.binary and not streamed: b.setContent(content)
-    if b.large and not b.binary:
+    if b.large and not b.binary and not viewed:
       info("Large-file mode (" & b.largeWhy & "): no soft wrap, language server, minimap or word highlight — " &
            "palette › Large file mode turns them back on")
     if b.mixedEol:

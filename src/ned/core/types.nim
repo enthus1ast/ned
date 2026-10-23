@@ -158,6 +158,7 @@ type
     readOnly: bool
     libLocked: bool     # read-only because it belongs to the Nim toolchain or an installed package (files.protectLibraries)
     mdSrc: int          # a Markdown preview: the id of the buffer it shows
+    mdNimDocs: bool     # … a Nim file's docs (as nim doc shows them), not the file's text
     noEol: bool
     blankNl: bool                          # the file was one empty line ("\n"): it stays that, not 0 bytes
     mixedEol: bool                         # CRLF and LF line ends both: saving makes them one kind
@@ -204,6 +205,22 @@ type
     large: bool                            # large-file mode: very big, or a line too long for code features
     largeOff: bool                         # … turned off for this file (palette › Large file mode)
     largeWhy: string
+    viewer: LfView                         # a file too big to edit: a window of its lines (editor/lfview)
+
+  LfView = ref object                      # the large-file viewer: a window of a huge file's lines, read-only
+    path: string
+    size: int64
+    f: File
+    marks: seq[int64]                      # where lines 0, LfStep, 2·LfStep … start (the index, made in the background)
+    lineCount: int                         # lines indexed so far (all of them once done)
+    indexed: int64                         # bytes indexed so far
+    done: bool
+    lastNl: bool                           # (the last byte indexed was a line end)
+    base: int                              # the window's first line in the file
+    findQ, lastFind: string
+    findAt, findFrom: int64                # the search: the next byte to look at, where it started
+    findBusy, findWrapped, findFold: bool
+    cut: int                               # lines in the window shown cut (too long)
 
   HexEdit = object                         # one change in the hex editor: at `at`, `old` replaced by `new`
     at: int
@@ -252,6 +269,7 @@ type
     data: JsonNode            # the language server's item, for completionItem/resolve
     addImport: string         # accepting it also adds this import (a standard-library name not imported yet)
     postfix: int              # a postfix template (xs.for): 1 + the column its receiver starts at, 0 = not one
+    plug: bool                # a plugin's (its completions join the list when they come)
 
   CopyMark = object             # where ARC/ORC copies (nim c --expandArc, on save)
     col, startCol: int          # just after the copied expression; where it starts

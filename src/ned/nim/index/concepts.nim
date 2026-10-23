@@ -514,6 +514,28 @@ proc nxSatisfies*(cpt: NxConcept, sc: NxScope, typ: string): NxSat =
       if result == nsNo: return
   if env.steps > 400: result = nsUnsure
 
+proc nxConceptMissing*(cpt: NxConcept, sc: NxScope, typ: string): seq[string] =
+  ## what type `typ` lacks of the concept — each requirement the engine is sure it does not meet, written for that type
+  ## (`proc <(a, b: Foo): bool`, or the old syntax's statement); empty when nothing is surely missing
+  if not cpt.known or typ.len == 0: return
+  var env = NxCpEnv(sc: sc, self: typ, vars: cpt.vars, varMut: cpt.varMut, gens: cpt.gens)
+  if cpt.newStyle:
+    for req in cpt.reqs:
+      if nxCpReqMatch(env, req) == nsNo:
+        let kw = case req.kind
+          of nxFunc: "func"
+          of nxIterator: "iterator"
+          of nxConverter: "converter"
+          else: "proc"
+        var ps: seq[string]
+        for p in req.params: ps.add p.replace("Self", typ)
+        result.add kw & " " & req.name & "(" & ps.join(", ") & ")" &
+                   (if req.ret.len > 0: ": " & req.ret.replace("Self", typ) else: "")
+  else:
+    for st in cpt.stmts:
+      let (sat, _) = nxCpExpr(env, st)
+      if sat == nsNo: result.add st
+
 const NxCpBuiltins = ["int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float",
                       "float32", "float64", "bool", "char", "string", "cstring"]
 

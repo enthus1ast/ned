@@ -1166,7 +1166,10 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
       result.refs.add r2
   nxIndexNames(result)
   var seenP: HashSet[string]
+  var lastF: NxFile = nil                    # (a file's names come together: its path hashed once, not per name)
   for r in result.refs:
+    if r.file == lastF: continue
+    lastF = r.file
     if r.file != f and r.file.path notin seenP:
       seenP.incl r.file.path
       result.deps.add (r.file.path, r.file.stamp)
@@ -1302,7 +1305,10 @@ proc nxScope*(f: NxFile): NxScope =
       result.refs.add r2
   nxIndexNames(result)
   var seenP: HashSet[string]
+  var lastF: NxFile = nil                    # (a file's names come together: its path hashed once, not per name)
   for r in result.refs:
+    if r.file == lastF: continue
+    lastF = r.file
     if r.file != f and r.file.path notin seenP:
       seenP.incl r.file.path
       result.deps.add (r.file.path, r.file.stamp)

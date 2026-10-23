@@ -129,6 +129,11 @@ class H(BaseHTTPRequestHandler):
                 n = (t.get('function') or t).get('name', '')
                 if n.endswith('__echo'): mcp_name = n
         mcp_args = '{"text": "pong"}'
+        if 'ask the ini plugin' in user and not has_tool_result(msgs):
+            for t in b.get('tools') or []:
+                n = (t.get('function') or t).get('name', '')
+                if n.endswith('__ini_get'): mcp_name = n
+            mcp_args = '{"path": "cfg/app.ini", "section": "server", "key": "port"}'
         if 'read the greeting resource' in user and not has_tool_result(msgs):
             for t in b.get('tools') or []:
                 n = (t.get('function') or t).get('name', '')

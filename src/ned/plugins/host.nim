@@ -1,10 +1,13 @@
 # ════════════════════════════════════════════════════════════════════════════
 #  Plugins: folders with a plugin.nims (yours: ~/.config/ned/plugins/<name>, a project's: .ned/plugins/<name>,
-#  once you trust the folder), all run in one NimScript process — `nim e`, or a compiled one (plugins.native). It
-#  registers what each plugin has (commands, keys, events, languages, formatters, language servers, vim mappings,
-#  timers …) and ned calls it back; the plugins ask ned for the text, to edit it, to show things (JSON lines). The
-#  library a plugin imports is plugins/lib/nedplugin.nim; nedlsp.nim is for language servers written in NimScript
-#  (`ned --lsp-bridge server.nims` gives them the Language Server Protocol's framing)
+#  once you trust the folder) run together in one NimScript process — `nim e`, or compiled (plugins.native: auto
+#  compiles a set of plugins you keep); a folder with a plugin.nim is a plugin in full Nim, compiled into a program
+#  of its own (and plugins.alone gives a NimScript plugin a process of its own). Each process registers what its
+#  plugins have (commands, keys, events, languages, formatters, language servers, completions, hover, code actions,
+#  symbols, snippets, the assistant's tools, dock views, vim mappings, timers …) and ned calls it back; the plugins
+#  ask ned for the text, to edit it, to show things (JSON lines). The library a plugin imports is
+#  plugins/lib/nedplugin.nim; nedlsp.nim is for language servers written in NimScript (`ned --lsp-bridge
+#  server.nims` gives them the Language Server Protocol's framing)
 # ════════════════════════════════════════════════════════════════════════════
 
 const
@@ -12,6 +15,7 @@ const
   NedPluginLib = staticRead(PlugLibSrc / "nedplugin.nim")
   NedLspLib = staticRead(PlugLibSrc / "nedlsp.nim")
   PlugMark = '\x1e'                       # (the start of a line of the host's that is a message)
+  PlugShared = "*"                        # (the name of the process the NimScript plugins share)
   PlugExDir = currentSourcePath().parentDir.parentDir.parentDir.parentDir / "examples" / "plugins"
   PlugExamples = [
     ("zig-lite", "a language ned does not have (Zig), its formatter (zig fmt, or one in NimScript), zls",
@@ -20,11 +24,19 @@ const
      @[("plugin.nims", staticRead(PlugExDir / "wordinfo-lsp" / "plugin.nims")),
        ("server.nims", staticRead(PlugExDir / "wordinfo-lsp" / "server.nims"))]),
     ("commentary", "vim: the gc operator (gcc, gcip, gc in visual mode), the ie text object, :Comment",
-     @[("plugin.nims", staticRead(PlugExDir / "commentary" / "plugin.nims"))])]
+     @[("plugin.nims", staticRead(PlugExDir / "commentary" / "plugin.nims"))]),
+    ("ini-tools", "a language's features: completions, hover, symbols (the outline), code actions, snippets — " &
+     "for .ini files; a dock view, progress and the Output panel; a tool for the assistant",
+     @[("plugin.nims", staticRead(PlugExDir / "ini-tools" / "plugin.nims"))]),
+    ("clock-native", "a plugin in full Nim (plugin.nim), compiled into a program of its own: std/times, a timer, " &
+     "a status-bar clock",
+     @[("plugin.nim", staticRead(PlugExDir / "clock-native" / "plugin.nim"))])]
   PlugTemplate = """## $1 — a ned plugin (NimScript). ned runs it when it starts; edit it and save: the plugins reload.
 ## The API: the comments of nedplugin.nim (Plugins dock › ⓘ) — commands, keys, events, the text, problems,
-## signs, languages, formatters, language servers, vim mappings, timers.
+## signs, languages, formatters, language servers, completions, hover, symbols, vim mappings, timers.
 import nedplugin
+
+requiresNed(">= 6.20")
 
 command "$1: say hello":
   let b = current()
@@ -39,11 +51,29 @@ onSave("*") do (ev: Event):
   # (every file saved: a count in the status bar)
   status("$1 ✓ " & $$ev.buf.lineCount & " lines")
 """
+  PlugTemplateFull = """## $1 — a ned plugin in full Nim: ned compiles it (nim c, in the background, again when it changes) into a
+## program of its own beside the editor — the whole standard library (std/times, osproc, threads, sockets …),
+## and its own process: a slow call of its never holds up the other plugins. Edit it and save: it is built again.
+## The API: the comments of nedplugin.nim (Plugins dock › ⓘ).
+import nedplugin
+import std/times
+
+requiresNed(">= 6.20")
+
+command "$1: what time is it":
+  message("$1 (compiled): " & now().format("HH:mm:ss"))
+
+discard every(1000) do ():
+  status("⏱ " & now().format("HH:mm"))
+"""
 
 type
   PlugInfo = object
     id, dir, file: string
     project, enabled: bool
+    full: bool                            # a plugin.nim: full Nim, compiled, a process of its own
+    alone: bool                           # a process of its own (full Nim, or plugins.alone)
+    needs: string                         # requiresNed("…"): the ned it needs
     err: string                           # why it is not running ("" running, or off)
   PlugReg = object
     plugin, kind: string
@@ -63,24 +93,37 @@ type
     cb, ms: int
     repeat: bool
     due: MonoTime
+  PlugHost = ref object
+    ## one process of plugins: the NimScript ones together (name "*"), or one plugin alone (its name)
+    name: string
+    ids: seq[string]                      # the plugins it runs
+    full: bool                            # a plugin in full Nim (always compiled)
+    pr: Proc
+    fdIn, fdOut, fdErr: cint
+    rbuf, wbuf, errPart: string
+    state: string                         # off · building · starting · ready · failed: … · stopped (idle)
+    startedAt, lastUse: MonoTime
+    sig: string                           # the plugins (and their files' stamps) it runs
+    native: bool                          # runs compiled
+    building: bool                        # (its compiled program is being built)
+    calls: Table[int, PlugCall]
+    queue: seq[PlugQueued]
+    nextRid: int
+    errTail: seq[string]
+    running: string                       # the plugin whose call runs now (its echo is its log)
+    regs, newRegs: seq[PlugReg]           # what it registered (or the manifest's, until it runs); while it starts
+    startupFired: bool
+  PlugView = object
+    plugin, title, key, clickKey: string
+    items: JsonNode                       # (the last answer)
+    askedAt: MonoTime
+    pending, stale: bool
 
 var
   plugs: seq[PlugInfo]
-  plugRegs: seq[PlugReg]                  # what the plugins registered (the host's, or the manifest's until it runs)
-  plugNewRegs: seq[PlugReg]               # (the host's, while it starts)
-  phPr: Proc
-  phIn, phOut, phErr: cint = -1
-  phRbuf, phWbuf, phErrPart: string
-  phState = "off"                         # off · starting · ready · failed: … · stopped (idle)
-  phStartedAt, phLastUse: MonoTime
-  phSig = ""                              # the plugins (and their files' stamps) it runs
-  phNative = false
-  phCalls: Table[int, PlugCall]
-  phQueue: seq[PlugQueued]
-  phNextRid = 0
-  phErrTail: seq[string]
-  phRunning = ""                          # the plugin whose call runs now (its echo is its log)
-  phFailedOnce: HashSet[string]           # plugins left out after they broke the host (until their file changes)
+  plugHosts: seq[PlugHost]
+  plugRegs: seq[PlugReg]                  # every process's registrations
+  plugFailedOnce: HashSet[string]         # plugins left out after they broke a start (until their file changes)
   plugLog: seq[(string, string)]          # plugin, a line
   plugCmdNames: seq[string]
   plugTimers: seq[PlugTimer]
@@ -90,12 +133,14 @@ var
   plugTextObjs: Table[string, string]     # keys ("ie") → registration key
   plugExCmds: Table[string, string]       # name → registration key
   plugLspCmds: seq[(string, seq[string])] # language id, the command
+  plugProviders: seq[(string, string, string)]   # what (completion hover codeActions symbols), language id, key
+  plugViews: seq[PlugView]
   plugBootAt = MonoTime()                 # when the plugins are looked at (after the first frame)
   plugBooted = false
-  plugStartupFired = false
   plugOpenQ: seq[int]                     # buffers opened (their "open" events, once the registrations are known)
   plugChangeSent: Table[int, int]         # buffer id → the change the "change" event was sent for
-  plugUi: (int, string)                   # an answer the host waits for from you: (api id, pick · ask · confirm)
+  plugUi: (int, string)                   # an answer a plugin waits for from you: (api id, pick · ask · confirm)
+  plugUiHost: PlugHost
   plugUiTitle = ""
   plugSeq = ""                            # vim: keys typed of a plugin's mapping
   plugOpKeys = ""                         # vim: a plugin's operator waiting for its motion
@@ -104,6 +149,13 @@ var
   plugReplaying = false
   plugSilentSave = false                  # (a save a plugin asked for: no plugin events)
   plugSyncDepth = 0
+  plugCompAt: (int, int, int)             # the completion the plugins were asked for: buffer, line, word start
+  plugCompItems: seq[CompItem]            # their answers
+  plugCompRound = 0
+  plugHoverAt: (int, Pos)                 # the hover they were asked for: buffer, where
+  plugOutlines: Table[int, (int, seq[SideItem])]   # buffer id → (its change, the plugins' symbols)
+  plugOutlineAsked: Table[int, int]       # buffer id → the change they were asked about
+  plugNewFull = false                     # (New plugin…: in full Nim)
 
 # ── where things are ──
 
@@ -135,10 +187,71 @@ func plugIdOk(id: string): bool =
 proc plugDisabledIds(): seq[string] =
   for x in jitems(sval("plugins.disabled")): result.add x.getStr
 
+proc plugAloneIds(): seq[string] =
+  for x in jitems(sval("plugins.alone")): result.add x.getStr
+
+proc plugNativeMode(): string =
+  ## plugins.native: auto (a set of plugins run before unchanged is compiled, in the background) · on · off
+  let v = sval("plugins.native")
+  if v.kind == JBool: (if v.getBool: "on" else: "off")
+  elif v.getStr in ["on", "off", "auto"]: v.getStr
+  else: "auto"
+
+func plugVerParts(v: string): seq[int] =
+  for x in v.strip.split('.'):
+    var n = 0
+    for c in x:
+      if c in Digits: n = n * 10 + (ord(c) - ord('0'))
+      else: break
+    result.add n
+
+func plugVerCmp(a, b: seq[int]): int =
+  for i in 0 ..< max(a.len, b.len):
+    let x = if i < a.len: a[i] else: 0
+    let y = if i < b.len: b[i] else: 0
+    if x != y: return cmp(x, y)
+  0
+
+func plugNeedsOk(spec, have: string): bool =
+  ## ">= 6.20", "6.20", ">6.19, <7" against this ned's version
+  result = true
+  for part in spec.split(','):
+    var s = part.strip
+    var op = ">="
+    for o in [">=", "<=", "==", ">", "<", "="]:
+      if s.startsWith(o):
+        op = o
+        s = s[o.len .. ^1].strip
+        break
+    if s.len == 0 or s[0] notin Digits: continue
+    let c = plugVerCmp(plugVerParts(have), plugVerParts(s))
+    let ok = case op
+      of ">=": c >= 0
+      of "<=": c <= 0
+      of ">": c > 0
+      of "<": c < 0
+      else: c == 0
+    if not ok: return false
+
+proc plugNeedsOf(file: string): string =
+  ## requiresNed("…") in the plugin's source (read before it runs: an older ned never runs it)
+  try:
+    let t = readFile(file)
+    let k = t.find("requiresNed")
+    if k < 0: return ""
+    let q = t.find('"', k)
+    let nl = t.find('\n', k)
+    if q < 0 or (nl >= 0 and q > nl): return ""
+    let e = t.find('"', q + 1)
+    if e > q: return t[q + 1 ..< e]
+  except CatchableError: discard
+  ""
+
 proc plugDiscover() =
   ## the plugin folders: yours, then the project's (a name that is yours is yours)
   plugs.setLen(0)
   let off = plugDisabledIds()
+  let alone = plugAloneIds()
   for (root, project) in [(plugUserRoot(), false), (plugProjectRoot(), true)]:
     if root.len == 0 or not dirExists(root): continue
     var dirs: seq[string]
@@ -149,34 +262,78 @@ proc plugDiscover() =
     dirs.sort()
     for d in dirs:
       let id = extractFilename(d)
-      if not plugIdOk(id) or not fileExists(d / "plugin.nims"): continue
+      if not plugIdOk(id): continue
+      let full = not fileExists(d / "plugin.nims") and fileExists(d / "plugin.nim")
+      if not full and not fileExists(d / "plugin.nims"): continue
       var dup = false
       for p in plugs:
         if p.id == id: dup = true
       if dup: continue
-      var p = PlugInfo(id: id, dir: d, file: d / "plugin.nims", project: project, enabled: id notin off)
+      var p = PlugInfo(id: id, dir: d, file: d / (if full: "plugin.nim" else: "plugin.nims"), project: project,
+                       enabled: id notin off, full: full, alone: full or id in alone)
+      p.needs = plugNeedsOf(p.file)
       if not p.enabled: p.err = "off"
       elif project and not codeTrusted(rootDir):
         p.enabled = false
         p.err = "the folder is not trusted"
-      elif id in phFailedOnce:
+      elif p.needs.len > 0 and not plugNeedsOk(p.needs, Version):
+        p.enabled = false
+        p.err = "it needs ned " & p.needs & " (this is " & Version & ")"
+      elif id in plugFailedOnce:
         p.enabled = false
         p.err = "it broke the plugins' start (fix it and save)"
       plugs.add p
 
-proc plugSignature(): string =
-  ## what the host is made of: each running plugin and its files' stamps (a change: a new host)
-  var s = Version & "|" & $phNative & "|" & plugLibDir()
-  for p in plugs:
-    if not p.enabled: continue
-    s.add "|" & p.id & "=" & p.dir
+proc plugInfoOf(id: string): int =
+  for i, p in plugs:
+    if p.id == id: return i
+  -1
+
+proc plugHostOf(plugin: string): PlugHost =
+  for h in plugHosts:
+    if plugin in h.ids: return h
+  nil
+
+proc plugLabel(h: PlugHost): string = (if h.name == PlugShared: "plugins" else: h.name)
+
+proc plugSignature(h: PlugHost): string =
+  ## what the process is made of: each plugin and its files' stamps (a change: a new process, a new build)
+  var s = Version & "|" & plugLibDir() & "|" & $h.full
+  for id in h.ids:
+    let i = plugInfoOf(id)
+    if i < 0: continue
+    s.add "|" & id & "=" & plugs[i].dir
     try:
-      for f in walkDirRec(p.dir):
+      for f in walkDirRec(plugs[i].dir):
         if f.endsWith(".nim") or f.endsWith(".nims"):
           let (mt, sz) = fileStamp(f)
           s.add ";" & f & ":" & $mt & ":" & $sz
     except OSError: discard
   $(hash(s) and 0xFFFFFFFFFFFF)
+
+proc plugStop(h: PlugHost, why = "off")
+
+proc plugMakeHosts() =
+  ## the processes the enabled plugins want: the NimScript ones together, each full-Nim (or alone) one by itself —
+  ## a process whose plugins did not change is kept (and keeps running)
+  var want: seq[(string, seq[string], bool)]
+  var shared: seq[string]
+  for p in plugs:
+    if not p.enabled: continue
+    if p.alone: want.add (p.id, @[p.id], p.full)
+    else: shared.add p.id
+  if shared.len > 0: want.insert((PlugShared, shared, false), 0)
+  var keep: seq[PlugHost]
+  for (n, ids, full) in want:
+    var found: PlugHost = nil
+    for h in plugHosts:
+      if h.name == n and h.ids == ids and h.full == full: found = h
+    keep.add (if found != nil: found
+              else: PlugHost(name: n, ids: ids, full: full, state: "off", fdIn: -1, fdOut: -1, fdErr: -1,
+                             pr: Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1)))
+  for h in plugHosts:
+    if h notin keep: plugStop(h, "off")
+  plugHosts = keep
 
 # ── registrations ──
 
@@ -191,8 +348,12 @@ proc regKey(r: PlugReg): string =
     of "vimMap": d{"mode"}.getStr & " " & d{"keys"}.getStr
     of "operator", "textObject": d{"keys"}.getStr
     of "ex": d{"name"}.getStr
-    of "formatter", "lsp": d{"lang"}.getStr.toLowerAscii
+    of "formatter", "lsp", "completion", "hover", "codeActions", "symbols": d{"lang"}.getStr.toLowerAscii
     of "language": d{"id"}.getStr
+    of "aiTool": d{"name"}.getStr
+    of "view", "viewClick": d{"title"}.getStr
+    of "snippet": d{"lang"}.getStr & " " & d{"trigger"}.getStr
+    of "setting": d{"key"}.getStr
     else: $r.cb)
 
 proc regByKey(key: string): int =
@@ -222,8 +383,26 @@ func vimKeysOf(keys: string): string =
   keys.multiReplace([("<leader>", " "), ("<Leader>", " "), ("<space>", " "), ("<Space>", " "), ("<cr>", "+"),
                      ("<CR>", "+"), ("<tab>", "\t"), ("<Tab>", "\t")])
 
+func plugToolName(plugin, name: string): string =
+  ## what the model calls a plugin's tool: plugin__<plugin>__<tool> (letters, digits, _ and -; 64 at most)
+  result = "plugin__"
+  for c in plugin & "__" & name:
+    result.add (if c.isAlphaNumeric or c in {'_', '-'}: c else: '_')
+  if result.len > 64: result = result[0 ..< 64]
+
+proc plugAiSchema(params: JsonNode): JsonNode =
+  ## a tool's arguments: a JSON schema as given, or its properties (every one of them required)
+  if params != nil and params.kind == JObject and params{"type"}.getStr == "object": return params
+  var req = newJArray()
+  var props = newJObject()
+  if params != nil and params.kind == JObject:
+    for k, v in params:
+      props[k] = v
+      if not v{"optional"}.getBool(false): req.add %k
+  %*{"type": "object", "properties": props, "required": req}
+
 proc plugApplyRegs() =
-  ## the registrations → the palette, keys, languages, formatters, servers, vim's tables, events, timers
+  ## the registrations → the palette, keys, languages, formatters, servers, providers, vim's tables, events, timers
   var keep: seq[Command]
   for c in commands:
     if c.name notin plugCmdNames: keep.add c
@@ -240,6 +419,10 @@ proc plugApplyRegs() =
   plugTextObjKeys.clear()
   plugExCmds.clear()
   plugLspCmds.setLen(0)
+  plugProviders.setLen(0)
+  plugSnippets.setLen(0)
+  plugAiTools.setLen(0)
+  var views: seq[PlugView]
   var timers: seq[PlugTimer]
   for r in plugRegs:
     let d = r.data
@@ -272,6 +455,26 @@ proc plugApplyRegs() =
           if p.id == r.plugin: dir = p.dir
         cmd = @[getAppFilename(), "--lsp-bridge", (if script.isAbsolute: script else: dir / script)]
       if cmd.len > 0: plugLspCmds.add (d{"lang"}.getStr.toLowerAscii, cmd)
+    of "completion", "hover", "codeActions", "symbols":
+      plugProviders.add (r.kind, d{"lang"}.getStr("*").toLowerAscii, key)
+    of "snippet":
+      plugSnippets.add (d{"lang"}.getStr("*").toLowerAscii, d{"trigger"}.getStr,
+                        (if d{"description"}.getStr.len > 0: d{"description"}.getStr else: r.plugin & " snippet"),
+                        d{"body"}.getStr)
+    of "aiTool":
+      plugAiTools.add PlugAiTool(name: plugToolName(r.plugin, d{"name"}.getStr), desc: d{"description"}.getStr,
+                                 plugin: r.plugin, key: key, schema: plugAiSchema(d{"params"}),
+                                 readOnly: d{"readOnly"}.getBool)
+    of "view":
+      var v = PlugView(plugin: r.plugin, title: d{"title"}.getStr, key: key, stale: true)
+      for old in plugViews:
+        if old.key == key:
+          v.items = old.items                # (shown until the new items come)
+      views.add v
+    of "setting":
+      let k = "plugins." & r.plugin & "." & d{"key"}.getStr
+      if d{"key"}.getStr.len > 0 and k notin setIndex and d{"default"} != nil:
+        defS("Plugins", k, d["default"], "(" & r.plugin & ") " & d{"description"}.getStr)
     of "event": plugEvts.add (d{"event"}.getStr, d{"pattern"}.getStr("*"), key)
     of "vimMap": plugVimMaps.add (d{"mode"}.getStr("n"), vimKeysOf(d{"keys"}.getStr), key)
     of "operator": plugOps.add (vimKeysOf(d{"keys"}.getStr), key)
@@ -285,6 +488,12 @@ proc plugApplyRegs() =
       timers.add PlugTimer(plugin: r.plugin, cb: r.cb, ms: max(100, d{"ms"}.getInt(1000)), repeat: d{"repeat"}.getBool,
                            due: getMonoTime() + initDuration(milliseconds = max(100, d{"ms"}.getInt(1000))))
     else: discard
+  # (a view's click: on the view)
+  for r in plugRegs:
+    if r.kind == "viewClick":
+      for v in views.mitems:
+        if v.plugin == r.plugin and v.title == r.data{"title"}.getStr: v.clickKey = regKey(r)
+  plugViews = views
   plugTimers = timers
   applyUserLanguages()
   # (a plugin's language server for its language: unless your "lsp" setting has one)
@@ -298,169 +507,264 @@ proc plugApplyRegs() =
       lspFailed.excl lang                  # (a file opened before the plugins ran found no server for it)
       for b in bufs:
         if b.lang == l and b.path.len > 0: lspAttach(b)
+  plugOutlines.clear()
+  plugOutlineAsked.clear()
   needRender = true
 
-proc plugEager(): bool =
-  ## must the host run from the start (it answers events, keeps time, formats, gives text objects)?
-  for r in plugRegs:
-    if r.kind in ["timer", "textObject"] or (r.kind == "formatter" and r.cb >= 0): return true
+proc plugRebuildRegs() =
+  ## every process's registrations together (a plugin that needs a newer ned: its registrations left out)
+  plugRegs.setLen(0)
+  for h in plugHosts:
+    for r in h.regs: plugRegs.add r
+  plugApplyRegs()
+
+proc plugEagerHost(h: PlugHost): bool =
+  ## must the process run from the start (it answers events, keeps time, formats, gives text objects, completes,
+  ## hovers, lists symbols, shows a view)?
+  for r in h.regs:
+    if r.kind in ["timer", "textObject", "completion", "hover", "symbols", "codeActions", "view"] or
+       (r.kind == "formatter" and r.cb >= 0): return true
     if r.kind == "event" and r.data{"event"}.getStr in ["startup", "open", "change", "beforeSave"]: return true
   false
 
 proc plugManifestFile(): string = plugCacheRoot() / "manifest.json"
 
-proc plugSaveManifest() =
+proc plugManifest(): JsonNode =
+  try:
+    result = parseFile(plugManifestFile())
+    if result.kind != JObject or result{"hosts"} == nil or result["hosts"].kind != JObject:
+      result = %*{"hosts": {}}
+  except CatchableError: result = %*{"hosts": {}}
+
+proc plugSaveManifest(h: PlugHost) =
   var a = newJArray()
-  for r in plugRegs: a.add %*{"plugin": r.plugin, "kind": r.kind, "cb": r.cb, "data": r.data}
+  for r in h.regs: a.add %*{"plugin": r.plugin, "kind": r.kind, "cb": r.cb, "data": r.data}
+  let m = plugManifest()
+  m["hosts"][h.name] = %*{"sig": h.sig, "regs": a}
   try:
     createDir(plugCacheRoot())
-    writeFile(plugManifestFile(), $(%*{"sig": phSig, "regs": a}))
+    writeFile(plugManifestFile(), $m)
   except CatchableError: discard
 
-proc plugLoadManifest(sig: string): bool =
-  ## the registrations the host made last time it ran these plugins: commands and keys at once, no host yet
-  try:
-    let j = parseFile(plugManifestFile())
-    if j{"sig"}.getStr != sig: return false
-    plugRegs.setLen(0)
-    for r in jitems(j{"regs"}):
-      plugRegs.add PlugReg(plugin: r{"plugin"}.getStr, kind: r{"kind"}.getStr, cb: r{"cb"}.getInt(-1), data: r{"data"})
-    true
-  except CatchableError: false
+proc plugLoadManifest(h: PlugHost): bool =
+  ## the registrations the process made last time it ran these plugins: commands and keys at once, no process yet
+  let e = plugManifest()["hosts"]{h.name}
+  if e == nil or e{"sig"}.getStr != h.sig: return false
+  h.regs.setLen(0)
+  for r in jitems(e{"regs"}):
+    h.regs.add PlugReg(plugin: r{"plugin"}.getStr, kind: r{"kind"}.getStr, cb: r{"cb"}.getInt(-1), data: r{"data"})
+  true
 
-# ── the host process ──
+# ── the processes ──
 
-proc plugSendRaw(j: JsonNode) =
-  if phIn < 0: return
-  phWbuf.add $j & "\n"
+proc plugSendRaw(h: PlugHost, j: JsonNode) =
+  if h.fdIn < 0: return
+  h.wbuf.add $j & "\n"
 
-proc plugFlush(block_ms = 0) =
-  ## what is waiting for the host, written (block_ms > 0: until it is all gone, that long at most)
+proc plugFlush(h: PlugHost, block_ms = 0) =
+  ## what is waiting for the process, written (block_ms > 0: until it is all gone, that long at most)
   let t0 = getMonoTime()
-  while phWbuf.len > 0 and phIn >= 0:
-    let n = posix.write(phIn, addr phWbuf[0], phWbuf.len)
+  while h.wbuf.len > 0 and h.fdIn >= 0:
+    let n = posix.write(h.fdIn, addr h.wbuf[0], h.wbuf.len)
     if n > 0:
-      phWbuf = phWbuf[n .. ^1]
+      h.wbuf = h.wbuf[n .. ^1]
       continue
     if n < 0 and errno in [EAGAIN, EINTR]:
       if block_ms <= 0 or msSince(t0) > block_ms: break
-      var pf = TPollfd(fd: phIn, events: POLLOUT)
+      var pf = TPollfd(fd: h.fdIn, events: POLLOUT)
       discard poll(addr pf, 1, 20)
       continue
-    phWbuf.setLen(0)                       # (the host is gone)
+    h.wbuf.setLen(0)                       # (the process is gone)
     break
 
-proc plugStop(why = "off") =
-  if phPr.pid > 0:
-    plugSendRaw(%*{"t": "quit"})
-    plugFlush(50)
-    discard posix.kill(Pid(-phPr.pid), SIGTERM)
-    discard waitProc(phPr, 150)
-  closeFd(phIn)
-  closeFd(phOut)
-  closeFd(phErr)
-  phIn = -1
-  phOut = -1
-  phErr = -1
-  phPr = Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1)
-  phRbuf.setLen(0)
-  phWbuf.setLen(0)
-  for rid, c in phCalls:
+proc plugStop(h: PlugHost, why = "off") =
+  if h.pr.pid > 0:
+    plugSendRaw(h, %*{"t": "quit"})
+    plugFlush(h, 50)
+    discard posix.kill(Pid(-h.pr.pid), SIGTERM)
+    discard waitProc(h.pr, 150)
+  closeFd(h.fdIn)
+  closeFd(h.fdOut)
+  closeFd(h.fdErr)
+  h.fdIn = -1
+  h.fdOut = -1
+  h.fdErr = -1
+  h.pr = Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1)
+  h.rbuf.setLen(0)
+  h.wbuf.setLen(0)
+  let calls = h.calls
+  h.calls.clear()
+  for rid, c in calls:
     if c.onDone != nil:
       try: c.onDone(nil, "the plugins stopped")
       except CatchableError: discard
-  phCalls.clear()
-  phState = why
+  if plugUiHost == h:
+    plugUi = (0, "")
+    plugUiHost = nil
+  h.state = why
   needRender = true
 
-proc plugHostSource(): string =
-  result = "# made by ned " & Version & ": your plugins (and the project's) in one process\nimport nedplugin\n"
-  for i, p in plugs:
-    if p.enabled: result.add "import " & escape(p.file) & " as nedPlug" & $i & "\n"
+proc plugStopAll() =
+  for h in plugHosts: plugStop(h)
+
+proc plugHostSource(h: PlugHost): string =
+  result = "# made by ned " & Version & ": " & (if h.name == PlugShared: "your NimScript plugins (and the project's)"
+                                                 else: "the plugin " & h.name) & " in one process\nimport nedplugin\n"
+  for i, id in h.ids:
+    let k = plugInfoOf(id)
+    if k >= 0: result.add "import " & escape(plugs[k].file) & " as nedPlug" & $i & "\n"
   result.add "nedRun()\n"
 
-proc plugNativeBin(): string = plugCacheRoot() / "native" / ("host-" & phSig)
-
-proc plugBuildNative() =
-  ## plugins.native: the host compiled (in the background; `nim e` until it is ready)
-  let src = plugCacheRoot() / "native" / ("host_" & phSig & ".nim")
-  let bin = plugNativeBin()
-  try:
-    createDir(parentDir(src))
-    writeFile(src, plugHostSource())
-  except CatchableError: return
-  let cmd = "nim c -d:release --hints:off --warnings:off --path:" & quoteShell(plugLibDir()) & " --nimcache:" &
-            quoteShell(plugCacheRoot() / "native" / "nimcache") & " -o:" & quoteShell(bin) & " " & quoteShell(src)
-  discard startJob(jkTool, cmd, plugCacheRoot(), proc(j: Job) =
-    if j.code == 0: plugLogAdd("ned", "native host built: the next start uses it")
-    else:
-      plugLogAdd("ned", "native host: the build failed (a plugin uses what only NimScript has?) — staying with nim e")
-      for l in j.output.splitLines:
-        if "Error" in l: plugLogAdd("ned", l))
-
-proc plugStart() =
-  ## the host for the enabled plugins (nothing when there are none)
-  if phPr.pid > 0: return
-  plugDiscover()
-  var any = false
-  for p in plugs:
-    if p.enabled: any = true
-  if not any or not plugsOn():
-    phState = "off"
-    return
-  phNative = sval("plugins.native").getBool(false)
-  phSig = plugSignature()
-  var argv: seq[string]
-  if phNative and fileExists(plugNativeBin()): argv = @[plugNativeBin()]
-  else:
-    if findExe("nim").len == 0:
-      phState = "failed: plugins need nim (Termux: pkg install nim)"
-      return
-    let hostFile = plugCacheRoot() / "host" / ("host_" & phSig & ".nims")
-    try:
-      createDir(parentDir(hostFile))
-      writeFile(hostFile, plugHostSource())
-    except CatchableError as e:
-      phState = "failed: " & e.msg
-      return
-    argv = @["nim", "e", "--hints:off", "--warnings:off", "--path:" & plugLibDir(), hostFile]
-    if phNative: plugBuildNative()
-  var dirs: seq[string]
-  for p in plugs:
-    if p.enabled: dirs.add p.id & "=" & p.dir
-  let saved = (getEnv("NED_PLUGIN_DIRS"), existsEnv("NED_PLUGIN_DIRS"))
-  putEnv("NED_PLUGIN_DIRS", dirs.join("\n"))
-  try:
-    let cwd = plugUserRoot()
-    createDir(cwd)
-    var p = spawnProc(argv, cwd, siPipe, erPipe, niceness = 5)
-    phPr = p
-    phIn = p.inFd
-    phOut = p.outFd
-    phErr = p.errFd
-    phPr.inFd = -1
-    phPr.outFd = -1
-    phPr.errFd = -1
-    setNonBlock(phIn); setNonBlock(phOut); setNonBlock(phErr)
-    phState = "starting"
-    phStartedAt = getMonoTime()
-    phLastUse = getMonoTime()
-    phErrTail.setLen(0)
-    plugNewRegs.setLen(0)
-  except CatchableError as e:
-    phState = "failed: " & e.msg
-  if saved[1]: putEnv("NED_PLUGIN_DIRS", saved[0]) else: delEnv("NED_PLUGIN_DIRS")
+proc plugBin(h: PlugHost): string = plugCacheRoot() / "native" / ("host-" & h.sig)
 
 proc plugOwnerOf(path: string): string =
   for p in plugs:
     if path == p.dir or path.startsWith(p.dir & "/"): return p.id
   ""
 
-proc plugHostDied() =
-  ## the host ended: a plugin that did not compile is left out (its error in Problems) and the rest start again
+proc plugCompileErrors(h: PlugHost, output: string): int =
+  ## a build's errors in the plugins' files → Problems (how many)
+  var errs: Table[string, seq[Diag]]
+  for l in output.splitLines:
+    let (ok, path, ln, c, sev, m) = parseErrLine(stripAnsi(l), plugUserRoot())
+    if ok and sev == 1:
+      let owner = plugOwnerOf(path)
+      if owner.len > 0:
+        errs.mgetOrPut(path, @[]).add Diag(line: ln, col: c, eline: ln, ecol: -1, sev: 1, msg: m,
+                                         src: "plugin " & owner)
+        plugLogAdd(owner, extractFilename(path) & ":" & $(ln + 1) & ": " & m)
+  for p, ds in errs:
+    diagsExt[p] = ds
+    inc result, ds.len
+  if errs.len > 0: rebuildProblems()
+
+proc plugStart(h: PlugHost)
+
+proc plugBuild(h: PlugHost, startAfter: bool) =
+  ## the process compiled (nim c, in the background): a full-Nim plugin before it can run; the NimScript plugins
+  ## (plugins.native) for the next start
+  if h.building: return
+  let sig = h.sig
+  let bin = plugBin(h)
+  let src = plugCacheRoot() / "native" / ("host_" & sig & ".nim")
+  if findExe("nim").len == 0:
+    if startAfter: h.state = "failed: building it needs nim (Termux: pkg install nim)"
+    return
+  try:
+    createDir(parentDir(src))
+    writeFile(src, plugHostSource(h))
+  except CatchableError as e:
+    if startAfter: h.state = "failed: " & e.msg
+    return
+  var dirs: seq[string]
+  for id in h.ids:
+    let k = plugInfoOf(id)
+    if k >= 0: dirs.add "--path:" & quoteShell(plugs[k].dir)
+  let cmd = "nim c -d:release --hints:off --warnings:off --path:" & quoteShell(plugLibDir()) & " " & dirs.join(" ") &
+            " --nimcache:" & quoteShell(plugCacheRoot() / "native" / ("nimcache-" & (if h.name == PlugShared: "shared"
+                                                                                     else: h.name))) &
+            " -o:" & quoteShell(bin) & " " & quoteShell(src)
+  h.building = true
+  if startAfter:
+    h.state = "building"
+    h.startedAt = getMonoTime()
+  let t0 = getMonoTime()
+  let j = startJob(jkTool, cmd, plugCacheRoot(), proc(j: Job) =
+    h.building = false
+    try: removeFile(src)
+    except CatchableError: discard
+    if h.sig != sig: return                  # (its plugins changed meanwhile)
+    if j.code == 0 and fileExists(bin):
+      plugLogAdd(plugLabel(h), "compiled in " & $(msSince(t0) div 1000) & " s" &
+                 (if startAfter: "" else: " — the next start uses it"))
+      if startAfter and h.state == "building":
+        h.state = "off"
+        plugStart(h)
+    else:
+      try: writeFile(bin & ".failed", "")
+      except CatchableError: discard
+      let n = plugCompileErrors(h, j.output)
+      if startAfter:
+        plugStop(h, "failed: it does not compile" & (if n > 0: " (Problems)" else: ""))
+        for l in j.output.splitLines:
+          if "Error" in l: plugLogAdd(plugLabel(h), stripAnsi(l))
+        toast("The plugin " & h.name & " does not compile — its errors are in Problems", 2)
+        let q = h.queue
+        h.queue.setLen(0)
+        for x in q:
+          if x.onDone != nil: x.onDone(nil, h.state)
+      else:
+        plugLogAdd(plugLabel(h), "the compiled process could not be built (a plugin uses what only NimScript has?)" &
+                   " — staying with nim e"))
+  if j == nil:
+    h.building = false
+    if startAfter: h.state = "failed: could not run nim c"
+
+proc plugStart(h: PlugHost) =
+  ## the process (nothing when its plugins are off; a full-Nim plugin is built first)
+  if h.pr.pid > 0 or h.building: return
+  if not plugsOn():
+    h.state = "off"
+    return
+  h.sig = plugSignature(h)
+  let bin = plugBin(h)
+  var argv: seq[string]
+  h.native = false
+  if fileExists(bin):
+    argv = @[bin]
+    h.native = true
+  elif h.full:
+    if fileExists(bin & ".failed") and h.state.startsWith("failed"): return
+    plugBuild(h, true)
+    return
+  else:
+    if findExe("nim").len == 0:
+      h.state = "failed: plugins need nim (Termux: pkg install nim)"
+      return
+    let hostFile = plugCacheRoot() / "host" / ("host_" & h.sig & ".nims")
+    try:
+      createDir(parentDir(hostFile))
+      writeFile(hostFile, plugHostSource(h))
+    except CatchableError as e:
+      h.state = "failed: " & e.msg
+      return
+    argv = @["nim", "e", "--hints:off", "--warnings:off", "--path:" & plugLibDir(), hostFile]
+    # (compiled for the next start: always with plugins.native on; with auto, a set of plugins run before as they are)
+    let mode = plugNativeMode()
+    let seen = plugManifest()["hosts"]{h.name}{"sig"}.getStr == h.sig
+    if mode == "on" or (mode == "auto" and seen and not fileExists(bin & ".failed")): plugBuild(h, false)
+  var dirs: seq[string]
+  for id in h.ids:
+    let k = plugInfoOf(id)
+    if k >= 0: dirs.add id & "=" & plugs[k].dir
+  let saved = (getEnv("NED_PLUGIN_DIRS"), existsEnv("NED_PLUGIN_DIRS"))
+  putEnv("NED_PLUGIN_DIRS", dirs.join("\n"))
+  try:
+    let cwd = plugUserRoot()
+    createDir(cwd)
+    var p = spawnProc(argv, cwd, siPipe, erPipe, niceness = 5)
+    h.pr = p
+    h.fdIn = p.inFd
+    h.fdOut = p.outFd
+    h.fdErr = p.errFd
+    h.pr.inFd = -1
+    h.pr.outFd = -1
+    h.pr.errFd = -1
+    setNonBlock(h.fdIn); setNonBlock(h.fdOut); setNonBlock(h.fdErr)
+    h.state = "starting"
+    h.startedAt = getMonoTime()
+    h.lastUse = getMonoTime()
+    h.errTail.setLen(0)
+    h.newRegs.setLen(0)
+  except CatchableError as e:
+    h.state = "failed: " & e.msg
+  if saved[1]: putEnv("NED_PLUGIN_DIRS", saved[0]) else: delEnv("NED_PLUGIN_DIRS")
+
+proc plugHostDied(h: PlugHost) =
+  ## the process ended: a plugin that did not compile is left out (its error in Problems) and the rest start again
   var culprit = ""
   var errs: Table[string, seq[Diag]]
-  for l in phErrTail:
+  for l in h.errTail:
     let (ok, path, ln, c, sev, m) = parseErrLine(l, plugUserRoot())
     if ok and sev == 1:
       let owner = plugOwnerOf(path)
@@ -470,122 +774,154 @@ proc plugHostDied() =
                                          src: "plugin " & owner)
   for p, ds in errs: diagsExt[p] = ds
   if errs.len > 0: rebuildProblems()
-  let wasStarting = phState == "starting"
-  let last = if phErrTail.len > 0: phErrTail[^1] else: "it exited"
-  plugStop("failed: " & last)
-  if culprit.len > 0:
-    phFailedOnce.incl culprit
+  let wasStarting = h.state == "starting"
+  let last = if h.errTail.len > 0: h.errTail[^1] else: "it exited"
+  plugStop(h, "failed: " & last)
+  if culprit.len > 0 and h.name == PlugShared and h.ids.len > 1:
+    plugFailedOnce.incl culprit
     plugLogAdd(culprit, "left out: " & last)
     toast("Plugin " & culprit & " has an error — the others run without it (Plugins dock)", 2)
-    if wasStarting: plugStart()          # (the others)
+    if wasStarting:
+      # (the others, in a process of their own)
+      plugDiscover()
+      plugMakeHosts()
+      for x in plugHosts:
+        if x.state == "off":
+          discard plugLoadManifest(x)
+          plugStart(x)
+      plugRebuildRegs()
+  elif culprit.len > 0:
+    plugFailedOnce.incl culprit
+    plugLogAdd(culprit, "left out: " & last)
+    toast("Plugin " & culprit & " has an error — it is left out (Plugins dock)", 2)
+    plugDiscover()                             # (its process goes: it is off until its file changes)
+    plugMakeHosts()
+    plugRebuildRegs()
   elif wasStarting:
-    toast("The plugins could not start: " & last, 1)
+    toast((if h.name == PlugShared: "The plugins could not start: " else: "The plugin " & h.name & " could not start: ") &
+          last, 1)
+  let q = h.queue
+  h.queue.setLen(0)
+  for x in q:
+    if x.onDone != nil: x.onDone(nil, h.state)
 
-proc plugLineOut(line: string)
+proc plugLineOut(h: PlugHost, line: string)
 
-proc plugReadOut() =
+proc plugReadOut(h: PlugHost) =
   var tmp: array[65536, char]
   var gone = false
-  while true:
-    let n = posix.read(phOut, addr tmp[0], tmp.len)
+  while h.fdOut >= 0:
+    let n = posix.read(h.fdOut, addr tmp[0], tmp.len)
     if n > 0:
-      let old = phRbuf.len
-      phRbuf.setLen(old + n)
-      copyMem(addr phRbuf[old], addr tmp[0], n)
+      let old = h.rbuf.len
+      h.rbuf.setLen(old + n)
+      copyMem(addr h.rbuf[old], addr tmp[0], n)
     elif n == 0:
       gone = true
       break
     else: break
   while true:
-    let nl = phRbuf.find('\n')
+    let nl = h.rbuf.find('\n')
     if nl < 0: break
-    let line = phRbuf[0 ..< nl]
-    phRbuf = phRbuf[nl + 1 .. ^1]
-    plugLineOut(line)
-  if gone and phPr.pid > 0: plugHostDied()
+    let line = h.rbuf[0 ..< nl]
+    h.rbuf = h.rbuf[nl + 1 .. ^1]
+    plugLineOut(h, line)
+  if gone and h.pr.pid > 0: plugHostDied(h)
 
-proc plugReadErr() =
+proc plugReadErr(h: PlugHost) =
   var tmp: array[16384, char]
-  while phErr >= 0:
-    let n = posix.read(phErr, addr tmp[0], tmp.len)
+  while h.fdErr >= 0:
+    let n = posix.read(h.fdErr, addr tmp[0], tmp.len)
     if n <= 0: break
     var chunk = newString(n)
     copyMem(addr chunk[0], addr tmp[0], n)
-    let parts = (phErrPart & chunk).split('\n')
+    let parts = (h.errPart & chunk).split('\n')
     for k in 0 ..< parts.high:
       let l = stripAnsi(parts[k]).strip
       if l.len == 0: continue
-      phErrTail.add l
+      h.errTail.add l
       let (ok, path, _, _, _, _) = parseErrLine(l, plugUserRoot())
-      plugLogAdd((if ok and plugOwnerOf(path).len > 0: plugOwnerOf(path) elif phRunning.len > 0: phRunning else: "host"), l)
-    phErrPart = parts[^1]
-    if phErrTail.len > 40: phErrTail = phErrTail[^30 .. ^1]
+      plugLogAdd((if ok and plugOwnerOf(path).len > 0: plugOwnerOf(path) elif h.running.len > 0: h.running
+                  else: plugLabel(h)), l)
+    h.errPart = parts[^1]
+    if h.errTail.len > 40: h.errTail = h.errTail[^30 .. ^1]
 
 # ── calling the plugins ──
 
-proc plugSendCall(cb: int, plugin: string, args: JsonNode, onDone: proc(v: JsonNode, err: string) {.closure.}): int =
-  inc phNextRid
-  result = phNextRid
-  phCalls[result] = PlugCall(plugin: plugin, sentAt: getMonoTime(), onDone: onDone)
-  plugSendRaw(%*{"t": "call", "cb": cb, "rid": result, "args": args})
-  plugFlush()
-  phLastUse = getMonoTime()
+proc plugSendCall(h: PlugHost, cb: int, plugin: string, args: JsonNode,
+                  onDone: proc(v: JsonNode, err: string) {.closure.}): int =
+  inc h.nextRid
+  result = h.nextRid
+  h.calls[result] = PlugCall(plugin: plugin, sentAt: getMonoTime(), onDone: onDone)
+  plugSendRaw(h, %*{"t": "call", "cb": cb, "rid": result, "args": args})
+  plugFlush(h)
+  h.lastUse = getMonoTime()
+
+proc plugKeyHost(key: string): PlugHost =
+  let i = regByKey(key)
+  plugHostOf(if i >= 0: plugRegs[i].plugin else: key.split('|')[0])
 
 proc plugInvoke(key: string, args: JsonNode, onDone: proc(v: JsonNode, err: string) {.closure.}) =
-  ## call a registration's callback (the host starts first when it is not running: the call waits for it)
-  if phState == "ready":
+  ## call a registration's callback (its process starts first when it is not running: the call waits for it)
+  let h = plugKeyHost(key)
+  if h == nil:
+    if onDone != nil: onDone(nil, "the plugin is not running")
+    return
+  if h.state == "ready":
     let i = regByKey(key)
     if i < 0 or plugRegs[i].cb < 0:
       if onDone != nil: onDone(nil, "no such plugin callback")
       return
-    discard plugSendCall(plugRegs[i].cb, plugRegs[i].plugin, args, onDone)
+    discard plugSendCall(h, plugRegs[i].cb, plugRegs[i].plugin, args, onDone)
     return
-  phQueue.add PlugQueued(key: key, args: args, onDone: onDone)
-  if phState != "starting":
-    plugStart()
-    if phState != "starting":
-      let q = phQueue
-      phQueue.setLen(0)
+  h.queue.add PlugQueued(key: key, args: args, onDone: onDone)
+  if h.state notin ["starting", "building"]:
+    plugStart(h)
+    if h.state notin ["starting", "building"]:
+      let q = h.queue
+      h.queue.setLen(0)
       for x in q:
-        if x.onDone != nil: x.onDone(nil, phState)
-      if phState.startsWith("failed"): warn("Plugins: " & phState[8 .. ^1])
+        if x.onDone != nil: x.onDone(nil, h.state)
+      if h.state.startsWith("failed"): warn("Plugins: " & h.state[8 .. ^1])
 
-proc plugHandle(j: JsonNode)
+proc plugHandle(h: PlugHost, j: JsonNode)
 
-proc plugWaitFor(done: proc(): bool, ms: int): bool =
-  ## the host's messages until done() (or ms): what ned waits for before it goes on (a save, a format, a text object)
+proc plugWaitFor(h: PlugHost, done: proc(): bool, ms: int): bool =
+  ## the process's messages until done() (or ms): what ned waits for before it goes on (a save, a format …)
   let t0 = getMonoTime()
   inc plugSyncDepth
   defer: dec plugSyncDepth
   while not done():
-    if phOut < 0: return false
+    if h.fdOut < 0: return false
     let left = ms - int(msSince(t0))
     if left <= 0: return false
-    plugFlush(left)
-    var pf = [TPollfd(fd: phOut, events: POLLIN), TPollfd(fd: phErr, events: POLLIN)]
+    plugFlush(h, left)
+    var pf = [TPollfd(fd: h.fdOut, events: POLLIN), TPollfd(fd: h.fdErr, events: POLLIN)]
     let r = poll(addr pf[0], 2, min(left, 50).cint)
     if r > 0:
-      if (pf[1].revents and (POLLIN or POLLHUP)) != 0: plugReadErr()
-      if (pf[0].revents and (POLLIN or POLLHUP or POLLERR)) != 0: plugReadOut()
+      if (pf[1].revents and (POLLIN or POLLHUP)) != 0: plugReadErr(h)
+      if (pf[0].revents and (POLLIN or POLLHUP or POLLERR)) != 0: plugReadOut(h)
   true
 
 proc plugTimeout(): int = max(200, sval("plugins.timeoutMs").getInt(1500))
 
 proc plugCallSync(key: string, args: JsonNode, ms = -1): (bool, JsonNode, string) =
-  ## call and wait for the answer (only when the host runs: a start takes a second or more — then: not now)
-  if phState != "ready":
-    if phState != "starting": plugStart()
+  ## call and wait for the answer (only when the process runs: a start takes a second or more — then: not now)
+  let h = plugKeyHost(key)
+  if h == nil: return (false, nil, "the plugin is not running")
+  if h.state != "ready":
+    if h.state notin ["starting", "building"]: plugStart(h)
     return (false, nil, "the plugins are starting")
   let i = regByKey(key)
   if i < 0 or plugRegs[i].cb < 0: return (false, nil, "no such plugin callback")
   var got = false
   var res: JsonNode = nil
   var err = ""
-  discard plugSendCall(plugRegs[i].cb, plugRegs[i].plugin, args, proc(v: JsonNode, e: string) =
+  discard plugSendCall(h, plugRegs[i].cb, plugRegs[i].plugin, args, proc(v: JsonNode, e: string) =
     got = true
     res = v
     err = e)
-  if not plugWaitFor(proc(): bool = got, (if ms > 0: ms else: plugTimeout())):
+  if not plugWaitFor(h, proc(): bool = got, (if ms > 0: ms else: plugTimeout())):
     plugLogAdd(plugRegs[i].plugin, "no answer in " & $(if ms > 0: ms else: plugTimeout()) & " ms (plugins.timeoutMs)")
     return (false, nil, "no answer in time")
   (err.len == 0, res, err)
@@ -605,17 +941,19 @@ proc plugMatches(pattern: string, b: Buffer): bool =
 proc plugEventArgs(b: Buffer): JsonNode =
   %*{"buf": b.id, "path": b.path, "lang": (if b.lang != nil: b.lang.id else: "")}
 
-proc plugFire(event: string, b: Buffer) =
+proc plugFire(event: string, b: Buffer, only: PlugHost = nil) =
   if plugEvts.len == 0 or b == nil or plugSilentSave: return
   for (ev, pat, key) in plugEvts:
-    if ev == event and plugMatches(pat, b): plugInvoke(key, plugEventArgs(b))
+    if ev == event and plugMatches(pat, b):
+      if only != nil and plugKeyHost(key) != only: continue
+      plugInvoke(key, plugEventArgs(b))
 
-# ── the API: what the host asks of ned ──
+# ── the API: what the plugins ask of ned ──
 
-proc plugAnswer(id: int, v: JsonNode, err = "") =
-  if err.len > 0: plugSendRaw(%*{"t": "res", "id": id, "err": err})
-  else: plugSendRaw(%*{"t": "res", "id": id, "value": (if v == nil: newJNull() else: v)})
-  plugFlush()
+proc plugAnswer(h: PlugHost, id: int, v: JsonNode, err = "") =
+  if err.len > 0: plugSendRaw(h, %*{"t": "res", "id": id, "err": err})
+  else: plugSendRaw(h, %*{"t": "res", "id": id, "value": (if v == nil: newJNull() else: v)})
+  plugFlush(h)
 
 proc jPos(p: Pos): JsonNode = %*{"line": p.line, "col": p.col}
 proc posOf(j: JsonNode): Pos = Pos(line: j{"line"}.getInt, col: j{"col"}.getInt)
@@ -630,12 +968,12 @@ proc plugSetting(plugin, key: string): JsonNode =
   if all != nil and all.kind == JObject and all{plugin} != nil and all[plugin].kind == JObject and all[plugin].hasKey(key):
     return all[plugin][key]
 
-proc plugMarkEdit(rid: int, b: Buffer) =
+proc plugMarkEdit(h: PlugHost, rid: int, b: Buffer) =
   ## the first edit of a call in a buffer: where its undo step starts
-  if rid notin phCalls: return
-  for (id, _) in phCalls[rid].marks:
+  if rid notin h.calls: return
+  for (id, _) in h.calls[rid].marks:
     if id == b.id: return
-  phCalls[rid].marks.add (b.id, b.undoStack.len)
+  h.calls[rid].marks.add (b.id, b.undoStack.len)
 
 proc plugDecorSet(b: Buffer, plugin: string, d: PlugDecor) =
   var x = d
@@ -643,41 +981,64 @@ proc plugDecorSet(b: Buffer, plugin: string, d: PlugDecor) =
   plugDecor.mgetOrPut(plugDecorKey(b), @[]).add x
   needRender = true
 
-proc plugApi(j: JsonNode) =
+proc plugOutput(plugin, text: string) =
+  ## a plugin's lines in the Output panel (file:line in them can be clicked)
+  for l in text.splitLines:
+    var pl = PanelLine(text: plugin & " │ " & l, line: -1)
+    let (ok, path, ln, c, sev, _) = parseErrLine(l, rootDir)
+    if ok:
+      pl.path = path
+      pl.line = ln
+      pl.col = c
+      pl.sev = sev
+    addPanelLine(pl)
+
+proc plugTerminal(cmd, dir: string) =
+  ## a command in the integrated terminal (a new one when the current one is busy)
+  openTerminal()
+  var t = curTermObj()
+  if t == nil: return
+  if t.cmds.len > 0 and t.cmds[^1].ran and t.cmds[^1].endRow < 0:
+    newTerminal()
+    t = curTermObj()
+  termRunText(t, (if dir.len > 0: "cd " & quoteShell(dir) & " && " else: "") & cmd)
+
+proc plugApi(h: PlugHost, j: JsonNode) =
   let id = j{"id"}.getInt
   let fn = j{"fn"}.getStr
   let a = j{"args"}
   let plugin = j{"plugin"}.getStr
   let rid = j{"rid"}.getInt
-  phLastUse = getMonoTime()
+  h.lastUse = getMonoTime()
   let b = if a != nil and a.hasKey("buf"): bufById(a["buf"].getInt) else: nil
+  template answer(v: JsonNode, err = "") = plugAnswer(h, id, v, err)
   template needBuf() =
     if b == nil:
-      plugAnswer(id, nil, "no such buffer (it was closed?)")
+      answer(nil, "no such buffer (it was closed?)")
       return
   template rng(n: JsonNode): (Pos, Pos) =
     (b.clampPos(posOf(n{"start"})), b.clampPos(posOf(n{"stop"})))
   try:
     case fn
-    of "current": plugAnswer(id, %buf().id)
-    of "root": plugAnswer(id, %rootDir)
+    of "current": answer(%buf().id)
+    of "root": answer(%rootDir)
     of "open":
       var p = a{"path"}.getStr
       if p.len > 0 and not p.isAbsolute: p = rootDir / p
       let nb = openFile(p, a{"line"}.getInt(-1), a{"col"}.getInt(-1))
-      plugAnswer(id, %(if nb == nil: -1 else: nb.id))
+      answer(%(if nb == nil: -1 else: nb.id))
     of "buffers":
       var arr = newJArray()
       for x in bufs:
         if not x.isWelcome(): arr.add %x.id
-      plugAnswer(id, arr)
-    of "path": needBuf(); plugAnswer(id, %b.path)
-    of "lang": needBuf(); plugAnswer(id, %(if b.lang != nil: b.lang.id else: ""))
-    of "lineCount": needBuf(); plugAnswer(id, %b.lines.len)
+      answer(arr)
+    of "path": needBuf(); answer(%b.path)
+    of "lang": needBuf(); answer(%(if b.lang != nil: b.lang.id else: ""))
+    of "lineCount": needBuf(); answer(%b.lines.len)
     of "line":
       needBuf()
       let l = a{"line"}.getInt
-      plugAnswer(id, %(if l >= 0 and l < b.lines.len: b.lines[l] else: ""))
+      answer(%(if l >= 0 and l < b.lines.len: b.lines[l] else: ""))
     of "lines":
       needBuf()
       let f = clamp(a{"first"}.getInt, 0, b.lines.high)
@@ -685,78 +1046,79 @@ proc plugApi(j: JsonNode) =
       if l < 0 or l > b.lines.high: l = b.lines.high
       var arr = newJArray()
       for i in f .. l: arr.add %b.lines[i]
-      plugAnswer(id, arr)
-    of "text": needBuf(); plugAnswer(id, %b.allText)
+      answer(arr)
+    of "text": needBuf(); answer(%b.allText)
     of "textIn":
       needBuf()
       let (x, y) = rng(a{"range"})
-      plugAnswer(id, %b.getText(x, y))
-    of "dirty": needBuf(); plugAnswer(id, %b.dirty)
-    of "indent": needBuf(); plugAnswer(id, %b.indent)
-    of "lineComment": needBuf(); plugAnswer(id, %(if b.lang != nil: b.lang.lineComment else: ""))
-    of "wordAt": needBuf(); plugAnswer(id, %b.wordAt(b.clampPos(posOf(a{"pos"}))))
-    of "cursor": needBuf(); plugAnswer(id, jPos(b.primary.head))
+      answer(%b.getText(x, y))
+    of "dirty": needBuf(); answer(%b.dirty)
+    of "indent": needBuf(); answer(%b.indent)
+    of "lineComment": needBuf(); answer(%(if b.lang != nil: b.lang.lineComment else: ""))
+    of "wordAt": needBuf(); answer(%b.wordAt(b.clampPos(posOf(a{"pos"}))))
+    of "cursor": needBuf(); answer(jPos(b.primary.head))
     of "selection":
       needBuf()
       let (x, y) = b.primary.range
-      plugAnswer(id, %*{"start": jPos(x), "stop": jPos(y)})
+      answer(%*{"start": jPos(x), "stop": jPos(y)})
     of "selections":
       needBuf()
       var arr = newJArray()
       for c in b.cursors:
         let (x, y) = c.range
         arr.add %*{"start": jPos(x), "stop": jPos(y)}
-      plugAnswer(id, arr)
+      answer(arr)
     of "setText":
       needBuf()
-      if not b.canEdit(): (plugAnswer(id, nil, "the file cannot be changed"); return)
-      plugMarkEdit(rid, b)
+      if not b.canEdit(): (answer(nil, "the file cannot be changed"); return)
+      plugMarkEdit(h, rid, b)
       b.setTextMinimal(a{"text"}.getStr)
       needRender = true
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "replace":
       needBuf()
-      if not b.canEdit(): (plugAnswer(id, nil, "the file cannot be changed"); return)
-      plugMarkEdit(rid, b)
+      if not b.canEdit(): (answer(nil, "the file cannot be changed"); return)
+      plugMarkEdit(h, rid, b)
       let (x, y) = rng(a{"range"})
       b.beginEdit()
       discard b.replaceText(x, y, a{"text"}.getStr)
       b.endEdit()
       needRender = true
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "setCursor":
       needBuf()
       b.setSingle(b.clampPos(posOf(a{"pos"})))
       needRender = true
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "select":
       needBuf()
       let (x, y) = rng(a{"range"})
       b.setSingle(y, x)
       needRender = true
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "save":
       needBuf()
       plugSilentSave = true
       let ok = b.saveBuffer()
       plugSilentSave = false
-      plugAnswer(id, %ok)
+      answer(%ok)
     of "message":
       if a{"level"}.getStr == "warn": warn(a{"text"}.getStr) else: info(a{"text"}.getStr)
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "toast":
       toast(a{"text"}.getStr, 3)
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "log":
       plugLogAdd(plugin, a{"text"}.getStr)
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "pick", "ask", "confirm":
       if plugSyncDepth > 0 or plugUi[0] != 0:
-        # (ned waits for this plugin — a save, a format — or already asks you something: not now)
+        # (ned waits for a plugin — a save, a format — or already asks you something: not now)
         plugLogAdd(plugin, fn & ": not while ned waits for the plugin (an event before saving, a formatter …)")
-        plugAnswer(id, (if fn == "pick": %(-1) elif fn == "ask": %"" else: %false))
+        answer((if fn == "pick": %(-1) elif fn == "ask": %"" else: %false))
         return
       plugUi = (id, fn)
+      plugUiHost = h
       case fn
       of "pick":
         var items: seq[(string, string, Action)]
@@ -767,9 +1129,10 @@ proc plugApi(j: JsonNode) =
           let idx = k
           capture idx:
             items.add act(x.getStr, (if idx < dets.len: dets[idx] else: ""), proc() =
-              if plugUi[0] == id:
+              if plugUi[0] == id and plugUiHost == h:
                 plugUi = (0, "")
-                plugAnswer(id, %idx))
+                plugUiHost = nil
+                plugAnswer(h, id, %idx))
           inc k
         plugUiTitle = a{"title"}.getStr
         openActions(plugUiTitle, items)
@@ -777,12 +1140,13 @@ proc plugApi(j: JsonNode) =
         openPrompt(pPluginAsk, a{"prompt"}.getStr, a{"default"}.getStr)
       else:
         askConfirm(a{"text"}.getStr & " (y/n)", proc(c: char) =
-          if plugUi[0] == id:
+          if plugUi[0] == id and plugUiHost == h:
             plugUi = (0, "")
-            plugAnswer(id, %(c in {'y', 'Y'})))
+            plugUiHost = nil
+            plugAnswer(h, id, %(c in {'y', 'Y'})))
     of "runCommand":
       let n = a{"name"}.getStr
-      plugAnswer(id, %(cmdByName(n) >= 0))
+      answer(%(cmdByName(n) >= 0))
       if cmdByName(n) >= 0: runCmd(n)
     of "problems":
       needBuf()
@@ -803,23 +1167,23 @@ proc plugApi(j: JsonNode) =
       if keepDs.len > 0: diagsExt[key] = keepDs else: diagsExt.del key
       rebuildProblems()
       needRender = true
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "sign":
       needBuf()
       let t = a{"text"}.getStr
       plugDecorSet(b, plugin, PlugDecor(kind: 0, line: a{"line"}.getInt, text: (if t.len > 0: t[0 ..< min(t.len, runeLen(t[0]))] else: "•"),
                                         color: a{"color"}.getStr))
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "vtext":
       needBuf()
       plugDecorSet(b, plugin, PlugDecor(kind: 1, line: a{"line"}.getInt, text: a{"text"}.getStr, color: a{"color"}.getStr))
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "highlight":
       needBuf()
       let (x, y) = rng(a{"range"})
       plugDecorSet(b, plugin, PlugDecor(kind: 2, line: x.line, col: x.col, eline: y.line, ecol: y.col,
                                         color: a{"color"}.getStr))
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "clearDecorations":
       needBuf()
       let k = plugDecorKey(b)
@@ -828,7 +1192,7 @@ proc plugApi(j: JsonNode) =
         if d.plugin != plugin: keepD.add d
       if keepD.len > 0: plugDecor[k] = keepD else: plugDecor.del k
       needRender = true
-      plugAnswer(id, newJNull())
+      answer(newJNull())
     of "status":
       var items: seq[(string, string)]
       for (p, t) in plugStatusItems:
@@ -836,32 +1200,55 @@ proc plugApi(j: JsonNode) =
       if a{"text"}.getStr.len > 0: items.add (plugin, a{"text"}.getStr)
       plugStatusItems = items
       needRender = true
-      plugAnswer(id, newJNull())
-    of "setting": plugAnswer(id, plugSetting(plugin, a{"key"}.getStr))
+      answer(newJNull())
+    of "progress":
+      var items: seq[(string, string, int)]
+      for x in plugProgress:
+        if x[0] != plugin: items.add x
+      if a{"text"}.getStr.len > 0: items.add (plugin, a{"text"}.getStr, clamp(a{"percent"}.getInt(-1), -1, 100))
+      plugProgress = items
+      needRender = true
+      answer(newJNull())
+    of "output":
+      plugOutput(plugin, a{"text"}.getStr)
+      answer(newJNull())
+    of "showOutput":
+      setPanel(pkOutput)
+      answer(newJNull())
+    of "terminal":
+      let d = a{"dir"}.getStr
+      plugTerminal(a{"cmd"}.getStr, (if d.len > 0 and not d.isAbsolute: rootDir / d else: d))
+      answer(newJNull())
+    of "refreshView":
+      for v in plugViews.mitems:
+        if v.plugin == plugin and v.title == a{"title"}.getStr: v.stale = true
+      needRender = true
+      answer(newJNull())
+    of "setting": answer(plugSetting(plugin, a{"key"}.getStr))
     of "dataDir":
       let d = plugDataRoot() / plugin
       createDir(d)
-      plugAnswer(id, %d)
+      answer(%d)
     of "pluginDir":
       var d = ""
       for p in plugs:
         if p.id == plugin: d = p.dir
-      plugAnswer(id, %d)
+      answer(%d)
     of "stopTimer":
       let cb = a{"cb"}.getInt
       var keepT: seq[PlugTimer]
       for t in plugTimers:
         if not (t.cb == cb and t.plugin == plugin): keepT.add t
       plugTimers = keepT
-      plugAnswer(id, newJNull())
-    else: plugAnswer(id, nil, "ned has no " & fn)
+      answer(newJNull())
+    else: answer(nil, "ned has no " & fn)
   except CatchableError as e:
-    plugAnswer(id, nil, e.msg)
+    plugAnswer(h, id, nil, e.msg)
 
-proc plugCallDone(rid: int, v: JsonNode, err: string) =
-  if rid notin phCalls: return
-  let c = phCalls[rid]
-  phCalls.del rid
+proc plugCallDone(h: PlugHost, rid: int, v: JsonNode, err: string) =
+  if rid notin h.calls: return
+  let c = h.calls[rid]
+  h.calls.del rid
   for (bid, mark) in c.marks:
     let b = bufById(bid)
     if b != nil: b.mergeUndo(mark)          # (all its edits: one undo step)
@@ -872,52 +1259,65 @@ proc plugCallDone(rid: int, v: JsonNode, err: string) =
     try: c.onDone(v, err)
     except CatchableError as e: internalError("plugin answer", e)
 
-proc plugReady() =
-  phState = "ready"
-  plugRegs = plugNewRegs
-  plugNewRegs.setLen(0)
-  plugApplyRegs()
-  plugSaveManifest()
-  plugLogAdd("ned", "plugins ready in " & $msSince(phStartedAt) & " ms" & (if phNative and fileExists(plugNativeBin()):
-             " (native)" else: " (nim e)"))
+proc plugReady(h: PlugHost) =
+  h.state = "ready"
+  h.regs = h.newRegs
+  h.newRegs.setLen(0)
+  # (a plugin that needs a newer ned — said in a way its source did not show: its registrations left out)
+  var tooNew: seq[string]
+  for r in h.regs:
+    if r.kind == "requires" and not plugNeedsOk(r.data{"spec"}.getStr, Version):
+      tooNew.add r.plugin
+      plugLogAdd(r.plugin, "left out: it needs ned " & r.data{"spec"}.getStr & " (this is " & Version & ")")
+      let k = plugInfoOf(r.plugin)
+      if k >= 0: plugs[k].err = "it needs ned " & r.data{"spec"}.getStr & " (this is " & Version & ")"
+  if tooNew.len > 0:
+    var keep: seq[PlugReg]
+    for r in h.regs:
+      if r.plugin notin tooNew: keep.add r
+    h.regs = keep
+  plugRebuildRegs()
+  plugSaveManifest(h)
+  plugLogAdd(plugLabel(h), "ready in " & $msSince(h.startedAt) & " ms" & (if h.native: " (compiled)" else: " (nim e)"))
   # the calls that waited for it
-  let q = phQueue
-  phQueue.setLen(0)
+  let q = h.queue
+  h.queue.setLen(0)
   for x in q:
     let i = regByKey(x.key)
-    if i >= 0 and plugRegs[i].cb >= 0: discard plugSendCall(plugRegs[i].cb, plugRegs[i].plugin, x.args, x.onDone)
+    if i >= 0 and plugRegs[i].cb >= 0: discard plugSendCall(h, plugRegs[i].cb, plugRegs[i].plugin, x.args, x.onDone)
     elif x.onDone != nil: x.onDone(nil, "the plugin has no such callback now")
 
-proc plugHandle(j: JsonNode) =
+proc plugHandle(h: PlugHost, j: JsonNode) =
   case j{"t"}.getStr
   of "reg":
     let r = PlugReg(plugin: j{"plugin"}.getStr, kind: j{"kind"}.getStr, cb: j{"cb"}.getInt(-1), data: j)
-    if phState == "ready":
+    if h.state == "ready":
       # (registered later — a timer started in a command): at once
-      plugRegs.add r
+      h.regs.add r
       if r.kind == "timer":
+        plugRegs.add r
         plugTimers.add PlugTimer(plugin: r.plugin, cb: r.cb, ms: max(100, j{"ms"}.getInt(1000)), repeat: j{"repeat"}.getBool,
                                  due: getMonoTime() + initDuration(milliseconds = max(100, j{"ms"}.getInt(1000))))
-      else: plugApplyRegs()
-    else: plugNewRegs.add r
-  of "ready": plugReady()
-  of "api": plugApi(j)
-  of "ret": plugCallDone(j{"rid"}.getInt, j{"value"}, j{"err"}.getStr)
+      else: plugRebuildRegs()
+    else: h.newRegs.add r
+  of "ready": plugReady(h)
+  of "api": plugApi(h, j)
+  of "ret": plugCallDone(h, j{"rid"}.getInt, j{"value"}, j{"err"}.getStr)
   else: discard
 
-proc plugLineOut(line: string) =
+proc plugLineOut(h: PlugHost, line: string) =
   if line.len > 0 and line[0] == PlugMark:
     var j: JsonNode
     try: j = parseJson(line[1 .. ^1])
     except CatchableError:
-      plugLogAdd("host", line[1 .. ^1])
+      plugLogAdd(plugLabel(h), line[1 .. ^1])
       return
-    phRunning = ""
-    for _, c in phCalls: phRunning = c.plugin
-    plugHandle(j)
+    h.running = ""
+    for _, c in h.calls: h.running = c.plugin
+    plugHandle(h, j)
   elif line.strip.len > 0:
-    var who = "host"
-    for _, c in phCalls: who = c.plugin
+    var who = if h.ids.len == 1: h.ids[0] else: plugLabel(h)
+    for _, c in h.calls: who = c.plugin
     plugLogAdd(who, line)
 
 # ── ned's side: what the editor calls ──
@@ -939,6 +1339,8 @@ proc plugClosed(b: Buffer) =
   plugFire("close", b)
   plugDecor.del plugDecorKey(b)
   plugChangeSent.del b.id
+  plugOutlines.del b.id
+  plugOutlineAsked.del b.id
 
 proc plugFormat(b: Buffer): bool =
   ## a plugin's NimScript formatter for the file's language (true: it had one — formatted, or said why not)
@@ -979,6 +1381,192 @@ proc plugExCommand(cmd: string): bool =
   if name notin plugExCmds: return false
   plugInvoke(plugExCmds[name], %*{"args": c[k .. ^1].strip})
   true
+
+# ── the language features plugins give: completions, hover, code actions, symbols ──
+
+proc plugFixAction(title, src: string, edits: JsonNode, bid: int): (string, string, Action)
+proc plugAddExample()
+
+proc plugProvidersFor(what: string, b: Buffer): seq[string] =
+  ## the registrations that give `what` for the buffer's language (its own, or "*")
+  if plugProviders.len == 0 or b == nil or b.lang == nil: return
+  let id = b.lang.id.toLowerAscii
+  for (w, lang, key) in plugProviders:
+    if w == what and (lang == id or lang == "*"):
+      let h = plugKeyHost(key)
+      if h != nil and h.state == "ready": result.add key
+
+func plugCompKind(k: string): int =
+  ## the Language Server Protocol's numbers (the list's icons)
+  case k
+  of "method": 2
+  of "function", "proc", "func": 3
+  of "constructor": 4
+  of "field", "property": 5
+  of "variable", "var", "let": 6
+  of "class", "object": 7
+  of "interface", "concept": 8
+  of "module", "import": 9
+  of "unit": 11
+  of "value": 12
+  of "enum": 13
+  of "keyword": 14
+  of "snippet": 15
+  of "color": 16
+  of "file": 17
+  of "folder": 19
+  of "enumMember": 20
+  of "constant", "const": 21
+  of "struct", "type": 22
+  of "event": 23
+  of "operator": 24
+  else: 1
+
+proc plugCompMerge() =
+  ## the plugins' completions into the list being shown (when it is the one they were asked for, and not yet in it)
+  if plugCompItems.len == 0: return
+  let b = buf()
+  if plugCompAt != (b.id, compLine, compStartCol): return
+  for it in compItems:
+    if it.plug: return
+  # (a plain word of the file the plugin also gives: the plugin's item — its detail, its snippet — instead)
+  var theirs: HashSet[string]
+  for it in plugCompItems: theirs.incl it.label
+  var keep: seq[CompItem]
+  var have: HashSet[string]
+  for it in compItems:
+    if it.label in theirs and it.kind == 0 and it.detail.len == 0 and it.snippet.len == 0: continue
+    keep.add it
+    have.incl it.label
+  for it in plugCompItems:
+    if it.label notin have: keep.add it
+  compItems = keep
+
+proc plugComplete(b: Buffer, p: Pos) =
+  ## ask the plugins for completions here (their answers join the list when they come)
+  let keys = plugProvidersFor("completion", b)
+  if keys.len == 0: return
+  let ws = b.wordStart(p)
+  plugCompAt = (b.id, p.line, ws)
+  plugCompItems.setLen(0)
+  inc plugCompRound
+  let round = plugCompRound
+  let at = plugCompAt
+  let prefix = b.lines[p.line][ws ..< p.col]
+  for key in keys:
+    let k = key
+    plugInvoke(k, %*{"buf": b.id, "pos": jPos(p), "prefix": prefix}, proc(v: JsonNode, err: string) =
+      if round != plugCompRound or err.len > 0 or v == nil or v.kind != JArray: return
+      let plugin = k.split('|')[0]
+      for x in v:
+        let label = x{"label"}.getStr
+        if label.len == 0: continue
+        let ins = x{"insert"}.getStr
+        var it = CompItem(label: label, insert: (if ins.len > 0: ins else: label), filter: label, sortText: label,
+                          detail: x{"detail"}.getStr, doc: x{"doc"}.getStr, docMade: true, plug: true,
+                          kind: plugCompKind(x{"kind"}.getStr), rank: 1)
+        if x{"snippet"}.getBool: it.snippet = it.insert
+        if it.detail.len == 0: it.detail = plugin
+        plugCompItems.add it
+      let cb = buf()
+      if cb.id != at[0] or compLine != at[1] or compStartCol != at[2]: return
+      # (the list again with theirs: the one shown, or a new one when nothing else had any)
+      var mine = false
+      for it in compItems:
+        if it.plug: mine = true
+      if mine:
+        var keep: seq[CompItem]
+        for it in compItems:
+          if not it.plug: keep.add it
+        compItems = keep
+      plugCompMerge()
+      refilterComp())
+
+proc plugHover(b: Buffer, p: Pos, auto: bool): bool =
+  ## ask the plugins what to show at p (their text goes under ned's own, or alone): true when one was asked
+  let keys = plugProvidersFor("hover", b)
+  if keys.len == 0: return false
+  plugHoverAt = (b.id, p)
+  let at = plugHoverAt
+  for key in keys:
+    plugInvoke(key, %*{"buf": b.id, "pos": jPos(p)}, proc(v: JsonNode, err: string) =
+      if err.len > 0 or v == nil or v.kind != JString or v.getStr.strip.len == 0: return
+      let cb = buf()
+      if plugHoverAt != at or cb.id != at[0] or cb.primary.head != at[1]: return
+      if hoverOpen and hoverMd.len > 0: showHoverAuto(hoverMd & "\n\n---\n\n" & v.getStr, hoverIsAuto)
+      else: showHoverAuto(v.getStr, auto))
+  true
+
+proc plugCodeActionItems(b: Buffer): seq[(string, string, Action)] =
+  ## the plugins' code actions for the selection (or the cursor's line): asked, and waited for (1 s at most)
+  let keys = plugProvidersFor("codeActions", b)
+  if keys.len == 0: return
+  let (a, e) = b.primary.range
+  let r = if a == e: (Pos(line: a.line, col: 0), Pos(line: a.line, col: b.lines[a.line].len)) else: (a, e)
+  for key in keys:
+    let (ok, res, _) = plugCallSync(key, %*{"buf": b.id, "range": {"start": jPos(r[0]), "stop": jPos(r[1])}},
+                                    min(plugTimeout(), 1000))
+    if not ok or res == nil or res.kind != JArray: continue
+    let plugin = key.split('|')[0]
+    for f in res:
+      var edits = newJArray()
+      for x in jitems(f{"edits"}): edits.add x
+      if f{"title"}.getStr.len > 0 and edits.len > 0:
+        result.add plugFixAction(f{"title"}.getStr, "plugin " & plugin, edits, b.id)
+
+proc plugSymbolItems(b: Buffer, v: JsonNode): seq[SideItem] =
+  for s in jitems(v):
+    let k = s{"kind"}.getStr
+    let (icon, role) = case k
+      of "function", "method", "proc", "func", "macro", "template": ("ƒ", 7)
+      of "type", "class", "struct", "object", "enum", "interface", "concept": ("T", 8)
+      of "heading", "section", "header": ("#", 1)
+      of "constant", "const": ("c", 0)
+      else: ("•", 0)
+    result.add SideItem(text: s{"name"}.getStr, detail: s{"detail"}.getStr, path: b.path,
+                        line: clamp(s{"line"}.getInt, 0, b.lines.high), col: max(0, s{"col"}.getInt),
+                        depth: clamp(s{"depth"}.getInt, 0, 8), icon: icon, role: role)
+
+proc plugOutline(b: Buffer): (bool, seq[SideItem]) =
+  ## the plugins' symbols for the file (the outline): (a plugin gives them, the latest it gave) — asked again after
+  ## each change, the old ones shown until the new come
+  let keys = plugProvidersFor("symbols", b)
+  if keys.len == 0: return (false, @[])
+  if plugOutlineAsked.getOrDefault(b.id, -1) != b.changeId and msSince(lastInputAt) > 300:
+    plugOutlineAsked[b.id] = b.changeId
+    let bid = b.id
+    let ch = b.changeId
+    plugInvoke(keys[0], %*{"buf": b.id}, proc(v: JsonNode, err: string) =
+      let tb = bufById(bid)
+      if tb == nil or err.len > 0 or v == nil or v.kind != JArray: return
+      plugOutlines[bid] = (ch, plugSymbolItems(tb, v))
+      tb.outline = plugOutlines[bid][1]
+      tb.outlineAt = tb.changeId
+      needRender = true)
+  (true, plugOutlines.getOrDefault(b.id, (-1, newSeq[SideItem]()))[1])
+
+proc plugSymbolPicks(b: Buffer): seq[PickItem] =
+  ## Go to symbol: the plugins' symbols (when a plugin gives them)
+  let (has, items) = plugOutline(b)
+  if not has: return
+  for s in items:
+    result.add PickItem(label: repeat("  ", s.depth) & s.text, detail: s.detail, icon: s.icon, path: b.path,
+                        line: s.line, col: s.col)
+
+# ── the assistant's tools from plugins ──
+
+proc plugAiRun(name: string, args: JsonNode, done: proc(text: string, isError: bool) {.closure.}) =
+  for t in plugAiTools:
+    if t.name == name:
+      plugInvoke(t.key, args, proc(v: JsonNode, err: string) =
+        if err.len > 0: done(err, true)
+        elif v == nil or v.kind == JNull: done("(done)", false)
+        elif v.kind == JString: done(v.getStr, false)
+        else: done($v, false))
+      return
+  done("unknown tool " & name & " (its plugin is not running)", true)
+
+# ── vim ──
 
 proc plugVimReset() =
   plugSeq = ""
@@ -1089,58 +1677,89 @@ proc plugFixAction(title, src: string, edits: JsonNode, bid: int): (string, stri
     needRender = true)
 
 proc plugFixActions(b: Buffer, l0, l1: int): seq[(string, string, Action)] =
-  ## the fixes of plugins' problems on these lines (Alt+Enter)
+  ## the fixes of plugins' problems on these lines, then the plugins' code actions (Alt+Enter)
   for d in diagsExt.getOrDefault(if b.path.len > 0: b.path else: plugDecorKey(b)):
     if not d.src.startsWith("plugin ") or d.fixes == nil: continue
     if d.line > l1 or max(d.line, d.eline) < l0: continue
     for f in jitems(d.fixes): result.add plugFixAction(f{"title"}.getStr, d.src, f{"nedEdits"}, b.id)
+  result.add plugCodeActionItems(b)
 
 # ── each round of the main loop ──
 
 proc plugFds(fds: var seq[TPollfd]) =
-  if phOut >= 0: fds.add TPollfd(fd: phOut, events: POLLIN)
-  if phErr >= 0: fds.add TPollfd(fd: phErr, events: POLLIN)
-  if phIn >= 0 and phWbuf.len > 0: fds.add TPollfd(fd: phIn, events: POLLOUT)
+  for h in plugHosts:
+    if h.fdOut >= 0: fds.add TPollfd(fd: h.fdOut, events: POLLIN)
+    if h.fdErr >= 0: fds.add TPollfd(fd: h.fdErr, events: POLLIN)
+    if h.fdIn >= 0 and h.wbuf.len > 0: fds.add TPollfd(fd: h.fdIn, events: POLLOUT)
+
+proc plugSettled(): bool =
+  ## every process's registrations known (none starting or being built)
+  for h in plugHosts:
+    if h.state in ["starting", "building"] and h.regs.len == 0: return false
+  true
 
 proc plugNextDueMs(): int =
   ## how soon the plugins need the loop again (a timer, the start, a change to tell them)
   result = int.high
   if not plugBooted: return 300
   for t in plugTimers: result = min(result, max(0, int((t.due - getMonoTime()).inMilliseconds)))
-  if plugOpenQ.len > 0 and phState == "ready": result = 0
+  if plugOpenQ.len > 0 and plugSettled(): result = 0
   for (ev, _, _) in plugEvts:
     if ev == "change":
       result = min(result, 200)
       break
+  if plugProviders.len > 0:
+    # (the file's symbols after a pause in the typing)
+    let b = buf()
+    if b != nil and plugOutlineAsked.getOrDefault(b.id, -1) != b.changeId and plugProvidersFor("symbols", b).len > 0:
+      result = min(result, 400)
+
+proc plugBoot() =
+  ## the registrations of last time, at once; a process when it must run, or when they are not known
+  plugBooted = true
+  plugDiscover()
+  plugMakeHosts()
+  for h in plugHosts:
+    h.sig = plugSignature(h)
+    if plugLoadManifest(h):
+      if plugEagerHost(h): plugStart(h)
+    else: plugStart(h)
+  plugRebuildRegs()
+
+proc plugHostPump(h: PlugHost, ready: HashSet[cint]) =
+  if h.fdOut >= 0 and h.fdOut in ready: plugReadOut(h)
+  if h.fdErr >= 0 and h.fdErr in ready: plugReadErr(h)
+  if h.wbuf.len > 0: plugFlush(h)
+  if h.pr.pid > 0 and h.state in ["starting", "ready"] and h.pr.reap():
+    plugReadErr(h)
+    plugHostDied(h)
+  if h.state != "ready": return
+  if not h.startupFired:
+    h.startupFired = true
+    plugFire("startup", buf(), h)
+  # calls that never came back
+  var late: seq[int]
+  for rid, c in h.calls:
+    if msSince(c.sentAt) > 60_000: late.add rid
+  for rid in late:
+    plugLogAdd(h.calls[rid].plugin, "a call took over a minute — given up (the plugin may be stuck: Reload)")
+    plugCallDone(h, rid, nil, "no answer in a minute")
+  # idle: stopped (it starts again when a plugin is needed)
+  let idleMin = sval("plugins.idleStopMinutes").getInt(10)
+  if idleMin > 0 and h.calls.len == 0 and plugUiHost != h and not plugEagerHost(h) and msSince(h.lastUse) > idleMin * 60_000:
+    for (p, _) in plugStatusItems:
+      if p in h.ids: return
+    plugStop(h, "stopped (idle — it starts again when needed)")
+    plugLogAdd(plugLabel(h), "stopped after " & $idleMin & " idle minutes")
 
 proc plugPump(ready: HashSet[cint]) =
   if not plugBooted:
     if plugBootAt == MonoTime(): plugBootAt = getMonoTime()
     if msSince(plugBootAt) < 400 or not plugsOn(): return
-    plugBooted = true
-    # (the registrations of last time, at once; the host when it must run, or when they are not known)
-    plugDiscover()
-    var any = false
-    for p in plugs:
-      if p.enabled: any = true
-    if not any: return
-    phNative = sval("plugins.native").getBool(false)
-    let sig = plugSignature()
-    if plugLoadManifest(sig):
-      plugApplyRegs()
-      if plugEager(): plugStart()
-    else: plugStart()
-  if phOut >= 0 and phOut in ready: plugReadOut()
-  if phErr >= 0 and phErr in ready: plugReadErr()
-  if phWbuf.len > 0: plugFlush()
-  if phPr.pid > 0 and phState in ["starting", "ready"] and phPr.reap():
-    plugReadErr()
-    plugHostDied()
-  if phState != "ready": return
-  if not plugStartupFired:
-    plugStartupFired = true
-    plugFire("startup", buf())
-  if plugOpenQ.len > 0:
+    plugBoot()
+  let hosts = plugHosts                        # (a process that ends can change the list: a copy)
+  for h in hosts: plugHostPump(h, ready)
+  if plugOpenQ.len > 0 and plugSettled():
     let q = plugOpenQ
     plugOpenQ.setLen(0)
     for id in q: plugFire("open", bufById(id))
@@ -1149,7 +1768,8 @@ proc plugPump(ready: HashSet[cint]) =
   while i < plugTimers.len:
     if getMonoTime() >= plugTimers[i].due:
       let t = plugTimers[i]
-      discard plugSendCall(t.cb, t.plugin, newJObject(), nil)
+      let h = plugHostOf(t.plugin)
+      if h != nil and h.state == "ready": discard plugSendCall(h, t.cb, t.plugin, newJObject(), nil)
       if t.repeat:
         plugTimers[i].due = getMonoTime() + initDuration(milliseconds = t.ms)
         inc i
@@ -1166,66 +1786,113 @@ proc plugPump(ready: HashSet[cint]) =
       elif plugChangeSent[b.id] != b.changeId:
         plugChangeSent[b.id] = b.changeId
         plugFire("change", b)
+  # the outline of the file shown, from a plugin that gives symbols (after a pause in the typing)
+  if plugProviders.len > 0 and msSince(lastInputAt) > 300:
+    let b = buf()
+    if b != nil and plugOutlineAsked.getOrDefault(b.id, -1) != b.changeId: discard plugOutline(b)
   # an answer you never gave (the list or the prompt closed some other way): cancelled
-  if plugUi[0] != 0:
+  if plugUi[0] != 0 and plugUiHost != nil:
     let gone = case plugUi[1]
       of "pick": pickKind != pickAction or pickTitle != plugUiTitle
       of "ask": promptKind != pPluginAsk
       else: dialogs.len == 0
     if gone:
       let (id, kind) = plugUi
+      let h = plugUiHost
       plugUi = (0, "")
-      plugAnswer(id, (if kind == "pick": %(-1) elif kind == "ask": %"" else: %false))
-  # calls that never came back
-  var late: seq[int]
-  for rid, c in phCalls:
-    if msSince(c.sentAt) > 60_000: late.add rid
-  for rid in late:
-    plugLogAdd(phCalls[rid].plugin, "a call took over a minute — given up (the plugin may be stuck: Reload)")
-    plugCallDone(rid, nil, "no answer in a minute")
-  # idle: stopped (it starts again when a plugin is needed)
-  let idleMin = sval("plugins.idleStopMinutes").getInt(10)
-  if idleMin > 0 and phCalls.len == 0 and plugUi[0] == 0 and not plugEager() and plugStatusItems.len == 0 and
-     msSince(phLastUse) > idleMin * 60_000:
-    plugStop("stopped (idle — it starts again when needed)")
-    plugLogAdd("ned", "plugins stopped after " & $idleMin & " idle minutes")
+      plugUiHost = nil
+      plugAnswer(h, id, (if kind == "pick": %(-1) elif kind == "ask": %"" else: %false))
 
 proc plugAskDone(text: string) =
   ## the prompt a plugin's ask() opened: Enter
-  if plugUi[1] == "ask":
+  if plugUi[1] == "ask" and plugUiHost != nil:
     let id = plugUi[0]
+    let h = plugUiHost
     plugUi = (0, "")
-    plugAnswer(id, %text)
+    plugUiHost = nil
+    plugAnswer(h, id, %text)
 
-proc plugReload() =
-  ## the plugins again (after an edit, a new one, one turned on or off)
-  plugStop("off")
-  phFailedOnce.clear()
-  plugStatusItems.setLen(0)
-  plugDecor.clear()
+proc plugForget(ids: seq[string]) =
+  ## what these plugins put in the editor: status items, progress, decorations, problems
+  var st: seq[(string, string)]
+  for x in plugStatusItems:
+    if x[0] notin ids: st.add x
+  plugStatusItems = st
+  var pg: seq[(string, string, int)]
+  for x in plugProgress:
+    if x[0] notin ids: pg.add x
+  plugProgress = pg
+  var dk: seq[string]
+  for k in plugDecor.keys: dk.add k
+  for k in dk:
+    var keepD: seq[PlugDecor]
+    for d in plugDecor[k]:
+      if d.plugin notin ids: keepD.add d
+    if keepD.len > 0: plugDecor[k] = keepD else: plugDecor.del k
   var keepX: Table[string, seq[Diag]]
   for p, ds in diagsExt:
     var k: seq[Diag]
     for d in ds:
-      if not d.src.startsWith("plugin "): k.add d
+      if not (d.src.startsWith("plugin ") and d.src[7 .. ^1] in ids): k.add d
     if k.len > 0: keepX[p] = k
   diagsExt = keepX
   rebuildProblems()
-  plugRegs.setLen(0)
-  plugApplyRegs()
-  plugStartupFired = false
-  plugStart()
-  if phState == "off": info("No plugins (Plugins dock › New plugin…)")
-  elif phState.startsWith("failed"): warn("Plugins: " & phState[8 .. ^1])
-  else: info("Plugins: starting…")
+
+proc plugReload() =
+  ## the plugins again (after an edit, a new one, one turned on or off)
+  plugStopAll()
+  var all: seq[string]
+  for p in plugs: all.add p.id
+  for h in plugHosts:
+    for id in h.ids: all.add id
+  plugFailedOnce.clear()
+  plugForget(all)
+  plugHosts.setLen(0)
+  plugBooted = true
+  plugDiscover()
+  plugMakeHosts()
+  for h in plugHosts:
+    h.regs.setLen(0)
+    plugStart(h)
+  plugRebuildRegs()
+  if plugHosts.len == 0: info("No plugins (Plugins dock › New plugin…)")
+  else:
+    var failed: seq[string]
+    for h in plugHosts:
+      if h.state.startsWith("failed"): failed.add (if h.name == PlugShared: "" else: h.name & ": ") & h.state[8 .. ^1]
+    if failed.len > 0: warn("Plugins: " & failed.join(" · "))
+    else: info("Plugins: starting…")
+
+proc plugReloadPlugin(id: string) =
+  ## the process of one plugin again (its own; the shared one for a NimScript plugin) — the others keep running
+  let h = plugHostOf(id)
+  if h == nil:
+    plugReload()
+    return
+  plugStop(h, "off")
+  plugFailedOnce.excl id
+  for x in h.ids: plugFailedOnce.excl x
+  plugForget(h.ids)
+  h.regs.setLen(0)
+  let before = plugHosts
+  plugDiscover()
+  plugMakeHosts()
+  for x in plugHosts:
+    # (its process, or one its plugins now make — the others as they were: running, or waiting to be needed)
+    if (x == h or x notin before) and x.state == "off": plugStart(x)
+  plugRebuildRegs()
+  info("Reloading " & (if h.name == PlugShared: "the NimScript plugins" else: id) & "…")
 
 proc plugFileSaved(path: string) =
-  ## a plugin's own file saved: the plugins reload
+  ## a plugin's own file saved: its process reloads (a new plugin: all of them)
   if not (path.endsWith(".nims") or path.endsWith(".nim")): return
   for root in [plugUserRoot(), plugProjectRoot()]:
     if root.len > 0 and path.startsWith(root & "/"):
-      phFailedOnce.clear()
-      plugReload()
+      let owner = plugOwnerOf(path)
+      if owner.len > 0 and plugHostOf(owner) != nil: plugReloadPlugin(owner)
+      else:
+        plugFailedOnce.clear()
+        plugReload()
       return
 
 # ── the Plugins dock and its commands ──
@@ -1238,28 +1905,41 @@ proc plugSetEnabled(id: string, on: bool) =
   setSetting("plugins.disabled", %off)
   plugReload()
 
+proc plugSetAlone(id: string, on: bool) =
+  var al: seq[string]
+  for x in plugAloneIds():
+    if x != id: al.add x
+  if on: al.add id
+  setSetting("plugins.alone", %al)
+  plugReload()
+
 proc plugNew(name0: string) =
+  let full = plugNewFull
+  plugNewFull = false
   let name = name0.strip.replace(" ", "-")
   if not plugIdOk(name):
     warn("A plugin's name: letters, digits, - and _")
     return
   let d = plugUserRoot() / name
+  let file = d / (if full: "plugin.nim" else: "plugin.nims")
   if dirExists(d):
-    discard openFile(d / "plugin.nims")
+    discard openFile((if fileExists(d / "plugin.nims"): d / "plugin.nims" else: d / "plugin.nim"))
     info("That plugin exists — here it is")
     return
   try:
     createDir(d)
-    writeFile(d / "plugin.nims", PlugTemplate % [name])
+    writeFile(file, (if full: PlugTemplateFull else: PlugTemplate) % [name])
   except CatchableError as e:
     error("Could not make " & d & ": " & e.msg)
     return
-  discard openFile(d / "plugin.nims")
+  discard openFile(file)
   plugReload()
-  info("New plugin " & name & " — edit it and save: the plugins reload (Plugins dock: its log)")
+  info("New plugin " & name & (if full: " (full Nim: it is compiled now, in the background)" else: "") &
+       " — edit it and save: it reloads (Plugins dock: its log)")
 
-proc plugInstall(url0: string) =
-  ## a plugin from a git repository (its plugin.nims at the top), into your plugins
+proc plugInstall(url0: string, name0 = "") =
+  ## a plugin from a git repository (its plugin.nims or plugin.nim at the top), into your plugins (named after the
+  ## repository, or name0: the plugin list's name)
   let url = url0.strip
   if not gitArgSafe(url) or not (url.startsWith("https://") or url.startsWith("git@") or url.startsWith("ssh://") or
                                   url.startsWith("http://") or url.startsWith("file://") or url.startsWith("/")):
@@ -1269,6 +1949,7 @@ proc plugInstall(url0: string) =
   if name.endsWith(".git"): name = name[0 ..< name.len - 4]
   for pre in ["ned-plugin-", "ned-", "nedplugin-"]:
     if name.startsWith(pre) and name.len > pre.len: name = name[pre.len .. ^1]
+  if name0.len > 0: name = name0
   if not plugIdOk(name):
     warn("Cannot name a plugin after " & url)
     return
@@ -1283,11 +1964,95 @@ proc plugInstall(url0: string) =
       if j.code != 0:
         error("git clone failed: " & j.output.strip.splitLines.join(" ")[0 ..< min(200, j.output.strip.len)])
         return
-      if not fileExists(d / "plugin.nims"):
-        warn(name & " has no plugin.nims at its top — not a ned plugin? (it is in " & tildePath(d) & ")")
+      if not fileExists(d / "plugin.nims") and not fileExists(d / "plugin.nim"):
+        warn(name & " has no plugin.nims (or plugin.nim) at its top — not a ned plugin? (it is in " & tildePath(d) & ")")
         return
+      let needs = plugNeedsOf(d / (if fileExists(d / "plugin.nims"): "plugin.nims" else: "plugin.nim"))
       plugReload()
-      toast("Installed the plugin " & name & " — read its code: it runs with your rights (Plugins dock)", 3))
+      if needs.len > 0 and not plugNeedsOk(needs, Version):
+        warn("Installed " & name & ", but it needs ned " & needs & " (this is " & Version & ") — it stays off")
+      else:
+        toast("Installed the plugin " & name & " — read its code: it runs with your rights (Plugins dock)", 3))
+
+proc plugUpdate() =
+  ## your plugins that came from git: pulled (fast-forward only), then reloaded
+  var parts: seq[string]
+  var n = 0
+  if dirExists(plugUserRoot()):
+    for kind, d in walkDir(plugUserRoot()):
+      if kind in {pcDir, pcLinkToDir} and dirExists(d / ".git"):
+        inc n
+        parts.add "echo " & quoteShell("== " & extractFilename(d)) & "; git -C " & quoteShell(d) &
+                  " pull --ff-only 2>&1"
+  if n == 0:
+    info("None of your plugins came from git (Plugins: install from git…)")
+    return
+  info("Updating " & $n & " plugin" & (if n == 1: "" else: "s") & "…")
+  discard startJob(jkTool, parts.join("; "), plugUserRoot(), proc(j: Job) =
+    var cur = ""
+    var updated, same, failed: seq[string]
+    var curOut: seq[string]
+    proc close() =
+      if cur.len == 0: return
+      let o = curOut.join("\n")
+      if "Already up to date" in o or "Already up-to-date" in o: same.add cur
+      elif "fatal:" in o or "error:" in o or "Not possible to fast-forward" in o or "diverging" in o:
+        failed.add cur
+        plugLogAdd(cur, "update: " & o.strip.splitLines()[^1])
+      else: updated.add cur
+    for l in j.output.splitLines:
+      if l.startsWith("== "):
+        close()
+        cur = l[3 .. ^1]
+        curOut.setLen(0)
+      else: curOut.add l
+    close()
+    if updated.len > 0: plugReload()
+    var msg = if updated.len > 0: "Updated: " & updated.join(", ") else: "Your plugins are up to date"
+    if failed.len > 0: msg.add " · not updated (local changes?): " & failed.join(", ")
+    if failed.len > 0: warn(msg) else: info(msg))
+
+proc plugBrowseShow(j: JsonNode) =
+  let arr = if j.kind == JArray: j elif j{"plugins"} != nil and j["plugins"].kind == JArray: j["plugins"] else: newJArray()
+  var items: seq[(string, string, Action)]
+  for x in arr:
+    let name = x{"name"}.getStr
+    let url = x{"url"}.getStr
+    if name.len == 0 or url.len == 0: continue
+    let have = dirExists(plugUserRoot() / name)
+    let det = (if have: "installed · " else: "") & x{"description"}.getStr
+    capture url, name, have:
+      items.add act(name, det, proc() =
+        if have:
+          let d = plugUserRoot() / name
+          discard openFile((if fileExists(d / "plugin.nims"): d / "plugin.nims" else: d / "plugin.nim"))
+        else: plugInstall(url, name))
+  if items.len == 0:
+    warn("The plugin list has no plugins (each: {\"name\", \"url\", \"description\"})")
+    return
+  openActions("Plugins — pick one to install", items)
+
+proc plugBrowse() =
+  ## the plugin list (plugins.indexUrl: a JSON list of {name, url, description} — on the web, or a file)
+  let src = sval("plugins.indexUrl").getStr.strip
+  if src.len == 0:
+    info("Set plugins.indexUrl to a plugin list (JSON: [{\"name\", \"url\", \"description\"}]) — the examples meanwhile")
+    plugAddExample()
+    return
+  if not (src.startsWith("https://") or src.startsWith("http://")):
+    try: plugBrowseShow(parseFile(expandTilde(src)))
+    except CatchableError as e: warn("The plugin list (" & src & "): " & e.msg)
+    return
+  if not haveExe("curl"):
+    error("curl is needed to read the plugin list")
+    return
+  info("Reading the plugin list…")
+  discard startJob(jkTool, "curl -fsSL --max-time 30 -- " & quoteShell(src), plugUserRoot().parentDir, proc(j: Job) =
+    if j.code != 0:
+      warn("Could not read the plugin list: " & j.output.strip.splitLines.join(" ")[0 ..< min(160, j.output.strip.len)])
+      return
+    try: plugBrowseShow(parseJson(j.output))
+    except CatchableError as e: warn("The plugin list is not JSON: " & e.msg))
 
 proc plugAddExample() =
   ## one of the examples, into your plugins (a copy: yours to change)
@@ -1299,8 +2064,9 @@ proc plugAddExample() =
     capture n, w, fs:
       items.add act(n, w, proc() =
         let d = plugUserRoot() / n
+        let main = if fs[0][0] == "plugin.nim": "plugin.nim" else: "plugin.nims"
         if dirExists(d):
-          discard openFile(d / "plugin.nims")
+          discard openFile(d / main)
           info("You have " & n & " — here it is")
           return
         try:
@@ -1309,7 +2075,7 @@ proc plugAddExample() =
         except CatchableError as e:
           error("Could not write " & d & ": " & e.msg)
           return
-        discard openFile(d / "plugin.nims")
+        discard openFile(d / main)
         plugReload()
         info("The example " & n & " is in " & tildePath(d) & " — it runs now (Plugins dock)"))
   openActions("Add an example plugin", items)
@@ -1322,15 +2088,37 @@ proc plugHelp() =
 proc plugInvokeAction(key: string): Action =
   proc() = plugInvoke(key, newJObject())
 
-proc plugsRunning(): int =
-  for p in plugs:
-    if p.enabled: inc result
-
-proc plugMenuAction(pid, file: string, on: bool): Action =
+proc plugViewClick(v: PlugView, it: JsonNode): Action =
+  let ck = v.clickKey
+  let id = it{"id"}.getStr
+  let path = it{"path"}.getStr
+  let line = it{"line"}.getInt(-1)
   proc() =
-    openMenu(@[mi("Open plugin.nims", "", proc() = discard openFile(file)),
-               mi((if on: "Turn off" else: "Turn on"), "", proc() = plugSetEnabled(pid, not on)),
-               mi("Reload the plugins", "", proc() = plugReload())], mouseX, mouseY + 1)
+    if ck.len > 0 and (id.len > 0 or path.len == 0): plugInvoke(ck, %*{"id": id})
+    elif path.len > 0: discard openFile((if path.isAbsolute: path else: rootDir / path), line)
+
+proc plugMenuAction(pid, file: string, on, alone, full: bool): Action =
+  proc() =
+    var items = @[mi("Open " & extractFilename(file), "", proc() = discard openFile(file)),
+                  mi((if on: "Turn off" else: "Turn on"), "", proc() = plugSetEnabled(pid, not on)),
+                  mi("Reload it", "", proc() = plugReloadPlugin(pid))]
+    if not full:
+      items.add mi((if alone: "Run it with the others" else: "Run it in a process of its own"), "",
+                   proc() = plugSetAlone(pid, not alone))
+    items.add mi("Reload all the plugins", "", proc() = plugReload())
+    openMenu(items, mouseX, mouseY + 1)
+
+proc plugHostMenu(name: string): Action =
+  proc() =
+    var h: PlugHost = nil
+    for x in plugHosts:
+      if x.name == name: h = x
+    if h == nil: return
+    let hh = h
+    openMenu(@[mi("Restart it", "", proc() = plugReloadPlugin(hh.ids[0])),
+               mi("Stop it (it starts again when needed)", "", proc() =
+                 plugStop(hh, "stopped")
+                 plugLogAdd(plugLabel(hh), "stopped"))], mouseX, mouseY + 1)
 
 proc buildPluginItems(): seq[SideItem] =
   result.add sideItem("PLUGINS", 6)
@@ -1340,16 +2128,59 @@ proc buildPluginItems(): seq[SideItem] =
       plugReload())
     return
   if not plugBooted: plugDiscover()
-  let host = case phState
-    of "ready": ic("ok") & " running · " & (if phNative and fileExists(plugNativeBin()): "native" else: "nim e") &
-                " · " & $plugsRunning() & " plugin" & (if plugsRunning() == 1: "" else: "s")
-    of "starting": "○ starting… " & $msSince(phStartedAt) & " ms"
-    else: "○ " & phState
-  result.add sideItem(host, (if phState.startsWith("failed"): 3 elif phState == "ready": 5 else: 2), "◆")
+  if plugHosts.len == 0:
+    result.add sideItem("○ " & (if plugs.len == 0: "off" else: "no plugin is on"), 2, "◆")
+  for h in plugHosts:
+    let n = h.ids.len
+    let what = if h.name == PlugShared: ""
+               else: h.name & (if h.full: " (Nim)" else: "") & " · "
+    let line = case h.state
+      of "ready": ic("ok") & " " & what & "running · " & (if h.native: "native" else: "nim e") &
+                  (if h.name == PlugShared: " · " & $n & " plugin" & (if n == 1: "" else: "s") else: "")
+      of "starting": "○ " & what & "starting… " & $msSince(h.startedAt) & " ms"
+      of "building": "○ " & what & "compiling… " & $(msSince(h.startedAt) div 1000) & " s"
+      else: "○ " & what & h.state
+    result.add sideItem(line, (if h.state.startsWith("failed"): 3 elif h.state == "ready": 5 else: 2), "◆", "",
+                        plugHostMenu(h.name))
+  for (p, t, pct) in plugProgress:
+    result.add sideItem(t & (if pct >= 0: " " & $pct & "%" else: "…"), 4, "⟳", p, depth = 1)
+  # the plugins' views
+  for vi in 0 ..< plugViews.len:
+    let v = plugViews[vi]
+    if v.stale and not v.pending and msSince(v.askedAt) > 500:
+      let h = plugHostOf(v.plugin)
+      if h != nil and h.state == "ready":
+        plugViews[vi].pending = true
+        plugViews[vi].stale = false
+        plugViews[vi].askedAt = getMonoTime()
+        let key = v.key
+        plugInvoke(key, newJObject(), proc(r: JsonNode, err: string) =
+          for x in plugViews.mitems:
+            if x.key == key:
+              x.pending = false
+              if err.len == 0 and r != nil and r.kind == JArray: x.items = r
+              elif err.len > 0: x.items = %*[{"text": "error: " & err, "color": "error"}]
+          needRender = true)
+    result.add sideItem(v.title.toUpperAscii, 6, "", v.plugin)
+    if v.items == nil:
+      result.add sideItem("…", 2, "", "", depth = 1)
+      continue
+    for it in v.items:
+      let role = case it{"color"}.getStr
+        of "error", "err": 3
+        of "warn", "warning": 4
+        of "add", "ok", "green": 5
+        of "accent": 7
+        of "hint", "dim": 2
+        else: 1
+      result.add sideItem(it{"text"}.getStr, role, it{"icon"}.getStr, it{"detail"}.getStr, plugViewClick(v, it),
+                          depth = 1 + clamp(it{"depth"}.getInt, 0, 6))
+  result.add sideItem("YOURS", 6)
   if plugs.len == 0:
     result.add sideItem("No plugins yet", 2, "·")
-    result.add sideItem("New plugin…", 7, "+", "from a template", proc() =
-      openPrompt(pPluginNew, "Name of the new plugin", ""))
+    result.add sideItem("New plugin…", 7, "+", "from a template", proc() = runCmd("Plugins: new plugin…"))
+    result.add sideItem("Add an example…", 7, "+", "zig-lite, ini-tools, commentary, clock-native …", proc() =
+      plugAddExample())
     result.add sideItem("Install from git…", 7, "⇣", "a repository with a plugin.nims", proc() =
       openPrompt(pPluginInstall, "Plugin repository (https://…)", ""))
   var untrusted = 0
@@ -1357,9 +2188,11 @@ proc buildPluginItems(): seq[SideItem] =
     let pid = p.id
     let on = p.enabled
     let role = if on: (if p.err.len > 0: 3 else: 1) else: 2
-    let det = if p.err.len > 0 and p.err != "off": p.err elif not on: "off" elif p.project: "project" else: ""
+    let det = if p.err.len > 0 and p.err != "off": p.err elif not on: "off" elif p.project: "project"
+              elif p.full: "Nim, compiled" elif p.alone: "own process" else: ""
     if p.project and p.err == "the folder is not trusted": inc untrusted
-    result.add sideItem(pid, role, (if on: "●" else: "○"), det, plugMenuAction(pid, p.file, on), path = p.file)
+    result.add sideItem(pid, role, (if on: "●" else: "○"), det, plugMenuAction(pid, p.file, on, p.alone, p.full),
+                        path = p.file)
     if on:
       for r in plugRegs:
         if r.plugin != pid: continue
@@ -1369,12 +2202,22 @@ proc buildPluginItems(): seq[SideItem] =
           of "language": "language " & r.data{"id"}.getStr
           of "formatter": "formats " & r.data{"lang"}.getStr
           of "lsp": "language server for " & r.data{"lang"}.getStr
+          of "completion": "completions for " & r.data{"lang"}.getStr
+          of "hover": "hover for " & r.data{"lang"}.getStr
+          of "codeActions": "code actions for " & r.data{"lang"}.getStr
+          of "symbols": "symbols (outline) for " & r.data{"lang"}.getStr
+          of "snippet": "snippet " & r.data{"trigger"}.getStr & " (" & r.data{"lang"}.getStr & ")"
+          of "aiTool": "assistant's tool " & r.data{"name"}.getStr & (if r.data{"readOnly"}.getBool: " (reads)" else: "")
+          of "view": "view " & r.data{"title"}.getStr
+          of "viewClick", "requires": ""
+          of "setting": "setting plugins." & pid & "." & r.data{"key"}.getStr
           of "vimMap": "vim " & r.data{"mode"}.getStr & "map " & r.data{"keys"}.getStr
           of "operator": "vim operator " & r.data{"keys"}.getStr
           of "textObject": "vim text object " & r.data{"keys"}.getStr
           of "ex": "vim :" & r.data{"name"}.getStr
           of "timer": "every " & $r.data{"ms"}.getInt & " ms"
           else: r.kind
+        if what.len == 0: continue
         if r.kind == "command":
           result.add sideItem(what, 7, "", "", plugInvokeAction(regKey(r)), depth = 1)
         else: result.add sideItem(what, 2, "", "", depth = 1)
@@ -1400,7 +2243,10 @@ proc cmdPluginCommands() =
       capture n, k:
         items.add act(n, k, proc() = runCmd(n))
   if items.len == 0:
-    info("No plugin commands" & (if phState == "starting": " yet — the plugins are starting" else: ""))
+    var starting = false
+    for h in plugHosts:
+      if h.state in ["starting", "building"]: starting = true
+    info("No plugin commands" & (if starting: " yet — the plugins are starting" else: ""))
     return
   openActions("Plugin commands", items)
 
@@ -1417,6 +2263,20 @@ proc cmdPluginToggle() =
     info("No plugins yet — Plugins: new plugin…")
     return
   openActions("Plugins — turn one on or off", items)
+
+proc cmdPluginReloadOne() =
+  plugDiscover()
+  var items: seq[(string, string, Action)]
+  for p in plugs:
+    if not p.enabled: continue
+    let pid = p.id
+    let det = if p.alone: "its own process" else: "with the other NimScript plugins"
+    capture pid:
+      items.add act(pid, det, proc() = plugReloadPlugin(pid))
+  if items.len == 0:
+    info("No plugin is on")
+    return
+  openActions("Reload a plugin", items)
 
 # ── ned --lsp-bridge server.nims: a NimScript language server with the protocol's framing ──
 

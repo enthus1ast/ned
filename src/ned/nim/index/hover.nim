@@ -107,6 +107,60 @@ proc nxCallInstance*(f: NxFile, lines: seq[string], line, col: int, s: NxSym): s
     if n in binds: bs.add n & " = " & binds[n]
   result.add "   (" & bs.join(", ") & ")"
 
+proc nxConceptCallNote*(f: NxFile, lines: seq[string], line, col: int, s: NxSym): string =
+  ## a call of a routine that takes a concept (`x: Comparable`, `[T: Comparable]`): an argument whose type the
+  ## engine is sure does not satisfy it — and what that type lacks ("" none)
+  if line >= lines.len: return
+  let t = lines[line]
+  var a = min(col, t.len)
+  while a > 0 and nxIsIdent(t[a - 1]): dec a
+  var e = a
+  while e < t.len and nxIsIdent(t[e]): inc e
+  if e == a: return
+  let sc = nxScope(f)
+  let locals = nxLocals(f, lines, line, col)
+  var args: seq[string]
+  if a > 0 and t[a - 1] == '.': args.add nxReceiver(t, a - 1)
+  var q = e
+  if q < t.len and t[q] == '[':
+    let c = nxMatchClose(t, q)
+    if c < 0: return
+    q = c + 1
+  if q < t.len and t[q] == '(':
+    let c = nxMatchClose(t, q)
+    if c < 0: return
+    if c > q + 1:
+      for part in nxSplitTop(t[q + 1 ..< c], {','}): args.add part.strip
+  # the constraints of the generic parameters: [T: Comparable, U]
+  var cons: Table[string, string]
+  if s.generics.len > 2:
+    for g in nxSplitTop(s.generics[1 ..< s.generics.len - 1], {',', ';'}):
+      let k = g.find(':')
+      if k > 0:
+        for n in g[0 ..< k].split(','): cons[n.strip] = g[k + 1 .. ^1].strip
+  var notes: seq[string]
+  for i, x in args:
+    if i >= s.params.len or x.len == 0 or nxFindTop(x, '=') >= 0: continue
+    var pt = s.params[i].typ.strip
+    if pt in cons: pt = cons[pt]
+    pt = nxStripMods(pt)
+    if pt.len == 0 or pt[0] notin {'A'..'Z'}: continue
+    var cpt: NxConcept
+    var found = false
+    for r in nxLookup(sc, pt):
+      if r.sym.kind == nxType and nxIsConcept(r.sym):
+        cpt = nxConceptOf(r)
+        found = true
+        break
+    if not found: continue
+    let at = nxTypeOfExpr(f, sc, locals, x, line, 0).typ
+    if at.len == 0 or nxSatisfies(cpt, sc, at) != nsNo: continue
+    let miss = nxConceptMissing(cpt, sc, at)
+    notes.add "`" & at & "` is not a `" & pt & "`" &
+              (if miss.len > 0: " — it has no `" & miss[0 ..< min(3, miss.len)].join("`, `") & "`" &
+                                (if miss.len > 3: " …" else: "") else: "")
+  notes.join("\n\n")
+
 proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
   if f != nil and nxIsScript(f.path) and line >= 0 and line < lines.len:
     # a compiler switch in a NimScript file: `--opt:speed`, switch("opt", "speed")
@@ -153,6 +207,10 @@ proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
     # a generic routine called here: what it is for these arguments
     let here = nxCallInstance(f, lines, line, col, s0)
     if here.len > 0: result.add "\n\n**Here:** `" & here & "`"
+  if s0.kind in NxRoutineKinds and not (refs[0].file == f and s0.line == line):
+    # an argument that does not satisfy the concept the routine asks for: what its type lacks
+    let cn = nxConceptCallNote(f, lines, line, col, s0)
+    if cn.len > 0: result.add "\n\n**Not a match:** " & cn
   if s0.kind == nxConst and s0.value.len > 0:
     # a constant's value, worked out: const KiB = 4 * 1024  → 4096 (or the compile error it is: high(int8) + 1)
     let cv = nxCtEval(refs[0].file, s0.value, 0)

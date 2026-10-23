@@ -147,6 +147,9 @@ proc initSettingDefs() =
   defS("Editor", "editor.largeFileSize", %16,
        "Large-file mode for files of this many MB or more: no soft wrap, language server, Nim engine, minimap or " &
        "word highlight, so scrolling and typing stay instant (palette › Large file mode turns it off for one file)")
+  defS("Editor", "editor.viewerSize", %512,
+       "Files bigger than this many MB (512 at most) open in the large-file viewer: read-only, a window of their " &
+       "lines read as you scroll, the whole file reached by Go to line and Find (in the background)")
   defS("Editor", "editor.longLineLimit", %10000,
        "Large-file mode also for a file with a line this long — minified JSON/JS, one-line logs (0: never)")
   defS("Editor", "editor.lineNumbers", %"absolute", "Line numbers (Alt+L cycles)", @["absolute", "relative", "off"])
@@ -522,10 +525,17 @@ proc initSettingDefs() =
        "`?`), in their files and in Nim strings: auto = when no language server does it · on · off",
        @["auto", "on", "off"])
   defS("Plugins", "plugins.enabled", %true, "Run your plugins (~/.config/ned/plugins/<name>/plugin.nims) and, in a " &
-       "folder you trust, the project's (.ned/plugins/<name>) — NimScript, all in one `nim e` process (Plugins dock)")
+       "folder you trust, the project's (.ned/plugins/<name>) — NimScript, all in one `nim e` process; a folder " &
+       "with a plugin.nim is a plugin in full Nim, compiled into a program of its own (Plugins dock)")
   defS("Plugins", "plugins.disabled", newJArray(), "Plugins that are off (by name): [\"zig-lite\"]")
-  defS("Plugins", "plugins.native", %false, "Compile the plugins (nim c, in the background) instead of running them " &
-       "with nim e: a faster start and less memory; a plugin that uses what only NimScript has stays with nim e")
+  defS("Plugins", "plugins.native", %"auto", "Compile the NimScript plugins (nim c, in the background) instead of " &
+       "running them with nim e: a faster start, faster calls, less memory. auto: a set of plugins started before " &
+       "as it is now is compiled for the next start · on: always · off: never (a plugin that uses what only " &
+       "NimScript has stays with nim e)", @["auto", "on", "off"])
+  defS("Plugins", "plugins.alone", newJArray(), "NimScript plugins that run in a process of their own (by name): a " &
+       "slow or crashing one never holds up the others — [\"big-linter\"] (plugins in full Nim always do)")
+  defS("Plugins", "plugins.indexUrl", %"", "A list of plugins to install from (Plugins: browse the plugin list…): " &
+       "a URL or a file of JSON — [{\"name\": …, \"url\": \"https://… (git)\", \"description\": …}]")
   defS("Plugins", "plugins.timeoutMs", %1500, "How long ned waits for a plugin that must answer before it goes on " &
        "(an event before saving, a NimScript formatter, a vim text object)")
   defS("Plugins", "plugins", newJObject(), "Each plugin's own settings: {\"zig-lite\": {\"width\": 80}} — or " &
@@ -658,6 +668,7 @@ proc sectionFor(section: string): JsonNode =
   # nothing set: an empty object, not null (vscode-html-language-server stops validating CSS on a null "css")
 
 proc validSetting(d: SetDef, v: JsonNode): bool =
+  if d.key == "plugins.native" and v.kind == JBool: return true       # (6.19's true/false: on/off)
   case d.kind
   of skBool: v.kind == JBool
   of skInt: v.kind in {JInt, JFloat}
@@ -793,6 +804,7 @@ proc applySettings() =
   cfgWrapUser = sBool("editor.softWrap")
   cfgWrap = cfgWrapUser
   cfgLargeMB = max(1, sInt("editor.largeFileSize"))
+  cfgViewerMB = clamp(sInt("editor.viewerSize"), 16, 512)
   cfgLongLine = max(0, sInt("editor.longLineLimit"))
   cfgLineNums = case sStr("editor.lineNumbers")
     of "off": 0

@@ -266,6 +266,13 @@ proc nimDiagFixes(b: Buffer, d: Diag): seq[(string, string, Action)] =
     let (title, es) = qBreakEdits(b, d.line)
     if es.len > 0: result.add act(title, "a named block and its break", qAct(b, es, ""))
     return
+  # ── ned's own checks that carry their fix (a NimScript switch: --gc → --mm …)
+  if d.code != nil and d.code.kind == JObject and d.code.hasKey("nedfix") and d.code.hasKey("edits"):
+    var es: seq[QEdit]
+    for e in d.code["edits"]:
+      es.add (Pos(line: e[0].getInt, col: e[1].getInt), Pos(line: e[2].getInt, col: e[3].getInt), e[4].getStr)
+    result.add act(d.code["nedfix"].getStr, "ned", qAct(b, es, ""))
+    return
   # ── Nim 3 (ned's nim3 rule): the problem carries its edits
   if d.rule == "nim3" and d.code != nil and d.code.kind == JObject and d.code.hasKey("edits"):
     var es: seq[QEdit]

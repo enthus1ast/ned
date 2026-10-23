@@ -215,6 +215,7 @@ proc localFixes(b: Buffer): seq[(string, string, Action)] =
       let (t, dsc, a) = ffiRewriteFix(b)
       if t.len > 0: result.add act(t, dsc, a)
     except CatchableError as e: internalError("C wrapper fix", e)
+  result.add nbVersionFixes(b)                      # (a .nimble's version: bumped)
   let refStart = result.len
   result.add nimRefactors(b)
   let diagStart = result.len

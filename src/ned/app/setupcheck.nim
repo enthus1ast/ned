@@ -302,7 +302,7 @@ proc initCommandsV4() =
   add("REPL: restart", "", replOpen(buf().lang, true))
   add("Nim: toggle export marker (*)", "", toggleExport())
   add("Nim: open documentation for symbol", "", nimDocsForSymbol())
-  add("Nimble: add dependency…", "", openPrompt(pNimbleAdd, "Package to require (e.g. jsony >= 1.1)", ""))
+  add("Nimble: add a dependency by name…", "", openPrompt(pNimbleAdd, "Package to require (e.g. jsony >= 1.1)", ""))
   add("Nimble: search packages…", "", openPrompt(pNimbleSearch, "nimble search", ""))
   add("Nimble: newer versions of the dependencies…", "", cmdNimbleOutdated())
   add("Git: generate commit message with AI", "", aiCommitMessage())

@@ -6848,7 +6848,7 @@ onChange("lang:markdown") do (ev: Event):
 def plugins_ready(t=30):
     """the Plugins dock says they run"""
     palette('Plugins panel')
-    ok = wait_for('running · nim e', t)
+    ok = wait_for('running · (nim e|native)', t)
     keys('Escape'); time.sleep(0.2)
     return ok
 
@@ -6866,7 +6866,7 @@ def t_619_plugins():
     open(W + '/notes.txt', 'w').write('abc def\nsecond\n')
     start('notes.txt', w=140, h=40); time.sleep(0.5)
     palette('Plugins panel')
-    ok = wait_for('running · nim e · 1 plugin', 30) and wait_for("broke the plugins' start", 5)
+    ok = wait_for('running · (nim e|native) · 1 plugin', 30) and wait_for("broke the plugins' start", 5)
     s = screen()
     keys('Escape'); time.sleep(0.2)
     check("619 plugins: the dock — the host runs, the plugin and its commands listed; a broken one left out", ok, s)
@@ -7023,4 +7023,324 @@ def t_619_key_conflicts():
     cfg = json.load(open(CFG + '/ned/config.json'))
     check("619 keys: … and bound when you say yes", cfg.get('keys', {}).get('ctrl+s') == 'Find next', cfg.get('keys'))
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts]
+def t_620_plugin_language():
+    # ini-tools (a NimScript plugin) for INI files: the outline from its symbols, its completions in the list, its
+    # hover, its code action (Alt+Enter), a view in the Plugins dock (a click goes there), progress and the Output
+    # panel from a command, its setting in the Settings panel
+    setup()
+    shutil.copytree(REPO + '/examples/plugins/ini-tools', CFG + '/ned/plugins/ini-tools')
+    os.makedirs(W + '/cfg', exist_ok=True)
+    open(W + '/cfg/app.ini', 'w').write('[server]\nport = 80\nhost = a\n\n[client]\nport = 81\nzeta = 1\nalpha = 2\n'
+                                        'port = 82\n')
+    start('cfg/app.ini', w=150, h=40); time.sleep(0.5)
+    check("620 plugin language: ready", plugins_ready(), screen())
+    palette('Outline panel')
+    ok = wait_for('\\[client\\]', 8) and wait_for('alpha', 4)
+    check("620 plugin language: the Outline from its symbols (sections, keys)", ok, screen())
+    keys('Escape')
+    keys('C-g'); text('9:1'); keys('Enter'); time.sleep(0.3); keys('End'); keys('Enter')
+    text('ho'); time.sleep(1.0)
+    s = screen()
+    check("620 plugin language: its completion in the list (a key another section has)", 'as in [server]' in s, s)
+    keys('Enter'); time.sleep(0.5)
+    s = screen()
+    check("620 plugin language: … accepted as a snippet (the value to type over)", '  host = a' in s, s)
+    keys('Escape')
+    for _ in range(4):
+        keys('C-z'); time.sleep(0.2)
+    time.sleep(0.3)
+    keys('C-g'); text('2:2'); keys('Enter'); time.sleep(0.3); keys('M-h')
+    ok = wait_for('port.{0,4} — in 3 sections', 8)
+    check("620 plugin language: its hover", ok, screen())
+    keys('Escape')
+    keys('C-g'); text('9:1'); keys('Enter'); time.sleep(0.3); keys('M-Enter')
+    ok = wait_for('Quick fixes', 8)
+    s = screen()
+    check("620 plugin language: Alt+Enter — its code actions", ok and 'Sort the keys of [client]' in s and
+          'Remove the second port (line 9)' in s, s)
+    if ok:
+        text('Sort the keys'); time.sleep(0.3); keys('Enter'); time.sleep(0.6)
+    keys('C-s'); time.sleep(0.5)
+    check("620 plugin language: the code action applied",
+          ftext('cfg/app.ini') == '[server]\nport = 80\nhost = a\n\n[client]\nalpha = 2\nport = 81\nport = 82\nzeta = 1\n',
+          ftext('cfg/app.ini'))
+    palette('Plugins panel')
+    ok = wait_for('INI SECTIONS', 10) and wait_for('§ \\[client\\]', 10)
+    check("620 plugin language: its view in the Plugins dock", ok, screen())
+    open(W + '/cfg/b.ini', 'w').write('[db]\nurl = x\nurl = y\n')
+    palette("INI: check the project's config files")
+    ok = wait_for('url is in \\[db\\] twice', 15)
+    check("620 plugin language: a command's lines in the Output panel (and its message)",
+          ok and 'INI: 2 keys twice' in screen(), screen())
+    palette('Settings'); time.sleep(0.4); text('sortCaseSensitive'); time.sleep(0.5)
+    s = screen()
+    check("620 plugin language: its setting in the Settings panel", 'Ini-tools.sort case sensitive' in s, s)
+    keys('Escape')
+    keys('M-c'); time.sleep(0.5); text('ask the ini plugin for the port'); keys('Enter')
+    ok = wait_for('Tool said: 80', 20)
+    check("620 plugin language: the assistant calls the plugin's tool (it only reads: no question)", ok, screen())
+
+def t_620_plugin_full_nim():
+    # clock-native: a plugin in full Nim (plugin.nim) — compiled into a program of its own (the dock says so), its
+    # timer's status-bar clock, its command (std/times); a NimScript plugin beside it keeps its own process; reload one
+    setup()
+    shutil.copytree(REPO + '/examples/plugins/clock-native', CFG + '/ned/plugins/clock-native')
+    d = CFG + '/ned/plugins/hello'
+    os.makedirs(d, exist_ok=True)
+    open(d + '/plugin.nims', 'w').write(HELLO_PLUGIN)
+    open(W + '/notes.txt', 'w').write('abc def\nsecond\n')
+    start('notes.txt', w=150, h=40); time.sleep(0.5)
+    palette('Plugins panel')
+    ok = wait_for('clock-native \\(Nim\\) · running · native', 90)
+    s = screen()
+    check("620 full Nim: compiled, then running in its own process (the dock)", ok and 'running · nim e · 1 plugin' in s, s)
+    ok = wait_for('⏱ [0-9][0-9]:[0-9][0-9]', 6)
+    check("620 full Nim: its timer — the clock in the status bar", ok, screen())
+    keys('Escape')
+    palette('Clock: insert the date'); time.sleep(1.0)
+    s = screen()
+    import datetime
+    check("620 full Nim: its command (std/times)", datetime.date.today().isoformat() + 'abc def' in s, s)
+    palette('Plugins: reload one…'); time.sleep(0.4); text('hello'); time.sleep(0.3); keys('Enter'); time.sleep(0.5)
+    palette('Plugins panel')
+    ok = wait_for('running · (nim e|native) · 1 plugin', 30)
+    s = screen()
+    check("620 full Nim: reload one plugin — the other process keeps running",
+          ok and 'clock-native (Nim) · running · native' in s, s)
+
+def t_620_ast_docs():
+    # Nim: AST view — the statement at the cursor as the tree a macro gets (beside the code, again after an edit);
+    # Nim: preview this file's docs — the exported declarations with their doc comments, as nim doc shows them
+    setup()
+    open(W + '/src/m.nim', 'w').write('## The m module.\n\nproc add*(a, b: int): int =\n  ## adds a and b\n  a + b\n'
+                                      '\nlet x = add(1, 2)\n')
+    start('src/m.nim', w=150, h=40); time.sleep(0.5)
+    keys('C-g'); text('3:1'); keys('Enter'); time.sleep(0.2)
+    palette('Nim: AST view')
+    ok = wait_for('ProcDef', 15) and wait_for('Ident "add"', 5)
+    check("620 AST view: the proc's tree beside it", ok, screen())
+    keys('C-g'); text('7:1'); keys('Enter'); time.sleep(1.2)
+    ok = wait_for('LetSection', 10)
+    check("620 AST view: follows the cursor to the next statement", ok, screen())
+    palette('Nim: AST view'); time.sleep(0.5)
+    check("620 AST view: run again — closed", 'LetSection' not in screen(), screen())
+    palette("Nim: preview this file's docs")
+    ok = wait_for('adds a and b', 10)
+    s = screen()
+    check("620 docs preview: the module's doc and the exported proc's", ok and 'The m module' in s, s)
+
+def fake_nimble_dir620():
+    """a NIMBLE_DIR with jsony 1.0.0 and 1.1.5 installed, and its package list pointing at a local repository tagged
+    v1.0.0 v1.1.5 v1.2.0 (git ls-remote reads it offline)"""
+    nd = TMP + '/nimble620'
+    repo = TMP + '/jsony620.git'
+    if not os.path.exists(repo + '/HEAD'):
+        shutil.rmtree(nd, ignore_errors=True)
+        shutil.rmtree(repo, ignore_errors=True)
+        src = TMP + '/jsony620src'
+        shutil.rmtree(src, ignore_errors=True)
+        os.makedirs(src)
+        open(src + '/jsony.nimble', 'w').write('version = "1.2.0"\n')
+        cmds = ('git init -q -b master && git config user.name t && git config user.email t@t && '
+                'git config commit.gpgsign false && git add -A && git commit -qm a && git tag v1.0.0 && '
+                'git commit -q --allow-empty -m b && git tag v1.1.5 && git commit -q --allow-empty -m c && git tag v1.2.0')
+        subprocess.run(cmds, shell=True, cwd=src, check=True, capture_output=True)
+        subprocess.run(['git', 'clone', '-q', '--bare', src, repo], check=True, capture_output=True)
+    os.makedirs(nd + '/pkgs2/jsony-1.0.0-aaaa', exist_ok=True)
+    os.makedirs(nd + '/pkgs2/jsony-1.1.5-bbbb', exist_ok=True)
+    json.dump([{"name": "jsony", "url": "file://" + repo, "method": "git", "tags": ["json"],
+                "description": "A loose, direct to object json parser", "license": "MIT", "web": "https://x/jsony"},
+               {"name": "jester", "url": "file:///nonexistent", "method": "git", "description": "a web framework",
+                "license": "MIT"}], open(nd + '/packages_official.json', 'w'))
+    return nd
+
+def t_620_nimble_edit():
+    # a .nimble: a requires' versions completed (installed, the repository's tags), the package on hover, the version
+    # bumped (Alt+Enter), a dependency added from the package list; config.nims: --gc's fix; the configuration the
+    # compiler ends up with (where nim.cfg and config.nims disagree); the lock file's changes since the last commit
+    setup()
+    nd = fake_nimble_dir620()
+    open(W + '/nim.cfg', 'w').write('--mm:refc\n')
+    open(W + '/config.nims', 'w').write('--gc:orc\n')
+    json.dump({"version": 2, "packages": {"jsony": {"version": "1.0.0", "vcsRevision": "a" * 40, "url": "x",
+                                                     "downloadMethod": "git", "dependencies": [], "checksums": {}}}},
+              open(W + '/nimble.lock', 'w'))
+    subprocess.run('git add -A && git commit -qm lock', shell=True, cwd=W, check=True, capture_output=True)
+    json.dump({"version": 2, "packages": {"jsony": {"version": "1.1.5", "vcsRevision": "b" * 40, "url": "x",
+                                                     "downloadMethod": "git", "dependencies": [], "checksums": {}},
+                                           "jester": {"version": "0.6.0", "vcsRevision": "c" * 40, "url": "y",
+                                                      "downloadMethod": "git", "dependencies": [], "checksums": {}}}},
+              open(W + '/nimble.lock', 'w'))
+    start('demo.nimble', w=150, h=40, env_extra='NIMBLE_DIR=' + nd); time.sleep(0.5)
+    keys('C-End'); keys('Enter'); text('requires "jsony >= '); time.sleep(2.0)
+    if 'newest tag' not in screen():
+        keys('C-space'); time.sleep(1.5)
+    s = screen()
+    check("620 nimble: a requires' versions — the tags and those installed",
+          '1.2.0' in s and 'newest tag' in s and 'installed · tag' in s and '1.0.0' in s, s)
+    keys('Enter'); text('"'); time.sleep(0.3)
+    check("620 nimble: … one chosen", 'requires "jsony >= 1.2.0"' in screen(), screen())
+    keys('Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left'); time.sleep(0.2)
+    keys('M-h')
+    ok = wait_for('A loose, direct to object json parser', 8)
+    s = screen()
+    check("620 nimble: hover on a package — what it is, the versions installed, the newest",
+          ok and 'installed: 1.1.5, 1.0.0' in s and 'newest release: 1.2.0' in s, s)
+    keys('Escape')
+    keys('C-Home'); time.sleep(0.2); keys('M-Enter')
+    ok = wait_for('Bump the version to 0.1.1', 8)
+    s = screen()
+    check("620 nimble: on version = — bump it (patch, minor, major)", ok and '0.2.0' in s and '1.0.0' in s, s)
+    if ok:
+        text('0.2.0'); time.sleep(0.3); keys('Enter'); time.sleep(0.4)
+    keys('C-s'); time.sleep(0.4)
+    check("620 nimble: the version bumped", 'version       = "0.2.0"' in ftext('demo.nimble'), ftext('demo.nimble'))
+    palette('Nimble: add a dependency…'); time.sleep(0.8)
+    text('jester'); time.sleep(0.4); keys('Enter'); time.sleep(1.5)
+    s = screen()
+    check("620 nimble: add a dependency — its versions (none known: any, #head)", 'any version' in s and 'jester#head' in s, s)
+    keys('Enter'); time.sleep(0.6)                                  # (the first: any version)
+    s = screen()
+    check("620 nimble: … the requires line, then install it? asked", 'install it now' in s and
+          'requires "jester"' in ftext('demo.nimble'), (s, ftext('demo.nimble')))
+    keys('n'); time.sleep(0.3)
+    keys('C-p'); time.sleep(0.3); text('config.nims'); time.sleep(0.4); keys('Enter'); time.sleep(1.5); keys('M-Enter')
+    ok = wait_for('Use --mm:orc', 8)
+    if ok:
+        keys('Enter'); time.sleep(0.4)
+    keys('C-s'); time.sleep(0.4)
+    check("620 nimble: config.nims — --gc's fix (--mm)", ftext('config.nims') == '--mm:orc\n', ftext('config.nims'))
+    keys('C-p'); time.sleep(0.3); text('src/demo.nim'); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    palette('Nim: the configuration the compiler ends up with')
+    ok = wait_for('Where they disagree', 25)
+    s = screen()
+    check("620 nim dump: the config files read, where they disagree (--mm in nim.cfg and config.nims)",
+          ok and '--mm' in s and 'nim.cfg:1' in s and 'config.nims:1' in s and 'the last read wins' in s, s)
+    palette('Nimble: lock file')
+    ok = wait_for('Since the last commit', 10)
+    s = screen()
+    check("620 nimble.lock: what changed since the last commit", ok and '1.0.0 → 1.1.5' in s and 'jester' in s and
+          'added' in s, s)
+
+EMIT_NAMES = """proc add*(a, b: cint): cint {.exportc: "nim_add".} = a + b
+var counter: cint = 0
+
+proc bump() =
+  var local: cint = 1
+  {.emit: \"\"\"
+  `counter` = `add`(`counter`, `local`);
+  `ad`(1, 2);
+  `add`(1);
+  \"\"\".}
+
+bump()
+echo counter
+"""
+
+def t_620_emit_names():
+    # Nim names in an emit (`name`): checked (no such name — the one meant; a routine's arguments), on hover (the Nim
+    # declaration, the C name), F12 to the Nim declaration, completed in the backticks, renamed with the Nim name;
+    # an exportc proc's hover gives its C name
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/e.nim', 'w').write(EMIT_NAMES)
+    start('src/e.nim', w=150, h=40); time.sleep(1.5)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check("620 emit names: a name that is no Nim name (the one meant), a routine's argument count",
+          'is no Nim name here' in s and '(`add`?)' in s and '`add` takes 2 arguments — the emit passes 1' in s, s)
+    keys('Escape'); keys('Escape')
+    keys('C-g'); text('7:6'); keys('Enter'); time.sleep(0.3); keys('M-h')
+    ok = wait_for('var counter', 8)
+    s = screen()
+    check("620 emit names: hover on `counter` — its Nim declaration, the C name", ok and 'In the C:' in s, s)
+    keys('Escape')
+    keys('C-g'); text('7:33'); keys('Enter'); time.sleep(0.3); keys('F12'); time.sleep(0.6)
+    check("620 emit names: F12 on `local` — its Nim declaration", 'Ln 5, Col 7' in screen(), screen())
+    keys('C-g'); text('1:7'); keys('Enter'); time.sleep(0.3); keys('M-h')
+    ok = wait_for('C name:.{0,4}nim_add', 8)
+    check("620 emit names: hover on an exportc proc — its C name", ok, screen())
+    keys('Escape')
+    keys('C-g'); text('2:6'); keys('Enter'); keys('F2'); time.sleep(0.3)
+    keys('C-u'); text('count'); keys('Enter'); time.sleep(0.6)
+    keys('Enter'); time.sleep(0.6)
+    keys('C-s'); time.sleep(0.5)
+    t = ftext('src/e.nim')
+    check("620 emit names: rename — the backticked uses in the emit too",
+          '`count` = `add`(`count`, `local`);' in t and 'echo count\n' in t and 'counter' not in t, t)
+    keys('C-g'); text('9:3'); keys('Enter'); keys('End'); keys('Enter'); text('`cou'); time.sleep(1.0)
+    s = screen()
+    check("620 emit names: completion in the backticks — the Nim names there", re.search(r'count\s', s) is not None, s)
+
+def t_620_viewer():
+    # a file bigger than editor.viewerSize: the large-file viewer — read-only, its lines read as you go (the index
+    # made in the background): Go to line anywhere (the gutter numbers the file's lines), Ctrl+End to its end,
+    # Find through the whole file, Copy from it
+    setup({"editor.viewerSize": 16})
+    p = TMP + '/viewer620.log'
+    if not os.path.exists(p) or os.path.getsize(p) < 30 * 1024 * 1024:
+        with open(p, 'w') as f:
+            for i in range(1_400_000):
+                f.write('line %07d %s\n' % (i, 'needle-xyz' if i == 1_234_567 else 'some ordinary text here'))
+            f.write('THE VERY LAST LINE')
+    shutil.copy(p, W + '/huge.log')
+    start('huge.log', w=130, h=32); time.sleep(1.5)
+    s = screen()
+    check("620 viewer: opened in the viewer (read-only, the lines read as you go)",
+          'line 0000000' in s and 'Large file' in s and re.search(r'Ln 1 of (≥)?\d+', s) is not None, s)
+    ok = wait_for('Ln 1 of 1400001', 30)
+    check("620 viewer: the whole file indexed in the background (its line count)", ok, screen())
+    keys('C-g'); text('1000000'); keys('Enter'); time.sleep(0.6)
+    s = screen()
+    check("620 viewer: Go to line 1 000 000 (the gutter numbers the file's lines)",
+          'line 0999999' in s and '1000000' in s and 'Ln 1000000 of' in s, s)
+    keys('C-End'); time.sleep(0.8)
+    s = screen()
+    check("620 viewer: Ctrl+End — the file's last line", 'THE VERY LAST LINE' in s and 'Ln 1400001' in s, s)
+    keys('C-Home'); time.sleep(0.6)
+    keys('C-f'); text('needle-xyz'); keys('Enter'); time.sleep(0.5)
+    ok = wait_for('Line 1234568', 20)
+    s = screen()
+    check("620 viewer: Find — through the whole file (in the background)", ok and 'line 1234567 needle-xyz' in s, s)
+    keys('Escape'); text('x'); time.sleep(0.3)
+    check("620 viewer: read-only", 'line 1234567 needle-xyz' in screen() and open(W + '/huge.log').read(39) ==
+          'line 0000000 some ordinary text here\nli', screen())
+    keys('C-Home'); time.sleep(0.8)
+    check("620 viewer: Ctrl+Home — the file's first line", 'Ln 1 of 1400001' in screen(), screen())
+
+def t_620_plugin_list():
+    # Plugins: browse the plugin list… (plugins.indexUrl: a file of JSON here) installs one from git; Plugins: update
+    # pulls it when its repository moved on, and it reloads
+    repo = TMP + '/greeter620.git'
+    src = TMP + '/greeter620src'
+    shutil.rmtree(repo, ignore_errors=True)
+    shutil.rmtree(src, ignore_errors=True)
+    os.makedirs(src)
+    open(src + '/plugin.nims', 'w').write('import nedplugin\ncommand "Greeter: hello":\n  message("hello v1")\n')
+    subprocess.run('git init -q -b master && git config user.name t && git config user.email t@t && '
+                   'git config commit.gpgsign false && git add -A && git commit -qm v1', shell=True, cwd=src, check=True,
+                   capture_output=True)
+    subprocess.run(['git', 'clone', '-q', '--bare', src, repo], check=True, capture_output=True)
+    idx = TMP + '/plugins620.json'
+    json.dump([{"name": "greeter", "url": "file://" + repo, "description": "says hello"}], open(idx, 'w'))
+    setup({"plugins.indexUrl": idx})
+    start('src/demo.nim', w=140, h=40); time.sleep(0.5)
+    palette('Plugins: browse the plugin list…'); time.sleep(0.6)
+    s = screen()
+    check("620 plugin list: the list (name, description)", 'greeter' in s and 'says hello' in s, s)
+    keys('Enter')
+    ok = wait_for('Installed the plugin greeter', 15)
+    check("620 plugin list: installed from git", ok and os.path.exists(CFG + '/ned/plugins/greeter/plugin.nims'), screen())
+    time.sleep(3)
+    palette('Greeter: hello')
+    check("620 plugin list: its command runs", wait_for('hello v1', 15), screen())
+    open(src + '/plugin.nims', 'w').write('import nedplugin\ncommand "Greeter: hello":\n  message("hello v2")\n')
+    subprocess.run('git commit -qam v2 && git push -q ' + repo + ' master', shell=True, cwd=src, check=True,
+                   capture_output=True)
+    palette('Plugins: update (git pull)')
+    ok = wait_for('Updated: greeter', 20)
+    check("620 plugin list: Plugins: update pulls it", ok, screen())
+    time.sleep(3)
+    palette('Greeter: hello')
+    check("620 plugin list: … and it reloads", wait_for('hello v2', 15), screen())
+
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list]

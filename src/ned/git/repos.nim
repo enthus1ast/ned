@@ -96,7 +96,7 @@ proc readBranch() =
   except CatchableError: discard
 
 proc refreshGit(b: Buffer) =
-  if b.path.len == 0 or not fileExists(b.path): return
+  if b.path.len == 0 or not fileExists(b.path) or b.viewer != nil: return
   if not gitOk(findGitRoot(parentDir(b.path))): return
   b.inGit = true
   let id = b.id

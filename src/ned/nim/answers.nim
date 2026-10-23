@@ -52,6 +52,14 @@ proc enginePreloadStep(b: Buffer, ms: int): bool =
     if msSince(nxPrefetchedAt.getOrDefault(p, t0)) < 300 and not nxReadyToRead(p):
       later.add (p, part)
       continue
+    # a big file (over 16 KB: 4-9 ms to read on a busy core) starts a round: never one well under way
+    if msSince(t0) >= 1:
+      var big = false
+      try: big = getFileSize(p) > 16_384
+      except CatchableError: discard
+      if big:
+        q.add (p, part)
+        break
     seen.incl p
     let lt0 = getMonoTime()
     let g = nxLoad(p)
@@ -133,7 +141,7 @@ proc engineWarm(b: Buffer) =
   if b.id notin nxPreloaded:
     # the files its scope is made of, 6 ms a round; then the scope (what waited for it goes ahead)
     try:
-      if enginePreloadStep(b, 6):
+      if enginePreloadStep(b, 4):
         nxPreloadQ.del b.id
         nxPreloadSeen.del b.id
         # the program's scopes first, from the top — the file that includes this one, the one that includes that —
@@ -690,6 +698,16 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
           continue
         let (_, ls, _) = nxTargets(f, b.lines, l, s)
         if ls.len > 0 and ls[0].line == loc.line and ls[0].name == loc.name: hits.add (b.path, l, s)
+    # (and `it` in the routine's emits: the C the compiler writes for it)
+    var ew: EmitWork
+    var ewMade = false
+    for (l, s, n) in emitTickNames(b.lines):
+      if l < la or l > le or nxNorm(n) != nw: continue
+      if not ewMade:
+        ew = emitWork(b.lines)
+        ewMade = true
+      let (_, ls) = emitNimTargetsIn(ew, b.lines, f, l, s, s + n.len)
+      if ls.len > 0 and ls[0].line == loc.line and ls[0].name == loc.name: hits.add (b.path, l, s)
     return true
   let lowW = nw.toLowerAscii
   for path in nimSourceFiles():
@@ -733,6 +751,22 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
             for r in rs:
               for t in targets:
                 if nxSameDecl(t, r): ok = true
+        if ok: hits.add (path, l, s)
+    # (the `name`s of its emits that name it)
+    block:
+      var ew: EmitWork
+      var ewMade = false
+      for (l, s, n) in emitTickNames(lines):
+        if nxNorm(n) != nw: continue
+        if not ewMade:
+          ew = emitWork(lines)
+          ewMade = true
+        let (rs, ls) = emitNimTargetsIn(ew, lines, g, l, s, s + n.len)
+        if ls.len > 0: continue
+        var ok = false
+        for r in rs:
+          for t in targets:
+            if nxSameDecl(t, r): ok = true
         if ok: hits.add (path, l, s)
   true
 

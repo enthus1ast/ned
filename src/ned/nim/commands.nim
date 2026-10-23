@@ -57,16 +57,17 @@ proc saveForTool(b: Buffer): bool =
   if b.dirty: discard b.saveBuffer()
   true
 
-proc compilerExpandMacro(b: Buffer, name: string, line: int) =
+proc expandMacroJob(b: Buffer, name: string, line: int, done: proc(at: int, code, err: string) {.closure.}) =
   ## a macro call as the compiler expands it: `nim check --expandMacro`, the unsaved text read from stdin in the
-  ## file's folder (its imports and config as they are)
+  ## file's folder (its imports and config as they are) — the expansion of the call on `line` (or the nearest one
+  ## above it), or why there is none
   let copy = privTmp("expand") & ".nim"
   try: writeFile(copy, b.lines.join("\n") & "\n")
   except CatchableError as e:
-    error("Cannot expand: " & e.msg)
+    done(-1, "", e.msg)
     return
   let dir = if b.path.len > 0: parentDir(b.path) else: rootDir
-  info("Expanding " & name & " (nim check --expandMacro)…")
+  let fname = extractFilename(b.path)
   discard startJob(jkTool, "nim check --colors:off --hint:ExpandMacro:on --expandMacro:" & quoteShell(name) & " - < " &
                    quoteShell(copy), dir, proc(j: Job) =
     try: removeFile(copy)
@@ -90,9 +91,9 @@ proc compilerExpandMacro(b: Buffer, name: string, line: int) =
           blocks.add (cur, acc.join("\n").strip(leading = false))
           cur = -1
         else: acc.add raw
-      elif firstErr.len == 0 and " Error: " in raw: firstErr = raw.replace("stdinfile.nim", extractFilename(b.path))
+      elif firstErr.len == 0 and " Error: " in raw: firstErr = raw.replace("stdinfile.nim", fname)
     if blocks.len == 0:
-      error(if firstErr.len > 0: "Not expanded — " & firstErr else: "The compiler expanded no " & name & " here")
+      done(-1, "", (if firstErr.len > 0: firstErr else: "the compiler expanded no " & name & " here"))
       return
     var pick = 0
     for i, (l, _) in blocks:
@@ -100,8 +101,16 @@ proc compilerExpandMacro(b: Buffer, name: string, line: int) =
       if l == line:
         pick = i
         break
-    discard openScratch("expand: " & name, "# " & name & " at line " & $(blocks[pick][0] + 1) &
-                        ", as the compiler expands it\n" & blocks[pick][1] & "\n", langByName("Nim")))
+    done(blocks[pick][0], blocks[pick][1], ""))
+
+proc compilerExpandMacro(b: Buffer, name: string, line: int) =
+  info("Expanding " & name & " (nim check --expandMacro)…")
+  expandMacroJob(b, name, line, proc(at: int, code, err: string) =
+    if err.len > 0:
+      error("Not expanded — " & err)
+      return
+    discard openScratch("expand: " & name, "# " & name & " at line " & $(at + 1) &
+                        ", as the compiler expands it\n" & code & "\n", langByName("Nim")))
 
 proc cmdExpandMacro(level = "all") =
   let b = buf()

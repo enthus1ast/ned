@@ -276,6 +276,8 @@ proc mcpTools(): seq[(string, string, JsonNode)] =
       result.add (mcpToolName(s.name, "read_resource"), d,
                   %*{"type": "object", "properties": {"uri": {"type": "string", "description": "the resource's URI"}},
                      "required": ["uri"]})
+  for t in plugAiTools:                           # (the plugins' tools)
+    result.add (t.name, "[" & t.plugin & " plugin] " & t.desc, t.schema)
 
 proc mcpFind(full: string): (McpServer, string) =
   for s in mcpServers:

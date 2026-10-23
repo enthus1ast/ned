@@ -24,6 +24,7 @@ type
     deadline: MonoTime         # (a request has this long: past it, cut)
     cycleAt: int               # the outermost routine (index in busy) a cycle came back to: those above it are
                                # not kept (their answer waits for its)
+    bodyOfRoot: bool           # the routine asked about: what its body raises, not what its {.raises.} says
     fx: bool                   # side effects instead of exceptions (effects.nim): a side effect is the exception
                                # NxFxMark — a global touched, a routine with side effects called
     impure: bool               # (fx) a side effect found in the routine being read: the rest of it is not read
@@ -1798,7 +1799,7 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
     if nxFxPragma(prag, "sideEffect"): return nxFxImpure(s.name & " has side effects")
   else:
     let (has, list) = nxRsDeclared(r, lines)
-    if has: return nxRsListOf(nxRsScope(c, r.file), list)
+    if has and not (c.bodyOfRoot and c.busy.len == 0): return nxRsListOf(nxRsScope(c, r.file), list)
   let isSystem = nxInSystem(r.file.path)
   if "magic" in prag or "importc" in prag or "importcpp" in prag or "importjs" in prag or "importobjc" in prag:
     if "exportc" notin prag: return NxRaises(known: true)
@@ -1913,6 +1914,20 @@ proc nxRaisesOf*(r: NxRef, limit = 4000, ms = 2000): NxRaises =
   try: result = nxRsRoutine(c, r, "", -1)
   except CatchableError: result = nxRsFail("an error")
   if c.cut: result = NxRaises(known: false, why: "out of time", cut: true)
+
+proc nxRaisesOfBody*(r: NxRef, limit = 4000, ms = 2000): NxRaises =
+  ## what the body of routine `r` can raise, its own {.raises.} aside (what the compiler checks that list against)
+  if r.file == nil or r.sym.kind notin NxRoutineKinds: return nxRsFail("not a routine")
+  var c = NxRsCtx(limit: limit, deadline: getMonoTime() + initDuration(milliseconds = ms), cycleAt: high(int),
+                  bodyOfRoot: true)
+  c.deps.add initHashSet[string]()
+  try: result = nxRsRoutine(c, r, "", -1)
+  except CatchableError: result = nxRsFail("an error")
+  if c.cut: result = NxRaises(known: false, why: "out of time", cut: true)
+
+proc nxRaisesDeclared*(r: NxRef): (bool, string) =
+  ## the routine's own {.raises: […].} list as written (or pushed around it)
+  nxRsDeclared(r, nxLayLinesRef(r.file.path).lines)
 
 proc nxRaisesHintable*(f: NxFile, lines: seq[string], s: NxSym): bool =
   ## a routine whose header can carry the hint: a proc, func, iterator or converter with a body and no {.raises.} of
