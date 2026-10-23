@@ -58,19 +58,22 @@ proc runInTerminal(cmd, cwd: string, wait = true) =
   let run = if cmd.contains({';', '&', '|', '\n'}): cmd else: "exec " & cmd      # no shell left in between
   # (fork and exec rather than system(): the program gets Ctrl+C and Ctrl+\ back, ned keeps ignoring them)
   var code = 127
-  let args = allocCStringArray(["/bin/sh", "-c", "cd " & quoteShell(cwd) & " && " & run])
-  let pid = fork()
-  if pid == 0:
-    signal(SIGINT, SIG_DFL)
-    signal(SIGQUIT, SIG_DFL)
-    signal(SIGPIPE, SIG_DFL)
-    discard execv("/bin/sh", args)
-    exitnow(127)
-  deallocCStringArray(args)
-  if pid > 0:
-    var st: cint
-    while waitpid(pid, st, 0) < 0 and errno == EINTR: discard
-    code = if WIFEXITED(st): int(WEXITSTATUS(st)) else: 128 + int(WTERMSIG(st))
+  when defined(windows):
+    code = winRun(cmd, cwd)        # (the console is the program's while it runs; ned waits)
+  else:
+    let args = allocCStringArray(["/bin/sh", "-c", "cd " & quoteShell(cwd) & " && " & run])
+    let pid = fork()
+    if pid == 0:
+      signal(SIGINT, SIG_DFL)
+      signal(SIGQUIT, SIG_DFL)
+      signal(SIGPIPE, SIG_DFL)
+      discard execv("/bin/sh", args)
+      exitnow(127)
+    deallocCStringArray(args)
+    if pid > 0:
+      var st: cint
+      while waitpid(pid, st, 0) < 0 and errno == EINTR: discard
+      code = if WIFEXITED(st): int(WEXITSTATUS(st)) else: 128 + int(WTERMSIG(st))
   if wait:
     stdout.write "\n\e[2m[exit " & $code & "] press Enter to return to ned\e[0m"
     stdout.flushFile()

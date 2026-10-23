@@ -20,6 +20,9 @@ const WslPaste = "powershell.exe -NoProfile -NonInteractive -Command " &
 
 proc clipSet(text: string) =
   ## OSC 52 asks the terminal to copy (Windows Terminal, iTerm2, kitty, WezTerm, Termux …); a helper as well when there is one
+  when defined(windows):
+    discard winClipSet(text)            # (the Windows clipboard itself)
+    return
   if text.len < 200_000:
     writeAll("\e]52;c;" & base64.encode(text) & "\a")
   var cmd = ""
@@ -41,6 +44,7 @@ proc clipSet(text: string) =
     except CatchableError: discard
 
 proc clipGet(): string =
+  when defined(windows): return winClipGet()
   if sysClipBroken: return ""
   var cmd = ""
   var wait = 1500

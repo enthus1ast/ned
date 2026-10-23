@@ -44,7 +44,7 @@ proc drawWelcome(x0, y0, w, h: int) =
     ("g", "Clone from a link…", "", Action(proc() = gitCloneFromLink())),
     ("f", "Browse files", "Ctrl+B", Action(proc() = showSide(svFiles))),
     ("r", "Recent projects…", "", Action(proc() = runCmd("File: open recent project…"))),
-    ("j", "New Nim project…", "", Action(proc() = openPrompt(pNewProject, "New Nim project name", ""))),
+    ("j", "New Nim project…", "", Action(proc() = cmdNewNimProject())),
     ("e", "Command palette", "Ctrl+E", Action(proc() = cmdPalette())),
     ("t", "Theme · " & cfgThemeName, "Alt+T", Action(proc() = cmdThemes())),
     ("s", "Settings", "", Action(proc() = openSettingsUi())),
@@ -72,13 +72,13 @@ proc drawWelcome(x0, y0, w, h: int) =
             else: "ned " & Version & " · made for Nim"
   discard putStr(x0 + max(0, (w - strWidth(tag)) div 2), y, truncTo(tag, w - 2), theme.dim, theme.bg, {}, x0 + w)
   y += 2
-  proc row(x, yy: int, key, label, hint: string, a: Action, colW: int) =
+  proc row(x, yy: int, key, label, hint: string, a: Action, colW: int, rightAct: Action = nil) =
     var xx = putStr(x, yy, " " & key & " ", theme.bg, theme.accent, {aBold}, x0 + w)
     xx = putStr(xx + 1, yy, truncTo(label, colW - 6 - (if hint.len > 0: strWidth(hint) + 1 else: 0)), theme.fg,
                 theme.bg, {}, x0 + w)
     if hint.len > 0: discard putStr(x + colW - strWidth(hint) - 1, yy, hint, theme.dim, theme.bg, {}, x0 + w)
     welcomeRegions.add (yy, x, x + colW, a)
-    region(x, yy, colW, 1, a)
+    region(x, yy, colW, 1, a, "", rightAct)
   let colW = if wide: 34 else: blockW
   discard putStr(left, y, "START", theme.dim, theme.bg, {aBold})
   if wide: discard putStr(left + 38, y, "RECENT", theme.dim, theme.bg, {aBold})
@@ -104,7 +104,15 @@ proc drawWelcome(x0, y0, w, h: int) =
       let num = $(i + 1)
       let fname = extractFilename(r)
       capture path:
-        row(rx, ry, num, fname, dir, Action(proc() = discard openFile(path)), colW)
+        # (right-click: open it beside, copy its path, take it off the list)
+        row(rx, ry, num, fname, dir, Action(proc() = discard openFile(path)), colW, Action(proc() =
+          ctxOpen(@[mi("Open", "", proc() = discard openFile(path)),
+                    mi("Open to the side", "", proc() = discard openToSide(path)),
+                    ctxCopy("Copy the path", path),
+                    mi("Remove from the recent files", "", proc() =
+                      let k = recentFiles.find(path)
+                      if k >= 0: recentFiles.delete(k)
+                      needRender = true)])))
       inc ry
     if not wide: y = ry
   y = max(y, top + (if wide: max(starts.len, recents.len) else: 0)) + 1
@@ -150,7 +158,7 @@ proc welcomeKey(k: Key): bool =
   of 'd': cmdOpenFolder()
   of 'g': gitCloneFromLink()
   of 'r': runCmd("File: open recent project…")
-  of 'j': openPrompt(pNewProject, "New Nim project name", "")
+  of 'j': cmdNewNimProject()
   of 'e': cmdPalette()
   of 't': cmdThemes()
   of 's': openSettingsUi()

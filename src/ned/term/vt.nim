@@ -9,58 +9,72 @@ proc newTerm(w, h: int, cwd: string, cmd = ""): Term =
   t.name = extractFilename(shell)
   t.replCmd = cmd
   t.replAt = getMonoTime()
-  let fd = posix_openpt(O_RDWR or O_NOCTTY)
-  if fd < 0:
-    t.dead = true
-    t.title = "cannot open a pseudo-terminal"
-    return t
-  let pn = if grantpt(fd) == 0 and unlockpt(fd) == 0: ptsname(fd) else: nil
-  if pn == nil:
-    discard posix.close(fd)
-    t.dead = true
-    t.title = "cannot open a pseudo-terminal"
-    return t
-  let slave = $pn
-  t.fd = fd
-  t.setWinSize()
-  let (siArgs, siEnv) = if cmd.len == 0: shellIntegration(shell) else: (@[], @[])
-  # terminal.editorEnv: this ned is git's editor here (and EDITOR, VISUAL where they are not set) — `git commit`
-  # opens its message in a tab and waits for it (see control)
-  var edEnv: seq[(string, string)]
-  if cfgEditorEnv and getEnv("NED_SOCKET").len > 0:
-    let me = quoteShell(getAppFilename()) & " --wait"
-    if getEnv("GIT_EDITOR").len == 0: edEnv.add ("GIT_EDITOR", me)
-    for v in ["EDITOR", "VISUAL"]:
-      if getEnv(v).len == 0: edEnv.add (v, me)
-  let pid = fork()
-  if pid == 0:
-    discard setsid()
-    let s = posix.open(cstring(slave), O_RDWR)
-    if s < 0: exitnow(127)
-    discard ioctl(s, TIOCSCTTY, 0)
-    discard dup2(s, 0)
-    discard dup2(s, 1)
-    discard dup2(s, 2)
-    if s > 2: discard posix.close(s)
-    discard posix.close(fd)
-    putEnv("TERM", "xterm-256color")
-    putEnv("COLORTERM", "truecolor")
-    putEnv("TERM_PROGRAM", "ned")
-    if getEnv("LANG").len == 0 and getEnv("LC_ALL").len == 0:
-      putEnv("LANG", (when defined(macosx): "en_US.UTF-8" else: "C.UTF-8"))
-    signal(SIGPIPE, SIG_DFL)          # ned ignores it; the shell and its pipes (`yes | head`) must not
-    signal(SIGQUIT, SIG_DFL)          # … and Ctrl+\ quits programs in the terminal again
-    if cwd.len > 0: discard chdir(cstring(cwd))
-    for (k, v) in siEnv: putEnv(k, v)
-    for (k, v) in edEnv: putEnv(k, v)
-    let args = if cmd.len > 0: allocCStringArray([shell, "-c", "exec " & cmd]) else: allocCStringArray(@[shell] & siArgs)
-    discard execvp(cstring(shell), args)
-    exitnow(127)
-  t.pid = pid
-  let fl = fcntl(fd, F_GETFL)
-  discard fcntl(fd, F_SETFL, fl or O_NONBLOCK)
-  discard fcntl(fd, F_SETFD, FD_CLOEXEC)
-  t
+  when defined(windows):
+    # a pseudo-console (ConPTY): the shell, or `cmd` through sh (Git for Windows') or cmd.exe
+    let (siArgs, siEnv) = if cmd.len == 0: shellIntegration(shell) else: (@[], @[])
+    let env = @[("TERM", "xterm-256color"), ("COLORTERM", "truecolor"), ("TERM_PROGRAM", "ned")] & siEnv
+    let argv = if cmd.len > 0: @["sh", "-c", cmd] else: @[shell] & siArgs
+    let r = winPtySpawn(argv, cwd, t.w, t.h, env)
+    if r.fd < 0:
+      t.dead = true
+      t.title = r.err
+      return t
+    t.fd = r.fd
+    t.pid = r.pid
+    t
+  else:
+    let fd = posix_openpt(O_RDWR or O_NOCTTY)
+    if fd < 0:
+      t.dead = true
+      t.title = "cannot open a pseudo-terminal"
+      return t
+    let pn = if grantpt(fd) == 0 and unlockpt(fd) == 0: ptsname(fd) else: nil
+    if pn == nil:
+      discard posix.close(fd)
+      t.dead = true
+      t.title = "cannot open a pseudo-terminal"
+      return t
+    let slave = $pn
+    t.fd = fd
+    t.setWinSize()
+    let (siArgs, siEnv) = if cmd.len == 0: shellIntegration(shell) else: (@[], @[])
+    # terminal.editorEnv: this ned is git's editor here (and EDITOR, VISUAL where they are not set) — `git commit`
+    # opens its message in a tab and waits for it (see control)
+    var edEnv: seq[(string, string)]
+    if cfgEditorEnv and getEnv("NED_SOCKET").len > 0:
+      let me = quoteShell(getAppFilename()) & " --wait"
+      if getEnv("GIT_EDITOR").len == 0: edEnv.add ("GIT_EDITOR", me)
+      for v in ["EDITOR", "VISUAL"]:
+        if getEnv(v).len == 0: edEnv.add (v, me)
+    let pid = fork()
+    if pid == 0:
+      discard setsid()
+      let s = posix.open(cstring(slave), O_RDWR)
+      if s < 0: exitnow(127)
+      discard ioctl(s, TIOCSCTTY, 0)
+      discard dup2(s, 0)
+      discard dup2(s, 1)
+      discard dup2(s, 2)
+      if s > 2: discard posix.close(s)
+      discard posix.close(fd)
+      putEnv("TERM", "xterm-256color")
+      putEnv("COLORTERM", "truecolor")
+      putEnv("TERM_PROGRAM", "ned")
+      if getEnv("LANG").len == 0 and getEnv("LC_ALL").len == 0:
+        putEnv("LANG", (when defined(macosx): "en_US.UTF-8" else: "C.UTF-8"))
+      signal(SIGPIPE, SIG_DFL)          # ned ignores it; the shell and its pipes (`yes | head`) must not
+      signal(SIGQUIT, SIG_DFL)          # … and Ctrl+\ quits programs in the terminal again
+      if cwd.len > 0: discard chdir(cstring(cwd))
+      for (k, v) in siEnv: putEnv(k, v)
+      for (k, v) in edEnv: putEnv(k, v)
+      let args = if cmd.len > 0: allocCStringArray([shell, "-c", "exec " & cmd]) else: allocCStringArray(@[shell] & siArgs)
+      discard execvp(cstring(shell), args)
+      exitnow(127)
+    t.pid = pid
+    let fl = fcntl(fd, F_GETFL)
+    discard fcntl(fd, F_SETFL, fl or O_NONBLOCK)
+    discard fcntl(fd, F_SETFD, FD_CLOEXEC)
+    t
 
 proc ansiColor(n: int): Rgb =
   if n < 16: return theme.ansi[n]

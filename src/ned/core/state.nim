@@ -155,6 +155,8 @@ var
   cfgEditorEnv = true          # terminal.editorEnv: GIT_EDITOR (EDITOR, VISUAL) in ned's terminal is this ned
   cfgItalics = false
   cfgToasts = true
+  cfgFormButtons = true       # ui.formButtons: OK / Cancel under lists and prompts
+  cfgDragDrop = true          # ui.dragAndDrop
   cfgMessages = "popup"        # info / warnings / errors: "popup" (wrapped, readable) or "statusbar"
   cfgRenamePreview = true
   cfgPersistentUndo = true
@@ -386,6 +388,9 @@ var
   pickBox: tuple[x, y, w, h: int]
   pickListY = 0
   pickListN = 0
+  settingKey = ""            # the setting a value prompt is for
+  dndPrevBufId = -1         # (drag and drop) the file shown before the press — a tab's press shows the tab's
+  pickRegions = -1          # the picker's own regions (its query field, its buttons) start here
   hoverPrefix = ""
   sigOpen = false
   sigLabel = ""

@@ -277,6 +277,22 @@ proc initLangs() =
         ONBUILD STOPSIGNAL HEALTHCHECK SHELL AS""", indentWidth: 2, lsp: @[@["docker-langserver", "--stdio"]],
       pairs: "()[]{}\"\""),
     Lang(name: "Diff", id: "diff", exts: @["diff", "patch"], mode: lmDiff, indentWidth: 2),
+    # (machine code: objdump's, radare2's, a .s file — the instructions, the registers, the numbers)
+    Lang(name: "Assembly", id: "asm", exts: @["s", "S", "asm"], mode: lmGeneric, lineComment: ";",
+      quotes: {'"'},
+      keywords: ws"""mov movl movq movb movw movzx movsx movsxd movabs movz movk movn lea push pop call ret jmp je jne jz
+        jnz jg jge jl jle ja jae jb jbe js jns jo jno cmp test add sub imul mul idiv div inc dec neg not and or xor
+        shl shr sar sal rol ror nop leave enter cmov cmove cmovne cmovg cmovl sete setne setg setl cqo cdq cdqe
+        endbr64 syscall int hlt ud2 xchg bt bts btr ldr ldrb ldrh ldrsw ldur ldp str strb strh stur stp adrp adr
+        b bl blr br cbz cbnz tbz tbnz csel cset csinc cneg madd msub sdiv udiv lsl lsr asr orr eor mvn tst cmn fmov
+        fadd fsub fmul fdiv scvtf fcvtzs bic ands subs adds ret beq bne blt bgt ble bge bhi blo bls bhs b.eq b.ne
+        b.lt b.gt b.le b.ge b.hi b.lo b.ls b.hs b.cc b.cs b.mi b.pl movss movsd movaps movups pxor xorps cvtsi2sd""",
+      types: ws"""rax rbx rcx rdx rsi rdi rbp rsp rip r8 r9 r10 r11 r12 r13 r14 r15 eax ebx ecx edx esi edi ebp esp
+        r8d r9d r10d r11d r12d r13d r14d r15d ax bx cx dx si di bp sp al bl cl dl ah bh ch dh sil dil r8b r9b xmm0
+        xmm1 xmm2 xmm3 xmm4 xmm5 xmm6 xmm7 x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19
+        x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17
+        w18 w19 w20 w21 w22 w23 w24 w25 w26 w27 w28 w29 w30 xzr wzr lr fp pc qword dword word byte ptr""",
+      indentWidth: 8, pairs: "()[]"),
     Lang(name: "Text", id: "plaintext", exts: @["txt", "text", "log"], mode: lmPlain,
       indentWidth: 2, pairs: "()[]{}"),
   ]

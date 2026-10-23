@@ -129,6 +129,7 @@ proc drawStatusBar() =
   if y < 0: return
   let bg = theme.statusBg
   fillRect(0, y, scrW, 1, theme.statusFg, bg)
+  ctxRegion(0, y, scrW, 1, proc() = ctxOpen(statusBarMenu()))
   let b = buf()
   # ── left ──
   var x = 0
@@ -146,7 +147,8 @@ proc drawStatusBar() =
   let (ne, nw) = problemCounts()
   let pfg = if ne > 0: theme.err elif nw > 0: theme.warn else: theme.dim
   let ptxt = if ne + nw == 0: " " & ic("ok") & " 0 " else: " " & ic("error") & " " & $ne & "  " & ic("warn") & " " & $nw & " "
-  x = button(x + 1, y, ptxt, proc() = setPanel(pkProblems), "Problems", pfg, bg)
+  x = button(x + 1, y, ptxt, proc() = setPanel(pkProblems), "Problems", pfg, bg,
+             rightAct = proc() = ctxOpen(statusProblemsMenu()))
   if activeRunConfig.len > 0 and scrW >= 70:
     x = button(x, y, " ▶ " & truncTo(activeRunConfig, 16) & " ", proc() = cmdRunConfigs(),
                "Alt+R runs this configuration — click to choose another", theme.syn[tkFunc], bg)
@@ -181,7 +183,8 @@ proc drawStatusBar() =
     let tip = if b.lang.mode == lmNim and nim3On(): "Language intelligence · Nim 3: nimony in " & tildePath(nimonyRoot())
               elif b.lang.mode == lmNim and nimToolchainLine().len > 0: "Language intelligence · " & nimToolchainLine()
               else: "Language intelligence"
-    x = button(x, y, " " & lsTxt & " ", proc() = showSide(svProject), tip, theme.dim, bg)
+    x = button(x, y, " " & lsTxt & " ", proc() = showSide(svProject), tip, theme.dim, bg,
+               rightAct = proc() = ctxOpen(statusLsMenu()))
   if b.lang.mode == lmNim and tcProblem.len > 0 and scrW >= 60 and not nim3On():
     # (the Nim in use is not what the project's .nimble asks for)
     x = button(x, y, " " & (if cfgAccessible: "[!]" else: "⚠") & " Nim " & tcVerText(tcVer) & ": " & tcProblem & " ",
@@ -203,7 +206,7 @@ proc drawStatusBar() =
                "Large-file mode (" & b.largeWhy & ") — click to turn the code features back on", theme.warn, bg)
   if scrW >= 80:
     x = button(x, y, " " & ic("terminal") & " Terminal ", proc() = runCmd("Toggle terminal"), "Integrated terminal (Ctrl+\\)",
-               theme.dim, bg)
+               theme.dim, bg, rightAct = proc() = ctxOpen(statusTermMenu()))
   if runningJob() != nil:
     x = button(x, y, " " & ic("run") & " running ", proc() = setPanel(pkOutput), "Show output", theme.accent, bg)
   if plugStatusItems.len > 0 and scrW >= 60:
@@ -272,7 +275,15 @@ proc drawStatusBar() =
   var rx = scrW - total()
   for i, (t, fg, a, tip) in right:
     if not keep[i]: continue
-    if a != nil: rx = button(rx, y, " " & t & " ", a, tip, fg, bg)
+    # (a right click: each part's own menu)
+    let ra: Action = if tip == "Go to line (Ctrl+G)": Action(proc() = ctxOpen(statusPosMenu()))
+                     elif tip == "Indentation": a
+                     elif tip.startsWith("Encoding"): a
+                     elif tip == "Line endings": Action(proc() = ctxOpen(statusEolMenu()))
+                     elif tip == "Select language mode": Action(proc() = ctxOpen(statusLangMenu()))
+                     elif tip.startsWith("AI"): Action(proc() = ctxOpen(statusAiMenu()))
+                     else: Action(nil)
+    if a != nil: rx = button(rx, y, " " & t & " ", a, tip, fg, bg, rightAct = ra)
     else: rx = putStr(rx, y, " " & t & " ", fg, bg)
   if showMsg:
     let maxX = scrW - total() - 1

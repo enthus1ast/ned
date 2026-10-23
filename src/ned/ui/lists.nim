@@ -247,7 +247,10 @@ proc drawDockList(dl: var DockList, v: SideView, x0, y0, w, h: int, focused: boo
         "", (if vv == svGit and item.path.len > 0: Action(proc() = openMenu(gitItemMenu(item), mouseX, y + 1))
              elif vv == svSearch: Action(proc() = openMenu(searchItemMenu(item), mouseX, y + 1))
              elif vv == svTodos and item.path.len > 0: Action(proc() = openMenu(todoItemMenu(item), mouseX, y + 1))
-             else: nil))
+             elif vv == svPlugins: nil
+             else: Action(proc() =
+               if rightSide: rightList.sel = idx else: leftList.sel = idx
+               ctxOpen(dockItemMenu(item, vv, rightSide)))))
   if hintRows > 0:
     let hint = if v == svTodos: "f project/file · 1-9 filter · c copy · x done · i GitHub issue"
                else: "s stage · u unstage · d diff · x discard · c commit"

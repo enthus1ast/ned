@@ -2,7 +2,11 @@
 ## Completion, hover, definitions, references, types, template expansion and misspelled names.
 ## Open buffers are read through `nxBufferStamp` / `nxBufferLines`, which the editor sets.
 
-import std/[os, strutils, tables, sets, algorithm, json, posix, times, monotimes, hashes]
+import std/[strutils, tables, sets, algorithm, json, times, monotimes, hashes]
+when defined(windows): import ../sys/winos as os   # (std/os, with '/' in the paths it makes)
+else: import std/os
+when defined(windows): import ../sys/winposix as posix
+else: import std/posix
 import ../core/text
 
 include index/lex

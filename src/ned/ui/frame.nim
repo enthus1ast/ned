@@ -120,10 +120,15 @@ proc render() =
   if pickKind != pickNone: drawPicker()
   if helpOpen: drawHelp()
   drawToasts((if lay.touchY >= 0: lay.touchY elif lay.statusY >= 0: lay.statusY else: scrH))
+  drawDnd()
+  if formOpen():
+    cursorX = -1                      # (the form's own field has it, if one has the focus)
+    drawForm()
   drawMenus()
   drawDialog()
   drawTooltip()
   if dialogOpen() or menuOpen() or helpOpen: cursorX = -1
+  elif formOpen(): discard
   elif focus notin {fEditor} and promptKind == pNone and pickKind == pickNone and
        not (focus == fTree and sideView == svSearch) and not (focus == fRight and rightView == svAssistant) and
        not (focus == fPanel and panelKind == pkTerminal):

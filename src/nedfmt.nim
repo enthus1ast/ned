@@ -5,7 +5,8 @@
 ##   Build: nim c -d:release -o:nedfmt src/nedfmt.nim      (or: nimble nedfmt)
 ##   Use  : nedfmt src/  ·  nedfmt --check .  ·  nedfmt --diff x.nim  ·  cat x.nim | nedfmt -  ·  nedfmt --install-hook
 
-import std/os
+when defined(windows): import ned/sys/winos as os
+else: import std/os
 import ned/version, ned/format/fmtcli
 
 when isMainModule:

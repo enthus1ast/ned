@@ -8,6 +8,7 @@ proc configFile(): string = configDir() / "config.json"
 proc spellUserFile(): string = configDir() / "words.txt"     # your own dictionary words (spell check)
 proc stateFile(): string = getEnv("XDG_STATE_HOME", getHomeDir() / ".local" / "state") / AppName / "state.json"
 proc tmpDir(): string =
+  when defined(windows): return getTempDir().strip(leading = false, chars = {'/', '\\'})   # (%TEMP%: the user's own)
   result = getEnv("TMPDIR")
   if result.len == 0 or not dirExists(result): result = "/tmp"
   if not dirExists(result): result = getHomeDir()
@@ -96,6 +97,12 @@ proc initSettingDefs() =
   defS("Appearance", "ui.italics", %false, "Italic comments, hints and placeholders — off by default because " &
        "many terminals and fonts (Termux included) have no italic face")
   defS("Appearance", "ui.toasts", %true, "Pop-up notifications for warnings, errors and finished jobs")
+  defS("Appearance", "ui.formButtons", %true, "Lists and prompts as dialogs: OK and Cancel buttons under them (a " &
+       "row more), the settings in a window of their own, as in a desktop app — off: Enter and Esc only, and the " &
+       "settings as a list")
+  defS("Appearance", "ui.dragAndDrop", %true, "Drag and drop with the mouse: a tab onto the other pane or an edge " &
+       "(split), a file from the file tree onto the editor (open) or a folder (move), the selected text elsewhere " &
+       "(move; hold Ctrl or Alt to copy)")
   defS("Appearance", "ui.messages", %"popup",
        "Where messages (info, warnings, errors) show: \"popup\" — the whole text, wrapped, in a popup — or " &
        "\"statusbar\" (one line, cut to fit). Palette › Show recent messages lists the last 100",
@@ -245,6 +252,12 @@ proc initSettingDefs() =
   defS("Vim", "vim.relativeNumbers", %false, "Relative line numbers while vim mode is on")
   # ── Files ──
   defS("Files", "files.showHidden", %false, "Show dot-files in the file tree and file finder")
+  defS("Decompiler", "decompiler.tool", %"auto", "What decompiles a function (Nim: decompile this proc, Hex: " &
+       "decompile a function): auto — the best installed: radare2 with r2ghidra or r2dec (C), rizin with rz-ghidra, " &
+       "RetDec, then a disassembly with the Nim lines it came from (radare2, rizin, objdump, llvm-objdump)",
+       @["auto", "r2ghidra", "r2dec", "rz-ghidra", "retdec", "radare2", "rizin", "objdump", "llvm-objdump"])
+  defS("Decompiler", "decompiler.follow", %true, "The decompiled view follows the cursor: into another proc of the " &
+       "Nim file, another function of the program in the hex editor")
   defS("Files", "files.encoding", %"auto", "What a file that is not UTF-8 is read as (a BOM says UTF-8 or UTF-16 " &
        "itself): auto = Windows-1252, or an encoding's name (iso-8859-1, iso-8859-15, koi8-r, shift_jis … — other " &
        "than Windows-1252, ISO-8859-1 and UTF-16 through iconv). A file is saved in the encoding it was read in; the " &
@@ -769,6 +782,8 @@ proc applySettings() =
   if ital != cfgItalics: prevGrid.setLen(0)      # repaint everything with or without italics
   cfgItalics = ital
   cfgToasts = sBool("ui.toasts")
+  cfgFormButtons = sBool("ui.formButtons")
+  cfgDragDrop = sBool("ui.dragAndDrop")
   cfgMessages = sStr("ui.messages")
   cfgRenamePreview = sBool("editor.renamePreview")
   cfgPersistentUndo = sBool("editor.persistentUndo")
@@ -1321,6 +1336,25 @@ proc setSetting(key: string, val: JsonNode) =
     let text = if fileExists(p): readFile(p) else: defaultSettingsText()
     createDir(parentDir(p))
     writeFileSafe(p, updateSettingsText(text, key, val))
+    for b in bufs:
+      if b.path == p and not b.dirty: reloadBuffer(b)
+  except CatchableError as e:
+    warn("Could not write settings: " & e.msg)
+  reloadSettings(false)
+
+proc setSettings(changes: seq[(string, JsonNode)]) =
+  ## several settings changed at once (the Settings window's OK): one write of the file, one reload
+  if changes.len == 0: return
+  initSettingDefs()
+  let p = configFile()
+  try:
+    var text = if fileExists(p): readFile(p) else: defaultSettingsText()
+    for (key, val) in changes:
+      settingsJ[key] = val
+      settingsUser[key] = val
+      text = updateSettingsText(text, key, val)
+    createDir(parentDir(p))
+    writeFileSafe(p, text)
     for b in bufs:
       if b.path == p and not b.dirty: reloadBuffer(b)
   except CatchableError as e:

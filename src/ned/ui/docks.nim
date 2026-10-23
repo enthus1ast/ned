@@ -57,6 +57,47 @@ proc toolLine(name, hint: string, install: Action = nil): SideItem =
   else:
     sideItem(name, 2, "✗", hint, install)
 
+proc atlasItems(): seq[SideItem] =
+  ## the Atlas section of the Nim panel: an Atlas project's dependencies (first, under PROJECT), else how to start
+  result.add sideItem("ATLAS", 6)
+  if atlasIsProject():
+    let deps = atlasDeps()
+    let resolver = atlasConfig(rootDir){"resolver"}.getStr
+    result.add sideItem($deps.len & (if deps.len == 1: " dependency" else: " dependencies") & " in " &
+                        relPath(atlasDepsDir(rootDir)), 1, "◆", (if resolver.len > 0: resolver else: ""),
+                        proc() =
+                          let p = atlasCfgPath(rootDir)
+                          if p.len > 0: discard openFile(p))
+    for d in deps:
+      let dep = d
+      var flags: seq[string]
+      if d.linked: flags.add "linked"
+      if d.lockCommit.len > 0 and d.head.len > 0 and d.lockCommit != d.head: flags.add "≠ lock"
+      if not d.onPath and not d.linked: flags.add "not on the path"
+      let detail = d.version & (if flags.len > 0: "  " & flags.join(" · ") else: "")
+      let role = if "≠ lock" in flags: 4 elif d.linked: 1 else: 0
+      let icon = if d.linked: "⇢" else: "·"
+      var it: SideItem
+      capture dep:
+        it = sideItem(dep.name, role, icon, detail, proc() = atlasDepMenu(dep), path = dep.dir, depth = 1)
+      result.add it
+    for (v, dir) in atlasEnvs():
+      let dd = dir
+      let label = "Nim " & v
+      var it: SideItem
+      capture dd:
+        it = sideItem(label, 8, "◇", "atlas env", proc() = setProjectSetting("nim.toolchain", %dd), depth = 1)
+      result.add it
+    result.add sideItem("Install", 7, "›", "atlas install", proc() = atlasRun("install"))
+    result.add sideItem("Add a dependency…", 7, "+", "atlas use", proc() = cmdAtlasAddDependency())
+    result.add sideItem("Update all", 7, "›", "atlas update", proc() = atlasRun("update"))
+    result.add sideItem("More: pin, link, env, tasks, tests…", 7, "›", "", proc() = cmdAtlas())
+  elif haveExe("atlas"):
+    result.add sideItem("Make this an Atlas project", 7, "›", "atlas init", proc() = cmdAtlasInit())
+    result.add sideItem("Atlas…", 7, "›", "", proc() = cmdAtlas())
+  else:
+    result.add sideItem("install atlas", 2, "+", "nimble install atlas", proc() = runNimble("install -y atlas"))
+
 proc buildProjectItems(): seq[SideItem] =
   loadNimbleInfo()
   let b = buf()
@@ -69,7 +110,8 @@ proc buildProjectItems(): seq[SideItem] =
   else:
     result.add sideItem(extractFilename(rootDir), 1, "◆")
     result.add sideItem("no .nimble file — create a project:", 2, depth = 1)
-  result.add sideItem("New Nim project…", 0, "+", action = proc() = openPrompt(pNewProject, "New Nim project name", ""))
+  result.add sideItem("New Nim project…", 0, "+", action = proc() = cmdNewNimProject())
+  if atlasIsProject(): result.add atlasItems()
   result.add sideItem("CODE INTELLIGENCE", 6)
   if nimUsesLsp():
     var nsN = -1
@@ -139,14 +181,7 @@ proc buildProjectItems(): seq[SideItem] =
     else: info("Open a Nim file first"))
   result.add sideItem("Generate docs", 0, "≡", "nim doc", proc() = runCmd("Nim: generate docs"))
   result.add sideItem("Language server settings…", 0, ic("gear"), "", proc() = runCmd("Nim: language server settings…"))
-  result.add sideItem("ATLAS", 6)
-  if haveExe("atlas"):
-    result.add sideItem("install deps", 7, "›", "atlas install", proc() = runAtlas("install"))
-    result.add sideItem("use package…", 7, "›", "atlas use", proc() = openPrompt(pAtlasUse, "atlas use", ""))
-    result.add sideItem("update", 7, "›", "atlas update", proc() = runAtlas("update"))
-    result.add sideItem("search…", 7, "›", "atlas search", proc() = openPrompt(pAtlasSearch, "atlas search", ""))
-  else:
-    result.add sideItem("install atlas", 2, "+", "nimble install atlas", proc() = runNimble("install -y atlas"))
+  if not atlasIsProject(): result.add atlasItems()
   result.add sideItem("NIM 3 (NIMONY)", 6)
   if nimonyExe().len > 0:
     if nim3On(): result.add sideItem("this project is Nim 3 · nimony " & nimonyVersion(), 0, "◆", "")

@@ -75,7 +75,12 @@ type
     aBold, aDim, aItalic, aUnder, aRev, aStrike,
     aCurl,                     # (with aUnder) a curly underline, where the terminal draws one (ui.undercurl)
     aUcErr, aUcWarn, aUcInfo   # (with aUnder) the underline in the error, warning or info colour (the text keeps its own)
-  DragTarget = enum dtNone, dtSplit, dtLeftDock, dtRightDock, dtPanel, dtScroll, dtMinimap, dtTab
+  DragTarget = enum dtNone, dtSplit, dtLeftDock, dtRightDock, dtPanel, dtScroll, dtMinimap, dtTab,
+    dtField,        # a press in a one-line field: the drag selects in it
+    dtTabOut,       # a tab dragged off the tab bar: dropped on a pane (moved there) or an edge (split)
+    dtFile,         # a file dragged from the file tree: dropped on the editor (opened) or a folder (moved)
+    dtText,         # the selection dragged in the editor: dropped elsewhere (moved; with Ctrl: copied)
+    dtFormScroll    # a form's scroll bar
   Cell = object
     ch: uint32
     fg, bg: Rgb
@@ -310,6 +315,7 @@ type
     deadlineMs: int           # > 0: stopped after this long (tests run on save)
     resolve: seq[string]      # nimble's "Dependency resolution failed" explanation, a line at a time
     inResolve: bool
+    atlasMsgs: seq[(int, string, string)]   # (an atlas job) its [Error]/[Warn] lines: severity, package, message
 
   LspReqKind = enum lrInit, lrCompletion, lrHover, lrDefinition, lrRename, lrFormat, lrSymbols, lrShutdown,
                     lrSignature, lrReferences, lrExpand, lrInlay, lrCodeAction, lrResolve, lrOther,

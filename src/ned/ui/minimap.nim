@@ -66,4 +66,4 @@ proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
     bb.topSub = 0
     bb.setSingle(bb.clampPos(Pos(line: clamp(line, 0, bb.lines.high), col: 0)))
     bb.lastHead = bb.primary.head
-    bb.lastChange = bb.changeId, "Minimap")
+    bb.lastChange = bb.changeId, "Minimap", proc() = ctxOpen(minimapMenu()))

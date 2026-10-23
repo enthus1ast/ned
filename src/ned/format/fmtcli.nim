@@ -5,7 +5,11 @@
 ## Exit status: 0 done (or nothing to change), 1 --check found files that would change, 2 a file was left alone
 ## (the formatter was not sure of it, or it could not be read or written), 3 wrong arguments.
 
-import std/[os, strutils, json, algorithm, osproc, terminal, streams, hashes, times, posix, tables]
+import std/[strutils, json, algorithm, osproc, terminal, streams, hashes, times, tables]
+when defined(windows): import ../sys/winos as os   # (std/os, with '/' in the paths it makes)
+else: import std/os
+when defined(windows): import ../sys/winposix as posix
+else: import std/posix
 import formatters
 import ../editor/regex, ../core/editorconfig
 

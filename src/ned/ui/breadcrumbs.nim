@@ -10,6 +10,7 @@ proc drawBreadcrumbs() =
   let w = lay.edW
   fillRect(x0, y, w, 1, theme.dim, cb)
   if b.isWelcome(): return
+  ctxRegion(x0, y, w, 1, proc() = ctxOpen(breadcrumbMenu()))
   var x = x0 + 2
   let lim = x0 + w - 1
   let sep = " › "

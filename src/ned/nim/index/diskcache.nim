@@ -11,10 +11,14 @@ var
 proc nxLayoutOf[T](x: T): string =
   for n, v in fieldPairs(x): result.add n & ":" & $typeof(v) & ";"
 
+func nxSrcUp(p: string): string =
+  ## (compile time) p's folder, with '/' whatever the target (parentDir writes '\' for Windows)
+  p[0 ..< max(0, p.rfind({'/', '\\'}))]
+
 const NxCacheParser = block:
   # what a cached file depends on besides its text: the parser's own code, and what it fills in
-  var s = staticRead(currentSourcePath().parentDir / "lex.nim") & staticRead(currentSourcePath().parentDir / "text.nim") &
-          staticRead(currentSourcePath().parentDir / "parse.nim")
+  var s = staticRead(currentSourcePath().nxSrcUp & "/lex.nim") & staticRead(currentSourcePath().nxSrcUp & "/text.nim") &
+          staticRead(currentSourcePath().nxSrcUp & "/parse.nim")
   var f: typeof(NxFile()[])
   s.add nxLayoutOf(f) & nxLayoutOf(NxSym()) & nxLayoutOf(NxParam()) & nxLayoutOf(NxImport())
   $hash(s)

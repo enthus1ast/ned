@@ -2,15 +2,16 @@
 #  Integrated terminal: pseudo-terminal + xterm-subset emulator
 # ════════════════════════════════════════════════════════════════════════════
 
-var
-  TIOCSCTTY {.importc, header: "<sys/ioctl.h>".}: culong
-  TIOCSWINSZ {.importc, header: "<sys/ioctl.h>".}: culong
+when not defined(windows):   # (Windows: a pseudo-console — see sys/winposix's winPtySpawn)
+  var
+    TIOCSCTTY {.importc, header: "<sys/ioctl.h>".}: culong
+    TIOCSWINSZ {.importc, header: "<sys/ioctl.h>".}: culong
 
-# the portable POSIX pseudo-terminal calls (Linux, Android/Termux, macOS, the BSDs); Nim declares them itself
-proc posix_openpt(flags: cint): cint {.importc, cdecl.}
-proc grantpt(fd: cint): cint {.importc, cdecl.}
-proc unlockpt(fd: cint): cint {.importc, cdecl.}
-proc ptsname(fd: cint): cstring {.importc, cdecl.}
+  # the portable POSIX pseudo-terminal calls (Linux, Android/Termux, macOS, the BSDs); Nim declares them itself
+  proc posix_openpt(flags: cint): cint {.importc, cdecl.}
+  proc grantpt(fd: cint): cint {.importc, cdecl.}
+  proc unlockpt(fd: cint): cint {.importc, cdecl.}
+  proc ptsname(fd: cint): cstring {.importc, cdecl.}
 
 type
   TCell = object
@@ -86,6 +87,11 @@ proc blankRow(t: Term): TRow =
 
 proc termShell(): string =
   if cfgTermShell.len > 0: return cfgTermShell
+  when defined(windows):
+    for c in ["pwsh", "powershell"]:
+      let p = findExe(c)
+      if p.len > 0: return p
+    return getEnv("ComSpec", "cmd.exe")
   let s = getEnv("SHELL")
   if s.len > 0 and fileExists(s): return s
   for c in ["bash", "zsh", "fish", "sh"]:

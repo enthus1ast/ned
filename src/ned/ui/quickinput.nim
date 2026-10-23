@@ -23,13 +23,19 @@ proc drawQuickInput() =
   fillRect(fx, iy, w - 4, 1, theme.fg, theme.inputBg)
   let px = putStr(fx + 1, iy, "› ", theme.accent, theme.inputBg, {aBold})
   let fieldW = max(4, x + w - 3 - px)
-  let curVis = strWidth(promptText[0 ..< promptCur])
-  let off = max(0, curVis - fieldW + 1)
-  let bi = colAtVis(promptText, off)
-  discard putStr(px, iy, promptText[bi .. ^1], theme.fg, theme.inputBg, {}, px + fieldW)
-  cursorX = px + curVis - visColOf(promptText, bi)
+  cursorX = drawField(px, iy, fieldW, promptText, promptCur, true,
+                      secret = promptKind == pSetting and settingKey == "ai.apiKey")
   cursorY = iy
-  discard putStr(x + 2, y + 2, truncTo(promptHint(promptKind), w - 4), theme.dim, theme.menuBg, {aItalic})
+  var hintEnd = x + w - 2
+  if cfgFormButtons and w >= 40:
+    # OK and Cancel, as a dialog has them
+    var bx = x + w - 2 - (strWidth("OK") + 4) - 1 - (strWidth("Cancel") + 4)
+    hintEnd = bx - 1
+    bx = pill(bx, y + 2, "Cancel", proc() = closePrompt(), "Esc", theme.fg, theme.btnBg) + 1
+    discard pill(bx, y + 2, "OK", proc() = submitPrompt(), "Enter", theme.badgeFg, theme.accent, {aBold},
+                 blend(theme.accent, theme.fg, 0.15))
+  discard putStr(x + 2, y + 2, truncTo(promptHint(promptKind), hintEnd - x - 2), theme.dim, theme.menuBg, {aItalic},
+                 hintEnd)
 
 proc drawFindWidget() =
   let isReplace = replaceActive
@@ -64,12 +70,7 @@ proc drawFindWidget() =
               else: (if findIdx > 0: $findIdx else: "?") & " of " & $findTotal & (if findCapped: "+" else: "")
   let btnW = if promptKind == pReplaceWith: 4 else: 20
   let fieldW = max(6, x + w - xx - btnW - strWidth(infoS) - 2)
-  fillRect(xx, y, fieldW, 1, theme.fg, theme.inputBg)
-  let curVis = strWidth(promptText[0 ..< promptCur])
-  let off = max(0, curVis - fieldW + 1)
-  let bi = colAtVis(promptText, off)
-  discard putStr(xx, y, promptText[bi .. ^1], theme.fg, theme.inputBg, {}, xx + fieldW)
-  cursorX = xx + curVis - visColOf(promptText, bi)
+  cursorX = drawField(xx, y, fieldW, promptText, promptCur, true)
   cursorY = y
   xx += fieldW + 1
   if infoS.len > 0:

@@ -95,6 +95,7 @@ proc drawBottomPanel(x0, y0, w, h: int) =
   # header bar with the panel tabs — tinted with the accent while the panel has the keyboard
   let hb = if focus == fPanel: blend(theme.tabBarBg, theme.accent, 0.14) else: theme.tabBarBg
   fillRect(x0, y0, w, 1, theme.dim, hb)
+  ctxRegion(x0, y0, w, 1, proc() = ctxOpen(panelHeaderMenu()))
   var x = x0 + 1
   let (ne, nw) = problemCounts()
   var tabs = @[(pkProblems, "PROBLEMS" & (if ne + nw > 0: " " & $(ne + nw) else: "")), (pkOutput, "OUTPUT"),
@@ -198,6 +199,11 @@ proc drawBottomPanel(x0, y0, w, h: int) =
       let lead = pl.text.len - pl.text.strip(trailing = false).len      # (an indent is not underlined with the link)
       if lead > 0: xx = putStr(xx, y, pl.text[0 ..< lead], fg, bg, {}, x0 + w)
       discard putStr(xx, y, pl.text[lead .. ^1], fg, bg, at, x0 + w)
+    let li = i
+    capture li:
+      ctxRegion(x0, y, w, 1, proc() =
+        panelSel = li
+        ctxOpen(panelLineMenu(li)))
     if pl.path.len > 0:
       let idx = i
       capture idx:
@@ -205,4 +211,6 @@ proc drawBottomPanel(x0, y0, w, h: int) =
           focus = fPanel
           panelSel = idx
           panelFollow = false
-          panelJump(idx))
+          panelJump(idx), "", proc() =
+            panelSel = idx
+            ctxOpen(panelLineMenu(idx)))

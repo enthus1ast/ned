@@ -96,6 +96,7 @@ proc drawDock(side: DockSide, x0, y0, w, h: int) =
   # header: view icons · title · actions — tinted with the accent while the dock has the keyboard
   let hb = if focused: blend(theme.dockHeadBg, theme.accent, 0.14) else: theme.dockHeadBg
   fillRect(x0, y0, w, 1, theme.dim, hb)
+  ctxRegion(x0, y0, w, h, proc() = ctxOpen(dockHeaderMenu(side)))     # (its header, and where its rows end)
   var x = x0 + 1
   let views = if isRight: @RightViews else: @LeftViews
   var ranges: seq[(int, int, SideView)]
@@ -160,29 +161,22 @@ proc drawSearchInput(x0, y0, w: int): int =
   ## search box (+ replace box, + files filter) at the top of the search view; returns rows used
   let focused = focus == fTree and sideView == svSearch
   let bg = theme.inputBg
-  proc field(y, idx: int, text: string, cur: int, placeholder, icon: string, rightW: int) =
+  proc field(y, idx: int, text: var string, cur: var int, placeholder, icon: string, rightW: int) =
     let active = focused and dockField == idx
     fillRect(x0 + 1, y, w - 2, 1, theme.fg, bg)
     discard putStr(x0 + 2, y, icon, (if active: theme.accent else: theme.dim), bg)
     let fx = x0 + 4
     let fw = max(3, w - 5 - rightW)
-    let c = clamp(cur, 0, text.len)
-    let curVis = strWidth(text[0 ..< c])
-    let off = max(0, curVis - fw + 1)
-    let bi = colAtVis(text, off)
-    if text.len == 0 and not active:
-      discard putStr(fx, y, placeholder, theme.dim, bg, {aItalic}, fx + fw)
-    else:
-      discard putStr(fx, y, text[bi .. ^1], theme.fg, bg, {}, fx + fw)
-    if active:
-      cursorX = fx + curVis - visColOf(text, bi)
-      cursorY = y
     let k = idx
-    capture k:
-      region(x0 + 1, y, fw + 3, 1, proc() =
-        focus = fTree
-        sideView = svSearch
-        dockField = k)
+    let onFocus = proc() =
+      focus = fTree
+      sideView = svSearch
+      dockField = k
+    region(x0 + 1, y, 3, 1, onFocus)
+    let cx = drawField(fx, y, fw, text, cur, active, theme.fg, bg, placeholder, onFocus = onFocus)
+    if active:
+      cursorX = cx
+      cursorY = y
   var y = y0
   # the chevron opens the replace row, like VS Code
   discard button(x0, y, (if dockShowReplace: ic("chevD") else: ic("chevR")), proc() = toggleReplaceRow(),

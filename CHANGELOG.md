@@ -1,6 +1,68 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-620). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-621). Older releases:
+
+## What's new in 6.20
+
+6.20 takes plugins further — a language's completions, hover, code actions, outline and snippets, tools for the
+assistant, views of their own, plugins in full Nim — shows a macro's tree and a module's docs beside the code,
+checks async, raises and gcsafe before you compile, makes a .nimble easier to edit, understands Nim names in an
+emit, and opens files of any size.
+
+**Plugins v2.** A plugin can now give a language what a language server gives: `completions` (merged with ned's
+and a server's), `hover` (under ned's own), `codeActions` (Alt+Enter), `symbols` (the Outline, Go to symbol, the
+breadcrumbs) and `snippet`s. It can give the assistant a tool (`aiTool`; `aiToolReadOnly` for one that only reads
+and runs without asking), a section of the Plugins dock (`view`, with clicks), progress in the status bar, lines
+in the Output panel (`file:line` clickable) and a command in ned's terminal; `settingDef` puts its settings in the
+Settings panel and `requiresNed(">= 6.20")` keeps it off an older ned. A folder with a `plugin.nim` is a plugin in
+**full Nim**: ned compiles it (in the background, again when it changes) into a program of its own — the whole
+standard library, threads, sockets — and its errors go to Problems. The NimScript plugins still share one process;
+`plugins.alone` gives one its own (a slow one never holds up the others), and `plugins.native: auto` compiles a set
+of plugins you keep for the next start (calls 0.3 ms instead of 3–6). The dock shows each process (restart, stop),
+the views and each plugin (reload just it, its own process); *Plugins: browse the plugin list…* installs from a list
+of yours (`plugins.indexUrl`), *Plugins: update* pulls the ones from git. Two more examples: **ini-tools** (every
+language feature for INI files, a view, progress, a tool for the assistant) and **clock-native** (full Nim). See
+[Plugins](README.md#plugins).
+
+**The AST view and the docs preview.** *Nim: AST view* shows the statement at the cursor — or the selection — as
+the tree a macro gets as `body: untyped`, from Nim's own parser, beside the code, made again after each pause; on a
+macro or template call, what it expands to under it. *Nim: preview this file's docs* shows the module the way
+`nim doc` will: its doc comment, each exported declaration with its signature and doc comment, and whether its
+runnableExamples passed — it follows your edits.
+
+**Async, raises and gcsafe before compiling.** A discarded Future (its error lost), `await` outside an
+`{.async.}` proc, `waitFor` or `os.sleep` inside one, a `{.raises: [...].}` that leaves out what the body raises, and
+a `{.gcsafe.}` or `{.thread.}` routine using a global seq, string, ref or Table are problems as you type, each
+saying what to do instead. A call that passes a type that is not the concept the routine takes says on hover what
+the type lacks.
+
+**Editing a .nimble and config.nims.** `requires "jsony >= ` completes the package's versions — those installed and
+its repository's tags; the hover on a package says what it is, the versions installed, the one the project builds
+with and the newest release; Alt+Enter on `version =` bumps it. *Nimble: add a dependency…* picks from the package
+list, then the versions, writes the `requires` line and offers `nimble install -d`; *Nimble: lock file* shows what
+nimble.lock pins and what changed since the last commit. In config.nims, `-d:` completes what your code asks
+about (`defined(x)`, `{.intdefine.}` …) and `--path:` the folders; `--gc:orc` says `--mm:orc` now and
+`--threads:on` is the default, each with its fix. *Nim: the configuration the compiler ends up with* runs `nim
+dump` and shows the config files read, in order, and where they disagree.
+
+**Nim names in an emit.** In `{.emit: """ `counter` = `add`(1, 2); """.}` the backticked names are Nim's: completed,
+with their Nim hover (and the C name they become), F12, renamed with the Nim name, and checked — a name that is not
+there (with the one meant), a routine given a number of arguments it does not take. An `exportc` proc's hover gives
+its C name.
+
+**Files of any size.** A text file over 512 MB (`editor.viewerSize`) — a log, a dump — opens in the large-file
+viewer instead of being refused: read-only, with a window of its lines in memory and an index of where its lines
+start made in the background, so Go to line, Ctrl+End, Find and F3 reach any of its lines, and the status bar says
+*Ln 1000000 of 30000000*.
+
+**Waits.** On ned's own source (`tests/perf/rounds.py`, two sessions) no round of ned's main loop is over 16 ms any
+more — the longest 15 ms, where 6.19 had 16–20 ms while a big program opened: the open files' TODOs take a round of
+their own, a big file the engine reads starts one, and the engine reads only early in a round (the frame after it
+takes 5–6 ms). The first completion after an import changes takes 8 ms instead of 13–35: the last list is used,
+with the new module's names, while the whole list is made again in quiet moments. A completion takes 4.7 ms
+(median); the editor and its engine worker hold 70 MB. `rounds.py --one-core` runs everything on one core, a phone's
+slow cores' stand-in: 14 ms at most while typing and completing, about 20 ms for the first frames of a big file just
+opened. The compiler's checks and other work no one waits for run only when a core is idle (Linux, Android).
 
 ## What's new in 6.19
 

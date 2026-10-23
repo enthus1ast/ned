@@ -505,12 +505,15 @@ proc cmdReferences() =
   else:
     projectSearch(w)
 
-proc createNimProject(name0: string) =
+proc createNimProject(name0: string, where = "", kind = "bin", desc = "", license = "MIT", deps = "nimble",
+                      git = true, tests = true): string =
+  ## a new Nim project: its .nimble (a program, a library or both), src/, tests/, .gitignore — git with a first
+  ## commit, atlas when its dependencies go in the project. Returns its folder ("" when it could not be made)
   let name = name0.replace(" ", "_").replace("-", "_")
-  let dir = rootDir / name
+  let dir = (if where.len > 0: expandTilde(where) else: rootDir) / name
   if dirExists(dir):
     error(relPath(dir) & " already exists")
-    return
+    return ""
   var author = getEnv("USER", "me")
   try:
     let gc = readFile(getHomeDir() / ".gitconfig")
@@ -521,27 +524,40 @@ proc createNimProject(name0: string) =
   except CatchableError: discard
   try:
     createDir(dir / "src")
-    createDir(dir / "tests")
+    if tests: createDir(dir / "tests")
     if trustKey(dir) notin trustedDirs: trustedDirs.add trustKey(dir)    # (you made it: its code may run)
-    writeFile(dir / name & ".nimble", "# Package\n\nversion       = \"0.1.0\"\nauthor        = \"" & author &
-      "\"\ndescription   = \"A new Nim project\"\nlicense       = \"MIT\"\nsrcDir        = \"src\"\nbin           = @[\"" &
-      name & "\"]\n\n# Dependencies\n\nrequires \"nim >= 2.0.0\"\n\ntask docs, \"Generate HTML documentation\":\n" &
-      "  exec \"nim doc --project --outdir:htmldocs src/" & name & ".nim\"\n")
-    writeFile(dir / "src" / name & ".nim", "## " & name & " — entry point\n\nproc greet*(who: string): string =\n" &
-      "  ## Returns a friendly greeting.\n  \"Hello, \" & who & \"!\"\n\nwhen isMainModule:\n  echo greet(\"Nim\")\n")
-    writeFile(dir / "tests" / "test_" & name & ".nim", "import std/unittest\nimport " & name & "\n\n" &
-      "suite \"" & name & "\":\n  test \"greet\":\n    check greet(\"Nim\") == \"Hello, Nim!\"\n")
-    writeFile(dir / "tests" / "config.nims", "switch(\"path\", \"$projectDir/../src\")\n")
-    writeFile(dir / ".gitignore", "nimcache/\nhtmldocs/\n/" & name & "\ntests/*\n!tests/*.nim\n!tests/config.nims\n")
+    var nb = "# Package\n\nversion       = \"0.1.0\"\nauthor        = \"" & author & "\"\ndescription   = \"" &
+             (if desc.len > 0: desc.replace("\"", "\\\"") else: "A new Nim project") & "\"\nlicense       = \"" &
+             (if license.len > 0: license else: "MIT") & "\"\nsrcDir        = \"src\"\n"
+    if kind in ["bin", "hybrid"]: nb.add "bin           = @[\"" & name & "\"]\n"
+    if kind == "hybrid": nb.add "installExt    = @[\"nim\"]\n"
+    nb.add "\n# Dependencies\n\nrequires \"nim >= 2.0.0\"\n\ntask docs, \"Generate HTML documentation\":\n" &
+           "  exec \"nim doc --project --outdir:htmldocs src/" & name & ".nim\"\n"
+    writeFile(dir / name & ".nimble", nb)
+    if kind == "lib":
+      writeFile(dir / "src" / name & ".nim", "## " & name & "\n\nproc greet*(who: string): string =\n" &
+        "  ## Returns a friendly greeting.\n  \"Hello, \" & who & \"!\"\n")
+    else:
+      writeFile(dir / "src" / name & ".nim", "## " & name & " — entry point\n\nproc greet*(who: string): string =\n" &
+        "  ## Returns a friendly greeting.\n  \"Hello, \" & who & \"!\"\n\nwhen isMainModule:\n  echo greet(\"Nim\")\n")
+    if tests:
+      writeFile(dir / "tests" / "test_" & name & ".nim", "import std/unittest\nimport " & name & "\n\n" &
+        "suite \"" & name & "\":\n  test \"greet\":\n    check greet(\"Nim\") == \"Hello, Nim!\"\n")
+      writeFile(dir / "tests" / "config.nims", "switch(\"path\", \"$projectDir/../src\")\n")
+    writeFile(dir / ".gitignore", "nimcache/\nhtmldocs/\n/" & name & "\ntests/*\n!tests/*.nim\n!tests/config.nims\n" &
+              (if deps == "atlas": "deps/\n" else: ""))
   except CatchableError as e:
     error("Cannot create project: " & e.msg)
-    return
-  if haveExe("git"): gitInitNewProject(dir)       # (with its first commit)
+    return ""
+  if git and haveExe("git"): gitInitNewProject(dir)       # (with its first commit)
   discard openFile(dir)
   discard openFile(dir / "src" / name & ".nim")
   treeOpen = scrW >= 70
   loadNimbleInfo(true)
+  if deps == "atlas" and haveExe("atlas"):
+    runCommand("atlas --colors:off init && atlas --colors:off install", dir)
   info("Created Nim project " & name & " — Alt+R runs it, Alt+E opens the Nim panel")
+  dir
 
 proc nimbleAct(task: string): Action = (proc() = runNimble(task))
 
@@ -571,16 +587,6 @@ proc cmdNimbleTasks() =
     error("nimble not found (Termux: pkg install nim)")
     return
   openActions("Nimble" & (if nimble.name.len > 0: " — " & nimble.name else: ""), nimbleTaskActions())
-
-proc cmdAtlas() =
-  openActions("Atlas (workspace & dependencies)", @[
-    act("install", "atlas install — set up deps from the .nimble file", proc() = runAtlas("install")),
-    act("use package…", "atlas use <pkg> — add a dependency", proc() = openPrompt(pAtlasUse, "atlas use", "")),
-    act("update", "atlas update — refresh dependency refs", proc() = runAtlas("update")),
-    act("search…", "atlas search <terms>", proc() = openPrompt(pAtlasSearch, "atlas search", "")),
-    act("init", "atlas init — make this folder an Atlas project", proc() = runAtlas("init")),
-    act("pin", "atlas pin — write atlas.lock", proc() = runAtlas("pin")),
-  ])
 
 proc cmdNimony(run: bool) =
   let b = buf()

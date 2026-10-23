@@ -2,7 +2,8 @@
 #  Main loop
 # ════════════════════════════════════════════════════════════════════════════
 
-var SIGWINCH {.importc, header: "<signal.h>".}: cint
+when not defined(windows):
+  var SIGWINCH {.importc, header: "<signal.h>".}: cint
 
 proc onWinch(sig: cint) {.noconv.} =
   gResized = true
@@ -282,6 +283,7 @@ proc mainLoop() =
       if mcpServers.len > 0: timedWork("MCP servers"): mcpPump(ready)
       timedWork("plugins"): plugPump(ready)
       if lfBusy() or buf().viewer != nil: timedWork("the large-file viewer"): lfPump()
+      if dcView.bufId > 0: dcPump()
       if astOn: astPump()
       if docPvSrc >= 0: docPvPump()
       if mcpWaitReq and not mcpStarting():
@@ -524,6 +526,8 @@ proc usage() =
   echo "  -v, --version         show version"
   echo "  --check               check the setup: Nim, tools, clipboard, terminal (for bug reports too)"
   echo "  --default-settings    print the full settings file with every option and its default"
+  echo "  --reset [--yes] [--keep-plugins]  remove ned's settings, sessions, history, caches and downloads: ned"
+  echo "                        starts as on its first run (asks first; --yes does not ask)"
   echo "  --bench FILE          render FILE off-screen and print timings (performance check)"
   echo "  --format [options] FILE|FOLDER…|-  format with ned's own formatters: Nim (nph style), JSON, Markdown"
   echo "                        tables, CSS, C, YAML, TOML; a folder: every such file in it (not what git ignores)."
@@ -740,6 +744,7 @@ proc main() =
         quit 0
       of "--engine-worker": workerMain()          # (the editor's engine worker: nim/worker.nim)
       of "--check": doCheck = true
+      of "--reset": quit resetCli(cl[ai .. ^1])
       of "--startup-time": startTrace = true
       of "--default-settings":
         applyTheme("nim-crown")
@@ -786,9 +791,11 @@ proc main() =
     var col = -1
     pendingLine = -1
     if not fileExists(path) and not dirExists(path):
-      let parts = a.split(':')
+      # FILE:LINE[:COL] (a Windows drive's colon is the path's: C:/x.nim:10)
+      let drive = when defined(windows): (if a.len >= 2 and a[1] == ':': a[0 .. 1] else: "") else: ""
+      let parts = a[drive.len .. ^1].split(':')
       if parts.len >= 2 and parts[1].allDigits:
-        path = parts[0]
+        path = drive & parts[0]
         line = argNum(parts[1]) - 1
         if parts.len >= 3 and parts[2].allDigits: col = argNum(parts[2]) - 1
     targets.add (path, line, col)
@@ -798,10 +805,10 @@ proc main() =
     if code >= 0: quit code
   # tools installed by nimble/cargo/go/pip --user are often not on Termux's PATH
   var path = getEnv("PATH")
-  let parts = path.split(':')
+  let parts = path.split(PathSep)
   for d in [getHomeDir() / ".nimble" / "bin", getHomeDir() / ".local" / "bin",
             getHomeDir() / ".cargo" / "bin", getHomeDir() / "go" / "bin"]:
-    if dirExists(d) and d notin parts: path.add ':' & d
+    if dirExists(d) and d notin parts: path.add PathSep & d
   putEnv("PATH", path)
   if doCheck:
     # ned --check: the same report as Help › Check setup, printed (works without a terminal, for bug reports)
@@ -930,7 +937,7 @@ proc main() =
     leaveRaw()
     ctlClose()
     cleanProjectTemps()
-  saveState()
+  if resetPending.len == 0: saveState()     # (Reset everything: no state written back)
   if termSignal == 0:
     for b in bufs: removeSwap(b)     # a normal exit: unsaved edits were saved or discarded on purpose
   swapThreadStop()                   # (the recovery files it was writing or removing: done before ned leaves)
@@ -947,6 +954,7 @@ proc main() =
       if stat(cstring(r.ctl), st) == 0: discard execShellCmd(sshCmd(r) & " -O exit >/dev/null 2>&1")
   for j in jobs:
     if not j.done: killProc(j.pr)
+  resetFinish()                      # (Reset everything: the parts removed, ned started again)
   if startTrace:
     # the report: each step with the time it took, the memory at the first frame and once settled
     var o = AppName & " " & Version & " — startup (ms since the program started)\n"

@@ -13,8 +13,11 @@ func fnv(s: string): string =
     h = (h xor uint64(ord(c))) * 0x100000001b3'u64
   toHex(h, 16).toLowerAscii
 
-proc cRename(a, b: cstring): cint {.importc: "rename", header: "<stdio.h>".}
-var O_NOFOLLOW {.importc, header: "<fcntl.h>".}: cint
+when defined(windows):
+  proc cRename(a, b: cstring): cint = (if winMoveReplace($a, $b): 0 else: -1)   # (over the original, in one step)
+else:
+  proc cRename(a, b: cstring): cint {.importc: "rename", header: "<stdio.h>".}
+  var O_NOFOLLOW {.importc, header: "<fcntl.h>".}: cint
 
 proc privateDir(d: string) =
   ## state folders hold copies of your files (recovery, history, chats): only you may read them

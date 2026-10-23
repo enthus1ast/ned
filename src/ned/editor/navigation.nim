@@ -542,6 +542,11 @@ proc cmdHover(auto = false) =
     if nh.len > 0:
       showHoverAuto(nh, auto)
       return
+  if b.path.endsWith("atlas.config"):
+    let ah = atlasConfigHover(b, p)                # its keys: what each does
+    if ah.len > 0:
+      showHoverAuto(ah, auto)
+      return
   # a selected expression: its type
   let (sa, se) = b.primary.range
   if not auto and sa != se and sa.line == se.line and nimEngineOn(b):

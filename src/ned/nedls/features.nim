@@ -678,52 +678,59 @@ proc lsInChild(work: proc(): string, timeoutMs = 30_000): (bool, string) =
   ## `work` run in a child process of its own (fork), its answer back through a pipe: what it allocates goes with
   ## it, and work that fails on a strange file — or never ends — takes nothing else down. (false, "") when it
   ## could not run, crashed or took too long
-  var fds: array[2, cint]
-  if posix.pipe(fds) != 0: return (false, "")
-  let pid = posix.fork()
-  if pid < 0:
-    discard posix.close(fds[0])
+  when defined(windows):
+    # (no fork on Windows: the work runs here; what it raises is caught)
+    try:
+      let msg = work()
+      return (msg.len > 0, msg)
+    except CatchableError, Defect: return (false, "")
+  else:
+    var fds: array[2, cint]
+    if posix.pipe(fds) != 0: return (false, "")
+    let pid = posix.fork()
+    if pid < 0:
+      discard posix.close(fds[0])
+      discard posix.close(fds[1])
+      return (false, "")
+    if pid == 0:
+      lsOutBroken = true                  # (the child never speaks the protocol)
+      discard posix.close(fds[0])
+      var msg = ""
+      try: msg = work()
+      except CatchableError, Defect: msg = ""
+      var off = 0
+      while off < msg.len:
+        let n = posix.write(fds[1], unsafeAddr msg[off], msg.len - off)
+        if n > 0: off += n
+        elif n < 0 and errno == EINTR: continue
+        else: break
+      exitnow(if msg.len > 0: 0 else: 1)
     discard posix.close(fds[1])
-    return (false, "")
-  if pid == 0:
-    lsOutBroken = true                  # (the child never speaks the protocol)
+    var got = ""
+    var buf: array[65536, char]
+    var timedOut = false
+    let t0 = getMonoTime()
+    while true:
+      let left = timeoutMs - int(msSince(t0))
+      if left <= 0:
+        discard posix.kill(pid, SIGKILL)
+        timedOut = true
+        break
+      var pfd = TPollfd(fd: fds[0], events: POLLIN)
+      let r = poll(addr pfd, 1, cint(min(left, 1000)))
+      if r < 0 and errno == EINTR: continue
+      if r <= 0: continue
+      let n = posix.read(fds[0], addr buf[0], buf.len)
+      if n > 0:
+        let old = got.len
+        got.setLen(old + n)
+        copyMem(addr got[old], addr buf[0], n)
+      elif n == 0 or errno notin [EINTR, EAGAIN]: break
     discard posix.close(fds[0])
-    var msg = ""
-    try: msg = work()
-    except CatchableError, Defect: msg = ""
-    var off = 0
-    while off < msg.len:
-      let n = posix.write(fds[1], unsafeAddr msg[off], msg.len - off)
-      if n > 0: off += n
-      elif n < 0 and errno == EINTR: continue
-      else: break
-    exitnow(if msg.len > 0: 0 else: 1)
-  discard posix.close(fds[1])
-  var got = ""
-  var buf: array[65536, char]
-  var timedOut = false
-  let t0 = getMonoTime()
-  while true:
-    let left = timeoutMs - int(msSince(t0))
-    if left <= 0:
-      discard posix.kill(pid, SIGKILL)
-      timedOut = true
-      break
-    var pfd = TPollfd(fd: fds[0], events: POLLIN)
-    let r = poll(addr pfd, 1, cint(min(left, 1000)))
-    if r < 0 and errno == EINTR: continue
-    if r <= 0: continue
-    let n = posix.read(fds[0], addr buf[0], buf.len)
-    if n > 0:
-      let old = got.len
-      got.setLen(old + n)
-      copyMem(addr got[old], addr buf[0], n)
-    elif n == 0 or errno notin [EINTR, EAGAIN]: break
-  discard posix.close(fds[0])
-  var st: cint
-  discard posix.waitpid(pid, st, 0)
-  if timedOut or not WIFEXITED(st) or WEXITSTATUS(st) != 0: return (false, "")
-  (true, got)
+    var st: cint
+    discard posix.waitpid(pid, st, 0)
+    if timedOut or not WIFEXITED(st) or WEXITSTATUS(st) != 0: return (false, "")
+    (true, got)
 
 const LsFmtFailed = "the built-in formatter failed on this file (please report it)"
 
