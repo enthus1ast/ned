@@ -12,6 +12,22 @@ proc cargoRoot(start: string): string =
     d = up
   ""
 
+proc pluginLibFlag(lines: openArray[string]): string =
+  ## ` --path:<the plugin library>` for a plugin's source — a file that uses nedplugin or nedlsp, which only ned knows
+  ## where to find (it gives the same --path: to `nim e` and `nim c` when it runs the plugins) — else ""
+  for l in lines:
+    let t = l.strip
+    if t.len == 0 or t[0] == '#': continue
+    for w in ["nedplugin", "nedlsp"]:
+      let i = t.find(w)
+      if i >= 0 and (i == 0 or t[i - 1] notin IdentChars) and (i + w.len >= t.len or t[i + w.len] notin IdentChars):
+        return " --path:" & quoteShell(plugLibDir())
+  ""
+
+proc pluginLibFlagOf(path: string): string =
+  try: pluginLibFlag(readFile(path).splitLines)
+  except CatchableError: ""
+
 proc checkCmdForPath(path, langId: string): (string, string) =
   ## on-save checker (command, cwd) used when no language server is attached
   let q = quoteShell(path)
@@ -25,9 +41,10 @@ proc checkCmdForPath(path, langId: string): (string, string) =
       # land on this file's lines)
       let top = nxTopIncluder(path)
       if top.len > 0:
-        return ("nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on " &
-                quoteShell(top), parentDir(top))
-      return ("nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on " & q, dir)
+        return ("nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on" &
+                pluginLibFlagOf(top) & " " & quoteShell(top), parentDir(top))
+      return ("nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on" &
+              pluginLibFlagOf(path) & " " & q, dir)
   of "c":
     if haveExe("cc"): return ("cc -fsyntax-only -Wall " & q, dir)
   of "cpp":

@@ -54,6 +54,7 @@ every command is in the menus (F10) and the palette (Ctrl+E).
 |---|---|
 | [Building, tasks and performance](guide/building.md) | building ned, its nimble tasks, why it is fast, the source's layout |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | how to send a change |
+| [AGENTS.md](../AGENTS.md) | the short version for AI agents: build, test, the source's rules |
 | [tests/README.md](../tests/README.md) | the tests and how to run them |
 | [CHANGELOG.md](../CHANGELOG.md) | what changed in each release |
 

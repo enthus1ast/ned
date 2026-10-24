@@ -280,6 +280,9 @@ proc initSettingDefs() =
        "comments")
   defS("Compiler Explorer", "compilerExplorer.demangle", %true, "Compiler Explorer: Nim's names as Nim writes them " &
        "(square__example_u3 → square)")
+  defS("Compiler Explorer", "compilerExplorer.allProcs", %true, "Compiler Explorer: every proc of a Nim file in the " &
+       "assembly, also the ones nothing calls yet (Nim leaves those out of the program) — a generic proc still needs " &
+       "a call. The private copy gets a line that names them; your file is not changed")
   defS("Compiler Explorer", "compilerExplorer.execute", %false, "Compiler Explorer: run the program too, its output " &
        "(and exit code) in the Output panel — like godbolt.org's Execution")
   defS("Compiler Explorer", "compilerExplorer.args", %"", "Compiler Explorer: the program's arguments when it runs")

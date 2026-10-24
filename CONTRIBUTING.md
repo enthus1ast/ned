@@ -91,4 +91,6 @@ apart.
   `ned --doc-commands > docs/reference/commands.md`; a change to the plugin API: `python3 tests/docs/apiref.py`.
   `python3 tests/docs/links.py` checks every link — CI runs all of these.
 
+An AI agent working on ned: [AGENTS.md](AGENTS.md) has the build, the tests and the rules of the source in short.
+
 By contributing you agree that your work is released under ned's [MIT licence](LICENSE).

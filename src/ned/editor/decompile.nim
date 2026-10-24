@@ -32,13 +32,14 @@ proc dcProbe() =
   dcProbed = true
   for (exe, tool) in [("r2", "r2"), ("rizin", "rizin")]:
     if not haveExe(exe): continue
-    let t = tool
-    discard startJob(jkAux, exe & " -q -c Lc -- 2>/dev/null", rootDir, proc(j: Job) =
-      let o = j.output.toLowerAscii
-      if t == "r2":
-        if "ghidra" in o: dcPlugins.incl dcR2Ghidra
-        if "r2dec" in o or "pdd" in o: dcPlugins.incl dcR2Dec
-      elif "ghidra" in o: dcPlugins.incl dcRzGhidra)
+    let (cmd, t) = (exe & " -q -c Lc -- 2>/dev/null", tool)
+    capture t:                       # (each job its own tool: closures made in a loop share its variables)
+      discard startJob(jkAux, cmd, rootDir, proc(j: Job) =
+        let o = j.output.toLowerAscii
+        if t == "r2":
+          if "ghidra" in o: dcPlugins.incl dcR2Ghidra
+          if "r2dec" in o or "pdd" in o: dcPlugins.incl dcR2Dec
+        elif "ghidra" in o: dcPlugins.incl dcRzGhidra)
 
 proc dcAvailable(): seq[DcTool] =
   dcProbe()

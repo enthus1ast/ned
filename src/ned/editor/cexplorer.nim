@@ -166,11 +166,64 @@ proc ceShadowFor(src: string): (string, string) =
     except CatchableError: discard
   (base, base / relativePath(dir, top))
 
-proc ceWriteCopy(src: Buffer): bool =
-  ## the buffer's text in the copy (when it changed)
+proc ceRoutineNames(lines: seq[string]): seq[string] =
+  ## the file's own top-level procs, funcs, methods and converters, by name — not the generic ones, which a
+  ## typed symbol cannot name before they are instantiated
+  for l in lines:
+    for kw in ["proc ", "func ", "method ", "converter "]:
+      if not l.startsWith(kw): continue
+      let s = l[kw.len .. ^1].strip(trailing = false)
+      var name = ""
+      var i = 0
+      if s.startsWith("`"):
+        let e = s.find('`', 1)
+        if e > 1: (name, i) = (s[0 .. e], e + 1)
+      else:
+        while i < s.len and s[i] in IdentChars: inc i
+        name = s[0 ..< i]
+      if i < s.len and s[i] == '*': inc i
+      if name.len == 0 or (i < s.len and s[i] == '['): continue          # (generic: needs a call to exist)
+      if name notin result: result.add name
+
+proc ceKeeper(names: seq[string], file: string): string =
+  ## (the end of the private copy) a macro that takes each of the file's routines by its symbol — overloads too —
+  ## and casts it to a pointer: Nim then compiles every one, also those nothing calls yet. Generic, compile-time,
+  ## imported and magic ones are passed over. Nothing of it runs: a discarded cast is no code.
+  if names.len == 0: return ""
+  let suffix = "/" & extractFilename(file)
+  result = "\n# ned · Compiler Explorer: every proc of this file compiled (Nim leaves out what nothing calls)\n" &
+    "from std/macros import nil\n" &
+    "macro nedCeKeepAll(syms: varargs[typed]): untyped =\n" &
+    "  result = macros.newStmtList()\n" &
+    "  for s in macros.children(syms):\n" &
+    "    var xs: seq[NimNode]\n" &
+    "    if macros.kind(s) in {macros.nnkClosedSymChoice, macros.nnkOpenSymChoice}:\n" &
+    "      for c in macros.children(s): xs.add c\n" &
+    "    else: xs.add s\n" &
+    "    for x in xs:\n" &
+    "      if macros.kind(x) != macros.nnkSym: continue\n" &
+    "      if macros.symKind(x) notin {macros.nskProc, macros.nskFunc, macros.nskMethod, macros.nskConverter}: continue\n" &
+    "      let f = macros.lineInfoObj(x).filename\n" &
+    "      if f.len < " & $suffix.len & " or f[f.len - " & $suffix.len & " .. ^1] != " & suffix.escape & ": continue\n" &
+    "      let d = macros.getImpl(x)\n" &
+    "      if macros.kind(d) notin {macros.nnkProcDef, macros.nnkFuncDef, macros.nnkMethodDef, macros.nnkConverterDef}: continue\n" &
+    "      if macros.kind(macros.`[]`(d, 2)) == macros.nnkGenericParams: continue\n" &
+    "      var skip = false\n" &
+    "      for p in macros.children(macros.`[]`(d, 4)):\n" &
+    "        let n = if macros.kind(p) in {macros.nnkExprColonExpr, macros.nnkCall}: macros.`[]`(p, 0) else: p\n" &
+    "        if macros.kind(n) in {macros.nnkIdent, macros.nnkSym}:\n" &
+    "          for w in [\"compileTime\", \"importc\", \"importcpp\", \"importjs\", \"header\", \"magic\", \"error\"]:\n" &
+    "            if macros.eqIdent(n, w): skip = true\n" &
+    "      if skip: continue\n" &
+    "      macros.add(result, macros.newTree(macros.nnkDiscardStmt, macros.newTree(macros.nnkCast, macros.ident(\"pointer\"), x)))\n" &
+    "nedCeKeepAll(" & names.join(", ") & ")\n"
+
+proc ceWriteCopy(src: Buffer, keepAll = false): bool =
+  ## the buffer's text in the copy (when it changed) — with `keepAll`, and a Nim file, the line that keeps its procs
   if ce.shadow.len == 0: return false
   ce.copy = ce.shadow / extractFilename(src.path)
-  let text = src.lines.join("\n") & "\n"
+  var text = src.lines.join("\n") & "\n"
+  if keepAll and ce.lang == "nim": text.add ceKeeper(ceRoutineNames(src.lines), ce.copy)
   try:
     if not fileExists(ce.copy) or readFile(ce.copy) != text: writeFile(ce.copy, text)
     true
@@ -234,7 +287,8 @@ proc ceBuild(src: Buffer, opts: string, done: proc(ok: bool, r: AsmResult, err: 
   if ceCross() and not haveExe("zig"):
     done(false, AsmResult(), @["Another processor than this one needs zig (ziglang.org) — or set the target to native"])
     return
-  if not ceWriteCopy(src):
+  let keepAll = ce.lang == "nim" and sBool("compilerExplorer.allProcs")
+  if not ceWriteCopy(src, keepAll):
     done(false, AsmResult(), @["Cannot write the copy of the file in " & tildePath(ce.shadow)])
     return
   let binary = ceOpt("output") == "binary"
@@ -271,18 +325,25 @@ proc ceBuild(src: Buffer, opts: string, done: proc(ok: bool, r: AsmResult, err: 
     let cmd = "nim c --hints:off --warnings:off --colors:off --debugger:native --compileOnly" & ceNimCcFlags(cc) &
               " --nimcache:" & quoteShell(nc) & (if opts.strip.len > 0: " " & opts.strip else: "") & " " &
               quoteShell(copy) & " 2>&1"
-    discard startJob(jkTool, cmd, shadow, proc(j: Job) =
-      if j.code != 0:
-        var errs: seq[string]
-        for l in stripAnsi(j.output).splitLines:
-          if l.strip.len > 0: errs.add l.replace(shadow & "/", "")
-        done(false, AsmResult(), errs)
-        return
-      let mc = ceModuleCmd(nc, copy)
-      if mc.len == 0:
-        done(false, AsmResult(), @["Nim wrote no C compiler command for the module (" & tildePath(nc) & ")"])
-        return
-      stage2(ceRewriteCmd(mc, outS, binary)))
+    let srcId = src.id
+    proc nimStage(keep: bool) =
+      discard startJob(jkTool, cmd, shadow, proc(j: Job) =
+        if j.code != 0:
+          let sb = bufById(srcId)
+          if keep and sb != nil and ceWriteCopy(sb, false):
+            nimStage(false)                  # (the line that keeps every proc did not compile here: without it)
+            return
+          var errs: seq[string]
+          for l in stripAnsi(j.output).splitLines:
+            if l.strip.len > 0: errs.add l.replace(shadow & "/", "")
+          done(false, AsmResult(), errs)
+          return
+        let mc = ceModuleCmd(nc, copy)
+        if mc.len == 0:
+          done(false, AsmResult(), @["Nim wrote no C compiler command for the module (" & tildePath(nc) & ")"])
+          return
+        stage2(ceRewriteCmd(mc, outS, binary)))
+    nimStage(keepAll)
   else:
     let cpp = ce.lang == "cpp"
     let ccx = ceCcExe(cc)
@@ -305,7 +366,8 @@ proc ceViewLines(): seq[string] =
   var status = "; compiled in " & formatFloat(ce.ms.float / 1000, ffDecimal, 2) & " s · " & $shown & " lines"
   if ce.res.total > shown: status.add " (" & $(ce.res.total - shown) & " filtered)"
   if shown == 0:
-    status.add " — nothing here: Nim leaves out procs nothing calls (call it, or mark it {.exportc.})"
+    status.add (if sBool("compilerExplorer.allProcs"): " — nothing here: a generic proc needs a call to be compiled"
+                else: " — nothing here: Nim leaves out procs nothing calls (Filters ▾ › Every proc of the file)")
   result.add status
   result.add ""
   for l in ce.res.lines: result.add l.text
@@ -560,6 +622,7 @@ proc cmdCeOptions() =
   f.addCheck("filterDirectives", "Directives", sBool("compilerExplorer.filterDirectives"))
   f.addCheck("filterComments", "Comments", sBool("compilerExplorer.filterComments"))
   f.addCheck("demangle", "Names as Nim writes them", sBool("compilerExplorer.demangle"))
+  f.addCheck("allProcs", "Every proc of a Nim file, also the ones nothing calls yet", sBool("compilerExplorer.allProcs"))
   f.addHeader("Execution")
   f.addCheck("execute", "Run the program after each compile (the Output panel)", sBool("compilerExplorer.execute"))
   f.addText("args", "Its arguments", ceOpt("args"))
@@ -571,7 +634,7 @@ proc cmdCeOptions() =
     var changes: seq[(string, JsonNode)]
     for k in ["options", "cOptions", "compiler", "target", "syntax", "output", "args"]:
       changes.add ("compilerExplorer." & k, %ff.formValue(k).strip)
-    for k in ["filterLabels", "filterLibrary", "filterDirectives", "filterComments", "demangle", "execute"]:
+    for k in ["filterLabels", "filterLibrary", "filterDirectives", "filterComments", "demangle", "allProcs", "execute"]:
       changes.add ("compilerExplorer." & k, %ff.formChecked(k))
     var d = 600
     try: d = clamp(parseInt(ff.formValue("delay").strip), 100, 10_000)
@@ -686,22 +749,27 @@ proc cePump() =
 
 # ── the toolbar (the view's pane header), Enter, F12, the hover ──
 
+proc ceSetAct(key, val: string): Action =
+  ## (an action of its own for each item: a closure made in a loop would share the loop's variables, and every
+  ## item would set the last value)
+  result = proc() = ceSet(key, %val)
+
+proc ceToggleAct(key: string): Action =
+  result = proc() = ceSet(key, %(not sBool("compilerExplorer." & key)))
+
 proc ceMenu(key: string, opts: seq[(string, string)], x, y: int) =
   var items: seq[MenuItem]
   let cur = ceOpt(key)
   for (val, label) in opts:
-    let vv = val
-    items.add mi(label, "", proc() = ceSet(key, %vv), check = (if cur == vv: 1 else: 0))
+    items.add mi(label, "", ceSetAct(key, val), check = (if cur == val: 1 else: 0))
   openMenu(items, x, y + 1)
 
 proc ceFilterMenu(x, y: int) =
   var items: seq[MenuItem]
   for (k, label) in [("filterLabels", "Unused labels"), ("filterLibrary", "Library functions"),
                      ("filterDirectives", "Directives"), ("filterComments", "Comments"),
-                     ("demangle", "Demangle Nim's names")]:
-    let kk = k
-    items.add mi(label, "", proc() = ceSet(kk, %(not sBool("compilerExplorer." & kk))),
-                 check = (if sBool("compilerExplorer." & k): 1 else: 0))
+                     ("demangle", "Demangle Nim's names"), ("allProcs", "Every proc of the file (also unused)")]:
+    items.add mi(label, "", ceToggleAct(k), check = (if sBool("compilerExplorer." & k): 1 else: 0))
   openMenu(items, x, y + 1)
 
 proc ceDrawHeader(b: Buffer, i, x, y, w: int) =

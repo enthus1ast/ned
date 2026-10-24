@@ -110,10 +110,10 @@ proc openSettingsForm(filter = "") =
     of skStr:
       ff = f.addText(d.key, label, sStr(d.key), "(default)", d.doc, secret = d.key == "ai.apiKey")
     of skJson:
-      let dd = d
-      ff = f.addLink(label & " — " & settingValueText(d) & ", edit…", proc() =
-        closeForm()
-        editSetting(dd), d.doc)
+      capture d:                     # (each link its own setting: closures made in a loop share its variables)
+        ff = f.addLink(label & " — " & settingValueText(d) & ", edit…", proc() =
+          closeForm()
+          editSetting(d), d.doc)
     ff.group = d.cat
     ff.search = d.key
     ff.tag = $d.kind

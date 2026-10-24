@@ -143,8 +143,10 @@ proc dockHeaderMenu(side: DockSide): seq[MenuItem] =
   let views = if side == dsRight: @RightViews else: @LeftViews
   let cur = if side == dsRight: rightView else: sideView
   for v in views:
-    let vv = v
-    result.add mi(viewTitle(v).capitalizeAscii, "", proc() = showSide(vv), chk(v == cur))
+    var show: Action
+    capture v:                       # (each item its own view: closures made in a loop share its variables)
+      show = proc() = showSide(v)
+    result.add mi(viewTitle(v).capitalizeAscii, "", show, chk(v == cur))
   result.add msep()
   result.add mc("View: make pane/dock wider", "Wider")
   result.add mc("View: make pane/dock narrower", "Narrower")

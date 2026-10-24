@@ -278,8 +278,9 @@ proc buildGitItems(): seq[SideItem] =
             inc n
             if n > 999: break
         except OSError: discard
-        untracked.add sideItem(path, 5, "U", (if n > 999: "1000+ files" elif n == 1: "1 file" else: $n & " files"),
-                               proc() = revealInTree(dir), dir, data = "untracked-dir")
+        capture dir:                 # (each folder its own: closures made in a loop share its variables)
+          untracked.add sideItem(path, 5, "U", (if n > 999: "1000+ files" elif n == 1: "1 file" else: $n & " files"),
+                                 proc() = revealInTree(dir), dir, data = "untracked-dir")
       else: untracked.add sideItem(path, 5, "U", "", nil, full, data = "untracked")
     else:
       if x notin {' ', '?'}: staged.add sideItem(path, gitRole(x), $x, "", nil, full, data = "staged")
