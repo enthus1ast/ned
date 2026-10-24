@@ -307,7 +307,7 @@ proc dockListKey(dl: var DockList, v: SideView, k: Key) =
             let items = gitItemMenu(it)
             items[^1].act()
         of 'a': gitRun(@["add", "-A"], "Staged all changes")
-        of 'c': openPrompt(pGitCommit, "Commit message", "")
+        of 'c': gitCommitBox(false)              # (as its Commit… row says; the ✓ button: a one-line message)
         of 'P': gitNet("push", "Pushed")         # as the dock's Push and Pull: a login asked in the terminal,
         of 'L': gitNet("pull", "Pulled")         # and a remote folder's files follow a pull
         of 'l':

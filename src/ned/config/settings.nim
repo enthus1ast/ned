@@ -258,6 +258,33 @@ proc initSettingDefs() =
        "decompile a function): auto — the best installed: radare2 with r2ghidra or r2dec (C), rizin with rz-ghidra, " &
        "RetDec, then a disassembly with the Nim lines it came from (radare2, rizin, objdump, llvm-objdump)",
        @["auto", "r2ghidra", "r2dec", "rz-ghidra", "retdec", "radare2", "rizin", "objdump", "llvm-objdump"])
+  defS("Compiler Explorer", "compilerExplorer.options", %"", "Compiler Explorer: the Nim compiler's options for " &
+       "the file (-d:release, -d:danger, --mm:arc, --opt:size …) — empty: a debug build, as on godbolt.org")
+  defS("Compiler Explorer", "compilerExplorer.cOptions", %"-O2", "Compiler Explorer: the C compiler's options for a " &
+       "C or C++ file (-O0, -O2, -O3 -march=native …)")
+  defS("Compiler Explorer", "compilerExplorer.compiler", %"auto", "Compiler Explorer: the C compiler — auto: gcc " &
+       "(clang on Termux and macOS), else whichever is installed; zig builds for another target",
+       @["auto", "gcc", "clang", "zig"])
+  defS("Compiler Explorer", "compilerExplorer.target", %"native", "Compiler Explorer: the processor the code is for — " &
+       "native, or another one through zig cc (zig installed)", @["native", "x86_64", "arm64", "riscv64", "i386"])
+  defS("Compiler Explorer", "compilerExplorer.syntax", %"intel", "Compiler Explorer: x86 assembly in Intel's syntax " &
+       "(mov rax, rdi) or AT&T's (movq %rdi, %rax)", @["intel", "att"])
+  defS("Compiler Explorer", "compilerExplorer.output", %"asm", "Compiler Explorer: the compiler's assembly (asm), or " &
+       "the object file disassembled with objdump (binary, with addresses and the calls' targets)", @["asm", "binary"])
+  defS("Compiler Explorer", "compilerExplorer.filterLabels", %true, "Compiler Explorer: leave out labels nothing jumps to")
+  defS("Compiler Explorer", "compilerExplorer.filterLibrary", %true, "Compiler Explorer: leave out the functions of " &
+       "other files (Nim's runtime, the standard library) — only the file's own code")
+  defS("Compiler Explorer", "compilerExplorer.filterDirectives", %true, "Compiler Explorer: leave out the assembler's " &
+       "directives (.loc, .cfi_…, sections, debug info) — the data a used label holds stays")
+  defS("Compiler Explorer", "compilerExplorer.filterComments", %true, "Compiler Explorer: leave out the compiler's " &
+       "comments")
+  defS("Compiler Explorer", "compilerExplorer.demangle", %true, "Compiler Explorer: Nim's names as Nim writes them " &
+       "(square__example_u3 → square)")
+  defS("Compiler Explorer", "compilerExplorer.execute", %false, "Compiler Explorer: run the program too, its output " &
+       "(and exit code) in the Output panel — like godbolt.org's Execution")
+  defS("Compiler Explorer", "compilerExplorer.args", %"", "Compiler Explorer: the program's arguments when it runs")
+  defS("Compiler Explorer", "compilerExplorer.delay", %600, "Compiler Explorer: how long after you stop typing it " &
+       "compiles again (ms)")
   defS("Decompiler", "decompiler.follow", %true, "The decompiled view follows the cursor: into another proc of the " &
        "Nim file, another function of the program in the hex editor")
   defS("Files", "files.encoding", %"auto", "What a file that is not UTF-8 is read as (a BOM says UTF-8 or UTF-16 " &
@@ -287,9 +314,9 @@ proc initSettingDefs() =
   # ── Terminal ──
   defS("Terminal", "terminal.shell", %"", "Shell for the integrated terminal (empty = $SHELL, then bash/sh)")
   defS("Terminal", "terminal.scrollback", %3000, "Lines of scrollback in the integrated terminal")
-  defS("Terminal", "terminal.editorEnv", %true, "In ned's terminal, ned is git's editor (GIT_EDITOR) — and EDITOR " &
-       "and VISUAL where they are not set: `git commit` opens its message in a tab of this ned and waits until you " &
-       "close it; `ned FILE` there opens the file here (ned --new starts another ned)")
+  defS("Terminal", "terminal.editorEnv", %true, "In ned's terminal, ned is git's editor — GIT_EDITOR, EDITOR " &
+       "and VISUAL, each where you have not set it: `git commit` opens its message in a tab of this ned and waits until you " &
+       "close it (`ned FILE` in ned's terminal opens the file here either way; ned --new starts another ned)")
   defS("Terminal", "terminal.cwd", %"project", "Where new terminals start", @["project", "file"])
   defS("Terminal", "terminal.shellIntegration", %true, "bash, zsh and fish mark each command (OSC 133): Ctrl+↑/↓ " &
        "jumps between them, failed ones are marked, and a command's output can be copied or the command run again")
@@ -323,8 +350,8 @@ proc initSettingDefs() =
        "=copy and =dup calls (nim c --expandArc, in a trusted folder) and ⧉copy appears beside each — hover it " &
        "for why, and how to move instead")
   defS("Git", "git.checksBeforeCommit", %"both",
-       "Before a commit: format = the files it takes are formatted (ned's own formatters, on what is staged; the " &
-       "languages editor.formatOnSave formats), " &
+       "Before a commit: format = the files it takes are formatted (ned's own formatters, on what is staged; only " &
+       "with editor.formatOnSave on, for the languages it formats), " &
        "tests = the tests that cover them pass (in a trusted folder) · both · off. One that fails stops the commit " &
        "and says why, with a way to fix it or to commit anyway", @["both", "format", "tests", "off"])
   defS("Editor", "editor.dimInactiveCode", %true,
@@ -656,6 +683,37 @@ proc defaultSettingsText(): string =
       result.add "  // " & d.opts.join(", ") & "\n"
     result.add "  " & escapeJson(d.key) & ": " & jsonText(d.def, 2) & (if i < setDefs.high: "," else: "") & "\n"
   result.add "}\n"
+
+proc settingsMarkdown(): string =
+  ## every setting as Markdown, by category (`ned --doc-settings`: docs/reference/settings.md is made from it)
+  initSettingDefs()
+  proc cell(s: string): string = s.replace("|", "\\|").replace("\n", " ")
+  result = "# Settings reference\n\n" &
+           "Every setting ned has, its default and what it does — made by `ned --doc-settings` (do not edit this " &
+           "file: change the setting's text in `src/ned/config/settings.nim`). Yours go in " &
+           "`~/.config/ned/config.json` (Settings › *Edit settings.json*, or the Settings window), a project's in " &
+           "`.ned/settings.json`. `ned --default-settings` prints them all as a settings file.\n"
+  var cats: seq[string]
+  for d in setDefs:
+    if d.cat notin cats: cats.add d.cat
+  result.add "\n**Categories:** "
+  for i, c in cats:
+    var slug = ""                        # (GitHub's anchor for the heading)
+    for ch in c.toLowerAscii:
+      if ch in {'a'..'z', '0'..'9', '-', '_'}: slug.add ch
+      elif ch == ' ': slug.add '-'
+    result.add (if i > 0: " · " else: "") & "[" & c & "](#" & slug & ")"
+  result.add "\n"
+  for c in cats:                         # one section per category, its settings in the order they are defined
+    result.add "\n## " & c & "\n\n| Setting | Default | What it does |\n|---|---|---|\n"
+    for d in setDefs:
+      if d.cat != c: continue
+      var doc = d.doc
+      if d.opts.len > 0 and d.key notin ["theme", "theme.dark", "theme.light"]:
+        doc.add " — one of: " & d.opts.join(", ")
+      var def = $d.def
+      if def.len > 60: def = def[0 ..< 57] & "…"
+      result.add "| `" & d.key & "` | `" & cell(def) & "` | " & cell(doc) & " |\n"
 
 proc settingNode(key: string): JsonNode =
   if settingsJ == nil or not settingsJ.hasKey(key): nil else: settingsJ[key]

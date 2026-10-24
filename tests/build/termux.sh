@@ -10,7 +10,9 @@ mkdir -p "$out/zcc"
 ZIG=${ZIG:-$(command -v zig || python3 -c 'import ziglang, os; print(os.path.join(os.path.dirname(ziglang.__file__), "zig"))' 2>/dev/null || true)}
 [ -n "$ZIG" ] || { echo "zig not found (pip install ziglang)"; exit 2; }
 z="$out/zcc/zcc-aarch64-linux-musl"
-printf '#!/bin/sh\nexec "%s" cc -target aarch64-linux-musl "$@"\n' "$ZIG" > "$z"
+# (-g0: zig cc makes debug information by default — on ned's biggest C file that more than doubles the memory the
+#  compile takes, past 6 GB, and the programs are stripped anyway)
+printf '#!/bin/sh\nexec "%s" cc -target aarch64-linux-musl -g0 "$@"\n' "$ZIG" > "$z"
 chmod +x "$z"
 version=$(sed -n 's/^const NedVersion\* = "\(.*\)"/\1/p' "$root/src/ned/version.nim")
 nimlib=$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")/lib
@@ -22,8 +24,11 @@ build() { # program
   if ! nim c "${flags[@]}" --nimcache:"$cache" -o:"$out/$p" "$root/src/$p.nim" > "$out/$p.log" 2>&1; then
     # (zig's clang can abort on ned's biggest C file when several compile at once: that one alone, then the rest)
     big=$(ls -S "$cache"/@m*.nim.c 2>/dev/null | head -1)
-    [ -n "$big" ] && "$z" -c -w -ferror-limit=3 -fno-strict-aliasing -pthread -O3 -I"$nimlib" -I"$root/src" \
-                          -o "$big.o" "$big" >> "$out/$p.log" 2>&1
+    # (the compiles nim started beside the one that failed go on after it: let them end first)
+    for _ in $(seq 600); do pgrep -f -- "-o $cache/" > /dev/null || break; sleep 1; done
+    # (the `|| true`: when even that aborts, the one-at-a-time build below still tries — not set -e's silent end)
+    { [ -n "$big" ] && "$z" -c -w -ferror-limit=3 -fno-strict-aliasing -pthread -O3 -I"$nimlib" -I"$root/src" \
+                            -o "$big.o" "$big" >> "$out/$p.log" 2>&1; } || true
     nim c "${flags[@]}" --parallelBuild:1 --nimcache:"$cache" -o:"$out/$p" "$root/src/$p.nim" >> "$out/$p.log" 2>&1 ||
       { echo "$p FAILED (see $out/$p.log)"; exit 1; }
   fi
@@ -37,6 +42,7 @@ pre="$pkg/data/data/com.termux/files/usr"
 mkdir -p "$pre/bin" "$pre/share/doc/ned" "$pre/share/ned" "$pkg/DEBIAN"
 for p in ned nedls nedfmt; do install -m 755 "$out/$p" "$pre/bin/$p"; done
 install -m 644 "$root/README.md" "$root/CHANGELOG.md" "$root/LICENSE" "$pre/share/doc/ned/"
+cp -r "$root/docs" "$pre/share/doc/ned/docs"       # (the README's links into docs/ work there too)
 cp -r "$root/examples/plugins" "$pre/share/ned/plugins"
 size=$(du -sk "$pkg/data" | cut -f1)
 cat > "$pkg/DEBIAN/control" <<EOF

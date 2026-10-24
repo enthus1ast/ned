@@ -1,6 +1,7 @@
 #!/bin/bash
 # cross.sh [OUTDIR] — ned built for every target this machine can reach: the host compiler, clang, and with
-# zig (https://ziglang.org, `pip install ziglang` works) macOS arm64/x86_64 and Android/Linux arm64 (musl).
+# zig (https://ziglang.org, `pip install ziglang` works) macOS arm64/x86_64, Android/Linux arm64 (musl) and
+# Windows x86_64 (tests/build/windows.sh makes the release's zip).
 # One line per target; exit status 1 when one fails. NIM224: a second Nim's bin folder to build with too.
 # nedfmt and nedls (the formatter and the language server) are built for Linux, Android and macOS arm64 as well.
 set -u
@@ -23,7 +24,7 @@ run() { # name, extra PATH (or ""), nim flags…  (SRC=nedfmt.nim run …: anoth
   fi
 }
 zcc() { # a wrapper that makes zig a C compiler for one target
-  printf '#!/bin/sh\nexec "%s" cc -target %s "$@"\n' "$ZIG" "$1" > "$out/zcc/zcc-$1"; chmod +x "$out/zcc/zcc-$1"
+  printf '#!/bin/sh\nexec "%s" cc -target %s -g0 "$@"\n' "$ZIG" "$1" > "$out/zcc/zcc-$1"; chmod +x "$out/zcc/zcc-$1"
   echo "$out/zcc/zcc-$1"
 }
 run linux-gcc "" -d:strip -o:"$out/ned-linux-gcc"
@@ -34,11 +35,13 @@ if [ -n "$ZIG" ]; then
   z=$(zcc aarch64-macos);      run macos-arm64 "" --os:macosx --cpu:arm64 --cc:clang --clang.exe:"$z" --clang.linkerexe:"$z" -d:strip -o:"$out/ned-macos-arm64"
   z=$(zcc x86_64-macos);       run macos-x86_64 "" --os:macosx --cpu:amd64 --cc:clang --clang.exe:"$z" --clang.linkerexe:"$z" -d:strip -o:"$out/ned-macos-x86_64"
   z=$(zcc aarch64-linux-musl); run android-arm64 "" --os:android --cpu:arm64 --cc:clang --clang.exe:"$z" --clang.linkerexe:"$z" -d:strip -o:"$out/ned-android-arm64"
+  z=$(zcc x86_64-windows-gnu); run windows-x86_64 "" --os:windows --cpu:amd64 --cc:clang --clang.exe:"$z" --clang.linkerexe:"$z" -d:strip -o:"$out/ned-windows-x86_64.exe"
   for p in nedfmt nedls; do
+    z=$(zcc x86_64-windows-gnu); SRC=$p.nim run $p-windows-x86_64 "" --os:windows --cpu:amd64 --cc:clang --clang.exe:"$z" --clang.linkerexe:"$z" -d:strip -o:"$out/$p-windows-x86_64.exe"
     z=$(zcc aarch64-linux-musl); SRC=$p.nim run $p-android-arm64 "" --os:android --cpu:arm64 --cc:clang --clang.exe:"$z" --clang.linkerexe:"$z" -d:strip -o:"$out/$p-android-arm64"
     z=$(zcc aarch64-macos);      SRC=$p.nim run $p-macos-arm64 "" --os:macosx --cpu:arm64 --cc:clang --clang.exe:"$z" --clang.linkerexe:"$z" -d:strip -o:"$out/$p-macos-arm64"
   done
 else
-  echo "zig not found: macOS and Android builds skipped"
+  echo "zig not found: macOS, Android and Windows builds skipped"
 fi
 exit $fails

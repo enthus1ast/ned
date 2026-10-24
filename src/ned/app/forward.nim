@@ -91,6 +91,10 @@ proc cEngOutline(b: Buffer): seq[SideItem]
 proc cEngCallHierarchy(b: Buffer): bool
 proc cEngInlays(b: Buffer, lo, hi: int)
 proc cmdSwitchHeaderSource()
+proc ceIsView(b: Buffer): bool
+proc ceDrawHeader(b: Buffer, i, x, y, w: int)
+proc asmHoverAt(b: Buffer, p: Pos): string
+proc ceDefinition(b: Buffer): bool
 proc lspAttach(b: Buffer)
 proc lspDidSave(b: Buffer)
 proc lspDidClose(b: Buffer)

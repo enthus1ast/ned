@@ -358,6 +358,9 @@ proc setting*(key: string, default: float): float =
   ## plugins.<this plugin>.<key> from your settings, a number (`default` when it is not one)
   let v = settingNode(key)
   if v == nil or v.kind notin {JFloat, JInt}: default else: v.getFloat
+proc projectDir*(): string = api("root").getStr
+  ## the project's folder — what the file tree shows (the plugin's process runs elsewhere: a relative path in
+  ## readFile means nothing, `projectDir() & "/src/x.nim"` does)
 proc dataDir*(): string = api("dataDir").getStr
   ## a folder of this plugin's own (made when asked for)
 proc pluginDir*(): string = api("pluginDir").getStr

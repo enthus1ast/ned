@@ -1,6 +1,127 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-623). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-624). Older releases:
+
+## What's new in 6.23
+
+6.23 lets you turn clangd off and lose little: ned's own C engine and C formatter learned what clangd and
+clang-format do — a struct's layout and a constant's value on hover, the compiler's own fixes, parameter names,
+the call hierarchy, header ⇄ source, and clang-format's styles and `.clang-format`. The Nim side borrows from
+Python's, Rust's and C's tools: rewrites on Alt+Enter, completion that fills in the arguments, `# fmt: off`, a
+magic trailing comma, comments lined up. And the decompiler is in the menu bar.
+
+**C without clangd.** With `c.engine` on `builtin` (or `auto` with no clangd installed):
+- **Hover** on a struct or union shows its size and alignment and each field's offset, size and the padding
+  between them (**16 bytes**, aligned to 8 (64-bit) — `tag: offset 0, 1 byte` · 3 bytes of padding ·
+  `w: offset 4, 4 bytes` …), on a field its own offset and size, on an enum constant its value (`= 5`; from 10 up
+  its hex too), on a `#define` of a number its value, and on the use of a function-like macro what it expands to
+  there.
+- **The compiler's own fixes on Alt+Enter.** `cc -fsyntax-only` (clang or gcc) is asked for its fix-its too, so the
+  error's fix is a quick fix as clangd gives it: `.` → `->` on a pointer, a misspelt member (`xvl` → `xval`), the
+  missing `;`, parentheses around an assignment used as a condition, `%s` → `%d` in a printf. The problem's line says
+  what Alt+Enter does about it.
+- **Parameter names before literal arguments** — `area(width: 3, height: 4)` — as clangd's inlay hints
+  (`nim.parameterHints`: literals, all, off).
+- **Call hierarchy** (who calls this function, what it calls) and **header ⇄ source** (*C: switch between header
+  and source*, Go › *Header ⇄ source (C)*, and the editor's right-click menu: `pt.c` ⇄ `pt.h`, in the same folder,
+  an `include/` beside `src/`, or the project's other folders).
+
+Against clangd 18 on Lua's sources (8 files, `tests/engine/ccompare.py --n 40`): go to definition agrees at 94.0%
+of the places both answer, member completion offers the member written there at 98.1% (clangd 91.3%), a file is
+read in 5 ms (clangd 0.10 s), and ned's engine uses 16 MB where clangd uses 62.
+
+**C formatting in clang-format's styles.** ned's own C formatter lays C out the way clang-format does:
+`c.format.style` takes `LLVM`, `Google`, `Chromium`, `Mozilla`, `WebKit`, `Microsoft`, `GNU` or `Linux` — braces,
+`} else {`, short functions, ifs and loops on one line or not, `case` labels, `int *p` or `int* p`, casts, lines
+wrapped at the column limit the way clang-format's penalties choose (after a `,`, `&&`, `=`, a `?`, aligned after
+the open bracket), consecutive macros, assignments and declarations lined up, trailing comments aligned. `auto`
+(the default) reads the project's **`.clang-format`** — `BasedOnStyle` and the common keys: `IndentWidth`, `UseTab`,
+`TabWidth`, `ColumnLimit`, `ContinuationIndentWidth`, `BreakBeforeBraces` (and `BraceWrapping`), `PointerAlignment`,
+`DerivePointerAlignment`, `SpaceBeforeParens`, `IndentCaseLabels`, `SpacesBeforeTrailingComments`,
+`AlignTrailingComments`, `AlignConsecutiveMacros` / `Assignments` / `Declarations`, `AlignAfterOpenBracket`,
+`AlignOperands`, `AlignEscapedNewlines`, `AllowShort…OnASingleLine`, `Cpp11BracedListStyle`,
+`SpaceAfterCStyleCast`, `BreakBeforeBinaryOperators`, `AlwaysBreakAfterReturnType`, `IndentBraces`,
+`KeepEmptyLinesAtTheStartOfBlocks`, `MaxEmptyLinesToKeep`; without one it keeps ned's old way (`keep`: indented by
+the braces, spaces evened out, your line breaks). `c.format.options` adds clang-format keys over the style
+(`{"ColumnLimit": 100}`), and `// clang-format off` … `on` and `#if 0` blocks are left as written. Lines identical
+to clang-format 18's on Lua (40 files): LLVM 96.4% (97.7% with `ColumnLimit: 0`), WebKit 96.2%, Microsoft 96.3%,
+Chromium 95.2%, Mozilla 94.9%, Google 94.1%, GNU 86.5%; zsh (30 files) 96.1%, OpenSSH (40 files) 93.6% — the rest
+is mostly how a braced initializer list is packed into columns and a few line-break choices.
+`tests/format/cfmtcompare.py` measures it.
+
+`c.formatter` chooses who formats C: `auto` (clang-format while clangd is the C engine, ned's own when it is not),
+`clang-format` or `builtin`. **The C in `{.emit: """…""".}`** follows: clang-format when clangd is in use, else
+ned's own in `c.format.style`, at the Nim file's indentation and its line length less the block's.
+
+**The Nim formatter.**
+- `nim.format.alignComments` lines up the comments at the end of lines that follow each other —
+  `x: int  ## the x` — at the column they share already when there is room, else two after the longest line; a
+  line the column would take past the line length keeps its comment one space after its code.
+- **`# fmt: off` … `# fmt: on`** and a statement ending in **`# fmt: skip`** (black's and ruff's, and nph's
+  `#!fmt: off`) are left as written — only moved to their new indentation. Without `# fmt: on` the part goes to
+  the end of its block.
+- `nim.format.magicTrailingComma`: a list you end with a comma before its bracket — written one element a line, or
+  on one line (`f(a, b,)`) — stays one element per line, as black and ruff keep it (off by default: nph joins it
+  when it fits). A list nph wrapped several elements a line keeps that layout, so formatting again changes nothing.
+- `nim.format.normalizeNumbers`: `0X1f'u8` → `0x1F'u8`, `0B1` → `0b1`, `1E5` → `1e5` (ruff); a literal with a
+  suffix of the program's own (`0xff'big`, whose proc gets the text as written) stays as it is.
+- `nim.format.docCode`: the Nim in a doc comment's ```` ```nim ```` fence and `.. code-block:: nim` block is
+  formatted too (ruff's docstring code), and left as it is when it is not code that stands on its own.
+
+With all four settings on, the 3 470 files of Nim's compiler, standard library and tests that format at all are
+read by Nim's parser as before (`nedfmt --verify`), and formatting them a second time changes nothing that it does
+not change with the defaults.
+
+**Nim: rewrites from other languages' servers.** Alt+Enter (and nedls' code actions) offers:
+- **Write the type** — `let counts = initTable[string, int]()` → `let counts: Table[string, int] = …`, the type
+  the engine works out (rust-analyzer's *add explicit type*, Pylance's annotation);
+- **Write as `x.f(y)`** / **`f(x, y)`** — the call in method-call syntax or without it (`len(s)` ⇄ `s.len`);
+- **Name the arguments** — `area(3, 4)` → `area(width = 3, height = 4)`;
+- **Write as a case** — an `if`/`elif` chain comparing one value with constants (`==`, `or`, `in {…}`, `in a..b`)
+  becomes a `case`, with `else: discard` unless every value of the enum has its branch — and **Write as if/elif**
+  back;
+- **Invert the if** — `if c:` A `else:` B → `if not c:` B `else:` A, the condition negated the simple way
+  (`x > 0` → `x <= 0`, `not ok` → `ok`, `in` → `notin`);
+- **Write 255 as 0xFF** (and binary, octal, decimal), the type suffix kept.
+
+`nim.completeCallArguments` (off by default — command syntax and `x.len` read better without) makes completion
+write a routine's call with its parameters to fill in, `rectArea(width, height)`, Tab to the next one, the receiver
+left out after a `.` — clangd's and rust-analyzer's argument placeholders; nedls sends them as snippets. And Enter
+in a doc comment starts the next line with it (`editor.continueComments`): `##` in Nim, `///` and `//!`, ` * ` in a
+`/** … */` block.
+
+**The decompiler in the menu bar.** Run › *Decompile* (this proc, side by side · a program… · a function of the
+open binary…) and Nim › *Inspect*.
+
+**Fixes.** A constant's `## \` doc whose `##` lines go on at the constant's own indentation (and a `when` branch's
+value ending in `## \`) shows on hover again. ned's C formatter in its `keep` way wrote `{return 1;}` as
+`{return 1; }`; it stays as written.
+
+Older releases are in [CHANGELOG.md](CHANGELOG.md): [6.22](CHANGELOG.md#whats-new-in-622) answered in NimScript files and plugins as in a program, read doc comments as `nim doc` does and gave the Settings window real controls, [6.21](CHANGELOG.md#whats-new-in-621) made ned work like a desktop app (dialogs, right-click menus, drag and drop, text fields you select in), put a decompiler beside the code, took Atlas projects further and built ned for Windows itself, [6.20](CHANGELOG.md#whats-new-in-620) took plugins further (a language's completions, hover, actions, outline; plugins in full Nim), showed a macro's tree and a module's docs beside the code, checked async, raises and gcsafe before compiling and opened files of any size, [6.19](CHANGELOG.md#whats-new-in-619) brought plugins in NimScript,
+NimScript files known as such, nimble 0.26's conflicts on their lines, hot exit, encodings and checked key bindings,
+[6.18](CHANGELOG.md#whats-new-in-618) gave nedls ned's quick-fix list as code actions and Fix with AI checked by nim check, [6.17](CHANGELOG.md#whats-new-in-617) halved the waits on a big program
+and kept the engine worker from growing, [6.16](CHANGELOG.md#whats-new-in-616) moved the engine's hints, checks
+and counts to the engine worker on another core, [6.15](CHANGELOG.md#whats-new-in-615) brought selection by
+code structure, surround, the undo tree, next-edit suggestions, the Git changes view, ned's own JavaScript and C++,
+[6.14.1](CHANGELOG.md#whats-new-in-6141) kept scrolling
+smooth with reference counts and gave quick fixes keys Windows Terminal leaves alone, [6.14](CHANGELOG.md#whats-new-in-614)
+made ned faster where you wait and brought its own CSS, HTML and SQL, [6.13](CHANGELOG.md#whats-new-in-613) made the running ned
+reachable from its terminal, git and scripts and asked the terminal what it can do, [6.12](CHANGELOG.md#whats-new-in-612) brought Nim 3
+(Nimony), the hex editor and big files in less memory, [6.11.2](CHANGELOG.md#whats-new-in-6112) fixed the ▶ of runnableExamples,
+terminal floods and very long lines, [6.11.1](CHANGELOG.md#whats-new-in-6111) wrapped long comments and
+kept type hints ahead of scrolling, [6.11](CHANGELOG.md#whats-new-in-611) made scrolling send only the new lines and
+the engine's checks wait for a pause, with Help › Performance, [6.10](CHANGELOG.md#whats-new-in-610) brought lint
+rules and `--fix`, *can be a func*, the project's own checks and Nim test coverage,
+[6.9](CHANGELOG.md#whats-new-in-69) hints the compiler does not give, memory layout on hover and `ned --lint`,
+[6.8](CHANGELOG.md#whats-new-in-68) nedls and nedfmt, the engine's own checks at once and names a macro makes,
+[6.7](CHANGELOG.md#whats-new-in-67) signed in to GitHub without a password and brought AI that knows your code,
+[6.6](CHANGELOG.md#whats-new-in-66) showed where ARC/ORC copies, ran tests on save and added postfix completion,
+[6.5.1](CHANGELOG.md#whats-new-in-651) fixed C wrappers written one parameter a line,
+[6.5](CHANGELOG.md#whats-new-in-65) brought ned's own C engine and ligatures, [6.4](CHANGELOG.md#whats-new-in-64) took
+the Nim engine further (parameter names, a generic's instance, organize imports), [6.3](CHANGELOG.md#whats-new-in-63)
+explained C from Nim and gave the formatter your settings, [6.2](CHANGELOG.md#whats-new-in-62) a calmer, desktop-like
+look, [6.1](CHANGELOG.md#whats-new-in-61) smarter colours, [6.0](CHANGELOG.md#whats-new-in-60) split ned into a
+project with its tests.
 
 ## What's new in 6.22
 
@@ -140,7 +261,7 @@ of plugins you keep for the next start (calls 0.3 ms instead of 3–6). The dock
 the views and each plugin (reload just it, its own process); *Plugins: browse the plugin list…* installs from a list
 of yours (`plugins.indexUrl`), *Plugins: update* pulls the ones from git. Two more examples: **ini-tools** (every
 language feature for INI files, a view, progress, a tool for the assistant) and **clock-native** (full Nim). See
-[Plugins](README.md#plugins).
+[Plugins](docs/plugins/README.md).
 
 **The AST view and the docs preview.** *Nim: AST view* shows the statement at the cursor — or the selection — as
 the tree a macro gets as `body: untyped`, from Nim's own parser, beside the code, made again after each pause; on a
@@ -200,7 +321,7 @@ objects and `:` commands. All plugins run in one `nim e` process that starts whe
 and stops when idle, or compiled (`plugins.native`); one that does not compile is left out with its error in
 Problems. The Plugins dock lists them, turns them on and off, reloads them and shows their log; *New plugin…*,
 *Add an example…* and *Install from git…* start one. The examples: a language with its formatter (Zig), a language
-server written in NimScript, and vim's `gc` operator with an `ie` text object. See [Plugins](README.md#plugins).
+server written in NimScript, and vim's `gc` operator with an `ie` text object. See [Plugins](docs/plugins/README.md).
 
 **NimScript files: config.nims and a .nimble.** The engine knows which file is which: `exec`, `thisDir`, `mkDir`,
 `switch` … are offered and known in config.nims and a .nimble only — in a program they are a problem that says
@@ -756,7 +877,7 @@ ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
   (`{"rules": {"var-let": "off", "deprecated": "error"}, "exclude": ["generated/"]}`), in the editor, nedls and
   `ned --lint` alike. `# ned: ignore[var-let]` silences a line (`ignore-next-line`, `ignore-file` too); Alt+Enter on a
   problem offers *Silence var-let on this line* and *Turn off var-let for this project*. The Problems panel and nedls
-  name each problem's rule. See [Lint](README.md#lint-the-engines-checks-from-the-command-line-and-in-ci).
+  name each problem's rule. See [Lint](docs/guide/nim.md#lint-the-engines-checks-from-the-command-line-and-in-ci).
 - **`ned --lint --fix`**: what has a safe fix is fixed in place — var → let, deprecated names, unused imports, proc →
   func, a missing `requires` — or shown first with `--diff`. `--format:sarif` writes SARIF 2.1.0 for GitHub code
   scanning; `--rules` lists the rules.
@@ -845,7 +966,7 @@ ruler where the formatter wraps, or set `"nim.format.lineLength": 80`.
   instead of nimlangserver or nimsuggest. Completion, hover, signature help, definitions, references, rename,
   symbols, semantic colours, inlay hints, formatting, quick fixes and problems, from the same code the editor
   runs; it starts at about 6 MB and answers a hover in a few milliseconds. See
-  [nedls](README.md#nedls-neds-engine-in-other-editors).
+  [nedls](docs/guide/nim.md#nedls-neds-engine-in-other-editors).
 - **nedfmt: the formatter on its own**, with nph's command line — `--check`, `--diff`, `--out`, `--outDir`,
   `--stdin-name`, `--line-length`, `--include`, `--exclude`, `--extend-exclude`, `.nph.toml` — and a git pre-commit
   hook in one step (`nedfmt --install-hook`). `ned --format` is the same program. The release binaries come with
@@ -1015,7 +1136,7 @@ Also: the engine answers `defined(…)` for the system it runs on (on macOS `def
 - **A shorter File menu**: SSH, clone and the workspace under *Open more*, a file's history and comparisons under
   *This file*, settings, theme, keys and settings sync under *Preferences*.
 
-The C engine and ligatures came in [6.5](#whats-new-in-65); [C: ned's own engine](README.md#c-neds-own-engine)
+The C engine and ligatures came in [6.5](#whats-new-in-65); [C: ned's own engine](docs/guide/c.md)
 describes it.
 
 ## What's new in 6.5
@@ -1194,7 +1315,7 @@ holds.
 **ned is a project now, not one file.** The 53 000 lines of `ned.nim` are about 215 files in `src/`, one subject
 each — the file tree, the menus, the find widget, the Nim index's type inference, the clangd bridge, the
 assistant's MCP client — grouped in folders (`core`, `editor`, `ui`, `nim`, `lsp`, `ai`, `git`, `term`, `debug`,
-`c`, `format` …; [the layout](README.md#the-source)). Finding your way around, or sending a patch, is easier.
+`c`, `format` …; [the layout](docs/guide/building.md#the-source)). Finding your way around, or sending a patch, is easier.
 - Still the standard library only, still one binary, built with one command: `nim c -d:release src/ned.nim`, or
   `nimble release` / `nimble termux` / `nimble install` as before.
 - The parts that stand on their own are **modules**: the Nim index (`ned/nim/index`), the formatters
@@ -1263,7 +1384,7 @@ type definition, implementations, type hierarchy, references, rename, signature 
 and quick fixes come from ned's own index; errors while you type and macro expansion from `nim check` on the
 unsaved text. Nothing has to start, compile the project or hold it in memory first. `"nim.nimsuggest": true`
 turns nimsuggest back on as a second opinion for what the index cannot tell. How the two compare is in
-[the Nim IDE section](README.md#nim-ide-the-built-in-engine).
+[the Nim IDE section](docs/guide/nim.md#nim-ide-the-built-in-engine).
 
 **Navigation without a language server.**
 - **Type hierarchy** (*Type hierarchy* in the palette): what an object type inherits from, up to `RootObj`,
@@ -1390,7 +1511,7 @@ ned also shows 1 698 type hints where nimsuggest shows none (loop variables, mos
 nimsuggest is not always the one that is right: it answers nothing inside many templates.
 
 nimsuggest crashed 52 times on these files (it was started again each time). The comparison is in
-[.github/ci/engine](.github/ci/engine) — `./build.sh && ./compare.py yourfile.nim` runs it on your code.
+[.github/ci/engine](tests/engine) — `./build.sh && ./compare.py yourfile.nim` runs it on your code.
 
 **Completion.** Pragmas the file and its include files define (`{.pragma: rtl, …}` → `{.rtl.}`); after `x.` on
 a number, the distinct number types in scope (`.AsyncFD`, `.SocketHandle`).
@@ -2179,7 +2300,7 @@ A final pass for speed, safety and bugs before publishing:
 - **Runs on macOS and under Windows (WSL)** as well as Linux and Termux: the built-in terminal now uses the
   portable POSIX pseudo-terminal calls, the clipboard uses `pbcopy`/`pbpaste` on macOS and the Windows
   clipboard under WSL, and *Check setup* knows both. Building natively on Windows stops with a message that
-  points to WSL. Install steps for each are under [Installing](#installing), and a GitHub Actions workflow
+  points to WSL. Install steps for each are under [Installing](README.md#installing), and a GitHub Actions workflow
   builds and tests every platform on each push.
 - **TODO comments:** the Files tree shows ⚑3 next to a file with three tag comments, in the colour of the most
   urgent one; *Create a GitHub issue* (right-click in the TODOs dock, or i) makes an issue from the comment
@@ -2589,7 +2710,7 @@ switches.)
 
   A query takes about 1–5 ms. On ned's own 24 000-line source it agreed with nimsuggest on every sampled
   go-to-definition (nimsuggest needs about 10 s per query on that file). The full comparison is in
-  [Nim IDE: the built-in engine](#nim-ide-the-built-in-engine).
+  [Nim IDE: the built-in engine](docs/guide/nim.md).
 - **nimsuggest only where the compiler is needed:**
   - completion when the index cannot tell a receiver's type;
   - errors while you type;
@@ -2614,7 +2735,7 @@ switches.)
     for a file that is already formatted (nph: 6 ms).
 
   `nim.formatter` picks `builtin` (default), `nph` or `nimpretty`. Details are in
-  [Formatting Nim](#formatting-nim).
+  [Formatting Nim](docs/guide/formatting.md#nim).
 - **Formatting keeps your place.** The cursor stays on the same character of the same code, even when the
   formatter splits or joins lines, and that code stays on the same screen row. Before, a language server's
   formatting could leave you on the last line.

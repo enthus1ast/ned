@@ -13,8 +13,9 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 | [`ui/`](ui) | the whole editor driven through tmux: keys in, the screen read back — every feature, about 1300 checks | ~1 hour | `nimble uitest` |
 | [`fuzz/`](fuzz) | random keys, mouse events, pastes, palette commands and resizes; crashes, hangs and internal errors reported | as long as you like | `tests/fuzz/batch.sh 120 mixed vim palette` |
 | [`engine/`](engine) | ned's Nim engine against nimsuggest on the standard library, nimble packages and the compiler; what the editor answers (through nedls) in .nim, .nims, .nimble and plugins against nimsuggest and the APIs' docs; its C engine against clangd | ~1 hour | `tests/engine/build.sh && tests/engine/corpus.sh /tmp/out` · `tests/engine/parity.py FILE…` · `tests/engine/ccompare.py` |
-| [`build/`](build) | ned built for every target: gcc, clang, and with zig macOS (arm64, x86_64) and Android/Linux arm64 — nedfmt and nedls too | minutes | `tests/build/cross.sh` |
+| [`build/`](build) | ned built for every target: gcc, clang, and with zig macOS (arm64, x86_64), Android/Linux arm64 and Windows x86_64 — nedfmt and nedls too; the Termux package and the Windows zip of a release | minutes | `tests/build/cross.sh` · `tests/build/termux.sh` · `tests/build/windows.sh` |
 | [`themes/`](themes) | every built-in theme's colours against its background; ned's own must pass | a second | `python3 tests/themes/contrast.py` |
+| [`docs/`](docs) | the documentation: the plugin API reference is what the API's doc comments make (`apiref.py`, `--check`), every link and `#anchor` in the Markdown goes somewhere (`links.py`); CI also compares `docs/reference/` with `ned --doc-settings` and `ned --doc-commands` | a second | `python3 tests/docs/apiref.py --check && python3 tests/docs/links.py` |
 
 Speed and memory are checked by [`.github/ci/bench.py`](../.github/ci/bench.py) (`nimble perf`) against the
 limits in `bench-budget.json`, and [`.github/ci/pty_smoke.py`](../.github/ci/pty_smoke.py) runs ned in a real

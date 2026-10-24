@@ -200,7 +200,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       fWord = true
   let (bm, ba, bb) = b.matchBracketKept(ph)
   let vimVis = cfgVim and vimMode in {vmVisual, vmVLine}
-  let unit = b.indentW()
+  # (no indentation guides in assembly: its instructions are indented, not nested)
+  let unit = if b.lang != nil and b.lang.name == "Assembly": 0 else: b.indentW()
   # the active indent guide: the one of the block the cursor is in, a little brighter (like VS Code)
   var agCol, agA, agB = -1
   if cfgGuides and unit > 0 and b.lines.len < 200_000 and ph.line < b.lines.len:
@@ -376,6 +377,9 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     var rowBg = if isCurLine and active and cfgLineHl: theme.curLine else: theme.bg
     if flashBuf == b.id and line >= flashA and line <= flashB and msSince(flashAt) < 1800:
       rowBg = blend(theme.bg, theme.accent, 0.16)       # code just put in (AI chat › Insert)
+    if lineTints.len > 0 and b.id in lineTints:
+      let tt = lineTints[b.id].getOrDefault(line, (Rgb(0), 0.0))
+      if tt[1] > 0.0: rowBg = blend(rowBg, tt[0], tt[1])   # (Compiler Explorer: a line and the code it made)
     if dbgOn and line == dbgAt[1] and b.path == dbgAt[0]: rowBg = blend(theme.bg, theme.warn, 0.20)
     if landBuf == b.id and line == landLine:
       let t = float(msSince(landAt)) / float(JumpHlMs)

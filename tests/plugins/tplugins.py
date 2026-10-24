@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """ned's plugins without the editor: the NimScript host (nim e) with the example plugins and an API test plugin,
-this script playing ned (JSON lines: registrations, calls, the API); a language server written in NimScript through
-`ned --lsp-bridge`; the host compiled (plugins.native).
+this script playing ned (JSON lines: registrations, calls, the API); the tutorial's plugin (examples/plugins/notes,
+docs/plugins/tutorial.md) in a host of its own; a language server written in NimScript through `ned --lsp-bridge`;
+the hosts compiled (plugins.native).
 
   python3 tests/plugins/tplugins.py [./ned] [--native]     (nim on PATH)
 """
@@ -66,6 +67,12 @@ class Host:
         self.calls_seen = []
         self.progress = []
         self.output = []
+        self.root = tmp                 # the project's folder (shell commands run there)
+        self.cur = 1                    # the buffer current() names
+        self.settings = {}              # plugins.<plugin>.<key>: these first
+        self.asked = []                 # pick, ask, confirm: (fn, args)
+        self.opened = []                # openFile: (path, line)
+        self.stopped = []               # stopTimer: the timers' ids
 
     def send(self, j):
         self.p.stdin.write((json.dumps(j) + "\n").encode())
@@ -103,8 +110,8 @@ class Host:
     def api(self, j):
         fn, a = j["fn"], j.get("args", {})
         v = None
-        if fn == "current": v = 1
-        elif fn == "root": v = self.tmp
+        if fn == "current": v = self.cur
+        elif fn == "root": v = self.root
         elif fn == "path": v = os.path.join(self.tmp, "a.txt")
         elif fn == "lang": v = self.lang
         elif fn == "lineCount": v = len(self.lines)
@@ -130,10 +137,20 @@ class Host:
         elif fn == "lineComment": v = "#"
         elif fn == "problems": self.problems = a["problems"]
         elif fn in ("sign", "vtext", "highlight"): self.decor.append((fn, a))
+        elif fn == "clearDecorations":
+            self.decor = []
+            self.calls_seen.append(fn)
+        elif fn == "open":
+            self.opened.append((a["path"], a["line"]))
+            v = self.cur
+        elif fn == "stopTimer": self.stopped.append(a["cb"])
         elif fn == "status": self.status = a["text"]
         elif fn in ("message", "toast"): self.messages.append(a["text"])
         elif fn == "log": self.logs.append(a["text"])
-        elif fn in self.answers: v = self.answers[fn]
+        elif fn in self.answers:
+            self.asked.append((fn, a))
+            v = self.answers[fn]
+        elif fn == "setting" and a.get("key") in self.settings: v = self.settings[a["key"]]
         elif fn == "setting": v = 120 if a.get("key") == "width" else (True if a.get("key") == "sortCaseSensitive" else None)
         elif fn == "dataDir": v = os.path.join(self.tmp, "data", j.get("plugin", ""))
         else:
@@ -326,6 +343,242 @@ def run_ini(h, tag):
     h.cursor = {"line": 0, "col": 1}
 
 
+def rg(l0, c0, l1, c1):
+    return {"start": {"line": l0, "col": c0}, "stop": {"line": l1, "col": c1}}
+
+
+def run_notes(tmp, native):
+    """notes — the plugin docs/plugins/tutorial.md builds, in a host of its own: its commands (the text read and
+    changed; pick, ask, confirm), the notes an event marks (problems with fixes, signs, highlights, text after a
+    line, the status bar), its settings, a view, the project's notes (grep, progress, the Output panel), a
+    language's features for every file, vim, timers, the assistant's tools"""
+    tag = ("native: " if native else "") + "notes: "
+    h = Host([("notes", os.path.join(EX, "notes"))], native=native, tmp=tmp)
+    if not h.build_ok:
+        check(tag + "the host compiles", False, h.build_err)
+        return
+    ok = h.pump(lambda j: j.get("t") == "ready", 60)
+    err = ""
+    if not ok:
+        h.p.kill()
+        err = h.p.stderr.read()[-1500:]
+    check(tag + "it starts (%s ms)" % h.ready_ms, ok, err)
+    if not ok:
+        return
+    titles = {r["title"] for r in h.regs if r["kind"] == "command"}
+    check(tag + "its commands, the ned it needs, three settings",
+          {"Notes: add a TODO", "Notes: go to a note…", "Notes: add a note…", "Notes: remove the DONE notes…",
+           "Notes: find the project's notes", "Notes: remind me later", "Notes: cancel the reminder"} <= titles and
+          h.reg("command", title="Notes: add a TODO")["keys"] == "ctrl+alt+n" and
+          h.reg("requires")["spec"] == ">= 6.20" and h.reg("setting", key="markers")["default"] == "NOTE TODO FIXME"
+          and h.reg("setting", key="problems")["default"] is True and
+          h.reg("setting", key="reminderMinutes")["default"] == 25, (titles, h.regs))
+    ev = {"buf": 1, "path": os.path.join(tmp, "a.txt"), "lang": "plaintext"}
+    # 2. a first command
+    h.lines = ["x = 1", "", "  y = 2"]
+    h.cursor = {"line": 0, "col": 0}
+    r = h.call(h.reg("command", title="Notes: add a TODO")["cb"])
+    check(tag + "add a TODO: at the end of the line (its comment), the cursor after it, a line in the log",
+          r and "err" not in r and h.lines[0] == "x = 1  # TODO: " and h.cursor == {"line": 0, "col": 15} and
+          any("a TODO at line 1 of " in l for l in h.logs), (r, h.lines, h.cursor, h.logs[-3:]))
+    # 3. pick, ask, confirm
+    h.cursor = {"line": 1, "col": 0}
+    h.call(h.reg("command", title="Notes: add a note…")["cb"])
+    check(tag + "add a note…: the kind picked, the text asked, a toast",
+          h.lines[1] == "# TODO: Ann" and [f for f, _ in h.asked[-2:]] == ["pick", "ask"] and
+          h.asked[-2][1]["items"] == ["NOTE", "TODO", "FIXME"] and h.messages[-1] == "TODO added", (h.lines, h.asked))
+    h.lines = ["# NOTE: read me", "x = 1  # TODO: ", "y = 2", "  # FIXME(ann): broken */", "z = 3 # DONE: old"]
+    h.call(h.reg("command", title="Notes: go to a note…")["cb"])
+    a = h.asked[-1][1]
+    check(tag + "go to a note…: the file's notes in a list (a name in brackets, the end of a comment left out)",
+          a["items"] == ["NOTE: read me", "TODO: ", "FIXME: broken"] and a["details"] == ["line 1", "line 2", "line 4"]
+          and h.cursor == {"line": 1, "col": 9}, (a, h.cursor))
+    # 4. events: the notes marked
+    h.decor = []
+    h.status = ""
+    h.calls_seen = []
+    h.call(h.reg("event", event="open", pattern="*")["cb"], ev)
+    ps = h.problems or []
+    check(tag + "an open event: the notes in Problems — one fix marks it done, one removes it",
+          len(ps) == 3 and [p["severity"] for p in ps] == [4, 3, 2] and ps[1]["message"] == "TODO: (nothing yet)" and
+          ps[2]["message"] == "FIXME: broken" and ps[2]["range"] == rg(3, 4, 3, 22) and
+          ps[0]["fixes"][0] == {"title": "Mark it done", "edits": [{"range": rg(0, 2, 0, 6), "text": "DONE"}]} and
+          ps[0]["fixes"][1]["edits"][0]["range"] == rg(0, 0, 1, 0) and
+          ps[1]["fixes"][1] == {"title": "Remove the note", "edits": [{"range": rg(1, 5, 1, 15), "text": ""}]}, ps)
+    kinds = [d[0] for d in h.decor]
+    check(tag + "… a sign, the marker highlighted, a word after the empty note, the count in the status bar",
+          kinds.count("sign") == 3 and kinds.count("highlight") == 3 and kinds.count("vtext") == 1 and
+          h.decor[0][1]["text"] == "✎" and h.status == "✎ 3 notes" and
+          h.calls_seen[:1] == ["clearDecorations"] and "refreshView" in h.calls_seen, (h.decor, h.status, h.calls_seen))
+    ch = h.reg("event", event="change", pattern="*")
+    h.settings = {"problems": False}
+    h.call(ch["cb"], ev)
+    check(tag + "a change event, the problems setting off: no problems, the marks stay",
+          h.problems == [] and len(h.decor) == 7, (h.problems, h.decor))
+    h.settings = {"markers": "HACK"}
+    h.lines = ["a  # HACK: x", "b  # TODO: y"]
+    h.call(ch["cb"], ev)
+    check(tag + "the markers setting: words of your own",
+          [p["message"] for p in h.problems] == ["HACK: x"] and h.status == "✎ 1 note", (h.problems, h.status))
+    h.settings = {}
+    h.lines = ["a  # FIXME: x"]
+    h.call(h.reg("event", event="save", pattern="lang:nim")["cb"], {"buf": 1, "path": "/x/a.nim", "lang": "nim"})
+    check(tag + "a save event for Nim files: a warning", h.messages[-1] == "a.nim still has 1 FIXME", h.messages[-1:])
+    h.lines = ["a = 1  # DONE: x", "# DONE: y", "b = 2", "# TODO: z"]
+    h.call(h.reg("command", title="Notes: remove the DONE notes…")["cb"])
+    check(tag + "remove the DONE notes…: confirmed, each note's comment (or its line) removed",
+          h.asked[-1] == ("confirm", {"text": "Remove the 2 DONE notes of this file?"}) and
+          h.lines == ["a = 1", "b = 2", "# TODO: z"] and h.messages[-1].startswith("Removed 2 notes"), (h.lines, h.asked[-1:]))
+    # 6. the view, the project's notes
+    h.lines = ["# NOTE: read me", "x = 1  # TODO: ", "y = 2", "  # FIXME(ann): broken */"]
+    vw = h.reg("view", title="Notes")
+    v = (h.call(vw["cb"]) or {}).get("value") or []
+    check(tag + "the view: the file's notes", [x["text"] for x in v] == ["NOTE: read me", "TODO: ", "FIXME: broken"]
+          and v[2]["id"] == "3:4" and v[2]["color"] == "warn" and v[2]["detail"] == "line 4", v)
+    h.call(h.reg("viewClick", title="Notes")["cb"], {"id": "3:4"})
+    check(tag + "clicking one of them: the cursor there", h.cursor == {"line": 3, "col": 4}, h.cursor)
+    proj = os.path.join(tmp, "proj")
+    for d in ["sub", ".hidden", "many"]:
+        os.makedirs(os.path.join(proj, d), exist_ok=True)
+    open(os.path.join(proj, "a.nim"), "w").write("x = 1\n# TODO: write the tests\n")
+    open(os.path.join(proj, "sub", "b.txt"), "w").write("FIXME(ann): it breaks\nTODOS: not a note\n")
+    open(os.path.join(proj, ".hidden", "c.txt"), "w").write("TODO: hidden\n")
+    open(os.path.join(proj, "bin.dat"), "wb").write(b"\0\1TODO: binary\n")
+    for i in range(60):
+        open(os.path.join(proj, "many", "f%02d.txt" % i), "w").write("nothing\n")
+    h.root = proj
+    h.progress = []
+    h.output = []
+    r = h.call(h.reg("command", title="Notes: find the project's notes")["cb"], {}, timeout=30)
+    check(tag + "the project's notes: the Output panel (file:line:col), progress, a message",
+          r and "err" not in r and h.output == ["a.nim:2:3: TODO: write the tests\nsub/b.txt:1:1: FIXME: it breaks"] and
+          "showOutput" in h.calls_seen and any(p > 0 for _, p in h.progress) and h.progress[-1] == ("", -1) and
+          h.messages[-1] == "Notes: 2 notes in 63 files", (r, h.output, h.progress, h.messages[-1:]))
+    v = (h.call(vw["cb"]) or {}).get("value") or []
+    check(tag + "… and in the view, under the file's (a path and a line: ned opens them)",
+          [x["text"] for x in v[3:]] == ["In the project: 2 notes", "a.nim", "TODO: write the tests", "sub/b.txt",
+                                         "FIXME: it breaks"] and v[5]["path"] == "a.nim" and v[5]["line"] == 1 and
+          v[5]["depth"] == 2, v[3:])
+    # 9. the assistant's tools (the project's files)
+    tl = h.reg("aiTool", name="notes_list")
+    r = h.call(tl["cb"], {"path": "a.nim"})
+    r2 = h.call(tl["cb"], {"path": ""})
+    r3 = h.call(tl["cb"], {"path": "nope.txt"})
+    check(tag + "the assistant's notes_list (it only reads): a file, every file, an error",
+          tl["readOnly"] is True and (r or {}).get("value") == "a.nim:2: TODO: write the tests" and
+          (r2 or {}).get("value") == "a.nim:2: TODO: write the tests\nsub/b.txt:1: FIXME: it breaks" and
+          (r3 or {}).get("err") == "no such file: nope.txt", (tl, r, r2, r3))
+    ta = h.reg("aiTool", name="notes_add")
+    h.lines = ["x = 1", "y = 2"]
+    r = h.call(ta["cb"], {"path": "a.nim", "line": 2, "text": "check y"})
+    check(tag + "the assistant's notes_add (it asks you first): the file opened, the note added",
+          ta["readOnly"] is False and h.opened[-1] == ("a.nim", 1) and h.lines[1] == "y = 2  # TODO: check y" and
+          (r or {}).get("value") == "added a TODO at line 2 (not saved yet)", (ta, r, h.lines, h.opened))
+    h.root = tmp
+    # 7. a language's features
+    h.lines = ["x = 1  # TO", "y = 2"]
+    co = h.reg("completion", lang="*")
+    v = (h.call(co["cb"], {"buf": 1, "pos": {"line": 0, "col": 11}, "prefix": "TO"}) or {}).get("value") or []
+    v2 = (h.call(co["cb"], {"buf": 1, "pos": {"line": 1, "col": 5}, "prefix": ""}) or {}).get("value")
+    check(tag + "completions for every file: a marker in a comment, as a snippet — none outside one",
+          len(v) == 1 and v[0]["label"] == "TODO" and v[0]["insert"] == "TODO: $0" and v[0]["snippet"] is True and
+          v2 == [], (v, v2))
+    h.lines = ["# TODO: a", "# TODO: b", "x"]
+    hv = (h.call(h.reg("hover", lang="*")["cb"], {"buf": 1, "pos": {"line": 0, "col": 3}}) or {}).get("value")
+    hv2 = (h.call(h.reg("hover", lang="*")["cb"], {"buf": 1, "pos": {"line": 2, "col": 0}}) or {}).get("value")
+    check(tag + "hover on a marker: the file's notes of that kind",
+          hv == "**TODO** — 2 notes in this file\n\n- line 1: a\n- line 2: b" and hv2 == "", (hv, hv2))
+    ca = h.reg("codeActions", lang="*")
+    v = (h.call(ca["cb"], {"buf": 1, "range": rg(0, 0, 0, 9)}) or {}).get("value") or []
+    v2 = (h.call(ca["cb"], {"buf": 1, "range": rg(2, 0, 2, 1)}) or {}).get("value") or []
+    check(tag + "code actions: a note made another kind, a TODO added to a line",
+          [f["title"] for f in v] == ["Make it a NOTE", "Make it a FIXME"] and
+          v[1]["edits"] == [{"range": rg(0, 2, 0, 6), "text": "FIXME"}] and
+          v2 == [{"title": "Add a TODO to this line", "edits": [{"range": rg(2, 0, 2, 1), "text": "x  # TODO: "}]}],
+          (v, v2))
+    sy = (h.call(h.reg("symbols", lang="plaintext")["cb"], {"buf": 1}) or {}).get("value") or []
+    check(tag + "symbols for text files: the notes as the outline",
+          sy == [{"name": "TODO: a", "kind": "section", "detail": "", "line": 0, "col": 2, "depth": 0},
+                 {"name": "TODO: b", "kind": "section", "detail": "", "line": 1, "col": 2, "depth": 0}], sy)
+    sn = h.reg("snippet", lang="*", trigger="todo")
+    check(tag + "a snippet for every file", sn and sn["body"] == "TODO(${1:who}): ${2:what}$0", sn)
+    # 8. vim
+    h.lines = ["a", "# TODO: 1", "b", "# NOTE: 2", "c", "# FIXME: 3"]
+    h.cursor = {"line": 0, "col": 0}
+    nx, pv = h.reg("vimMap", keys="]n"), h.reg("vimMap", keys="[n")
+    h.call(nx["cb"], {"count": 2})
+    c1 = h.cursor
+    h.call(pv["cb"], {"count": 1})
+    c2 = h.cursor
+    h.call(nx["cb"], {"count": 9})
+    c3 = h.cursor
+    h.cursor = {"line": 0, "col": 0}
+    h.call(pv["cb"], {"count": 1})
+    check(tag + "vim: ]n and [n with a count (as far as there are notes)",
+          c1 == {"line": 3, "col": 2} and c2 == {"line": 1, "col": 2} and c3 == {"line": 5, "col": 2} and
+          h.messages[-1] == "No note above", (c1, c2, c3, h.messages[-1:]))
+    to = h.reg("textObject", keys="in")
+    ta = h.reg("textObject", keys="an")
+    t1 = (h.call(to["cb"], {"buf": 1, "pos": {"line": 5, "col": 0}}) or {}).get("value")
+    t2 = (h.call(ta["cb"], {"buf": 1, "pos": {"line": 5, "col": 0}}) or {}).get("value")
+    t3 = (h.call(to["cb"], {"buf": 1, "pos": {"line": 0, "col": 0}}) or {}).get("value")
+    check(tag + "vim: the text objects in (what the note says) and an (the whole note); none on a line without one",
+          t1 == rg(5, 9, 5, 10) and t2 == rg(5, 2, 5, 10) and t3 == rg(-1, 0, -1, 0), (t1, t2, t3))
+    h.call(h.reg("operator", keys="<leader>d")["cb"], {"buf": 1, "range": rg(1, 0, 3, 9), "linewise": True})
+    check(tag + "vim: the <leader>d operator marks the notes it covers done",
+          h.lines[1:4] == ["# DONE: 1", "b", "# DONE: 2"] and h.lines[5] == "# FIXME: 3" and
+          h.messages[-1] == "2 notes done", (h.lines, h.messages[-1:]))
+    h.answers["pick"] = 0
+    h.call(h.reg("ex", name="Notes")["cb"], {"args": "fixme"})
+    check(tag + "vim: :Notes FIXME — only those, in the list",
+          h.asked[-1][1]["items"] == ["FIXME: 3"] and h.cursor == {"line": 5, "col": 2}, (h.asked[-1:], h.cursor))
+    h.answers["pick"] = 1
+    # 9. timers
+    tm = h.reg("timer", repeat=True)
+    h.status = "-"
+    h.calls_seen = []
+    h.call(tm["cb"])
+    s1 = h.status
+    h.status = "-"
+    h.call(tm["cb"])
+    s2 = h.status
+    h.cur = 2
+    h.lines = ["# TODO: x"]
+    h.call(tm["cb"])
+    s3 = h.status
+    h.cur = 1
+    check(tag + "a timer: the status bar follows the file you look at (asked once a file)",
+          tm["ms"] == 1000 and s1 == "✎ 1 note" and s2 == "-" and s3 == "✎ 1 note" and
+          h.calls_seen.count("refreshView") == 2, (tm, s1, s2, s3, h.calls_seen))
+    h.settings = {"reminderMinutes": 1}
+    later = lambda: [r for r in h.regs if r["kind"] == "timer" and r["repeat"] is False]
+    rm = h.reg("command", title="Notes: remind me later")["cb"]
+    cancel = h.reg("command", title="Notes: cancel the reminder")["cb"]
+    h.call(rm)
+    a = later()
+    m1 = h.messages[-1]
+    h.call(a[-1]["cb"])
+    m2 = h.messages[-1]
+    h.call(rm)
+    h.call(rm)
+    h.call(cancel)
+    m3 = h.messages[-1]
+    h.call(cancel)
+    b = later()
+    check(tag + "after: a reminder (a timer started by a command); stopTimer when it is set again or cancelled",
+          len(a) == 1 and a[0]["ms"] == 60000 and m1 == "A reminder in 1 minute (Notes: cancel the reminder)" and
+          m2.startswith("Time for your notes: 1 note") and len(b) == 3 and h.stopped == [b[1]["cb"], b[2]["cb"]] and
+          m3 == "The reminder is cancelled" and h.messages[-1] == "No reminder is set",
+          (a, b, h.stopped, m1, m2, m3, h.messages[-1:]))
+    h.settings = {}
+    h.lines = ["x"] * 300 + ["# TODO: %d" % i for i in range(50)]
+    t0 = time.time()
+    h.call(ch["cb"], ev)
+    ms = (time.time() - t0) * 1000
+    check(tag + "marking a file of 350 lines and 50 notes: %.0f ms" % ms, ms < 3000 and len(h.problems) == 50, ms)
+    h.close()
+
+
 def run_full(tmp):
     """a plugin in full Nim (plugin.nim): compiled, a process of its own — std/times, a setting, a command"""
     h = Host([("clock-native", os.path.join(EX, "clock-native"))], native=True, tmp=tmp)
@@ -435,6 +688,9 @@ def main():
     tmp = tempfile.mkdtemp(prefix="tplugins-")
     try:
         run_host(tmp, False)
+        t1 = os.path.join(tmp, "notes")
+        os.makedirs(t1)
+        run_notes(t1, False)
         if os.path.exists(ned):
             run_bridge(ned, tmp)
         else:
@@ -443,6 +699,9 @@ def main():
             t2 = os.path.join(tmp, "native")
             os.makedirs(t2)
             run_host(t2, True)
+            t4 = os.path.join(tmp, "notes-native")
+            os.makedirs(t4)
+            run_notes(t4, True)
             t3 = os.path.join(tmp, "full")
             os.makedirs(t3)
             run_full(t3)

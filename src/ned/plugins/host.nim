@@ -35,7 +35,10 @@ const
      @[("plugin.nims", staticRead(PlugExDir & "/" & "ini-tools" & "/" & "plugin.nims"))]),
     ("clock-native", "a plugin in full Nim (plugin.nim), compiled into a program of its own: std/times, a timer, " &
      "a status-bar clock",
-     @[("plugin.nim", staticRead(PlugExDir & "/" & "clock-native" & "/" & "plugin.nim"))])]
+     @[("plugin.nim", staticRead(PlugExDir & "/" & "clock-native" & "/" & "plugin.nim"))]),
+    ("notes", "the plugin tutorial's (docs/plugins/tutorial.md): the TODO, NOTE and FIXME notes of your files — " &
+     "commands, signs and fixes, a setting, a dock view, completion and hover, vim keys, a timer, a tool for the assistant",
+     @[("plugin.nims", staticRead(PlugExDir & "/" & "notes" & "/" & "plugin.nims"))])]
   PlugTemplate = """## $1 — a ned plugin (NimScript). ned runs it when it starts; edit it and save: the plugins reload.
 ## The API: the comments of nedplugin.nim (Plugins dock › ⓘ) — commands, keys, events, the text, problems,
 ## signs, languages, formatters, language servers, completions, hover, symbols, vim mappings, timers.
@@ -84,6 +87,7 @@ type
     plugin, kind: string
     cb: int
     data: JsonNode
+    nth: int                              # the plugin's earlier registrations with the same identity (two onChange("*"))
   PlugCall = object
     plugin: string
     sentAt: MonoTime
@@ -344,8 +348,9 @@ proc plugMakeHosts() =
 
 proc plugInvoke(key: string, args: JsonNode, onDone: proc(v: JsonNode, err: string) {.closure.} = nil)
 
-proc regKey(r: PlugReg): string =
-  ## a registration's identity (its callback number may change when the host is made again)
+proc regBaseKey(r: PlugReg): string =
+  ## a registration's identity (its callback number may change when the host is made again) — without its number
+  ## among the plugin's registrations of the same identity (see regKey)
   let d = r.data
   r.plugin & "|" & r.kind & "|" & (case r.kind
     of "command": d{"title"}.getStr
@@ -360,6 +365,17 @@ proc regKey(r: PlugReg): string =
     of "snippet": d{"lang"}.getStr & " " & d{"trigger"}.getStr
     of "setting": d{"key"}.getStr
     else: $r.cb)
+
+proc regKey(r: PlugReg): string =
+  ## a registration's identity: two of one plugin with the same identity (two onChange("*"), two hovers for one
+  ## language) are told apart by their order, which is the same each time the plugin runs
+  if r.nth > 0: regBaseKey(r) & "#" & $r.nth else: regBaseKey(r)
+
+proc regNth(regs: seq[PlugReg], r: PlugReg): int =
+  ## how many of `regs` have `r`'s identity (what r.nth should be when r is added after them)
+  let k = regBaseKey(r)
+  for q in regs:
+    if q.plugin == r.plugin and q.kind == r.kind and regBaseKey(q) == k: inc result
 
 proc regByKey(key: string): int =
   for i, r in plugRegs:
@@ -543,7 +559,7 @@ proc plugManifest(): JsonNode =
 
 proc plugSaveManifest(h: PlugHost) =
   var a = newJArray()
-  for r in h.regs: a.add %*{"plugin": r.plugin, "kind": r.kind, "cb": r.cb, "data": r.data}
+  for r in h.regs: a.add %*{"plugin": r.plugin, "kind": r.kind, "cb": r.cb, "data": r.data, "nth": r.nth}
   let m = plugManifest()
   m["hosts"][h.name] = %*{"sig": h.sig, "regs": a}
   try:
@@ -557,7 +573,8 @@ proc plugLoadManifest(h: PlugHost): bool =
   if e == nil or e{"sig"}.getStr != h.sig: return false
   h.regs.setLen(0)
   for r in jitems(e{"regs"}):
-    h.regs.add PlugReg(plugin: r{"plugin"}.getStr, kind: r{"kind"}.getStr, cb: r{"cb"}.getInt(-1), data: r{"data"})
+    h.regs.add PlugReg(plugin: r{"plugin"}.getStr, kind: r{"kind"}.getStr, cb: r{"cb"}.getInt(-1), data: r{"data"},
+                       nth: r{"nth"}.getInt(0))
   true
 
 # ── the processes ──
@@ -1295,7 +1312,8 @@ proc plugReady(h: PlugHost) =
 proc plugHandle(h: PlugHost, j: JsonNode) =
   case j{"t"}.getStr
   of "reg":
-    let r = PlugReg(plugin: j{"plugin"}.getStr, kind: j{"kind"}.getStr, cb: j{"cb"}.getInt(-1), data: j)
+    var r = PlugReg(plugin: j{"plugin"}.getStr, kind: j{"kind"}.getStr, cb: j{"cb"}.getInt(-1), data: j)
+    r.nth = regNth((if h.state == "ready": h.regs else: h.newRegs), r)
     if h.state == "ready":
       # (registered later — a timer started in a command): at once
       h.regs.add r

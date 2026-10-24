@@ -405,6 +405,11 @@ proc initCommands() =
   add("Hex: symbols…", "", cmdHexSymbols())
   add("Hex: decompile a function…", "", cmdDecompileHex())
   add("Nim: decompile this proc (side by side)", "", cmdDecompileProc())
+  add("Compiler Explorer", "the file beside its assembly, live (as godbolt.org)", cmdCompilerExplorer())
+  add("Compiler Explorer: options…", "compiler, target, options, filters, execution", cmdCeOptions())
+  add("Compiler Explorer: compare with other options…", "the assembly of two option sets in the diff view",
+      cmdCeCompare())
+  add("Compiler Explorer: run the program after each compile (on / off)", "", cmdCeToggleRun())
   add("Decompile a program…", "", cmdDecompileFile())
   add("Hex: sections…", "", cmdHexSections())
   add("Hex: Nim modules by size", "", cmdHexNimSizes())
@@ -732,3 +737,20 @@ proc initCommands() =
   add("About ned", "", openDialog("About ned", "ned " & Version & " — a fast, safe code editor for Termux " &
     "and Linux, written in Nim. Desktop-style UI in the terminal, Nim IDE features, integrated terminal, AI assistant, " &
     $allThemesRaw().len & " themes and vim mode. Settings: " & configFile(), @[("OK", 'y')], nil))
+
+proc commandsMarkdown(): string =
+  ## every command of the palette as Markdown (`ned --doc-commands`: docs/reference/commands.md is made from it)
+  if commands.len == 0: initCommands()
+  var seen: HashSet[string]
+  var rows: seq[(string, string)]
+  for c in commands:
+    if c.name in seen or c.keys == MacroMark or c.name.startsWith("User: "): continue   # (not your own macros)
+    seen.incl c.name
+    rows.add (c.name, c.keys)
+  rows.sort(proc(a, b: (string, string)): int = cmp(a[0].toLowerAscii, b[0].toLowerAscii))
+  result = "# Commands\n\nEvery command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what it does — " &
+           "made by `ned --doc-commands`. Your own keys: the `keys` setting; your own commands: `commands`.\n\n" &
+           "| Command | Key, or what it does |\n|---|---|\n"
+  for (n, k) in rows:
+    result.add "| " & n.replace("|", "\\|") & " | " & k.replace("|", "\\|") & " |\n"
+
