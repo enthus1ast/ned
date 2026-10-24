@@ -7,6 +7,7 @@ Every type and proc a plugin can use, with what it does — made from the `##` d
 - [`nedplugin`](#nedplugin) — what a plugin imports
   - [JSON ⇄ the types](#json--the-types)
   - [buffers: the text](#buffers-the-text)
+  - [keys: what waits, what the next key does (which-key)](#keys-what-waits-what-the-next-key-does-which-key)
   - [talking to you](#talking-to-you)
   - [problems, signs, text after a line, highlights, the status bar](#problems-signs-text-after-a-line-highlights-the-status-bar)
   - [settings, its folder](#settings-its-folder)
@@ -156,7 +157,18 @@ a language ned colours with its generic lexer (or changes to one it has): the "l
 | `indentSize` | `int` | spaces to an indentation level (0: the editor's setting) |
 | `tabs` | `bool` | indent with tabs |
 | `run` | `string` | the command F5 runs ($file …) |
+| `build, check` | `string` | the commands of Build (Alt+B) and of the check on save ($file $dir $name $tmp) |
 | `pairs` | `string` | "()[]{}\"\"" — what typing an opening one closes |
+| `dedentWords` | `seq[string]` | a line that becomes one of these words alone goes one level out (@["end"]) |
+| `nestedComments` | `bool` | a block comment may hold another (`/* /* */ */` — Odin, Haskell's {- -}) |
+| `tripleQuotes` | `bool` | """…""" strings, over several lines |
+| `multilineStrings` | `bool` | a "…" or `…` string not closed on its line goes on below (Gleam, Odin's raw) |
+| `charLiterals` | `bool` | 'a' is a character (not a quote of a string) |
+| `capitalTypes` | `bool` | a Capitalised word is a type (an ALL-CAPS one a constant) |
+| `decorators` | `bool` | @name is coloured as an attribute |
+| `docComment` | `string` | a doc comment's line start ("///", "--\|") |
+| `docBlockComment` | `seq[string]` | a doc block comment: @["/**", "*/"] |
+| `nameChars` | `string` | characters a name may have after its first letter ("?!" for Elixir, "'" Haskell) |
 
 #### `pluginOf`
 
@@ -257,6 +269,30 @@ proc openFile(path: string, line = -1, col = -1): Buf
 ```
 
 open a file (or go to it), at a line when given
+
+#### `newTab`
+
+```nim
+proc newTab(title, text: string, lang = ""): Buf
+```
+
+a new tab with `text` (not a file until it is saved): a response, generated code. `lang`: its language's id or name ("json", "Nim"), for its colours. A tab of that title already open: it, its text replaced — unless it has edits not saved (then it as it is)
+
+#### `clipboard`
+
+```nim
+proc clipboard(): string
+```
+
+the system clipboard's text (what Ctrl+V would paste)
+
+#### `setClipboard`
+
+```nim
+proc setClipboard(text: string)
+```
+
+put `text` on the system clipboard
 
 #### `buffers`
 
@@ -384,7 +420,15 @@ the cursor moved to p (the selection goes)
 proc selection(b: Buf): Range
 ```
 
-the main selection (empty: start == stop, the cursor)
+the main selection (empty: start == stop, the cursor) — in vim's visual mode with the character under the cursor, in visual-line mode the whole lines
+
+#### `vimMode`
+
+```nim
+proc vimMode(): string
+```
+
+vim's mode: normal, insert, visual, visual line, replace ("" not vim keys)
 
 #### `selections`
 
@@ -426,6 +470,38 @@ proc save(b: Buf)
 
 written to its file (as Ctrl+S does — but plugins get no save events for it)
 
+#### `closeTab`
+
+```nim
+proc closeTab(b: Buf)
+```
+
+the tab closed (a file with edits not saved: you are asked first)
+
+#### `markSaved`
+
+```nim
+proc markSaved(b: Buf)
+```
+
+counts as saved (no ● on its tab, no question when it closes) — a tab of yours, after onSaveTab did its work
+
+#### `title`
+
+```nim
+proc title(b: Buf): string
+```
+
+the name on its tab (a file's: its name)
+
+#### `setTitle`
+
+```nim
+proc setTitle(b: Buf, title: string)
+```
+
+the name on a tab that is not a file (newTab's)
+
 #### `indentUnit`
 
 ```nim
@@ -457,6 +533,56 @@ proc wholeLines(b: Buf, first, last: int): Range
 ```
 
 lines first .. last with their line ends
+
+### keys: what waits, what the next key does (which-key)
+
+#### type `KeyMap`
+
+```nim
+type KeyMap = object
+```
+
+a key a plugin (or your "keys" setting) uses
+
+| field | type | |
+|---|---|---|
+| `mode` | `string` | n v (vim mappings), op (an operator), obj (a text object), key (any keymap) |
+| `keys` | `string` | as given: "<leader>f", "gc", "ie", "ctrl+alt+u" |
+| `desc` | `string` | what it does ("" not said) |
+| `lang` | `string` | only in files of this language ("" every file) |
+| `plugin` | `string` | whose ("" yours) |
+
+#### `pendingKeys`
+
+```nim
+proc pendingKeys(): tuple[keys, mode: string]
+```
+
+the keys typed that wait for more ("" when none waits) and the mode (as onKeysWaiting gives them)
+
+#### `showKeyHints`
+
+```nim
+proc showKeyHints(title: string, hints: openArray[(string, string)]): bool
+```
+
+a box above the status bar, each key and what it does, until the keys waiting change (ned closes it then; a tap on one types it). false: no keys wait now
+
+#### `hideKeyHints`
+
+```nim
+proc hideKeyHints()
+```
+
+the box of showKeyHints closed
+
+#### `keyMaps`
+
+```nim
+proc keyMaps(): seq[KeyMap]
+```
+
+the plugins' mappings, operators, text objects and keys, and the commands on keys (theirs and yours)
 
 ### talking to you
 
@@ -524,6 +650,30 @@ proc shell(cmd: string, dir = ""): tuple[output: string, code: int]
 
 a shell command's output and exit code (in `dir`, else the project's folder)
 
+#### `shellAsync`
+
+```nim
+proc shellAsync(cmd: string, cb: proc(output: string, code: int), dir = "")
+```
+
+a shell command ned runs in the background (in `dir`, else the project's folder): cb with its output and exit code when it ends. The plugin goes on meanwhile (`shell` waits): a slow request, a build
+
+#### `unixTime`
+
+```nim
+proc unixTime(): float
+```
+
+now, in seconds since 1970 (NimScript has no clock of its own)
+
+#### `localTime`
+
+```nim
+proc localTime(): string
+```
+
+now, on your clock: "2026-10-24 14:03:05"
+
 ### problems, signs, text after a line, highlights, the status bar
 
 #### `setProblems`
@@ -587,15 +737,15 @@ this plugin's item in the status bar ("" removes it)
 #### `setting`
 
 ```nim
-proc setting(key: string, default: string): string
+template setting(key: string, default: string): string
 ```
 
-plugins.<this plugin>.<key> from your settings
+plugins.<this plugin>.<key> from your settings (in the plugin's top-level code too)
 
 #### `setting`
 
 ```nim
-proc setting(key: string, default: int): int
+template setting(key: string, default: int): int
 ```
 
 plugins.<this plugin>.<key> from your settings, a whole number (`default` when it is not one)
@@ -603,7 +753,7 @@ plugins.<this plugin>.<key> from your settings, a whole number (`default` when i
 #### `setting`
 
 ```nim
-proc setting(key: string, default: bool): bool
+template setting(key: string, default: bool): bool
 ```
 
 plugins.<this plugin>.<key> from your settings, true or false (`default` when it is not set)
@@ -611,10 +761,18 @@ plugins.<this plugin>.<key> from your settings, true or false (`default` when it
 #### `setting`
 
 ```nim
-proc setting(key: string, default: float): float
+template setting(key: string, default: float): float
 ```
 
 plugins.<this plugin>.<key> from your settings, a number (`default` when it is not one)
+
+#### `projectRoot`
+
+```nim
+proc projectRoot(): string
+```
+
+the project's folder — what the file tree shows (the plugin's process runs elsewhere: a relative path in readFile means nothing, `projectRoot() & "/src/x.nim"` does)
 
 #### `projectDir`
 
@@ -622,7 +780,7 @@ plugins.<this plugin>.<key> from your settings, a number (`default` when it is n
 proc projectDir(): string
 ```
 
-the project's folder — what the file tree shows (the plugin's process runs elsewhere: a relative path in readFile means nothing, `projectDir() & "/src/x.nim"` does)
+the same as projectRoot — in a plugin.nims write `nedplugin.projectDir()` (NimScript has a projectDir of its own: the script's folder), or projectRoot
 
 #### `dataDir`
 
@@ -714,13 +872,29 @@ template onChange(pattern: string, cb: proc(ev: Event))
 
 the text changed (after a pause in the typing: not every key)
 
+#### `onEnter`
+
+```nim
+template onEnter(pattern: string, cb: proc(ev: Event))
+```
+
+a tab came to the front (you switched to it, opened it, closed the one before it)
+
+#### `onQuit`
+
+```nim
+template onQuit(cb: proc(ev: Event))
+```
+
+ned quits: write what you keep now (ned waits a moment for it — ev.buf is not set)
+
 #### `autocmd`
 
 ```nim
 template autocmd(event, pattern: string, cb: proc(ev: Event))
 ```
 
-vim's names: BufReadPost BufWritePre BufWritePost BufDelete TextChanged VimEnter FileType
+vim's names: BufReadPost BufEnter BufWritePre BufWritePost BufDelete TextChanged VimEnter VimLeave FileType
 
 #### `language`
 
@@ -778,7 +952,23 @@ a language server written in NimScript (import nedlsp), a file of the plugin's f
 template nmap(keys: string, cb: proc(count: int))
 ```
 
-a normal-mode key sequence ("gx", "<leader>f" — the leader is the space bar); count: the number typed before
+a normal-mode key sequence ("gx", "<leader>f" — the leader is the space bar; "<C-a>" … "<C-z>": Ctrl and a letter, before vim's own use of it; "<CR>": Enter); count: the number typed before
+
+#### `nmap`
+
+```nim
+template nmap(keys, desc: string, cb: proc(count: int))
+```
+
+… with what it does, in a few words (which-key shows it after the keys before it)
+
+#### `nmapIn`
+
+```nim
+template nmapIn(lang, keys, desc: string, cb: proc(count: int))
+```
+
+a normal-mode key sequence only in files (and tabs) of one language (its id: "markdown", "oil" …), before a mapping of the same keys for every file and vim's own
 
 #### `vmap`
 
@@ -787,6 +977,46 @@ template vmap(keys: string, cb: proc(count: int))
 ```
 
 a visual-mode key sequence (the selection: current().selection)
+
+#### `vmap`
+
+```nim
+template vmap(keys, desc: string, cb: proc(count: int))
+```
+
+… with what it does, in a few words. When it is done, back to normal mode (unless it selected something)
+
+#### `vmapIn`
+
+```nim
+template vmapIn(lang, keys, desc: string, cb: proc(count: int))
+```
+
+a visual-mode key sequence only in files (and tabs) of one language
+
+#### `keyIn`
+
+```nim
+template keyIn(lang, keys, desc: string, cb: proc(b: Buf))
+```
+
+a key ("alt+enter", "ctrl+alt+o") only in files (and tabs) of one language, in every keymap — before ned's own use of it there (your "keys" setting wins over it)
+
+#### `onSaveTab`
+
+```nim
+template onSaveTab(lang: string, cb: proc(ev: Event))
+```
+
+a tab of this language that is not a file (newTab): saving it (Ctrl+S, :w) calls cb instead of asking for a file name — the plugin does what saving means (the folder view: renames, deletes …), then markSaved
+
+#### `onKeysWaiting`
+
+```nim
+template onKeysWaiting(ms: int, cb: proc(keys, mode: string))
+```
+
+keys that wait for more have waited ms milliseconds (vim's "g", "z", "d", a plugin's "<leader>", emacs's "C-x", helix's "<space>"): cb with them and the mode — n (vim normal), v (visual), o (an operator waits for its motion), obj (… for its text object, after i or a: "di"), emacs, helix. Once for each wait
 
 #### `exCommand`
 
@@ -804,6 +1034,14 @@ template operator(keys: string, cb: proc(b: Buf, r: Range, linewise: bool))
 
 an operator: keys then a motion or a text object (`gcip`), the keys' last letter twice for lines (`gcc`), or on the visual selection
 
+#### `operator`
+
+```nim
+template operator(keys, desc: string, cb: proc(b: Buf, r: Range, linewise: bool))
+```
+
+… with what it does, in a few words (which-key shows it)
+
 #### `textObject`
 
 ```nim
@@ -811,6 +1049,14 @@ template textObject(keys: string, cb: proc(b: Buf, p: Pos): Range)
 ```
 
 a text object (two keys: "ie", "al"): the range around p (noRange() when none) — after an operator (d c y, a plugin's) or in visual mode
+
+#### `textObject`
+
+```nim
+template textObject(keys, desc: string, cb: proc(b: Buf, p: Pos): Range)
+```
+
+… with what it is, in a few words (which-key shows it)
 
 ### timers
 

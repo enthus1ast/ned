@@ -1,6 +1,6 @@
 # ── menus of the menu bar ──
 
-const MenuNames = ["File", "Edit", "View", "Go", "Run", "Git", "Nim", "AI", "Help"]
+const MenuNames = ["File", "Edit", "View", "Go", "Run", "Git", "Nim", "AI", "Plugins", "Help"]
 
 proc cmdByName(name: string): int =
   for i, c in commands:
@@ -71,7 +71,8 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("Open results in a multibuffer (edit many files at once)", "Edit search results together (multibuffer)"),
       msep(), mc("Quick fix / code actions…", "Quick fix…"), mc("Toggle comment"),
       mc("TODO: insert a tag comment…", "Insert TODO comment…"), mc("Format document"), mc("Format selection (Nim built in, or the language server)", "Format selection"),
-      mc("Duplicate line/selection"), mc("Move line up"), mc("Move line down"), msep(),
+      mc("Duplicate line/selection"), mc("Move line up"), mc("Move line down"),
+      mc("Indent lines", "Indent"), mc("Unindent lines (outdent, dedent)", "Unindent"), msep(),
       msub("Macros", @[mc("Macro: start or stop recording", (if macroRecording: "Stop recording" else: "Record a macro")),
         mc("Macro: play the last one", "Play the last one"), mc("Macro: play the last one N times…", "Play it N times…"),
         mc("Macro: play on each selected line", "Play on each selected line"),
@@ -284,6 +285,17 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("AI: toggle inline suggestions", "Inline suggestions (Tab)", chk(cfgGhostOn)),
       mc("AI: choose provider…", "Provider: " & cfgAiProvider), mc("AI: choose model…", "Model…"),
       mc("AI: toggle agent mode", "Agent mode (tools)", chk(cfgAiAgent)), mc("AI: settings…", "AI settings…")]
+  of "Plugins":
+    @[mc("Plugins panel", "Plugins panel", chk(rightOpen and rightView == svPlugins)),
+      mc("Plugins: available plugins (ned's own)…", "Available plugins (ned's own)…"),
+      mc("Plugins: run a plugin's command…", "Plugin commands…"), msep(),
+      mc("Plugins: turn one on or off…", "Turn one on or off…"), mc("Plugins: uninstall / remove one…", "Uninstall…"),
+      mc("Plugins: reload", "Reload"), mc("Plugins: reload one…", "Reload one…"),
+      mc("Plugins: update (git pull)", "Update (git pull)"), msep(),
+      mc("Plugins: install from git…", "Install from git…"), mc("Plugins: browse the plugin list…", "Browse the plugin list…"),
+      mc("Plugins: add an example…", "Add an example…"), msep(),
+      mc("Plugins: new plugin…", "New plugin…"), mc("Plugins: new plugin in full Nim (compiled)…", "New plugin in full Nim…"),
+      mc("Plugins: the API (nedplugin.nim)", "The API (nedplugin.nim)")]
   else:
     @[mc("Key bindings"), mc("Keyboard shortcuts…", "Change keyboard shortcuts…"), mc("Show recent messages", "Recent messages"),
       mc("Welcome page"), mc("Tips"), msep(), mc("Check setup", "Check setup…"),

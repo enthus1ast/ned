@@ -119,6 +119,7 @@ proc render() =
   elif promptKind != pNone: drawQuickInput()
   if pickKind != pickNone: drawPicker()
   if helpOpen: drawHelp()
+  drawKeyHints((if lay.touchY >= 0: lay.touchY elif lay.statusY >= 0: lay.statusY else: scrH))
   drawToasts((if lay.touchY >= 0: lay.touchY elif lay.statusY >= 0: lay.statusY else: scrH))
   drawDnd()
   if formOpen():

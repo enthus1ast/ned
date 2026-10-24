@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""ned's C engine against clangd: the same questions about the same C files, and where they agree.
+"""ned's C engine against clangd: the same questions about the same C (or C++) files, and where they agree.
 
   go to definition  at random identifiers — the same file and line as clangd's first answer
+  hover             at the same places, where clangd's hover is a function's or a method's: the same parameter
+                    types (which of several overloads it is)
   member completion right after `->` or `.` — is the member written there offered?
 
   python3 tests/engine/ccompare.py DRIVER OUTDIR FILE.c … [--n 60] [--clangd PATH] [--bg-index]
@@ -75,10 +77,66 @@ class Clangd:
             if uri not in self.inactive: time.sleep(0.1)
         return self.inactive.get(uri, [])
     def open(self, path):
+        lang = 'cpp' if is_cpp(path) else 'c'
         lsp_send(self.p, {'jsonrpc': '2.0', 'method': 'textDocument/didOpen', 'params': {'textDocument': {
-            'uri': 'file://' + path, 'languageId': 'c', 'version': 1, 'text': open(path, errors='replace').read()}}})
+            'uri': 'file://' + path, 'languageId': lang, 'version': 1, 'text': open(path, errors='replace').read()}}})
     def close(self, path):
         lsp_send(self.p, {'jsonrpc': '2.0', 'method': 'textDocument/didClose', 'params': {'textDocument': {'uri': 'file://' + path}}})
+
+def is_cpp(path):
+    return os.path.splitext(path)[1].lower() in ('.cpp', '.cc', '.cxx', '.hpp', '.hh', '.hxx')
+
+def split_params(t):
+    """a parameter list's parameters (at its top-level commas)"""
+    out, d, cur = [], 0, ''
+    for ch in t:
+        if ch in '(<[{': d += 1
+        elif ch in ')>]}': d -= 1
+        if ch == ',' and d == 0:
+            out.append(cur); cur = ''
+        else: cur += ch
+    if cur.strip(): out.append(cur)
+    return out
+
+def param_type(p):
+    """a parameter's type, the way both write it: its name, its default value and the spaces left out"""
+    p = re.sub(r'\s*\(aka [^)]*\)', '', p.split('=')[0]).strip()       # (clangd's "size_t n (aka unsigned long)")
+    p = re.sub(r'\b(__restrict__|__restrict|restrict)\b', '', p).strip()
+    if p in ('', 'void'): return ''
+    m = re.match(r'^(.*[\s*&])([A-Za-z_]\w*)((?:\[[^\]]*\])*)$', p)
+    if m and m.group(1).strip() and m.group(1).strip() not in ('struct', 'union', 'enum', 'const', 'unsigned', 'signed'):
+        p = m.group(1) + ('*' * m.group(3).count('['))
+    return re.sub(r'\s+', '', p).replace('constchar', 'const char')
+
+def clangd_signature(h):
+    """clangd's hover of a function or method: its parameters' types — None when the hover is not one's"""
+    if not isinstance(h, dict): return None
+    v = h.get('contents', {})
+    v = v.get('value', '') if isinstance(v, dict) else str(v)
+    first = v.split('\n', 1)[0]
+    if not re.match(r'(### )?(function|instance-method|static-method|method|constructor) ', first): return None
+    ps = []
+    if '\nParameters:' in v:
+        for l in v.split('\nParameters:', 1)[1].split('\n')[1:]:
+            m = re.match(r'^- `?(.*?)`?$', l.strip())
+            if not m or not l.startswith('- '): break
+            ps.append(param_type(m.group(1)))
+    return [x for x in ps if x]
+
+def ned_signature(h):
+    """ned's hover: the parameters' types of the declaration it shows first"""
+    m = re.search(r'```(?:c|cpp)\n([^\n]*)\n', h or '')
+    if not m or '(' not in m.group(1): return None
+    t = m.group(1)
+    a = t.find('(')
+    d, e = 0, -1
+    for i in range(a, len(t)):
+        if t[i] == '(': d += 1
+        elif t[i] == ')':
+            d -= 1
+            if d == 0: e = i; break
+    if e < 0: return None
+    return [x for x in (param_type(p) for p in split_params(t[a + 1:e])) if x and x != '...']
 
 def code_positions(lines):
     """identifiers outside comments, strings and preprocessor lines (a #define's continuation lines too):
@@ -137,15 +195,18 @@ def main():
     cc = subprocess.run('echo | cc -E -Wp,-v -x c - 2>&1', shell=True, capture_output=True, text=True).stdout
     sysdirs = [l.strip() for l in cc.split('\n') if l.startswith(' /')]
     predef = {}
-    for l in subprocess.run('cc -dM -E -x c /dev/null', shell=True, capture_output=True, text=True).stdout.split('\n'):
+    cpp = all(is_cpp(f) for f in files)
+    cmd = 'c++ -dM -E -x c++ /dev/null' if cpp else 'cc -dM -E -x c /dev/null'
+    for l in subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.split('\n'):
         p = l.split(None, 2)
         if len(p) >= 2 and p[0] == '#define': predef[p[1]] = p[2] if len(p) > 2 else ''
-    ask({'predef': predef})
+    if not cpp: predef.pop('__cplusplus', None)
     ask({'root': os.path.commonpath([os.path.dirname(f) for f in files])})
     root = os.path.commonpath([os.path.dirname(f) for f in files])
     # a compile_commands.json beside the files: clangd reads it (its best answers), and ned gets its -I folders, as
     # the editor gives them
     incdirs = []
+    defs = {}                      # its -D and -U (the first file's, when files differ, as the editor takes them)
     cc_json = os.path.join(root, 'compile_commands.json')
     if os.path.exists(cc_json):
         for e in json.load(open(cc_json)):
@@ -155,12 +216,20 @@ def main():
                 if d:
                     d = os.path.normpath(os.path.join(e.get('directory', root), d))
                     if d not in incdirs: incdirs.append(d)
+                if (a.startswith('-D') or a.startswith('-U')) and len(a) > 2:
+                    nm = a[2:].split('=')[0]
+                    if nm not in defs: defs[nm] = a
+    for nm, a in defs.items():
+        if a.startswith('-U'): predef.pop(nm, None)
+        else: predef[nm] = a[2:].split('=', 1)[1] if '=' in a else '1'
+    ask({'predef': predef})
     cd = Clangd(exe, root, bg)
     if bg:
         cd.open(files[0])
         print('clangd indexed the project in %.0f s' % cd.wait_index('file://' + files[0]), flush=True)
         cd.close(files[0])
     tot = {'skipped_inactive': 0, 'def_agree': 0, 'def_clangd_only': 0, 'def_differ': 0, 'def_ned_only': 0, 'def_listed': 0, 'def_system': 0,
+           'hov_n': 0, 'hov_ned': 0, 'hov_same': 0,
            'mem_n': 0, 'mem_ned': 0, 'mem_clangd': 0, 'ned_ms': 0.0, 'ned_q': 0, 'clangd_ms': 0.0, 'clangd_q': 0}
     report = []
     for path in files:
@@ -212,6 +281,16 @@ def main():
                 tot['def_clangd_only'] += 1
                 bad.append(['MISS', l, c, w, cl, []])
             elif nd: tot['def_ned_only'] += 1
+            # hover: a function's or a method's — is it the same one (its parameters' types)?
+            ch = clangd_signature(cd.req('textDocument/hover', {'textDocument': {'uri': 'file://' + path},
+                                                                'position': {'line': l, 'character': c}}))
+            if ch is not None:
+                tot['hov_n'] += 1
+                nh = ned_signature(ask({'file': path, 'line': l, 'col': c, 'kind': 'hover'}).get('hover', ''))
+                if nh is not None:
+                    tot['hov_ned'] += 1
+                    if nh == ch: tot['hov_same'] += 1
+                    else: bad.append(['HOVER', l, c, w, ch, nh])
         # member completion: after -> and .
         mems = []
         for (l, c, w, before) in code_positions(lines):
@@ -244,6 +323,9 @@ def main():
           ' clangd only %d, ned only %d' % (100.0 * tot['def_agree'] / max(1, asked), tot['def_agree'], tot['def_differ'],
           tot['def_listed'], tot['def_clangd_only'], tot['def_ned_only']))
     print('               differences where both answers are system headers: %d' % tot['def_system'])
+    print('hover        : of %d places where clangd shows a function or method, ned shows one at %d, the same '
+          'parameters at %d (%.1f%%)' % (tot['hov_n'], tot['hov_ned'], tot['hov_same'],
+                                       100.0 * tot['hov_same'] / max(1, tot['hov_ned'])))
     print('member compl.: ned %.1f%% · clangd %.1f%%  (of %d)' % (100.0 * tot['mem_ned'] / max(1, tot['mem_n']),
           100.0 * tot['mem_clangd'] / max(1, tot['mem_n']), tot['mem_n']))
     print('time         : ned %.2f ms a question · clangd %.1f ms (after it has read the file)' % (

@@ -217,7 +217,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Hex: show as text |  |
 | Hex: symbols… |  |
 | HTML: expand Emmet abbreviation | Tab |
-| Indent | Tab |
+| Indent lines | Tab with lines selected |
 | Indent with 2 spaces |  |
 | Indent with 4 spaces |  |
 | Indent with tabs |  |
@@ -348,7 +348,6 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Open shell |  |
 | Open shell full screen (leave ned temporarily) |  |
 | Open the link at the cursor |  |
-| Outdent | Shift+Tab |
 | Outline panel | Alt+I |
 | Paste | Ctrl+V |
 | Peek definition | Alt+F12 |
@@ -356,6 +355,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Performance report | frame time, what the terminal is sent, background work, memory |
 | Plugins panel |  |
 | Plugins: add an example… |  |
+| Plugins: available plugins (ned's own)… | turn one on: increment, case changes, align, harpoon … |
 | Plugins: browse the plugin list… |  |
 | Plugins: install from git… |  |
 | Plugins: new plugin in full Nim (compiled)… |  |
@@ -365,6 +365,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Plugins: run a plugin's command… |  |
 | Plugins: the API (nedplugin.nim) |  |
 | Plugins: turn one on or off… |  |
+| Plugins: uninstall / remove one… |  |
 | Plugins: update (git pull) |  |
 | Previous problem | Alt+P |
 | Problems: all of them with their code (multibuffer) |  |
@@ -503,6 +504,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Undo history… | Alt+Shift+U |
 | Unfold | Alt+= |
 | Unfold all |  |
+| Unindent lines (outdent, dedent) | Shift+Tab |
 | Upper case |  |
 | View: close split | Alt+\| |
 | View: focus other pane | Alt+\ |

@@ -38,12 +38,13 @@ proc keyName(k: Key): string =
 
 proc customKey(k: Key): bool =
   ## your "keys" setting, then the keys plugins gave their commands
-  if cfgKeys.len == 0 and plugKeys.len == 0: return false
+  if cfgKeys.len == 0 and plugKeys.len == 0 and not plugHasLangKeys(): return false
   let n = keyName(k)
   if n.len == 0: return false
   if n in cfgKeys:
     runCmd(cfgKeys[n])
     return true
+  if plugLangKey(n): return true            # (a plugin's key for the file's language: the folder view's Alt+Enter)
   if n in plugKeys:
     runCmd(plugKeys[n])
     return true
@@ -92,6 +93,7 @@ proc globalKey(k: Key): bool =
       of 'n': newFile()
       of 'w': closeBuffer(curBuf)
       of 't':
+        if cfgVim and focus == fEditor and vimMode == vmInsert: return false   # (vim's insert mode: one level in)
         focus = fEditor
         cmdSymbols()
       of 'g':

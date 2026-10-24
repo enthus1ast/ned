@@ -15,6 +15,17 @@ proc compPrefix(): string =
   if p.line != compLine or p.col < compStartCol: return "\0"
   b.lines[p.line][compStartCol ..< p.col]
 
+proc compRecentKey(it: CompItem): string =
+  let b = buf()
+  (if b != nil and b.lang != nil: b.lang.id else: "") & ":" & it.label
+
+proc compRecentBonus(it: CompItem): int =
+  ## a completion you chose lately: the more lately, the higher it goes (the last 24 choices)
+  if compRecent.len == 0: return 0
+  let at = compRecent.getOrDefault(compRecentKey(it), -1)
+  if at < 0: return 0
+  max(0, 24 - (compRecentN - at))
+
 proc refilterComp() =
   plugCompMerge()                               # (a plugin's completions, when they came for this word)
   let pre = compPrefix()
@@ -29,7 +40,8 @@ proc refilterComp() =
     let sc = fuzzyScore(lp, compFilter(compItems[i]))
     if sc != low(int):
       # a prefix match, and nearer names (locals, this module) before far ones (system)
-      compItems[i].score = sc + (if compFilter(compItems[i]).startsWith(pre): 30 else: 0) + max(0, 4 - compItems[i].rank) * 4
+      compItems[i].score = sc + (if compFilter(compItems[i]).startsWith(pre): 30 else: 0) +
+                           max(0, 4 - compItems[i].rank) * 4 + compRecentBonus(compItems[i])
       if compItems[i].label != pre or compItems[i].postfix > 0: compShown.add i
       elif pre.len > 0: exact = true
   if exact and not compManual:
@@ -51,7 +63,9 @@ proc refilterComp() =
     var keyed = newSeqOfCap[(string, int)](compShown.len)
     for i in compShown:
       let it = addr compItems[i]
-      keyed.add ((if it.label.startsWith("_"): "~" else: "") &
+      # (nothing typed yet — after a dot: what you chose lately there first, the latest first)
+      let rb = compRecentBonus(it[])
+      keyed.add ((if rb > 0: " " & $(100 - rb) else: "") & (if it.label.startsWith("_"): "~" else: "") &
                  (if it.sortText.len > 0: it.sortText else: $it.rank & it.label.toLowerAscii), i)
     keyed.sort(proc(a, b: (string, int)): int = cmp(a[0], b[0]))
     for k, x in keyed: compShown[k] = x[1]
@@ -179,6 +193,18 @@ proc afterType(ch: int) =
     if tk notin {tkComment, tkDoc, tkString} and not long and b.lang.mode == lmNim and
        (emitComplete(b, p, false) or embComplete(b, p, false) or webComplete(b, p, false)):
       return                                                  # C in an emit, HTML/CSS/SQL in a string
+    if not long and plugHasCompletions(b):
+      # (a plugin's completions in strings and comments — paths, a Markdown link's #anchor: after / # ( and as the
+      # word after them is typed)
+      let c = if ch < 128: char(ch) else: 'a'
+      if compOpen and compLine == p.line and (isWordByte(c) or c in {'.', '-'}) and compItems.len > 0 and
+         p.col > compStartCol:
+        refilterComp()                          # (a file name goes on past its dot: main.nim, on-termux)
+        return
+      if c in {'/', '#', '(', '~'}:
+        closeComp()
+        plugComplete(b, p)
+        return
     closeComp()
     return
   # no document sync here: most keystrokes send nothing, and a full-text didChange per key is what makes
@@ -280,6 +306,14 @@ proc acceptComp() =
     return
   var it = compItems[compShown[compSel]]
   let b = buf()
+  inc compRecentN
+  compRecent[compRecentKey(it)] = compRecentN
+  if compRecent.len > 600:
+    # (the oldest half go)
+    var olds: seq[(int, string)]
+    for k, v in compRecent: olds.add (v, k)
+    olds.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
+    for i in 0 ..< olds.len div 2: compRecent.del olds[i][1]
   if it.snippet.len == 0 and it.nx != 0 and cfgCallArgs and it.addImport.len == 0:
     # (nim.completeCallArguments: a routine with its parameters to fill in, as clangd and rust-analyzer do)
     let sn = callSnippet(b, it)

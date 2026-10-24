@@ -246,11 +246,32 @@ proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
       return
   result.p = q
 
+func objLinewise(b: Buffer, obj: char, a, e: Pos): bool =
+  ## a text object of whole lines (a paragraph; a plugin's from a line's start to a later one's, or to the end):
+  ## operators take it as lines
+  obj == 'p' or (a.col == 0 and e.line > a.line and
+                 (e.col == 0 or (e.line == b.lines.high and e.col == b.lines[e.line].len)))
+
 proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
-  ## iw aw i( a( i[ i{ i< i" i' i`  (returns a half-open range) — and plugins' (ie …)
+  ## iw aw i( a( i[ i{ i< i" i' i` ip ap  (returns a half-open range) — and plugins' (ie …)
   if plugTextObjKeys.len > 0 and ($kind & $obj) in plugTextObjKeys:
     let (_, ok, a, e) = plugTextObject(b, kind, obj, p)
     return (ok, a, e)
+  if obj == 'p':
+    # a paragraph: the lines around that are not blank (on a blank line: the blank ones); ap with the blank lines
+    # after it (or before it, at the end)
+    let blank = b.lines[p.line].strip.len == 0
+    var a = p.line
+    var e = p.line
+    while a > 0 and (b.lines[a - 1].strip.len == 0) == blank: dec a
+    while e < b.lines.high and (b.lines[e + 1].strip.len == 0) == blank: inc e
+    if kind == 'a':
+      if e < b.lines.high:
+        while e < b.lines.high and (b.lines[e + 1].strip.len == 0) != blank: inc e
+      else:
+        while a > 0 and (b.lines[a - 1].strip.len == 0) != blank: dec a
+    return (true, Pos(line: a, col: 0),
+            (if e < b.lines.high: Pos(line: e + 1, col: 0) else: Pos(line: e, col: b.lines[e].len)))
   let s = b.lines[p.line]
   case obj
   of 'w', 'W':

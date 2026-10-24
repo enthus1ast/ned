@@ -11,6 +11,10 @@ proc loadState() =
     if j.hasKey("lastRun"): lastRunCmd = j["lastRun"].getStr
     if j.hasKey("uses") and j["uses"].kind == JObject:
       for k, v in j["uses"]: cmdUses[k] = v.getInt
+    if j.hasKey("completions") and j["completions"].kind == JObject:
+      for k, v in j["completions"]:
+        compRecent[k] = v.getInt
+        compRecentN = max(compRecentN, v.getInt)
     if j.hasKey("nim") and j["nim"].kind == JObject:
       let n = j["nim"]
       if n.hasKey("mode"): stateOverrides["nim.buildMode"] = n["mode"]
@@ -59,6 +63,14 @@ proc saveState() =
       pos[b.path] = %*[savedPos[b.path].line, savedPos[b.path].col]
   var uses = newJObject()
   for k, v in cmdUses: uses[k] = %v
+  # (the completions you chose: the 300 most recent)
+  var comps = newJObject()
+  var recent: seq[(int, string)]
+  for k, v in compRecent: recent.add (v, k)
+  recent.sort(proc(x, y: (int, string)): int = cmp(y[0], x[0]))
+  for i, (v, k) in recent:
+    if i >= 300: break
+    comps[k] = %v
   var sessions = if savedSessions.isNil: newJObject() else: savedSessions
   let open = newJArray()
   for b in bufs:
@@ -87,7 +99,7 @@ proc saveState() =
   for k, v in savedMarks:
     if v.len > 0 and marksJ.len < 300: marksJ[k] = %v
   let j = %*{"recent": recentFiles, "pos": pos, "theme": cfgThemeName, "lastRun": lastRunCmd,
-             "uses": uses, "layout": layoutState(), "sessions": sessions, "aiHistory": hist,
+             "uses": uses, "completions": comps, "layout": layoutState(), "sessions": sessions, "aiHistory": hist,
              "trusted": trustedDirs, "bookmarks": marksJ, "aiQuirks": aiQuirksList(),
              "nim": {"mode": cfgNimMode, "backend": cfgNimTarget, "compiler": cfgNimCompiler}}
   try:

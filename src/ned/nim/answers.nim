@@ -526,6 +526,7 @@ proc engineSignature(b: Buffer, p: Pos): bool =
   true
 
 proc nimSourceFiles(): seq[string]
+var nimRenameReach = false               # (a rename: references in fmt strings, doc comments and your other packages too)
 
 proc engineHover(b: Buffer, p: Pos): string =
   let wt0 = getMonoTime()
@@ -551,6 +552,17 @@ proc engineHover(b: Buffer, p: Pos): string =
       if refs.len > 0 and refs[0].sym.kind == nxType:
         let ch = nxConceptHover(refs[0], nimSourceFiles(), f)
         if ch.len > 0: result.add "\n\n" & ch
+      if refs.len > 1 and refs[0].sym.kind in NxRoutineKinds:
+        # overloads the engine cannot tell apart: the one the compiler said this call picks (nim.compilerOracle)
+        let ol = orCompilerLines(b, p)
+        if ol.len == 1:
+          var sig = orField(ol[0], 3)
+          let pr = sig.find("{.")
+          if pr > 0: sig = sig[0 ..< pr].strip
+          let nm = orField(ol[0], 2).split('.')[^1]
+          if sig.startsWith("proc ") or sig.startsWith("func "): sig = sig[5 .. ^1].strip
+          let where = extractFilename(orField(ol[0], 4)) & ":" & orField(ol[0], 5)
+          result = "**Called here** — the compiler's choice: `" & nm & sig & "` · " & where & "\n\n" & result
   except Exception as e: internalError("Nim index", e)
 
 proc engineDefinition(b: Buffer, p: Pos): bool =
@@ -570,6 +582,16 @@ proc engineDefinition(b: Buffer, p: Pos): bool =
   if defs.len == 0: return false
   for d in defs.mitems:
     if d[0] == own: d[0] = b.path
+  if defs.len > 1:
+    # (overloads the engine cannot tell apart: the one the compiler said this call picks — nim.compilerOracle)
+    let ol = orCompilerLines(b, p)
+    if ol.len == 1:
+      let path = orField(ol[0], 4)
+      let ln = try: parseInt(orField(ol[0], 5)) - 1 except ValueError: -1
+      for d in defs:
+        if d[1] == ln and (d[0] == path or (fileExists(path) and fileExists(d[0]) and sameFile(d[0], path))):
+          defs = @[d]
+          break
   if defs.len == 1:
     pushJump()
     let nb = if defs[0][0] == b.path or defs[0][0].len == 0: b else: openFile(defs[0][0])
@@ -602,6 +624,118 @@ proc nimSourceFiles(): seq[string] =
     if p notin seen:
       seen.incl p
       result.add p
+
+proc nimOwnPackageDirs(): seq[string] =
+  ## the folders of your other packages that this project uses as they are being written: a workspace's other
+  ## folders, and what its nimble.develop names (`nimble develop`) — a rename reaches their files too
+  for r in wsRoots:
+    if r.len > 0 and r notin result: result.add r
+  let dev = rootDir / "nimble.develop"
+  if rootDir.len > 1 and fileExists(dev):
+    try:
+      let j = parseFile(dev)
+      for d in jitems(j{"dependencies"}):
+        let p = if d.getStr.isAbsolute: d.getStr else: normalizedPath(rootDir / d.getStr)
+        if dirExists(p) and p notin result and p != rootDir: result.add p
+    except CatchableError: discard
+
+proc nimRenameFiles(): seq[string] =
+  ## the Nim files a rename looks in: the project's, then those of your other packages it uses (nimOwnPackageDirs)
+  result = nimSourceFiles()
+  var seen = toHashSet(result)
+  var n = 0
+  for d in nimOwnPackageDirs():
+    if d == rootDir or d.startsWith(rootDir & "/"): continue
+    for p in walkDirRec(d, skipSpecial = true):
+      if n > 4000: return
+      if not (p.endsWith(".nim") or p.endsWith(".nims")) or "/." in p[d.len .. ^1] or "/nimbledeps/" in p: continue
+      if p notin seen:
+        seen.incl p
+        result.add p
+        inc n
+
+func fmtNameHits*(lines: openArray[string], name: string, a = 0, e = high(int)): seq[(int, int)] =
+  ## `name` in the {…} of a strformat string on lines a..e — fmt"…", &"…", fmt("…"), fmt r"…" (on one line) —
+  ## where it is written (not after a dot, not in the {x:format} part)
+  let nn = nxNorm(name)
+  for l in max(0, a) .. min(e, lines.high):
+    let s = lines[l]
+    if '{' notin s or '"' notin s: continue
+    var i = 0
+    while i < s.len:
+      if s[i] == '#': break
+      if s[i] == '\'' and i + 2 < s.len and (s[i + 2] == '\'' or s[i + 1] == '\\'):
+        i += (if s[i + 1] == '\\': 4 else: 3)
+        continue
+      if s[i] != '"':
+        inc i
+        continue
+      # what is before the string: fmt, &, fmt( — and a raw string's r
+      var j = i - 1
+      if j >= 0 and s[j] in {'r', 'R'} and (j == 0 or not nxIsIdent(s[j - 1])): dec j
+      while j >= 0 and s[j] == ' ': dec j
+      var isFmt = false
+      if j >= 0 and s[j] == '&': isFmt = true
+      else:
+        var k = j
+        if k >= 0 and s[k] == '(': dec k
+        if k >= 2 and s[k - 2 .. k] == "fmt" and (k < 3 or not nxIsIdent(s[k - 3])): isFmt = true
+      let triple = i + 2 < s.len and s[i + 1] == '"' and s[i + 2] == '"'
+      var q = i + (if triple: 3 else: 1)
+      let startQ = q
+      while q < s.len:
+        if triple:
+          if q + 2 < s.len and s[q] == '"' and s[q + 1] == '"' and s[q + 2] == '"': break
+        elif s[q] == '\\': inc q
+        elif s[q] == '"': break
+        inc q
+      if isFmt:
+        var k = startQ
+        while k < q:
+          if s[k] == '{' and k + 1 < q and s[k + 1] == '{':
+            k += 2
+            continue
+          if s[k] != '{':
+            inc k
+            continue
+          var d = 0
+          var c = k + 1
+          while c < q:
+            if s[c] in {'(', '['}: inc d
+            elif s[c] in {')', ']'}: dec d
+            elif d == 0 and (s[c] == '}' or s[c] == ':' or (s[c] == '=' and c + 1 < q and s[c + 1] == '}')): break
+            inc c
+          var w = k + 1
+          while w < c:
+            if nxIsIdent(s[w]) and s[w] notin {'0'..'9'} and (w == 0 or not nxIsIdent(s[w - 1])):
+              var we = w
+              while we < c and nxIsIdent(s[we]): inc we
+              if nxNorm(s[w ..< we]) == nn and (w == 0 or s[w - 1] != '.'): result.add (l, w)
+              w = we
+            else: inc w
+          while c < q and s[c] != '}': inc c
+          k = c + 1
+      i = q + (if triple: 3 else: 1)
+
+func docNameHits*(lines: openArray[string], name: string, a = 0, e = high(int)): seq[(int, int)] =
+  ## `name` written in backticks in a doc comment (##) on lines a..e: `name`, `name()`, `name[T]`, `name*`
+  let nn = nxNorm(name)
+  for l in max(0, a) .. min(e, lines.high):
+    let s = lines[l]
+    let dc = s.find("##")
+    if dc < 0 or '`' notin s: continue
+    var i = dc + 2
+    while i < s.len:
+      if s[i] != '`':
+        inc i
+        continue
+      let c = s.find('`', i + 1)
+      if c < 0: break
+      var w = i + 1
+      var we = w
+      while we < c and nxIsIdent(s[we]): inc we
+      if we > w and nxNorm(s[w ..< we]) == nn and (we == c or s[we] in {'(', '[', '*', '.', ' '}): result.add (l, w)
+      i = c + 1
 
 proc nxOpUses(t: NxRef, lines: seq[string], g: NxFile, path: string, hits: var seq[(string, int, int)],
               checked: var int, limit: int, t0: MonoTime, budgetMs = NxRefsLimitMs): bool =
@@ -698,6 +832,13 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
           continue
         let (_, ls, _) = nxTargets(f, b.lines, l, s)
         if ls.len > 0 and ls[0].line == loc.line and ls[0].name == loc.name: hits.add (b.path, l, s)
+    # (and in the strformat strings of the routine — fmt"{x}" — when no other local of that name is there)
+    for (l, s) in fmtNameHits(b.lines, w, la, le):
+      let ls = nxLocals(f, b.lines, l, s)
+      var mine = false
+      for x in ls:
+        if nxNorm(x.name) == nw: mine = x.line == loc.line and x.name == loc.name
+      if mine and (b.path, l, s) notin hits: hits.add (b.path, l, s)
     # (and `it` in the routine's emits: the C the compiler writes for it)
     var ew: EmitWork
     var ewMade = false
@@ -710,7 +851,7 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
       if ls.len > 0 and ls[0].line == loc.line and ls[0].name == loc.name: hits.add (b.path, l, s)
     return true
   let lowW = nw.toLowerAscii
-  for path in nimSourceFiles():
+  for path in (if nimRenameReach: nimRenameFiles() else: nimSourceFiles()):
     if msSince(t0) > NxRefsLimitMs:
       nxRefsCut = true
       break
@@ -752,6 +893,22 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
               for t in targets:
                 if nxSameDecl(t, r): ok = true
         if ok: hits.add (path, l, s)
+    # (in strformat strings — fmt"{name}" — and in doc comments — `name` —: in a file where the code names it, or
+    # the one that declares it; where no local of that name is in the way)
+    if nimRenameReach:
+      var named = false
+      for (hp, _, _) in hits:
+        if hp == path: named = true
+      for t in targets:
+        if t.file.path == path: named = true
+      if named:
+        for (l, s) in fmtNameHits(lines, w):
+          var shadow = false
+          for x in nxLocals(g, lines, l, s):
+            if nxNorm(x.name) == nw: shadow = true
+          if not shadow and (path, l, s) notin hits: hits.add (path, l, s)
+        for (l, s) in docNameHits(lines, w):
+          if (path, l, s) notin hits: hits.add (path, l, s)
     # (the `name`s of its emits that name it)
     block:
       var ew: EmitWork
@@ -791,14 +948,19 @@ proc engineRename(b: Buffer, p: Pos, newName: string): (seq[(string, int, int)],
         if r.sym.made: madeBy = r.file.path & ":" & $(r.sym.line + 1)
   except Exception as e: internalError("Nim index", e)
   if madeBy.len == 0:
+    nimRenameReach = true
     try: known = engineReferences(b, p, hits, decl)
     except Exception as e: internalError("Nim index", e)
+    nimRenameReach = false
   if madeBy.len > 0:
     return (@[], "'" & old & "' is declared by a template call (" & relPath(madeBy) & ") — rename it there, not here", 2)
   if not known: return (@[], "ned cannot tell what '" & old & "' refers to here", -1)
   if nxRefsCut:
     return (@[], "'" & old & "' is used too often in this project to find every use in time (10 s) — not renamed", 2)
-  if decl.len > 0 and not decl.startsWith(rootDir & "/") and bufIndexByPath(decl) < 0:
+  var ownPkg = false
+  for d in nimOwnPackageDirs():
+    if decl.startsWith(d & "/"): ownPkg = true
+  if decl.len > 0 and not decl.startsWith(rootDir & "/") and bufIndexByPath(decl) < 0 and not ownPkg:
     return (@[], "'" & old & "' is declared in " & decl & " — outside this project, so it is not renamed", 2)
   if hits.len == 0: return (@[], "Nothing to rename", 0)
   (hits, "", 0)

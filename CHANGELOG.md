@@ -1,6 +1,85 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-6241) (and 6.24 under it). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-625). Older releases:
+
+## What's new in 6.24.1
+
+Fixes for what 6.24 got wrong on a tablet, and Compiler Explorer for library modules.
+
+- **Compiler Explorer's toolbar** sets what you pick. In 6.24 every item of its menus did what the last one does:
+  any filter switched *Demangle* (so names stayed mangled), any compiler chose zig cc, any processor the last one.
+  If you used them, open *Filters ▾* and switch *Demangle* back on, and check the compiler. The same mistake —
+  every item made in a loop acting as the last — is gone from the dock's view menu, the C compiler's fixes on
+  Alt+Enter (each now applies its own), the JSON settings' *edit…* links, the plugins' views and completions, and
+  revealing a new folder from the Git dock.
+- **Compiler Explorer shows every proc of the file**, also the ones nothing calls yet: a library module — types and
+  their `==`, `hash`, `%` — is no longer only `NimMain`. Nim leaves out what nothing calls; ned's private copy
+  names each of the file's procs so they are compiled (not the generic ones, which need a call). *Filters ▾ ›
+  Every proc of the file* (`compilerExplorer.allProcs`) turns it off.
+- **A plugin's source has no false errors**: `import nedplugin` (and `nedlsp`) resolves for the compiler's
+  checks too, as it already did for completion and hover — a full-Nim `plugin.nim` no longer shows every line red.
+- `AGENTS.md`: building, testing and the rules of the source in short, for an AI agent working on ned.
+
+## What's new in 6.24
+
+6.24 brings **Compiler Explorer** into ned — the machine code beside your code while you type, as on godbolt.org —
+and a full set of **documentation**: a shorter README, a FAQ, a guide for each part of ned, a plugin tutorial, and
+references for the plugin API, every setting and every command, made from the sources so they stay right.
+
+**Compiler Explorer.** Open a Nim, C or C++ file and choose *Compiler Explorer* (the Run menu, Nim › Inspect, the
+right-click menu, or the palette): the assembly opens beside the file and follows it as you type — compiled again
+half a second after you stop, from the unsaved text, in a private copy of the project, so your build and your files
+are not touched. As on the website:
+- **each source line and the instructions it made share a colour**; the line under the cursor or the mouse lights
+  up brighter on both sides, and the other side scrolls to it;
+- **the noise is filtered** — directives, labels nothing jumps to, comments, the runtime's and the standard
+  library's functions — and Nim's mangled names are written as in Nim (`square__ce_u3` → `square`);
+- **a toolbar** over the assembly: the options (`-d:release`, `-d:danger`, `--mm:arc` …; `-O2` for C), the C
+  compiler (gcc, clang, zig cc), the processor (x86-64, ARM64, RISC-V, x86 — another one than yours through zig cc),
+  Intel or AT&T syntax, the compiler's assembly or the object file disassembled (objdump, with addresses and each
+  call's target), the filters, **▶ run** (the program built and run after each compile: *Program returned: 0* and
+  its output in the Output panel) and **⇄ compare** (two sets of options side by side in the diff view);
+- **hover** on an instruction says what it does (`imul`: signed multiply … Nim's overflow checks test it with `jo`),
+  on a register what it is for (`rdi`: the first argument) — x86-64 and ARM64, also in the decompiler's view and
+  `.s` files; **F12** on a label or a call goes to it, in the assembly or in your file.
+
+Its settings are its own (`compilerExplorer.*`), so it never changes your project's build mode; the
+[guide](docs/guide/compiler-explorer.md) explains each one and how it works. On a small file a compile takes well
+under a second (Nim 0.3 s, the C compiler's `-S` 0.05 s).
+
+**Documentation.** The README is now an overview; everything else is in [`docs/`](docs/README.md):
+- a [FAQ](docs/FAQ.md);
+- a guide for each part — [key bindings](docs/guide/keys.md), [files and projects](docs/guide/projects.md),
+  [editing](docs/guide/editing.md),
+  [running, testing and debugging](docs/guide/run-and-debug.md), [the Nim IDE](docs/guide/nim.md),
+  [C and C++](docs/guide/c.md), [formatting](docs/guide/formatting.md),
+  [Compiler Explorer](docs/guide/compiler-explorer.md), [Git](docs/guide/git.md), [the AI assistant](docs/guide/ai.md),
+  [search](docs/guide/search.md), [the terminal and remote work](docs/guide/terminal.md),
+  [themes](docs/guide/themes.md), [vim and zen](docs/guide/vim-and-zen.md), [settings](docs/guide/settings.md),
+  [the hex editor and the decompiler](docs/guide/hex-and-binaries.md),
+  [safety](docs/guide/safety.md), [files](docs/guide/files.md), [building](docs/guide/building.md),
+  [troubleshooting](docs/guide/troubleshooting.md);
+- **plugins**: a [step-by-step tutorial](docs/plugins/tutorial.md) that builds a plugin (its result is
+  `examples/plugins/notes`, run by the plugin tests), and the [API reference](docs/plugins/api.md) — every type and
+  proc of `nedplugin` and `nedlsp`, made from their doc comments by `tests/docs/apiref.py`;
+- references of [every setting](docs/reference/settings.md) (`ned --doc-settings`) and
+  [every command](docs/reference/commands.md) (`ned --doc-commands`).
+
+CI checks that the references are what the sources make and that every link in the documentation goes somewhere
+(`tests/docs/`).
+
+**Windows.** The release has a Windows build too: `ned-6.24.0-windows-x86_64.zip`, with ned, nedfmt and nedls,
+cross-built with zig by `tests/build/windows.sh` (`nimble windowszip`; `tests/build/cross.sh` builds Windows too
+now). Windows is still the least tried platform — WSL is the safe way.
+
+**Plugins.** Two registrations of the same kind in one plugin — two `onChange("*")`, two hovers for one language —
+now both work (the second used to take the first one's place); `projectDir()` gives the project's folder; the
+tutorial's *notes* is one of the examples *Plugins: add an example…* offers.
+
+**Fixes.** A one-line commit (*Git: commit…*, ✓ in the Git dock) runs `git.checksBeforeCommit` as the message box
+does; `c` in the Git dock opens the message box, as its *Commit…* row says; vim's `:sp`, `:vs` and `:only` split
+the editor and close the split (they still said ned had one pane); assembly views have no indentation guides
+(their instructions are indented, not nested).
 
 ## What's new in 6.23
 

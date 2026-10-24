@@ -22,6 +22,24 @@ const
   PlugMark = '\x1e'                       # (the start of a line of the host's that is a message)
   PlugShared = "*"                        # (the name of the process the NimScript plugins share)
   PlugExDir = currentSourcePath().plugSrcUp(4) & "/" & "examples" & "/" & "plugins"
+  PlugBundledDir = currentSourcePath().plugSrcUp(4) & "/" & "plugins"
+  # ned's own plugins: in ned, off until you turn one on (Plugins dock › AVAILABLE, Plugins › Available plugins…)
+  PlugBundledNames = ["align", "case-change", "dial", "elixir", "exchange", "gleam", "harpoon", "haskell",
+                      "json-to-nim", "markdown-tools", "odin", "oil", "path-complete", "pomodoro", "rest-client",
+                      "split-join", "text-objects", "time-tracker", "which-key"]
+  PlugBundled = block:
+    var r: seq[(string, string, string)]           # name, what it does (its first ## line), its source
+    for n in PlugBundledNames:
+      let src = staticRead(PlugBundledDir & "/" & n & "/" & "plugin.nims")
+      var what = src.splitLines()[0].strip(chars = {'#', ' '})
+      let dash = what.find(" — ")
+      if dash >= 0: what = what[dash + " — ".len .. ^1]
+      r.add (n, what, src)
+    r
+  PlugBundledSig = block:
+    var all = ""
+    for (n, _, src) in PlugBundled: all.add n & "\0" & src
+    $(hash(all) and 0xFFFFFFF)
   PlugExamples = [
     ("zig-lite", "a language ned does not have (Zig), its formatter (zig fmt, or one in NimScript), zls",
      @[("plugin.nims", staticRead(PlugExDir & "/" & "zig-lite" & "/" & "plugin.nims"))]),
@@ -83,6 +101,8 @@ type
     alone: bool                           # a process of its own (full Nim, or plugins.alone)
     needs: string                         # requiresNed("…"): the ned it needs
     err: string                           # why it is not running ("" running, or off)
+    bundled: bool                         # one of ned's own plugins (plugins/ in ned's source), turned on
+    desc: string                          # what it does (ned's own: the first line of its ## comment)
   PlugReg = object
     plugin, kind: string
     cb: int
@@ -137,7 +157,17 @@ var
   plugCmdNames: seq[string]
   plugTimers: seq[PlugTimer]
   plugEvts: seq[(string, string, string)] # event, pattern, registration key
-  plugVimMaps: seq[(string, string, string)]   # mode (n v), keys, registration key
+  plugVimMaps: seq[(string, string, string, string)]   # mode (n v), keys, registration key, language ("" any)
+  plugLangKeys: Table[string, string]     # "<language>\t<key name>" → registration key (keys of one language)
+  plugWriters: Table[string, string]      # language → registration key: saving a tab of it (not a file)
+  plugKeyHints: seq[(string, string)]     # the box of what the next key does (which-key): key, what it does
+  plugKeyHintsTitle = ""
+  plugKeyHintsFor = ""                    # the keys waiting it is for (mode & "\t" & keys)
+  plugKeysSeen = ""                       # the keys waiting the last round (mode & "\t" & keys)
+  plugKeysSince = MonoTime()
+  plugKeysFired: seq[string]              # the "keys" events told of them
+  plugCurSeen = -1                        # the buffer in front the last round ("enter" events)
+  plugSelects = 0                         # (the plugins' select and setCursor calls: did a vmap select something?)
   plugOps: seq[(string, string)]          # keys, registration key
   plugTextObjs: Table[string, string]     # keys ("ie") → registration key
   plugExCmds: Table[string, string]       # name → registration key
@@ -154,6 +184,7 @@ var
   plugSeq = ""                            # vim: keys typed of a plugin's mapping
   plugOpKeys = ""                         # vim: a plugin's operator waiting for its motion
   plugOpObj = '\0'
+  plugOpWait = '\0'                       # vim: a plugin's operator, the first key of a two-key motion (gg, f{char})
   plugOpCount = 1
   plugReplaying = false
   plugSilentSave = false                  # (a save a plugin asked for: no plugin events)
@@ -182,6 +213,27 @@ proc plugLibDir(): string =
       writeFile(result / "nedplugin.nim", NedPluginLib)
       writeFile(result / "nedlsp.nim", NedLspLib)
   except CatchableError: discard
+
+proc plugBundledRoot(): string =
+  ## ned's own plugins as this ned has them (written once per version of them; the ones of other versions removed)
+  result = plugCacheRoot() / ("bundled-" & PlugBundledSig)
+  if dirExists(result): return
+  try:
+    for kind, d in walkDir(plugCacheRoot()):
+      if kind == pcDir and extractFilename(d).startsWith("bundled-"): removeDir(d)
+    for (n, _, src) in PlugBundled:
+      createDir(result / n)
+      writeFile(result / n / "plugin.nims", src)
+  except CatchableError: discard
+
+proc plugBundledOn(): seq[string] =
+  ## the names of ned's own plugins you turned on (plugins.bundled)
+  for x in jitems(sval("plugins.bundled")):
+    if x.kind == JString: result.add x.getStr
+
+proc plugBundledWhat(n: string): string =
+  for (name, what, _) in PlugBundled:
+    if name == n: return what
 
 proc plugLogAdd(plugin, line: string) =
   plugLog.add (plugin, (if line.len > 400: line[0 ..< 400] & "…" else: line))
@@ -292,6 +344,27 @@ proc plugDiscover() =
         p.enabled = false
         p.err = "it broke the plugins' start (fix it and save)"
       plugs.add p
+  # ned's own plugins you turned on (a plugin of yours with the same name is the one that runs)
+  let bon = plugBundledOn()
+  if bon.len > 0:
+    let root = plugBundledRoot()
+    for (n, what, _) in PlugBundled:
+      if n notin bon: continue
+      var dup = false
+      for p in plugs:
+        if p.id == n: dup = true
+      if dup or not fileExists(root / n / "plugin.nims"): continue
+      var p = PlugInfo(id: n, dir: root / n, file: root / n / "plugin.nims", enabled: n notin off, bundled: true,
+                       alone: n in alone, desc: what)
+      p.needs = plugNeedsOf(p.file)
+      if not p.enabled: p.err = "off"
+      elif p.needs.len > 0 and not plugNeedsOk(p.needs, Version):
+        p.enabled = false
+        p.err = "it needs ned " & p.needs & " (this is " & Version & ")"
+      elif n in plugFailedOnce:
+        p.enabled = false
+        p.err = "it broke the plugins' start"
+      plugs.add p
 
 proc plugInfoOf(id: string): int =
   for i, p in plugs:
@@ -347,6 +420,9 @@ proc plugMakeHosts() =
 # ── registrations ──
 
 proc plugInvoke(key: string, args: JsonNode, onDone: proc(v: JsonNode, err: string) {.closure.} = nil)
+proc plugPendingKeys(): (string, string)
+proc plugCallSync(key: string, args: JsonNode, ms = -1): (bool, JsonNode, string)
+proc plugKeyHost(key: string): PlugHost
 
 proc regBaseKey(r: PlugReg): string =
   ## a registration's identity (its callback number may change when the host is made again) — without its number
@@ -355,7 +431,9 @@ proc regBaseKey(r: PlugReg): string =
   r.plugin & "|" & r.kind & "|" & (case r.kind
     of "command": d{"title"}.getStr
     of "event": d{"event"}.getStr & " " & d{"pattern"}.getStr
-    of "vimMap": d{"mode"}.getStr & " " & d{"keys"}.getStr
+    of "vimMap": d{"mode"}.getStr & " " & d{"keys"}.getStr & (if d{"lang"}.getStr.len > 0: " " & d{"lang"}.getStr else: "")
+    of "langKey": d{"lang"}.getStr & " " & d{"keys"}.getStr
+    of "writer": d{"lang"}.getStr
     of "operator", "textObject": d{"keys"}.getStr
     of "ex": d{"name"}.getStr
     of "formatter", "lsp", "completion", "hover", "codeActions", "symbols": d{"lang"}.getStr.toLowerAscii
@@ -400,9 +478,23 @@ func plugKeyNorm(keys: string): string =
   res.join("+")
 
 func vimKeysOf(keys: string): string =
-  ## "<leader>f" → " f" (the leader is the space bar), <space> <cr> <tab> as themselves
-  keys.multiReplace([("<leader>", " "), ("<Leader>", " "), ("<space>", " "), ("<Space>", " "), ("<cr>", "+"),
-                     ("<CR>", "+"), ("<tab>", "\t"), ("<Tab>", "\t")])
+  ## "<leader>f" → " f" (the leader is the space bar), <space> <cr> <tab> as themselves, <C-a> … <C-z> as the
+  ## control characters vim mode hands plugins for Ctrl+A … Ctrl+Z
+  result = keys.multiReplace([("<leader>", " "), ("<Leader>", " "), ("<space>", " "), ("<Space>", " "), ("<cr>", "\r"),
+                              ("<CR>", "\r"), ("<Enter>", "\r"), ("<tab>", "\t"), ("<Tab>", "\t")])
+  for c in 'a'..'z':
+    for spec in ["<C-" & $c & ">", "<c-" & $c & ">", "<C-" & $c.toUpperAscii & ">"]:
+      result = result.replace(spec, $chr(ord(c) - 96))
+
+func vimKeysShow(keys: string): string =
+  ## the keys as vim writes them: " f" → "<leader>f", Ctrl+A → "<C-a>", Enter → "<CR>"
+  for c in keys:
+    case c
+    of ' ': result.add "<leader>"
+    of '\r': result.add "<CR>"
+    of '\t': result.add "<Tab>"
+    of '\x01'..'\x08', '\x0b'..'\x0c', '\x0e'..'\x1a': result.add "<C-" & $chr(ord(c) + 96) & ">"
+    else: result.add c
 
 func plugToolName(plugin, name: string): string =
   ## what the model calls a plugin's tool: plugin__<plugin>__<tool> (letters, digits, _ and -; 64 at most)
@@ -435,6 +527,8 @@ proc plugApplyRegs() =
   plugLangSpecs.setLen(0)
   plugEvts.setLen(0)
   plugVimMaps.setLen(0)
+  plugLangKeys.clear()
+  plugWriters.clear()
   plugOps.setLen(0)
   plugTextObjs.clear()
   plugTextObjKeys.clear()
@@ -497,7 +591,11 @@ proc plugApplyRegs() =
       if d{"key"}.getStr.len > 0 and k notin setIndex and d{"default"} != nil:
         defS("Plugins", k, d["default"], "(" & r.plugin & ") " & d{"description"}.getStr)
     of "event": plugEvts.add (d{"event"}.getStr, d{"pattern"}.getStr("*"), key)
-    of "vimMap": plugVimMaps.add (d{"mode"}.getStr("n"), vimKeysOf(d{"keys"}.getStr), key)
+    of "vimMap": plugVimMaps.add (d{"mode"}.getStr("n"), vimKeysOf(d{"keys"}.getStr), key, d{"lang"}.getStr.toLowerAscii)
+    of "langKey":
+      let n = plugKeyNorm(d{"keys"}.getStr)
+      if n.len > 0: plugLangKeys[d{"lang"}.getStr.toLowerAscii & "\t" & n] = key
+    of "writer": plugWriters[d{"lang"}.getStr.toLowerAscii] = key
     of "operator": plugOps.add (vimKeysOf(d{"keys"}.getStr), key)
     of "textObject":
       let k = d{"keys"}.getStr
@@ -545,7 +643,7 @@ proc plugEagerHost(h: PlugHost): bool =
   for r in h.regs:
     if r.kind in ["timer", "textObject", "completion", "hover", "symbols", "codeActions", "view"] or
        (r.kind == "formatter" and r.cb >= 0): return true
-    if r.kind == "event" and r.data{"event"}.getStr in ["startup", "open", "change", "beforeSave"]: return true
+    if r.kind == "event" and r.data{"event"}.getStr in ["startup", "open", "change", "beforeSave", "keys"]: return true
   false
 
 proc plugManifestFile(): string = plugCacheRoot() / "manifest.json"
@@ -625,6 +723,13 @@ proc plugStop(h: PlugHost, why = "off") =
     plugUiHost = nil
   h.state = why
   needRender = true
+
+proc plugQuitEvents() =
+  ## ned quits: the plugins' "quit" events, each waited for a moment (what they keep is written)
+  if plugEvts.len == 0: return
+  for (ev, _, key) in plugEvts:
+    let h = plugKeyHost(key)
+    if ev == "quit" and h != nil and h.state == "ready": discard plugCallSync(key, newJObject(), 1500)
 
 proc plugStopAll() =
   for h in plugHosts: plugStop(h)
@@ -927,7 +1032,7 @@ proc plugWaitFor(h: PlugHost, done: proc(): bool, ms: int): bool =
 
 proc plugTimeout(): int = max(200, sval("plugins.timeoutMs").getInt(1500))
 
-proc plugCallSync(key: string, args: JsonNode, ms = -1): (bool, JsonNode, string) =
+proc plugCallSync(key: string, args: JsonNode, ms: int): (bool, JsonNode, string) =
   ## call and wait for the answer (only when the process runs: a start takes a second or more — then: not now)
   let h = plugKeyHost(key)
   if h == nil: return (false, nil, "the plugin is not running")
@@ -971,6 +1076,15 @@ proc plugFire(event: string, b: Buffer, only: PlugHost = nil) =
       plugInvoke(key, plugEventArgs(b))
 
 # ── the API: what the plugins ask of ned ──
+
+proc plugVimRange(b: Buffer, c: Cursor): (Pos, Pos) =
+  ## a selection as the plugin means it: in vim's visual mode the character under the cursor is in it, and in
+  ## visual-line mode the whole lines are
+  result = c.range
+  if cfgVim and b == buf() and vimMode == vmVisual:
+    result[1] = b.clampPos(Pos(line: result[1].line, col: nextCluster(b.lines[result[1].line], result[1].col)))
+  elif cfgVim and b == buf() and vimMode == vmVLine:
+    result = (Pos(line: result[0].line, col: 0), Pos(line: result[1].line, col: b.lines[result[1].line].len))
 
 proc plugAnswer(h: PlugHost, id: int, v: JsonNode, err = "") =
   if err.len > 0: plugSendRaw(h, %*{"t": "res", "id": id, "err": err})
@@ -1049,6 +1163,96 @@ proc plugApi(h: PlugHost, j: JsonNode) =
       if p.len > 0 and not p.isAbsolute: p = rootDir / p
       let nb = openFile(p, a{"line"}.getInt(-1), a{"col"}.getInt(-1))
       answer(%(if nb == nil: -1 else: nb.id))
+    of "newTab":
+      # (a tab of its own with the plugin's text: a response, generated code — not a file until it is saved)
+      let lg = langByName(a{"lang"}.getStr)
+      let title = a{"title"}.getStr("untitled")
+      for i, x in bufs:
+        if x.title == title and x.path.len == 0 and x.dirty:
+          # (that tab has edits not saved: to it, as it is)
+          curBuf = i
+          focus = fEditor
+          needRender = true
+          answer(%x.id)
+          return
+      let nb = openScratch(title, a{"text"}.getStr, (if lg != nil: lg else: langByName("plaintext")))
+      if nb != nil: nb.readOnly = false
+      answer(%(if nb == nil: -1 else: nb.id))
+    of "closeTab":
+      needBuf()
+      let i = bufs.find(b)
+      if i >= 0:
+        if b.dirty and b.path.len > 0: closeBuffer(i)     # (a file with edits not saved: you are asked)
+        else: closeBufferAt(i)
+      needRender = true
+      answer(newJNull())
+    of "unixTime": answer(%epochTime())
+    of "localTime": answer(%now().format("yyyy-MM-dd HH:mm:ss"))
+    of "shellAsync":
+      # (a command run in the background: its output to the plugin's callback when it ends)
+      let dir = if a{"dir"}.getStr.len > 0: a{"dir"}.getStr elif rootDir.len > 0: rootDir else: getCurrentDir()
+      let cb = a{"cb"}.getInt(-1)
+      let hh = h
+      let pl = plugin
+      if cb < 0: (answer(nil, "no callback"); return)
+      discard startJob(jkTool, a{"cmd"}.getStr, dir, proc(j: Job) =
+        if hh.state == "ready" and hh in plugHosts:
+          discard plugSendCall(hh, cb, pl, %*{"output": j.output.strip(leading = false, chars = {'\n'}),
+                                            "code": j.code}, nil))
+      answer(newJNull())
+    of "markSaved":
+      needBuf()
+      b.savedSeq = b.topSeq()
+      needRender = true
+      answer(newJNull())
+    of "title": needBuf(); answer(%b.name)
+    of "setTitle":
+      needBuf()
+      if b.path.len > 0: (answer(nil, "a file's tab is named by its file"); return)
+      b.title = a{"title"}.getStr(b.title)
+      needRender = true
+      answer(newJNull())
+    of "pendingKeys":
+      let (k, m) = plugPendingKeys()
+      answer(%*{"keys": k, "mode": m})
+    of "showKeyHints":
+      let (k, m) = plugPendingKeys()
+      plugKeyHints.setLen(0)
+      if k.len > 0:
+        for it in jitems(a{"hints"}):
+          if it.kind == JArray and it.len >= 2: plugKeyHints.add (it[0].getStr, it[1].getStr)
+        plugKeyHintsTitle = a{"title"}.getStr
+        plugKeyHintsFor = m & "\t" & k
+      needRender = true
+      answer(%(k.len > 0))
+    of "hideKeyHints":
+      plugKeyHints.setLen(0)
+      needRender = true
+      answer(newJNull())
+    of "keyMaps":
+      # (which-key: what the plugins put on keys, and the commands with a key — yours and theirs)
+      var arr = newJArray()
+      for r in plugRegs:
+        let d = r.data
+        case r.kind
+        of "vimMap": arr.add %*{"mode": d{"mode"}.getStr("n"), "keys": d{"keys"}.getStr, "desc": d{"desc"}.getStr,
+                                "lang": d{"lang"}.getStr, "plugin": r.plugin}
+        of "operator": arr.add %*{"mode": "op", "keys": d{"keys"}.getStr, "desc": d{"desc"}.getStr, "lang": "",
+                                  "plugin": r.plugin}
+        of "textObject": arr.add %*{"mode": "obj", "keys": d{"keys"}.getStr, "desc": d{"desc"}.getStr, "lang": "",
+                                    "plugin": r.plugin}
+        of "langKey": arr.add %*{"mode": "key", "keys": d{"keys"}.getStr, "desc": d{"desc"}.getStr,
+                                 "lang": d{"lang"}.getStr, "plugin": r.plugin}
+        of "command":
+          if d{"keys"}.getStr.len > 0:
+            arr.add %*{"mode": "key", "keys": d{"keys"}.getStr, "desc": d{"title"}.getStr, "lang": "", "plugin": r.plugin}
+        else: discard
+      for k, v in cfgKeys: arr.add %*{"mode": "key", "keys": k, "desc": v, "lang": "", "plugin": ""}
+      answer(arr)
+    of "clipboard": answer(%clipGet())
+    of "setClipboard":
+      clipSet(a{"text"}.getStr)
+      answer(newJNull())
     of "buffers":
       var arr = newJArray()
       for x in bufs:
@@ -1081,15 +1285,23 @@ proc plugApi(h: PlugHost, j: JsonNode) =
     of "cursor": needBuf(); answer(jPos(b.primary.head))
     of "selection":
       needBuf()
-      let (x, y) = b.primary.range
+      let (x, y) = plugVimRange(b, b.primary)
       answer(%*{"start": jPos(x), "stop": jPos(y)})
     of "selections":
       needBuf()
       var arr = newJArray()
       for c in b.cursors:
-        let (x, y) = c.range
+        let (x, y) = plugVimRange(b, c)
         arr.add %*{"start": jPos(x), "stop": jPos(y)}
       answer(arr)
+    of "vimMode":
+      answer(%(if not cfgVim: "" else:
+                 (case vimMode
+                  of vmNormal: "normal"
+                  of vmInsert: "insert"
+                  of vmVisual: "visual"
+                  of vmVLine: "visual line"
+                  of vmReplace: "replace")))
     of "setText":
       needBuf()
       if not b.canEdit(): (answer(nil, "the file cannot be changed"); return)
@@ -1108,11 +1320,13 @@ proc plugApi(h: PlugHost, j: JsonNode) =
       needRender = true
       answer(newJNull())
     of "setCursor":
+      inc plugSelects
       needBuf()
       b.setSingle(b.clampPos(posOf(a{"pos"})))
       needRender = true
       answer(newJNull())
     of "select":
+      inc plugSelects
       needBuf()
       let (x, y) = rng(a{"range"})
       b.setSingle(y, x)
@@ -1465,6 +1679,8 @@ proc plugCompMerge() =
     if it.label notin have: keep.add it
   compItems = keep
 
+proc plugHasCompletions(b: Buffer): bool = plugProvidersFor("completion", b).len > 0
+
 proc plugComplete(b: Buffer, p: Pos) =
   ## ask the plugins for completions here (their answers join the list when they come)
   let keys = plugProvidersFor("completion", b)
@@ -1596,6 +1812,7 @@ proc plugVimReset() =
   plugSeq = ""
   plugOpKeys = ""
   plugOpObj = '\0'
+  plugOpWait = '\0'
 
 proc plugRunOp(key: string, b: Buffer, a, e: Pos, linewise: bool) =
   plugInvoke(key, %*{"buf": b.id, "range": {"start": jPos(a), "stop": jPos(e)}, "linewise": linewise})
@@ -1616,22 +1833,47 @@ proc plugVimKey(b: Buffer, ch: char, visual: bool): bool =
       plugOpObj = '\0'
       plugOpKeys = ""
       let (ok, a, e) = b.textObject(kind, ch, p)
-      if ok: plugRunOp(key, b, a, e, false)
-      return true
-    if ch in {'1'..'9'} or (ch == '0' and plugOpCount > 1):
-      plugOpCount = (if plugOpCount == 1 and ch != '0': 0 else: plugOpCount) * 10 + (ord(ch) - ord('0'))
+      # (a text object of whole lines — from a line's start to a later one's: ip, ii — is linewise)
+      if ok:
+        if b.objLinewise(ch, a, e):
+          let last = if e.col == 0: e.line - 1 else: e.line
+          plugRunOp(key, b, Pos(line: a.line, col: 0), Pos(line: last, col: b.lines[last].len), true)
+        else: plugRunOp(key, b, a, e, false)
       return true
     let n = max(1, plugOpCount)
-    if ch == op[^1]:
-      plugOpKeys = ""
-      let last = min(b.lines.high, p.line + n - 1)
-      plugRunOp(key, b, Pos(line: p.line, col: 0), Pos(line: last, col: b.lines[last].len), true)
-      return true
-    if ch in {'i', 'a'}:
-      plugOpObj = ch
-      return true
+    var motion = ""
+    if plugOpWait != '\0':
+      motion = $plugOpWait & $ch                      # gg, f{char}, t{char} …
+      plugOpWait = '\0'
+    else:
+      if ch in {'1'..'9'} or (ch == '0' and plugOpCount > 1):
+        plugOpCount = (if plugOpCount == 1 and ch != '0': 0 else: plugOpCount) * 10 + (ord(ch) - ord('0'))
+        return true
+      # a mapping that goes on from the operator's keys (exchange's cxc): it, not a motion
+      let longerMap = op & $ch
+      for (md, keys, rk, lg) in plugVimMaps:
+        if md == "n" and keys == longerMap and lg.len == 0:
+          plugOpKeys = ""
+          plugInvoke(rk, %*{"count": n})
+          return true
+      if ch == op[^1]:
+        plugOpKeys = ""
+        let last = min(b.lines.high, p.line + n - 1)
+        plugRunOp(key, b, Pos(line: p.line, col: 0), Pos(line: last, col: b.lines[last].len), true)
+        return true
+      if ch in {'i', 'a'}:
+        plugOpObj = ch
+        return true
+      if ch in {'g', 'f', 't', 'F', 'T'}:
+        plugOpWait = ch
+        return true
+      motion = $ch
     plugOpKeys = ""
-    let m = b.vimMotion($ch, n, p)
+    # (as after vim's own operators: $ and l take the last character too)
+    let keepPending = vimPending
+    vimPending = op
+    let m = b.vimMotion(motion, n, p)
+    vimPending = keepPending
     if m.ok:
       var e = m.p
       if m.inclusive: e.col += 1
@@ -1644,10 +1886,13 @@ proc plugVimKey(b: Buffer, ch: char, visual: bool): bool =
   let mode = if visual: "v" else: "n"
   let sq = plugSeq & $ch
   var exact, opExact = ""
-  var longer = false
-  for (md, keys, rk) in plugVimMaps:
-    if md != mode: continue
-    if keys == sq: exact = rk
+  var longer, exactLang = false
+  let blang = if b.lang != nil: b.lang.name.toLowerAscii else: ""
+  for (md, keys, rk, lg) in plugVimMaps:
+    if md != mode or (lg.len > 0 and lg != blang and (b.lang == nil or lg != b.lang.id)): continue
+    if keys == sq:
+      if lg.len > 0 or not exactLang: exact = rk      # (a mapping of the file's language wins over one of all)
+      if lg.len > 0: exactLang = true
     elif keys.startsWith(sq): longer = true
   for (keys, rk) in plugOps:
     if keys == sq: opExact = rk
@@ -1656,7 +1901,18 @@ proc plugVimKey(b: Buffer, ch: char, visual: bool): bool =
   if exact.len > 0:
     plugSeq = ""
     vimCount = ""
-    plugInvoke(exact, %*{"count": count})
+    if visual:
+      # (a visual-mode mapping: what it changed done, back to normal mode at the selection's start — unless it
+      # made a selection of its own)
+      let bid = b.id
+      let selects = plugSelects
+      plugInvoke(exact, %*{"count": count}, proc(v: JsonNode, err: string) =
+        let x = bufById(bid)
+        if x != nil and x == buf() and vimMode in {vmVisual, vmVLine} and plugSelects == selects:
+          vimSetMode(vmNormal)
+          x.setSingle(x.clampNormal(x.primary.range[0]))
+          needRender = true)
+    else: plugInvoke(exact, %*{"count": count})
     return true
   if opExact.len > 0:
     plugSeq = ""
@@ -1685,6 +1941,142 @@ proc plugVimKey(b: Buffer, ch: char, visual: bool): bool =
     for c in held: discard vimKey(Key(kind: kChar, ch: ord(c)))
     plugReplaying = false
   false
+
+proc plugPendingKeys(): (string, string) =
+  ## the keys typed that wait for more (vim writes them: "g", "<leader>", "di"), and the mode: n (vim normal),
+  ## v (visual), o (an operator waits for its motion), obj (… for its text object: "di"), emacs, helix — ("", "")
+  ## when none waits
+  if focus != fEditor or promptKind != pNone or pickKind != pickNone: return ("", "")
+  if cfgKeymap == "helix": return ((if hxPending == "space": "<space>" else: hxPending), "helix")
+  if cfgKeymap == "emacs": return (emacsPrefix, "emacs")
+  if not cfgVim or vimMode notin {vmNormal, vmVisual, vmVLine}: return ("", "")
+  let vis = vimMode in {vmVisual, vmVLine}
+  if plugOpKeys.len > 0:
+    if plugOpObj != '\0': return (vimKeysShow(plugOpKeys) & $plugOpObj, "obj")
+    return (vimKeysShow(plugOpKeys), "o")
+  if plugSeq.len > 0: return (vimKeysShow(plugSeq), (if vis: "v" else: "n"))
+  if vimPending.len == 0: return ("", "")
+  let p = vimPending
+  let obj = (p.len == 2 and p[0] in {'d', 'c', 'y', '>', '<'} and p[1] in {'i', 'a'}) or
+            (p.len == 3 and p[0 .. 1] in ["gu", "gU", "gc", "ys"] and p[2] in {'i', 'a'})
+  let op = p in ["d", "c", "y", ">", "<", "gu", "gU", "gc", "ys"] or
+           (p.len == 2 and p[0] in {'d', 'c', 'y', '>', '<'} and p[1] == 'g')
+  (p, (if obj: "obj" elif op: "o" elif vis: "v" else: "n"))
+
+proc plugKeyHintsShown(): bool =
+  if plugKeyHints.len == 0: return false
+  let (k, m) = plugPendingKeys()
+  k.len > 0 and m & "\t" & k == plugKeyHintsFor
+
+proc plugFeedKeys(keys: string) =
+  ## keys as vim writes them ("d", "<C-a>", "<CR>", "<leader>f") — or emacs ("C-s", "M-x") — typed into the editor
+  if keys.len == 0 or "…" in keys or (' ' in keys and keys != " "): return      # (a placeholder: "a … z")
+  if keys.len == 3 and keys[1] == '-' and keys[0] in {'C', 'M'}:
+    handleKey(Key(kind: kChar, ch: ord(keys[2]), mods: (if keys[0] == 'C': {mCtrl} else: {mAlt})))
+    needRender = true
+    return
+  var i = 0
+  while i < keys.len:
+    var k = Key(kind: kChar, ch: ord(keys[i]))
+    var n = 1
+    if keys[i] == '<':
+      let e = keys.find('>', i)
+      if e > i:
+        let name = keys[i + 1 ..< e]
+        n = e - i + 1
+        let ln = name.toLowerAscii
+        if ln in ["leader", "space"]: k = Key(kind: kChar, ch: ord(' '))
+        elif ln in ["cr", "enter"]: k = Key(kind: kEnter)
+        elif ln == "tab": k = Key(kind: kTab)
+        elif ln in ["esc", "escape"]: k = Key(kind: kEsc)
+        elif ln.len == 3 and ln.startsWith("c-"): k = Key(kind: kChar, ch: ord(ln[2]), mods: {mCtrl})
+        elif ln.len == 3 and ln.startsWith("m-"): k = Key(kind: kChar, ch: ord(ln[2]), mods: {mAlt})
+        else: n = 1
+    handleKey(k)
+    i += n
+  needRender = true
+
+proc drawKeyHints(bottom: int) =
+  ## which-key's box, above the status bar: each key that may follow and what it does (a tap types it)
+  if not plugKeyHintsShown(): return
+  var colW = 8
+  for (k, d) in plugKeyHints: colW = max(colW, strWidth(k) + 2 + min(28, strWidth(d)) + 3)
+  let w = max(20, scrW - 2)
+  let cols = max(1, (w - 2) div colW)
+  let rowsAll = (plugKeyHints.len + cols - 1) div cols
+  let rows = min(rowsAll, max(1, min(12, bottom - 4)))
+  let h = rows + 2
+  let y = bottom - h
+  if y < 1: return
+  let x = 1
+  drawFrame(x, y, w, h, theme.menuBg, theme.border, plugKeyHintsTitle)
+  let cw = (w - 2) div cols
+  for i, (key, what) in plugKeyHints:
+    let (r, c) = (i mod rows, i div rows)
+    if c >= cols: break
+    let cx = x + 1 + c * cw
+    let cy = y + 1 + r
+    let kx = putStr(cx + 1, cy, key, theme.accent, theme.menuBg, {aBold}, cx + cw)
+    discard putStr(kx, cy, " → ", theme.dim, theme.menuBg, {}, cx + cw)
+    discard putStr(kx + 3, cy, what, theme.fg, theme.menuBg, {}, cx + cw - 1)
+    let kk = key
+    capture kk:
+      region(cx, cy, cw, 1, proc() = plugFeedKeys(kk))
+  if rowsAll > rows:
+    discard putStr(x + w - 12, y + h - 1, " … more ", theme.dim, theme.menuBg, {})
+
+proc plugKeysRound() =
+  ## the "keys" events: keys that waited for more for the pause each asked for (once for each), and the box closed
+  ## when they no longer wait
+  var any = false
+  for (ev, _, _) in plugEvts:
+    if ev == "keys": any = true
+  if not any and plugKeyHints.len == 0: return
+  let (keys, mode) = plugPendingKeys()
+  let cur = mode & "\t" & keys
+  if cur != plugKeysSeen:
+    plugKeysSeen = cur
+    plugKeysSince = getMonoTime()
+    plugKeysFired.setLen(0)
+    if plugKeyHints.len > 0 and cur != plugKeyHintsFor:
+      plugKeyHints.setLen(0)
+      needRender = true
+  if keys.len == 0: return
+  for (ev, pat, key) in plugEvts:
+    if ev == "keys" and key notin plugKeysFired and msSince(plugKeysSince) >= (try: parseInt(pat) except ValueError: 400):
+      plugKeysFired.add key
+      plugInvoke(key, %*{"keys": keys, "mode": mode})
+
+proc plugKeysDueMs(): int =
+  result = int.high
+  if plugKeysSeen.len == 0 or plugKeysSeen.endsWith("\t"): return
+  for (ev, pat, key) in plugEvts:
+    if ev == "keys" and key notin plugKeysFired:
+      let ms = (try: parseInt(pat) except ValueError: 400)
+      result = min(result, max(0, ms - msSince(plugKeysSince)))
+
+proc plugHasLangKeys(): bool = plugLangKeys.len > 0
+
+proc plugLangKey(n: string): bool =
+  ## a key a plugin gave the file's language (the folder view's Alt+Enter): true when it was one
+  if plugLangKeys.len == 0 or focus != fEditor: return false
+  let b = buf()
+  if b == nil or b.lang == nil: return false
+  for lg in [b.lang.name.toLowerAscii, b.lang.id]:
+    let k = lg & "\t" & n
+    if k in plugLangKeys:
+      plugInvoke(plugLangKeys[k], %*{"buf": b.id})
+      return true
+  false
+
+proc plugWrites(b: Buffer): bool =
+  ## saving a tab that is not a file, of a language a plugin writes (the folder view): the plugin does it
+  if plugWriters.len == 0 or b == nil or b.path.len > 0 or b.lang == nil: return false
+  var key = plugWriters.getOrDefault(b.lang.name.toLowerAscii)
+  if key.len == 0: key = plugWriters.getOrDefault(b.lang.id)
+  if key.len == 0: return false
+  plugInvoke(key, plugEventArgs(b))
+  true
 
 proc plugFixAction(title, src: string, edits: JsonNode, bid: int): (string, string, Action) =
   act(title, src, proc() =
@@ -1728,6 +2120,7 @@ proc plugNextDueMs(): int =
   if not plugBooted: return 300
   for t in plugTimers: result = min(result, max(0, int((t.due - getMonoTime()).inMilliseconds)))
   if plugOpenQ.len > 0 and plugSettled(): result = 0
+  result = min(result, plugKeysDueMs())
   for (ev, _, _) in plugEvts:
     if ev == "change":
       result = min(result, 200)
@@ -1799,6 +2192,13 @@ proc plugPump(ready: HashSet[cint]) =
         inc i
       else: plugTimers.delete(i)
     else: inc i
+  plugKeysRound()
+  # another tab in front ("enter" events)
+  if plugEvts.len > 0:
+    let cb = buf()
+    if cb != nil and cb.id != plugCurSeen:
+      plugCurSeen = cb.id
+      plugFire("enter", cb)
   # changes, after a pause in the typing
   var wantChange = false
   for (ev, _, _) in plugEvts:
@@ -1936,6 +2336,126 @@ proc plugSetAlone(id: string, on: bool) =
   if on: al.add id
   setSetting("plugins.alone", %al)
   plugReload()
+
+proc plugSetBundled(n: string, on: bool) =
+  ## one of ned's own plugins on (it runs from now on, and after ned starts again) or removed (plugins.bundled)
+  var xs: seq[string]
+  for x in plugBundledOn():
+    if x != n: xs.add x
+  if on: xs.add n
+  var changes = @[("plugins.bundled", %xs)]
+  if on:                                   # (turned on again after it was turned off)
+    var off: seq[string]
+    for x in plugDisabledIds():
+      if x != n: off.add x
+    changes.add ("plugins.disabled", %off)
+  setSettings(changes)
+  plugReload()
+  if on: info(n & " is on — " & plugBundledWhat(n) & " (Plugins dock: what it added)")
+  else: info(n & " is removed — Plugins dock › AVAILABLE turns it on again")
+
+proc plugBundledAct(n: string, on: bool): Action =
+  ## (an action of its own for each of them: closures made in a loop would share the loop's variables)
+  result = proc() = plugSetBundled(n, on)
+
+proc plugOpenSource(file: string, bundled: bool) =
+  ## a plugin's source in a tab — ned's own read-only (its copy is written again when ned changes: Copy to my
+  ## plugins makes one to change)
+  let b = openFile(file)
+  if b != nil and bundled:
+    b.readOnly = true
+    info("ned's own plugin, read-only here — its menu › Copy to my plugins gives you one to change")
+
+proc plugCopyBundled(n: string) =
+  ## one of ned's own plugins copied into yours (yours to change: it is the one that runs from then on)
+  var src = ""
+  for (name, _, s) in PlugBundled:
+    if name == n: src = s
+  if src.len == 0: return
+  let d = plugUserRoot() / n
+  if dirExists(d):
+    discard openFile(d / "plugin.nims")
+    info("You have a plugin called " & n & " — here it is")
+    return
+  try:
+    createDir(d)
+    writeFile(d / "plugin.nims", src)
+  except CatchableError as e:
+    error("Could not write " & d & ": " & e.msg)
+    return
+  var xs: seq[string]
+  for x in plugBundledOn():
+    if x != n: xs.add x
+  setSetting("plugins.bundled", %xs)
+  discard openFile(d / "plugin.nims")
+  plugReload()
+  info(n & " is yours now, in " & tildePath(d) & " — change it and save: it reloads")
+
+proc plugUninstall(id: string) =
+  ## a plugin removed: ned's own one turned off for good (plugins.bundled); yours or a project's, its folder deleted
+  ## after you say yes (the files it keeps — dataDir() — stay)
+  plugDiscover()
+  let i = plugInfoOf(id)
+  if i < 0:
+    info("No plugin called " & id)
+    return
+  let p = plugs[i]
+  if p.bundled:
+    plugSetBundled(id, false)
+    return
+  let pid = id
+  let dir = p.dir
+  askConfirm("Remove the plugin " & id & "? Its folder " & tildePath(dir) & " is deleted (y/n)", proc(c: char) =
+    if c notin {'y', 'Y'}: return
+    try: removeDir(dir)
+    except CatchableError as e:
+      error("Could not remove " & tildePath(dir) & ": " & e.msg)
+      return
+    var off, al: seq[string]
+    for x in plugDisabledIds():
+      if x != pid: off.add x
+    for x in plugAloneIds():
+      if x != pid: al.add x
+    setSettings(@[("plugins.disabled", %off), ("plugins.alone", %al)])
+    plugReload()
+    info("Removed " & pid))
+
+proc plugUninstallAct(id: string): Action =
+  result = proc() = plugUninstall(id)
+
+proc plugSettingsOf(id: string) =
+  ## the plugin's own settings (plugins.<id>.…) in the Settings window — or what it does without any
+  var has = false
+  for r in plugRegs:
+    if r.plugin == id and r.kind == "setting": has = true
+  if not has:
+    info(id & " has no settings of its own")
+    return
+  openSettingsUi("plugins." & id & ".")
+
+proc cmdPluginsAvailable() =
+  ## ned's own plugins: each with what it does — Enter turns it on (or, on already, removes it)
+  plugDiscover()
+  let on = plugBundledOn()
+  var items: seq[(string, string, Action)]
+  for (n, what, _) in PlugBundled:
+    let isOn = n in on
+    items.add act((if isOn: "● " else: "○ ") & n, (if isOn: "on — Enter removes it · " else: "") & what,
+                  plugBundledAct(n, not isOn))
+  openActions("ned's plugins — Enter turns one on (or removes it)", items)
+
+proc cmdPluginUninstall() =
+  plugDiscover()
+  var items: seq[(string, string, Action)]
+  for p in plugs:
+    let det = if p.bundled: "ned's own — turned off, it stays in AVAILABLE"
+              elif p.project: "the project's — its folder " & tildePath(p.dir) & " is deleted"
+              else: "yours — its folder " & tildePath(p.dir) & " is deleted"
+    items.add act(p.id, det, plugUninstallAct(p.id))
+  if items.len == 0:
+    info("No plugins installed — Plugins › Available plugins…")
+    return
+  openActions("Remove a plugin", items)
 
 proc plugNew(name0: string) =
   let full = plugNewFull
@@ -2121,16 +2641,31 @@ proc plugViewClick(v: PlugView, it: JsonNode): Action =
     if ck.len > 0 and (id.len > 0 or path.len == 0): plugInvoke(ck, %*{"id": id})
     elif path.len > 0: discard openFile((if path.isAbsolute: path else: rootDir / path), line)
 
-proc plugMenuAction(pid, file: string, on, alone, full: bool): Action =
+proc plugMenuAction(pid, file: string, on, alone, full, bundled: bool): Action =
+  ## a plugin's own menu in the Plugins dock: see it, turn it off or on, its settings, remove it
   proc() =
-    var items = @[mi("Open " & extractFilename(file), "", proc() = discard openFile(file)),
+    var items = @[mi((if bundled: "View its source" else: "Open " & extractFilename(file)), "",
+                     proc() = plugOpenSource(file, bundled)),
                   mi((if on: "Turn off" else: "Turn on"), "", proc() = plugSetEnabled(pid, not on)),
+                  mi("Its settings…", "", proc() = plugSettingsOf(pid)),
                   mi("Reload it", "", proc() = plugReloadPlugin(pid))]
     if not full:
       items.add mi((if alone: "Run it with the others" else: "Run it in a process of its own"), "",
                    proc() = plugSetAlone(pid, not alone))
+    if bundled: items.add mi("Copy to my plugins (to change it)", "", proc() = plugCopyBundled(pid))
+    items.add msep()
+    items.add mi((if bundled: "Remove (it stays in AVAILABLE)" else: "Uninstall… (its folder is deleted)"), "",
+                 proc() = plugUninstall(pid))
     items.add mi("Reload all the plugins", "", proc() = plugReload())
     openMenu(items, mouseX, mouseY + 1)
+
+proc plugAvailableAction(n: string): Action =
+  ## an AVAILABLE plugin's menu: turn it on, see its source first, or copy it into yours
+  proc() =
+    let src = plugBundledRoot() / n / "plugin.nims"
+    openMenu(@[mi("Turn on", "", proc() = plugSetBundled(n, true)),
+               mi("View its source", "", proc() = plugOpenSource(src, true)),
+               mi("Copy to my plugins (to change it)", "", proc() = plugCopyBundled(n))], mouseX, mouseY + 1)
 
 proc plugHostMenu(name: string): Action =
   proc() =
@@ -2200,11 +2735,11 @@ proc buildPluginItems(): seq[SideItem] =
         else: 1
       result.add sideItem(it{"text"}.getStr, role, it{"icon"}.getStr, it{"detail"}.getStr, plugViewClick(v, it),
                           depth = 1 + clamp(it{"depth"}.getInt, 0, 6))
-  result.add sideItem("YOURS", 6)
+  result.add sideItem("INSTALLED", 6)
   if plugs.len == 0:
-    result.add sideItem("No plugins yet", 2, "·")
+    result.add sideItem("None yet — turn one on in AVAILABLE below", 2, "·")
     result.add sideItem("New plugin…", 7, "+", "from a template", proc() = runCmd("Plugins: new plugin…"))
-    result.add sideItem("Add an example…", 7, "+", "zig-lite, ini-tools, commentary, clock-native …", proc() =
+    result.add sideItem("Add an example…", 7, "+", "notes, zig-lite, ini-tools, commentary …", proc() =
       plugAddExample())
     result.add sideItem("Install from git…", 7, "⇣", "a repository with a plugin.nims", proc() =
       openPrompt(pPluginInstall, "Plugin repository (https://…)", ""))
@@ -2214,10 +2749,10 @@ proc buildPluginItems(): seq[SideItem] =
     let on = p.enabled
     let role = if on: (if p.err.len > 0: 3 else: 1) else: 2
     let det = if p.err.len > 0 and p.err != "off": p.err elif not on: "off" elif p.project: "project"
-              elif p.full: "Nim, compiled" elif p.alone: "own process" else: ""
+              elif p.bundled: "ned's" elif p.full: "Nim, compiled" elif p.alone: "own process" else: ""
     if p.project and p.err == "the folder is not trusted": inc untrusted
-    result.add sideItem(pid, role, (if on: "●" else: "○"), det, plugMenuAction(pid, p.file, on, p.alone, p.full),
-                        path = p.file)
+    result.add sideItem(pid, role, (if on: "●" else: "○"), det,
+                        plugMenuAction(pid, p.file, on, p.alone, p.full, p.bundled), path = p.file)
     if on:
       for r in plugRegs:
         if r.plugin != pid: continue
@@ -2249,6 +2784,15 @@ proc buildPluginItems(): seq[SideItem] =
   if untrusted > 0:
     result.add sideItem($untrusted & " project plugin" & (if untrusted == 1: "" else: "s") & " held back", 4, "⛉",
                         "trust the folder", proc() = runCmd("Workspace: trust this folder"))
+  # ned's own plugins not turned on yet: a tap shows what it does and turns it on
+  var avail: seq[(string, string)]
+  let bon = plugBundledOn()
+  for (n, what, _) in PlugBundled:
+    if n notin bon and plugInfoOf(n) < 0: avail.add (n, what)
+  if avail.len > 0:
+    result.add sideItem("AVAILABLE · ned's own plugins", 6)
+    for (n, what) in avail:
+      result.add sideItem(n, 1, "+", what, plugAvailableAction(n))
   if plugLog.len > 0:
     result.add sideItem("LOG", 6)
     for k in countdown(plugLog.high, max(0, plugLog.len - 40)):

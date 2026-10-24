@@ -23,6 +23,11 @@ also in the **Edit** menu and the palette (Ctrl+E). With vim, Emacs or Helix key
 
 - **Move and duplicate**: Alt+↑ / Alt+↓ move the line (or the selected lines), Alt+D duplicates them, Ctrl+K
   deletes them, Ctrl+/ comments them in or out — in the comment style of the language.
+- **Indent and unindent**: Tab indents the selected lines one level, Shift+Tab takes them (or the cursor's line)
+  one level out. The same are *Indent lines* and *Unindent lines* in the Edit menu and the palette (it finds
+  "unindent", "outdent" and "dedent"), and ⇤ on the touch bar (in its default keys; add ⇥ with `indent` in
+  `ui.touchBarKeys`). In vim mode: `>>` and `<<` (with a count), `>` and `<` in visual mode, and
+  Ctrl+T / Ctrl+D while inserting.
 - **Surround** (Alt+Shift+S): put brackets, quotes, an HTML tag or a block (`if`, `try`, `block:` … in Nim) around
   the selection. *Change the surrounding pair…* and *Delete the surrounding pair* work on the pair around the
   cursor. In vim mode, vim-surround's `ys`, `cs` and `ds` do the same.

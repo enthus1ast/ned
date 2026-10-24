@@ -843,4 +843,26 @@ suite "NimScript, plugins and doc comments (6.22)":
     let c = nxComplete(f, ls, 4, ls[4].len).labels
     check "lineComment" in c and "setCursor" in c
 
+suite "6.25":
+  test "a generic routine's instance on hover, its arguments over several lines":
+    let (f, ls) = fixture("proc pairOf[T](a, b: T): (T, T) = (a, b)\n" &
+                          "let p = pairOf(\n  3,\n  4)\n")
+    let h = nxHover(f, ls, 1, colOf(ls, 1, "pairOf"))
+    check "**Here:**" in h and "T = int" in h
+
+  test "a chain's type, step by step (the chain hints)":
+    let (f, ls) = fixture("import std/[sequtils, strutils]\nlet xs = @[1, 2, 3]\n")
+    let sc = nxScope(f)
+    check nxTypeOfExpr(f, sc, @[], "xs.mapIt(it * 2)", 1, 0).typ == "seq[int]"
+    check nxTypeOfExpr(f, sc, @[], "xs.mapIt(it * 2).mapIt($it)", 1, 0).typ == "seq[string]"
+
+  test "a let whose value is a call chain over the lines below: the whole chain's type":
+    let (f, ls) = fixture("import std/[sequtils, strutils]\nlet xs = @[1, 2, 3]\nlet r = xs\n  .mapIt(it * 2)\n" &
+                          "  .mapIt($it)\n  .join(\", \")\n")
+    var v = ""
+    for s in f.syms:
+      if s.name == "r": v = s.value
+    check v.startsWith("xs.mapIt") and v.endsWith(".join(\", \")")
+    check nxTypeOfExpr(f, nxScope(f), @[], v, 2, 0).typ == "string"
+
 removeDir(dir)

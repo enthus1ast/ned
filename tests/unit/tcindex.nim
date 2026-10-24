@@ -1,6 +1,6 @@
 ## ned's C engine as a library: declarations, members after -> and ., locals, documentation comments, definitions,
 ## signature help, occurrences. Run: nim r tests/unit/tcindex.nim
-import std/[unittest, strutils, os, tables]
+import std/[unittest, strutils, os, tables, sets]
 import ../../src/ned/c/cindex
 
 const Src = """
@@ -541,3 +541,279 @@ suite "C hover: values, layouts, expansions (6.23)":
     let l = src.split('\n')[12]
     check "Expands to:\n```c\n((SIZE) * 2)\n```" in cxHover(f, 12, l.find("TWICE"))
     check cxEvalConst(@[f], "(SIZE << 2) | 1") == (true, 65'i64)
+
+suite "the preprocessor's #if, worked out; declarations macros make (6.25)":
+  let d = getTempDir() / "ned_tcindex_625"
+  createDir(d)
+  cxDirs = @[d]
+  proc names(g: CxFile): seq[string] =
+    for s in g.syms: result.add s.name
+  proc lineOf2(src, t: string): int = lineOf(src.splitLines, t)
+
+  test "macros #defined before, in the file and in its headers; -D and -U; arithmetic, defined(), function-like":
+    writeFile(d / "conf.h", "#ifndef CONF_H\n#define CONF_H\n#define HAVE_THING 1\n#define LEVEL (2 + 1)\n" &
+              "#define VERSION(a, b) ((a) * 100 + (b))\n#undef GONE\n#endif\n")
+    cxDefines = @["-DUSE_FAST", "-DWIDTH=64", "-UOLD_API"]
+    let src = "#include \"conf.h\"\n#define LOCAL 0\n" &
+              "#if HAVE_THING\nint thing_on;\n#else\nint thing_off;\n#endif\n" &
+              "#if LEVEL >= 3 && defined(USE_FAST)\nint fast_three;\n#elif LEVEL == 2\nint two;\n#else\nint other;\n#endif\n" &
+              "#ifdef OLD_API\nint old_api;\n#endif\n" &
+              "#if LOCAL\nint local_on;\n#endif\n" &
+              "#if VERSION(2, 5) >= 205 && WIDTH / 2 == 32\nint new_enough;\n#endif\n" &
+              "#ifdef GONE\nint gone;\n#endif\n" &
+              "#ifdef SOMETHING_UNKNOWN\nint maybe_a;\n#else\nint maybe_b;\n#endif\n"
+    let g = cxLoad(d / "a.c", src, "pp1")
+    let ns = names(g)
+    for want in ["thing_on", "fast_three", "new_enough", "maybe_a", "maybe_b"]:
+      checkpoint want
+      check want in ns
+    for gone in ["thing_off", "two", "other", "old_api", "local_on", "gone"]:
+      checkpoint gone
+      check gone notin ns
+    # what the editor dims: the branches left out (not the one not known)
+    let sl = src.splitLines
+    proc dimmed(l: int): bool =
+      for (a, b) in g.inactive:
+        if l >= a and l <= b: return true
+    check dimmed(lineOf(sl, "int thing_off;")) and dimmed(lineOf(sl, "int two;")) and dimmed(lineOf(sl, "int old_api;"))
+    check not dimmed(lineOf(sl, "int thing_on;")) and not dimmed(lineOf(sl, "int maybe_a;"))
+    check cxInactiveIn(src, path = d / "a.c") == g.inactive
+    cxDefines = @[]
+
+  test "the compiler's own macros (the target): a function declared in both branches is found once, the active one":
+    cxPredef = {"__x86_64__": "1", "__linux__": "1", "__GNUC__": "13", "__STDC_VERSION__": "201710L",
+                "__SIZEOF_POINTER__": "8"}.toTable
+    cxPredefSet = true
+    let src = "#ifdef _WIN32\nvoid sleep_ms(unsigned ms);\nvoid win_only(void);\n#else\nvoid sleep_ms(int ms);\n" &
+              "void posix_only(void);\n#endif\n#if __STDC_VERSION__ >= 201112L && __SIZEOF_POINTER__ == 8\nint c11_64;\n#endif\n" &
+              "#if defined(__clang__) || (defined(__GNUC__) && __GNUC__ < 4)\nint old_or_clang;\n#endif\n" &
+              "void use(void) { sleep_ms(1); }\n"
+    let g = cxLoad(d / "b.c", src, "pp2")
+    let ns = names(g)
+    check "posix_only" in ns and "win_only" notin ns and "c11_64" in ns and "old_or_clang" notin ns
+    let sl = src.splitLines
+    let l = lineOf(sl, "sleep_ms(1)")
+    let ts = cxTargets(g, l, sl[l].find("sleep_ms"))
+    check ts.len == 1 and ts[0][1].line == lineOf(sl, "void sleep_ms(int ms);")
+    check "int ms" in cxHover(g, l, sl[l].find("sleep_ms"))
+    cxPredefSet = false
+
+  test "a header's guard is taken; a macro changed in a branch not known is not known after it":
+    writeFile(d / "guard.h", "#ifndef GUARD_H\n#define GUARD_H\n#ifdef MAYBE_X\n#define MODE 1\n#else\n" &
+              "#define MODE 2\n#endif\n#define ALWAYS 7\n#endif\n")
+    let src = "#include \"guard.h\"\n#if ALWAYS == 7\nint seven;\n#else\nint not_seven;\n#endif\n" &
+              "#if MODE == 2\nint mode2;\n#else\nint mode1;\n#endif\n"
+    let g = cxLoad(d / "c.c", src, "pp3")
+    let ns = names(g)
+    check "seven" in ns and "not_seven" notin ns
+    check "mode2" in ns and "mode1" in ns                  # (MODE: 1 or 2, as MAYBE_X is — not known)
+
+  test "a file compile_commands.json gives all the flags of: a macro defined nowhere is not defined":
+    let src = "#ifdef HAVE_NOTHING_LIKE_IT\nint nope;\n#else\nint yes;\n#endif\n"
+    var g = cxLoad(d / "s.c", src, "pp4")
+    check "nope" in names(g) and "yes" in names(g)
+    cxStrictFiles.incl d / "s.c"
+    g = cxLoad(d / "s.c", src, "pp5")
+    check "nope" notin names(g) and "yes" in names(g)
+    cxStrictFiles.clear()
+
+  test "a macro that makes declarations: a getter, a name, a type, # and ##; hover says which macro":
+    writeFile(d / "decl.h", "#define DECLARE_GETTER(name, T) T get_##name(void);\n" &
+              "#define FN_NAME my_func\n#define Node struct node\n#define MAKE(n) const char *n##_str = #n;\n" &
+              "#define LIB_API extern\n#define API(x) lib_##x\n")
+    let src = "#include \"decl.h\"\nstruct node { int value; struct node *next; };\n" &
+              "DECLARE_GETTER(width, int)\nDECLARE_GETTER(label, const char *)\nint FN_NAME(void);\n" &
+              "Node *head;\nMAKE(alpha)\nLIB_API int API(open)(const char *path);\n" &
+              "void f(void) {\n  get_width();\n  head->value = 1;\n  lib_open(alpha_str);\n}\n"
+    let g = cxLoad(d / "e.c", src, "pp6")
+    let sl = src.splitLines
+    var byName: Table[string, CxSym]
+    for s in g.syms: byName[s.name] = s
+    check "get_width" in byName and "get_label" in byName and "my_func" in byName and "alpha_str" in byName
+    check "lib_open" in byName and "FN_NAME" notin byName
+    check byName["get_width"].kind == cxFunc and byName["get_width"].typ == "int"
+    check byName["get_width"].viaMacro == "DECLARE_GETTER" and byName["get_width"].line == lineOf(sl, "DECLARE_GETTER(width")
+    check byName["get_label"].typ == "const char *"
+    check byName["lib_open"].params.len == 1 and byName["lib_open"].params[0].name == "path"
+    # completion, hover, go to definition from a use
+    let l = lineOf(sl, "  get_width();")
+    var labels: seq[string]
+    for it in cxComplete(g, l, 5)[0]: labels.add it.label
+    check "get_width" in labels and "my_func" in labels
+    let h = cxHover(g, l, 4)
+    check "int get_width()" in h and "declared by the macro DECLARE_GETTER" in h
+    let ts = cxTargets(g, l, 4)
+    check ts.len == 1 and ts[0][1].line == lineOf(sl, "DECLARE_GETTER(width")
+    # a macro as a declaration's type: its members
+    let lh = lineOf(sl, "head->value")
+    labels.setLen(0)
+    for it in cxComplete(g, lh, sl[lh].find("value"))[0]: labels.add it.label
+    check labels == @["value", "next"]
+  cxDirs = @[]
+
+suite "C++: overloads and template specialisations (6.25)":
+  let d = getTempDir() / "ned_tcindex_625cpp"
+  createDir(d)
+  cxDirs = @[d]
+  let hdr = """
+#include <string>
+/// Prints a number.
+struct Printer {
+  /// A number.
+  void print(int n);
+  /// A string.
+  void print(const char *s);
+  /// A number with its precision.
+  void print(double d, int prec = 2);
+  void print(const std::string &s, bool upper);
+};
+/// The area of a rectangle.
+int area(int w, int h);
+/// The area of a circle.
+double area(double r);
+template <typename T> struct Hash { int generic; };
+/// Hashes ints.
+template <> struct Hash<int> { int forInt; unsigned seed() const; };
+template <typename T> struct Box { T value; T get() const; };
+/// A box of a pointer.
+template <typename T> struct Box<T*> { T *ptr; bool null() const; };
+struct Point { int x, y; };
+"""
+  let src = """
+#include "ovl.hpp"
+void Printer::print(int n) {}
+void Printer::print(const char *s) {}
+void Printer::print(double d, int prec) {}
+int area(int w, int h) { return w * h; }
+double area(double r) { return 3.14 * r * r; }
+unsigned Hash<int>::seed() const { return 7; }
+void use() {
+  Printer p;
+  const char *name = "x";
+  double radius = 2.0;
+  p.print("x");
+  p.print(3);
+  p.print(1.5, 3);
+  p.print(name);
+  area(radius);
+  area(1, 2);
+  Hash<int> h;
+  Hash<long> g;
+  Box<Point*> b;
+  Box<int> bi;
+  h.forInt;
+  g.generic;
+  b.ptr;
+  bi.value;
+  p.print(radius, 
+}
+"""
+  writeFile(d / "ovl.hpp", hdr)
+  let m = cxLoad(d / "use.cpp", src, "ovl1")
+  let sl = src.splitLines
+  let hl = hdr.splitLines
+  proc at(t, w: string): (int, int) =
+    let l = lineOf(sl, t)
+    (l, sl[l].find(w))
+  proc labelsAt(l, c: int): seq[string] =
+    for it in cxComplete(m, l, c)[0]: result.add it.label
+
+  test "go to definition and hover pick the overload by the number and the types of the arguments":
+    var (l, c) = at("p.print(\"x\");", "print")
+    var ts = cxTargets(m, l, c)
+    check ts.len > 0 and ts[0][1].params.len == 1 and ts[0][1].params[0].typ == "const char *"
+    check "A string." in cxHover(m, l, c)
+    (l, c) = at("p.print(3);", "print")
+    ts = cxTargets(m, l, c, jump = true)
+    check ts[0][1].params.len == 1 and ts[0][1].params[0].typ == "int" and ts[0][1].isDef and ts[0][0] == m
+    check "A number." in cxHover(m, l, c)
+    (l, c) = at("p.print(1.5, 3);", "print")
+    check cxTargets(m, l, c)[0][1].params.len == 2 and "A number with its precision." in cxHover(m, l, c)
+    (l, c) = at("p.print(name);", "print")
+    check cxTargets(m, l, c)[0][1].params[0].typ == "const char *"
+    (l, c) = at("area(radius);", "area")
+    ts = cxTargets(m, l, c)
+    check ts[0][1].params.len == 1 and "The area of a circle." in cxHover(m, l, c)
+    (l, c) = at("area(1, 2);", "area")
+    check cxTargets(m, l, c)[0][1].params.len == 2 and "The area of a rectangle." in cxHover(m, l, c)
+    # every overload still listed, the one picked first
+    check cxTargets(m, l, c).len >= 4
+
+  test "overloads: an enum's, a template's, a const method's — by what the arguments are":
+    let src2 = """
+enum Err { OK, BAD };
+bool check(const char *what, Err a, Err b);
+bool check(const char *what, bool a, bool b);
+template <class T> bool check(const char *what, T a, T b);
+struct Node { Node *first(); const Node *first() const; const Node *next() const; Node *next(); };
+void put(int n);
+void put(long long n);
+void put(const char *s);
+void run(const Node *cn, Node *nn) {
+  check("x", OK, BAD);
+  check("y", 1, 2);
+  bool ok = true;
+  check("z", true, ok);
+  cn->first();
+  nn->first();
+  nn->next()->first();
+  cn->next()->first();
+  put(static_cast<long long>(1));
+  put((long long)(2));
+  put(nullptr);
+}
+"""
+    let g = cxLoad(d / "ovl2.cpp", src2, "ovl2")
+    let s2 = src2.splitLines
+    proc firstAt(t, w: string): CxSym =
+      let l = lineOf(s2, t)
+      cxTargets(g, l, s2[l].find(w))[0][1]
+    check firstAt("check(\"x\", OK, BAD);", "check").params[1].typ == "Err"
+    check firstAt("check(\"y\", 1, 2);", "check").tparams == @["T"]
+    check firstAt("check(\"z\", true, ok);", "check").params[1].typ == "bool"     # (a function before a template)
+    check firstAt("cn->first();", "first").text.endsWith(" const")
+    check not firstAt("nn->first();", "first").text.endsWith(" const")
+    check not firstAt("nn->next()->first();", "first").text.endsWith(" const")
+    check firstAt("cn->next()->first();", "first").text.endsWith(" const")
+    check firstAt("put(static_cast<long long>(1));", "put").params[0].typ == "long long"
+    check firstAt("put(nullptr);", "put").params[0].typ == "const char *"
+
+  test "signature help: the overload the arguments typed so far fit":
+    let l = lineOf(sl, "  p.print(radius, ")
+    let (s, active) = cxSignature(m, l, sl[l].len)
+    check s.name == "print" and s.params.len == 2 and s.params[0].typ == "double" and active == 1
+    let l2 = lineOf(sl, "p.print(1.5, 3);")
+    let (s2, a2) = cxSignature(m, l2, sl[l2].find("3)"))
+    check s2.params.len == 2 and s2.params[0].typ == "double" and a2 == 1
+    # (every argument: the parameters' names before them, ned's inlay hints)
+    let l3 = lineOf(sl, "p.print(\"x\");")
+    check cxSignature(m, l3, sl[l3].find("(") + 1, whole = true)[0].params[0].typ == "const char *"
+    check cxSignature(m, l2, sl[l2].find("(") + 1, whole = true)[0].params[0].typ == "double"
+    let l4 = lineOf(sl, "p.print(3);")
+    check cxSignature(m, l4, sl[l4].find("(") + 1, whole = true)[0].params[0].typ == "int"
+
+  test "a template's specialisation: go to definition, hover and its members":
+    var (l, c) = at("Hash<int> h;", "Hash")
+    var ts = cxTargets(m, l, c)
+    check ts.len > 0 and ts[0][1].spec == "int" and ts[0][1].line == lineOf(hl, "template <> struct Hash<int>")
+    check "Hashes ints." in cxHover(m, l, c) and "struct Hash<int>" in cxHover(m, l, c)
+    (l, c) = at("h.forInt;", "forInt")
+    check labelsAt(l, c) == @["forInt", "seed"]
+    (l, c) = at("g.generic;", "generic")
+    check labelsAt(l, c) == @["generic"]
+    (l, c) = at("b.ptr;", "ptr")
+    check labelsAt(l, c) == @["ptr", "null"]
+    (l, c) = at("bi.value;", "value")
+    check labelsAt(l, c) == @["value", "get"]
+    (l, c) = at("Box<Point*> b;", "Box")
+    ts = cxTargets(m, l, c)
+    check ts[0][1].spec == "T*" and "A box of a pointer." in cxHover(m, l, c)
+    # a specialisation's method defined outside it: its own class's
+    var owner = ""
+    for s in m.syms:
+      if s.name == "seed" and s.isDef: owner = s.owner
+    check owner == "Hash<int>"
+    check cxxSpecMatch("T*", @["T"], @["Point *"]) == (true, @["Point"])
+    check cxxSpecMatch("T, T", @["T"], @["int", "long"])[0] == false
+    check cxxSpecMatch("std::vector<T>", @["T"], @["std::vector<Box<int>>"]) == (true, @["Box<int>"])
+  cxDirs = @[]

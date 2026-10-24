@@ -80,8 +80,9 @@ proc initSettingDefs() =
        "A row of big keys above the status bar for touch (Esc, Tab, arrows, undo, redo, save, find, commands): " &
        "auto = on narrow screens (phones). View › Appearance › Touch bar, or the palette, turns it on and off",
        @["off", "on", "auto"])
-  defS("Appearance", "ui.touchBarKeys", %["esc", "tab", "left", "down", "up", "right", "undo", "redo", "save", "find", "palette"],
-       "The touch bar's keys, in order: esc tab enter left right up down home end pgup pgdn undo redo save find " &
+  defS("Appearance", "ui.touchBarKeys", %["esc", "tab", "unindent", "left", "down", "up", "right", "undo", "redo", "save",
+                                          "find", "palette"],
+       "The touch bar's keys, in order: esc tab indent unindent enter left right up down home end pgup pgdn undo redo save find " &
        "palette copy cut paste, a key like \"ctrl+p\" or \"alt+r\", or \"Label=command\" for any palette command " &
        "(e.g. \"Run=Run file\")")
   defS("Appearance", "ui.terminalScroll", %true, "When the text moves up or down, let the terminal move the lines " &
@@ -431,6 +432,12 @@ proc initSettingDefs() =
        "compiler's errors while you type — instant, nothing to install) · clangd (more precise with macros and " &
        "C++) · both = ned's answers at once and clangd's errors and fixes · auto = clangd when it is installed, " &
        "else ned's own", @["auto", "builtin", "clangd", "both"])
+  defS("C", "c.engineChecks", %*{"unusedIncludes": true, "padding": true, "formats": true},
+       "ned's own checks of C files while you type, with no compiler (when ned's engine answers for the file, " &
+       "c.engine): unusedIncludes — an #include nothing of which is used (Alt+Enter removes it) · padding — a " &
+       "struct that would take less room with its fields ordered by size (Alt+Enter orders them) · formats — " &
+       "printf and scanf formats against their arguments (Alt+Enter: the conversion the argument takes). false: " &
+       "none of them")
   defS("Nim", "nim.parameterHints", %"literals", "Parameter names shown before the arguments of a call " &
        "(built-in engine, with the inlay hints): literals = before numbers, strings, true/false/nil — draw(width: 10, " &
        "height: 20) · all = before every argument · off", @["literals", "all", "off"])
@@ -441,6 +448,8 @@ proc initSettingDefs() =
   defS("Nim", "nim.raisesHints", %false, "After the header of a routine without {.raises.}: what it can raise, as " &
        "ned's engine works it out (its raise statements and the routines it calls, less what its try … except " &
        "catches) — only when it is sure of every call; Defects are not listed. The hover of a routine shows it too")
+  defS("Nim", "nim.chainHints", %true, "A call chain written over several lines (each line starting with a dot: " &
+       ".filterIt(…) ⏎ .mapIt(…)): the type of what each line gives, after it — from ned's engine, when it is sure")
   defS("Nim", "nim.cSignatureHints", %true, "After a wrapper that imports C (importc), its C declaration — dimmed, " &
        "from the header or the {.emit.} (int puts(const char *s))")
   defS("Nim", "nim.formatEmitC", %true, "Formatting a Nim file also formats the C in its {.emit: \"\"\"…\"\"\".} blocks: " &
@@ -479,6 +488,11 @@ proc initSettingDefs() =
   defS("Nim", "nim.liveDiagnosticsFrom", %"auto", "What checks the text while you type: the compiler (nim check " &
        "on the unsaved text, after a pause), nimsuggest, or auto: the compiler, unless its check of the file takes " &
        "over 10 s and nimsuggest runs", @["auto", "compiler", "nimsuggest"])
+  defS("Nim", "nim.compilerOracle", %true, "With nim.nimsuggest off: what ned's engine cannot work out by reading " &
+       "— the type of a let a macro or a `when compiles` makes, which of several overloads a call picks — is asked " &
+       "of the compiler after a pause in the typing: one nimsuggest run for the lines around the screen, which then " &
+       "quits. The answers are kept (by the text of each line) for the next time; type hints, hover and Go to " &
+       "definition use them")
   defS("Nim", "nim.compilerAnswers", %true, "With nim.nimsuggest off: where ned's engine has no answer (a hover, Go to " &
        "definition — names a macro makes, say), ask the compiler once — one nimsuggest run for that question, which " &
        "then quits. Kept until the file changes")
@@ -598,6 +612,8 @@ proc initSettingDefs() =
        "folder you trust, the project's (.ned/plugins/<name>) — NimScript, all in one `nim e` process; a folder " &
        "with a plugin.nim is a plugin in full Nim, compiled into a program of its own (Plugins dock)")
   defS("Plugins", "plugins.disabled", newJArray(), "Plugins that are off (by name): [\"zig-lite\"]")
+  defS("Plugins", "plugins.bundled", newJArray(), "ned's own plugins you turned on (Plugins dock › AVAILABLE, or " &
+       "Plugins › Available plugins…), by name: [\"dial\", \"harpoon\"] — they come with ned and update with it")
   defS("Plugins", "plugins.native", %"auto", "Compile the NimScript plugins (nim c, in the background) instead of " &
        "running them with nim e: a faster start, faster calls, less memory. auto: a set of plugins started before " &
        "as it is now is compiled for the next start · on: always · off: never (a plugin that uses what only " &
@@ -618,7 +634,11 @@ proc initSettingDefs() =
        "{\"extensions\": [\"zig\"], \"lineComment\": \"//\", \"blockComment\": [\"/*\", \"*/\"], \"keywords\": " &
        "\"fn const var pub return if else while for\", \"types\": \"u8 i32 usize bool\", \"constants\": \"true false null\", " &
        "\"functionWords\": \"fn\", \"indentSize\": 4, \"run\": \"zig run $file\", \"formatter\": \"zig fmt --stdin\", " &
-       "\"languageServer\": [\"zls\"]}} — also files, quotes, builtins, classWords, indentAfter, dedent, tabs, name")
+       "\"languageServer\": [\"zls\"]}} — also files, quotes, builtins, classWords, indentAfter, dedent, dedentWords " &
+       "(\"end\": a line that becomes it goes one level out), tabs, name, pairs, build, check; and how the text is read: " &
+       "nestedComments, tripleQuotes, multilineStrings (a string that goes on below), charLiterals ('a'), capitalTypes " &
+       "(a Capitalised word is a type), decorators (@name), docComment (\"///\"), docBlockComment, nameChars (\"?!\": " &
+       "characters a name may have)")
   defS("Languages", "snippets", newJObject(),
        "Your snippets per language id (\"*\" = all): {\"nim\": {\"dbg\": \"echo \\\"${1:x} = \\\", $1\"}} — a body may also be a list of lines")
   defS("Settings sync", "sync.repository", %"", "A git repository of yours for Settings sync: push / pull (settings, key " &
@@ -1034,6 +1054,7 @@ proc applySettings() =
   cfgFormatVerify = sBool("nim.format.verify")
   cfgEngineChecks = sBool("nim.engineChecks")
   cfgCompilerAnswers = sBool("nim.compilerAnswers")
+  cfgOracle = sBool("nim.compilerOracle")
   nxDiskCache = sBool("nim.indexCache")
   nxCacheProject = sBool("nim.indexCacheProject")
   nxIndexBudget = max(0, sInt("nim.indexMemory")) * 1048576
@@ -1043,6 +1064,9 @@ proc applySettings() =
   cfgCSigHints = sBool("nim.cSignatureHints")
   cfgParamHints = sStr("nim.parameterHints")
   nxLayoutOn = sBool("nim.memoryLayout")
+  if sBool("nim.chainHints") != cfgChainHints:
+    cfgChainHints = sBool("nim.chainHints")
+    for b in bufs: b.inlayAt = -1
   if sBool("nim.raisesHints") != cfgRaisesHints:
     cfgRaisesHints = sBool("nim.raisesHints")
     for b in bufs: b.inlayAt = -1             # (the hints again, with or without what routines raise)
@@ -1050,6 +1074,10 @@ proc applySettings() =
   cfgCFormatter = sStr("c.formatter")
   cfgCStyleName = sStr("c.format.style")
   cfgCStyleOpts = cStyleOptions(sval("c.format.options"))
+  block:
+    let ec = sval("c.engineChecks")
+    cxChecks = if ec.kind == JBool: (ec.getBool, ec.getBool, ec.getBool)
+               else: (ec{"unusedIncludes"}.getBool(true), ec{"padding"}.getBool(true), ec{"formats"}.getBool(true))
   if not cfgCSigHints: cSigHints.clear()
   cSigHintsAt.clear()
   cfgPasteFmt = sStr("editor.formatOnPaste")
@@ -1246,6 +1274,22 @@ proc applyUserLanguages() =
     let ls = words(d{"languageServer"})
     if ls.len > 0: l.lsp = @[ls]
     if d{"pairs"} != nil: l.pairs = d{"pairs"}.getStr
+    # (the generic lexer's own choices)
+    if d{"nestedComments"} != nil: l.nested = d{"nestedComments"}.getBool
+    if d{"tripleQuotes"} != nil: l.triple = d{"tripleQuotes"}.getBool
+    if d{"multilineStrings"} != nil: l.multiline = d{"multilineStrings"}.getBool
+    if d{"charLiterals"} != nil: l.charLit = d{"charLiterals"}.getBool
+    if d{"capitalTypes"} != nil: l.capsTypes = d{"capitalTypes"}.getBool
+    if d{"decorators"} != nil: l.decorators = d{"decorators"}.getBool
+    if d{"docComment"} != nil: l.docLine = d{"docComment"}.getStr
+    let db = words(d{"docBlockComment"})
+    if db.len == 2: (l.docBlockStart, l.docBlockEnd) = (db[0], db[1])
+    if d{"nameChars"} != nil:
+      for c in d{"nameChars"}.getStr:
+        if c notin {' ', '\t'}: l.nameChars.incl c
+    for w in words(d{"dedentWords"}): (if w notin l.dedentWords: l.dedentWords.add w)
+    if d{"build"} != nil: l.build = d{"build"}.getStr
+    if d{"check"} != nil: l.check = d{"check"}.getStr
   # open files of these languages: coloured again
   for b in bufs:
     if b.path.len == 0: continue
@@ -1259,7 +1303,8 @@ func riskyProjectKey(k: string): bool =
   ## until you trust the folder
   k in ["lsp", "lsp.alsoRun", "formatters", "run", "run.configs", "terminal.shell", "nim.nimsuggestPath", "nim.ide",
         "nim.toolchain", "nim.ciNedRepository", "keys", "commands",
-        "languages", "debug.adapters", "repl.commands", "sync.repository", "editor.spellDictionary", "editor.keymap"] or
+        "languages", "debug.adapters", "repl.commands", "sync.repository", "editor.spellDictionary", "editor.keymap",
+        "plugins.bundled"] or
     k.startsWith("ai.")
 
 proc mergeProjectSettings(j: JsonNode) =

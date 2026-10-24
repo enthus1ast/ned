@@ -18,6 +18,8 @@ proc drawTouchBar() =
     case n.toLowerAscii
     of "esc": keys.add ("Esc", Key(kind: kEsc), "")
     of "tab": keys.add ("Tab", Key(kind: kTab), "")
+    of "indent": keys.add ("⇥", Key(kind: kNone), "Indent lines")
+    of "outdent", "unindent": keys.add ("⇤", Key(kind: kNone), "Unindent lines (outdent, dedent)")
     of "enter": keys.add ("⏎", Key(kind: kEnter), "")
     of "left": keys.add ("←", Key(kind: kLeft), "")
     of "right": keys.add ("→", Key(kind: kRight), "")

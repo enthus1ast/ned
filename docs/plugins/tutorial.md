@@ -439,8 +439,8 @@ proc scan(files, ms: seq[string]): seq[(string, Note)] =
 `shell(cmd)` runs a command in the project's folder (`shell(cmd, dir)` in another) and gives its output and exit
 code; `quoteShell` makes a path safe to put in one. grep does the reading: it skips binary files, and a file it
 cannot read is no error to it, while in NimScript an error of `readFile` cannot be caught. (The plugin's own
-process does not run in the project's folder: a path for `readFile` starts from `projectDir()`, as in
-`projectDir() & "/src/app.nim"`.)
+process does not run in the project's folder: a path for `readFile` starts from `projectRoot()`, as in
+`projectRoot() & "/src/app.nim"`.)
 
 `progress(text, percent)` shows work under way in the status bar (a percent of -1 when you do not know it), and
 `progressDone()` removes it. Now the view, and the command that fills it:

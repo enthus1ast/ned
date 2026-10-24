@@ -60,7 +60,21 @@ proc nxCallInstance*(f: NxFile, lines: seq[string], line, col: int, s: NxSym): s
   ## there — `max(x: int, y: int): int   (T = int)` — or "" when it is not a call or nothing can be bound
   let names = nxGenericNames(s.generics)
   if names.len == 0 or line >= lines.len: return
-  let t = lines[line]
+  var t = lines[line]
+  # (a call whose arguments go on over the lines below: they are joined to it)
+  block:
+    var depth = 0
+    for ch in t:
+      if ch in {'(', '['}: inc depth
+      elif ch in {')', ']'}: dec depth
+    var k = line + 1
+    while depth > 0 and k < lines.len and k <= line + 12:
+      let u = lines[k].strip
+      t.add " " & u
+      for ch in u:
+        if ch in {'(', '['}: inc depth
+        elif ch in {')', ']'}: dec depth
+      inc k
   var a = min(col, t.len)
   while a > 0 and nxIsIdent(t[a - 1]): dec a
   var e = a

@@ -1,7 +1,8 @@
 # Plugins
 
 New to writing plugins? The [tutorial](tutorial.md) builds one step by step; the [API reference](api.md) lists
-every proc and type. This page says what plugins can do and how they run.
+every proc and type. This page says what plugins can do and how they run. ned comes with nineteen plugins of its
+own, off until you turn one on: [ned's own plugins](available.md).
 
 A plugin is a folder with a `plugin.nims` — NimScript, the Nim of `config.nims` — or a `plugin.nim`, a plugin in
 full Nim. Yours are in `~/.config/ned/plugins/<name>/`; a project's in `.ned/plugins/<name>/` run once you trust
@@ -53,20 +54,22 @@ from `start` up to `stop`):
 | | |
 |---|---|
 | commands, keys | `command "title": …`, `command "title", "ctrl+alt+x": …` (your `keys` setting wins over a plugin's), `runCommand(name)` (one of ned's) |
-| events | `onStartup`, `onOpen(pattern)`, `onBeforeSave(pattern)` (what it changes is saved), `onSave`, `onClose`, `onChange` (after a pause in the typing); `pattern`: `"*"`, `"*.zig"`, `"src/*.nim"`, `"lang:zig"`; `autocmd("BufWritePre", "*.nim")` with vim's names |
+| events | `onStartup`, `onOpen(pattern)`, `onBeforeSave(pattern)` (what it changes is saved), `onSave`, `onClose`, `onChange` (after a pause in the typing), `onEnter` (a tab comes to the front), `onQuit` (ned waits a moment for it); `pattern`: `"*"`, `"*.zig"`, `"src/*.nim"`, `"lang:zig"`; `autocmd("BufWritePre", "*.nim")` with vim's names |
+| tabs of a plugin's own | `newTab(title, text, lang)` (a tab of that title is reused), `b.title`, `b.setTitle(t)`, `b.markSaved`, `closeTab(b)`; `onSaveTab("oil") do (ev: Event): …` — saving a tab of that language is the plugin's (oil's folder view); `keyIn("oil", "alt+enter", "open it") do (b: Buf): …` — a key only in files of one language |
+| keys that wait (which-key) | `onKeysWaiting(ms) do (keys, mode: string): …`, `pendingKeys()`, `showKeyHints(title, [("d", "go to definition")])` (a box above the status bar until the keys go on; a tap types one), `keyMaps()` (the plugins' mappings and keys, with what they do) |
 | the text | `current()`, `openFile(path, line)`, `buffers()`; `b.path`, `b.lang`, `b.lineCount`, `b.line(i)`, `b.lines(a, e)`, `b.text`, `b.textIn(r)`, `b.setText(s)` (only the lines that differ change), `b.replace(r, s)`, `b.insert(p, s)`, `b.delete(r)`, `b.cursor`, `b.setCursor(p)`, `b.selection`, `b.selections`, `b.select(r)`, `b.wordAt(p)`, `b.dirty`, `b.save()`, `b.indentUnit`, `b.lineComment` |
 | you | `message(s)`, `warn(s)`, `toast(s)`, `pick(title, items)` (the index, -1), `ask(prompt, default)`, `confirm(question)` |
 | problems | `b.setProblems([Problem(range, severity, message, fixes)])` — Problems, the underline, and Alt+Enter applies a `Fix(title, edits)` |
 | in the editor | `b.sign(line, "★", "warn")` (the gutter), `b.virtualText(line, text)` (after the line), `b.highlight(r, "accent")`, `b.clearDecorations`, `status(text)`, `progress("Indexing", 40)` / `progressDone()` (the status bar), `output(text)` / `showOutput()` (the Output panel; `file:line:col` in it can be clicked), `runInTerminal(cmd, dir)` (ned's terminal) |
 | a language's features | `completions("zig") do (b: Buf, p: Pos, prefix: string) -> seq[CompletionItem]: …` (`label`, `insert`, `detail`, `doc`, `kind`, `snippet`; merged with ned's and a language server's), `hover("zig") do (b, p) -> string` (Markdown, under ned's own), `codeActions("zig") do (b: Buf, r: Range) -> seq[Fix]` (Alt+Enter), `symbols("zig") do (b: Buf) -> seq[Symbol]` (`name`, `kind`, `detail`, `line`, `col`, `depth`: the Outline, Go to symbol, the breadcrumbs), `snippet("zig", "fn", "fn ${1:name}() {\n\t$0\n}", "a function")`; `"*"` for every language |
-| languages | `language("zig", LangSpec(extensions, lineComment, blockComment, keywords, types, constants, builtins, functionWords, indentAfter, dedent, indentSize, tabs, run, pairs))`; `filetype("python", indentSize = 4)`; your `languages` setting wins over a plugin's |
+| languages | `language("zig", LangSpec(extensions, lineComment, blockComment, keywords, types, constants, builtins, functionWords, indentAfter, dedent, dedentWords, indentSize, tabs, run, build, check, pairs, nestedComments, tripleQuotes, multilineStrings, charLiterals, capitalTypes, decorators, docComment, docBlockComment, nameChars))`; `filetype("python", indentSize = 4)`; your `languages` setting wins over a plugin's |
 | formatters | `formatter("zig", "zig fmt --stdin")` or one in NimScript: `formatter("zig") do (text: string) -> string: …` (Alt+F and format on save; your `formatters` setting wins) |
 | language servers | `languageServer("zig", @["zls"])`, or one written in NimScript: `languageServerScript("lang", "server.nims")` |
 | the assistant | `aiTool("name", "what it does", %*{"path": {"type": "string"}}) do (args: JsonNode) -> string: …` — a tool ned's AI agent may call (it asks you first, as for a command); `aiToolReadOnly(…)` for one that only reads (no question) |
 | views | `view("Title") do () -> seq[ViewItem]: …` — a section of the Plugins dock (`text`, `detail`, `icon`, `color`, `id`, `path`, `line`, `depth`), with `do (id: string): …` for a click; `refreshView("Title")` |
-| vim | `nmap("<leader>f") do (count: int): …`, `vmap`, `operator("gc") do (b: Buf, r: Range, linewise: bool): …` (with motions, text objects, `gcc`, visual), `textObject("ie") do (b: Buf, p: Pos) -> Range: …` (after `d c y`, a plugin's operator, in visual mode), `exCommand("Name") do (args: string): …`; the leader is the space bar |
-| time | `every(ms) do (): …`, `after(ms) do (): …`, `stopTimer(id)` |
-| settings, files | `settingDef("width", 80, "…")` (in ned's Settings panel as `plugins.<name>.width`), `setting("width", 80)`; `dataDir()` (`~/.local/share/ned/plugins/<name>`), `pluginDir()`, `shell(cmd)` (output, exit code), `log(s)`; `requiresNed(">= 6.20")` |
+| vim | `nmap("<leader>f") do (count: int): …` (`nmap("<leader>f", "find a file") do …` says what it does, for which-key), `vmap`, `nmapIn(lang, …)` / `vmapIn` (only in files of one language), `vimMode()`, `operator("gc") do (b: Buf, r: Range, linewise: bool): …` (with motions, text objects, `gcc`, visual), `textObject("ie") do (b: Buf, p: Pos) -> Range: …` (after `d c y`, a plugin's operator, in visual mode), `exCommand("Name") do (args: string): …`; the leader is the space bar |
+| time | `every(ms) do (): …`, `after(ms) do (): …`, `stopTimer(id)`, `unixTime()`, `localTime()` |
+| settings, files | `settingDef("width", 80, "…")` (in ned's Settings panel as `plugins.<name>.width`), `setting("width", 80)`; `dataDir()` (`~/.local/share/ned/plugins/<name>`), `pluginDir()`, `projectRoot()`, `shell(cmd)` (output, exit code), `shellAsync(cmd) do (output: string, code: int): …` (in the background), `clipboard()`, `setClipboard(s)`, `log(s)`; `requiresNed(">= 6.20")` |
 
 **A language server in NimScript.** `import nedlsp`, answer requests with `onRequest("textDocument/hover") do
 (params: JsonNode) -> JsonNode: …`, take notifications with `onNotification`, and end with

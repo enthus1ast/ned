@@ -73,7 +73,9 @@ proc cSystemIncludeDirs(): seq[string] =
         cSysDirs.setLen(0)
         cSysDirsFrom(j.output)
         cSysDirsDone = true
-        cDirsCache.clear())
+        cDirsCache.clear()
+        for x in bufs:                       # (C files: their hints and checks again, the headers found now)
+          if x.lang != nil and x.lang.id in ["c", "cpp"]: x.inlayAt = -1)
     var tmp: seq[string]
     for d in [getEnv("PREFIX") / "include", "/usr/local/include", "/usr/include"]:
       if d.len > 1 and dirExists(d): tmp.add d

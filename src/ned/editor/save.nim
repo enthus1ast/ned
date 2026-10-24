@@ -35,6 +35,7 @@ proc saveBuffer(b: Buffer, path = "", force = false): bool =
   if b.id in commitBufs and path.len == 0: return doCommitFromBuffer(b)
   if b.id in rebaseBufs and path.len == 0: return doRebaseFromBuffer(b)
   if b.id in sigPlans and path.len == 0: return doSignatureFromBuffer(b)
+  if path.len == 0 and b.path.len == 0 and plugWrites(b): return true   # (a plugin's tab: the folder view)
   if b.hex != nil:
     return b.hexSave(path)                           # (the hex editor: the bytes as they are)
   if path.len == 0 and b.path.len > 0 and not force:

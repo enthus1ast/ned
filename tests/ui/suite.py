@@ -8266,6 +8266,460 @@ def t_6241_ce_all_procs():
     s = screen()
     check('6241 CE: switched off, procs nothing calls are left out again', re.search(label % 'sevenTimes', s) is None, s)
 
+def t_625_indent():
+    # indent and unindent, wherever they are looked for: the palette ("unindent"), the Edit menu, the touch bar's
+    # ⇥ ⇤, vim's >> << and, in insert mode, Ctrl+T / Ctrl+D
+    setup({"ui.touchBar": "on", "ui.touchBarKeys": ["esc", "indent", "unindent", "save"]})
+    open(W + '/ind.nim', 'w').write('proc f() =\n  echo 1\n  echo 2\n')
+    start('ind.nim', w=120, h=30); time.sleep(0.6)
+    keys('C-g'); text('2'); keys('Enter')
+    keys('C-p'); text('>unindent'); time.sleep(0.5)
+    check('625 palette: "unindent" finds it', 'Unindent lines' in screen(), screen())
+    keys('Enter'); time.sleep(0.3); keys('C-s'); time.sleep(0.4)
+    check('625 Unindent lines: the line one level out', ftext('ind.nim').split('\n')[1] == 'echo 1', repr(ftext('ind.nim')))
+    keys('F10'); time.sleep(0.4)
+    if re.search(r'│\s+File\s+›', screen()): keys('Down', 'Right')      # (a narrow window: the menus in one list)
+    else: keys('Right')
+    time.sleep(0.4)
+    check('625 the Edit menu has Indent and Unindent', 'Indent' in screen() and 'Unindent' in screen(), screen())
+    keys('Escape'); keys('Escape'); time.sleep(0.2)
+    p = None
+    for r, l in enumerate(screen().splitlines()):
+        c = l.find('⇥')
+        if c >= 0 and 'Save' in l: p = (c + 1, r + 1)
+    check('625 the touch bar has ⇥ and ⇤', p is not None and '⇤' in screen(), screen()[-400:])
+    if p:
+        click(*p); time.sleep(0.4); keys('C-s'); time.sleep(0.4)
+        check('625 the touch bar\'s ⇥ indents the line', ftext('ind.nim').split('\n')[1] == '  echo 1',
+              repr(ftext('ind.nim')))
+    palette('Toggle vim mode'); time.sleep(0.4)
+    keys('Escape'); keys('C-g'); text('3'); keys('Enter'); text('>>'); time.sleep(0.3)
+    text(':w'); keys('Enter'); time.sleep(0.4)
+    check('625 vim >>: one level in', ftext('ind.nim').split('\n')[2] == '    echo 2', repr(ftext('ind.nim')))
+    text('<<'); time.sleep(0.2); text('A'); keys('C-t'); time.sleep(0.2); text('3'); keys('Escape')
+    text(':w'); keys('Enter'); time.sleep(0.4)
+    check('625 vim <<, then Ctrl+T in insert mode: in again, and typing goes on at the end', ftext('ind.nim').split('\n')[2] == '    echo 23',
+          repr(ftext('ind.nim')))
+    text('A'); keys('C-d'); keys('Escape'); text(':w'); keys('Enter'); time.sleep(0.4)
+    check('625 vim Ctrl+D in insert mode: one level out', ftext('ind.nim').split('\n')[2] == '  echo 23',
+          repr(ftext('ind.nim')))
+
+def place_of(word, s=None):
+    """(column, row) from 1 of the first place `word` is on the screen, or None"""
+    for r, l in enumerate((s or screen()).splitlines()):
+        c = l.find(word)
+        if c >= 0: return (c + 1, r + 1)
+    return None
+
+def t_625_plugins_menu():
+    # 6.25: ned's own plugins — the menu bar's Plugins menu, the dock's AVAILABLE section: one turned on there with a
+    # tap (dial: Ctrl+A in vim mode adds 1), its settings, then removed again (it goes back to AVAILABLE)
+    setup({"editor.vimMode": True})
+    open(W + '/dl.nim', 'w').write('let n = 41\nlet day = "monday"\n')
+    start('dl.nim', w=150, h=44); time.sleep(0.8)
+    p = place_of('Plugins')
+    check('625 the menu bar has Plugins', p is not None and p[1] <= 2, screen()[:300])
+    if p:
+        click(*p); time.sleep(0.5)
+        s = screen()
+        check('625 the Plugins menu: the panel, ned\'s own, install, uninstall, new',
+              'Plugins panel' in s and "Available plugins (ned's own)" in s and 'Uninstall' in s and
+              'Install from git' in s and 'New plugin' in s, s)
+        keys('Escape'); time.sleep(0.2)
+    palette('Plugins panel'); time.sleep(1.0)
+    ok = wait_for(r"AVAILABLE · ned's own plugins", 8)
+    s = screen()
+    check('625 the dock lists ned\'s own plugins under AVAILABLE, each with what it does',
+          ok and 'dial' in s and 'which-key' in s, s)
+    d = None
+    for r, l in enumerate(s.splitlines()):
+        m = re.search(r'\+ dial\b', l)
+        if m: d = (m.start() + 3, r + 1)
+    if d:
+        click(*d); time.sleep(0.5)
+        check('625 a tap on one: Turn on, View its source, Copy to my plugins',
+              'Turn on' in screen() and 'View its source' in screen(), screen())
+        q = place_of('Turn on')
+        if q: click(*q); time.sleep(0.5)
+    ok = wait_for(r'INSTALLED(?s:.*)dial', 10)
+    check('625 turned on: dial is INSTALLED (ned\'s)', ok, screen())
+    cfg = json.load(open(CFG + '/ned/config.json'))
+    check('625 … and plugins.bundled says so', 'dial' in cfg.get('plugins.bundled', []), repr(cfg.get('plugins.bundled')))
+    keys('Escape'); time.sleep(0.2)
+    keys('C-g'); text('1:9'); keys('Enter'); time.sleep(0.3)
+    keys('Escape'); keys('C-a'); time.sleep(4)          # (the plugin's process starts on the first use)
+    keys('C-a'); time.sleep(1.5)
+    text(':w'); keys('Enter'); time.sleep(0.5)
+    check('625 dial: Ctrl+A in vim mode adds 1 (twice: 43)', ftext('dl.nim').startswith('let n = 43'), repr(ftext('dl.nim')))
+    # removed: back to AVAILABLE
+    palette('Plugins: uninstall / remove one…'); time.sleep(0.6)
+    text('dial'); time.sleep(0.3); keys('Enter'); time.sleep(1.0)
+    cfg = json.load(open(CFG + '/ned/config.json'))
+    check('625 removed: not in plugins.bundled any more', 'dial' not in cfg.get('plugins.bundled', []),
+          repr(cfg.get('plugins.bundled')))
+    palette('Plugins panel'); time.sleep(1.0)
+    s = screen()
+    check('625 … and it is in AVAILABLE again', re.search(r'\+ dial\b', s) is not None, s)
+
+def t_625_which_key():
+    # 6.25: which-key — vim mode, g and a pause: a box above the status bar of what may follow (ned's own: d go to
+    # definition; a plugin's with what it does); a tap on one types it; the box goes when the keys go on
+    setup({"editor.vimMode": True, "plugins.bundled": ["which-key", "harpoon"], "plugins.which-key.delay": 300})
+    open(W + '/wk.nim', 'w').write('proc hello() = discard\nhello()\n\n\n')
+    start('wk.nim', w=150, h=40); time.sleep(1.0)
+    keys('Escape'); text('g'); time.sleep(5)              # (the plugins' process starts on the first use)
+    keys('Escape'); time.sleep(0.3); text('g')
+    ok = wait_for('go to definition', 6)
+    s = screen()
+    check('625 which-key: g and a pause — the box of what may follow', ok and 'first line' in s and 'g …' in s, s)
+    text('g'); time.sleep(0.5)
+    check('625 which-key: the next key typed — the box goes', 'go to definition' not in screen(), screen())
+    text(' '); ok = wait_for(r'<leader>', 6)
+    s = screen()
+    check("625 which-key: <leader> — a plugin's mappings with what they say (harpoon's)", ok and 'harpoon' in s.lower(), s)
+    keys('Escape'); time.sleep(0.3)
+    keys('C-g'); text('2:1'); keys('Enter'); keys('Escape'); text('z')
+    ok = wait_for('this line in the middle', 6)
+    p = place_of('fold all')
+    if ok and p:
+        click(*p); time.sleep(0.5)                          # (zM's cell)
+    check('625 which-key: z — a tap on one types it (zM: everything folded)', ok and 'this line in the middle' not in screen(),
+          screen())
+
+def t_625_oil():
+    # 6.25: oil — the folder as text: a line changed is a rename, a line deleted goes to the trash, a new line makes a
+    # file; saving lists what will happen and asks; Alt+Enter opens a folder, Alt+Up the one above
+    setup({"plugins.bundled": ["oil"]})
+    os.makedirs(W + '/oilt/sub', exist_ok=True)
+    for f in ['a.txt', 'b.nim', 'sub/in.txt']: open(W + '/oilt/' + f, 'w').write('text of ' + f)
+    start('oilt/b.nim', w=150, h=40); time.sleep(0.8)
+    palette("Oil: edit this file's folder as text")
+    ok = wait_for(r'sub/', 15)
+    s = screen()
+    check('625 oil: the folder as text — sub/ first, then the files', ok and 'a.txt' in s and 'b.nim' in s, s)
+    # b.nim → c.nim; a.txt deleted; notes.md added
+    keys('C-Home'); keys('Down'); keys('S-End'); keys('Delete'); time.sleep(0.2)     # (the a.txt line emptied)
+    keys('Down'); keys('Home'); keys('S-End'); text('c.nim'); keys('End'); keys('Enter'); text('notes.md')
+    keys('C-s')
+    ok = wait_for(r'Rename b\.nim → c\.nim', 8)
+    s = screen()
+    check('625 oil: saving says what will happen and asks', ok and 'Delete a.txt' in s and 'Make notes.md' in s, s)
+    keys('y'); time.sleep(0.4)
+    yes = place_of('Yes')
+    if yes and 'Rename b.nim' in screen(): click(*yes); time.sleep(0.5)
+    time.sleep(1.0)
+    check('625 oil: renamed, deleted (to the trash), made',
+          os.path.exists(W + '/oilt/c.nim') and not os.path.exists(W + '/oilt/b.nim') and
+          not os.path.exists(W + '/oilt/a.txt') and os.path.exists(W + '/oilt/notes.md'), repr(os.listdir(W + '/oilt')))
+    keys('C-Home'); keys('M-Enter'); ok = wait_for(r'in\.txt', 6)
+    check('625 oil: Alt+Enter on sub/ — the tab lists sub/', ok, screen())
+    keys('M-Up'); ok = wait_for(r'notes\.md', 6)
+    check('625 oil: Alt+Up — the folder above again', ok, screen())
+
+def t_625_engine_checks():
+    # 6.25: the engine's checks while you type — a case over an enum that leaves values out (and its fix: the branches
+    # added), an argument that can never be the parameter's type, a method call whose value is neither used nor
+    # discarded
+    setup({"nim.nimsuggest": False, "nim.liveDiagnosticsFrom": "nimsuggest"})
+    open(W + '/ec5.nim', 'w').write('import std/strutils\n\ntype Color = enum red, green, blue\n\nproc name(c: Color): string =\n'
+                                    '  case c\n  of red: "r"\n  of green: "g"\n\nproc twice(n: int): int = n * 2\n\n'
+                                    'proc main() =\n  var s = @[1, 2]\n  echo twice("x")\n  s.pop()\n  echo s.join(",")\n\nmain()\n')
+    start('ec5.nim', w=150, h=40); time.sleep(1.5)
+    keys('C-g'); text('18'); keys('Enter', 'End', 'Enter')
+    wait_for(r'type mismatch', 10); time.sleep(1.0)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check('625 engine: a case that leaves out an enum value', 'not all cases are covered; missing: {blue}' in s, s)
+    check("625 engine: an argument of the wrong type (a string for an int)", "got 'string' for '\"x\"' but expected 'int'" in s, s)
+    check("625 engine: a method call's value neither used nor discarded", "'s.pop()' is of type 'int'" in s, s)
+    keys('Escape')
+    keys('C-g'); text('6:3'); keys('Enter', 'M-Enter'); time.sleep(0.8)
+    ok = wait_for(r'Add the missing branches', 4)
+    keys('Enter'); time.sleep(0.5); keys('C-s'); time.sleep(0.4)
+    check('625 engine: its fix adds the branch', ok and 'of blue:' in ftext('ec5.nim'), ftext('ec5.nim'))
+
+def t_625_chain_hints():
+    # 6.25: a call chain over several lines — the type after each step, at the line's end
+    setup({"nim.nimsuggest": False})
+    open(W + '/ch.nim', 'w').write('import std/[sequtils, strutils]\n\nlet xs = @[1, 2, 3]\nlet r = xs\n'
+                                   '  .mapIt(it * 2)\n  .mapIt($it)\n  .join(", ")\necho r\n')
+    start('ch.nim', w=150, h=40); time.sleep(1.0)
+    ok = wait_for(r'\.mapIt\(it \* 2\): seq\[int\]', 15)
+    s = screen()
+    check('625 chain hints: after each step its type (seq[int], then seq[string])', ok and
+          re.search(r'\.mapIt\(\$it\): seq\[string\]', s) is not None, s)
+    check("625 chain hints: not on the last step of a let's value (the let's own hint says it)",
+          re.search(r'\.join\(", "\): ', s) is None and 'r: string' in s, s)
+
+def t_625_rename_reach():
+    # 6.25: a rename reaches a strformat string's {name} and a doc comment's `name`
+    setup({"nim.nimsuggest": False})
+    open(W + '/rn.nim', 'w').write('import std/strformat\n\nproc total*(a, b: int): int =\n  ## adds; see `total`\n'
+                                   '  a + b\n\nlet t = total(1, 2)\necho fmt"{total(3, 4)} and {t}"\n')
+    start('rn.nim', w=150, h=40); time.sleep(1.0)
+    keys('C-g'); text('3:6'); keys('Enter'); keys('F2'); time.sleep(0.4)
+    keys('C-u'); text('sumOf'); keys('Enter'); time.sleep(1.0)
+    check('625 rename: the preview lists the strformat string and the doc comment too',
+          'Rename total → sumOf' in screen() and len(re.findall(r'total', screen())) >= 4, screen())
+    keys('Enter'); time.sleep(0.6)
+    keys('C-s'); time.sleep(0.5)
+    t = ftext('rn.nim')
+    check('625 rename: the code, the fmt string\'s {…} and the doc comment\'s `…`',
+          'proc sumOf*' in t and 'see `sumOf`' in t and '{sumOf(3, 4)}' in t and 'total' not in t, t)
+
+def t_625_completion_recent():
+    # 6.25: completion ranks what you chose lately first — after a dot, nothing typed yet
+    setup({"nim.nimsuggest": False})
+    open(W + '/cr.nim', 'w').write('type P = object\n  alpha, beta, zeta: int\n\nvar p: P\necho p.zeta\n\n')
+    start('cr.nim', w=150, h=40); time.sleep(1.0)
+    keys('C-g'); text('6'); keys('Enter'); text('echo p.ze'); time.sleep(1.0); keys('Tab'); time.sleep(0.3)
+    keys('Enter'); text('echo p.'); time.sleep(1.2)
+    s = screen()
+    rows = [l for l in s.splitlines() if re.search(r'\b(alpha|beta|zeta)\b', l) and 'echo' not in l]
+    check('625 completion: zeta, chosen just now, comes first', rows and 'zeta' in rows[0], s)
+
+def t_625_oracle():
+    # 6.25: the compiler as an oracle in the background — a let whose value a macro makes has no type hint from the
+    # engine; after a pause the compiler is asked (one nimsuggest run) and the hint is there; it is kept for the next
+    # time (by the line's text)
+    need('nimsuggest')
+    setup({"nim.nimsuggest": False, "nim.macroNames": False})
+    shutil.rmtree(os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')), 'ned', 'oracle'),
+                  ignore_errors=True)
+    open(W + '/orc.nim', 'w').write('import std/macros\n\nmacro mk(n: untyped): untyped =\n  result = quote do:\n'
+                                    '    proc `n`(): int = 42\n\nmk(answer)\nlet x = answer()\necho x\n')
+    start('orc.nim', w=150, h=40); time.sleep(1.0)
+    ok = wait_for(r'let x: int = answer\(\)', 60)
+    check('625 oracle: the type of a let a macro\'s proc gives, from the compiler, as a hint', ok, screen())
+    tm('kill-server'); time.sleep(0.5)
+    start('orc.nim', w=150, h=40); time.sleep(0.5)
+    ok = wait_for(r'let x: int = answer\(\)', 4)
+    check('625 oracle: kept — there at once the next time', ok, screen())
+
+# ── 6.25: ned's own C engine — #if worked out, declarations macros make, its own checks, C++ overloads and
+#    template specialisations (their fixtures first) ──
+
+PLAT625 = """/* a comment */
+#include <unistd.h>
+#define USE_FAST 1
+#ifdef _WIN32
+static void sleep_ms(int ms) { Sleep(ms); }
+#else
+static void sleep_ms(int ms, int spin) { (void)spin; usleep(ms * 1000); }
+#endif
+#if USE_FAST && defined(__linux__)
+int fast_path(void) { return 1; }
+#else
+int slow_path(void) { return 0; }
+#endif
+#define DECLARE_GETTER(name, type) type get_##name(void)
+DECLARE_GETTER(width, int);
+#if NET_TIMEOUT > 10
+int long_wait(void) { return NET_TIMEOUT; }
+#else
+int short_wait(void) { return 1; }
+#endif
+
+int main(void) {
+  sleep_ms(10, 0);
+  int w = get_width();
+
+  return w + fast_path() + long_wait();
+}
+"""
+
+CHK625 = """#include <stdio.h>
+#include <string.h>
+
+struct point {
+  char tag;
+  double x;
+  char kind;
+  double y;
+};
+
+int main(void) {
+  struct point p = { .x = 1.0 };
+  double x = 2.5;
+  printf("%d\\n", x);
+  return (int)p.x;
+}
+"""
+
+OVH625 = """#pragma once
+/// Prints things.
+struct Printer {
+  /// A number.
+  void print(int n) {}
+  /// A string.
+  void print(const char *s) {}
+  /// Two numbers.
+  void print(int lo, int hi) {}
+};
+template <typename T> struct Hash { int generic; };
+/// Hashes ints.
+template <> struct Hash<int> { int forInt; unsigned seed() const { return 7; } };
+"""
+
+OVC625 = """#include "ov.hpp"
+
+int main() {
+  Printer p;
+  p.print("hi");
+  p.print(1, 2);
+  Hash<int> h;
+  Hash<long> g;
+
+  return h.forInt + g.generic;
+}
+"""
+
+
+def t_625_c_if():
+    # ned's own C engine works out #if: the compiler's macros (_WIN32, __linux__), the file's own #defines, -D from
+    # compile_commands.json; what is left out dimmed and not among the declarations (a function in both branches
+    # found once: the parameters of the one that is read); a declaration a macro makes (DECLARE_GETTER(width, int) →
+    # get_width): hover says so, F12 goes to the macro's use, completion has it
+    need('cc')
+    setup({"c.engine": "builtin", "nim.nimsuggest": False})
+    os.makedirs(W + '/c625', exist_ok=True)
+    open(W + '/c625/plat.c', 'w').write(PLAT625)
+    json.dump([{"directory": W + '/c625', "file": "plat.c", "arguments": ["cc", "-DNET_TIMEOUT=30", "-c", "plat.c"]}],
+              open(W + '/compile_commands.json', 'w'))
+    start('c625/plat.c', w=140, h=40); wait_for('long_wait', 8); time.sleep(1.2)
+    rc = ansi_row('a comment')
+    rw, rp = ansi_row('Sleep(ms)'), ansi_row('usleep')
+    check("625 C #if: #ifdef _WIN32 on Linux dimmed like a comment, its #else not",
+          fg_at(rw, 'Sleep') is not None and fg_at(rw, 'Sleep') == fg_at(rc, 'comment') and
+          fg_at(rp, 'usleep') != fg_at(rc, 'comment'), str((fg_at(rw, 'Sleep'), fg_at(rp, 'usleep'),
+                                                            fg_at(rc, 'comment'))) + '\n' + screen())
+    rf, rs = ansi_row('fast_path(void)'), ansi_row('slow_path(void)')
+    check("625 C #if: a macro of the file's and defined(__linux__) — the #else dimmed",
+          fg_at(rs, 'slow_path') == fg_at(rc, 'comment') and fg_at(rf, 'fast_path') != fg_at(rc, 'comment'),
+          str((fg_at(rf, 'fast_path'), fg_at(rs, 'slow_path'), fg_at(rc, 'comment'))))
+    rl, rt = ansi_row('long_wait(void)'), ansi_row('short_wait(void)')
+    check("625 C #if: -D from compile_commands.json (NET_TIMEOUT=30 > 10) — the #else dimmed",
+          fg_at(rt, 'short_wait') == fg_at(rc, 'comment') and fg_at(rl, 'long_wait') != fg_at(rc, 'comment'),
+          str((fg_at(rl, 'long_wait'), fg_at(rt, 'short_wait'), fg_at(rc, 'comment'))))
+    # sleep_ms in both branches: the one that is read (two parameters) is the only one
+    check("625 C #if: the parameters' names of the branch read (sleep_ms(ms: 10, spin: 0))",
+          wait_for(r'sleep_ms\(ms: 10, spin: 0\)', 6), screen())
+    keys('C-g'); text('23:3'); keys('Enter'); keys('F12'); time.sleep(1.0)
+    check("625 C #if: F12 on sleep_ms — the definition in the #else (line 7)", status_pos() and status_pos()[0] == 7,
+          screen()[-300:])
+    # a declaration a macro makes
+    keys('C-g'); text('24:11'); keys('Enter'); keys('M-h')
+    ok = wait_for(r'declared by the macro DECLARE_GETTER', 6)
+    check("625 C macros: hover on get_width — its declaration, made by DECLARE_GETTER",
+          ok and re.search(r'int get_width\(', screen()), screen())
+    keys('Escape')
+    keys('C-g'); text('24:11'); keys('Enter'); keys('F12'); time.sleep(1.0)
+    check("625 C macros: F12 on get_width — the macro's use (line 15)", status_pos() and status_pos()[0] == 15,
+          screen()[-300:])
+    keys('C-g'); text('25'); keys('Enter'); keys('End')
+    before = screen().count('get_width')
+    text('  int z = get_w'); time.sleep(1.0)
+    if screen().count('get_width') <= before: keys('C-Space'); time.sleep(1.0)
+    s = screen()
+    check("625 C macros: completion has get_width", s.count('get_width') > before, s)
+    keys('Escape')
+
+
+def t_625_c_checks():
+    # ned's own checks of C (c.engineChecks), no compiler needed, while you type: printf's format against its
+    # arguments, a struct that takes less room with its fields ordered by size, an #include nothing of which is
+    # used — each with its fix on Alt+Enter (a format's stays when gcc's own words take the line: gcc has no fix)
+    need('cc')
+    setup({"c.engine": "builtin", "nim.nimsuggest": False})
+    os.makedirs(W + '/c625', exist_ok=True)
+    open(W + '/c625/chk.c', 'w').write(CHK625)
+    start('c625/chk.c', w=140, h=40); time.sleep(1.2)
+    ok = wait_for(r"%d takes an int, x is a double|format '%d' expects argument of type 'int'", 10)
+    check("625 C checks: printf's %d with a double — said on its line", ok, screen())
+    keys('C-g'); text('14'); keys('Enter'); time.sleep(2.0)       # (the compiler's check too, after)
+    keys('M-Enter')
+    ok = wait_for(r'Use %f', 4)
+    check("625 C checks: … Alt+Enter: the conversion the argument takes (Use %f)", ok, screen())
+    if ok:
+        text('Use %f'); wait_for(r'› Use %f', 3); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+        keys('C-s'); time.sleep(0.5)
+        check("625 C checks: … applied", 'printf("%f\\n", x);' in ftext('c625/chk.c'), ftext('c625/chk.c'))
+    keys('Escape'); time.sleep(1.0)
+    palette('Show problems')
+    ok = wait_for(r'struct point: 32 bytes, 24 with its fields ordered by size', 8)
+    check("625 C checks: a struct with room between its fields (a hint, among the problems)", ok, screen())
+    keys('Escape')
+    keys('C-g'); text('4'); keys('Enter'); time.sleep(0.5); keys('M-Enter')
+    ok = wait_for(r'Order the fields', 4)
+    check("625 C checks: … Alt+Enter: order the fields", ok, screen())
+    if ok:
+        text('Order the'); wait_for(r'› Order the', 3); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+        keys('C-s'); time.sleep(0.5)
+        t = ftext('c625/chk.c')
+        check("625 C checks: … the fields by size, the doubles first",
+              'struct point {\n  double x;\n  double y;\n  char tag;\n  char kind;\n};' in t, t)
+    ok = wait_for(r'nothing from <string\.h> is used here', 8)
+    check("625 C checks: an #include nothing of which is used — said on its line", ok, screen())
+    keys('C-g'); text('2'); keys('Enter'); time.sleep(0.5); keys('M-Enter')
+    ok = wait_for(r'Remove the #include', 4)
+    check("625 C checks: … Alt+Enter: remove the #include", ok, screen())
+    if ok:
+        text('Remove the'); wait_for(r'› Remove the', 3); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+        keys('C-s'); time.sleep(0.5)
+        t = ftext('c625/chk.c')
+        check("625 C checks: … removed, <stdio.h> kept", '<string.h>' not in t and '#include <stdio.h>' in t, t)
+    keys('Escape')
+
+
+def t_625_cpp_overloads():
+    # C++ in ned's own engine: of a method's overloads the one the arguments fit — its parameters' names, hover,
+    # signature help, F12; a template's explicit specialisation — hover, its members after `.`, F12 (the primary
+    # template for the other arguments)
+    need('c++')
+    setup({"c.engine": "builtin", "nim.nimsuggest": False})
+    os.makedirs(W + '/c625', exist_ok=True)
+    open(W + '/c625/ov.hpp', 'w').write(OVH625)
+    open(W + '/c625/ov.cpp', 'w').write(OVC625)
+    start('c625/ov.cpp', w=140, h=40); time.sleep(1.2)
+    check("625 C++ overloads: the parameters' names of the overload the arguments fit (print(lo: 1, hi: 2))",
+          wait_for(r'p\.print\(lo: 1, hi: 2\)', 6), screen())
+    keys('C-g'); text('5:5'); keys('Enter'); keys('M-h')
+    ok = wait_for(r'A string\.', 6); s = screen()
+    check("625 C++ overloads: hover on print(\"hi\") — the const char * one, only",
+          ok and 'A number.' not in s and 'Two numbers.' not in s, s)
+    keys('Escape')
+    keys('C-g'); text('6:5'); keys('Enter'); keys('M-h')
+    ok = wait_for(r'Two numbers\.', 6); s = screen()
+    check("625 C++ overloads: hover on print(1, 2) — the two-int one", ok and 'A string.' not in s, s)
+    keys('Escape')
+    keys('C-g'); text('7:3'); keys('Enter'); keys('M-h')
+    ok = wait_for(r'Hashes ints\.', 6)
+    check("625 C++ specialisations: hover on Hash<int> — the explicit specialisation",
+          ok and 'struct Hash<int>' in screen(), screen())
+    keys('Escape')
+    keys('C-g'); text('9'); keys('Enter'); keys('End'); text('p.print(1, ')
+    check("625 C++ overloads: signature help follows the arguments typed (print(int lo, int hi))",
+          wait_for(r'print\(int lo, int hi\)', 4), screen())
+    keys('Escape'); keys('Home'); keys('S-End'); text('  h.')
+    ok = wait_for(r'forInt\s+int', 4); s = screen()
+    check("625 C++ specialisations: Hash<int>'s members after h. — not the primary template's",
+          ok and 'seed' in s and not re.search(r'generic\s+int', s), s)
+    keys('Escape'); keys('Home'); keys('S-End'); text('  g.')
+    ok = wait_for(r'generic\s+int', 4); s = screen()
+    check("625 C++ specialisations: … Hash<long>: the primary template's", ok and not re.search(r'forInt\s+int', s), s)
+    keys('Escape'); keys('Home'); keys('S-End'); keys('BSpace')
+    keys('C-g'); text('5:5'); keys('Enter'); keys('F12'); time.sleep(1.2)
+    check("625 C++ overloads: F12 on print(\"hi\") — the const char * one (ov.hpp:7)",
+          wait_for(r'ov\.hpp', 3) and status_pos() and status_pos()[0] == 7, screen()[-300:])
+    keys('C-p'); time.sleep(0.3); text('ov.cpp'); time.sleep(0.4); keys('Enter'); time.sleep(1.0)
+    keys('C-g'); text('8:3'); keys('Enter'); keys('F12'); time.sleep(1.2)
+    check("625 C++ specialisations: F12 on Hash<long> — the primary template (ov.hpp:11)",
+          wait_for(r'ov\.hpp', 3) and status_pos() and status_pos()[0] == 11, screen()[-300:])
+    keys('C-p'); time.sleep(0.3); text('ov.cpp'); time.sleep(0.4); keys('Enter'); time.sleep(1.0)
+    keys('C-g'); text('7:3'); keys('Enter'); keys('F12'); time.sleep(1.2)
+    check("625 C++ specialisations: F12 on Hash<int> — its specialisation (ov.hpp:13)",
+          wait_for(r'ov\.hpp', 3) and status_pos() and status_pos()[0] == 13, screen()[-300:])
+
 def t_624_compiler_explorer_c():
     # Compiler Explorer on a C file, the object disassembled (binary: objdump, addresses, the calls' targets), AT&T
     need('gcc', 'objdump')
@@ -8282,4 +8736,6 @@ def t_624_compiler_explorer_c():
     check('624 CE (C, binary): a call shows its target, not an address', re.search(r'call\S*\s+\w*(printf|puts)', s),
           s)
 
-tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_6241_plugin_check, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list, t_621_emit_format, t_621_reset, t_621_settings_form, t_621_fields, t_621_context_menus, t_621_drag_drop, t_621_atlas, t_621_decompile, t_621_new_project, t_622_settings_controls, t_622_nimscript, t_622_plugin_api, t_622_doc_comments, t_623_decompile_menu, t_623_align_comments, t_623_c_engine, t_623_emit_builtin_c, t_623_nim_rewrites, t_623_call_args, t_624_compiler_explorer, t_624_ce_toolbar, t_6241_dock_view_menu, t_6241_ce_all_procs, t_624_compiler_explorer_c]
+tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_6241_plugin_check, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list, t_621_emit_format, t_621_reset, t_621_settings_form, t_621_fields, t_621_context_menus, t_621_drag_drop, t_621_atlas, t_621_decompile, t_621_new_project, t_622_settings_controls, t_622_nimscript, t_622_plugin_api, t_622_doc_comments, t_623_decompile_menu, t_623_align_comments, t_623_c_engine, t_623_emit_builtin_c, t_623_nim_rewrites, t_623_call_args, t_624_compiler_explorer, t_624_ce_toolbar, t_6241_dock_view_menu, t_6241_ce_all_procs, t_625_indent, t_625_plugins_menu, t_625_which_key, t_625_oil, t_625_engine_checks,
+         t_625_chain_hints, t_625_rename_reach, t_625_completion_recent, t_625_oracle, t_625_c_if, t_625_c_checks,
+         t_625_cpp_overloads, t_624_compiler_explorer_c]

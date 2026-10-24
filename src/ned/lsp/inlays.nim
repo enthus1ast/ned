@@ -125,6 +125,70 @@ proc engineRaisesHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, 
     if list.len > 60: list = list[0 ..< 59] & "…"
     hints.mgetOrPut(l, @[]).add (c, " {.raises: [" & list & "].}")
 
+func ihCode(s: string): string =
+  ## a line without its comment (a # outside strings and characters)
+  var i = 0
+  while i < s.len:
+    let c = s[i]
+    if c == '"':
+      inc i
+      while i < s.len and s[i] != '"':
+        if s[i] == '\\': inc i
+        inc i
+    elif c == '\'' and i + 2 < s.len and (s[i + 2] == '\'' or s[i + 1] == '\\'):
+      i += (if s[i + 1] == '\\': 3 else: 2)
+    elif c == '#': return s[0 ..< i].strip(leading = false)
+    inc i
+  s.strip(leading = false)
+
+func ihChainStep(s: string): bool =
+  ## a line that goes on with a call chain: `.mapIt(…)` (not `..`, not `.}`)
+  let t = s.strip
+  t.len >= 2 and t[0] == '.' and t[1] notin {'.', '}', ' '}
+
+proc engineChainHints(b: Buffer, f: NxFile, sc: NxScope, lo, hi: int, got: var Table[int, seq[(int, string)]],
+                      t0: MonoTime): bool =
+  ## a call chain over several lines (nim.chainHints): the type each line gives, at its end — not the last line's
+  ## when the chain is a let's value written without a type (the let's own hint says it). false: out of time
+  result = true
+  for l in lo .. min(hi, b.lines.high):
+    if not ihChainStep(b.lines[l]): continue
+    if msSince(t0) > engineInlayBudget: return false
+    var s0 = l
+    while s0 > 0 and ihChainStep(b.lines[s0]): dec s0
+    if s0 == l or ihChainStep(b.lines[s0]): continue
+    let more = l + 1 <= b.lines.high and ihChainStep(b.lines[l + 1])
+    # the chain's head: the value of a let, var, assignment or return, or a line that is an expression
+    var head = ihCode(b.lines[s0]).strip
+    var letNoType = false
+    for kw in ["let ", "var ", "const "]:
+      if head.startsWith(kw):
+        let eq = nxFindTop(head, '=')
+        if eq < 0: head = ""
+        else:
+          letNoType = nxFindTop(head[0 ..< eq], ':') < 0
+          head = head[eq + 1 .. ^1].strip
+    if head.startsWith("return "): head = head[7 .. ^1].strip
+    elif head.startsWith("result = "): head = head[9 .. ^1].strip
+    else:
+      let eq = nxFindTop(head, '=')
+      if eq > 0 and head[eq - 1] notin {'=', '!', '<', '>', '+', '-', '*', '/', '&', '|', '%', '~', '^', '@', '.'} and
+         (eq + 1 >= head.len or head[eq + 1] != '='):
+        head = head[eq + 1 .. ^1].strip
+    if head.len == 0 or head.endsWith(":") or head.endsWith("=") or head.endsWith(","): continue
+    if head.startsWith("let ") or head.startsWith("var ") or head.startsWith("if ") or head.startsWith("for ") or
+       head.startsWith("while ") or head.startsWith("echo ") or head.startsWith("proc ") or head.startsWith("of "):
+      continue
+    if not more and letNoType: continue
+    var expr = head
+    for k in s0 + 1 .. l: expr.add ihCode(b.lines[k]).strip
+    let typ = try: nxTypeOfExpr(f, sc, nxLocals(f, b.lines, l, b.lines[l].len), expr, l, 0).typ
+              except CatchableError: ""
+    var t = typ.strip.replace("system.", "")
+    if t.len == 0 or t in ["untyped", "typed", "auto", "void"]: continue
+    if t.len > 40 and not engineTypesFull: t = t[0 ..< 39] & "…"
+    got.mgetOrPut(l, @[]).add (ihCode(b.lines[l]).len, ": " & t)
+
 proc engineTypeHints(b: Buffer, f: NxFile, sc: NxScope, lo, hi: int, hints: var Table[int, seq[(int, string)]],
                      t0: MonoTime): bool =
   ## the types of lets, vars and consts written without one on lines lo..hi, worked out by ned's own engine (no
@@ -135,6 +199,8 @@ proc engineTypeHints(b: Buffer, f: NxFile, sc: NxScope, lo, hi: int, hints: var 
     for l, v in got: hints.mgetOrPut(l, @[]).add v
   proc hintFor(s: NxSym, typ: string) =
     var t = typ.strip.replace("system.", "")
+    if t.len == 0 and s.line < b.lines.len:
+      t = orTypeOf(b.path, b.lines[s.line], s.col)     # (what the compiler said, when the engine cannot tell)
     if t.len == 0 or t in ["untyped", "typed", "auto", "void"] or s.line >= b.lines.len: return
     if t.len > 40 and not engineTypesFull: t = t[0 ..< 39] & "…"
     let line = b.lines[s.line]
@@ -186,6 +252,7 @@ proc engineTypeHints(b: Buffer, f: NxFile, sc: NxScope, lo, hi: int, hints: var 
         while e <= b.lines.high and (b.lines[e].len == 0 or b.lines[e][0] in {' ', '\t', '#', ')', ']', '}'}): inc e
         if e - 1 > s0: hintLocals(min(hi, e - 1))
     if cut: return false
+    if cfgChainHints and not engineChainHints(b, f, sc, lo, hi, got, t0): return false
   except Exception as e: internalError("type hints", e)
 
 proc engineInlays(b: Buffer, lo, hi: int) =
@@ -244,7 +311,7 @@ proc engineInlayStep(b: Buffer) =
   ihPending = false
   let f = nxFileFor(b)
   if f == nil or b.lines.len == 0: return
-  let key = $b.changeId & "/" & $nxGen & "/" & cfgParamHints & "/" & $cfgRaisesHints
+  let key = $b.changeId & "/" & $nxGen & "/" & cfgParamHints & "/" & $cfgRaisesHints & "/" & $orGen & "/" & $cfgChainHints
   let st = addr ihStates.mgetOrPut(b.id, IhState(lastTop: b.topLine, down: true))
   let page = max(textH, 20)
   if b.inlayAt == -1:

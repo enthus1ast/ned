@@ -22,7 +22,7 @@ a language server, an AI key …) is optional and picked up when it is on your `
 found and how to install the rest. See [Installing](../README.md#installing).
 
 **How do I install it on Termux?** Either the ready-made package of a release — `pkg install
-./ned_6.24.1_aarch64.deb` (ned, nedls and nedfmt, the example plugins in `$PREFIX/share/ned/plugins`) — or from the
+./ned_6.25.0_aarch64.deb` (ned, nedls and nedfmt, the example plugins in `$PREFIX/share/ned/plugins`) — or from the
 source: `pkg install nim git`, then `nim c -d:release --opt:speed -d:strip -o:$PREFIX/bin/ned src/ned.nim` (or
 `nimble termux` in the project folder).
 
@@ -157,9 +157,14 @@ tapped. A Nerd Font and `"ui.icons": "nerd"` give nicer icons.
 in `~/.config/ned/plugins/<name>/`; *Plugins: new plugin…* makes one. Every proc is in the
 [API reference](plugins/api.md); [Plugins](plugins/README.md) explains how they run.
 
-**Where do I find plugins?** *Plugins: add an example…* (six examples come with ned, the tutorial's among them), *Plugins: install from git…*,
-and *Plugins: browse the plugin list…* (`plugins.indexUrl`). Plugins run with your rights: read one before you
-install it.
+**Where do I find plugins?** Nineteen come with ned, off until you turn one on: the menu bar's *Plugins › Plugins
+panel*, then **AVAILABLE** — dial, which-key, oil, harpoon, rest-client, Odin, Gleam, Elixir, Haskell … ([the
+list](plugins/available.md)). *Plugins: add an example…* (six examples, the tutorial's among them), *Plugins:
+install from git…* and *Plugins: browse the plugin list…* (`plugins.indexUrl`) add others. Plugins run with your
+rights: read one before you install it.
+
+**How do I remove a plugin?** *Plugins › Uninstall…*, or tap it in the Plugins dock: *Uninstall…* deletes the
+folder of one you installed (it asks first); one of ned's own goes back to AVAILABLE.
 
 ## Reporting a problem
 

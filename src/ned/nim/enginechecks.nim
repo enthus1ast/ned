@@ -835,6 +835,17 @@ proc ecGcsafe(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
                           (if ty.len > 0: ty else: "garbage-collected") & ") — the compiler refuses it: pass it in, " &
                           "or make it a {.threadvar.}")
 
+func ecIdentWords(t: string): seq[string] =
+  ## the names in a type ("Table[K, seq[V]]" → Table K seq V)
+  var i = 0
+  while i < t.len:
+    if nxIsIdent(t[i]) and t[i] notin {'0'..'9'}:
+      var e = i
+      while e < t.len and nxIsIdent(t[e]): inc e
+      result.add t[i ..< e]
+      i = e
+    else: inc i
+
 proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
   ## a statement that is a call `f(a, b)` of a routine that gives a value — every routine of that name taking that
   ## many arguments does, none is {.discardable.}: Nim wants the value used or discarded. Not the last statement of
@@ -856,15 +867,33 @@ proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
       elif ch in {')', ']', '}'}: dec depth
     if depth < 0: depth = 0
     if open != 0 or skip[l]: continue
-    let t = s.strip
+    var t = s.strip
     if t.len < 3 or t[^1] != ')' or t[0] notin IdentStartChars: continue
     var e = 0
     while e < t.len and t[e] in IdentChars: inc e
+    # `x.name(…)`, `a.b.name(…)`: a method call — its receiver the first argument
+    var recv = ""
+    var recvAt = 0
+    if e < t.len and t[e] == '.':
+      var q = e
+      var lastDot = -1
+      while q < t.len and t[q] == '.' and q + 1 < t.len and t[q + 1] in IdentStartChars:
+        lastDot = q
+        inc q
+        while q < t.len and t[q] in IdentChars: inc q
+      if lastDot < 0 or q >= t.len or t[q] != '(': continue
+      recv = t[0 ..< lastDot]
+      recvAt = lastDot + 1
+      e = q
     if e >= t.len or t[e] != '(': continue
-    let name = t[0 ..< e]
-    if name[0] in {'A' .. 'Z'} or name in ["if", "elif", "while", "when", "case", "of", "return", "discard", "yield",
-                                           "raise", "echo", "assert", "doAssert", "result", "defer", "static"]:
+    let name = t[recvAt ..< e]
+    if name.len == 0 or name[0] in {'A' .. 'Z'} or name in ["if", "elif", "while", "when", "case", "of", "return",
+                                                            "discard", "yield", "raise", "echo", "assert",
+                                                            "doAssert", "result", "defer", "static"]:
       continue
+    if recv.len > 0 and (recv[0] in {'A' .. 'Z'} or nxNorm(recv.split('.')[0]) in [nxNorm("system"),
+                                                                                   nxNorm(nxModuleName(f.path))]):
+      continue                       # (Type.init(…), a module's own name before the dot: not judged)
     # the call is the whole statement: its `(` closes at the end
     var d = 0
     var close = -1
@@ -904,9 +933,28 @@ proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
     if nt[0 ..< nk] in ["else", "elif", "of", "except", "finally"]: continue
     inc n
     if n > 3000: return
-    let nargs = if any: commas + 1 else: 0
+    let nargs = (if any: commas + 1 else: 0) + ord(recv.len > 0)
     let found = nxLookup(sc, name)
     if found.len == 0: continue
+    # (the receiver's type, for a method call: needed — a field of a proc type may be what is called)
+    var recvT = ""
+    if recv.len > 0:
+      try: recvT = nxTypeOfExpr(f, sc, nxLocals(f, b.lines, l, ind), recv, l, 0).typ.strip
+      except CatchableError: recvT = ""
+      if recvT.len == 0 or recvT in ["untyped", "typed", "auto"]: continue
+      var isField = false
+      for fl in nxFields(sc, recvT):
+        if nxNorm(fl.sym.name) == nxNorm(name): isField = true
+      if isField: continue
+    # (a generic one's value: bound by the first argument's type — pop(s) of a seq[int] gives an int)
+    var firstT = recvT
+    if firstT.len == 0 and any:
+      let inside = t[e + 1 ..< close]
+      let parts = nxSplitTop(inside, {','})
+      if parts.len > 0 and nxFindTop(parts[0], '=') < 0:
+        try: firstT = nxTypeOfExpr(f, sc, nxLocals(f, b.lines, l, ind), parts[0].strip, l, 0).typ.strip
+        except CatchableError: firstT = ""
+        if firstT in ["untyped", "typed", "auto"]: firstT = ""
     var fitting = 0
     var unsure = false
     var gives = ""
@@ -928,10 +976,28 @@ proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
       if "varargs" in sy.pragmas: unsure = true
       if nargs < need or nargs > sy.params.len: continue
       inc fitting
-      let r = sy.ret.strip
+      var r = sy.ret.strip
+      let gens = nxGenericNames(sy.generics)
+      if firstT.len > 0 and gens.len > 0 and sy.params.len > 0 and r.len > 0 and r notin ["auto", "untyped", "typed"]:
+        # (a generic one: what it gives for this receiver — pop of a seq[int] gives an int)
+        var binds: Table[string, string]
+        var pt = sy.params[0].typ.strip
+        for m in ["var ", "sink ", "lent "]:
+          if pt.startsWith(m): pt = pt[m.len .. ^1].strip
+        nxUnify(pt, firstT, gens, binds)
+        let rb = nxSubst(r, binds)
+        var still = false
+        for g in gens:
+          if g in ecIdentWords(rb): still = true
+        if not still: r = rb
       if r.len == 0 or r == "void" or "discardable" in sy.pragmas:
         unsure = true                      # (one of them gives nothing: it may be the one called)
-      elif r in ["auto", "untyped", "typed"] or r in nxGenericNames(sy.generics) or r.startsWith("owned"):
+      elif r in ["auto", "untyped", "typed"] or r in gens or r.startsWith("owned") or
+           (gens.len > 0 and (block:
+             var hit = false
+             for g in gens:
+               if g in ecIdentWords(r): hit = true
+             hit)):
         unsure = true
       else: gives = r
     if unsure or fitting == 0 or gives.len == 0 or ecLocalDecl(code, name): continue
@@ -1034,6 +1100,252 @@ proc ecLiteralTypes(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag])
     res.add Diag(line: l, col: vStart, eline: l, ecol: vStart + v.len, sev: 2, src: "ned", rule: "literal-type",
                  msg: "type mismatch: got '" & (if lit == "float": "float64" elif lit == "int": "int literal(" & v & ")" else: lit) & "' for '" & v &
                       "' but expected '" & typ & "'")
+
+const EcInts = ["int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "byte",
+                 "Natural", "Positive"]
+const EcFloats = ["float", "float32", "float64"]
+
+func ecLiteralFits(lit, v, typ: string): int =
+  ## a literal of kind `lit` (ecLiteralKind) for a parameter of type `typ`: 1 it fits, 0 it never does, -1 the
+  ## engine cannot tell (a type it does not judge)
+  let t = typ.strip
+  if t notin EcInts and t notin EcFloats and t notin ["string", "cstring", "char", "bool"]: return -1
+  let ok = case lit
+    of "string": t in ["string", "cstring"]
+    of "int": (t in EcInts and not (v.startsWith("-") and (t.startsWith("uint") or t in ["byte", "Natural", "Positive"]))) or
+              t in EcFloats
+    of "float": t in EcFloats
+    of "char": t == "char"
+    else: t == "bool"
+  if ok: 1 else: 0
+
+proc ecArgTypes(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## `f("text")` when the one routine called f that takes that many arguments wants an int there: a literal (or a
+  ## variable declared with a type) that can never be that parameter's type. Not when another routine of that
+  ## name could take the call, a template or macro is called f, a converter in scope could turn the value into
+  ## something else, the parameter is generic or of a type the engine does not judge
+  let sc = nxScope(f)
+  if sc == nil or ecImportsKnown(f) < 0: return
+  for r in sc.refs:
+    if r.file != nil and r.file.syms[r.idx].kind == nxConverter: return     # (a literal may be converted)
+  let skip = ecSkipLines(f, sc, code)
+  var n = 0
+  for l in 0 ..< code.len:
+    let s = code[l]
+    if skip[l] or "compiles(" in s: continue
+    let raw = b.lines[l]
+    var k = s.find('(')
+    while k > 0:
+      defer: k = s.find('(', k + 1)
+      if not nxIsIdent(s[k - 1]) or s[k - 1] in {'0'..'9'}: continue
+      let (ma, me) = ecWordAt(s, k - 1)
+      let name = s[ma ..< me]
+      if name.len == 0 or name[0] in {'A'..'Z'} or (ma > 0 and s[ma - 1] in {'.', '`'}): continue
+      let before = s[0 ..< ma].strip
+      var declHere = false
+      for kw in ["proc", "func", "iterator", "method", "converter", "template", "macro"]:
+        if before == kw or before.endsWith(" " & kw): declHere = true
+      if declHere: continue
+      # the arguments, on this line (their text from the line as written: the code has its strings blanked)
+      var d = 0
+      var close = -1
+      var cuts = @[k]
+      for j in k ..< s.len:
+        let ch = s[j]
+        if ch in {'(', '[', '{'}: inc d
+        elif ch in {')', ']', '}'}:
+          dec d
+          if d == 0:
+            close = j
+            break
+        elif ch == ',' and d == 1: cuts.add j
+      if close < 0 or close > raw.len: continue
+      let after = s[close + 1 .. ^1].strip
+      if after.startsWith(":") or after.startsWith("do") or after.startsWith("="): continue
+      cuts.add close
+      var args: seq[(int, int)]                      # (start, end) of each argument's text
+      for i in 0 ..< cuts.len - 1:
+        var a = cuts[i] + 1
+        var e = cuts[i + 1]
+        while a < e and raw[a] == ' ': inc a
+        while e > a and raw[e - 1] == ' ': dec e
+        args.add (a, e)
+      if args.len == 1 and args[0][0] >= args[0][1]: args.setLen(0)
+      var named = false
+      for (a, e) in args:
+        if nxFindTop(s[a ..< e], '=') >= 0: named = true
+      if named or args.len == 0: continue
+      # what each argument is, when the engine is sure: a literal, or a name declared with one of the types it judges
+      var kinds: seq[(string, string)]               # (literal kind or the declared type, the text)
+      var anyKnown = false
+      let locals = nxLocals(f, b.lines, l, ma)
+      for (a, e) in args:
+        let v = raw[a ..< e]
+        var lit = ecLiteralKind(v, s[a ..< e])
+        var declared = ""
+        if lit.len == 0 and v.validIdentifier:
+          for x in locals:
+            if nxNorm(x.name) == nxNorm(v) and x.typ.len > 0: declared = x.typ.strip
+          if declared notin EcInts and declared notin EcFloats and declared notin ["string", "cstring", "char", "bool"]:
+            declared = ""
+        if lit.len > 0 or declared.len > 0: anyKnown = true
+        kinds.add (if lit.len > 0: ("lit:" & lit, v) elif declared.len > 0: ("var:" & declared, v) else: ("", v))
+      if not anyKnown: continue
+      # the routines of that name: all of them plain ones, exactly one taking this many arguments
+      let found = nxLookup(sc, name)
+      if found.len == 0 or ecLocalDecl(code, name): continue
+      var unsure = false
+      var cand: NxSym
+      var cands = 0
+      for fr in found:
+        if fr.file == nil:
+          unsure = true
+          break
+        let sy = fr.file.syms[fr.idx]
+        if sy.kind notin {nxProc, nxFunc, nxMethod, nxIterator}:
+          unsure = true
+          break
+        if "varargs" in sy.pragmas: unsure = true
+        var need = 0
+        for p in sy.params:
+          if p.default.len == 0: inc need
+          let t = p.typ.strip
+          if t.startsWith("varargs") or t in ["untyped", "typed"] or t.startsWith("static"): unsure = true
+        if args.len >= need and args.len <= sy.params.len:
+          inc cands
+          cand = sy
+      if unsure or cands != 1: continue
+      let gens = nxGenericNames(cand.generics)
+      for i, (kd, v) in kinds:
+        if kd.len == 0 or i >= cand.params.len: continue
+        let pt = cand.params[i].typ.strip
+        if pt.len == 0 or pt in gens: continue
+        var fits = -1
+        var got = ""
+        if kd.startsWith("lit:"):
+          let lit = kd[4 .. ^1]
+          fits = ecLiteralFits(lit, v, pt)
+          got = if lit == "float": "float64" elif lit == "int": "int literal(" & v & ")" else: lit
+        else:
+          let dt = kd[4 .. ^1]
+          if pt notin EcInts and pt notin EcFloats and pt notin ["string", "cstring", "char", "bool"]: continue
+          fits = if nxNorm(dt) == nxNorm(pt): 1 else: 0
+          got = dt
+        if fits != 0: continue
+        # (a type of that name made in this project: not the system's)
+        var own = false
+        for r in nxLookup(sc, pt):
+          if r.file != nil and r.file.syms[r.idx].kind == nxType and not r.file.path.startsWith(nxLibDir): own = true
+        if own: continue
+        inc n
+        if n > 200: return
+        let (a, e) = args[i]
+        res.add Diag(line: l, col: a, eline: l, ecol: e, sev: 2, src: "ned", rule: "arg-type",
+                     msg: "type mismatch: got '" & got & "' for '" & v & "' but expected '" & pt & "' (argument " &
+                          $(i + 1) & " of " & name & ")")
+        break
+
+proc ecCaseCoverage(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## `case x` over an enum that leaves some of its values out, without an `else`: Nim wants every value covered —
+  ## in code and in an object's `case kind: Kind`
+  let sc = nxScope(f)
+  if sc == nil: return
+  let skip = ecSkipLines(f, sc, code)
+  var n = 0
+  for l in 0 ..< code.len:
+    if skip[l]: continue
+    let s = code[l]
+    let k = s.find("case ")
+    if k < 0 or (k > 0 and nxIsIdent(s[k - 1])): continue
+    let lead = s[0 ..< k].strip
+    if lead.len > 0 and not (lead.endsWith("=") or lead.endsWith("return") or lead.endsWith("(") or
+                             lead.endsWith("discard") or lead.endsWith(":")): continue
+    var subj = s[k + 5 .. ^1].strip
+    if subj.endsWith(":"): subj = subj[0 ..< ^1].strip
+    if subj.len == 0: continue
+    # the branches: `of` lines at one indentation below (or at) the case's, until something else
+    let ind = ecIndent(s)
+    var ofInd = -1
+    var labels: seq[string]
+    var hasElse = false
+    var unsure = false
+    var lastLine = l
+    for o in l + 1 ..< code.len:
+      let u = code[o]
+      let ut = u.strip
+      if ut.len == 0: continue
+      let ui = ecIndent(u)
+      if ofInd < 0:
+        if ui < ind or not ut.startsWith("of "):
+          unsure = true
+          break
+        ofInd = ui
+      if ui < ofInd: break
+      if ui > ofInd:
+        lastLine = o
+        continue
+      if ut.startsWith("else") or ut.startsWith("elif "):
+        hasElse = true
+        break
+      if not ut.startsWith("of "): break
+      lastLine = o
+      # the labels up to the `:` outside brackets (the raw text: a `'a'` is blanked in the code)
+      let rawT = b.lines[o].strip
+      var d = 0
+      var stop = rawT.len
+      for j in 3 ..< rawT.len:
+        if rawT[j] in {'(', '[', '{'}: inc d
+        elif rawT[j] in {')', ']', '}'}: dec d
+        elif rawT[j] == ':' and d == 0:
+          stop = j
+          break
+      for lab in nxSplitTop(rawT[3 ..< stop], {','}):
+        var x = lab.strip
+        if x.len == 0: continue
+        if ".." in x or x.startsWith("{") or not (x.validIdentifier or '.' in x):
+          unsure = true                 # (a range, a set, a constant expression: not judged)
+        if '.' in x: x = x[x.rfind('.') + 1 .. ^1]
+        labels.add nxNorm(x)
+    if unsure or hasElse or labels.len == 0: continue
+    # the subject's type: an enum the engine knows
+    var typ = ""
+    let colon = nxFindTop(subj, ':')
+    if colon > 0: typ = subj[colon + 1 .. ^1].strip                 # (an object's `case kind: Kind`)
+    else:
+      try: typ = nxTypeOfExpr(f, sc, nxLocals(f, b.lines, l, k), subj, l, 0).typ.strip
+      except CatchableError: continue
+    if typ.len == 0 or not typ.validIdentifier and '.' notin typ: continue
+    if '.' in typ: typ = typ[typ.rfind('.') + 1 .. ^1]
+    var en: NxRef
+    var found = false
+    for r in nxLookup(sc, typ):
+      if r.file != nil and r.sym.kind == nxType:
+        en = r
+        found = true
+        break
+    if not found: continue
+    var vals: seq[string]
+    for sy in en.file.syms:
+      if sy.kind == nxEnumVal and sy.owner == en.sym.name: vals.add sy.name
+    if vals.len == 0: continue
+    var known: HashSet[string]
+    for v in vals: known.incl nxNorm(v)
+    var foreign = false
+    for x in labels:
+      if x notin known: foreign = true      # (a constant of the enum, an alias: not judged)
+    if foreign: continue
+    var missing: seq[string]
+    let have = toHashSet(labels)
+    for v in vals:
+      if nxNorm(v) notin have: missing.add v
+    if missing.len == 0: continue
+    inc n
+    if n > 100: return
+    var shown = missing
+    if shown.len > 12: shown = shown[0 ..< 12] & @["…"]
+    res.add Diag(line: l, col: k, eline: l, ecol: k + 4, sev: 1, src: "ned", rule: "case-missing",
+                 msg: "not all cases are covered; missing: {" & missing.join(", ") & "}")
+    discard lastLine
 
 var ecModMarked: Table[string, (string, bool)]    # module file → (its stamp, says {.used.} or hides declarations)
 
@@ -2010,6 +2322,8 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("arg-count", "a call with the wrong number of arguments for every routine of that name", 2),
   ("discarded", "a value neither used nor discarded", 2),
   ("literal-type", "a literal that can never be the declared type", 2),
+  ("arg-type", "an argument (a literal, a variable declared with a type) that can never be the parameter's type", 2),
+  ("case-missing", "a case over an enum that leaves values out, without an else", 1),
   ("unused-import", "an import nothing in the file uses", 2),
   ("unreachable", "code after a return, raise, break or continue", 3),
   ("unused-local", "a local let or var nothing uses", 4),
@@ -2216,6 +2530,8 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
       if on("arg-count"): ecArgCounts(f, b, code, result)
       if on("discarded"): ecDiscarded(f, b, code, result)
       if on("literal-type"): ecLiteralTypes(f, b, code, result)
+      if on("arg-type"): ecArgTypes(f, b, code, result)
+      if on("case-missing"): ecCaseCoverage(f, b, code, result)
       if on("unused-import"): ecUnusedImports(f, b, code, result)
       if cfgEngineMoreChecks:
         if on("var-let"): ecVarsNeverChanged(f, b, code, result)

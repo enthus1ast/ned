@@ -30,6 +30,14 @@ proc vimKey(k: Key): bool =
       b.setSingle(b.clampNormal(Pos(line: p.line, col: max(0, p.col - 1))))
       if vimIsChange and not vimReplaying: vimLastChange = vimRec
       return true
+    if k.kind == kChar and k.mods == {mCtrl} and k.ch in [ord('t'), ord('d')]:
+      # (vim's i_CTRL-T / i_CTRL-D: the line one level in or out, the cursor staying on the same text)
+      let p = b.primary.head
+      let before = b.lines[p.line].len
+      b.indentLines(if k.ch == ord('t'): 1 else: -1)
+      let moved = b.lines[p.line].len - before
+      b.setSingle(Pos(line: p.line, col: max(0, p.col + moved)))
+      return true
     if vimMode == vmReplace and k.kind == kChar and k.mods == {}:
       let p = b.primary.head
       if p.col < b.lines[p.line].len:
@@ -62,6 +70,8 @@ proc vimKey(k: Key): bool =
   elif k.kind == kChar and mCtrl in k.mods and k.ch < 128:
     let c = toLowerAscii(char(k.ch))
     let p = b.primary.head
+    # (a plugin's mapping of <C-a> … <C-z> — dial's Ctrl+A: it comes as the control character)
+    if c in {'a'..'z'} and mAlt notin k.mods and plugVimKey(b, chr(ord(c) - 96), visual): return true
     case c
     of 'r':
       b.redo()
@@ -83,7 +93,9 @@ proc vimKey(k: Key): bool =
       vimSetMode(vmVisual)
       return true
     else: return false
-  elif k.kind == kEnter: ch = '+'
+  elif k.kind == kEnter:
+    if plugVimKey(b, '\r', visual): return true       # (a plugin's <CR>: the folder view's "open this")
+    ch = '+'
   elif k.kind == kBackspace: ch = 'h'
   else:
     if k.kind in {kLeft, kRight, kUp, kDown, kHome, kEnd, kPgUp, kPgDn} and k.mods == {}:
@@ -329,7 +341,9 @@ proc vimKey(k: Key): bool =
     vimCount = ""
     vimOpCount = ""
     if ok:
-      b.vimApply(op, a, e, false)
+      # (whole lines — a paragraph, a plugin's line object —: linewise, as vim's own ip)
+      let lw = b.objLinewise(ch, a, e)
+      b.vimApply(op, a, (if lw: Pos(line: (if e.col == 0: e.line - 1 else: e.line), col: 0) else: e), lw)
       if op != "y":
         vimIsChange = true
         if vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
@@ -337,7 +351,11 @@ proc vimKey(k: Key): bool =
   if visual and vimPending.len == 1 and vimPending[0] in {'i', 'a'}:
     let (ok, a, e) = b.textObject(vimPending[0], ch, p)
     vimPending = ""
-    if ok: b.setSingle(Pos(line: e.line, col: max(0, e.col - 1)), a)
+    if ok:
+      if b.objLinewise(ch, a, e):
+        vimSetMode(vmVLine)                          # (whole lines: visual-line mode, as vim's vip)
+        b.setSingle(Pos(line: (if e.col == 0: e.line - 1 else: e.line), col: 0), a)
+      else: b.setSingle(Pos(line: e.line, col: max(0, e.col - 1)), a)
     return true
   if vimPending.len > 0 and vimPending[^1] in {'f', 't', 'F', 'T'}:
     let op = vimPending[0 ..< vimPending.len - 1]

@@ -13,6 +13,7 @@ proc wkSettingsChanged()
 proc wkFolderChanged()
 proc wkReport(): string
 proc engineAgain(path: string)
+proc cEngAgain(path: string)
 proc showProblems()
 proc pipeThroughCommand(cmd: string)
 proc runCheck(b: Buffer)
@@ -161,6 +162,10 @@ proc plugTextObject(b: Buffer, kind, obj: char, p: Pos): (bool, bool, Pos, Pos)
 proc plugExCommand(cmd: string): bool
 proc plugVimKey(b: Buffer, ch: char, visual: bool): bool
 proc plugVimReset()
+proc plugLangKey(n: string): bool
+proc plugHasLangKeys(): bool
+proc plugWrites(b: Buffer): bool
+proc drawKeyHints(bottom: int)
 proc plugFixActions(b: Buffer, l0, l1: int): seq[(string, string, Action)]
 proc buildPluginItems(): seq[SideItem]
 proc plugAskDone(text: string)
@@ -168,6 +173,7 @@ proc nbVersionComplete(b: Buffer, p: Pos, manual: bool, force = false): bool
 proc nbHover(b: Buffer, p: Pos): string
 proc nbVersionFixes(b: Buffer): seq[(string, string, Action)]
 proc plugComplete(b: Buffer, p: Pos)
+proc plugHasCompletions(b: Buffer): bool
 proc plugCompMerge()
 proc plugHover(b: Buffer, p: Pos, auto: bool): bool
 proc plugOutline(b: Buffer): (bool, seq[SideItem])

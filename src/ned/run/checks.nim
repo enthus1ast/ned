@@ -61,7 +61,16 @@ proc checkCmdForPath(path, langId: string): (string, string) =
   of "rust":
     let r = cargoRoot(dir)
     if r.len > 0 and haveExe("cargo"): return ("cargo check --quiet --message-format short", r)
-  else: discard
+  else:
+    # (another language's own check command: the "languages" setting's "check", a plugin's LangSpec)
+    let l = langByName(langId)
+    if l != nil and l.check.len > 0:
+      let first = l.check.strip.split(' ')[0]
+      if first.len > 0 and (haveExe(first) or first in ["sh", "cd"]):
+        let c = l.check.replace("\"$file\"", q).replace("$file", q).replace("\"$dir\"", quoteShell(dir))
+                       .replace("$dir", quoteShell(dir)).replace("$name", splitFile(path).name)
+                       .replace("$tmp", tmpDir()).replace("$root", rootDir)
+        return (c, dir)
   ("", "")
 
 proc checkCmdFor(b: Buffer): (string, string) = checkCmdForPath(b.path, b.lang.id)
@@ -217,6 +226,7 @@ proc runCheckPath(path, langId: string, keepExamples: bool) =
       keepCDiags(p, ds)
       diagsBuild[p] = ds
       engineAgain(p)
+      if langId in ["c", "cpp"]: cEngAgain(p)
     for p, us in unusedFound: unusedHints[p] = us
     if path in pendingRecheck:
       pendingRecheck.excl path

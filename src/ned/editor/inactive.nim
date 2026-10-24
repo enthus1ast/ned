@@ -24,7 +24,8 @@ proc inactiveRanges(b: Buffer): seq[(int, int)] =
         if l.len > 2 and l.strip(trailing = false).startsWith("#if"):
           any = true
           break
-      if any: result = cxInactiveIn(b.allText, cpp = cxIsCppBuf(b))   # (clangd or ned's engine: the same rule)
+      # (clangd or ned's engine: the same rule)
+      if any: result = cxInactiveIn(b.allText, cpp = cxIsCppBuf(b), path = b.path)
   except Exception as e:
     internalError("dimming left-out code", e)
   if result.len > 1:

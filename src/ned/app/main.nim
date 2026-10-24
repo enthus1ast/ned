@@ -36,6 +36,7 @@ proc compilerRunning(): bool =
   ## is the compiler checking something now? (background compiler runs go one at a time)
   for j in jobs:
     if j.kind == jkCheck and not j.done: return true
+  orRunning                         # (the compiler asked in the background: nim.compilerOracle)
 
 proc pumpJobs(ready: HashSet[cint]) =
   let snapshot = jobs
@@ -408,6 +409,9 @@ proc mainLoop() =
         # (a pause in typing and in scrolling: on a phone the checks of a big file take a moment; the imports read
         # first, a few at a time)
         if roomLeft(): timedWork("the engine's checks"): engineTypos(cb)
+      if cfgOracle and not away and cb.lang != nil and cb.lang.mode == lmNim and not compilerRunning() and
+         msSince(lastInputAt) > 2500 and roomLeft():
+        timedWork("the compiler asked in the background"): oracleStep(cb)
       if cfgMacroNames and not away and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
          msSince(cb.lspChangeAt) > 1500 and msSince(lastInputAt) > 1000 and not compilerRunning():
         # (one compiler at a time, and not while you scroll or type: a phone has the CPU for one)
@@ -955,6 +959,7 @@ proc main() =
   killTerminals()
   lspShutdown()
   mcpStopAll()
+  plugQuitEvents()
   plugStopAll()
   nsShutdown()
   wkStop()

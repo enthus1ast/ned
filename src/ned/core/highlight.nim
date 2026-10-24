@@ -9,6 +9,7 @@ const
   stBacktick = 66'u8   # inside JS template string
   stFence = 67'u8      # inside markdown code fence
   stHtmlComment = 68'u8
+  stDquote = 69'u8     # inside a "…" that goes on below (the generic lexer, a language's multilineStrings)
 
 
 # ── code of one language inside another: Nim's {.emit.}, sql"…", HTML in a Nim string, Markdown code blocks,
