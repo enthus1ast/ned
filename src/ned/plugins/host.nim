@@ -1477,33 +1477,34 @@ proc plugComplete(b: Buffer, p: Pos) =
   let at = plugCompAt
   let prefix = b.lines[p.line][ws ..< p.col]
   for key in keys:
-    let k = key
-    plugInvoke(k, %*{"buf": b.id, "pos": jPos(p), "prefix": prefix}, proc(v: JsonNode, err: string) =
-      if round != plugCompRound or err.len > 0 or v == nil or v.kind != JArray: return
-      let plugin = k.split('|')[0]
-      for x in v:
-        let label = x{"label"}.getStr
-        if label.len == 0: continue
-        let ins = x{"insert"}.getStr
-        var it = CompItem(label: label, insert: (if ins.len > 0: ins else: label), filter: label, sortText: label,
-                          detail: x{"detail"}.getStr, doc: x{"doc"}.getStr, docMade: true, plug: true,
-                          kind: plugCompKind(x{"kind"}.getStr), rank: 1)
-        if x{"snippet"}.getBool: it.snippet = it.insert
-        if it.detail.len == 0: it.detail = plugin
-        plugCompItems.add it
-      let cb = buf()
-      if cb.id != at[0] or compLine != at[1] or compStartCol != at[2]: return
-      # (the list again with theirs: the one shown, or a new one when nothing else had any)
-      var mine = false
-      for it in compItems:
-        if it.plug: mine = true
-      if mine:
-        var keep: seq[CompItem]
+    capture key:                  # (closures made in a loop share its variables: each its own)
+      let k = key
+      plugInvoke(k, %*{"buf": b.id, "pos": jPos(p), "prefix": prefix}, proc(v: JsonNode, err: string) =
+        if round != plugCompRound or err.len > 0 or v == nil or v.kind != JArray: return
+        let plugin = k.split('|')[0]
+        for x in v:
+          let label = x{"label"}.getStr
+          if label.len == 0: continue
+          let ins = x{"insert"}.getStr
+          var it = CompItem(label: label, insert: (if ins.len > 0: ins else: label), filter: label, sortText: label,
+                            detail: x{"detail"}.getStr, doc: x{"doc"}.getStr, docMade: true, plug: true,
+                            kind: plugCompKind(x{"kind"}.getStr), rank: 1)
+          if x{"snippet"}.getBool: it.snippet = it.insert
+          if it.detail.len == 0: it.detail = plugin
+          plugCompItems.add it
+        let cb = buf()
+        if cb.id != at[0] or compLine != at[1] or compStartCol != at[2]: return
+        # (the list again with theirs: the one shown, or a new one when nothing else had any)
+        var mine = false
         for it in compItems:
-          if not it.plug: keep.add it
-        compItems = keep
-      plugCompMerge()
-      refilterComp())
+          if it.plug: mine = true
+        if mine:
+          var keep: seq[CompItem]
+          for it in compItems:
+            if not it.plug: keep.add it
+          compItems = keep
+        plugCompMerge()
+        refilterComp())
 
 proc plugHover(b: Buffer, p: Pos, auto: bool): bool =
   ## ask the plugins what to show at p (their text goes under ned's own, or alone): true when one was asked
@@ -2176,14 +2177,15 @@ proc buildPluginItems(): seq[SideItem] =
         plugViews[vi].pending = true
         plugViews[vi].stale = false
         plugViews[vi].askedAt = getMonoTime()
-        let key = v.key
-        plugInvoke(key, newJObject(), proc(r: JsonNode, err: string) =
-          for x in plugViews.mitems:
-            if x.key == key:
-              x.pending = false
-              if err.len == 0 and r != nil and r.kind == JArray: x.items = r
-              elif err.len > 0: x.items = %*[{"text": "error: " & err, "color": "error"}]
-          needRender = true)
+        capture v:                  # (closures made in a loop share its variables: each its own)
+          let key = v.key
+          plugInvoke(key, newJObject(), proc(r: JsonNode, err: string) =
+            for x in plugViews.mitems:
+              if x.key == key:
+                x.pending = false
+                if err.len == 0 and r != nil and r.kind == JArray: x.items = r
+                elif err.len > 0: x.items = %*[{"text": "error: " & err, "color": "error"}]
+            needRender = true)
     result.add sideItem(v.title.toUpperAscii, 6, "", v.plugin)
     if v.items == nil:
       result.add sideItem("…", 2, "", "", depth = 1)

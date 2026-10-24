@@ -236,6 +236,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `compilerExplorer.filterDirectives` | `true` | Compiler Explorer: leave out the assembler's directives (.loc, .cfi_…, sections, debug info) — the data a used label holds stays |
 | `compilerExplorer.filterComments` | `true` | Compiler Explorer: leave out the compiler's comments |
 | `compilerExplorer.demangle` | `true` | Compiler Explorer: Nim's names as Nim writes them (square__example_u3 → square) |
+| `compilerExplorer.allProcs` | `true` | Compiler Explorer: every proc of a Nim file in the assembly, also the ones nothing calls yet (Nim leaves those out of the program) — a generic proc still needs a call. The private copy gets a line that names them; your file is not changed |
 | `compilerExplorer.execute` | `false` | Compiler Explorer: run the program too, its output (and exit code) in the Output panel — like godbolt.org's Execution |
 | `compilerExplorer.args` | `""` | Compiler Explorer: the program's arguments when it runs |
 | `compilerExplorer.delay` | `600` | Compiler Explorer: how long after you stop typing it compiles again (ms) |

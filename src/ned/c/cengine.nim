@@ -499,27 +499,30 @@ proc cFixItJson(b: Buffer, edits: seq[(Pos, Pos, string)], note: string, at: int
 proc cFixItActions*(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
   ## the compiler's fixes for the problems here (C/C++ without clangd: cc -fsyntax-only's fix-its)
   let bid = b.id
+  var fixes: seq[(string, string, Action)]             # (filled inside `capture`, where `result` is its own)
   for d in ds:
     if d.src != "cc" or d.fixes == nil: continue
     for f in jitems(d.fixes):
-      let edits = f{"nedEdits"}
-      let at = f{"at"}.getInt(-1)
-      result.add act(f{"title"}.getStr, "the compiler's fix", proc() =
-        let x = bufById(bid)
-        if x == nil or not x.canEdit(): return
-        if x.changeId != at:
-          info("The file changed since the compiler looked — save or pause typing, then try again")
-          return
-        var es: seq[(Pos, Pos, string)]
-        for e in jitems(edits):
-          es.add (Pos(line: e{"range", "start", "line"}.getInt, col: e{"range", "start", "col"}.getInt),
-                  Pos(line: e{"range", "stop", "line"}.getInt, col: e{"range", "stop", "col"}.getInt), e{"text"}.getStr)
-        # (from the last edit back: the earlier ranges stay where they are)
-        es.sort(proc(p, q: (Pos, Pos, string)): int = (if q[0] < p[0]: -1 elif p[0] < q[0]: 1 else: 0))
-        x.beginEdit()
-        for (a, e, t) in es: discard x.replaceText(x.clampPos(a), x.clampPos(e), t)
-        x.endEdit()
-        needRender = true)
+      capture f:                  # (closures made in a loop share its variables: each its own)
+        let edits = f{"nedEdits"}
+        let at = f{"at"}.getInt(-1)
+        fixes.add act(f{"title"}.getStr, "the compiler's fix", proc() =
+          let x = bufById(bid)
+          if x == nil or not x.canEdit(): return
+          if x.changeId != at:
+            info("The file changed since the compiler looked — save or pause typing, then try again")
+            return
+          var es: seq[(Pos, Pos, string)]
+          for e in jitems(edits):
+            es.add (Pos(line: e{"range", "start", "line"}.getInt, col: e{"range", "start", "col"}.getInt),
+                    Pos(line: e{"range", "stop", "line"}.getInt, col: e{"range", "stop", "col"}.getInt), e{"text"}.getStr)
+          # (from the last edit back: the earlier ranges stay where they are)
+          es.sort(proc(p, q: (Pos, Pos, string)): int = (if q[0] < p[0]: -1 elif p[0] < q[0]: 1 else: 0))
+          x.beginEdit()
+          for (a, e, t) in es: discard x.replaceText(x.clampPos(a), x.clampPos(e), t)
+          x.endEdit()
+          needRender = true)
+  fixes
 
 proc cTypingCheck(b: Buffer) =
   let cpp = cxIsCppBuf(b)

@@ -47,8 +47,11 @@ ned says which and how to install it.
 - **F12** (or Ctrl+click) on a label or a called function goes to it: in the assembly, or to its declaration in
   your file.
 - **Errors**: when the file does not compile, the view says `<Compilation failed>` with the compiler's messages.
-- A proc that nothing calls is not in the output — Nim leaves it out. Call it, or mark it `{.exportc.}` (that is
-  what the godbolt.org examples do).
+- **Every proc of the file** is in the output, also the ones nothing calls yet — a library module shows all of
+  its procs, each overload of an operator too. Nim itself leaves out what nothing calls (on godbolt.org you mark a
+  proc `{.exportc.}` for that): ned adds, to its private copy only, one line that names each of the file's procs.
+  A generic proc still needs a call (it has no code until it is used with a type). *Filters ▾ › Every proc of the
+  file* (`compilerExplorer.allProcs`) turns it off: then only what the program uses is there.
 
 ## The toolbar
 
@@ -60,7 +63,7 @@ the view's first line, or *Compiler Explorer: options…*).
 | `-d:release ✎` | the Nim compiler's options: empty is a debug build (with Nim's stack-trace bookkeeping, `nimFrame`); `-d:release`, `-d:danger` (no runtime checks), `--mm:arc`, `--opt:size` … For C and C++ files: the C compiler's (`-O2`) | `compilerExplorer.options`, `compilerExplorer.cOptions` |
 | `gcc 13.3.0 ▾` | the C compiler: auto, gcc, clang, zig cc | `compilerExplorer.compiler` |
 | `x86-64 ▾` | the processor: native, x86-64, ARM64, RISC-V 64, x86 32-bit — another one than yours is built with zig cc | `compilerExplorer.target` |
-| `Filters ▾` | unused labels, library functions, directives, comments, demangling | `compilerExplorer.filter…`, `compilerExplorer.demangle` |
+| `Filters ▾` | unused labels, library functions, directives, comments, demangling, every proc of the file | `compilerExplorer.filter…`, `compilerExplorer.demangle`, `compilerExplorer.allProcs` |
 | `asm ▾` | the compiler's assembly, or the object file disassembled with objdump (with addresses, and each call's target filled in from the relocations) | `compilerExplorer.output` |
 | `Intel ▾` | x86 syntax: Intel (`mov rax, rdi`) or AT&T (`movq %rdi, %rax`) | `compilerExplorer.syntax` |
 | `▶ run` | build and run the program after each compile: *Program returned: 0* and its output in the Output panel; its arguments in `compilerExplorer.args` | `compilerExplorer.execute` |
@@ -95,6 +98,7 @@ a phone. Such a program is not run (`▶ run` says so); the binary output uses `
 | `compilerExplorer.filterDirectives` | `true` | leave out directives (the data a used label holds stays) |
 | `compilerExplorer.filterComments` | `true` | leave out the compiler's comments |
 | `compilerExplorer.demangle` | `true` | Nim's names as Nim writes them |
+| `compilerExplorer.allProcs` | `true` | every proc of a Nim file, also the ones nothing calls yet (not the generic ones) |
 | `compilerExplorer.execute` | `false` | run the program after each compile |
 | `compilerExplorer.args` | `""` | the program's arguments |
 | `compilerExplorer.delay` | `600` | ms after the last key before it compiles again |

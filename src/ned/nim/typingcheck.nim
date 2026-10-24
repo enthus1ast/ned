@@ -134,8 +134,10 @@ proc typingCheck(b: Buffer) =
   let path = b.path
   let bid = b.id
   typingChecks[path] = (id, getMonoTime(), copy)
+  # (a plugin's source: the plugin library's folder, as ned gives it to the plugins — else `import nedplugin` fails)
+  let libFlag = if main.len > 0: pluginLibFlag(mainText.splitLines) else: pluginLibFlag(b.lines)
   discard startJob(jkCheck, "nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off " &
-                            "--listFullPaths:on - < " & quoteShell(if main.len > 0: mainCopy else: copy),
+                            "--listFullPaths:on" & libFlag & " - < " & quoteShell(if main.len > 0: mainCopy else: copy),
                    parentDir(if main.len > 0: main else: path), proc(j: Job) =
     let st = typingChecks.getOrDefault(path)
     typingChecks.del path

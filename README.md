@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.24](#whats-new-in-624) · [6.23](CHANGELOG.md#whats-new-in-623) · [6.22](CHANGELOG.md#whats-new-in-622) · [older releases](CHANGELOG.md)
+- [What's new in 6.24.1](#whats-new-in-6241) · [6.24](#whats-new-in-624) · [6.23](CHANGELOG.md#whats-new-in-623) · [6.22](CHANGELOG.md#whats-new-in-622) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -29,6 +29,24 @@ library, and builds to one binary of about 12 MB.
 - [Contributing](#contributing)
 
 ---
+
+## What's new in 6.24.1
+
+Fixes for what 6.24 got wrong on a tablet, and Compiler Explorer for library modules.
+
+- **Compiler Explorer's toolbar** sets what you pick. In 6.24 every item of its menus did what the last one does:
+  any filter switched *Demangle* (so names stayed mangled), any compiler chose zig cc, any processor the last one.
+  If you used them, open *Filters ▾* and switch *Demangle* back on, and check the compiler. The same mistake —
+  every item made in a loop acting as the last — is gone from the dock's view menu, the C compiler's fixes on
+  Alt+Enter (each now applies its own), the JSON settings' *edit…* links, the plugins' views and completions, and
+  revealing a new folder from the Git dock.
+- **Compiler Explorer shows every proc of the file**, also the ones nothing calls yet: a library module — types and
+  their `==`, `hash`, `%` — is no longer only `NimMain`. Nim leaves out what nothing calls; ned's private copy
+  names each of the file's procs so they are compiled (not the generic ones, which need a call). *Filters ▾ ›
+  Every proc of the file* (`compilerExplorer.allProcs`) turns it off.
+- **A plugin's source has no false errors**: `import nedplugin` (and `nedlsp`) resolves for the compiler's
+  checks too, as it already did for completion and hover — a full-Nim `plugin.nim` no longer shows every line red.
+- `AGENTS.md`: building, testing and the rules of the source in short, for an AI agent working on ned.
 
 ## What's new in 6.24
 
@@ -225,7 +243,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.24.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.24.1_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -280,7 +298,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.24.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.24.1-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell
