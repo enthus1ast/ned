@@ -45,6 +45,16 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
       i = e
       st = stNormal
       continue
+    if st == stDquote:
+      var j = i
+      while j < n and s[j] != '"':
+        if s[j] == '\\': inc j
+        inc j
+      mark(i, min(j + 1, n), tkString)
+      if j >= n: return st
+      i = j + 1
+      st = stNormal
+      continue
     if st == stBacktick:
       var j = i
       while j < n and s[j] != '`':
@@ -140,6 +150,17 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
           inc j
           if j == i + 2 and s[j-1] in {'@', '#', '?', '*', '!', '$', '-'}: break
       mark(i, j, tkVariable)
+      i = j
+      continue
+    if lang.decorators and c == '@' and i + 1 < n and s[i+1] == '(':
+      # @(private), @(require_results): an attribute list
+      var j = i + 2
+      var d = 1
+      while j < n and d > 0:
+        if s[j] == '(': inc d
+        elif s[j] == ')': dec d
+        inc j
+      mark(i, j, tkPragma)
       i = j
       continue
     if lang.decorators and c == '@' and i + 1 < n and isIdentStart(s[i+1]):
@@ -264,6 +285,11 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
           break
         inc j
       let e = min(j + 1, n)
+      if j >= n and lang.multiline and lang.mode == lmGeneric and c in {'"', '`'}:
+        # (a string that goes on below: Gleam's, Odin's raw `…`)
+        mark(i, n, tkString)
+        for p in escs: mark(p, p + 2, tkEscape)
+        return LexSt(if c == '"': stDquote else: stBacktick)
       var kind = tkString
       if lang.mode in {lmJson, lmCss}:
         var k = e
@@ -318,7 +344,8 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
       continue
     if isIdentStart(c):
       var j = i + 1
-      while j < n and (isWordByte(s[j]) or (lang.mode in {lmCss, lmMake} and s[j] == '-')): inc j
+      while j < n and (isWordByte(s[j]) or (lang.mode in {lmCss, lmMake} and s[j] == '-') or s[j] in lang.nameChars):
+        inc j
       let w = s[i..<j]
       var k = tkText
       if prevDef == 1: k = tkFunc

@@ -27,6 +27,9 @@ scripts do): with debug information, ned's biggest C file needs more than 6 GB t
   formatters, the regular expressions, `core/text`, the C index, `editor/asmview`, `editor/binfmt` …
   `tests/ui`'s formatter self-test merges every file and module into one — two modules may not both define the
   same top-level name.
+- ned's own plugins are in `plugins/<name>/plugin.nims` (off until turned on in the Plugins dock), read into ned when
+  it is built — a change to one needs a new build to show in the editor. Their list is `PlugBundledNames` in
+  `src/ned/plugins/host.nim`; each has its checks in `tests/plugins/bundled/test_<name>.py`.
 - Settings: `defS(…)` in `src/ned/config/settings.nim`, with a description a person can act on. Commands:
   `add(…)` in `src/ned/app/commandlist.nim` (and the menus in `src/ned/ui/menubar.nim`). The plugin API:
   `src/ned/plugins/lib/nedplugin.nim` and `nedlsp.nim`, every exported proc with a `##` doc comment.
@@ -42,12 +45,14 @@ scripts do): with debug information, ned's biggest C file needs more than 6 GB t
 ```sh
 for t in tests/unit/t*.nim; do nim r -d:release --hints:off "$t" || break; done   # unit (nimble test)
 python3 tests/plugins/tplugins.py ./ned --native      # the plugin host, the API, the examples
+python3 tests/plugins/tbundled.py --native            # ned's own plugins (plugins/), in nim e and compiled
 python3 tests/lsp/tnedls.py ./nedls                   # nedls: every feature, then random edits
 sh tests/format/parsecheck.sh "$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")"   # the formatter
 python3 tests/ui/run.py ./ned [t_name …]              # the editor through tmux: ~1300 checks, about an hour
 python3 .github/ci/pty_smoke.py ./ned && python3 .github/ci/bench.py ./ned && python3 tests/perf/rounds.py ./ned
 NEDBIN=./ned_debug bash tests/fuzz/batch.sh 120 mixed palette hex   # random input; no crash, no internal error
 python3 tests/docs/apiref.py --check && python3 tests/docs/links.py  # the docs (and the two below)
+python3 tests/engine/scoreboard.py --engine E --nedls ./nedls --cdriver C --c-files …  # the engines' minimum scores
 ```
 
 A change to a setting or a command: `ned --doc-settings > docs/reference/settings.md` and

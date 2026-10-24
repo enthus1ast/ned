@@ -259,6 +259,21 @@ proc nxBlockValue*(lines: openArray[string], start, ind: int, val: string): stri
       t.add " " & c2
       open += nxBalance(c2)
     return t
+  block:
+    # x⏎  .filterIt(…)⏎  .mapIt(…): a call chain going on in the lines below, each starting with a dot
+    var t = v
+    var l2 = start
+    var any = false
+    while l2 < lines.len and l2 - start < 30:
+      let c2 = nxCodeOf(lines[l2])
+      if c2.len == 0:
+        inc l2
+        continue
+      if leadWs(lines[l2]) <= ind or c2.len < 2 or c2[0] != '.' or c2[1] in {'.', '}', ' '}: break
+      t.add c2
+      any = true
+      inc l2
+    if any: return t
   if (v.startsWith("if ") or v.startsWith("when ")) and not v.endsWith(":") and nxFindTop(v, ':') < 0:
     # if a and⏎ b:   the condition goes on below
     var l2 = start

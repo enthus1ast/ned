@@ -85,10 +85,12 @@ types are left out.
 ## C: ned against clangd
 
 `ccompare.py` asks ned's C engine (`cdriver.nim`, the engine as a program) and clangd the same questions about
-C files:
+C and C++ files:
 
 1. **go to definition** at random identifiers — is ned's first answer the file and line of clangd's?
-2. **member completion** right after `->` and `.` — is the member written there offered?
+2. **hover** at the same places, where clangd's is a function's or a method's — are the parameter types the same
+   (of several overloads, the same one)?
+3. **member completion** right after `->` and `.` — is the member written there offered?
 
 ```sh
 nim c -d:release -o:/tmp/ned-cengine tests/engine/cdriver.nim
@@ -96,29 +98,42 @@ cd ~/src/openssh && python3 ~/ned/tests/engine/ccompare.py /tmp/ned-cengine /tmp
 ```
 
 For clangd to be at its best, the files' folder needs a `compile_commands.json` (`bear -- make`, or CMake's
-`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`); ned gets its `-I` folders, as the editor does. `--bg-index` lets clangd
-index the whole project first, so that it knows the bodies in the other `.c` files (ned looks them up when asked).
-Code the configuration leaves out (`#ifdef` branches not taken — clangd reports them) is not asked about: clangd
-has no answer there, only a guess by name.
+`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`); ned gets its `-I`, `-D` and `-U`, and the compiler's own macros
+(`cc -dM -E`, `c++ -dM -E -x c++` for C++), as the editor does. `--bg-index` lets clangd index the whole project
+first, so that it knows the bodies in the other `.c` files (ned looks them up when asked). Code the configuration
+leaves out (`#ifdef` branches not taken — clangd reports them) is not asked about: clangd has no answer there, only
+a guess by name.
 
-Last run (clangd 22, ned 6.5, `--n 40`):
+Last run (clangd 18.1.3, `--n 40`, no `--bg-index`), ned 6.24 → 6.25 where they differ:
 
-| | OpenSSH (18 files) | zsh (12 files) |
+| | OpenSSH (18 files) | zsh (12 files) | Lua (8 files) |
+|---|---|---|---|
+| go to definition: the same answer | 90.8% → 91.1% (656 of 720) | 89.1% (427 of 479) | 94.0% (299 of 318) |
+| hover: the same parameters | 84.2% → 94.7% (108 of 114) | 89.3% (50 of 56) | 95.5% (21 of 22) |
+| member completion: ned · clangd | 98.7% · 99.1% (of 226) | 100% · 94.2% (of 156) | 98.1% · 91.3% (of 104) |
+| a file's first answer: ned · clangd | 10 → 8 ms · 0.18 s | 9 ms · 0.14 s | 5 ms · 0.08 s |
+| each answer after: ned · clangd | 0.3–0.6 ms · 0.3 ms | 0.5 ms · 0.3 ms | 0.24 ms · 0.4 ms |
+| memory at the end: ned · clangd | 48 → 70 MB · 149 MB | 36 → 48 MB · 112 MB | 16 → 22 MB · 65 MB |
+
+| C++ | tinyxml2 (2 files, `--n 200`) | LevelDB (14 files) |
 |---|---|---|
-| go to definition: the same answer | 97.8% (635 of 649) | 97.3% (465 of 478) |
-| member completion: ned · clangd | 100% · 95.1% (of 183) | 99.4% · 97.4% (of 156) |
-| a file's first answer: ned · clangd | 13 ms · 0.17 s | 13 ms · 0.21 s |
-| each answer after: ned · clangd | 0.33 ms · 0.2 ms | 0.46 ms · 0.3 ms |
-| memory at the end: ned · clangd | 37 MB · 274 MB | 31 MB · 160 MB |
+| go to definition: the same answer | 80.8% → 87.8% (338 of 385) | 93.6% → 93.8% (454 of 484) |
+| hover: the same parameters | 82.6% → 95.9% (116 of 121) | 97.8% → 98.9% (88 of 89) |
+| member completion: ned · clangd | 99.2% · 96.2% (of 132) | 90.1% · 98.4% (of 182) |
+| a file's first answer: ned · clangd | 28 ms · 0.14 s | 2 ms · 0.34 s |
+| memory at the end: ned · clangd | 11 MB · 142 MB | 12 MB · 249 MB |
 
-With clangd 18 on Lua's sources (8 files, ned 6.23, `--n 40`, no `compile_commands.json`): go to definition
-the same at 94.0% of the places both answer (299 of 318), member completion ned 98.1% · clangd 91.3% (of 104), a
-file's first answer 5 ms · 0.10 s, each answer after 0.19 ms · 0.4 ms, memory 16 MB · 62 MB.
+(The memory ned 6.25 takes more: the macros of every header it reads, kept to work out the `#if`s of the next
+file. With clangd 22 and `--bg-index`, ned 6.5 agreed with it at 97.8% on OpenSSH and 97.3% on zsh: the background
+index knows the bodies in the other files.)
 
-Where they differ, it is mostly what only the build's configuration decides: ned does not run the preprocessor,
-so of two `#ifdef` branches that declare the same name it takes the first (`#ifndef HAVE_STRUCT_ADDRINFO` and the
-system's own), and a name that is also a macro (`#define stdout stdout`) goes to the declaration, not the macro.
-Branches it does decide: `#if 0`, C++-only code (`__cplusplus`, `extern "C++"`), and the compiler's target
-(`__x86_64__`, `_WIN32` … from `cc -dM -E`). Branches that open or close a brace differently (`#ifdef X  if (a) {
-#else  if (b) {`) are read as the first, as ctags does. Declarations made by macros (`local_list1(foo);`) are not
-understood; macros used as expressions are (`#define atime tv[0]`, `P_OPERAND(p)->l`).
+Where they differ, it is mostly what only the build decides. ned works out `#if` — the compiler's macros,
+`compile_commands.json`'s `-D` and `-U`, the `#define`s of the file and of the headers it includes — but a macro
+defined only where ned does not look (a `config.h` not generated yet, a flag with no `compile_commands.json`) is
+not known: both branches are read, and of two that declare the same name the first is taken. A header's `#if`s do
+not see the macros the file including it defines before the `#include`. A name that is also a macro (`#define
+stdout stdout`) goes to the declaration, not the macro. Branches that open or close a brace differently (`#ifdef X
+ if (a) { #else  if (b) {`) are read as the first, as ctags does. Declarations made by macros are read
+(`DECLARE_GETTER(width, int)` declares `get_width`), and so are macros used as expressions (`#define atime tv[0]`,
+`P_OPERAND(p)->l`). In C++, dependent types, `decltype` and concepts are not understood, and of overloads whose
+arguments ned cannot tell apart, the first is taken.

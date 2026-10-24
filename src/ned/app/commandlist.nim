@@ -97,8 +97,8 @@ proc initCommands() =
   add("Delete line", "Ctrl+K", buf().deleteLines())
   add("Move line up", "Alt+↑", buf().moveLines(-1))
   add("Move line down", "Alt+↓", buf().moveLines(1))
-  add("Indent", "Tab", buf().indentLines(1))
-  add("Outdent", "Shift+Tab", buf().indentLines(-1))
+  add("Indent lines", "Tab with lines selected", buf().indentLines(1))
+  add("Unindent lines (outdent, dedent)", "Shift+Tab", buf().indentLines(-1))
   add("Select all", "Ctrl+A", (block:
     let b = buf()
     b.setSingle(Pos(line: b.lines.high, col: b.lines[^1].len), Pos())))
@@ -444,6 +444,9 @@ proc initCommands() =
   add("Plugins: reload", "", plugReload())
   add("Plugins: turn one on or off…", "", cmdPluginToggle())
   add("Plugins: the API (nedplugin.nim)", "", plugHelp())
+  add("Plugins: available plugins (ned's own)…", "turn one on: increment, case changes, align, harpoon …",
+      cmdPluginsAvailable())
+  add("Plugins: uninstall / remove one…", "", cmdPluginUninstall())
   add("TODOs panel", "", (if rightOpen and rightView == svTodos and focus == fRight: toggleDock(dsRight) else: showSide(svTodos)))
   add("TODO: next in this file", "Alt+V", todoJump(1))
   add("TODO: previous in this file", "Alt+Shift+V", todoJump(-1))

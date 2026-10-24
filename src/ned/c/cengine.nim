@@ -22,17 +22,18 @@ var
   cxDirsKey = ""
   cxCompileDefs: seq[string]          # compile_commands.json's -D and -U: the compiler's check of the unsaved text
 
-proc cxSetDirs(b: Buffer) =
+proc cxSetDirsFor(path: string) =
   ## where #include looks: the file's folder, the project's include folders (and compile_commands.json's -I),
   ## then the C compiler's own
-  let key = rootDir & "|" & parentDir(b.path)
+  let key = rootDir & "|" & parentDir(path) & "|" & $cSysDirsDone     # (the compiler's own folders, once it said)
   if key == cxDirsKey and cxDirs.len > 0: return
   cxDirsKey = key
   var ds: seq[string]
   var defs: seq[string]
+  var each: seq[(string, seq[string])]            # (a file of compile_commands.json, its own -D and -U)
   proc add(d: string) =
     if d.len > 0 and dirExists(d) and d notin ds: ds.add d
-  add parentDir(b.path)
+  add parentDir(path)
   if rootDir.len > 0:
     for sub in ["include", "inc", "src", "lib", "."]: add rootDir / sub
     let cc = rootDir / "compile_commands.json"
@@ -45,6 +46,7 @@ proc cxSetDirs(b: Buffer) =
           if e{"arguments"} != nil:
             for a in e["arguments"]: args.add a.getStr
           else: args = e{"command"}.getStr.splitWhitespace
+          var mine: seq[string]
           var k = 0
           while k < args.len:
             let a = args[k]
@@ -53,12 +55,15 @@ proc cxSetDirs(b: Buffer) =
               inc k
             elif a.startsWith("-I") and a.len > 2: add(if a[2 .. ^1].isAbsolute: a[2 .. ^1] else: dir / a[2 .. ^1])
             elif (a.startsWith("-D") or a.startsWith("-U")) and a.len > 2 and defs.len < 200:
+              mine.add a
               let nm = a[2 .. ^1].split('=')[0]
               var dup = false
               for x in defs:
                 if x[2 .. ^1].split('=')[0] == nm: dup = true
               if not dup: defs.add a               # (the first file's, when files differ)
             inc k
+          let file = e{"file"}.getStr
+          if file.len > 0: each.add ((if file.isAbsolute: file else: dir / file), mine)
           if ds.len > 40: break
       except CatchableError: discard
   for v in [getEnv("C_INCLUDE_PATH"), getEnv("CPATH")]:
@@ -67,17 +72,33 @@ proc cxSetDirs(b: Buffer) =
   cxDirs = ds
   cxSysDirs = cSystemIncludeDirs()
   cxCompileDefs = defs
+  cxDefines = defs                     # (the engine's #ifs see them too)
+  # the files these are all the -D and -U of: their #ifs know a macro defined nowhere is not defined
+  cxStrictFiles.clear()
+  let all = defs.toHashSet
+  for (file, mine) in each:
+    if mine.toHashSet == all: cxStrictFiles.incl normalizedPath(file)
   if not cxPredefSet:
-    # the compiler's predefined macros: the #if branches its target decides (__x86_64__, __linux__, _WIN32 …)
+    # the compilers' predefined macros, once a session: the #if branches their target decides (__x86_64__,
+    # __linux__, _WIN32, __STDC_VERSION__ …) — C's and C++'s; without a compiler, what ned knows of its platform
+    proc predefOf(cmds: openArray[string], lang: string): Table[string, string] =
+      for cc in cmds:
+        if not haveExe(cc): continue
+        let (ok, o, _) = runFilter(cc & " -dM -E -x " & lang & " -", "", getCurrentDir(), 5000)
+        if not ok: continue
+        for l in o.splitLines:
+          let p = l.splitWhitespace(2)
+          if p.len >= 2 and p[0] == "#define": result[p[1]] = (if p.len > 2: p[2] else: "")
+        if result.len > 0: return
+    cxPredef = predefOf(["cc", "clang", "gcc"], "c")
+    if cxPredef.len == 0: cxPredef = cxBuiltinPredef(cpp = false)
+    cxPredefCpp = predefOf(["c++", "clang++", "g++"], "c++")
+    if cxPredefCpp.len == 0: cxPredefCpp = cxBuiltinPredef(cpp = true)
     cxPredefSet = true
-    for cc in ["cc", "clang", "gcc"]:
-      if not haveExe(cc): continue
-      let (ok, o, _) = runFilter(cc & " -dM -E -x c -", "", getCurrentDir(), 5000)
-      if not ok: continue
-      for l in o.splitLines:
-        let p = l.splitWhitespace(2)
-        if p.len >= 2 and p[0] == "#define": cxPredef[p[1]] = (if p.len > 2: p[2] else: "")
-      break
+
+proc cxSetDirs(b: Buffer) = cxSetDirsFor(b.path)
+
+cxPrepare = cxSetDirsFor       # (the dimming of what #ifs leave out can come first, before the engine reads the file)
 
 var cxBufParse: Table[int, (int, float, CxFile)]      # buffer id → (the change it was read at, when, its index)
 
@@ -296,10 +317,15 @@ func cArgIsLiteral(a: string): bool =
   if t[0] in {'"', '\''} or t.startsWith("L\"") or t.startsWith("u8\"") or t.startsWith("L'"): return true
   t in ["NULL", "true", "false", "nullptr", "0"]
 
+proc cEngChecks(b: Buffer)
+proc cEngMerge(ds: var seq[Diag], mine: seq[Diag]): int
+var cEngLast: Table[string, (int, seq[Diag])]   # file → (the change, the engine's problems then, before the compiler's)
+
 proc cEngInlays(b: Buffer, lo, hi: int) =
   ## the names of the parameters before a call's arguments, as clangd shows them: `pt_move(p, dx: 1, dy: 2)` —
   ## before literals unless nim.parameterHints is "all"; not for one-parameter functions, single-letter names, an
   ## argument that is the name already, a call over several lines, or a macro's (…) beyond its parameters
+  cEngChecks(b)                        # (the engine's checks too: when the file is opened, and after a change)
   b.inlays.clear()
   b.inlayAt = b.changeId
   b.inlayLo = lo
@@ -390,7 +416,7 @@ proc cEngInlays(b: Buffer, lo, hi: int) =
         if all or cArgIsLiteral(s[x ..< y]): want = true
       if not want: continue
       var sym: CxSym
-      try: sym = cxSignature(f, l, open + 1)[0]
+      try: sym = cxSignature(f, l, open + 1, whole = true)[0]     # (C++: the overload every argument fits)
       except CatchableError: continue
       if sym.name != name or sym.params.len < 2: continue
       for ai, (x, y) in args:
@@ -416,12 +442,12 @@ proc cEngOutline(b: Buffer): seq[SideItem] =
         else: "v"
       let fn = s.kind in {cxFunc, cxMethod}
       # (C++: a method defined outside its class, as Class::name)
-      let name = if s.kind == cxMethod and s.owner.len > 0: cxxSplit(s.owner)[^1] & "::" & s.name else: s.name
+      let name = if s.kind == cxMethod and s.owner.len > 0: cxxNoArgs(cxxSplit(s.owner)[^1]) & "::" & s.name else: s.name
       result.add SideItem(text: name, detail: (if fn or s.kind == cxClass: s.text else: s.typ), path: b.path,
                           line: s.line, col: s.col, depth: 0, icon: icon,
                           role: (if fn: 7 elif s.kind in {cxStruct, cxUnion, cxEnum, cxTypedef, cxClass}: 8 else: 0))
       if s.kind in {cxStruct, cxUnion, cxClass}:
-        let key = if f.cpp: cxxQual(s) else: s.name
+        let key = if f.cpp: cxxKey(s) else: s.name
         for x in f.syms:
           if x.kind in {cxField, cxMethod} and x.owner == key and (x.kind == cxField or x.scope == x.owner):
             result.add SideItem(text: x.name, detail: (if x.kind == cxMethod: x.text else: x.typ), path: b.path,
@@ -501,16 +527,17 @@ proc cFixItActions*(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
   let bid = b.id
   var fixes: seq[(string, string, Action)]             # (filled inside `capture`, where `result` is its own)
   for d in ds:
-    if d.src != "cc" or d.fixes == nil: continue
+    if d.src notin ["cc", "ned"] or d.fixes == nil: continue
     for f in jitems(d.fixes):
+      let who = if d.src == "cc" and not f{"ned"}.getBool: "the compiler's fix" else: "ned's engine"
       capture f:                  # (closures made in a loop share its variables: each its own)
         let edits = f{"nedEdits"}
         let at = f{"at"}.getInt(-1)
-        fixes.add act(f{"title"}.getStr, "the compiler's fix", proc() =
+        fixes.add act(f{"title"}.getStr, who, proc() =
           let x = bufById(bid)
           if x == nil or not x.canEdit(): return
           if x.changeId != at:
-            info("The file changed since the compiler looked — save or pause typing, then try again")
+            info("The file changed since it was checked — pause typing, then try again")
             return
           var es: seq[(Pos, Pos, string)]
           for e in jitems(edits):
@@ -525,6 +552,7 @@ proc cFixItActions*(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
   fixes
 
 proc cTypingCheck(b: Buffer) =
+  cEngChecks(b)                        # (the engine's own checks first: at once, with no compiler too)
   let cpp = cxIsCppBuf(b)
   if b.path in cTypingChecks or not haveExe(if cpp: "c++" else: "cc"): return
   let id = b.changeId
@@ -589,8 +617,93 @@ proc cTypingCheck(b: Buffer) =
       ds.add Diag(line: max(0, l), col: max(0, c), eline: max(0, l), ecol: -1, sev: sev, msg: rest, src: "cc")
       owner = ds.high
     flush()
+    # (the engine's own checks stay, where the compiler says nothing on their line)
+    if path in cEngLast and cEngLast[path][0] == id: discard cEngMerge(ds, cEngLast[path][1])
+    else:
+      for d in diagsBuild.getOrDefault(path):
+        if d.src == "ned":
+          var taken = false
+          for e in ds:
+            if e.line == d.line: taken = true
+          if not taken: ds.add d
     diagsBuild[path] = ds
     needRender = true)
+
+# ── ned's own checks (c.engineChecks): an #include nothing of which is used, a struct that takes less room with
+#    its fields ordered by size, printf and scanf formats against their arguments — at once, with no compiler ──
+
+import cchecks
+
+var cEngChecked: Table[int, (int, string)]      # buffer id → (the change its checks were made for, which checks)
+
+proc cEngMerge(ds: var seq[Diag], mine: seq[Diag]): int =
+  ## the engine's problems among the compiler's: where the compiler says something on the same line, its words
+  ## stay — and a format's fix goes with them (gcc's -Wformat has none); the number added
+  for d in mine:
+    var taken = false
+    for e in ds.mitems:
+      if e.src == "cc" and e.line == d.line:
+        taken = true
+        if d.rule == "c-format" and d.fixes != nil and "format" in e.msg and
+           (e.fixes == nil or e.fixes.len == 0 or e.fixes[0]{"ned"}.getBool):
+          e.fixes = d.fixes
+          break
+    if not taken:
+      ds.add d
+      inc result
+
+proc cEngChecks(b: Buffer) =
+  ## the engine's checks of a C file among its problems, with their fixes (Alt+Enter) — the compiler's word first on
+  ## a line where both say something. Not with c.engine "both": clangd's checks are there
+  if not cEngineOn(b) or cfgCEngine == "both" or b.path.len == 0: return
+  let key = $cxChecks & "/" & $cSysDirsDone          # (the compiler's folders arrived: a header now read whole)
+  if cEngChecked.getOrDefault(b.id) == (b.changeId, key): return
+  cEngChecked[b.id] = (b.changeId, key)
+  var found: seq[CkProblem]
+  try:
+    let f = cxFileOf(b)
+    var others: seq[seq[string]]                 # (the other open C files: a brace list there fills a struct too)
+    for x in bufs:
+      if x != b and x.lang != nil and x.lang.id in ["c", "cpp"] and others.len < 20: others.add x.lines
+    found = ckChecks(f, cxChecks.includes, cxChecks.padding, cxChecks.formats, others)
+  except CatchableError as e:
+    internalError("C engine checks", e)
+    return
+  var mine: seq[Diag]
+  for p in found:
+    var d = Diag(line: p.line, col: p.col, eline: p.eline, ecol: p.ecol, sev: p.sev, msg: p.msg, src: "ned",
+                 rule: p.rule)
+    for fx in p.fixes:
+      var es: seq[(Pos, Pos, string)]
+      for e in fx.edits: es.add (Pos(line: e.line, col: e.col), Pos(line: e.eline, col: e.ecol), e.text)
+      if d.fixes == nil: d.fixes = newJArray()
+      let j = cFixItJson(b, es, fx.title, b.changeId)
+      j["ned"] = %true
+      d.fixes.add j
+    mine.add d
+  lintApply(b.path, b.lines, mine)                # (.ned/lint.json: a rule's severity, or off)
+  cEngLast[b.path] = (b.changeId, mine)
+  var ds: seq[Diag]
+  for d in diagsBuild.getOrDefault(b.path):
+    if d.src != "ned": ds.add d
+  let before = diagsBuild.getOrDefault(b.path).len
+  let added = cEngMerge(ds, mine)
+  if added > 0 or ds.len != before or mine.len > 0:     # (or a fix given to the compiler's words)
+    diagsBuild[b.path] = ds
+    needRender = true
+
+proc cEngAgain(path: string) =
+  ## the compiler's check on save replaced a C file's problems: the engine's own go back among them (worked out
+  ## again when the text has changed since)
+  let i = bufIndexByPath(path)
+  if i < 0 or path notin cEngLast: return
+  if cEngLast[path][0] != bufs[i].changeId:
+    cEngChecked.del bufs[i].id
+    return
+  var ds = diagsBuild.getOrDefault(path)
+  if cEngMerge(ds, cEngLast[path][1]) > 0:
+    diagsBuild[path] = ds
+    needRender = true
 
 # ── a missing #include ──
 

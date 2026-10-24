@@ -210,7 +210,7 @@ proc wkInlayStep(b: Buffer) =
   ## direction you scroll, then behind) — engineInlayStep's order; nothing is worked out here
   ihPending = false
   if b.lines.len == 0 or not wkReady(b): return
-  let key = $b.changeId & "/" & $nxGen & "/" & cfgParamHints & "/" & $cfgRaisesHints
+  let key = $b.changeId & "/" & $nxGen & "/" & cfgParamHints & "/" & $cfgRaisesHints & "/" & $orGen & "/" & $cfgChainHints
   let st = addr ihStates.mgetOrPut(b.id, IhState(lastTop: b.topLine, down: true))
   let page = max(textH, 20)
   if b.inlayAt == -1:

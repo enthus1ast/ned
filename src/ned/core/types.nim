@@ -36,6 +36,9 @@ type
     nested: bool
     quotes: set[char]
     triple, charLit, capsTypes, decorators, commentNeedsSpace: bool
+    multiline: bool               # (the generic lexer) a "…" or `…` string not closed on its line goes on below
+    nameChars: set[char]          # characters a name may have after its first letter besides letters, digits, _
+    dedentWords: seq[string]      # a line that becomes one of these words alone (`end`) goes one level out
     keywords, types, consts, builtins, defWords, classWords: HashSet[string]
     indentChars: set[char]
     indentWords: seq[string]

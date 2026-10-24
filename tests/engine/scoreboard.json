@@ -1,0 +1,14 @@
+{
+  "nim: type hints, the same as nimsuggest's": 98,
+  "nim: go to definition, the same place": 98,
+  "nim: a variable's type, the same": 97,
+  "nim: member completion, ned": 96,
+  "nedls: completion: the name offered": 98,
+  "nedls: signature help: the routine": 97,
+  "c: go to definition, the same as clangd's": 90,
+  "c: member completion, ned": 95,
+  "nedls: hover: there": 98,
+  "nedls: hover: the same declaration": 97,
+  "nedls: hover: its doc comment": 97,
+  "c: hover, the same parameters": 92
+}

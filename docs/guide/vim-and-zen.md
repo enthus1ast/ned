@@ -13,8 +13,8 @@ palette (Ctrl+E) and the mouse work the same in all of them.
 **Moving**: `h j k l`, `w b e` and `W B E`, `0 ^ $`, `gg G`, `{ }`, `%`, `H M L`, `f t F T` with `; ,` — all with
 counts (`3w`, `5j`).
 
-**Operators** `d c y > < gu gU gc` take a motion or a text object (`iw aw`, `i( a(`, `i" a"`, `i{ a{` …):
-`dw`, `ci"`, `yap`, `>ip`, `gUiw`. Also `x X s S C D Y p P J r R ~`, `.` (repeat), `u` and Ctrl+R (undo, redo),
+**Operators** `d c y > < gu gU gc` take a motion or a text object (`iw aw`, `i( a(`, `i" a"`, `i{ a{`, `ip ap`
+— a paragraph, as whole lines …): `dw`, `ci"`, `yap`, `>ip`, `gUiw`; `vip` selects the paragraph's lines. Also `x X s S C D Y p P J r R ~`, `.` (repeat), `u` and Ctrl+R (undo, redo),
 and `g-` `g+`, which go back and forth in time across the [undo tree](editing.md#undo)'s branches.
 
 **vim-surround**: `ys{motion}{char}`, `yss{char}`, `cs{old}{new}`, `ds{char}`, and `S{char}` in visual mode — `t` or
@@ -37,7 +37,12 @@ records, `q` stops, `@{a-z}` plays, `@@` again — the same macros as Edit › M
 | `:N` | go to line N |
 
 Plugins can add their own mappings, operators, text objects and ex commands ([Plugins](../plugins/README.md)) —
-the *commentary* example adds `gc` with every motion, an `ie` text object and `:Comment`.
+the *commentary* example adds `gc` with every motion, an `ie` text object and `:Comment`. Several of
+[ned's own plugins](../plugins/available.md) are for vim: **which-key** shows what may follow a key that waits
+(`g`, `z`, `d`, `<leader>` …) in a box you can tap; **dial** (Ctrl+A / Ctrl+X), **case-change** (`crs` …),
+**split-join** (`gS` `gJ`), **text-objects** (`ia` `ii` `iq` …), **exchange** (`cx`), **align** (`ga`),
+**harpoon** (`<leader>a`, `<leader>1` …) and **oil** (`<leader>-`). A plugin's operator takes every motion, `gg`
+and `f{char}` too.
 
 | setting | default | |
 |---|---|---|

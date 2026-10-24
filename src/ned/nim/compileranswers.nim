@@ -51,6 +51,12 @@ proc compilerAnswer(b: Buffer, kind: NsKind, p: Pos): bool =
   ## would be (a hover, a jump) — if you are still there when it comes
   if nim3On() and b.lang != nil and b.lang.mode == lmNim and b.path.endsWith(".nim") and cfgNimIde != "off":
     return kind == nsDef and b.compilerAnswerNim3(p)
+  if kind in {nsDef, nsHover, nsAutoHover} and b.lang != nil and b.lang.mode == lmNim:
+    # (the compiler's answer for this name, kept from the background oracle or from an earlier question)
+    let kept = orCompilerLines(b, p)
+    if kept.len > 0:
+      nsHandle(nil, NsReq(kind: kind, bufId: b.id, pos: p), kept)
+      return true
   if not compilerAnswerUsable(b) or kind notin {nsDef, nsHover, nsAutoHover}: return false
   let q = if kind == nsDef: "def" else: "hover"
   let key = b.path & ":" & $b.changeId & ":" & $p.line & ":" & $p.col & ":" & q
@@ -89,6 +95,7 @@ proc compilerAnswer(b: Buffer, kind: NsKind, p: Pos): bool =
       caAnswers.del caOrder[0]
       caOrder.delete(0)
     let x = bufById(bid)
+    if x != nil and x.changeId == changeAt and ls.len > 0: orKeep(x, p, ls)     # (kept for the next time)
     if x == nil or x.changeId != changeAt or x != buf() or x.primary.head.line != p.line: return
     if ls.len == 0 and kind == nsDef:
       info("The compiler knows no definition here either")

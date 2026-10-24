@@ -36,11 +36,16 @@ proc dockActions(v: SideView): seq[(string, string, Action)] =
                     loadNimbleInfo(true)
                     probeTools()))]
   of svAssistant: @[(ic("plus"), "New chat", Action(proc() = runCmd("AI: new chat"))),
-                    (ic("more"), "Assistant options", Action(proc() = openMenu(menuItems(6), mouseX - 30, mouseY + 1)))]
+                    (ic("more"), "Assistant options",
+                     Action(proc() = openMenu(menuItems(MenuNames.find("AI")), mouseX - 30, mouseY + 1)))]
   of svOutline: @[("⟳", "Refresh", Action(proc() = (buf().outlineAt = -1)))]
   of svTodos: @[("⎘", "Copy the list as Markdown (c)", Action(proc() = todoCopyMarkdown())),
                 ("⟳", "Rescan the project (r)", Action(proc() = todoScanProject()))]
-  of svPlugins: @[(ic("plus"), "New plugin…", Action(proc() = runCmd("Plugins: new plugin…"))),
+  of svPlugins: @[(ic("plus"), "Add: ned's own plugins, an example, from git, a new one…", Action(proc() =
+                    openMenu(@[mc("Plugins: available plugins (ned's own)…", "Available plugins (ned's own)…"),
+                               mc("Plugins: add an example…", "An example…"), mc("Plugins: install from git…", "From git…"),
+                               mc("Plugins: browse the plugin list…", "From the plugin list…"),
+                               mc("Plugins: new plugin…", "A new plugin…")], mouseX, mouseY + 1))),
                   ("⇣", "Install a plugin from git…", Action(proc() =
                     openPrompt(pPluginInstall, "Plugin repository (https://…)", ""))),
                   ("ⓘ", "The plugin API (nedplugin.nim)", Action(proc() = runCmd("Plugins: the API (nedplugin.nim)"))),

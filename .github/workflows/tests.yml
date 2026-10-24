@@ -5,6 +5,7 @@
 #           and the documentation: the references are what the sources make, every link goes somewhere (tests/docs)
 #   ui    — the whole editor driven through tmux, its screen read back (tests/ui), in four parts side by side,
 #           with the tools the tests use installed (language servers, clangd, gdb, shells, an SSH server)
+#   scoreboard — the engines against nimsuggest and clangd on fixed files, each score against its minimum
 # Started by hand (Actions › tests › Run workflow) it can also fuzz ned and compare its Nim engine with nimsuggest.
 name: tests
 
@@ -54,6 +55,7 @@ jobs:
         run: |
           nim c -d:release --hints:off -o:ned src/ned.nim
           python3 tests/plugins/tplugins.py ./ned --native
+          python3 tests/plugins/tbundled.py --native
       - name: The documentation (references made from the sources, links)
         run: |
           export XDG_CONFIG_HOME=$(mktemp -d)        # (no settings of anyone's in the references)
@@ -141,6 +143,36 @@ jobs:
         with:
           name: fuzz-logs
           path: /tmp/ned-fuzz-*-logs
+
+  scoreboard:
+    # the engines' scoreboard: ned's Nim engine against nimsuggest and nedls' answers (standard-library modules),
+    # its C engine against clangd (Lua's sources) — each score against its minimum in tests/engine/scoreboard.json
+    name: engine scoreboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: sudo apt-get update && sudo apt-get install -y clangd
+      - name: The engines as programs
+        run: |
+          tests/engine/build.sh ./ned-engine
+          nim c -d:release --hints:off -o:nedls src/nedls.nim
+          nim c -d:release --hints:off -o:ned-cengine tests/engine/cdriver.nim
+          git clone -q --depth 1 https://github.com/lua/lua /tmp/lua
+      - name: The scores
+        run: |
+          set +e
+          python3 tests/engine/scoreboard.py --engine ./ned-engine --nedls ./nedls --cdriver ./ned-cengine \
+            --c-files /tmp/lua/lapi.c /tmp/lua/lcode.c /tmp/lua/ltable.c /tmp/lua/lvm.c /tmp/lua/lstring.c \
+            --n 40 > /tmp/scores.txt 2>&1
+          code=$?
+          cat /tmp/scores.txt
+          sed -n '/^| |/,/^$/p' /tmp/scores.txt >> "$GITHUB_STEP_SUMMARY"
+          exit $code
 
   engine:
     if: github.event_name == 'workflow_dispatch' && inputs.engine

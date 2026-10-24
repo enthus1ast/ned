@@ -61,6 +61,7 @@ can add your own (see [Settings](settings.md#settings)).
 | Alt+↑ / Alt+↓ · Alt+D | move line(s) · duplicate |
 | Alt+Shift+R · Alt+Shift+M | record a keyboard macro (again: stop) · play it — *Edit › Macros* for N times, each line, saved ones |
 | Ctrl+K · Ctrl+/ | delete line(s) · toggle comment |
+| Tab · Shift+Tab | indent / unindent the selected lines (Shift+Tab: the cursor's line too) — also *Edit › Indent lines* and *Unindent lines*, the palette ("unindent", "outdent", "dedent"), ⇥ ⇤ on the touch bar; vim: `>>` `<<`, `>` `<` in visual mode, Ctrl+T / Ctrl+D in insert mode |
 | Alt+- / Alt+= | fold / unfold (or click ▾ ▸) |
 | Tab after a keyword | snippet (Tab / Shift+Tab walk the fields) |
 | Ctrl+Space | completion |

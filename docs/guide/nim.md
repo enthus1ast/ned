@@ -46,6 +46,53 @@ their parameters' names before literal arguments — `draw(width: 10, height: 20
 `literals`, `all` or `off`).
 `"nim.typeHints": "nimsuggest"` asks nimsuggest instead (when it is turned on); `"editor.inlayHints": false` turns them off.
 
+**Chain hints** (`nim.chainHints`, on by default). When you write a call chain over several lines, with each line
+starting with a dot, each line ends with the type of what that step gives:
+
+```nim
+let names = people
+  .filterIt(it.age > 30)   : seq[Person]
+  .mapIt(it.name)          : seq[string]
+  .join(", ")
+```
+
+The last line has no chain hint when the chain is a `let`'s value, because the `let`'s own hint shows that type.
+
+**The compiler as an oracle in the background** (`nim.compilerOracle`, on by default; with nimsuggest off, the
+default). Some things the engine cannot work out by reading the code:
+
+- the type of a `let` whose value comes from a macro or a `when compiles` branch;
+- a generic the engine does not follow;
+- which of several overloads a call picks.
+
+For these, ned asks the compiler. After a pause in your typing, one nimsuggest run takes all the questions for the
+lines around the screen, answers them and quits; no server is kept running. The unsaved text goes to it as a
+private copy.
+
+The answers are kept on disk (`~/.cache/ned/oracle`), by the text of each line. A line you have not changed keeps
+its answer when you edit other lines, and still has it the next time you open the file. The answers are used by:
+
+- the type hints;
+- the hover of an overloaded call: **Called here — the compiler's choice: …**;
+- Go to definition, which goes straight to that overload instead of listing them all;
+- the one-question answers of `nim.compilerAnswers`, which are kept the same way.
+
+**Completion: what you chose before comes first.** The items you chose lately are ranked higher, the latest
+first. The ranking is per language and is kept between sessions (in the state file, the last 300). It counts most
+right after a dot, before you type anything. The type wanted there still counts: in `draw(width = ` an `int` comes
+before a `string`.
+
+**Rename (F2)** changes every place that names the same declaration, and shows them all first. 6.25 extends its
+reach in three ways:
+
+- **strformat strings**: the name inside the `{…}` of `fmt"…"`, `&"…"` or `fmt("…")` is renamed too, unless a
+  local of that name stands in the way. The format part after a `:` is left alone.
+- **doc comments**: a name written in backticks in a `##` comment, such as `` `total` `` or `` `total()` ``, is
+  renamed in the files whose code names it.
+- **your other packages**: the files of a workspace's other folders and of the packages your `nimble.develop`
+  names (from `nimble develop`) are included. A declaration in one of them can now be renamed; before 6.25 it was
+  refused as outside the project.
+
 **What completion offers:**
 - After a `.`: the receiver's fields first, then the procs that take it exactly, then related ones
   (subtypes, `openArray`, wider numbers), then generic ones.
@@ -85,7 +132,20 @@ the file uses, code after a `return`, `raise`, `break` or `continue` in the same
 nothing uses. The messages are the compiler's own, so the same quick fixes apply (Alt+Enter: discard the value,
 remove the import). Only what the engine can be sure of: not inside templates and macros or what they are given,
 not where an overload the engine cannot see could be the one called, not an import whose `$` or `==` code here might
-call without naming it, not in `when` branches left out. On Nim's own compiler and standard library (463 files) and
+call without naming it, not in `when` branches left out.
+
+6.25 adds three more checks, also worded as the compiler words them, so its quick fixes apply:
+
+- **A `case` over an enum that leaves values out**, without an `else`: *not all cases are covered; missing:
+  {blue}*. Alt+Enter, *Add the missing branches*, writes `of blue: discard` for each missing value. The check also
+  covers an object's `case kind: Kind`.
+- **An argument that can never be the parameter's type**: a literal, or a variable declared with a type, given to
+  the only routine of that name that takes that many arguments. For example, `twice("x")` when `twice` takes an
+  `int` gives *type mismatch: got 'string' for '"x"' but expected 'int'*. Alt+Enter offers the conversion.
+- **A method call whose value is neither used nor discarded**, such as `s.pop()` on its own line. Before 6.25 only
+  `f(x)` was checked. Alt+Enter, *Discard the result*, fixes it.
+
+The rules are `case-missing`, `arg-type` and `discarded`. On Nim's own compiler and standard library (463 files) and
 563 files of 19 nimble packages they report nothing the compiler would not — apart from a few mistakes in generic
 code nothing instantiates, which the compiler never looks at; the compiler's word wins on any line where both say
 something.

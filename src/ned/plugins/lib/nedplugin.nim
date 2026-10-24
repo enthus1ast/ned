@@ -68,7 +68,18 @@ type
     indentSize*: int             ## spaces to an indentation level (0: the editor's setting)
     tabs*: bool                  ## indent with tabs
     run*: string                 ## the command F5 runs ($file …)
+    build*, check*: string       ## the commands of Build (Alt+B) and of the check on save ($file $dir $name $tmp)
     pairs*: string               ## "()[]{}\"\"" — what typing an opening one closes
+    dedentWords*: seq[string]    ## a line that becomes one of these words alone goes one level out (@["end"])
+    nestedComments*: bool        ## a block comment may hold another (`/* /* */ */` — Odin, Haskell's {- -})
+    tripleQuotes*: bool          ## """…""" strings, over several lines
+    multilineStrings*: bool      ## a "…" or `…` string not closed on its line goes on below (Gleam, Odin's raw)
+    charLiterals*: bool          ## 'a' is a character (not a quote of a string)
+    capitalTypes*: bool          ## a Capitalised word is a type (an ALL-CAPS one a constant)
+    decorators*: bool            ## @name is coloured as an attribute
+    docComment*: string          ## a doc comment's line start ("///", "--|")
+    docBlockComment*: seq[string]  ## a doc block comment: @["/**", "*/"]
+    nameChars*: string           ## characters a name may have after its first letter ("?!" for Elixir, "'" Haskell)
 
 const ProtoMark = "\x1e"         ## (the start of a line ned reads as a message; any other line is the plugin's log)
 
@@ -230,6 +241,15 @@ proc current*(): Buf = Buf(id: api("current").getInt(-1))
 proc openFile*(path: string, line = -1, col = -1): Buf =
   ## open a file (or go to it), at a line when given
   Buf(id: api("open", %*{"path": path, "line": line, "col": col}).getInt(-1))
+proc newTab*(title, text: string, lang = ""): Buf =
+  ## a new tab with `text` (not a file until it is saved): a response, generated code. `lang`: its language's id or
+  ## name ("json", "Nim"), for its colours. A tab of that title already open: it, its text replaced — unless it
+  ## has edits not saved (then it as it is)
+  Buf(id: api("newTab", %*{"title": title, "text": text, "lang": lang}).getInt(-1))
+proc clipboard*(): string = api("clipboard").getStr
+  ## the system clipboard's text (what Ctrl+V would paste)
+proc setClipboard*(text: string) = discard api("setClipboard", %*{"text": text})
+  ## put `text` on the system clipboard
 proc buffers*(): seq[Buf] =
   ## every open file (and the unsaved ones), in the order of their tabs
   for x in api("buffers"): result.add Buf(id: x.getInt)
@@ -263,7 +283,10 @@ proc cursor*(b: Buf): Pos = toPos(api("cursor", %*{"buf": b.id}))
 proc setCursor*(b: Buf, p: Pos) = discard api("setCursor", %*{"buf": b.id, "pos": %p})
   ## the cursor moved to p (the selection goes)
 proc selection*(b: Buf): Range = toRange(api("selection", %*{"buf": b.id}))
-  ## the main selection (empty: start == stop, the cursor)
+  ## the main selection (empty: start == stop, the cursor) — in vim's visual mode with the character under the
+  ## cursor, in visual-line mode the whole lines
+proc vimMode*(): string = api("vimMode").getStr
+  ## vim's mode: normal, insert, visual, visual line, replace ("" not vim keys)
 proc selections*(b: Buf): seq[Range] =
   ## every cursor's selection (several with multiple cursors)
   for x in api("selections", %*{"buf": b.id}): result.add toRange(x)
@@ -275,6 +298,14 @@ proc dirty*(b: Buf): bool = api("dirty", %*{"buf": b.id}).getBool
   ## changed since it was last saved
 proc save*(b: Buf) = discard api("save", %*{"buf": b.id})
   ## written to its file (as Ctrl+S does — but plugins get no save events for it)
+proc closeTab*(b: Buf) = discard api("closeTab", %*{"buf": b.id})
+  ## the tab closed (a file with edits not saved: you are asked first)
+proc markSaved*(b: Buf) = discard api("markSaved", %*{"buf": b.id})
+  ## counts as saved (no ● on its tab, no question when it closes) — a tab of yours, after onSaveTab did its work
+proc title*(b: Buf): string = api("title", %*{"buf": b.id}).getStr
+  ## the name on its tab (a file's: its name)
+proc setTitle*(b: Buf, title: string) = discard api("setTitle", %*{"buf": b.id, "title": title})
+  ## the name on a tab that is not a file (newTab's)
 proc indentUnit*(b: Buf): string = api("indent", %*{"buf": b.id}).getStr
   ## two spaces, four, a tab … what this file indents with
 proc lineComment*(b: Buf): string = api("lineComment", %*{"buf": b.id}).getStr
@@ -285,6 +316,35 @@ proc wholeLines*(b: Buf, first, last: int): Range =
   ## lines first .. last with their line ends
   if last + 1 < b.lineCount: rng(pos(first, 0), pos(last + 1, 0))
   else: rng(pos(first, 0), pos(last, b.line(last).len))
+
+# ── keys: what waits, what the next key does (which-key) ──
+
+type
+  KeyMap* = object
+    ## a key a plugin (or your "keys" setting) uses
+    mode*: string                ## n v (vim mappings), op (an operator), obj (a text object), key (any keymap)
+    keys*: string                ## as given: "<leader>f", "gc", "ie", "ctrl+alt+u"
+    desc*: string                ## what it does ("" not said)
+    lang*: string                ## only in files of this language ("" every file)
+    plugin*: string              ## whose ("" yours)
+
+proc pendingKeys*(): tuple[keys, mode: string] =
+  ## the keys typed that wait for more ("" when none waits) and the mode (as onKeysWaiting gives them)
+  let j = api("pendingKeys")
+  (j{"keys"}.getStr, j{"mode"}.getStr)
+proc showKeyHints*(title: string, hints: openArray[(string, string)]): bool =
+  ## a box above the status bar, each key and what it does, until the keys waiting change (ned closes it then;
+  ## a tap on one types it). false: no keys wait now
+  var arr = newJArray()
+  for (k, d) in hints: arr.add %*[k, d]
+  api("showKeyHints", %*{"title": title, "hints": arr}).getBool
+proc hideKeyHints*() = discard api("hideKeyHints")
+  ## the box of showKeyHints closed
+proc keyMaps*(): seq[KeyMap] =
+  ## the plugins' mappings, operators, text objects and keys, and the commands on keys (theirs and yours)
+  for x in api("keyMaps"):
+    result.add KeyMap(mode: x{"mode"}.getStr, keys: x{"keys"}.getStr, desc: x{"desc"}.getStr,
+                      lang: x{"lang"}.getStr, plugin: x{"plugin"}.getStr)
 
 # ── talking to you ──
 
@@ -316,6 +376,21 @@ proc shell*(cmd: string, dir = ""): tuple[output: string, code: int] =
     let (o, c) = execCmdEx(full)
     (o.strip(leading = false, chars = {'\n'}), c)
 
+proc shellAsync*(cmd: string, cb: proc(output: string, code: int), dir = "") =
+  ## a shell command ned runs in the background (in `dir`, else the project's folder): cb with its output and exit
+  ## code when it ends. The plugin goes on meanwhile (`shell` waits): a slow request, a build
+  let f = cb
+  callbacks.add proc(a: JsonNode): JsonNode =
+    f(a{"output"}.getStr, a{"code"}.getInt)
+    newJNull()
+  cbOwner.add curPlugin
+  discard api("shellAsync", %*{"cmd": cmd, "dir": dir, "cb": callbacks.high})
+
+proc unixTime*(): float = api("unixTime").getFloat
+  ## now, in seconds since 1970 (NimScript has no clock of its own)
+proc localTime*(): string = api("localTime").getStr
+  ## now, on your clock: "2026-10-24 14:03:05"
+
 # ── problems, signs, text after a line, highlights, the status bar ──
 
 proc setProblems*(b: Buf, problems: openArray[Problem]) =
@@ -341,26 +416,41 @@ proc status*(text: string) = discard api("status", %*{"text": text})
 
 # ── settings, its folder ──
 
-proc settingNode(key: string): JsonNode = api("setting", %*{"key": key})
-proc setting*(key: string, default: string): string =
-  ## plugins.<this plugin>.<key> from your settings
-  let v = settingNode(key)
-  if v == nil or v.kind != JString: default else: v.getStr
-proc setting*(key: string, default: int): int =
-  ## plugins.<this plugin>.<key> from your settings, a whole number (`default` when it is not one)
-  let v = settingNode(key)
-  if v == nil or v.kind != JInt: default else: v.getInt
-proc setting*(key: string, default: bool): bool =
-  ## plugins.<this plugin>.<key> from your settings, true or false (`default` when it is not set)
-  let v = settingNode(key)
-  if v == nil or v.kind != JBool: default else: v.getBool
-proc setting*(key: string, default: float): float =
-  ## plugins.<this plugin>.<key> from your settings, a number (`default` when it is not one)
-  let v = settingNode(key)
+proc settingIn*(plugin, key: string): JsonNode =
+  ## (what `setting` uses) plugins.<plugin>.<key> as your settings have it, nil when they do not
+  let keep = curPlugin
+  if plugin.len > 0: curPlugin = plugin
+  try: result = api("setting", %*{"key": key})
+  finally: curPlugin = keep
+proc settingPlugin*(file: string): string = (if curPlugin.len > 0: curPlugin else: pluginOf(file))
+  ## (what `setting` uses) the plugin whose code runs now — in its top-level code too, by its file
+func settingOr*(v: JsonNode, default: string): string = (if v == nil or v.kind != JString: default else: v.getStr)
+  ## (what `setting` uses)
+func settingOr*(v: JsonNode, default: int): int = (if v == nil or v.kind != JInt: default else: v.getInt)
+  ## (what `setting` uses)
+func settingOr*(v: JsonNode, default: bool): bool = (if v == nil or v.kind != JBool: default else: v.getBool)
+  ## (what `setting` uses)
+func settingOr*(v: JsonNode, default: float): float =
+  ## (what `setting` uses)
   if v == nil or v.kind notin {JFloat, JInt}: default else: v.getFloat
-proc projectDir*(): string = api("root").getStr
+template setting*(key: string, default: string): string =
+  ## plugins.<this plugin>.<key> from your settings (in the plugin's top-level code too)
+  settingOr(settingIn(settingPlugin(instantiationInfo(-1, true).filename), key), default)
+template setting*(key: string, default: int): int =
+  ## plugins.<this plugin>.<key> from your settings, a whole number (`default` when it is not one)
+  settingOr(settingIn(settingPlugin(instantiationInfo(-1, true).filename), key), default)
+template setting*(key: string, default: bool): bool =
+  ## plugins.<this plugin>.<key> from your settings, true or false (`default` when it is not set)
+  settingOr(settingIn(settingPlugin(instantiationInfo(-1, true).filename), key), default)
+template setting*(key: string, default: float): float =
+  ## plugins.<this plugin>.<key> from your settings, a number (`default` when it is not one)
+  settingOr(settingIn(settingPlugin(instantiationInfo(-1, true).filename), key), default)
+proc projectRoot*(): string = api("root").getStr
   ## the project's folder — what the file tree shows (the plugin's process runs elsewhere: a relative path in
-  ## readFile means nothing, `projectDir() & "/src/x.nim"` does)
+  ## readFile means nothing, `projectRoot() & "/src/x.nim"` does)
+proc projectDir*(): string = api("root").getStr
+  ## the same as projectRoot — in a plugin.nims write `nedplugin.projectDir()` (NimScript has a projectDir of its
+  ## own: the script's folder), or projectRoot
 proc dataDir*(): string = api("dataDir").getStr
   ## a folder of this plugin's own (made when asked for)
 proc pluginDir*(): string = api("pluginDir").getStr
@@ -403,10 +493,16 @@ template onClose*(pattern: string, cb: proc(ev: Event)) = regEvent(instantiation
   ## a file's tab closed
 template onChange*(pattern: string, cb: proc(ev: Event)) = regEvent(instantiationInfo(-1, true).filename, "change", pattern, cb)
   ## the text changed (after a pause in the typing: not every key)
+template onEnter*(pattern: string, cb: proc(ev: Event)) = regEvent(instantiationInfo(-1, true).filename, "enter", pattern, cb)
+  ## a tab came to the front (you switched to it, opened it, closed the one before it)
+template onQuit*(cb: proc(ev: Event)) = regEvent(instantiationInfo(-1, true).filename, "quit", "*", cb)
+  ## ned quits: write what you keep now (ned waits a moment for it — ev.buf is not set)
 template autocmd*(event, pattern: string, cb: proc(ev: Event)) =
-  ## vim's names: BufReadPost BufWritePre BufWritePost BufDelete TextChanged VimEnter FileType
+  ## vim's names: BufReadPost BufEnter BufWritePre BufWritePost BufDelete TextChanged VimEnter VimLeave FileType
   regEvent(instantiationInfo(-1, true).filename, (case event
-    of "BufRead", "BufReadPost", "BufEnter", "FileType", "BufNewFile": "open"
+    of "BufRead", "BufReadPost", "FileType", "BufNewFile": "open"
+    of "BufEnter", "BufWinEnter": "enter"
+    of "VimLeave", "VimLeavePre": "quit"
     of "BufWritePre": "beforeSave"
     of "BufWritePost": "save"
     of "BufDelete", "BufUnload", "BufWipeout": "close"
@@ -433,7 +529,19 @@ proc toJson(s: LangSpec): JsonNode =
   if s.indentSize > 0: result["indentSize"] = %s.indentSize
   if s.tabs: result["tabs"] = %true
   if s.run.len > 0: result["run"] = %s.run
+  if s.build.len > 0: result["build"] = %s.build
+  if s.check.len > 0: result["check"] = %s.check
   if s.pairs.len > 0: result["pairs"] = %s.pairs
+  if s.dedentWords.len > 0: result["dedentWords"] = %s.dedentWords
+  if s.nestedComments: result["nestedComments"] = %true
+  if s.tripleQuotes: result["tripleQuotes"] = %true
+  if s.multilineStrings: result["multilineStrings"] = %true
+  if s.charLiterals: result["charLiterals"] = %true
+  if s.capitalTypes: result["capitalTypes"] = %true
+  if s.decorators: result["decorators"] = %true
+  if s.docComment.len > 0: result["docComment"] = %s.docComment
+  if s.docBlockComment.len == 2: result["docBlockComment"] = %s.docBlockComment
+  if s.nameChars.len > 0: result["nameChars"] = %s.nameChars
 
 proc regLanguage*(file, id: string, spec: LangSpec) = discard register(file, "language", %*{"id": id, "spec": toJson(spec)})
   ## (what `language` uses: call `language`)
@@ -478,18 +586,66 @@ template languageServerScript*(lang, script: string) =
 
 # ── vim (editor.vimMode) ──
 
-proc regVimMap*(file, mode, keys: string, cb: proc(count: int)) =
+proc regVimMap*(file, mode, keys: string, cb: proc(count: int), desc = "", lang = "") =
   ## (what nmap and vmap use: call those)
   let f = cb
-  discard register(file, "vimMap", %*{"mode": mode, "keys": keys}, proc(a: JsonNode): JsonNode =
+  discard register(file, "vimMap", %*{"mode": mode, "keys": keys, "desc": desc, "lang": lang}, proc(a: JsonNode): JsonNode =
     f(a{"count"}.getInt(1))
     newJNull())
 template nmap*(keys: string, cb: proc(count: int)) =
-  ## a normal-mode key sequence ("gx", "<leader>f" — the leader is the space bar); count: the number typed before
+  ## a normal-mode key sequence ("gx", "<leader>f" — the leader is the space bar; "<C-a>" … "<C-z>": Ctrl and a
+  ## letter, before vim's own use of it; "<CR>": Enter); count: the number typed before
   regVimMap(instantiationInfo(-1, true).filename, "n", keys, cb)
+template nmap*(keys, desc: string, cb: proc(count: int)) =
+  ## … with what it does, in a few words (which-key shows it after the keys before it)
+  regVimMap(instantiationInfo(-1, true).filename, "n", keys, cb, desc)
+template nmapIn*(lang, keys, desc: string, cb: proc(count: int)) =
+  ## a normal-mode key sequence only in files (and tabs) of one language (its id: "markdown", "oil" …), before
+  ## a mapping of the same keys for every file and vim's own
+  regVimMap(instantiationInfo(-1, true).filename, "n", keys, cb, desc, lang)
 template vmap*(keys: string, cb: proc(count: int)) =
   ## a visual-mode key sequence (the selection: current().selection)
   regVimMap(instantiationInfo(-1, true).filename, "v", keys, cb)
+template vmap*(keys, desc: string, cb: proc(count: int)) =
+  ## … with what it does, in a few words. When it is done, back to normal mode (unless it selected something)
+  regVimMap(instantiationInfo(-1, true).filename, "v", keys, cb, desc)
+template vmapIn*(lang, keys, desc: string, cb: proc(count: int)) =
+  ## a visual-mode key sequence only in files (and tabs) of one language
+  regVimMap(instantiationInfo(-1, true).filename, "v", keys, cb, desc, lang)
+
+proc regLangKey*(file, lang, keys, desc: string, cb: proc(b: Buf)) =
+  ## (what keyIn uses: call keyIn)
+  let f = cb
+  discard register(file, "langKey", %*{"lang": lang, "keys": keys, "desc": desc}, proc(a: JsonNode): JsonNode =
+    f(Buf(id: a{"buf"}.getInt))
+    newJNull())
+template keyIn*(lang, keys, desc: string, cb: proc(b: Buf)) =
+  ## a key ("alt+enter", "ctrl+alt+o") only in files (and tabs) of one language, in every keymap — before ned's
+  ## own use of it there (your "keys" setting wins over it)
+  regLangKey(instantiationInfo(-1, true).filename, lang, keys, desc, cb)
+
+proc regSaveTab*(file, lang: string, cb: proc(ev: Event)) =
+  ## (what onSaveTab uses: call onSaveTab)
+  let f = cb
+  discard register(file, "writer", %*{"lang": lang}, proc(a: JsonNode): JsonNode =
+    f(toEvent(a))
+    newJNull())
+template onSaveTab*(lang: string, cb: proc(ev: Event)) =
+  ## a tab of this language that is not a file (newTab): saving it (Ctrl+S, :w) calls cb instead of asking for
+  ## a file name — the plugin does what saving means (the folder view: renames, deletes …), then markSaved
+  regSaveTab(instantiationInfo(-1, true).filename, lang, cb)
+
+proc regKeysWaiting*(file: string, ms: int, cb: proc(keys, mode: string)) =
+  ## (what onKeysWaiting uses: call onKeysWaiting)
+  let f = cb
+  discard register(file, "event", %*{"event": "keys", "pattern": $max(0, ms)}, proc(a: JsonNode): JsonNode =
+    f(a{"keys"}.getStr, a{"mode"}.getStr)
+    newJNull())
+template onKeysWaiting*(ms: int, cb: proc(keys, mode: string)) =
+  ## keys that wait for more have waited ms milliseconds (vim's "g", "z", "d", a plugin's "<leader>", emacs's
+  ## "C-x", helix's "<space>"): cb with them and the mode — n (vim normal), v (visual), o (an operator waits for
+  ## its motion), obj (… for its text object, after i or a: "di"), emacs, helix. Once for each wait
+  regKeysWaiting(instantiationInfo(-1, true).filename, ms, cb)
 
 proc regEx*(file, name: string, cb: proc(args: string)) =
   ## (what exCommand uses: call exCommand)
@@ -501,26 +657,32 @@ template exCommand*(name: string, cb: proc(args: string)) =
   ## a `:` command (`:Name args`)
   regEx(instantiationInfo(-1, true).filename, name, cb)
 
-proc regOperator*(file, keys: string, cb: proc(b: Buf, r: Range, linewise: bool)) =
+proc regOperator*(file, keys: string, cb: proc(b: Buf, r: Range, linewise: bool), desc = "") =
   ## (what `operator` uses: call `operator`)
   let f = cb
-  discard register(file, "operator", %*{"keys": keys}, proc(a: JsonNode): JsonNode =
+  discard register(file, "operator", %*{"keys": keys, "desc": desc}, proc(a: JsonNode): JsonNode =
     f(Buf(id: a{"buf"}.getInt), toRange(a{"range"}), a{"linewise"}.getBool)
     newJNull())
 template operator*(keys: string, cb: proc(b: Buf, r: Range, linewise: bool)) =
   ## an operator: keys then a motion or a text object (`gcip`), the keys' last letter twice for lines (`gcc`), or
   ## on the visual selection
   regOperator(instantiationInfo(-1, true).filename, keys, cb)
+template operator*(keys, desc: string, cb: proc(b: Buf, r: Range, linewise: bool)) =
+  ## … with what it does, in a few words (which-key shows it)
+  regOperator(instantiationInfo(-1, true).filename, keys, cb, desc)
 
-proc regTextObject*(file, keys: string, cb: proc(b: Buf, p: Pos): Range) =
+proc regTextObject*(file, keys: string, cb: proc(b: Buf, p: Pos): Range, desc = "") =
   ## (what textObject uses: call textObject)
   let f = cb
-  discard register(file, "textObject", %*{"keys": keys}, proc(a: JsonNode): JsonNode =
+  discard register(file, "textObject", %*{"keys": keys, "desc": desc}, proc(a: JsonNode): JsonNode =
     %f(Buf(id: a{"buf"}.getInt), toPos(a{"pos"})))
 template textObject*(keys: string, cb: proc(b: Buf, p: Pos): Range) =
   ## a text object (two keys: "ie", "al"): the range around p (noRange() when none) — after an operator (d c y,
   ## a plugin's) or in visual mode
   regTextObject(instantiationInfo(-1, true).filename, keys, cb)
+template textObject*(keys, desc: string, cb: proc(b: Buf, p: Pos): Range) =
+  ## … with what it is, in a few words (which-key shows it)
+  regTextObject(instantiationInfo(-1, true).filename, keys, cb, desc)
 
 # ── timers ──
 

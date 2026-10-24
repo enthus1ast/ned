@@ -11,7 +11,7 @@
 ## arguments put in for its parameters in member types), references, `auto` from what initializes it, enum class.
 ## The C++ standard library's headers are not read: `std::` offers a known list of its names instead.
 
-import std/[strutils, tables, sets, times, algorithm]
+import std/[strutils, tables, sets, times, algorithm, hashes]
 when defined(windows): import ../sys/winos as os   # (std/os, with '/' in the paths it makes)
 else: import std/os
 
@@ -22,6 +22,7 @@ type
   CxParam* = object
     name*, typ*: string
     line*, col*: int            # where its name is written (-1: nowhere — unnamed)
+    opt*: bool                  # C++: it has a default value (`int n = 3`)
   CxSym* = object
     name*: string
     kind*: CxKind
@@ -45,6 +46,8 @@ type
                                 # constants: their value as written (`= 1 << 4`)
     dims*: string               # fields: their array dimensions as written (`[SIZE][2]`)
     bits*: string               # fields: a bit-field's width (`3`)
+    viaMacro*: string           # declared by a macro's expansion (`DECLARE_GETTER(width, int)`): the macro
+    spec*: string               # C++: a class template's specialisation — its arguments as written (`int`, `T*`)
   CxFile* = ref object
     path*: string
     stamp*: string
@@ -59,6 +62,34 @@ type
     byScope: Table[string, seq[int32]]           # C++: the syms by the scope they are in (an enum's constants
                                                  # by their enum too)
     indexed: bool
+    own: seq[(int32, int32, CxMacro)] # the macros its #defines and #undefs leave — (the macro's number, when: a
+                                      # step of its reading, the macro), by number —, for the files that include it
+    incs: seq[(int32, CxFile, bool)]  # its #includes read: (when, the header, in a branch not known to be taken)
+    fid: int32                        # (its number among the files read: its path's)
+    sub: seq[uint64]                  # (the files it includes, and theirs: a bit for each one's number)
+    deps*: seq[CxFile]                # the headers it includes, read (in the branches not left out)
+    missing*: int                     # how many of its #includes were not found
+    incAt*: seq[CxIncl]               # its #includes (in the branches not left out)
+    names*: seq[string]               # a project file's (not a system header's): the names its code and its
+                                      # directives use (#ifs', the branches left out's too)
+    liveNames*: seq[string]           # … those of its code read (and of its #defines), not in attributes
+    namesMade: bool                   # (names and liveNames are there: cxUsedNames)
+  CxIncl* = object                    # an #include
+    line*: int
+    name*: string                     # what it names: <x.h>, "y.h" (an #include HEADER: what the macro is)
+    file*: CxFile                     # the header it reads (nil: not found, or not read — the C++ library's)
+    known*: bool                      # in no branch of an #if not known to be taken
+    top*: bool                        # at file level (not in a body: an X-macro's list)
+  CxMState = enum msDef, msUndef, msUnknown
+  CxMacro = ref object                # a macro as the preprocessor knows it at a point of the text
+    state: CxMState
+    fn, va: bool                      # function-like; with `...`
+    params: seq[string]               # (`...`: __VA_ARGS__, or its name — `args...`)
+    body: string                      # the replacement, as written
+    btoks: seq[string]                # (its tokens, made when first needed)
+    tokd: bool
+    raw: string                       # (the #define's text after the name, until it is first needed)
+    ready: bool
   CxTokKind = enum ctWord, ctNum, ctStr, ctChar, ctPunct, ctTemplate
   CxTok = object
     kind: CxTokKind
@@ -223,7 +254,24 @@ var
                                                # and the C++ library's not at all)
   cxPredef*: Table[string, string]             # the C compiler's predefined macros (cc -dM -E), set by the editor
   cxPredefSet*: bool
+  cxPredefCpp*: Table[string, string]          # the C++ compiler's (c++ -dM -E -x c++); none: C's, and __cplusplus
+  cxDefines*: seq[string]                      # the -D and -U flags of compile_commands.json, set by the editor
+  cxPrepare*: proc(path: string) {.nimcall.}   # (the editor's: those two set, before the first #if is worked out)
+  cxStrictFiles*: HashSet[string]              # the files those are all the flags of (compile_commands.json lists
+                                               # them so): a macro their #ifs name that is defined nowhere is not
+                                               # defined, as the compiler takes it
   cxCppNow: bool                               # the text being read is C++ (__cplusplus is defined)
+  cxClosureCache: Table[string, (string, float, seq[CxFile])]   # path → (its stamp, when, the closure)
+  cxBaseSig: string                            # (what cxBase was made from)
+  cxBase: array[bool, Table[string, CxMacro]]  # C's and C++'s macros before the first line: the compiler's, -D, -U
+  cxParsing: HashSet[string]                   # the files being read (an #include of one of them: left out)
+  cxNoHeaders: bool                            # (a file read without the headers it includes: cxLoad's shallow)
+  cxTextInactive: seq[(Hash, int, bool, seq[(int, int)])]   # (the last texts read for a buffer, C or C++: what
+                                                            # their #ifs leave out — cxInactiveIn of the same text)
+  cxChecks*: tuple[includes, padding, formats: bool] = (true, true, true)
+                                               # c.engineChecks: which of the engine's checks are on (c/cchecks.nim)
+  cxUnknownM = CxMacro(state: msUnknown)
+  cxUndefM = CxMacro(state: msUndef)
 
 func cxIsCppPath*(path: string): bool =
   ## a C++ file by its name: .cpp .cc .cxx .hpp .hh .hxx …
@@ -508,11 +556,11 @@ func cxParams(toks: seq[CxTok], a, b: int): (seq[CxParam], bool) =
       if toks[k].text == "[":
         e = k
         break
-    for k in countdown(e - 1, x):
-      if toks[k].kind == ctWord and toks[k].text notin CxTypeWords and k > x:
-        nameAt = k
-        break
-      if toks[k].text == ")": break
+    # (the last word, not a struct's tag: `struct ssh *` and `const Foo` have no name)
+    if e - 1 > x and toks[e - 1].kind == ctWord and toks[e - 1].text notin CxTypeWords and
+       toks[e - 2].text notin ["struct", "union", "enum", "class", "typename"] and
+       not (e - 2 == x and toks[x].text in CxQualifiers):
+      nameAt = e - 1
     for k in x ..< y:
       if toks[k].text == "(" and k + 1 < y and toks[k + 1].text == "*" and k + 2 < y and toks[k + 2].kind == ctWord:
         nameAt = k + 2
@@ -525,156 +573,1051 @@ func cxParams(toks: seq[CxTok], a, b: int): (seq[CxParam], bool) =
                           line: (if nameAt >= 0: toks[nameAt].line else: -1),
                           col: (if nameAt >= 0: toks[nameAt].col else: -1))
 
-proc cxDefinedKnown(name: string): int =
-  ## is `name` defined — 1, 0, or -1 when only the preprocessor would know. Known: __cplusplus (defined when this
-  ## reads C++), __STDC_HOSTED__, and the compiler's own target macros (__x86_64__, __linux__, _WIN32 …) once
-  ## cxPredef is set
-  case name
-  of "__cplusplus": (if cxCppNow: 1 else: 0)
-  of "__STDC_HOSTED__", "__STDC__": 1
+# ── the preprocessor: what #if, #ifdef, #elif decide, worked out — with the -D and -U flags (cxDefines), the
+#    compiler's own macros (cxPredef), and what the file and the headers it includes #define before the #if, in
+#    order. A condition that names a macro the engine does not know stays undecided: all its branches are read ──
+
+proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path), shallow = false): CxFile
+proc cxFindInclude*(name, fromDir: string): string
+proc cxIsSystem*(path: string): bool
+
+const
+  CxCompilerPrefixes = ["__GNUC", "__clang", "__SIZEOF_", "_MSC_", "__INTEL_COMPILER", "__SSE", "__AVX", "__ARM_",
+    "__cpp_", "__GCC_", "__GXX_", "__ORDER_", "__OPTIMIZE"]
+    ## macros only the compiler defines: when its list (cc -dM -E) has none of them, they are not defined
+  CxCompilerOwn = ["__STDC_VERSION__", "__BYTE_ORDER__", "__FLOAT_WORD_ORDER__", "__NO_INLINE__", "__GNUG__",
+    "__EXCEPTIONS", "__WCHAR_UNSIGNED__", "__x86_64", "__amd64", "__i486__", "__i586__", "__i686__", "__linux",
+    "__unix", "_M_X64", "_M_IX86", "_M_ARM64", "__WIN32__", "__MINGW64_VERSION_MAJOR", "__APPLE_CC__",
+    "__ANDROID_API__", "__riscv_xlen", "__mips64", "__PPC__", "__PPC64__", "__s390__", "__sparc"]
+
+func cxCompilerOwn(name: string): bool =
+  if name in CxTargetMacros or name in CxCompilerOwn: return true
+  for p in CxCompilerPrefixes:
+    if name.startsWith(p): return true
+
+proc cxBuiltinPredef*(cpp: bool): Table[string, string] =
+  ## the predefined macros of a C compiler for the platform ned runs on — for when no compiler is installed to ask
+  ## (Termux without clang, Windows): the system, the processor, the sizes of the types, the byte order
+  var t: Table[string, string]
+  t["__STDC__"] = "1"
+  t["__STDC_HOSTED__"] = "1"
+  t["__CHAR_BIT__"] = "8"
+  t["__ORDER_LITTLE_ENDIAN__"] = "1234"
+  t["__ORDER_BIG_ENDIAN__"] = "4321"
+  t["__ORDER_PDP_ENDIAN__"] = "3412"
+  when cpuEndian == littleEndian: t["__BYTE_ORDER__"] = "__ORDER_LITTLE_ENDIAN__"
+  else: t["__BYTE_ORDER__"] = "__ORDER_BIG_ENDIAN__"
+  const ptr64 = sizeof(pointer) == 8
+  const winLike = defined(windows)
+  t["__SIZEOF_POINTER__"] = (if ptr64: "8" else: "4")
+  t["__SIZEOF_SIZE_T__"] = (if ptr64: "8" else: "4")
+  t["__SIZEOF_LONG__"] = (if ptr64 and not winLike: "8" else: "4")
+  t["__SIZEOF_INT__"] = "4"
+  t["__SIZEOF_SHORT__"] = "2"
+  t["__SIZEOF_LONG_LONG__"] = "8"
+  t["__SIZEOF_FLOAT__"] = "4"
+  t["__SIZEOF_DOUBLE__"] = "8"
+  t["__SCHAR_MAX__"] = "0x7f"
+  t["__SHRT_MAX__"] = "0x7fff"
+  t["__INT_MAX__"] = "0x7fffffff"
+  t["__LONG_MAX__"] = (if ptr64 and not winLike: "0x7fffffffffffffffL" else: "0x7fffffffL")
+  t["__LONG_LONG_MAX__"] = "0x7fffffffffffffffLL"
+  t["__SIZE_MAX__"] = (if ptr64: "0xffffffffffffffffUL" else: "0xffffffffU")
+  if ptr64 and not winLike:
+    t["__LP64__"] = "1"
+    t["_LP64"] = "1"
+  when defined(amd64):
+    for m in ["__x86_64__", "__x86_64", "__amd64__", "__amd64", "__SSE__", "__SSE2__"]: t[m] = "1"
+  elif defined(i386):
+    t["__i386__"] = "1"
+  elif defined(arm64):
+    t["__aarch64__"] = "1"
+    t["__ARM_64BIT_STATE"] = "1"
+  elif defined(arm):
+    t["__arm__"] = "1"
+  elif defined(riscv64):
+    t["__riscv"] = "1"
+    t["__riscv_xlen"] = "64"
+  when defined(android):
+    for m in ["__ANDROID__", "__linux__", "__linux", "__unix__", "__unix", "__ELF__", "__clang__"]: t[m] = "1"
+    t["__GNUC__"] = "4"
+    t["__GNUC_MINOR__"] = "2"
+  elif defined(linux):
+    for m in ["__linux__", "__linux", "__gnu_linux__", "__unix__", "__unix", "__ELF__"]: t[m] = "1"
+    t["__GNUC__"] = "4"
+    t["__GNUC_MINOR__"] = "2"
+  elif defined(macosx):
+    for m in ["__APPLE__", "__MACH__", "__clang__"]: t[m] = "1"
+    t["__GNUC__"] = "4"
+    t["__GNUC_MINOR__"] = "2"
+  elif defined(windows):
+    t["_WIN32"] = "1"
+    if ptr64: t["_WIN64"] = "1"
+  elif defined(freebsd):
+    for m in ["__FreeBSD__", "__unix__", "__ELF__"]: t[m] = "1"
+    t["__GNUC__"] = "4"
+  elif defined(openbsd):
+    for m in ["__OpenBSD__", "__unix__", "__ELF__"]: t[m] = "1"
+    t["__GNUC__"] = "4"
+  elif defined(netbsd):
+    for m in ["__NetBSD__", "__unix__", "__ELF__"]: t[m] = "1"
+    t["__GNUC__"] = "4"
+  if cpp:
+    t["__cplusplus"] = "201703L"
+    if "__GNUC__" in t: t["__GNUG__"] = t["__GNUC__"]
+    t["__EXCEPTIONS"] = "1"
   else:
-    if cxPredefSet and name in CxTargetMacros: (if name in cxPredef: 1 else: 0) else: -1
+    t["__STDC_VERSION__"] = "201710L"
+  t
 
-proc cxValueKnown(name: string): int =
-  ## `#if name`: 1 when known nonzero, 0 when known zero (or not defined), -1 not known
-  let d = cxDefinedKnown(name)
-  if d <= 0: return d
-  if name in cxPredef:
-    try: return (if parseInt(cxPredef[name].strip(chars = {'L', 'U', 'l', 'u', ' '})) != 0: 1 else: 0)
-    except ValueError: return 1
-  1
+proc cxReady(m: CxMacro) =
+  ## a macro's parameters and replacement, from its #define's text (the first time it is expanded: most never are)
+  if m.ready: return
+  m.ready = true
+  let r = move(m.raw)
+  var k = 0
+  if k < r.len and r[k] == '(':
+    let e = r.find(')', k)
+    if e < 0:
+      m.state = msUnknown
+      return
+    m.fn = true
+    for p in r[k + 1 ..< e].split(','):
+      let q = p.strip
+      if q == "...":
+        m.va = true
+        m.params.add "__VA_ARGS__"
+      elif q.endsWith("..."):
+        m.va = true
+        m.params.add q[0 ..< q.len - 3].strip
+      elif q.len > 0: m.params.add q
+    k = e + 1
+  m.body = r[k .. ^1].strip
 
-func cxTopSplit(t, op: string): seq[string] =
-  ## t split at `op` outside parentheses
-  var d = 0
-  var st = 0
+proc cxMacroOf(r: string): (string, CxMacro) =
+  ## a #define's macro from its text after the word: `NAME body` or `NAME(a, b) body` (the `(` right after the name)
+  var j = 0
+  while j < r.len and r[j] in IdentChars: inc j
+  if j == 0: return ("", nil)
+  (r[0 ..< j], CxMacro(state: msDef, raw: r[j .. ^1]))
+
+var
+  cxMNames: Table[string, int32]           # a macro's name → its number (the same in every file)
+  cxFids: Table[string, int32]             # a file's path → its number
+  cxDefiners: seq[seq[int32]]              # a macro's number → the files whose #defines or #undefs touch it
+
+func cxHasBit(bs: seq[uint64], i: int32): bool =
+  let w = int(i) shr 6
+  w < bs.len and (bs[w] and (1'u64 shl (int(i) and 63))) != 0
+
+proc cxTouches(f: CxFile, id: int32): bool =
+  ## does f, or a header it includes, #define (or #undef) the macro `id`?
+  if id >= cxDefiners.len: return false
+  for x in cxDefiners[id]:
+    if x == f.fid or cxHasBit(f.sub, x): return true
+
+proc cxFinal(f: CxFile, id: int32, depth = 0): CxMacro =
+  ## the macro `id` as f leaves it — its own #define, or what a header it includes after that leaves —; nil when
+  ## neither f nor its headers touch it
+  if not cxTouches(f, id): return nil
+  var at = -1'i32
+  var r: CxMacro = nil
+  block:
+    var lo = 0
+    var hi = f.own.high
+    while lo <= hi:
+      let m = (lo + hi) div 2
+      if f.own[m][0] < id: lo = m + 1
+      elif f.own[m][0] > id: hi = m - 1
+      else:
+        (at, r) = (f.own[m][1], f.own[m][2])
+        break
+  for k in countdown(f.incs.high, 0):
+    let (sq, d, maybe) = f.incs[k]
+    if sq <= at: break
+    if depth < 60:
+      let x = cxFinal(d, id, depth + 1)
+      if x != nil: return (if maybe: cxUnknownM else: x)
+  r
+
+proc cxIntern(name: string): int32 =
+  result = cxMNames.getOrDefault(name, -1)
+  if result < 0:
+    result = int32(cxMNames.len)
+    cxMNames[name] = result
+
+proc cxBaseFresh() =
+  ## the macros before a file's first line (the compiler's, -D, -U), made again when what they come from changed —
+  ## and every file read with the old ones read again
+  let sig = $cxPredefSet & "/" & $cxPredef.len & "/" & $cxPredefCpp.len & "/" & cxDefines.join(" ") & "/" &
+            cxSysDirs.join(":")                # (the compiler's folders: a header not found before may be now)
+  if sig == cxBaseSig: return
+  cxBaseSig = sig
+  cxCache.clear()
+  cxCheckedAt.clear()
+  cxClosureCache.clear()
+  for cpp in [false, true]:
+    var t: Table[string, CxMacro]
+    if cxPredefSet:
+      for k, v in (if cpp and cxPredefCpp.len > 0: cxPredefCpp else: cxPredef):
+        let (n, m) = cxMacroOf(k & " " & v)
+        if n.len > 0: t[n] = m
+    t.del "__cplusplus"
+    if cpp:
+      let v = if cxPredefSet and cxPredefCpp.len > 0: cxPredefCpp.getOrDefault("__cplusplus", "201703L") else: "201703L"
+      t["__cplusplus"] = CxMacro(state: msDef, ready: true, body: v)
+    else: t["__cplusplus"] = cxUndefM
+    for nm in ["__STDC__", "__STDC_HOSTED__"]:
+      if nm notin t: t[nm] = CxMacro(state: msDef, ready: true, body: "1")
+    for d in cxDefines:
+      if d.len < 3: continue
+      let r = d[2 .. ^1]
+      if d.startsWith("-U"): t[r.strip] = cxUndefM
+      elif d.startsWith("-D"):
+        let eq = r.find('=')
+        let (n, m) = cxMacroOf(if eq >= 0: r[0 ..< eq] & " " & r[eq + 1 .. ^1] else: r & " 1")
+        if n.len > 0: t[n] = m
+    cxBase[cpp] = t
+    for k in t.keys: discard cxIntern(k)       # (a name that is a macro nowhere: one look in cxMNames says so)
+
+proc cxBaseLook(name: string, cpp: bool): CxMacro =
+  ## a macro before the first line: nil when only the build would know (a macro the compiler does not define, and
+  ## no -D names)
+  cxBase[cpp].withValue(name, m): return m[]
+  if cxPredefSet and name.len > 1 and name[0] == '_' and cxCompilerOwn(name): return cxUndefM
+  nil
+
+func cxPPToks(s: string): seq[string] =
+  ## a directive's (or a macro's replacement's) tokens: names, numbers, characters, strings, punctuators
   var i = 0
-  while i < t.len:
-    if t[i] == '(': inc d
-    elif t[i] == ')': dec d
-    elif d == 0 and t.continuesWith(op, i):
-      result.add t[st ..< i]
-      i += op.len
-      st = i
+  while i < s.len:
+    let c = s[i]
+    if c in Whitespace:
+      inc i
       continue
-    inc i
-  result.add t[st .. ^1]
+    let st = i
+    if c in {'"', '\''} or (c in {'L', 'u', 'U'} and i + 1 < s.len and s[i + 1] in {'"', '\''}) or
+       (c == 'u' and s.continuesWith("u8\"", i)):
+      while s[i] notin {'"', '\''}: inc i
+      let q = s[i]
+      inc i
+      while i < s.len and s[i] != q:
+        if s[i] == '\\': inc i
+        inc i
+      inc i
+      result.add s[st ..< min(i, s.len)]
+    elif c in IdentStartChars or ord(c) >= 128 or c == '$':
+      while i < s.len and (s[i] in IdentChars or ord(s[i]) >= 128 or s[i] == '$'): inc i
+      result.add s[st ..< i]
+    elif c in Digits or (c == '.' and i + 1 < s.len and s[i + 1] in Digits):
+      inc i
+      while i < s.len and (s[i] in {'0'..'9', 'a'..'z', 'A'..'Z', '_', '.', '\''} or
+                           (s[i] in {'+', '-'} and s[i - 1] in {'e', 'E', 'p', 'P'})):
+        inc i
+      result.add s[st ..< i]
+    else:
+      var l = 1
+      for p in ["...", "<<=", ">>=", "##", "<<", ">>", "<=", ">=", "==", "!=", "&&", "||", "->", "++", "--", "+=",
+                "-=", "*=", "/=", "%=", "&=", "|=", "^=", "::"]:
+        if s.continuesWith(p, i):
+          l = p.len
+          break
+      result.add s[i ..< i + l]
+      i += l
 
-proc cxCond(c: string): int =
-  ## a #if condition known without running the preprocessor — 0 false, 1 true, -1 not known: `0`, `1`,
-  ## `defined X` and `X` for the macros cxDefinedKnown knows, with !, &&, || and parentheses
-  var t = c.strip
-  # (a comment left on the line)
-  let cm = t.find("/*")
-  if cm >= 0: t = t[0 ..< cm].strip
-  if t.len == 0: return -1
-  proc unwrap(x: string): string =
-    ## (a) → a, but not (a) && (b)
-    result = x.strip
-    while result.len >= 2 and result[0] == '(' and result[^1] == ')':
+type
+  CxHide = ref object                 # the macros whose expansion made a token (not expanded again in it)
+    name: string
+    up: CxHide
+  CxPT = object                       # a token being expanded
+    t: string
+    src: int32                        # the token of the text it stands for (-1: none)
+    arg: bool                         # it came from a macro's argument
+    hide: CxHide
+  CxLook = proc(name: string): CxMacro
+
+func cxIsName(t: string): bool = t.len > 0 and (t[0] in IdentStartChars or ord(t[0]) >= 128)
+
+func cxHidden(h: CxHide, n: string): bool =
+  var x = h
+  while x != nil:
+    if x.name == n: return true
+    x = x.up
+
+func cxHideAdd(h: CxHide, n: string): CxHide =
+  if cxHidden(h, n): h else: CxHide(name: n, up: h)
+
+proc cxBodyToks(m: CxMacro): lent seq[string] =
+  cxReady(m)
+  if not m.tokd:
+    m.btoks = cxPPToks(m.body)
+    m.tokd = true
+  m.btoks
+
+proc cxExpand(input: seq[CxPT], look: CxLook, budget: var int): seq[CxPT]
+
+proc cxSubst(m: CxMacro, name: string, args: seq[seq[CxPT]], use: CxPT, look: CxLook, budget: var int): seq[CxPT] =
+  ## a macro's replacement with the arguments put in for its parameters (`#x` made a string, `a ## b` pasted)
+  let body = cxBodyToks(m)
+  let hide = cxHideAdd(use.hide, name)
+  let hide0 = CxHide(name: name)              # (an argument's tokens from the text: made by no macro yet)
+  template argHide(h: CxHide): CxHide = (if h == nil: hide0 else: cxHideAdd(h, name))
+  var paste = false                           # (a `##` of the body's is in it)
+  proc argOf(p: int): seq[CxPT] =
+    if p < args.len: args[p] else: @[]
+  var i = 0
+  while i < body.len:
+    let b = body[i]
+    if b == "#" and m.fn and i + 1 < body.len and body[i + 1] in m.params:
+      var s = "\""
+      for k, x in argOf(m.params.find(body[i + 1])):
+        if k > 0: s.add ' '
+        for ch in x.t:
+          if ch in {'"', '\\'} and (x.t[0] in {'"', '\''}): s.add '\\'
+          s.add ch
+      s.add '"'
+      result.add CxPT(t: s, src: use.src, hide: hide)
+      i += 2
+      continue
+    let p = if m.fn: m.params.find(b) else: -1
+    if p >= 0:
+      let pasted = (i + 1 < body.len and body[i + 1] == "##") or (i > 0 and body[i - 1] == "##")
+      if pasted:
+        let a = argOf(p)
+        if a.len == 0: result.add CxPT(t: "", src: -1, hide: hide)      # (a placemarker: `x ##` with x empty)
+        for x in a: result.add CxPT(t: x.t, src: x.src, arg: true, hide: argHide(x.hide))
+      else:
+        for x in cxExpand(argOf(p), look, budget):
+          result.add CxPT(t: x.t, src: x.src, arg: true, hide: argHide(x.hide))
+      inc i
+      continue
+    if b == "__VA_OPT__" and m.va and i + 1 < body.len and body[i + 1] == "(":
       var d = 0
-      var closesAtEnd = true
-      for i, ch in result:
-        if ch == '(': inc d
-        elif ch == ')':
+      var e = i + 1
+      while e < body.len:
+        if body[e] == "(": inc d
+        elif body[e] == ")":
           dec d
-          if d == 0 and i < result.high:
-            closesAtEnd = false
-            break
-      if not closesAtEnd: break
-      result = result[1 .. ^2].strip
-  t = unwrap(t)
-  let ors = cxTopSplit(t, "||")
-  if ors.len > 1:
-    result = 0
-    for o in ors:
-      let v = cxCond(o)
-      if v == 1: return 1
-      if v < 0: result = -1
-    return
-  let ands = cxTopSplit(t, "&&")
-  if ands.len > 1:
-    result = 1
-    for a in ands:
-      let v = cxCond(a)
-      if v == 0: return 0
-      if v < 0: result = -1
-    return
-  var neg = false
-  if t.startsWith("!") and not t.startsWith("!="):
-    neg = true
-    t = unwrap(t[1 .. ^1])
-  var v = -1
-  if t.startsWith("defined") and t.len > 7 and t[7] in {' ', '(', '\t'}:
-    v = cxDefinedKnown(t[7 .. ^1].strip(chars = {' ', '(', ')', '\t'}))
-  elif t == "0": v = 0
-  elif t == "1": v = 1
-  elif t.len > 0 and t.allCharsInSet(IdentChars): v = cxValueKnown(t)
-  elif cxCppNow and t.startsWith("__cplusplus") and t[11 .. ^1].strip.len > 0 and t[11 .. ^1].strip[0] in {'>', '<', '=', '!'}:
-    # C++: the version as C++17's (201703L)
-    let r = t[11 .. ^1].strip
-    var op = ""
-    while op.len < r.len and r[op.len] in {'>', '<', '=', '!'}: op.add r[op.len]
-    try:
-      let x = parseInt(r[op.len .. ^1].strip.strip(chars = {'L', 'l', 'U', 'u', ' '}))
-      const ver = 201703
-      v = case op
-          of ">=": ord(ver >= x)
-          of ">": ord(ver > x)
-          of "<=": ord(ver <= x)
-          of "<": ord(ver < x)
-          of "==": ord(ver == x)
-          of "!=": ord(ver != x)
-          else: -1
-    except ValueError: v = -1
-  elif t.startsWith("__cplusplus") and t[11 .. ^1].strip.len > 0 and t[11 .. ^1].strip[0] in {'>', '='}: v = 0
-  if v >= 0 and neg: v = 1 - v
-  v
+          if d == 0: break
+        inc e
+      if argOf(m.params.high).len > 0:
+        let inner = CxMacro(state: msDef, ready: true, fn: true, va: true, params: m.params,
+                            body: body[i + 2 ..< e].join(" "))
+        for x in cxSubst(inner, name, args, use, look, budget): result.add x
+      i = e + 1
+      continue
+    if b == "##":
+      paste = true
+      result.add CxPT(t: "##", src: -2, hide: hide)                  # (src -2: the body's own `##`)
+    else: result.add CxPT(t: b, src: use.src, hide: hide)
+    inc i
+  if paste:
+    # a ## b: one token; `, ## __VA_ARGS__` with no arguments: the comma goes too
+    var o: seq[CxPT]
+    var k = 0
+    while k < result.len:
+      if result[k].src == -2 and o.len > 0 and k + 1 < result.len:
+        let r = result[k + 1]
+        if o[^1].t == "," and r.t == "" and m.va:
+          o.setLen(o.len - 1)
+          k += 2
+          continue
+        let l = o[^1]
+        var x = if r.arg and r.t.len > 0: r else: l
+        x.t = l.t & r.t
+        x.hide = hide
+        o[^1] = x
+        k += 2
+        continue
+      o.add result[k]
+      inc k
+    result = o
+  var o = 0
+  for q in 0 ..< result.len:
+    if result[q].t.len > 0:
+      if o != q: result[o] = result[q]
+      inc o
+  result.setLen(o)
 
-proc cxInactive(pp: seq[(int, string)]): seq[(int, int)] =
-  ## the parts that #if 0, #ifdef __cplusplus and their #else leave out: (a, b), the lines after a and before b.
-  ## Every other #if is read whole, all its branches
-  type Frame = object
-    known, taken, skip, outer: bool
-    start: int
-  var st: seq[Frame]
-  for (l, d) in pp:
-    let t = d[1 .. ^1].strip
-    var w = 0
-    while w < t.len and t[w] in IdentChars: inc w
-    let word = t[0 ..< w]
-    let rest = t[w .. ^1].strip
+proc cxExpand(input: seq[CxPT], look: CxLook, budget: var int): seq[CxPT] =
+  ## tokens with every macro in them expanded, the expansions read again (each macro once in its own); budget: how
+  ## many expansions there may still be (at 0 the rest is left as it is)
+  var st = newSeqOfCap[CxPT](input.len + 8)          # what is left to read, the next one last
+  for k in countdown(input.high, 0): st.add input[k]
+  while st.len > 0:
+    var t = st.pop()
+    if budget > 0 and cxIsName(t.t) and not cxHidden(t.hide, t.t):
+      let m = look(t.t)
+      if m != nil and m.state == msDef: cxReady(m)
+      if m != nil and m.state == msDef:
+        if not m.fn:
+          dec budget
+          let r = cxSubst(m, t.t, @[], t, look, budget)
+          for k in countdown(r.high, 0): st.add r[k]
+          continue
+        if st.len > 0 and st[^1].t == "(":
+          # its arguments, up to the `)` that closes its `(`
+          var taken = @[st.pop()]
+          var args: seq[seq[CxPT]]
+          var cur: seq[CxPT]
+          var d = 0
+          var closed = false
+          while st.len > 0:
+            let x = st.pop()
+            taken.add x
+            if x.t == "(": inc d
+            elif x.t == ")":
+              if d == 0:
+                closed = true
+                break
+              dec d
+            elif x.t == "," and d == 0 and not (m.va and args.len >= m.params.len - 1):
+              args.add cur
+              cur = @[]
+              continue
+            cur.add x
+          if closed:
+            if cur.len > 0 or args.len > 0 or m.params.len > 0: args.add cur
+            dec budget
+            let r = cxSubst(m, t.t, args, t, look, budget)
+            for k in countdown(r.high, 0): st.add r[k]
+            continue
+          for k in countdown(taken.high, 0): st.add taken[k]
+    result.add t
+
+type CxVal = object
+  known, uns: bool
+  v: uint64
+
+proc cxPPValue(ts: seq[string], look: CxLook): (bool, int64) =
+  ## a #if's expression (macros expanded, `defined` worked out) as the preprocessor works it out: (known, value).
+  ## A name left is 0 when it is known not to be a macro, else the answer is not known
+  var p = 0
+  var bad = false
+  proc num(t: string): CxVal =
+    result.known = true
+    var x = t.toLowerAscii.replace("'", "")
+    while x.len > 1 and x[^1] in {'u', 'l'}:
+      if x[^1] == 'u': result.uns = true
+      x.setLen(x.len - 1)
+    var base = 10'u64
+    var k = 0
+    if x.startsWith("0x"): (base, k) = (16'u64, 2)
+    elif x.startsWith("0b"): (base, k) = (2'u64, 2)
+    elif x.len > 1 and x[0] == '0': (base, k) = (8'u64, 1)
+    if k >= x.len and base != 8:
+      bad = true
+      return
+    while k < x.len:
+      let d = case x[k]
+              of '0'..'9': uint64(ord(x[k]) - ord('0'))
+              of 'a'..'f': uint64(ord(x[k]) - ord('a') + 10)
+              else: 99'u64
+      if d >= base:
+        bad = true                               # (a floating-point number, or not a number: no #if takes it)
+        return
+      result.v = result.v * base + d
+      inc k
+    if result.v > uint64(high(int64)): result.uns = true
+  proc chr(t: string): CxVal =
+    result.known = true
+    var x = t
+    while x.len > 0 and x[0] != '\'': x = x[1 .. ^1]
+    if x.len < 3:
+      bad = true
+      return
+    if x[1] == '\\' and x.len >= 4:
+      result.v = case x[2]
+        of 'n': 10
+        of 't': 9
+        of 'r': 13
+        of '0'..'7':
+          var v = 0'u64
+          var k = 2
+          while k < x.len and x[k] in {'0'..'7'}:
+            v = v * 8 + uint64(ord(x[k]) - ord('0'))
+            inc k
+          v
+        of 'x':
+          (try: uint64(parseHexInt(x[3 ..< x.len - 1])) except ValueError: 0'u64)
+        of 'a': 7
+        of 'b': 8
+        of 'f': 12
+        of 'v': 11
+        else: uint64(ord(x[2]))
+    else: result.v = uint64(ord(x[1]))
+  proc truth(x: CxVal): bool = x.v != 0
+  proc expr(prec: int): CxVal
+  proc unary(): CxVal =
+    if p >= ts.len:
+      bad = true
+      return
+    let t = ts[p]
+    inc p
+    case t
+    of "(":
+      result = expr(0)
+      if p < ts.len and ts[p] == ")": inc p
+      else: bad = true
+    of "-":
+      result = unary()
+      result.v = 0'u64 - result.v
+    of "+": result = unary()
+    of "~":
+      result = unary()
+      result.v = not result.v
+    of "!":
+      let x = unary()
+      result = CxVal(known: x.known, v: (if x.v == 0: 1 else: 0))
+    else:
+      if t[0] in Digits: result = num(t)
+      elif '\'' in t: result = chr(t)
+      elif cxIsName(t):
+        if cxCppNow and t in ["true", "false"]: return CxVal(known: true, v: (if t == "true": 1 else: 0))
+        let m = look(t)
+        # (a macro left here: one not expanded — itself again, a function-like one without arguments: 0)
+        result = CxVal(known: m != nil and m.state in {msDef, msUndef})
+        # a call of a macro that is not known: its arguments too
+        if not result.known and p < ts.len and ts[p] == "(":
+          var d = 0
+          while p < ts.len:
+            if ts[p] == "(": inc d
+            elif ts[p] == ")":
+              dec d
+              if d == 0:
+                inc p
+                break
+            inc p
+      else: bad = true
+  proc precOf(op: string): int =
+    case op
+    of "?": 1
+    of "||": 2
+    of "&&": 3
+    of "|": 4
+    of "^": 5
+    of "&": 6
+    of "==", "!=": 7
+    of "<", ">", "<=", ">=": 8
+    of "<<", ">>": 9
+    of "+", "-": 10
+    of "*", "/", "%": 11
+    else: -1
+  proc expr(prec: int): CxVal =
+    result = unary()
+    while not bad and p < ts.len:
+      let op = ts[p]
+      let pr = precOf(op)
+      if pr < 0 or pr < prec: break
+      inc p
+      if op == "?":
+        let a = expr(0)
+        if p < ts.len and ts[p] == ":": inc p
+        else:
+          bad = true
+          return
+        let b = expr(1)
+        if result.known: result = (if truth(result): a else: b)
+        elif a.known and b.known and a.v == b.v: result = a
+        else: result = CxVal()
+        continue
+      let r = expr(pr + 1)
+      let l = result
+      if op == "&&":
+        result = if (l.known and not truth(l)) or (r.known and not truth(r)): CxVal(known: true)
+                 elif l.known and r.known: CxVal(known: true, v: 1)
+                 else: CxVal()
+        continue
+      if op == "||":
+        result = if (l.known and truth(l)) or (r.known and truth(r)): CxVal(known: true, v: 1)
+                 elif l.known and r.known: CxVal(known: true)
+                 else: CxVal()
+        continue
+      if not l.known or not r.known:
+        result = CxVal()
+        continue
+      let uns = l.uns or r.uns
+      let (a, b) = (l.v, r.v)
+      let (sa, sb) = (cast[int64](a), cast[int64](b))
+      proc cmpRes(x: bool): CxVal = CxVal(known: true, v: (if x: 1 else: 0))
+      result = case op
+        of "|": CxVal(known: true, uns: uns, v: a or b)
+        of "^": CxVal(known: true, uns: uns, v: a xor b)
+        of "&": CxVal(known: true, uns: uns, v: a and b)
+        of "==": cmpRes(a == b)
+        of "!=": cmpRes(a != b)
+        of "<": cmpRes(if uns: a < b else: sa < sb)
+        of ">": cmpRes(if uns: a > b else: sa > sb)
+        of "<=": cmpRes(if uns: a <= b else: sa <= sb)
+        of ">=": cmpRes(if uns: a >= b else: sa >= sb)
+        of "<<": CxVal(known: b < 64, uns: l.uns, v: (if b < 64: a shl b else: 0))
+        of ">>": CxVal(known: b < 64, uns: l.uns, v: (if b >= 64: 0'u64 elif l.uns: a shr b
+                                                     else: cast[uint64](ashr(sa, int(b)))))
+        of "+": CxVal(known: true, uns: uns, v: a + b)
+        of "-": CxVal(known: true, uns: uns, v: a - b)
+        of "*": CxVal(known: true, uns: uns, v: a * b)
+        of "/", "%":
+          if b == 0: CxVal()
+          elif uns: CxVal(known: true, uns: true, v: (if op == "/": a div b else: a mod b))
+          elif sb == -1: CxVal(known: true, v: (if op == "/": 0'u64 - a else: 0))
+          else: CxVal(known: true, v: cast[uint64](if op == "/": sa div sb else: sa mod sb))
+        else: CxVal()
+  if ts.len == 0: return (false, 0)
+  let v = expr(0)
+  if bad or p != ts.len or not v.known: return (false, 0)
+  (true, cast[int64](v.v))
+
+proc cxGnuAtLeast(major: int): bool =
+  ## is the compiler GCC `major` or newer, or clang (which has what GCC 5 has)?
+  if not cxPredefSet: return false
+  if "__clang__" in cxPredef: return true
+  try: parseInt(cxPredef.getOrDefault("__GNUC__", "0").strip) >= major
+  except ValueError: false
+
+proc cxDefinedOf(name: string, look: CxLook): int =
+  ## `defined name`: 1, 0, or -1 when only the build would know
+  case name
+  of "__has_include", "__has_include_next", "__has_attribute": return (if cxGnuAtLeast(5): 1 else: -1)
+  of "__has_cpp_attribute": return (if cxCppNow and cxGnuAtLeast(5): 1 else: -1)
+  of "__has_builtin": return (if cxGnuAtLeast(10): 1 else: -1)
+  of "__has_c_attribute": return (if cxGnuAtLeast(11): 1 else: -1)
+  of "__has_feature", "__has_extension": return (if cxGnuAtLeast(14): 1 else: -1)
+  else: discard
+  let m = look(name)
+  if m == nil: -1
+  else:
+    case m.state
+    of msDef: 1
+    of msUndef: 0
+    of msUnknown: -1
+
+proc cxPPCond(text: string, look: CxLook, fromDir: string): int =
+  ## a #if's (#elif's) condition: 1 true, 0 false, -1 not known
+  let raw = cxPPToks(text)
+  var ts: seq[CxPT]
+  var i = 0
+  while i < raw.len:
+    let t = raw[i]
+    if t == "defined":
+      var j = i + 1
+      let paren = j < raw.len and raw[j] == "("
+      if paren: inc j
+      if j >= raw.len or not cxIsName(raw[j]): return -1
+      let v = cxDefinedOf(raw[j], look)
+      ts.add CxPT(t: (if v == 1: "1" elif v == 0: "0" else: "__ned_not_known__"), src: -1)
+      i = j + 1 + ord(paren)
+      continue
+    if t in ["__has_include", "__has_include_next"] and i + 1 < raw.len and raw[i + 1] == "(":
+      # found: 1; not found (the folders known may be fewer than the build's): not known
+      var j = i + 2
+      var name = ""
+      while j < raw.len and raw[j] != ")":
+        name.add raw[j]
+        inc j
+      let found = name.len > 2 and name[0] in {'<', '"'} and t == "__has_include" and cxFindInclude(name, fromDir).len > 0
+      ts.add CxPT(t: (if found: "1" else: "__ned_not_known__"), src: -1)
+      i = j + 1
+      continue
+    if t.startsWith("__has_") and i + 1 < raw.len and raw[i + 1] == "(":
+      var d = 0
+      var j = i + 1
+      while j < raw.len:
+        if raw[j] == "(": inc d
+        elif raw[j] == ")":
+          dec d
+          if d == 0: break
+        inc j
+      ts.add CxPT(t: "__ned_not_known__", src: -1)
+      i = j + 1
+      continue
+    ts.add CxPT(t: t, src: -1)
+    inc i
+  var budget = 400
+  let ex = cxExpand(ts, look, budget)
+  if budget <= 0: return -1
+  var outp: seq[string]
+  var k = 0
+  while k < ex.len:
+    # (`defined` made by a macro's expansion, as GCC takes it)
+    if ex[k].t == "defined":
+      var j = k + 1
+      let paren = j < ex.len and ex[j].t == "("
+      if paren: inc j
+      if j >= ex.len: return -1
+      let v = cxDefinedOf(ex[j].t, look)
+      if v < 0: return -1
+      outp.add $v
+      k = j + 1 + ord(paren)
+      continue
+    outp.add ex[k].t
+    inc k
+  let (ok, v) = cxPPValue(outp, look)
+  if not ok: -1 elif v != 0: 1 else: 0
+
+type
+  CxWalk = object
+    gone: seq[(int, int)]             # the branches left out: (the line of their directive, the next one's)
+    toks: seq[CxTok]                  # the tokens read: those left out gone, the macros of declarations expanded
+    own: Table[int32, (int32, CxMacro)]
+    incs: seq[(int32, CxFile, bool)]
+    deps: seq[CxFile]
+    missing: int
+    incNames: Table[int, string]      # a computed #include's line (`#include HEADER`) → the header it names
+    incAt: seq[CxIncl]
+    viaAt: Table[(int, int), seq[(string, string)]]   # where an expansion put names: (name, the macro)
+  CxFrame = object
+    dead: bool                        # inside a branch left out: every branch of it is
+    cur: int                          # this branch: 1 taken, 0 left out, -1 not known
+    taken: bool                       # a branch of it was known taken
+    maybe: bool                       # a branch of it was not known
+    start: int                        # this branch's directive's line
+    names: seq[int32]                 # the macros changed in this branch while it was not known
+    atIf, first: seq[bool]            # (the braces open at the #if, and after the first branch read)
+    firstSet: bool
+
+func cxTokKind(t: string): CxTokKind =
+  if t.len == 0: ctPunct
+  elif t[0] in Digits or (t[0] == '.' and t.len > 1 and t[1] in Digits): ctNum
+  elif t[^1] == '"': ctStr
+  elif t[^1] == '\'' and t.len > 1: ctChar
+  elif cxIsName(t): ctWord
+  else: ctPunct
+
+proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wantToks: bool): CxWalk =
+  ## the preprocessor over a file: its #if branches decided where they can be (the rest read, as before), what its
+  ## #defines and #includes leave defined, and its tokens without the branches left out — the macros in its
+  ## declarations at file level expanded (`DECLARE_GETTER(width, int)`, `int API(open)(…)`, `mod_export int x;`)
+  var w: CxWalk
+  var toks = move(toks0)
+  var applied: HashSet[string]
+  applied.incl (if cpp: "c++:" else: "") & path
+  var step = 0'i32
+  var seen: Table[int32, (int32, CxMacro)]       # (what was looked up since the last directive)
+  proc look(n: string): CxMacro =
+    # this file's own #define, or a header's included after it (the last first). (A proc, not a closure kept in a
+    # variable: the other procs here would keep it, and it them — a cycle that holds the file's tokens until ORC
+    # collects it)
+    let id = cxMNames.getOrDefault(n, -1)
+    if id < 0: return cxBaseLook(n, cpp)
+    seen.withValue(id, e):
+      if e[][0] == step: return e[][1]
+    var at = -1'i32
+    var r: CxMacro = nil
+    w.own.withValue(id, e): (at, r) = e[]
+    block found:
+      for k in countdown(w.incs.high, 0):
+        let (sq, d, maybe) = w.incs[k]
+        if sq <= at: break
+        let x = cxFinal(d, id)
+        if x != nil:
+          r = if maybe: cxUnknownM else: x
+          break found
+    if r == nil: r = cxBaseLook(n, cpp)
+    seen[id] = (step, r)
+    r
+  proc setM(id: int32, m: CxMacro) =
+    inc step
+    w.own[id] = (step, m)
+  var frames: seq[CxFrame]
+  let fromDir = if path.len > 0: parentDir(path) elif cxDirs.len > 0: cxDirs[0] else: ""
+  let strict = path.len > 0 and normalizedPath(path) in cxStrictFiles
+  proc lookC(n: string): CxMacro =
+    ## a macro as an #if sees it: in a file whose flags are all known, one defined nowhere (before the headers it
+    ## includes are all found, at least) is not defined
+    result = look(n)
+    if result == nil and strict and w.missing == 0: result = cxUndefM
+  proc state(): int =
+    ## where the walk is: 1 read for sure, 0 left out, -1 read but not known to be compiled
+    result = 1
+    for fr in frames:
+      if fr.dead or fr.cur == 0: return 0
+      if fr.cur < 0: result = -1
+  proc note(id: int32, below: int) =
+    ## a macro changed where it is not known whether the line is compiled: not known after the branch
+    for k in countdown(below - 1, 0):
+      if frames[k].cur < 0:
+        frames[k].names.add id
+        return
+
+  proc branchEnd(k, line: int) =
+    if frames[k].dead: return
+    if frames[k].cur == 0: w.gone.add (frames[k].start, line)
+    elif frames[k].cur < 0:
+      var seen: HashSet[int32]
+      for n in frames[k].names:
+        if n in seen: continue
+        seen.incl n
+        setM(n, cxUnknownM)
+        note(n, k)
+      frames[k].names.setLen(0)
+  # ── the tokens between two directives: the macros of file-level declarations expanded ──
+  var opaque = 0                                   # the braces open that are bodies (not extern "C", namespace)
+  var braces: seq[bool]                            # the braces open: is each a body
+  var stmt: seq[string]                            # the file-level statement's first tokens (namespace, extern …)
+  var parenD = 0
+  var inInit = false
+  var budget = 20000
+  proc setBraces(bs: seq[bool]) =
+    braces = bs
+    opaque = 0
+    for x in braces:
+      if x: inc opaque
+  var repl: seq[(int, int, seq[CxTok])]           # the macros' uses expanded: (first token, last, what instead)
+  proc track(x: CxTok) =
+    ## where a token leaves the reading: in a body (of a function, a struct …) or at file level, in an initializer
+    template t: untyped = x.text
+    if x.kind == ctPunct and x.text.len == 1:
+      case x.text[0]
+      of '{':
+        let open = stmt.len > 0 and (stmt[0] == "namespace" or (stmt[0] == "inline" and stmt.len > 1 and
+                   stmt[1] == "namespace") or (stmt[0] == "extern" and stmt.len > 1 and stmt[1].startsWith("\"")))
+        braces.add not open
+        if not open: inc opaque
+        if opaque == 0: stmt.setLen(0)
+      of '}':
+        if braces.len > 0 and braces.pop(): dec opaque
+        if opaque == 0:
+          stmt.setLen(0)
+          parenD = 0
+          inInit = false
+      of ';':
+        if opaque == 0:
+          stmt.setLen(0)
+          parenD = 0
+          inInit = false
+      of '(', '[':
+        if opaque == 0: inc parenD
+      of ')', ']':
+        if opaque == 0: dec parenD
+      of '=':
+        if opaque == 0 and parenD == 0: inInit = true
+      of ',':
+        if opaque == 0 and parenD == 0: inInit = false
+      else: discard
+    if opaque == 0 and stmt.len < 3 and not (x.kind == ctPunct and t in [";", "}", "{"]): stmt.add t
+  proc chunk(a, b: int) =
+    template ts: untyped = toks
+    var i = a
+    while i < b:
+      template x: untyped = toks[i]
+      if opaque == 0 and not inInit and x.kind == ctWord and budget > 0 and
+         x.text in cxMNames and x.text notin CxKeywords and
+         not x.text.startsWith("__attribute") and x.text notin ["asm", "__asm__", "__asm", "__declspec", "defined"]:
+        let m = look(x.text)
+        if m != nil and m.state == msDef: cxReady(m)
+        if m != nil and m.state == msDef and (not m.fn or (i + 1 < b and ts[i + 1].text == "(")):
+          # the use: its name, and its arguments
+          var e = i
+          if m.fn:
+            var d = 0
+            var k = i + 1
+            while k < b:
+              if ts[k].text == "(": inc d
+              elif ts[k].text == ")":
+                dec d
+                if d == 0: break
+              inc k
+            e = if k < b: k else: -1
+          if e >= 0 and m.body.startsWith("__attribute"):
+            # (a macro that stands for attributes — glibc's __THROW, __nonnull ((1)), __wur —: they are nothing to
+            # the reading, as if expanded)
+            repl.add (i, e, newSeq[CxTok]())
+            i = e + 1
+            continue
+          if e >= 0:
+            var input: seq[CxPT]
+            for k in i .. e: input.add CxPT(t: ts[k].text, src: int32(k))
+            let before = budget
+            let r = cxExpand(input, look, budget)
+            var bal = 0
+            var ok = budget > 0 and r.len < 4000
+            for y in r:
+              if y.t in ["(", "[", "{"]: inc bal
+              elif y.t in [")", "]", "}"]: dec bal
+              if bal < 0: ok = false
+            if ok and bal == 0:
+              let mname = x.text
+              var nts: seq[CxTok]
+              for y in r:
+                let o = if y.src >= 0: y.src.int else: i
+                let nt = CxTok(kind: cxTokKind(y.t), text: y.t, line: ts[o].line, col: ts[o].col)
+                if nt.kind == ctWord: w.viaAt.mgetOrPut((nt.line, nt.col), @[]).add (y.t, mname)
+                track(nt)
+                nts.add nt
+              repl.add (i, e, nts)
+              i = e + 1
+              continue
+            budget = before - 1
+      track(toks[i])
+      inc i
+  var ti = 0
+  proc tokensTo(line: int) =
+    let a = ti
+    while ti < toks.len and toks[ti].line < line: inc ti
+    if not wantToks or a == ti or state() == 0: return
+    chunk(a, ti)
+  proc firstWord(r: string): string =
+    let ws = r.splitWhitespace
+    if ws.len > 0 and cxIsName(ws[0]): ws[0] else: ""
+  proc defd(r: string): int =
+    ## #ifdef r: 1, 0, -1 not known
+    let n = firstWord(r)
+    if n.len > 0: cxDefinedOf(n, lookC) else: -1
+  func notOf(v: int): int = (if v < 0: -1 else: 1 - v)
+  for pi, (l, d) in pp:
+    tokensTo(l)
+    var ws = 1
+    while ws < d.len and d[ws] in {' ', '\t'}: inc ws
+    var wl = ws
+    while wl < d.len and d[wl] in IdentChars: inc wl
+    let word = d[ws ..< wl]
+    let rest = d[wl .. ^1].strip
     case word
     of "if", "ifdef", "ifndef":
-      if st.len > 0 and (st[^1].skip or st[^1].outer):
-        st.add Frame(outer: true)
+      if state() == 0:
+        frames.add CxFrame(dead: true, start: l)
         continue
-      let c = case word
-        of "ifdef": cxDefinedKnown(rest)
-        of "ifndef": (let d = cxDefinedKnown(rest); if d < 0: -1 else: 1 - d)
-        else: cxCond(rest)
-      st.add Frame(known: c >= 0, taken: c == 1, skip: c == 0, start: l)
-    of "elif", "else":
-      if st.len == 0 or st[^1].outer: continue
-      var fr = st[^1]
-      if fr.skip: result.add (fr.start, l)
-      let c = if word == "else": 1 else: cxCond(rest)
-      if fr.known and fr.taken: fr.skip = true
-      elif c == 0: fr.skip = true
-      else:
-        fr.skip = false
-        if c == 1 and fr.known: fr.taken = true
-        else: fr.known = false
-      fr.start = l
-      st[^1] = fr
+      var c = case word
+        of "ifdef": defd(rest)
+        of "ifndef": notOf(defd(rest))
+        else: cxPPCond(rest, lookC, fromDir)
+      if c < 0 and pi + 1 < pp.len:
+        # #ifndef X then #define X — a header's guard (or a default value): the first time, taken
+        var g = ""
+        if word == "ifndef": g = firstWord(rest)
+        elif word == "if":
+          let r = rest.replace(" ", "")
+          if r.startsWith("!defined(") and r.endsWith(")") and r.count('(') == 1: g = r[9 ..< r.high]
+          elif r.startsWith("!defined") and r.len > 8 and r[8 .. ^1].allCharsInSet(IdentChars): g = r[8 .. ^1]
+        let nx = pp[pi + 1][1][1 .. ^1].strip
+        if g.len > 0 and look(g) == nil and nx.startsWith("define") and firstWord(nx[6 .. ^1]) == g:
+          c = 1
+      frames.add CxFrame(cur: c, taken: c == 1, maybe: c < 0, start: l, atIf: braces)
+    of "elif", "else", "elifdef", "elifndef":
+      if frames.len == 0 or frames[^1].dead: continue
+      let k = frames.high
+      branchEnd(k, l)
+      if frames[k].cur != 0 and not frames[k].firstSet:
+        frames[k].first = braces
+        frames[k].firstSet = true
+      setBraces(frames[k].atIf)                  # (each branch starts where the #if did)
+      var c = 0
+      if not frames[k].taken:
+        frames[k].cur = 0                        # (the branch before is over: not what the condition sees)
+        c = case word
+          of "else": 1
+          of "elifdef": defd(rest)
+          of "elifndef": notOf(defd(rest))
+          else: cxPPCond(rest, lookC, fromDir)
+        if c == 1 and frames[k].maybe: c = -1
+      frames[k].cur = c
+      if c == 1: frames[k].taken = true
+      if c < 0: frames[k].maybe = true
+      frames[k].start = l
     of "endif":
-      if st.len == 0: continue
-      let fr = st.pop()
-      if not fr.outer and fr.skip: result.add (fr.start, l)
+      if frames.len == 0: continue
+      if frames[^1].dead:
+        discard frames.pop()
+        continue
+      let k = frames.high
+      branchEnd(k, l)
+      if frames[k].cur != 0 and not frames[k].firstSet:
+        frames[k].first = braces
+        frames[k].firstSet = true
+      # (branches that each open or close a brace: the first one read is what counts, as cxUnbalanced reads it)
+      if frames[k].firstSet: setBraces(frames[k].first)
+      discard frames.pop()
+    of "define":
+      let s = state()
+      if s == 0: continue
+      let (n, m) = cxMacroOf(rest)
+      if n.len > 0:
+        let id = cxIntern(n)
+        setM(id, m)
+        if s < 0: note(id, frames.len)
+    of "undef":
+      let s = state()
+      if s == 0: continue
+      let n = firstWord(rest)
+      if n.len > 0:
+        let id = cxIntern(n)
+        setM(id, cxUndefM)
+        if s < 0: note(id, frames.len)
+    of "include", "include_next", "import":
+      let s = state()
+      if s == 0: continue
+      var ic = CxIncl(line: l, name: rest, known: s == 1, top: opaque == 0)
+      block read:
+        if cxNoHeaders: break read
+        var name = rest
+        if not (name.startsWith("<") or name.startsWith("\"")):
+          # #include HEADER: the string or <…> the macro stands for
+          var bud = 50
+          var ts: seq[CxPT]
+          for x in cxPPToks(rest): ts.add CxPT(t: x, src: -1)
+          var r = ""
+          for x in cxExpand(ts, look, bud): r.add x.t
+          if r.len > 2 and ((r[0] == '"' and r[^1] == '"') or (r[0] == '<' and r[^1] == '>')):
+            name = r
+            w.incNames[l] = r
+          else:
+            inc w.missing
+            break read
+        else:
+          let close = name.find((if name[0] == '<': '>' else: '"'), 1)
+          if close < 0: break read
+          name = name[0 .. close]
+        ic.name = name
+        var h = name
+        if cpp and h.startsWith("<") and '.' notin h:
+          # the C++ library: not read — but <cstdio> is <stdio.h>
+          let n = h.strip(chars = {'<', '>'})
+          if n.len > 1 and n[0] == 'c' and n notin ["complex", "chrono", "codecvt", "condition_variable", "charconv",
+                                                     "concepts", "coroutine", "compare"]:
+            h = "<" & n[1 .. ^1] & ".h>"
+          else: break read
+        let hp = cxFindInclude((if word == "include_next": "next" else: "") & h, fromDir)
+        if hp.len == 0:
+          inc w.missing
+          break read
+        let hcpp = cpp and not cxIsSystem(hp)
+        if cpp and cxIsSystem(hp) and ("/c++/" in hp or hp.splitFile.ext.len == 0): break read
+        let key = (if hcpp: "c++:" else: "") & hp
+        if key in applied or key in cxParsing:
+          ic.file = cxCache.getOrDefault(key)
+          break read
+        let dep = cxLoad(hp, cpp = hcpp)
+        if dep == nil:
+          inc w.missing
+          break read
+        ic.file = dep
+        if s == 1: applied.incl key
+        if dep notin w.deps: w.deps.add dep
+        inc step
+        w.incs.add (step, dep, s < 0)
+      w.incAt.add ic
     else: discard
-  for fr in st:
-    if not fr.outer and fr.skip: result.add (fr.start, high(int))
-  result.sort(proc(x, y: (int, int)): int = cmp(x[0], y[0]))
+  tokensTo(high(int))
+  for k in countdown(frames.high, 0):
+    if not frames[k].dead:
+      if frames[k].cur == 0: w.gone.add (frames[k].start, high(int))
+      elif frames[k].cur < 0: branchEnd(k, high(int))
+  w.gone.sort(proc(x, y: (int, int)): int = cmp(x[0], y[0]))
+  # the tokens: the expansions in place of the uses (those of the branches left out go by their lines, later)
+  if repl.len == 0: w.toks = move(toks)
+  else:
+    w.toks = newSeqOfCap[CxTok](toks.len + 64)
+    var r = 0
+    var i = 0
+    while i < toks.len:
+      if r < repl.len and repl[r][0] == i:
+        for x in repl[r][2]: w.toks.add x
+        i = repl[r][1] + 1
+        inc r
+        continue
+      w.toks.add move(toks[i])
+      inc i
+  result = move(w)                                   # (not a copy: the tokens are many)
 
 proc cxUnbalanced(pp: seq[(int, string)], toks: seq[CxTok], gone: var seq[(int, int)]) =
   ## #if branches that open or close braces — `#ifdef X  if (a) {  #else  if (b) {  #endif` —: only the first is
@@ -819,6 +1762,11 @@ func cxxArgs*(t: string): seq[string] =
 func cxxQual*(s: CxSym): string =
   ## a C++ declaration's qualified name: "geo::Point"
   if s.scope.len > 0: s.scope & "::" & s.name else: s.name
+
+func cxxKey*(s: CxSym): string =
+  ## a class's name as its members know it as their owner: qualified, a specialisation's with its arguments
+  ## ("geo::Hash<int>")
+  cxxQual(s) & (if s.spec.len > 0: "<" & s.spec & ">" else: "")
 
 func cxxRender(toks: seq[CxTok], a, b: int): string =
   ## tokens as one type or expression, spaced the way C++ is written: "std::map<std::string, int>", "new Foo(1, 2)"
@@ -1048,18 +1996,95 @@ proc cxxFold(toks: seq[CxTok]): seq[CxTok] =
     add t
     inc i
 
-proc cxInactiveIn*(text: string, cpp = false): seq[(int, int)] =
-  ## what #if 0, #ifdef __cplusplus … leave out of a C text (C++: #ifndef __cplusplus …): (first line, last line)
-  ## — for the editor to dim, with whichever engine answers for the file
+proc cxInactiveIn*(text: string, cpp = false, path = ""): seq[(int, int)] =
+  ## what the preprocessor leaves out of a C text — #if 0, #ifdef _WIN32 on Linux, #ifdef __cplusplus in C, a
+  ## branch its macros decide —: (first line, last line), for the editor to dim, with whichever engine answers for
+  ## the file. path: where the file is (its #include "…"; else the first of cxDirs)
   var toks: seq[CxTok]
   var comments: seq[CxComment]
   var pp: seq[(int, string)]
   let was = cxCppNow
   cxCppNow = cpp
   defer: cxCppNow = was
+  if not cxPredefSet and cxPrepare != nil: cxPrepare(path)   # (the compiler's _WIN32, __linux__ …: known at once)
+  if cxParsing.len == 0: cxBaseFresh()
+  # (the text the engine has just read for the editor: what it worked out)
+  let n = if text.endsWith("\n"): text.len - 1 else: text.len
+  let h = hash(text.toOpenArray(0, n - 1))
+  for (h2, n2, c2, r) in cxTextInactive:
+    if h2 == h and n2 == n and c2 == cpp: return r
   cxLex(text, toks, comments, pp, cpp)
-  for (a, b) in cxInactive(pp):
+  for (a, b) in cxPre(toks, pp, path, cpp, wantToks = false).gone:
     if b - 1 >= a + 1: result.add (a + 1, b - 1)
+
+proc cxNamesOf(used: seq[(int, int, bool)], usedText: seq[string], pp: seq[(int, string)], gone: seq[(int, int)]):
+    (seq[string], seq[string]) =
+  ## the names a file's code and its directives use (#ifs' too, the branches left out's too), and those of its code
+  ## read — not in attributes — and of its #defines' bodies
+  block:
+    var all, live: HashSet[string]
+    proc isGone(l: int): bool =
+      for (a, b) in gone:
+        if l > a and l < b: return true
+    for i, (_, l, attr) in used:
+      all.incl usedText[i]
+      if not attr and not isGone(l): live.incl usedText[i]
+    for (l, d) in pp:
+      var ws = 1
+      while ws < d.len and d[ws] in {' ', '\t'}: inc ws
+      var we = ws
+      while we < d.len and d[we] in IdentChars: inc we
+      let word = d[ws ..< we]
+      if word in ["include", "include_next", "import", "pragma", "error", "warning", "line"]: continue
+      # (its names — a #define's body, read: used; its own name and parameters aside)
+      let define = word == "define" and not isGone(l)
+      var params: seq[string]
+      var i = we
+      var first = true
+      while i < d.len:
+        let c = d[i]
+        if c in {'"', '\''}:
+          inc i
+          while i < d.len and d[i] != c:
+            if d[i] == '\\': inc i
+            inc i
+          inc i
+          continue
+        if c in IdentStartChars and (i == 0 or d[i - 1] notin IdentChars):
+          var e = i
+          while e < d.len and d[e] in IdentChars: inc e
+          let x = d[i ..< e]
+          if define and first:
+            first = false
+            if e < d.len and d[e] == '(':
+              let close = d.find(')', e)
+              if close > e:
+                for p in d[e + 1 ..< close].split(','): params.add p.strip.strip(chars = {'.'})
+                e = close + 1
+          elif x != "defined":
+            all.incl x
+            if define and x notin params and x != "__VA_ARGS__": live.incl x
+          i = e
+          continue
+        if c in Digits:
+          while i < d.len and d[i] in IdentChars + {'.'}: inc i
+          continue
+        inc i
+    for x in all: result[0].add x
+    for x in live: result[1].add x
+
+proc cxCodeWords(toks: seq[CxTok]): (seq[(int, int, bool)], seq[string]) =
+  ## a file's words as cxNamesOf takes them: (token, its line, in an attribute), and their texts
+  var k = 0
+  var attrEnd = -1
+  while k < toks.len:
+    if toks[k].kind == ctWord:
+      if attrEnd < k and toks[k].text in ["__attribute__", "__attribute", "__declspec", "asm", "__asm__", "__asm",
+                                          "_Pragma"] and k + 1 < toks.len and toks[k + 1].text == "(":
+        attrEnd = cxSkipGroup(toks, k + 1)
+      result[0].add (k, toks[k].line, k < attrEnd)
+      result[1].add toks[k].text
+    inc k
 
 proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
   ## one C file's declarations (not the ones of the files it includes); full: a prototype's parameters too (the
@@ -1074,7 +2099,47 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
   var pp: seq[(int, string)]
   cxLex(text, toks, comments, pp, cpp)
   f.lines = text.splitLines
-  var gone = cxInactive(pp)
+  # the names a project file's code uses (as written: the macros, not what they expand to) — what tells whether
+  # an #include is used
+  # (a header's now; an open file's when the checks ask, cxUsedNames: it is read again at each change)
+  let project = not cxIsSystem(path)
+  var used: seq[(int, int, bool)]                  # (token, its line, in an attribute)
+  var usedText: seq[string]
+  if project and not full: (used, usedText) = cxCodeWords(toks)
+  var walk = cxPre(toks, pp, path, cpp, wantToks = true)
+  toks = move(walk.toks)
+  for id, (st, m) in walk.own: f.own.add (id, st, m)
+  f.own.sort(proc(x, y: (int32, int32, CxMacro)): int = cmp(x[0], y[0]))
+  f.incs = move(walk.incs)
+  # (its number, and the numbers of the files it brings, for the files that include it to look macros up by)
+  let fkey = (if cpp: "c++:" else: "") & path
+  f.fid = cxFids.getOrDefault(fkey, -1)
+  if f.fid < 0:
+    f.fid = int32(cxFids.len)
+    cxFids[fkey] = f.fid
+  for (id, _, _) in f.own:
+    while cxDefiners.len <= id: cxDefiners.add @[]
+    if f.fid notin cxDefiners[id]: cxDefiners[id].add f.fid
+  f.deps = move(walk.deps)
+  for d in f.deps:
+    if d.sub.len > f.sub.len: f.sub.setLen(d.sub.len)
+    for i, x in d.sub: f.sub[i] = f.sub[i] or x
+    let w = int(d.fid) shr 6
+    if w >= f.sub.len: f.sub.setLen(w + 1)
+    f.sub[w] = f.sub[w] or (1'u64 shl (int(d.fid) and 63))
+  f.missing = walk.missing
+  f.incAt = walk.incAt
+  var gone = walk.gone
+  if project and not full: (f.names, f.liveNames) = cxNamesOf(used, usedText, pp, walk.gone)
+  f.namesMade = project and not full
+  defer:
+    # a declaration a macro's expansion made: which macro (for its hover)
+    if walk.viaAt.len > 0:
+      for s in f.syms.mitems:
+        if s.kind in {cxFunc, cxVar, cxTypedef, cxStruct, cxUnion, cxEnum, cxEnumConst, cxField, cxClass, cxMethod}:
+          if (s.line, s.col) in walk.viaAt:
+            for (n, m) in walk.viaAt[(s.line, s.col)]:
+              if n == s.name: s.viaMacro = m
   # (what the preprocessor leaves out, for the editor to dim — not the branches cxUnbalanced sets aside to read one)
   for (a, b) in gone:
     if b - 1 >= a + 1: f.inactive.add (a + 1, b - 1)
@@ -1109,7 +2174,8 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
     let t = d[1 .. ^1].strip
     if t.startsWith("include"):
       let next = t.startsWith("include_next")             # (GCC's: the same name, from the folders after this one's)
-      let r = t[(if next: 12 else: 7) .. ^1].strip
+      var r = t[(if next: 12 else: 7) .. ^1].strip
+      if l in walk.incNames: r = walk.incNames[l]         # (#include HEADER: what the macro names)
       if r.len >= 3 and r[0] in {'<', '"'}:
         let close = r.find((if r[0] == '<': '>' else: '"'), 1)
         if close > 0: f.includes.add ((if next: "next" else: "") & r[0 .. close], l)
@@ -1556,14 +2622,16 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
           y = k
           break
       if y <= x: continue
+      let dflt = y < y0
       if toks[y - 1].text in ["&", "&&", "*"] or y - x == 1:
         if y - x == 1 and toks[x].text == "void": continue
         if y - x == 1 and toks[x].text == "...":
           result[1] = true
           continue
-        result[0].add CxParam(name: "", typ: cxTypeText(toks, x, y).strip, line: -1, col: -1)
+        result[0].add CxParam(name: "", typ: cxTypeText(toks, x, y).strip, line: -1, col: -1, opt: dflt)
         continue
-      let (ps, va) = cxParams(toks, x, y)
+      var (ps, va) = cxParams(toks, x, y)
+      if dflt and ps.len > 0: ps[^1].opt = true
       result[0].add ps
       if va: result[1] = true
   proc fnText(ret, name: string, ps: seq[CxParam], va: bool, suffix: string): string =
@@ -1582,12 +2650,21 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
       let k = at.rfind("::")
       at = if k >= 0: at[0 ..< k] else: ""
     ""
-  proc classNamed(qual: string): string =
-    ## the class `qual` names, qualified, when this file declares it — else qual as written
+  proc classNamed(qual: string, tp: seq[string] = @[]): string =
+    ## the class `qual` names, qualified, when this file declares it — else qual as written (a specialisation's
+    ## `Hash<int>`, `Box<T*>`: its own; the template's `Box<T>` for its parameters tp: the template)
     for s in f.syms:
       if s.kind in {cxClass, cxStruct, cxUnion} and s.isDef:
-        let q = cxxQual(s)
+        let q = cxxKey(s)
         if q == qual or q.endsWith("::" & qual): return q
+    let plain = cxxNoArgs(qual)
+    if plain != qual and cxxArgs(qual).len > 0 and cxxArgs(qual) != tp: return qual
+    if plain != qual:
+      for s in f.syms:
+        if s.kind in {cxClass, cxStruct, cxUnion} and s.isDef and s.spec.len == 0:
+          let q = cxxQual(s)
+          if q == plain or q.endsWith("::" & plain): return q
+      return plain
     qual
   proc retType(st, ni: int): string =
     ## a function's type: the words before its name that are types (not static, inline, friend …)
@@ -1642,7 +2719,10 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
     let parts = cxxSplit(nt.text)
     let short = if parts[^1].startsWith("operator") or parts[^1].startsWith("~"): parts[^1] else: cxxNoArgs(parts[^1])
     var qual = ""
-    for i in 0 ..< parts.len - 1: qual = qualify(qual, cxxNoArgs(parts[i]))
+    var rawQual = ""                      # (with a class's template arguments: a specialisation's method)
+    for i in 0 ..< parts.len - 1:
+      qual = qualify(qual, cxxNoArgs(parts[i]))
+      rawQual = qualify(rawQual, parts[i])
     var kind = cxFunc
     var owner = ""
     var scope = if cls.len > 0: cls else: ns
@@ -1654,8 +2734,8 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
       if nsq.len > 0 or qual == "std": scope = (if nsq.len > 0: nsq else: qual)
       else:
         kind = cxMethod
-        owner = classNamed(qual)
-    let clsName = if cls.len > 0: clsShort elif kind == cxMethod: cxxSplit(owner)[^1] else: ""
+        owner = classNamed(rawQual, tp)
+    let clsName = if cls.len > 0: clsShort elif kind == cxMethod: cxxNoArgs(cxxSplit(owner)[^1]) else: ""
     let ctor = kind == cxMethod and (short == clsName or short == "~" & clsName)
     let (sfx, trail) = suffixOf(pclose, body)
     var ret = if ctor: "" elif trail.len > 0: trail else: retType(st, paren - 1)
@@ -1901,14 +2981,17 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
                       else: cxEnum)
           var scope = here
           var nm = ""
+          var spec = ""
           if nameAt >= 0:
             let parts = cxxSplit(toks[nameAt].text)
             nm = cxxNoArgs(parts[^1])
             for i in 0 ..< parts.len - 1: scope = qualify(scope, cxxNoArgs(parts[i]))   # class A::B { … }
+            # template <> struct Hash<int> { … }, template <typename T> struct Box<T*> { … }: a specialisation
+            if tmText.len > 0 and '<' in parts[^1]: spec = cxxArgs(parts[^1]).join(", ")
           let anon = nm.len == 0
           if anon: nm = anonName(word, toks[j].line)
           else: typedefs.incl nm
-          let q = qualify(scope, nm)
+          let q = qualify(scope, nm & (if spec.len > 0: "<" & spec & ">" else: ""))
           var after = be - 1
           var decls: seq[(int, string, int)]
           if be < b and toks[be].text == ";": after = be
@@ -1919,12 +3002,13 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
             cppScan(m2 + 1, be - 1, ns, cls, clsShort)       # union { … }; in a class: its members are the class's
             k = after + 1
             continue
-          var head = tmText & word & (if scoped: " class" else: "") & (if anon: "" else: " " & nm)
+          var head = tmText & word & (if scoped: " class" else: "") & (if anon: "" else: " " & nm) &
+                     (if spec.len > 0: "<" & spec & ">" else: "")
           if bases.len > 0: head.add " : " & bases.join(", ")
           addSym(CxSym(name: nm, kind: kind, line: (if nameAt >= 0: toks[nameAt].nameLine else: toks[j].line),
                        col: (if nameAt >= 0: toks[nameAt].nameCol else: toks[j].col), endLine: toks[be - 1].line,
                        isDef: true, scope: scope, owner: cls, bases: bases, tparams: tp, text: head & " { … }",
-                       doc: cxDocFor(comments, docLine)))
+                       doc: cxDocFor(comments, docLine), spec: spec))
           if word == "enum": enumConsts(m2 + 1, be - 1, q, (if scoped: q else: scope))
           else: cppScan(m2 + 1, be - 1, ns, q, nm)
           for (ni, stars, _) in decls:
@@ -2058,36 +3142,70 @@ proc cxStampOf(path: string): string =
     $i.lastWriteTime.toUnix & "/" & $i.lastWriteTime.nanosecond & "/" & $i.size
   except CatchableError: ""
 
-proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path)): CxFile =
-  ## a file's index: from `text` (an open buffer, with its own stamp) or from disk; cached until it changes (a file
-  ## read from disk does not keep its lines: headers are many). cpp: read as C++ (a header can be read both ways:
-  ## each is kept)
-  let key = if cpp: "c++:" & path else: path
+proc cxDepsOk(f: CxFile): bool =
+  ## are the headers whose macros f's #ifs saw still the ones on disk?
+  for d in f.deps:
+    if cxLoad(d.path, cpp = d.cpp) != d: return false
+  true
+
+proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path), shallow = false): CxFile =
+  ## a file's index: from `text` (an open buffer, with its own stamp) or from disk; cached until it changes, or a
+  ## header it includes does (a file read from disk does not keep its lines: headers are many). cpp: read as C++
+  ## (a header can be read both ways: each is kept). shallow: its headers not read (a .c file looked in for a body:
+  ## its #ifs see only its own macros)
+  if cxParsing.len == 0: cxBaseFresh()
+  let full = if cpp: "c++:" & path else: path
+  if shallow and full in cxCache: return cxLoad(path, text, stamp, cpp)
+  let key = (if shallow: "shallow:" else: "") & full
   if text.len == 0 and stamp.len == 0 and key in cxCache:
     let now = epochTime()
-    if now - cxCheckedAt.getOrDefault(key, 0.0) < 1.0: return cxCache[key]
+    if now - cxCheckedAt.getOrDefault(key, 0.0) < 1.0 or key in cxParsing: return cxCache[key]
     cxCheckedAt[key] = now
   let st = if stamp.len > 0: stamp else: cxStampOf(path)
   if st.len == 0 and text.len == 0: return nil
-  if key in cxCache and cxCache[key].stamp == st: return cxCache[key]
+  if key in cxCache and cxCache[key].stamp == st and cxDepsOk(cxCache[key]): return cxCache[key]
   var t = text
   if t.len == 0 and stamp.len == 0:
     try:
       t = readFile(path)
       if t.len > 6_000_000: t.setLen(6_000_000)
     except CatchableError: return nil
-  result = cxParse(t, path, full = text.len > 0, cpp = cpp)
+  cxParsing.incl key
+  let wasShallow = cxNoHeaders
+  cxNoHeaders = shallow
+  try: result = cxParse(t, path, full = text.len > 0, cpp = cpp)
+  finally:
+    cxParsing.excl key
+    cxNoHeaders = wasShallow
   result.stamp = st
   if text.len == 0: result.lines = @[]
+  else:
+    let n = if text.endsWith("\n"): text.len - 1 else: text.len
+    cxTextInactive.add (hash(text.toOpenArray(0, n - 1)), n, cpp, result.inactive)
+    if cxTextInactive.len > 8: cxTextInactive.delete(0)
   if cxCache.len > 3000:
     cxCache.clear()
     cxCheckedAt.clear()
   cxCache[key] = result
   if text.len == 0: cxCheckedAt[key] = epochTime()
 
+var cxFoundAt: (float, int, Table[string, string])   # (when, the folders' count: what #includes named, found)
+
+proc cxFindInclude0(name, fromDir: string): string
+
 proc cxFindInclude*(name, fromDir: string): string =
   ## the file an #include names: "x.h" next to the including file first, then the include folders (#include_next,
-  ## written "next<x.h>": the folders after the including file's)
+  ## written "next<x.h>": the folders after the including file's) — looked for again after a second (a header made
+  ## meanwhile)
+  let now = epochTime()
+  if now - cxFoundAt[0] > 1.0 or cxFoundAt[1] != cxDirs.len:
+    cxFoundAt = (now, cxDirs.len, initTable[string, string]())
+  let key = fromDir & "\0" & name
+  cxFoundAt[2].withValue(key, p): return p[]
+  result = cxFindInclude0(name, fromDir)
+  cxFoundAt[2][key] = result
+
+proc cxFindInclude0(name, fromDir: string): string =
   if name.startsWith("next"):
     let n = name[4 .. ^1].strip(chars = {'<', '>', '"'})
     var after = -1
@@ -2105,9 +3223,7 @@ proc cxFindInclude*(name, fromDir: string): string =
   if angle and fileExists(fromDir / n): return fromDir / n
   ""
 
-var cxClosureCache: Table[string, (string, float, seq[CxFile])]   # path → (its stamp, when, the closure)
-
-proc cxIsSystem(path: string): bool =
+proc cxIsSystem*(path: string): bool =
   for d in cxSysDirs:
     if path.startsWith(d.strip(leading = false, chars = {'/'}) & "/"): return true
   path.startsWith("/usr/include/") or path.startsWith("/usr/lib/")
@@ -2181,7 +3297,7 @@ proc cxFindSym*(files: seq[CxFile], name: string, kinds: set[CxKind]): (CxFile, 
       if g.syms[k].kind in kinds: return (g, k)
   (nil, -1)
 
-proc cxDropMarkers(files: seq[CxFile], base: string): string =
+proc cxDropMarkers*(files: seq[CxFile], base: string): string =
   ## a type without the words that are macros meaning nothing to it: export markers (`mod_export struct job`,
   ## `API Foo`) — macros defined empty, or as attributes only
   let ws = base.splitWhitespace
@@ -2218,6 +3334,17 @@ proc cxRecord*(files: seq[CxFile], typ: string): (string, int) =
         continue
       let (g2, _) = cxFindSym(files, w[0], {cxStruct, cxUnion})
       if g2 != nil: return (w[0], stars)
+    # a macro that stands for a type — `#define glob_t _compat_glob_t`, `#define Node struct node` — in code the
+    # macros are not expanded in (a function's body)
+    if w.len >= 1:
+      let (g3, k3) = cxFindSym(files, w[^1], {cxMacro})
+      if g3 != nil and g3.syms[k3].params.len == 0 and not g3.syms[k3].varargs:
+        let body = g3.syms[k3].text["#define ".len + w[^1].len .. ^1].strip
+        if body.len > 0 and body != w[^1] and body.allCharsInSet(IdentChars + {' ', '*'}):
+          let (b2, s2) = cxStrip((if w.len > 1: w[0 ..< ^1].join(" ") & " " else: "") & body)
+          base = b2
+          stars += s2
+          continue
     return ("", 0)
   ("", 0)
 
@@ -2557,7 +3684,7 @@ func cxxOwnersMatch(a, b: string): bool =
 func cxxSpecial(s: CxSym): bool =
   ## a constructor, a destructor, an operator: not offered by name
   s.name.startsWith("operator") or
-    (s.kind == cxMethod and (s.name.startsWith("~") or s.name == cxxSplit(s.owner)[^1]))
+    (s.kind == cxMethod and (s.name.startsWith("~") or s.name == cxxNoArgs(cxxSplit(s.owner)[^1])))
 
 func cxxStdGroup(base: string, bare: bool): string =
   ## the library type a type is (what CxxStdMembers knows: string vector map set unique_ptr …), "" when none;
@@ -2600,8 +3727,80 @@ func cxxStdSubst(t, grp: string, args: seq[string]): string =
            else: @["T"]
   cxxSubst(t, ps, args)
 
+func cxxTypeToks(t: string): seq[string] =
+  ## a type as tokens, to compare: names (a::b one), * & < > , ( ) [ ] and numbers — `typename` left out
+  var i = 0
+  while i < t.len:
+    let c = t[i]
+    if c in Whitespace:
+      inc i
+    elif c in IdentChars:
+      var e = i
+      while e < t.len and (t[e] in IdentChars or (t.continuesWith("::", e) and e + 2 < t.len and t[e + 2] in IdentChars)):
+        e += (if t[e] == ':': 2 else: 1)
+      if t[i ..< e] != "typename": result.add t[i ..< e]
+      i = e
+    elif t.continuesWith("&&", i):
+      result.add "&&"
+      i += 2
+    else:
+      result.add $c
+      inc i
+
+proc cxxSpecMatch*(spec: string, tparams, args: seq[string]): (bool, seq[string]) =
+  ## do a use's template arguments fit a specialisation's (`int` — explicit; `T*`, `std::vector<T>`, `T, T` —
+  ## partial, the T's what they stand for)? Then also what each of its parameters is
+  var parts: seq[string]
+  var d = 0
+  var st = 0
+  for i, ch in spec:
+    if ch in {'<', '('}: inc d
+    elif ch in {'>', ')'}: dec d
+    elif ch == ',' and d == 0:
+      parts.add spec[st ..< i].strip
+      st = i + 1
+  parts.add spec[st .. ^1].strip
+  if parts.len != args.len: return (false, @[])
+  var binds: Table[string, seq[string]]
+  proc balanced(xs: seq[string]): bool =
+    var d = 0
+    for x in xs:
+      if x in ["<", "("]: inc d
+      elif x in [">", ")"]:
+        dec d
+        if d < 0: return false
+      elif x == "," and d == 0: return false
+    d == 0
+  proc m(p, a: seq[string], i, j: int): bool =
+    if i == p.len: return j == a.len
+    if p[i] in tparams:
+      if p[i] in binds:
+        let b = binds[p[i]]
+        if j + b.len > a.len or a[j ..< j + b.len] != b: return false
+        return m(p, a, i + 1, j + b.len)
+      for e in countdown(a.len, j + 1):           # (as long as it can be, then shorter)
+        let sub = a[j ..< e]
+        if not balanced(sub): continue
+        binds[p[i]] = sub
+        if m(p, a, i + 1, e): return true
+        binds.del p[i]
+      return false
+    j < a.len and p[i] == a[j] and m(p, a, i + 1, j + 1)
+  for k in 0 ..< parts.len:
+    if not m(cxxTypeToks(parts[k]), cxxTypeToks(args[k]), 0, 0): return (false, @[])
+  var r: seq[string]
+  for t in tparams:
+    var x = ""
+    for tok in binds.getOrDefault(t):
+      if x.len > 0 and (tok[0] in IdentChars and x[^1] in IdentChars): x.add ' '
+      x.add tok
+    r.add x
+  (true, r)
+
 proc cxxFindClass(files: seq[CxFile], name: string, scopes: seq[string]): (CxFile, int) =
-  ## the class (struct, union) a name means, seen from these scopes: "Point", "geo::Point", "Box<int>"
+  ## the class (struct, union) a name means, seen from these scopes: "Point", "geo::Point", "Box<int>" — of a
+  ## class template, the specialisation its arguments fit (`Hash<int>`: `template <> struct Hash<int>`), else
+  ## the template itself
   var b = cxxNoArgs(name).strip
   if b.startsWith("::"): b = b[2 .. ^1]
   for kw in ["struct ", "class ", "union "]:
@@ -2627,6 +3826,22 @@ proc cxxFindClass(files: seq[CxFile], name: string, scopes: seq[string]): (CxFil
       if score > bestScore:
         bestScore = score
         best = (g, k)
+  if best[0] == nil: return
+  # the specialisations of the class found (the same name, in the same scope): the one the arguments fit
+  let q = cxxQual(best[0].syms[best[1]])
+  let args = cxxArgs(name)
+  var primary, partial = (CxFile(nil), -1)
+  for g in files:
+    for k in cxNamed(g, short):
+      let s = g.syms[k]
+      if s.kind notin {cxClass, cxStruct, cxUnion} or cxxQual(s) != q or not s.isDef: continue
+      if s.spec.len == 0:
+        if primary[0] == nil: primary = (g, k)
+      elif args.len > 0 and cxxSpecMatch(s.spec, s.tparams, args)[0]:
+        if s.tparams.len == 0: return (g, k)                   # (an explicit one: it, at once)
+        if partial[0] == nil: partial = (g, k)
+  if partial[0] != nil: return partial
+  if primary[0] != nil: return primary
   best
 
 proc cxxFindAlias(files: seq[CxFile], name: string, scopes: seq[string]): string =
@@ -2658,7 +3873,11 @@ proc cxxRecord(files: seq[CxFile], typ: string, scopes: seq[string], depth = 0):
     if base.startsWith(kw): base = base[kw.len .. ^1].strip
   if base.len == 0 or depth > 8 or base == "auto": return
   let (g, k) = cxxFindClass(files, base, scopes)
-  if g != nil: return (cxxQual(g.syms[k]), cxxArgs(base), g.syms[k])
+  if g != nil:
+    let s = g.syms[k]
+    # (a partial specialisation's members are typed by its own parameters: `Box<T*>` for `Box<int*>` has T = int)
+    let args = if s.spec.len > 0: cxxSpecMatch(s.spec, s.tparams, cxxArgs(base))[1] else: cxxArgs(base)
+    return (cxxKey(s), args, s)
   let al = cxxFindAlias(files, base, scopes)
   if al.len > 0: return cxxRecord(files, al, scopes, depth + 1)
 
@@ -2669,9 +3888,9 @@ proc cxxMembers(files: seq[CxFile], key: string, scopes: seq[string], all: bool,
   var cls: CxSym
   var found = false
   for g in files:
-    for k in cxNamed(g, cxxSplit(key)[^1]):
+    for k in cxNamed(g, cxxNoArgs(cxxSplit(key)[^1])):
       let s = g.syms[k]
-      if s.kind in {cxClass, cxStruct, cxUnion} and cxxQual(s) == key and (not found or s.isDef):
+      if s.kind in {cxClass, cxStruct, cxUnion} and cxxKey(s) == key and (not found or s.isDef):
         cls = s
         found = true
   for g in files:
@@ -2695,9 +3914,9 @@ proc cxxBaseKeys(files: seq[CxFile], key: string, scopes: seq[string], depth = 0
   ## a class's bases, qualified, and theirs
   if depth > 6: return
   for g in files:
-    for k in cxNamed(g, cxxSplit(key)[^1]):
+    for k in cxNamed(g, cxxNoArgs(cxxSplit(key)[^1])):
       let s = g.syms[k]
-      if s.kind in {cxClass, cxStruct, cxUnion} and s.isDef and cxxQual(s) == key:
+      if s.kind in {cxClass, cxStruct, cxUnion} and s.isDef and cxxKey(s) == key:
         for b in s.bases:
           let (bk, _, _) = cxxRecord(files, b, @[s.scope] & scopes)
           if bk.len > 0 and bk != key and bk notin result:
@@ -2865,11 +4084,18 @@ proc cxxMemberType(files: seq[CxFile], typ, m: string, arrow: bool, ctx: CxxCtx)
     return ""
   let (key, rargs, _) = cxxRecord(files, b, ctx.scopes)
   if key.len == 0: return ""
+  # (of a method and its `const` twin — `XMLNode *first()`, `const XMLNode *first() const` —, the one the object
+  # calls: the const one for a const object)
+  let constRecv = typ.strip.startsWith("const ")
+  var other = ""
   for (g, k, tps, targs) in cxxMembers(files, key, ctx.scopes, all = false, args = rargs):
     let s = g.syms[k]
     if s.name == m:
       let t = cxxSubst(s.typ, tps, targs)
-      return (if s.kind == cxMethod: "fn:" & t else: t)
+      if s.kind != cxMethod: return t
+      if s.text.endsWith(" const") == constRecv: return "fn:" & t
+      if other.len == 0: other = "fn:" & t
+  other
 
 func cxxNameEnd(s: string, a: int): int =
   ## past a C++ name at s[a]: a::b::c, with template arguments (Box<int>)
@@ -3183,6 +4409,228 @@ proc cxxComplete(f: CxFile, line, col: int, systemDirs: seq[string]): (seq[CxIte
   for kw in CxxKeywords:
     if kw notin seen: result[0].add CxItem(label: kw, detail: "keyword", kind: cxMacro, rank: 4)
 
+# ── C++: which of several overloads a call is — by how many arguments it has and, where they are known, their types
+#    (a number, a string, a variable's) ──
+
+const CxxArith = ["char", "signed char", "unsigned char", "short", "short int", "unsigned short", "int", "signed",
+  "signed int", "unsigned", "unsigned int", "long", "long int", "unsigned long", "unsigned long int", "long long",
+  "long long int", "unsigned long long", "unsigned long long int", "float", "double", "long double", "bool",
+  "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t", "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t",
+  "uint16_t", "uint32_t", "uint64_t", "wchar_t", "char8_t", "char16_t", "char32_t", "std::size_t", "std::ptrdiff_t",
+  "std::int8_t", "std::int16_t", "std::int32_t", "std::int64_t", "std::uint8_t", "std::uint16_t", "std::uint32_t",
+  "std::uint64_t", "_Bool"]
+
+func cxxLitType(a: string): string =
+  ## the type of an argument that is a literal — "int", "unsigned long", "double", "char", "const char *", "bool",
+  ## "nullptr"; "@0" for 0 (a null pointer too) — "" when it is not one
+  var t = a.strip
+  if t.len == 0: return ""
+  if t in ["true", "false"]: return "bool"
+  if t == "nullptr": return "nullptr"
+  if (t[0] == '"' or t.startsWith("u8\"")) and t.endsWith("\"") and t.len >= 2: return "const char *"
+  if t[0] == '\'' and t.endsWith("'") and t.len >= 3: return "char"
+  var neg = false
+  if t[0] in {'-', '+'}:
+    neg = true
+    t = t[1 .. ^1].strip
+  if t.len == 0 or not (t[0] in Digits or (t[0] == '.' and t.len > 1 and t[1] in Digits)): return ""
+  if not t.allCharsInSet({'0'..'9', 'a'..'z', 'A'..'Z', '.', '\'', '+', '-'}): return ""
+  let low = t.toLowerAscii
+  let hex = low.startsWith("0x")
+  if (not hex and ('.' in low or 'e' in low)) or (hex and 'p' in low):
+    return (if low.endsWith("f"): "float" elif low.endsWith("l"): "long double" else: "double")
+  if ('+' in low or '-' in low): return ""
+  var u = false
+  var ls = 0
+  var e = low.len
+  while e > 0 and low[e - 1] in {'u', 'l'}:
+    if low[e - 1] == 'u': u = true else: inc ls
+    dec e
+  if e == 0 or (hex and e <= 2): return ""
+  if not neg and ls == 0 and not u and low[0 ..< e] == "0": return "@0"
+  (if u: "unsigned " else: "") & (case ls
+                                   of 0: "int"
+                                   of 1: "long"
+                                   else: "long long")
+
+proc cxxNormType(files: seq[CxFile], t: string, scopes: seq[string]): (string, int) =
+  ## a type as overloads are told apart by: without const and references, typedefs and `using` followed (a few
+  ## steps), and how many pointers deep
+  var (b, st) = cxxStrip(t)
+  for kw in ["struct ", "class ", "union ", "enum "]:
+    if b.startsWith(kw): b = b[kw.len .. ^1].strip
+  for _ in 0 .. 3:
+    if b in CxxArith or b.len == 0: break
+    let al = cxxFindAlias(files, b, scopes)
+    if al.len == 0: break
+    let (b2, s2) = cxxStrip(al)
+    b = b2
+    st += s2
+  (b, st)
+
+proc cxxIsEnum(files: seq[CxFile], t: string): bool =
+  let n = cxxSplit(cxxNoArgs(t))[^1]
+  n.len > 0 and n notin CxxArith and cxFindSym(files, n, {cxEnum})[0] != nil
+
+proc cxxFit(files: seq[CxFile], arg, param: string, scopes: seq[string], tparams: seq[string] = @[]): int =
+  ## how well an argument of type arg fits a parameter: 4 the same, 3 promoted, 2 converted, 1 maybe (a class's
+  ## constructor, a conversion; or a type not known), -1 it cannot. tparams: a function template's parameters (a
+  ## parameter of their type takes what it is given)
+  if arg.len == 0: return 1
+  let (pb, ps) = cxxNormType(files, param, scopes)
+  if pb.len == 0: return 1
+  if pb in tparams: return 4
+  if arg == "nullptr":
+    return (if ps > 0 or pb in ["std::nullptr_t", "nullptr_t"]: 4 elif pb == "bool": 2 else: -1)
+  let zero = arg == "@0"
+  let (ab, ast) = cxxNormType(files, (if zero: "int" else: arg), scopes)
+  if ab.len == 0: return 1
+  let aAr = ab in CxxArith
+  let pAr = pb in CxxArith
+  if ast == 0 and ps == 0:
+    if ab == pb or (cxxSplit(ab)[^1] == cxxSplit(pb)[^1] and "::" in ab & pb): return 4
+    if aAr and cxxIsEnum(files, pb): return -1                             # (a number for an enum)
+    if pAr and cxxIsEnum(files, ab): return 2
+    if aAr and pAr:
+      if (ab in ["char", "signed char", "unsigned char", "short", "unsigned short", "bool"] and pb == "int") or
+         (ab == "float" and pb == "double"): return 3
+      return 2
+    if cxxNoArgs(ab) == cxxNoArgs(pb) and cxxNoArgs(ab) != ab: return 3      # (Box<T> and Box<int>)
+    return 1
+  if ast > 0 and ps > 0:
+    if ast == ps and ab == pb: return 4
+    if ps == 1 and pb == "void": return 2
+    if aAr and pAr: return -1                                              # (an int * for a double *)
+    return 1
+  if ast > 0:                                                              # (a pointer for a value)
+    if pb == "bool": return 2
+    if pAr or cxxIsEnum(files, pb): return -1
+    if ab == "char" and ast == 1 and pb in ["std::string", "string", "std::string_view", "string_view"]: return 1
+    return 1
+  if zero: return 2                                                        # (0 for a pointer)
+  if aAr or cxxIsEnum(files, ab): return -1                                # (a number for a pointer)
+  1
+
+proc cxxArgType(files: seq[CxFile], f: CxFile, line: int, ctx: CxxCtx, a: string): string =
+  ## an argument's type, when the engine knows it for sure: a literal's, a variable's, an expression's
+  result = cxxLitType(a)
+  if result.len > 0 or a.strip.len == 0: return
+  # uint64_t(14), unsigned(x): a number's type made
+  let t = a.strip
+  let p = t.find('(')
+  if p > 0 and t.endsWith(")") and cxxGroupEnd(t, p) == t.high:
+    let n = t[0 ..< p].strip
+    if n in CxxArith or (n.allCharsInSet(IdentChars + {':'}) and cxxFindAlias(files, n, ctx.scopes).len > 0 and
+                         cxxFindClass(files, n, ctx.scopes)[0] == nil):
+      return n
+  try: result = cxxTypeOfExpr(files, f, a, line, ctx)
+  except CatchableError: result = ""
+  if result.startsWith("fn:") or "auto" in result.splitWhitespace: result = ""
+
+proc cxxCallArgs(f: CxFile, line, open: int, stopLine = -1, stopCol = -1): (bool, seq[string]) =
+  ## the arguments of the call whose `(` is at line:open, as written, and whether its `)` is there (stop: where
+  ## the cursor is — the arguments before it)
+  var d = 0
+  var cur = ""
+  var l = line
+  var i = open
+  while l < f.lines.len and l <= line + 20:
+    let t = f.lines[l]
+    while i < t.len:
+      if l == stopLine and i >= stopCol:
+        result[1].add cur.strip
+        return
+      let c = t[i]
+      if c in {'"', '\''}:
+        var j = i + 1
+        while j < t.len and t[j] != c:
+          if t[j] == '\\': inc j
+          inc j
+        cur.add t[i .. min(j, t.high)]
+        i = j + 1
+        continue
+      if c == '/' and i + 1 < t.len and t[i + 1] == '/': break
+      if c in {'(', '[', '{'}:
+        inc d
+        if d > 1: cur.add c
+      elif c in {')', ']', '}'}:
+        dec d
+        if d == 0:
+          if cur.strip.len > 0 or result[1].len > 0: result[1].add cur.strip
+          result[0] = true
+          return
+        cur.add c
+      elif c == ',' and d == 1:
+        result[1].add cur.strip
+        cur = ""
+      elif c == ';' and d <= 1: return
+      elif d >= 1: cur.add c
+      inc i
+    cur.add ' '
+    inc l
+    i = 0
+  if cur.strip.len > 0 or result[1].len > 0: result[1].add cur.strip
+
+proc cxxParamsKey(files: seq[CxFile], s: CxSym, scopes: seq[string]): string =
+  ## an overload's parameter types (what tells it from the others; its declaration and definition have the same)
+  for p in s.params:
+    let (b, st) = cxxNormType(files, p.typ, scopes)
+    result.add b & "*".repeat(st) & ","
+  if s.varargs: result.add "..."
+
+proc cxxPickCall(files: seq[CxFile], f: CxFile, line: int, ctx: CxxCtx, ts: seq[(CxFile, CxSym)],
+                 args: seq[string], closed: bool): seq[(CxFile, CxSym)] =
+  ## the overload a call's arguments fit best first (its definition, then its declaration), the others after — as
+  ## they are when no one fits better than the rest. closed: the call's `)` is there (else the last argument is the
+  ## one being typed)
+  var groups: seq[(string, seq[int])]
+  for i, (g, s) in ts:
+    if s.kind notin {cxFunc, cxMethod}: continue
+    let key = cxxParamsKey(files, s, ctx.scopes)
+    var found = false
+    for x in groups.mitems:
+      if x[0] == key:
+        x[1].add i
+        found = true
+    if not found: groups.add (key, @[i])
+  if groups.len < 2: return ts
+  var types: seq[string]
+  let known = if closed: args.len else: max(0, args.len - 1)
+  for k in 0 ..< known: types.add cxxArgType(files, f, line, ctx, args[k])
+  # each overload's score: how well the arguments fit it (low(int): they cannot)
+  var scores: seq[int]
+  for (_, idxs) in groups:
+    let s = ts[idxs[0]][1]
+    var required = 0
+    for p in s.params:
+      if not p.opt: inc required
+    var score = 0
+    if (args.len > s.params.len and not s.varargs) or (closed and args.len < required): score = low(int)
+    else:
+      for k in 0 ..< min(known, s.params.len):
+        let fit = cxxFit(files, types[k], s.params[k].typ, ctx.scopes, s.tparams)
+        if fit < 0:
+          score = low(int)
+          break
+        score += fit
+    scores.add score
+  var best = -1
+  var tie = false
+  for gi, sc in scores:
+    if sc == low(int): continue
+    if best < 0 or sc > scores[best]: (best, tie) = (gi, false)
+    elif sc == scores[best]: tie = true
+  if tie:
+    # (as good as each other: a function before a function template — C++'s rule)
+    var plain: seq[int]
+    for gi, sc in scores:
+      if sc == scores[best] and ts[groups[gi][1][0]][1].tparams.len == 0: plain.add gi
+    if plain.len == 1: (best, tie) = (plain[0], false)
+  if best < 0 or tie: return ts
+  for i in groups[best][1]: result.add ts[i]
+  for i, x in ts:
+    if i notin groups[best][1]: result.add x
+
 proc cxxMethodDefs(files: seq[CxFile], owner, name: string): seq[(CxFile, CxSym)] =
   ## a method's bodies written outside its class (`Ret Class::name(…) { … }`)
   for g in files:
@@ -3204,7 +4652,7 @@ proc cxxMemberTargets(files: seq[CxFile], key, w: string, ctx: CxxCtx, all = fal
   if owner.len == 0: return
   cxxMethodDefs(files, owner, w) & defs & decls
 
-proc cxxTargets(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
+proc cxxTargets0(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
   let t = f.lines[line]
   let (a, e) = cxWordAt(t, col)
   if a >= e: return
@@ -3214,11 +4662,16 @@ proc cxxTargets(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
   for s in f.syms:
     if s.name == w and s.line == line and s.col == a and s.kind notin {cxParam, cxLocal, cxLabel}:
       if jump and s.kind in {cxFunc, cxVar, cxMethod, cxField}:
-        var others: seq[(CxFile, CxSym)]
+        var others, same: seq[(CxFile, CxSym)]
+        let key = if s.kind in {cxFunc, cxMethod}: cxxParamsKey(files, s, @[s.scope, ""]) else: ""
         for g in files:
           for k in cxNamed(g, w):
             let x = g.syms[k]
-            if x.isDef != s.isDef and not x.weak and cxxSameDecl(x, s): others.add (g, x)
+            if x.isDef != s.isDef and not x.weak and cxxSameDecl(x, s):
+              others.add (g, x)
+              # (of overloads, the one with these parameters)
+              if key.len > 0 and cxxParamsKey(files, x, @[x.scope, ""]) == key: same.add (g, x)
+        if same.len > 0: return same & @[(f, s)]
         if others.len > 0: return others & @[(f, s)]
       return @[(f, s)]
   let ctx = cxxCtxAt(files, f, line)
@@ -3236,7 +4689,14 @@ proc cxxTargets(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
        cxxFindClass(files, b, ctx.scopes)[0] == nil:
       b = args[0]
     let (key, _, _) = cxxRecord(files, b, ctx.scopes)
-    if key.len > 0: return cxxMemberTargets(files, key, w, ctx)
+    if key.len > 0:
+      result = cxxMemberTargets(files, key, w, ctx)
+      # (methods that differ in `const` only: the one a const receiver calls, or the other)
+      var c, n: seq[(CxFile, CxSym)]
+      for x in result:
+        if x[1].kind == cxMethod and x[1].text.endsWith(" const"): c.add x else: n.add x
+      if c.len > 0 and n.len > 0:
+        result = if typ.strip.startsWith("const ") or typ.strip.startsWith("const\t"): c & n else: n & c
     return
   # Scope::w
   if a >= 2 and t[a - 1] == ':' and t[a - 2] == ':':
@@ -3289,6 +4749,34 @@ proc cxxTargets(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
           for d in cxxMethodDefs(files, s.scope, w):
             if d notin defs: defs.add d
   types & defs & decls & macros
+
+proc cxxTargets(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
+  ## C++'s answer to what the word at line:col names — of a call to an overloaded function or method, the
+  ## overload its arguments fit first
+  result = cxxTargets0(f, line, col, jump)
+  if result.len < 2: return
+  let t = f.lines[line]
+  let (a, e) = cxWordAt(t, col)
+  for (g, s) in result:
+    if g == f and s.line == line and s.col == a: return            # (on a declaration's own name)
+  var k = e
+  while k < t.len and t[k] == ' ': inc k
+  if k < t.len and t[k] == '<':
+    # a class template with arguments: the specialisation they fit first
+    let close = cxxNameEnd(t, a)
+    if close > k:
+      let files = cxClosure(f)
+      let (g, i) = cxxFindClass(files, t[a ..< close], cxxCtxAt(files, f, line).scopes)
+      if g != nil:
+        var r = @[(g, g.syms[i])]
+        for x in result:
+          if not (x[0] == g and x[1].line == g.syms[i].line and x[1].col == g.syms[i].col): r.add x
+        return r
+    return
+  if k >= t.len or t[k] != '(': return
+  let (closed, args) = cxxCallArgs(f, line, k)
+  let files = cxClosure(f)
+  result = cxxPickCall(files, f, line, cxxCtxAt(files, f, line), result, args, closed)
 
 proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq[CxItem], bool, string) =
   ## completion at line:col: (items, after a member access, the type there)
@@ -3405,7 +4893,7 @@ proc cxBodyIn*(paths: openArray[string], name: string, kind = cxFunc, owner = ""
   ## a function's body (or a struct's members — an opaque type's) in one of these .c files (each read once, then
   ## kept while it is unchanged); owner: a C++ method's class
   for p in paths:
-    let h = cxLoad(p)
+    let h = cxLoad(p, shallow = true)
     if h == nil: continue
     for k in cxNamed(h, name):
       if h.syms[k].kind == kind and h.syms[k].isDef and (owner.len == 0 or cxxOwnersMatch(h.syms[k].owner, owner)):
@@ -3752,12 +5240,19 @@ proc cxHover*(f: CxFile, line, col: int): string =
   if doc.len == 0 and s.kind in {cxFunc, cxVar, cxStruct, cxUnion, cxEnum, cxTypedef, cxClass, cxMethod}:
     # (a definition in a .c file, its comment on the prototype in the header; a method's, on its declaration)
     block find:
-      for g2 in cxClosure(f):
+      let files = cxClosure(f)
+      # (an overload's: the declaration with the same parameters first)
+      let key = if f.cpp and s.kind in {cxFunc, cxMethod}: cxxParamsKey(files, s, @[s.scope, ""]) else: ""
+      var any = ""
+      for g2 in files:
         for k in cxNamed(g2, s.name):
           let x = g2.syms[k]
           if x.kind == s.kind and x.doc.len > 0 and (s.kind != cxMethod or cxxOwnersMatch(x.owner, s.owner)):
-            doc = x.doc
-            break find
+            if key.len == 0 or cxxParamsKey(files, x, @[x.scope, ""]) == key:
+              doc = x.doc
+              break find
+            if any.len == 0: any = x.doc
+      doc = any
   let kindWord = case s.kind
     of cxFunc: "function"
     of cxStruct: "struct"
@@ -3774,7 +5269,7 @@ proc cxHover*(f: CxFile, line, col: int): string =
     of cxClass: "class"
     of cxNamespace: "namespace"
     of cxMethod:
-      (if cxxSplit(s.owner)[^1] == s.name: "constructor of " elif s.name.startsWith("~"): "destructor of "
+      (if cxxNoArgs(cxxSplit(s.owner)[^1]) == s.name: "constructor of " elif s.name.startsWith("~"): "destructor of "
        else: "method of ") & (block:
         # (a method defined outside its class: the class as declared)
         let (key, _, _) = if s.scope != s.owner: cxxRecord(cxClosure(f), s.owner, cxxWithParents(s.scope) & @[""])
@@ -3788,6 +5283,7 @@ proc cxHover*(f: CxFile, line, col: int): string =
     let t = cxxAutoType(files, f, s, cxxCtxAt(files, f, line), 0)
     if t != s.typ: text = t & (if t.endsWith("*") or t.endsWith("&"): "" else: " ") & s.name & "    // " & s.text
   result = "```" & fence & "\n" & text & "\n```\n" & kindWord & " · " & extractFilename(g.path) & ":" & $(s.line + 1)
+  if s.viaMacro.len > 0: result.add " · declared by the macro " & s.viaMacro
   if s.scope.len > 0 and s.kind notin {cxField, cxMethod, cxParam, cxLocal, cxLabel}: result.add " · in " & s.scope
   if doc.len > 0: result.add "\n\n" & doc
   if s.kind in {cxStruct, cxUnion, cxClass}:
@@ -3795,11 +5291,11 @@ proc cxHover*(f: CxFile, line, col: int): string =
     if f.cpp:
       let files = cxClosure(f)
       var seen: HashSet[string]
-      for (g2, k, _, _) in cxxMembers(files, cxxQual(s), @[s.scope, ""], all = false):
+      for (g2, k, _, _) in cxxMembers(files, cxxKey(s), @[s.scope, ""], all = false):
         let x = g2.syms[k]
         if fl.len < 12 and x.name notin seen and not (x.kind == cxMethod and x.scope != x.owner) and not cxxSpecial(x):
           seen.incl x.name
-          fl.add x.text.replace(cxxSplit(x.owner)[^1] & "::", "") & ";"
+          fl.add x.text.replace(cxxNoArgs(cxxSplit(x.owner)[^1]) & "::", "") & ";"
     else:
       for (g2, k) in cxFields(cxClosure(f), s.name):
         if fl.len < 12: fl.add g2.syms[k].text & ";"
@@ -3845,8 +5341,9 @@ proc cxHover*(f: CxFile, line, col: int): string =
         if ex.len > 0 and ex.len < 600: result.add "\n\nExpands to:\n```c\n" & ex & "\n```"
     else: discard
 
-proc cxSignature*(f: CxFile, line, col: int): (CxSym, int) =
-  ## the call around line:col: the function (kind cxFunc, or a function-like macro) and the parameter being typed
+proc cxSignature*(f: CxFile, line, col: int, whole = false): (CxSym, int) =
+  ## the call around line:col: the function (kind cxFunc, or a function-like macro) and the parameter being typed.
+  ## whole: C++'s overload the call's every argument fits (else those before line:col)
   if f == nil or line >= f.lines.len: return
   let t = f.lines[line]
   var k = min(col, t.len) - 1
@@ -3873,6 +5370,14 @@ proc cxSignature*(f: CxFile, line, col: int): (CxSym, int) =
   if a == e: return
   let name = t[a ..< e]
   let files = cxClosure(f)
+  if f.cpp:
+    # C++: what the name is from here (a method of the receiver's class, a namespace's function …), of overloads
+    # the one the arguments typed so far fit
+    let ts0 = cxxTargets0(f, line, a, false)
+    if ts0.len > 0:
+      let (closed, args) = if whole: cxxCallArgs(f, line, k) else: (false, cxxCallArgs(f, line, k, line, col)[1])
+      for (g, s) in cxxPickCall(files, f, line, cxxCtxAt(files, f, line), ts0, args, closed):
+        if s.kind in {cxFunc, cxMethod, cxMacro}: return (s, commas)
   var best = -1
   var bf: CxFile
   for g in files:
@@ -3931,3 +5436,27 @@ proc cxOccurrences*(lines: seq[string], name: string, a = 0, b = high(int)): seq
         i = e
         continue
       inc i
+
+proc cxExprType*(f: CxFile, expr: string, line: int): string =
+  ## the type of an expression written on `line` of f — C's or C++'s reading —, "" when the engine does not know it
+  if f == nil: return ""
+  let files = cxClosure(f)
+  result = if f.cpp: cxxTypeOfExpr(files, f, expr, line, cxxCtxAt(files, f, line))
+           else: cxTypeOfExpr(files, f, expr, line)
+  if result.startsWith("fn:"): result = "fn:"
+
+proc cxUsedNames*(f: CxFile) =
+  ## an open file's names and liveNames (made when first asked: an open file is read again at each change)
+  if f == nil or f.namesMade or f.lines.len == 0 or cxIsSystem(f.path): return
+  f.namesMade = true
+  var toks: seq[CxTok]
+  var comments: seq[CxComment]
+  var pp: seq[(int, string)]
+  let was = cxCppNow
+  cxCppNow = f.cpp
+  defer: cxCppNow = was
+  cxLex(f.lines.join("\n"), toks, comments, pp, f.cpp)
+  var gone: seq[(int, int)]
+  for (a, b) in f.inactive: gone.add (a - 1, (if b == high(int): b else: b + 1))
+  let (used, usedText) = cxCodeWords(toks)
+  (f.names, f.liveNames) = cxNamesOf(used, usedText, pp, gone)

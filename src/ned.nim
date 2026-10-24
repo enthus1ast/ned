@@ -119,6 +119,7 @@ include ned/nim/project
 include ned/nim/nimsuggest
 include ned/editor/multibuffer
 include ned/nim/nimsuggestread
+include ned/nim/oracle
 include ned/nim/compileranswers
 include ned/editor/clipboard
 include ned/editor/snippets
@@ -128,6 +129,7 @@ include ned/nim/engine
 include ned/git/conflictmarks
 include ned/nim/semantic
 include ned/nim/answers
+include ned/nim/oraclerun
 include ned/nim/reflens
 include ned/nim/copies
 include ned/nim/outline

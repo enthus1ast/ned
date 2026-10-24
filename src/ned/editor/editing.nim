@@ -93,6 +93,24 @@ proc typeChar(b: Buffer, ch: string) =
     let p0 = a
     discard b.replaceText(a, e, ins)
     b.cursors[i] = cur(Pos(line: p0.line, col: p0.col + caret))
+    # a line that has become one of the language's dedent words alone (`end`): one level out, when it is as far in
+    # as the line above (typed again, it stays)
+    if lang.dedentWords.len > 0 and ch.len == 1 and isWordByte(c0) and not cu.hasSel:
+      let ln = p0.line
+      let s = b.lines[ln]
+      let cc = p0.col + caret
+      if cc <= s.len and s[cc .. ^1].strip.len == 0 and s.strip in lang.dedentWords and
+         (cc == s.len or not isWordByte(s[cc])):
+        let ind = s.len - s.strip(trailing = false).len
+        var pl = ln - 1
+        while pl >= 0 and b.lines[pl].strip.len == 0: dec pl
+        let pind = if pl >= 0: b.lines[pl].len - b.lines[pl].strip(trailing = false).len else: 0
+        if ind > 0 and ind >= pind:
+          let w = b.indentW()
+          let target = max(0, visColOf(s, ind) - w)
+          let newWs = if b.indent == "\t": repeat('\t', target div b.tabOf) else: spaces(target)
+          discard b.replaceText(Pos(line: ln, col: 0), Pos(line: ln, col: ind), newWs)
+          b.cursors[i] = cur(Pos(line: ln, col: cc - ind + newWs.len))
   b.endEdit()
   b.normalize()
 

@@ -78,9 +78,11 @@ var
   cfgNimMinVersion = ""        # nim.minVersion: the oldest Nim the code must build with ("" = the .nimble says, off)
   cfgMacroNames = true         # nim.macroNames: a module's top-level macro calls expanded by the compiler, once
   cfgCompilerAnswers = true    # nim.compilerAnswers: nimsuggest off — the compiler asked once where the engine has no answer
+  cfgOracle = true             # nim.compilerOracle: the compiler asked in the background what the engine cannot work out
   cfgCSigHints = true          # nim.cSignatureHints: the C declaration dimmed after an importc wrapper
   cfgParamHints = "literals"   # nim.parameterHints: names before call arguments — literals | all | off
   cfgRaisesHints = false       # nim.raisesHints: what a routine can raise, after its header (the engine's inference)
+  cfgChainHints = true         # nim.chainHints: the type after each step of a call chain written over several lines
   cfgCEngine = "auto"          # c.engine: auto (ned's own when clangd is not installed) | builtin | clangd | both
   cfgCFormatter = "auto"       # c.formatter: auto (clang-format while clangd is in use) | clang-format | builtin
   cfgCStyleName = "auto"       # c.format.style
@@ -127,6 +129,8 @@ var
   profStale: Table[int, bool]
   dbgWatches: seq[string]                      # debugger: watch expressions (Nim), kept with the session
   cmdUses = initTable[string, int]()
+  compRecent = initTable[string, int]()   # completion: what you chose ("<language>:<label>") → when (compRecentN then)
+  compRecentN = 0
   welcomeRegions: seq[(int, int, int, Action)]   # (y, x0, x1, action) for taps
   cfgIcons = "unicode"
   cfgTitleBar = true
