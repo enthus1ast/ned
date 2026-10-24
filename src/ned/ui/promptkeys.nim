@@ -137,10 +137,12 @@ proc submitPrompt() =
     if t.strip.len > 0:
       let m = t.strip
       proc commitNow() =
+        # (git.checksBeforeCommit as for the message box: formatted, the tests passing — or why not, and the choice)
         if gitStaged() == 0:
           askConfirm("Nothing is staged — commit all changed files? (new files are left out) (y/n)", proc(c: char) =
-            if c in {'y', 'Y'}: gitRun(@["commit", "-a", "-m", m], "Committed"))
-        else: gitRun(@["commit", "-m", m], "Committed")
+            if c in {'y', 'Y'}:
+              precommitChecks(gitHome(), true, proc() = gitRun(@["commit", "-a", "-m", m], "Committed")))
+        else: precommitChecks(gitHome(), false, proc() = gitRun(@["commit", "-m", m], "Committed"))
       closePrompt()
       let home = gitHome()
       if home.len > 0 and (remotes.len == 0 or remoteOf(home) < 0) and gitIdentityMissing(home):

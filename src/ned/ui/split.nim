@@ -96,6 +96,9 @@ proc moveToOtherPane() =
   focusPane(o)
 
 proc drawPaneHeader(b: Buffer, i, x, y, w: int) =
+  if ceIsView(b):
+    ceDrawHeader(b, i, x, y, w)                 # (Compiler Explorer's view: its toolbar)
+    return
   let active = i == activePane
   let bg = if active: theme.crumbBg else: theme.splitBar      # never the editor's own background
   fillRect(x, y, w, 1, theme.dim, bg)

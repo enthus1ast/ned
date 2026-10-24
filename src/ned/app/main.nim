@@ -284,6 +284,7 @@ proc mainLoop() =
       timedWork("plugins"): plugPump(ready)
       if lfBusy() or buf().viewer != nil: timedWork("the large-file viewer"): lfPump()
       if dcView.bufId > 0: dcPump()
+      if ce.viewBufId > 0: timedWork("Compiler Explorer"): cePump()
       if astOn: astPump()
       if docPvSrc >= 0: docPvPump()
       if mcpWaitReq and not mcpStarting():
@@ -526,6 +527,7 @@ proc usage() =
   echo "  -v, --version         show version"
   echo "  --check               check the setup: Nim, tools, clipboard, terminal (for bug reports too)"
   echo "  --default-settings    print the full settings file with every option and its default"
+  echo "  --doc-settings, --doc-commands  every setting, every command of the palette, as Markdown (the docs)"
   echo "  --reset [--yes] [--keep-plugins]  remove ned's settings, sessions, history, caches and downloads: ned"
   echo "                        starts as on its first run (asks first; --yes does not ask)"
   echo "  --bench FILE          render FILE off-screen and print timings (performance check)"
@@ -749,6 +751,14 @@ proc main() =
       of "--default-settings":
         applyTheme("nim-crown")
         stdout.write defaultSettingsText()
+        quit 0
+      of "--doc-settings":
+        applyTheme("nim-crown")
+        stdout.write settingsMarkdown()
+        quit 0
+      of "--doc-commands":
+        applyTheme("nim-crown")
+        stdout.write commandsMarkdown()
         quit 0
       of "--bench":
         if ai >= cl.len: quit "ned: --bench needs a file", 2

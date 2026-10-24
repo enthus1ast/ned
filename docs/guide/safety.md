@@ -1,0 +1,37 @@
+# Safety: how ned protects your work
+
+- **Atomic saves**: ned writes a temporary file next to the original, flushes it to storage (`fsync`) and
+  renames it over the original, keeping permissions — a crash or power loss leaves the old or the new file,
+  never half of one. Hard-linked files are written in place; symlinks are followed.
+- **Recovery files**: unsaved edits are written to a private recovery file about a second after you stop
+  typing (files over 20 000 lines at most every 20 s, over 300 000 lines not at all); each ned process has its own, so two sessions never overwrite each other's. If ned crashes, Termux kills the session, the ssh connection drops (SIGHUP/SIGTERM) or the
+  battery dies, the next start offers *Restore*. *File › Recover unsaved edits…* lists everything.
+- **Local history**: every save keeps the previous version (last 60 per file). *File › Local history…* shows
+  each version as a diff against the current text and restores it with one click. Agent edits and
+  project-wide replaces are saved the same way, so they can always be undone.
+- **No silent overwrites**: if a file changed on disk since you opened it, saving asks whether to overwrite or
+  reload; if another running ned has unsaved edits to the same file, you are warned.
+- **Binary files** open in the hex editor: what you type changes only the bytes you type over (or insert), saving
+  writes the bytes as they are (a new file renamed over the old one, its permissions kept); binary files over
+  512 MB are refused.
+- **Huge text files** — over `editor.viewerSize` (512 MB): a log, a dump — open in the large-file viewer, read-only,
+  with a window of their lines in memory: where every 1024th line starts is indexed in the background, so scrolling,
+  Go to line, Ctrl+End, Find and F3 (through the whole file, in the background) reach any line, and Copy copies from
+  it; the status bar says *Ln 1 000 000 of 30 000 000*.
+- **Libraries open read-only**: files of the Nim toolchain (the standard library, the compiler) and of installed
+  nimble packages — where go to definition often lands — cannot be changed by a stray key; *Read-only* in the
+  status bar (or *File: allow editing this file*) unlocks one. The project you have open is never locked.
+  `files.protectLibraries: false` turns it off.
+- **Folder trust**: a folder you open is not trusted until you run *Workspace: trust this folder* (or press
+  *Trust* on the notice, or *⛉ Not trusted* in the status bar). Until then ned's own Nim and C engines read and
+  check its code, but nothing in it runs — not the Nim compiler (its `config.nims` and macros can run commands),
+  nimble, nimsuggest, its tests or the program — and its project settings that run programs (`lsp`, `run`,
+  `run.configs`, `formatters`, `languages`, `debug.adapters`, `repl.commands`, `terminal.shell`, `keys`,
+  `editor.keymap`, `commands`, `ai.*` including MCP servers, `nim.nimsuggestPath`, `sync.repository`) are ignored, so
+  opening a cloned repository cannot start programs or redirect your code (or your settings) somewhere else. A
+  project ned creates for you, the Nim toolchain's own files and nimble packages are trusted;
+  `security.folderTrust: off` trusts every folder.
+- **Secrets stay put**: API keys and MCP server tokens are never put on a command line; *Settings sync* leaves
+  them out of what it exports; a remote folder's ssh password or passphrase is asked by ssh itself, in the
+  terminal; a settings repository URL with a token in it is refused.
+- *File › Compare with saved* shows your unsaved changes as a diff.

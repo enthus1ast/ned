@@ -86,6 +86,9 @@ apart.
 - One topic per pull request; say what it changes for the person using ned.
 - `nimble typecheck`, `nimble test` and the UI tests near your change pass.
 - New settings go in `src/ned/config/settings.nim` with a description a person can act on.
-- Update `README.md` (the feature) and, for a release, `CHANGELOG.md`.
+- Document the feature in its guide under [`docs/`](docs/README.md) (the README has a line for it, at most), and
+  for a release in `CHANGELOG.md`. A new setting or command: `ned --doc-settings > docs/reference/settings.md`,
+  `ned --doc-commands > docs/reference/commands.md`; a change to the plugin API: `python3 tests/docs/apiref.py`.
+  `python3 tests/docs/links.py` checks every link — CI runs all of these.
 
 By contributing you agree that your work is released under ned's [MIT licence](LICENSE).

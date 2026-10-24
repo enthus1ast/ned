@@ -439,6 +439,7 @@ proc lspExtras(b: Buffer) =
           "position": s.lspPos(b, h)}, LspReq(kind: lrHighlight, bufId: b.id, pos: h))
 
 proc cmdDefinition() =
+  if ceIsView(buf()) and ceDefinition(buf()): return     # (Compiler Explorer: a label, a function of the file)
   let b = buf()
   if openLinkAt(b, b.primary.head): return       # a link: #include "x.h", @import, a URL in a comment
   if b.lang.mode == lmNim and pragmaStringGoto(b, b.primary.head): return  # header: "…" opens it, importc: "…" its C
@@ -537,6 +538,10 @@ proc cmdHover(auto = false) =
   let b = buf()
   let p = b.primary.head
   let plugAsked = plugHover(b, p, auto)            # (a plugin's text: under ned's own, or alone, when it comes)
+  let asmH = asmHoverAt(b, p)                      # assembly: what the instruction or the register is
+  if asmH.len > 0:
+    showHoverAuto(asmH, auto)
+    return
   if b.path.endsWith(".nimble"):
     let nh = nbHover(b, p)                         # a package a requires names: its versions, the one used
     if nh.len > 0:

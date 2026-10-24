@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.23.0"
+version       = "6.24.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
@@ -21,6 +21,8 @@ requires "nim >= 2.2.0"
 #   nimble nedfmt         ./nedfmt: ned's formatters from the shell, CI and git hooks (nph's options)
 #   nimble nedls          ./nedls: ned's Nim engine as a language server for other editors
 #   nimble termux         build straight into $PREFIX/bin (Termux)
+#   nimble termuxdeb      the Termux package (.deb), cross-built with zig
+#   nimble windowszip     the Windows zip (ned.exe, nedfmt.exe, nedls.exe), cross-built with zig
 #   nimble local          build into ~/.local/bin
 #   nimble debug          debug build with stack traces and line info
 #   nimble typecheck      type-check only (fast)
@@ -65,6 +67,9 @@ task termux, "Build into $PREFIX/bin: ned, nedfmt and nedls (Termux)":
 task termuxdeb, "Cross-build ned, nedls and nedfmt for Termux (Android arm64, with zig) and make the .deb (build/termux/)":
   exec "bash tests/build/termux.sh"
 
+task windowszip, "Cross-build ned, nedfmt and nedls for Windows (x86_64, with zig) and make the zip (build/windows/)":
+  exec "bash tests/build/windows.sh"
+
 task local, "Build into ~/.local/bin: ned, nedfmt and nedls":
   let dir = getEnv("HOME") & "/.local/bin"
   mkDir dir
@@ -86,7 +91,7 @@ task android, "Check that ned compiles for Android (arm64) — generates C only"
 task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies, the CSS / HTML / SQL engines, text encodings":
   for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim",
             "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim", "tests/unit/tdiskcache.nim", "tests/unit/tversions.nim",
-            "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim", "tests/unit/tgcov.nim",
+            "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim", "tests/unit/tgcov.nim", "tests/unit/tasmview.nim",
             "tests/unit/teffects.nim", "tests/unit/ttext.nim", "tests/unit/tbinfmt.nim", "tests/unit/twebdata.nim",
             "tests/unit/tweb.nim", "tests/unit/twebfmt.nim", "tests/unit/tjs.nim", "tests/unit/tencodings.nim"]:
     exec "nim r -d:release --hints:off " & t

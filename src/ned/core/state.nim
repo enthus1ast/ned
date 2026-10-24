@@ -510,3 +510,6 @@ template panelLines: untyped = panelStore[panelKind]
 template panelSel: untyped = panelSelA[panelKind]
 template panelScroll: untyped = panelScrollA[panelKind]
 template panelTitle: untyped = panelTitles[panelKind]
+
+var lineTints: Table[int, Table[int, (Rgb, float)]]   # buffer id → its lines tinted: (colour, how much) — Compiler
+                                                      # Explorer's source lines and the instructions they made
