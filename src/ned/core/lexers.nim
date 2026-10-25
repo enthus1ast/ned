@@ -101,6 +101,63 @@ proc lexCsv(lang: Lang, s: string, toks: var seq[TokKind]) =
     for q in a ..< e: toks[q] = tk
     if e < s.len: toks[e] = tkPunct
 
+proc lexNif(s: string, toks: var seq[TokKind]) =
+  ## NIF: a node's tag (after its `(`) as a keyword, a directive (`(.nif27)`) as one of the preprocessor's, what a
+  ## node declares (`:name`) as a function, a symbol's name as a variable and its disambiguation and module quieter,
+  ## strings, characters, numbers — and the line information after a tag or an atom (`@3,1`, `~2`) quietest
+  let n = s.len
+  var i = 0
+  template info() =
+    if i < n and s[i] in {'@', '~'}:
+      let a = i
+      inc i
+      while i < n and s[i] notin {' ', '\t', '(', ')', '"', '\'', '#'}: inc i
+      for q in a ..< i: toks[q] = tkComment
+  while i < n:
+    let c = s[i]
+    case c
+    of '(':
+      toks[i] = tkPunct
+      inc i
+      let a = i
+      while i < n and s[i] notin {' ', '\t', '(', ')', '@', '~', '#', '"', '\''}: inc i
+      let k = if a < n and s[a] == '.': tkPreproc else: tkKeyword
+      for q in a ..< i: toks[q] = k
+      info()
+    of ')':
+      toks[i] = tkPunct
+      inc i
+    of '"', '\'':
+      let a = i
+      inc i
+      while i < n and s[i] != c: inc i
+      i = min(n, i + 1)
+      for q in a ..< i: toks[q] = (if c == '"': tkString else: tkChar)
+      info()
+    of '#':
+      let e = s.find('#', i + 1)
+      let stop = if e < 0: n else: e + 1
+      for q in i ..< stop: toks[q] = tkComment
+      i = stop
+    of ' ', '\t':
+      inc i
+    else:
+      let a = i
+      while i < n and s[i] notin {' ', '\t', '(', ')', '@', '~', '#', '"'}: inc i
+      if c == ':':
+        for q in a ..< i: toks[q] = tkFunc
+      elif c in {'0'..'9', '-', '+'} and a + 1 <= i:
+        for q in a ..< i: toks[q] = tkNumber
+      elif c == '.':
+        toks[a] = tkPunct
+      else:
+        # a symbol: its name, then .disambiguation.module quieter
+        let d = s.find('.', a)
+        let nameEnd = if d < 0 or d >= i: i else: d
+        for q in a ..< nameEnd: toks[q] = tkVariable
+        for q in nameEnd ..< i: toks[q] = tkPunct
+      info()
+
 proc lexHost(lang: Lang, s: string, st: uint8, toks: var seq[TokKind], at = 0): LexSt =
   ## the language's own lexer, from byte `at` (after an embedded block that ended inside the line)
   if at > 0:
@@ -109,6 +166,9 @@ proc lexHost(lang: Lang, s: string, st: uint8, toks: var seq[TokKind], at = 0): 
   of lmPlain: 0'u32
   of lmCsv:
     lexCsv(lang, s, toks)
+    0'u32
+  of lmNif:
+    lexNif(s, toks)
     0'u32
   of lmMarkdown: lexMarkdown(s, st, toks)
   of lmHtml: lexHtml(s, st, toks)

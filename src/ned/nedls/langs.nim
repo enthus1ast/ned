@@ -88,7 +88,7 @@ proc lxHover(d: LsDoc, params: JsonNode): JsonNode =
   let md = case lxLangOf(d)
            of lxC: cEngHover(b, p)
            of lxWeb: webHoverInfo(b, p)
-           else: ""
+           else: (if b.lang.id == "nif": nifHover(b, p) else: "")      # (NIF: the tag, the source place)
   if md.strip.len == 0: return newJNull()
   result = %*{"contents": lsMd(md)}
   let (wa, we) = b.wordRangeAt(p)
@@ -270,7 +270,7 @@ proc lxOutline(d: LsDoc): seq[SideItem] =
     if b.lang.id == "json": jsonOutlineOf(b)
     elif b.lang.id == "javascript" and b.lines.len < 40_000: jsOutlineOf(b)
     else: heuristicOutline(b)
-  else: heuristicOutline(b)
+  else: (if b.lang.id == "nif": nifOutlineOf(b) else: heuristicOutline(b))
 
 proc lxDocumentSymbol(d: LsDoc): JsonNode =
   result = newJArray()

@@ -174,6 +174,9 @@ proc buildPluginItems(): seq[SideItem]
 proc plugAskDone(text: string)
 proc nbVersionComplete(b: Buffer, p: Pos, manual: bool, force = false): bool
 proc nbHover(b: Buffer, p: Pos): string
+proc nifHover(b: Buffer, p: Pos): string            # nim/nifview.nim
+proc nifDefinition(b: Buffer, p: Pos): bool
+proc nifOutlineOf(b: Buffer): seq[SideItem]
 proc nbNameComplete(b: Buffer, p: Pos, manual: bool): bool
 proc nbPackageKnown(name: string): int
 proc nbPackageList(): seq[(string, string)]

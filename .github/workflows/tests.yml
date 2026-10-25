@@ -180,8 +180,9 @@ jobs:
 
   scoreboard:
     # the engines' scoreboard: ned's Nim engine against nimsuggest and nedls' answers (standard-library modules), its
-    # errors as you type against nim check; its C engine against clangd (Lua's sources) and on C++ (tinyxml2's) —
-    # each score against its minimum in tests/engine/scoreboard.json
+    # errors as you type against nim check; its C engine against clangd (Lua's sources) and on C++ (tinyxml2's);
+    # nedls against nimlangserver and the formatter against nph, head to head — each score against its minimum in
+    # tests/engine/scoreboard.json
     name: engine scoreboard
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -197,18 +198,25 @@ jobs:
           tests/engine/build.sh ./ned-engine
           nim c -d:release --hints:off -o:nedls src/nedls.nim
           nim c -d:release --hints:off -o:ned-cengine tests/engine/cdriver.nim
+          nim c -d:release --opt:speed --hints:off -o:nedfmt src/nedfmt.nim
           git clone -q --depth 1 https://github.com/lua/lua /tmp/lua
           git clone -q --depth 1 https://github.com/leethomason/tinyxml2 /tmp/tinyxml2
+      - name: The others, head to head (nimlangserver, nph)
+        continue-on-error: true
+        run: nimble install -y nimlangserver nph
       - name: The scores
         run: |
           set +e
+          more=""
+          nls=$(command -v nimlangserver) && more="$more --nimlangserver $nls"
+          nph=$(command -v nph) && more="$more --nedfmt ./nedfmt --nph $nph"
           python3 tests/engine/scoreboard.py --engine ./ned-engine --nedls ./nedls --cdriver ./ned-cengine \
             --c-files /tmp/lua/lapi.c /tmp/lua/lcode.c /tmp/lua/ltable.c /tmp/lua/lvm.c /tmp/lua/lstring.c \
-            --cpp-files /tmp/tinyxml2/tinyxml2.cpp /tmp/tinyxml2/xmltest.cpp \
+            --cpp-files /tmp/tinyxml2/tinyxml2.cpp /tmp/tinyxml2/xmltest.cpp $more \
             --n 40 > /tmp/scores.txt 2>&1
           code=$?
           cat /tmp/scores.txt
-          sed -n '/^| |/,/^$/p' /tmp/scores.txt >> "$GITHUB_STEP_SUMMARY"
+          sed -n '/^| |/,$p' /tmp/scores.txt | grep -v '^left out\|^::' >> "$GITHUB_STEP_SUMMARY"
           exit $code
 
   engine:

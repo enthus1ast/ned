@@ -22,7 +22,8 @@ type
     lmNimf,                     # Nim source-code-filter templates (#? stdtmpl): # lines are Nim, the rest HTML
     lmRegex,                    # (inside strings) regular expressions and PEGs
     lmNimFmt,                   # (inside strings) strformat: {expressions} are Nim
-    lmCsv                       # CSV, TSV: each column in its own colour
+    lmCsv,                      # CSV, TSV: each column in its own colour
+    lmNif                       # NIF (Nim 3's code between its passes): tags, definitions, symbols, line information
 
   LexSt = uint32                # a line's starting lexer state: byte 0 the innermost lexer's own state,
                                 # bytes 1-3 the languages embedded in one another (0: none)
