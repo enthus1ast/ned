@@ -647,3 +647,61 @@ export { SEP as separator };
     check checks(classes.replace("const out = [];", "const out = [];\n    const out = 1;")).anyIt(
       it.rule == "js-redeclare")
     check checks(node.replace("text = await", "DEFAULTS = await")).anyIt(it.rule == "js-const-assign")
+
+suite "references, outline, imports":
+  let src = """import { join as j, sep } from "./path.js";
+import Store from './store.js';
+
+class Shape {
+  constructor(n) { this.n = n; }
+  area() { return 0; }
+}
+
+class Square extends Shape {
+  area() { return this.n * this.n; }
+}
+
+function total(xs) {
+  let n = 0;
+  for (const x of xs) n += x.area();
+  return n;
+}
+
+const s = new Square(2);
+console.log(s.area(), total([s]), j("a", sep));
+"""
+  let ls = src.split('\n')
+
+  test "a function's uses":
+    let r = jsReferences(ls, 12, 10)                 # total
+    check r == @[(12, 9, 14), (19, 22, 27)]
+
+  test "a local is its function's":
+    let r = jsReferences(ls, 13, 6)                  # n in total, not this.n
+    check r.len == 3
+    check r.allIt(it[0] in [13, 14, 15])
+
+  test "a method by its class":
+    let r = jsReferences(ls, 9, 3)                   # Square's area
+    check (9, 2, 6) in r and (19, 14, 18) in r
+    check (5, 2, 6) notin r                          # (Shape's own)
+
+  test "the outline":
+    let o = jsOutline(ls)
+    var names: seq[string]
+    for it in o: names.add it.name
+    check names == @["j", "sep", "Store", "Shape", "constructor", "n", "area", "Square", "area", "total", "s"]
+    check o[7].detail == "extends Shape"
+    check o[9].detail == "(xs)"
+
+  test "imports: which name, from where":
+    check jsImportAt(ls, 19, 34) == ("join", "./path.js")
+    check jsImportAt(ls, 19, 42) == ("sep", "./path.js")
+    check jsImportAt(ls, 0, 21) == ("sep", "./path.js")
+    check jsImportAt(ls, 1, 8) == ("default", "./store.js")
+    check jsImportAt(ls, 12, 10) == ("", "")
+    let other = @["export function join(...xs) {}", "const s = '/';", "export { s as sep };",
+                  "export default class Store {}"]
+    check jsExportAt(other, "join") == (0, 16)
+    check jsExportAt(other, "sep") == (1, 6)
+    check jsExportAt(other, "default") == (3, 21)

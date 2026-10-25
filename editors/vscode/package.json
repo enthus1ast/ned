@@ -1,0 +1,52 @@
+{
+  "name": "nedls",
+  "displayName": "nedls — ned's Nim engine",
+  "description": "Nim (and C, C++, JavaScript, HTML, CSS, SQL, JSON) with ned's own engine: completion, hover, definition, references, rename, call and type hierarchy, formatting, quick fixes and problems as you type — no nimsuggest needed.",
+  "version": "6.27.0",
+  "publisher": "foxoman",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/foxoman/ned" },
+  "engines": { "vscode": "^1.82.0" },
+  "categories": ["Programming Languages", "Linters", "Formatters"],
+  "keywords": ["nim", "nimble", "nimscript", "lsp", "ned"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:nim", "onLanguage:nimscript", "onLanguage:nimble", "workspaceContains:**/*.nimble"],
+  "contributes": {
+    "languages": [
+      { "id": "nim", "aliases": ["Nim", "nim"], "extensions": [".nim"], "configuration": "./language-configuration.json" },
+      { "id": "nimscript", "aliases": ["NimScript"], "extensions": [".nims"], "filenames": ["config.nims"],
+        "configuration": "./language-configuration.json" },
+      { "id": "nimble", "aliases": ["Nimble"], "extensions": [".nimble"], "configuration": "./language-configuration.json" }
+    ],
+    "grammars": [
+      { "language": "nim", "scopeName": "source.nim", "path": "./syntaxes/nim.tmLanguage.json" },
+      { "language": "nimscript", "scopeName": "source.nim", "path": "./syntaxes/nim.tmLanguage.json" },
+      { "language": "nimble", "scopeName": "source.nim", "path": "./syntaxes/nim.tmLanguage.json" }
+    ],
+    "configuration": {
+      "title": "nedls",
+      "properties": {
+        "nedls.path": { "type": "string", "default": "nedls", "description": "The nedls program: its name on PATH, or its full path." },
+        "nedls.languages": {
+          "type": "array", "items": { "type": "string" }, "default": ["nim", "nimscript", "nimble"],
+          "description": "The languages nedls answers for. Add c, cpp, javascript, html, css, sql or json to have ned's own engines for them too (turn off other extensions' servers for those)."
+        },
+        "nedls.inlayHints": { "type": "boolean", "default": true, "description": "Type hints after let/var/const, and parameter names in calls." },
+        "nedls.parameterHints": { "type": "string", "enum": ["literals", "all", "off"], "default": "literals", "description": "Parameter names before arguments: before literals, before every argument, or never." },
+        "nedls.raisesHints": { "type": "boolean", "default": false, "description": "What a routine can raise, as a hint after its header." },
+        "nedls.checkOnSave": { "type": "boolean", "default": true, "description": "`nim check` the file when it is saved." },
+        "nedls.liveDiagnostics": { "type": "boolean", "default": true, "description": "Check the unsaved text while typing." },
+        "nedls.formatLineLength": { "type": ["number", "null"], "default": null, "description": "The formatter's line length (40–240); not given: nim.format.lineLength, else the file's .editorconfig." },
+        "nedls.nedSettings": { "type": "boolean", "default": true, "description": "Also read ned's own settings files (~/.config/ned/config.json, .ned/settings.json)." },
+        "nedls.trace.server": { "type": "string", "enum": ["off", "messages", "verbose"], "default": "off", "description": "Log the messages between VS Code and nedls (Output › nedls)." }
+      }
+    },
+    "commands": [
+      { "command": "nedls.restart", "title": "nedls: Restart the server" },
+      { "command": "nedls.showOutput", "title": "nedls: Show its log" }
+    ]
+  },
+  "dependencies": { "vscode-languageclient": "^9.0.1" },
+  "scripts": { "package": "vsce package --out vscode-nedls.vsix" },
+  "devDependencies": { "@vscode/vsce": "^3.2.1" }
+}

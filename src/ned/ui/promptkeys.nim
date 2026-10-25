@@ -114,6 +114,8 @@ proc submitPrompt() =
         LspReq(kind: lrRename, bufId: b.id, extra: b.wordAt(b.primary.head), extra2: t))
     elif t.len > 0 and cEngineOn(b):
       discard cEngRename(b, b.primary.head, t)
+    elif t.len > 0 and webJsAt(b, b.primary.head):
+      discard webRename(b, b.primary.head, t)
     elif t.len > 0 and nimEngineOn(b):
       let old = b.wordAt(b.primary.head)
       let nn = t.strip

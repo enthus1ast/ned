@@ -371,4 +371,5 @@ proc lsExecuteCommand(params: JsonNode): JsonNode =
   case params{"command"}.getStr
   of LsCmdRuleOff: lsRuleOff(args)
   of LsCmdAiFix: lsAiFixStart(args)
+  of LsCmdRun: lsRunLens(args)
   else: lsRaise(ErrInvalidParams, "unknown command: " & params{"command"}.getStr)

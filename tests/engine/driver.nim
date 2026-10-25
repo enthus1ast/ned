@@ -108,6 +108,26 @@ when isMainModule:
           for (p, l, c) in hits:
             if p == path: arr.add %*[l, c]
         ans["refs"] = arr
+      of "hidden":
+        # (the lines nimsuggest does not resolve every name of: `when` branches not taken here, runnableExamples'
+        # blocks, the bodies of templates and of generic routines — where a name is bound when it is used)
+        var arr = newJArray()
+        if f != nil:
+          for (a, e) in nxInactiveWhen(f, ls): arr.add %*[a, e]
+          for s in f.syms:
+            if s.kind in NxRoutineKinds and s.endLine > s.line and (s.kind == nxTemplate or s.generics.len > 0):
+              arr.add %*[s.line + 1, s.endLine]
+          var k = 0
+          while k < ls.len:
+            let t = ls[k].strip
+            if t.startsWith("runnableExamples") and t.endsWith(":"):
+              let ind = ls[k].len - ls[k].strip(trailing = false).len
+              var e = k + 1
+              while e < ls.len and (ls[e].strip.len == 0 or ls[e].len - ls[e].strip(trailing = false).len > ind): inc e
+              arr.add %*[k, e - 1]
+              k = e
+            else: inc k
+        ans["hidden"] = arr
       of "checks":
         # the engine's own checks of a text (as you type, before the compiler): what ned --lint reports — a
         # misspelled name, then the checks

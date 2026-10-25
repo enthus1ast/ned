@@ -369,8 +369,12 @@ proc nxCompat0(sc: NxScope, paramType, generics, recv: string, depth: int): int 
     # aliases (BiggestInt = int64) and numbers that convert without a cast (int → int64, float32 → float)
     let pa = nxResolveAlias(sc, pb)
     let ra = nxResolveAlias(sc, rb)
-    if nxNorm(pa) == nxNorm(ra): return 2
-    if (pa in NxInts or pb in NxInts) and (ra in NxInts or rb in NxInts): return 2
+    if nxNorm(pa) == nxNorm(ra): return 3              # (an alias is the same type: BiggestInt is int64)
+    if (pa in NxInts or pb in NxInts) and (ra in NxInts or rb in NxInts):
+      # (a number of the same signedness converts by itself; signed to unsigned and back only if nothing else fits)
+      let pu = pa.startsWith("uint") or pb.startsWith("uint") or pa == "byte" or pb == "byte"
+      let ru = ra.startsWith("uint") or rb.startsWith("uint") or ra == "byte" or rb == "byte"
+      return (if pu == ru: 2 else: 1)
     if (pa in NxFloats or pb in NxFloats) and (ra in NxFloats or rb in NxFloats): return 2
   case pb
   of "openArray", "varargs":

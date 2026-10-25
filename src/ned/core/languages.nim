@@ -242,6 +242,7 @@ proc initLangs() =
       capsTypes: true, indentWords: @["do", "then", "else", "begin"], indentWidth: 2,
       run: "ruby \"$file\"", lsp: @[@["ruby-lsp"], @["solargraph", "stdio"]], pairs: "()[]{}\"\"''"),
     Lang(name: "JSON", id: "json", exts: @["json", "jsonc", "json5"], mode: lmJson,
+      files: @["atlas.config", "atlas.lock", "atlas.workspace", ".babelrc", ".eslintrc", ".prettierrc", ".jshintrc"],
       lineComment: "//", blockStart: "/*", blockEnd: "*/", quotes: {'"'},
       consts: ws"true false null", indentChars: {'{', '['}, dedentChars: {'}', ']'},
       indentWidth: 2, fmt: @["prettier --stdin-filepath \"$file\""], lsp: @[@["vscode-json-language-server", "--stdio"]],

@@ -1,6 +1,6 @@
 # Themes and appearance
 
-ned draws everything itself, in the terminal's own font, so how it looks is up to you: 50 built-in themes, light or
+ned draws everything itself, in the terminal's own font, so how it looks is up to you: 56 built-in themes, light or
 dark that follows the terminal or the clock, your own colours over any theme, a theme editor that checks contrast,
 VS Code and base16 themes imported, Termux's colours set to match, three icon sets, an accessibility mode, a layout
 for phones, and settings for every bar, line and mark on the screen. The settings named here go in
@@ -27,11 +27,17 @@ the list. The default is `nim-crown`.
 | **from other editors** | `one-dark` `tokyo-night` `catppuccin-mocha` `gruvbox-dark` `dracula` `nord` `monokai` `solarized-dark` `github-dark` `rose-pine` `kanagawa` `everforest-dark` `night-owl` `nim-crown` `vscode-dark` `catppuccin-frappe` `catppuccin-macchiato` `github-dark-dimmed` `modus-vivendi` `ayu-mirage` | `one-light` `catppuccin-latte` `gruvbox-light` `solarized-light` `everforest-light` `light-owl` `vscode-light` `github-light` `tokyo-night-day` `rose-pine-dawn` `kanagawa-lotus` `ayu-light` `modus-operandi` |
 | **from vim** | `molokai` `jellybeans` `iceberg` `sonokai` | `papercolor-light` |
 | **ned's own** | `frankincense` `desert-dusk` `lagoon` | `sea-glass` `paper-ink` `rose-quartz` |
+| **easy on the eyes** | `oled-black` `oled-warm` `oled-dim` `lcd-soft` `lcd-warm` | `lcd-paper` |
 | **old terminals** | `amber-crt` `green-phosphor` | |
 | **slate** | `slate` `slate-night` | |
 | **grey only** | `monochrome` | `monochrome-light` |
 
-`nim-crown` is ned's default. `modus-vivendi` and `modus-operandi` are made for readability (WCAG AAA) and are the
+`nim-crown` is ned's default. The *easy on the eyes* themes are for long sessions. On an OLED screen (most phones
+and tablets) `oled-black` keeps the background truly black — those pixels are off — with soft grey text instead of
+white, which glows less; `oled-warm` has no blue in it, for the evening; `oled-dim` is darker still, for a dark
+room. On an LCD screen black is a lit grey anyway: `lcd-soft` (a soft dark grey), `lcd-warm` (a warm dark brown)
+and `lcd-paper` (warm paper rather than white) keep the contrast high enough to read and low enough not to glare.
+`modus-vivendi` and `modus-operandi` are made for readability (WCAG AAA) and are the
 themes [accessibility mode](#accessibility-mode) picks. Every theme gets the same readability pass when it loads:
 interface colours — dim text, the status and title bars, menus, the current line, the selection — are given a
 minimum contrast, keeping the theme's own hues.

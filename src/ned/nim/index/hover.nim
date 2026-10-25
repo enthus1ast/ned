@@ -83,7 +83,7 @@ proc nxCallInstance*(f: NxFile, lines: seq[string], line, col: int, s: NxSym): s
   let sc = nxScope(f)
   let locals = nxLocals(f, lines, line, col)
   var argTypes: seq[string]
-  if a > 0 and t[a - 1] == '.':
+  if nxDotBefore(t, a):
     argTypes.add nxTypeOfExpr(f, sc, locals, nxReceiver(t, a - 1), line, 0).typ     # x.name(…): x is the first
   var q = e
   var genArgs: seq[string]
@@ -134,7 +134,7 @@ proc nxConceptCallNote*(f: NxFile, lines: seq[string], line, col: int, s: NxSym)
   let sc = nxScope(f)
   let locals = nxLocals(f, lines, line, col)
   var args: seq[string]
-  if a > 0 and t[a - 1] == '.': args.add nxReceiver(t, a - 1)
+  if nxDotBefore(t, a): args.add nxReceiver(t, a - 1)
   var q = e
   if q < t.len and t[q] == '[':
     let c = nxMatchClose(t, q)
@@ -375,7 +375,7 @@ proc nxSignatureHelp*(f: NxFile, lines: seq[string], line, col: int): NxSigHelp 
   let sc = nxScope(f)
   let locals = nxLocals(f, lines, line, col)
   result.active = commas
-  if a > 0 and s[a - 1] == '.':
+  if nxDotBefore(s, a):
     let recv = nxReceiver(s, a - 1)
     let v = nxTypeOfExpr(f, sc, locals, recv, l, 0)
     if v.module.len == 0 and v.typeName.len == 0:
@@ -462,7 +462,8 @@ proc nxLexRuns*(line: string, st: var NxLexState, ops: bool): seq[(int, int)] =
       i = e
     elif c in Digits:
       let st0 = i
-      while i < n and (nxIsIdent(line[i]) or line[i] == '.' or
+      # (a dot is the number's only before a digit: 1.5 — not 1..len(s), nor 5.float)
+      while i < n and (nxIsIdent(line[i]) or (line[i] == '.' and i + 1 < n and line[i + 1] in Digits) or
                        (ops and line[i] in {'+', '-'} and line[i - 1] in {'e', 'E'} and
                         not (i - st0 > 1 and line[st0 + 1] in {'x', 'X'}))):     # 1.5e-3 (not 0xFE - 1)
         inc i

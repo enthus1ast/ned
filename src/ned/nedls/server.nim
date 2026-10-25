@@ -23,7 +23,8 @@ var
   lsPullConfig = false                 # the client answers workspace/configuration
   lsConfigReq = ""                     # the id of that request, while its answer is awaited
 
-const LsHelp = """nedls — ned's built-in Nim engine as a language server (LSP over stdio)
+const LsHelp = """nedls — ned's built-in engines as a language server (LSP over stdio): Nim, and C, C++, JavaScript,
+HTML, CSS, SQL and JSON
 
 Usage: nedls [--stdio] [--verbose] [--log:FILE]
        nedls --lint [options] [FILE|FOLDER…]    the engine's checks over files, no editor (nedls --lint --help)
@@ -85,6 +86,8 @@ proc lsApplySettings() =
   cfgNimSuggest = false
   cfgFolderTrust = "off"              # (the editor that started nedls decides whether this folder is trusted)
   cfgSemColors = true
+  cfgCEngine = "builtin"               # (C, C++, JavaScript, HTML, CSS, SQL, JSON: ned's own engines answer)
+  cfgWebEngine = "on"
   cfgMessages = "status"
   cfgToasts = false
   if sStr("nim.liveDiagnosticsFrom") == "nimsuggest":
@@ -173,7 +176,8 @@ proc lsInitialize(params: JsonNode): JsonNode =
     "capabilities": {
       "positionEncoding": (if lsUtf8: "utf-8" else: "utf-16"),
       "textDocumentSync": {"openClose": true, "change": 2, "save": {"includeText": false}},
-      "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true},
+      # (".": Nim's; the others C's -> :: #include "…", HTML's <, CSS's : # @, JSON's ")
+      "completionProvider": {"triggerCharacters": [".", ">", ":", "<", "\"", "#", "@", "/"], "resolveProvider": true},
       "hoverProvider": true,
       "signatureHelpProvider": {"triggerCharacters": ["(", ","], "retriggerCharacters": [","]},
       "definitionProvider": true,
@@ -190,8 +194,15 @@ proc lsInitialize(params: JsonNode): JsonNode =
       "documentRangeFormattingProvider": true,
       "foldingRangeProvider": true,
       "codeActionProvider": {"codeActionKinds": LsActionKinds, "resolveProvider": true},
-      "executeCommandProvider": {"commands": [LsCmdRuleOff, LsCmdAiFix]},
-      "workspace": {"workspaceFolders": {"supported": true, "changeNotifications": true}}
+      "executeCommandProvider": {"commands": [LsCmdRuleOff, LsCmdAiFix, LsCmdRun]},
+      "callHierarchyProvider": true,
+      "typeHierarchyProvider": true,
+      "implementationProvider": true,
+      "selectionRangeProvider": true,
+      "codeLensProvider": {"resolveProvider": false},
+      "documentLinkProvider": {"resolveProvider": false},
+      "workspace": {"workspaceFolders": {"supported": true, "changeNotifications": true},
+                    "fileOperations": {"willRename": {"filters": [{"scheme": "file", "pattern": {"glob": "**/*.nim"}}]}}}
     },
     "serverInfo": {"name": "nedls", "version": NedVersion}
   }
@@ -249,6 +260,7 @@ proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
     lsReplyError(id, ErrInvalidRequest, "the server is shutting down")
     return
   let p = if params == nil: newJObject() else: params
+  if lxHandle(meth, p, id): return            # (a document in another language: ned's engine for it)
   case meth
   of "initialize":
     if lsInitialized:
@@ -264,8 +276,19 @@ proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
   of "completionItem/resolve": lsReply(id, lsCompletionResolve(p))
   of "textDocument/hover": lsReply(id, lsHover(p))
   of "textDocument/signatureHelp": lsReply(id, lsSignatureHelp(p))
-  of "textDocument/definition", "textDocument/declaration", "textDocument/implementation":
+  of "textDocument/definition", "textDocument/declaration":
     lsReply(id, lsDefinition(p))
+  of "textDocument/implementation": lsReply(id, lsImplementation(p))
+  of "textDocument/prepareCallHierarchy": lsReply(id, lsPrepareCallHierarchy(p))
+  of "callHierarchy/incomingCalls": lsReply(id, lsIncomingCalls(p))
+  of "callHierarchy/outgoingCalls": lsReply(id, lsOutgoingCalls(p))
+  of "textDocument/prepareTypeHierarchy": lsReply(id, lsPrepareTypeHierarchy(p))
+  of "typeHierarchy/supertypes": lsReply(id, lsSupertypes(p))
+  of "typeHierarchy/subtypes": lsReply(id, lsSubtypes(p))
+  of "textDocument/selectionRange": lsReply(id, lsSelectionRanges(p))
+  of "textDocument/codeLens": lsReply(id, lsCodeLens(p))
+  of "textDocument/documentLink": lsReply(id, lsDocumentLinks(p))
+  of "workspace/willRenameFiles": lsReply(id, lsWillRenameFiles(p))
   of "textDocument/typeDefinition": lsReply(id, lsTypeDefinition(p))
   of "textDocument/references": lsReply(id, lsReferences(p))
   of "textDocument/documentHighlight": lsReply(id, lsDocumentHighlight(p))
@@ -331,6 +354,15 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
       lsSaved(b)
     lsDiagsDirty = true
   of "textDocument/didClose":
+    let cd = lsDocs.getOrDefault(p{"textDocument"}{"uri"}.getStr)
+    if cd != nil and cd.b.path.len > 0:
+      # (a check of it waiting, or running: not wanted now — its problems would come back after the close)
+      let path = cd.b.path
+      var k = 0
+      while k < lsCheckQueue.len:
+        if lsCheckQueue[k][0] == path: lsCheckQueue.delete(k) else: inc k
+      for j in jobs:
+        if j.kind == jkCheck and not j.done and quoteShell(path) in j.cmd: killProc(j.pr, SIGKILL)
     lsCloseDoc(p{"textDocument"}{"uri"}.getStr)
     lsDiagsDirty = true
   of "workspace/didChangeConfiguration":

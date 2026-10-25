@@ -200,7 +200,9 @@ def range_text(text, r):
     lines = text.split("\n")
     s, e = r["start"], r["end"]
     if s["line"] != e["line"]:
-        return None
+        a, b = lines[s["line"]], lines[min(e["line"], len(lines) - 1)]
+        mid = lines[s["line"] + 1:e["line"]]
+        return "\n".join([a[idx_of(a, s["character"]):]] + mid + [b[:idx_of(b, e["character"])]])
     ln = lines[s["line"]]
     return ln[idx_of(ln, s["character"]):idx_of(ln, e["character"])]
 
@@ -240,6 +242,17 @@ let total = sq.area + 1
 let w = sq.width
 var c = red
 echo describe(sq), total, greeting, w, c
+'''
+
+ANIMALS = '''type
+  Animal* = ref object of RootObj
+    name*: string
+  Dog* = ref object of Animal
+  Cat* = ref object of Animal
+
+method speak*(a: Animal): string {.base.} = "…"
+method speak*(d: Dog): string = "woof"
+method speak*(c: Cat): string = "meow"
 '''
 
 BAD = '''import std/strutils
@@ -343,7 +356,9 @@ def run_checks(nedls, root, have_nim, log):
     want = ["completionProvider", "hoverProvider", "signatureHelpProvider", "definitionProvider", "referencesProvider",
             "renameProvider", "documentSymbolProvider", "workspaceSymbolProvider", "semanticTokensProvider",
             "inlayHintProvider", "documentFormattingProvider", "documentRangeFormattingProvider",
-            "foldingRangeProvider", "codeActionProvider", "documentHighlightProvider", "typeDefinitionProvider"]
+            "foldingRangeProvider", "codeActionProvider", "documentHighlightProvider", "typeDefinitionProvider",
+            "callHierarchyProvider", "typeHierarchyProvider", "implementationProvider", "selectionRangeProvider",
+            "codeLensProvider", "documentLinkProvider"]
     missing = [k for k in want if k not in caps]
     check("initialize: capabilities", not missing, missing)
     check("initialize: UTF-16 positions when the client offers no other", caps.get("positionEncoding") == "utf-16", caps)
@@ -460,6 +475,68 @@ def run_checks(nedls, root, have_nim, log):
     r = c.request("workspace/symbol", {"query": "newsha"})
     ws = (r or {}).get("result") or []
     check("workspace/symbol", any(s["name"] == "newShape" and s["location"]["uri"] == uri(shapes_p) for s in ws), ws[:5])
+
+    # 6.27: the call hierarchy — area is called by describe and by the module's top level; describe calls area
+    p = pos_of(shapes, "area*", after=1)
+    r = c.request("textDocument/prepareCallHierarchy", {"textDocument": {"uri": uri(shapes_p)}, "position": p})
+    items = (r or {}).get("result") or []
+    check("prepareCallHierarchy: the routine (area)", items and items[0]["name"] == "area" and
+          items[0]["uri"] == uri(shapes_p), items)
+    if items:
+        r = c.request("callHierarchy/incomingCalls", {"item": items[0]})
+        inc = [x for x in (r or {}).get("result") or [] if x["from"]["uri"] == uri(app_p)]    # (stress.nim too)
+        callers = sorted(x["from"]["name"] for x in inc)
+        check("callHierarchy/incomingCalls: describe and app's top level, with where they call it",
+              callers == ["app", "describe"] and all(x["fromRanges"] for x in inc) and
+              all(range_text(app, rr) == "area" for x in inc for rr in x["fromRanges"]), inc)
+        d_item = [x["from"] for x in inc if x["from"]["name"] == "describe"]
+        if d_item:
+            r = c.request("callHierarchy/outgoingCalls", {"item": d_item[0]})
+            out = (r or {}).get("result") or []
+            check("callHierarchy/outgoingCalls: describe calls area", any(x["to"]["name"] == "area" and
+                  x["to"]["uri"] == uri(shapes_p) for x in out), out)
+    # the type hierarchy and a method's implementations
+    animals_p = os.path.join(src, "animals.nim")
+    open_doc(c, animals_p, ANIMALS)
+    p = pos_of(ANIMALS, "Dog* =", after=0)
+    r = c.request("textDocument/prepareTypeHierarchy", {"textDocument": {"uri": uri(animals_p)}, "position": p})
+    items = (r or {}).get("result") or []
+    check("prepareTypeHierarchy: the type (Dog)", items and items[0]["name"] == "Dog", items)
+    if items:
+        r = c.request("typeHierarchy/supertypes", {"item": items[0]})
+        sup = (r or {}).get("result") or []
+        check("typeHierarchy/supertypes: Dog is made of Animal", [x["name"] for x in sup] == ["Animal"], sup)
+        if sup:
+            r = c.request("typeHierarchy/subtypes", {"item": sup[0]})
+            sub = sorted(x["name"] for x in (r or {}).get("result") or [])
+            check("typeHierarchy/subtypes: Animal's are Dog and Cat", sub == ["Cat", "Dog"], sub)
+    p = pos_of(ANIMALS, "speak*(a: Animal)", after=1)
+    r = c.request("textDocument/implementation", {"textDocument": {"uri": uri(animals_p)}, "position": p})
+    impl = sorted(x["range"]["start"]["line"] for x in (r or {}).get("result") or [])
+    want_l = [i for i, l in enumerate(ANIMALS.split("\n")) if l.startswith("method speak*(") and "Animal" not in l]
+    check("implementation: the base method's overrides (Dog's and Cat's speak)", impl == want_l, (impl, want_l))
+    # selection ranges: the name, then bigger pieces, up to the whole file
+    p = pos_of(app, "s.name", after=3)
+    r = c.request("textDocument/selectionRange", {"textDocument": {"uri": uri(app_p)}, "positions": [p]})
+    chain = []
+    node = ((r or {}).get("result") or [None])[0]
+    while node:
+        chain.append(range_text(app, node["range"]))
+        node = node.get("parent")
+    check("selectionRange: the name, the expression, the statement … the file", len(chain) >= 4 and
+          chain[0] == "name" and chain[-1].strip() == app.strip() and
+          any("result = s.name" in x for x in chain), chain)
+    # document links: the import goes to the module
+    r = c.request("textDocument/documentLink", {"textDocument": {"uri": uri(app_p)}})
+    links = (r or {}).get("result") or []
+    check("documentLink: `import shapes` → shapes.nim", any(l.get("target") == uri(shapes_p) and
+          range_text(app, l["range"]) == "shapes" for l in links), links)
+    # a module renamed: the imports that name it
+    r = c.request("workspace/willRenameFiles", {"files": [{"oldUri": uri(shapes_p),
+                                                           "newUri": uri(os.path.join(src, "geometry.nim"))}]})
+    ch = ((r or {}).get("result") or {}).get("changes", {})
+    check("workspace/willRenameFiles: shapes.nim → geometry.nim, app's import follows",
+          uri(app_p) in ch and apply_edits(app, ch[uri(app_p)]).startswith("import geometry"), r)
 
     # semantic tokens
     r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri(app_p)}})
@@ -672,7 +749,10 @@ def run_checks(nedls, root, have_nim, log):
                "textDocument/rename", "textDocument/documentSymbol", "workspace/symbol",
                "textDocument/semanticTokens/full", "textDocument/semanticTokens/range", "textDocument/inlayHint",
                "textDocument/formatting", "textDocument/rangeFormatting", "textDocument/foldingRange",
-               "textDocument/codeAction"]
+               "textDocument/codeAction", "textDocument/prepareCallHierarchy", "callHierarchy/incomingCalls",
+               "callHierarchy/outgoingCalls", "textDocument/prepareTypeHierarchy", "typeHierarchy/supertypes",
+               "typeHierarchy/subtypes", "textDocument/implementation", "textDocument/selectionRange",
+               "textDocument/codeLens", "textDocument/documentLink", "workspace/willRenameFiles"]
     junk = [None, [], 5, "x", {}, {"textDocument": 5}, {"textDocument": {"uri": 7}},
             {"textDocument": {"uri": uri(app_p)}, "position": "here"},
             {"textDocument": {"uri": uri(app_p)}, "position": {"line": -1, "character": -5}},
@@ -916,6 +996,152 @@ def run_nimscript622(nedls, root, log):
     c.request("shutdown", None)
     c.notify("exit", {})
     c.close()
+
+
+# ── 6.27: the other languages — C, JavaScript, JSON, CSS, HTML, SQL — with ned's own engines ──
+
+LX_H = """#ifndef SHAPES_H
+#define SHAPES_H
+struct Point { int x; int y; };
+/* the distance between two points, squared */
+int dist2(struct Point *a, struct Point *b);
+#endif
+"""
+
+LX_C = """#include "shapes.h"
+int dist2(struct Point *a, struct Point *b) {
+  int dx = a->x - b->x;
+  int dy = a->y - b->y;
+  return dx * dx + dy * dy;
+}
+"""
+
+LX_MAIN = """#include <stdio.h>
+#include "shapes.h"
+int main(void) {
+  struct Point p = {1, 2}, q = {4, 6};
+  struct Point *pp = &p;
+  printf("%d\\n", dist2(pp, &q));
+  return pp->x;
+}
+"""
+
+LX_UTIL = """export function join(...parts) {
+  return parts.join("/");
+}
+
+export class Store {
+  constructor() { this.items = []; }
+  add(x) { this.items.push(x); return this; }
+}
+"""
+
+LX_APP = """import { join, Store } from "./util.js";
+
+const DEFAULTS = { root: "/" };
+const s = new Store();
+s.add(join(DEFAULTS.root, "a"));
+console.log(join("b", "c"));
+"""
+
+
+def lx_lang(path):
+    ext = os.path.splitext(path)[1]
+    return {".c": "c", ".h": "c", ".js": "javascript", ".json": "json", ".css": "css", ".html": "html",
+            ".sql": "sql"}.get(ext, "plaintext")
+
+
+def run_langs(nedls, log):
+    root = tempfile.mkdtemp(prefix="tnedls-lx-")
+    files = {"shapes.h": LX_H, "shapes.c": LX_C, "main.c": LX_MAIN, "util.js": LX_UTIL, "app.js": LX_APP,
+             "package.json": '{\n  "name": "demo",\n  "nmae": "x",\n  "type": "modul"\n}\n',
+             "style.css": "a {\n  colr: red;\n}\n", "page.html": "<!doctype html>\n<html>\n<body>\n<di\n</body>\n</html>\n",
+             "q.sql": "CREATE TABLE users (id INTEGER, name TEXT);\nSELECT name FROM us\n"}
+    for name, text in files.items():
+        with open(os.path.join(root, name), "w") as f:
+            f.write(text)
+    c, init = new_client(nedls, root, log=log)
+    try:
+        def P(name):
+            return os.path.join(root, name)
+        for name, text in files.items():
+            c.notify("textDocument/didOpen", {"textDocument": {"uri": uri(P(name)), "languageId": lx_lang(name),
+                                                               "version": 1, "text": text}})
+        def req(m, name, l=None, ch=None, **kw):
+            params = {"textDocument": {"uri": uri(P(name))}}
+            if l is not None:
+                params["position"] = {"line": l, "character": ch}
+            params.update(kw)
+            return (c.request(m, params) or {}).get("result")
+        caps = init["result"]["capabilities"]
+        check("6.27 langs: completion triggers for C, HTML, CSS, JSON", all(t in caps["completionProvider"]["triggerCharacters"]
+                                                                           for t in [".", ">", "<", ":", "\""]))
+        # ── C ──
+        ml = LX_MAIN.split("\n")
+        r = req("textDocument/completion", "main.c", 6, len("  return pp->"))
+        lab = [i["label"] for i in (r or {}).get("items", [])]
+        check("6.27 C: completion after -> — the struct's fields", "x" in lab and "y" in lab, lab[:10])
+        h = req("textDocument/hover", "main.c", 5, ml[5].index("dist2") + 1)
+        hv = ((h or {}).get("contents") or {}).get("value", "")
+        check("6.27 C: hover — the declaration and its comment", "dist2" in hv and "distance" in hv, hv[:200])
+        r = req("textDocument/definition", "main.c", 5, ml[5].index("dist2") + 1) or []
+        check("6.27 C: definition — the body in shapes.c", any(x["uri"].endswith("shapes.c") for x in r), r)
+        r = req("textDocument/references", "shapes.h", 4, 5, context={"includeDeclaration": True}) or []
+        where = sorted(set(os.path.basename(x["uri"]) for x in r))
+        check("6.27 C: references across the project's files", where == ["main.c", "shapes.c", "shapes.h"], where)
+        r = req("textDocument/rename", "main.c", 5, ml[5].index("dist2") + 1, newName="distSq") or {}
+        ch = r.get("changes", {})
+        check("6.27 C: rename — every file", len(ch) == 3 and all(e["newText"] == "distSq" for es in ch.values() for e in es),
+              list(ch))
+        r = req("textDocument/signatureHelp", "main.c", 5, ml[5].index("(pp") + 4)
+        sig = ((r or {}).get("signatures") or [{}])[0]
+        check("6.27 C: signature help — the parameters, the second one active",
+              "dist2(" in sig.get("label", "") and len(sig.get("parameters", [])) == 2 and r.get("activeParameter") == 1, r)
+        r = req("textDocument/documentSymbol", "shapes.c") or []
+        check("6.27 C: symbols", any(x["name"] == "dist2" and x["kind"] == 12 for x in r), [x["name"] for x in r])
+        # ── JavaScript ──
+        al = LX_APP.split("\n")
+        r = req("textDocument/definition", "app.js", 5, al[5].index("join") + 1) or []
+        check("6.27 JS: definition of an import — in the module it comes from",
+              len(r) == 1 and r[0]["uri"].endswith("util.js") and r[0]["range"]["start"]["line"] == 0, r)
+        r = req("textDocument/references", "util.js", 0, 17, context={"includeDeclaration": True}) or []
+        where = sorted((os.path.basename(x["uri"]), x["range"]["start"]["line"]) for x in r)
+        check("6.27 JS: references of an export — the files that import it", where == [
+            ("app.js", 0), ("app.js", 4), ("app.js", 5), ("util.js", 0)], where)
+        r = req("textDocument/rename", "util.js", 0, 17, newName="joinAll") or {}
+        n = sum(len(es) for es in r.get("changes", {}).values())
+        check("6.27 JS: rename across modules", n == 4 and len(r.get("changes", {})) == 2, r)
+        r = req("textDocument/documentSymbol", "util.js") or []
+        store = [x for x in r if x["name"] == "Store"]
+        check("6.27 JS: symbols — a class holds its methods", store and any(k["name"] == "add" for k in store[0].get("children", [])),
+              r)
+        # ── JSON, CSS, HTML, SQL ──
+        ds = c.wait_diagnostics(uri(P("package.json")), lambda ds: len(ds) >= 2, timeout=20) or []
+        msgs = [d["message"] for d in ds]
+        check("6.27 JSON: package.json — a misspelled key, a value it does not take",
+              any('"nmae"' in m and '"name"?' in m for m in msgs) and any('"module"?' in m for m in msgs), msgs)
+        r = req("textDocument/completion", "package.json", 1, 3)
+        lab = [i["label"] for i in (r or {}).get("items", [])]
+        check("6.27 JSON: completion — the keys package.json has", "version" in lab and "scripts" in lab, lab[:10])
+        h = req("textDocument/hover", "package.json", 3, 4)
+        check("6.27 JSON: hover — what a key does", "module" in (((h or {}).get("contents") or {}).get("value", "")), h)
+        r = req("textDocument/formatting", "package.json", options={"tabSize": 2, "insertSpaces": True})
+        check("6.27 JSON: formatting answers (already formatted: no edits)", r == [], r)
+        ds = c.wait_diagnostics(uri(P("style.css")), lambda ds: len(ds) >= 1, timeout=20) or []
+        check("6.27 CSS: an unknown property", any("colr" in d["message"] for d in ds), [d["message"] for d in ds])
+        r = req("textDocument/completion", "page.html", 3, 3)
+        lab = [i["label"] for i in (r or {}).get("items", [])]
+        check("6.27 HTML: completion of an element", "div" in lab, lab[:10])
+        r = req("textDocument/completion", "q.sql", 1, len("SELECT name FROM us"))
+        lab = [i["label"] for i in (r or {}).get("items", [])]
+        check("6.27 SQL: completion of a table the project creates", "users" in lab, lab[:10])
+        r = req("textDocument/semanticTokens/full", "main.c")
+        check("6.27 langs: no Nim colours for another language", r == {"data": []}, r)
+    finally:
+        c.request("shutdown", None)
+        c.notify("exit", {})
+        c.close()
+        shutil.rmtree(root, ignore_errors=True)
 
 
 # ── stress: random incremental edits must keep the server's text the client's ──
@@ -1457,6 +1683,7 @@ def main():
             f.write('version = "0.1.0"\nauthor = "t"\ndescription = "t"\nlicense = "MIT"\nsrcDir = "src"\n')
         run_checks(nedls, root, have_nim, log)
         run_actions(nedls, have_nim, log)
+        run_langs(nedls, log)
         if edits > 0:
             run_stress(nedls, root, edits, log)
     finally:

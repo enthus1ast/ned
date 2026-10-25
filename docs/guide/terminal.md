@@ -178,7 +178,7 @@ ned does not guess what your terminal can do from its name: it asks when it star
 | what | setting | what it gives |
 |---|---|---|
 | the kitty keyboard protocol | `ui.kittyKeyboard` | Ctrl+Shift+letters can have keys of their own, Ctrl+I is not Tab, Ctrl+Enter and Shift+Enter work, Alt+key comes without a delay (kitty, WezTerm, Ghostty, foot, Alacritty, iTerm2 …) |
-| 24-bit colour | `ui.trueColor` | asked of the terminal, not only read from `COLORTERM`, which SSH, mosh, `sudo` and tmux often lose |
+| 24-bit colour | `ui.trueColor` | asked of the terminal, not only read from `COLORTERM`, which SSH, mosh, `sudo` and tmux often lose; Windows Terminal (which sets no `COLORTERM`), the Windows console, kitty, Konsole, GNOME Terminal and the others known to draw it are taken at their word. Where only 256 colours are drawn, each colour is the nearest of them — a dark blue-grey background stays grey. *Check setup* says which, and why |
 | curly underlines | `ui.undercurl` | errors and warnings get a squiggle in their colour and the text keeps its own |
 | emoji sequences | `ui.graphemes` | 👨‍👩‍👧, 👍🏽 and flags as one character two columns wide, where the terminal joins them (mode 2027) |
 | light or dark | `theme` (`auto`) | the terminal's background, and its switches between light and dark (mode 2031) — see [Themes](themes.md#light-or-dark-by-itself-theme-auto) |

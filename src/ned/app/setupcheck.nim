@@ -7,10 +7,34 @@ type SetupRow = tuple[group, name: string, state: int, ver, purpose, hint: strin
 
 proc isTermux(): bool = getEnv("TERMUX_VERSION").len > 0 or "com.termux" in getEnv("PREFIX")
 
-proc detectTrueColor(): bool =
+proc trueColorWhy(): string =
+  ## why ned takes this terminal for one that draws 24-bit colour ("" when it does not know it does): what the
+  ## environment says. (The terminal is asked too — termcaps — and its answer can still turn 24-bit on)
   let ct = getEnv("COLORTERM").toLowerAscii
-  "truecolor" in ct or "24bit" in ct or getEnv("TERMUX_VERSION").len > 0 or
-    "direct" in getEnv("TERM") or getEnv("TERM_PROGRAM") in ["iTerm.app", "WezTerm", "vscode", "ghostty"]
+  if "truecolor" in ct or "24bit" in ct: return "COLORTERM=" & getEnv("COLORTERM")
+  when defined(windows):
+    result = "the Windows console"                     # (Windows 10's console and Windows Terminal: 24-bit)
+  else:
+    if getEnv("TERMUX_VERSION").len > 0: return "Termux"
+    let term = getEnv("TERM")
+    if "direct" in term: return "TERM=" & term
+    # (inside tmux or screen the outer terminal's variables say nothing of what tmux passes on: tmux is asked)
+    if getEnv("TMUX").len > 0 or term.startsWith("screen") or term.startsWith("tmux"): return ""
+    if getEnv("WT_SESSION").len > 0: return "Windows Terminal"          # (no COLORTERM there, WSL included)
+    if term in ["xterm-kitty", "xterm-ghostty", "alacritty", "foot", "foot-extra", "wezterm", "contour", "rio"]:
+      return "TERM=" & term
+    let tp = getEnv("TERM_PROGRAM")
+    if tp in ["iTerm.app", "WezTerm", "vscode", "ghostty", "Hyper", "Tabby", "WarpTerminal", "rio", "zed"]:
+      return "TERM_PROGRAM=" & tp
+    for (v, name) in [("KITTY_WINDOW_ID", "kitty"), ("ALACRITTY_WINDOW_ID", "Alacritty"), ("WEZTERM_PANE", "WezTerm"),
+                      ("KONSOLE_VERSION", "Konsole"), ("GHOSTTY_RESOURCES_DIR", "Ghostty")]:
+      if getEnv(v).len > 0: return name
+    if getEnv("TERMINAL_EMULATOR") == "JetBrains-JediTerm": return "JetBrains' terminal"
+    # (GNOME Terminal and the other VTE terminals: 24-bit since VTE 0.36)
+    let vte = (try: parseInt(getEnv("VTE_VERSION", "0")) except ValueError: 0)
+    if vte >= 3600: return "VTE " & $vte
+
+proc detectTrueColor(): bool = trueColorWhy().len > 0
 
 proc installHint(termuxPkg, linuxPkg: string): string =
   ## the command that installs a missing package on this system
@@ -52,7 +76,13 @@ proc osLine(): string =
 proc termLine(inEditor: bool): string =
   let tc = if inEditor: trueColor else: detectTrueColor()
   let (w, h) = if inEditor: (scrW, scrH) else: getTermSize()
-  result = "TERM=" & getEnv("TERM", "?") & " · " & (if tc: "true colour" else: "256 colours") & " · " & $w & "×" & $h
+  let why = trueColorWhy()
+  let how = if not tc: "256 colours"
+            elif cfgTrueColorSet == "on": "24-bit colour (ui.trueColor on)"
+            elif why.len > 0: "24-bit colour (" & why & ")"
+            elif tcRgb: "24-bit colour (the terminal said so)"
+            else: "24-bit colour"
+  result = "TERM=" & getEnv("TERM", "?") & " · " & how & " · " & $w & "×" & $h
 
 proc setupRows(inEditor: bool): seq[SetupRow] =
   var rows: seq[SetupRow]

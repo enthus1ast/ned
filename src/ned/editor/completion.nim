@@ -121,6 +121,7 @@ proc startCompletion(manual: bool) =
   compStartCol = ws
   compManual = manual
   if b.lang.mode == lmNim and nbVersionComplete(b, p, manual): return   # a .nimble's requires: the versions
+  if b.lang.mode == lmNim and nbNameComplete(b, p, manual): return      # … and the packages
   plugComplete(b, p)                                                  # (a plugin's: they join when they come)
   if b.lang.mode == lmNim and pragmaStringComplete(b, p, manual): return
   if b.lang.mode == lmNim and cWrapperComplete(b, p, manual): return  # proc ⟨C function⟩: the whole wrapper
@@ -168,6 +169,8 @@ proc afterType(ch: int) =
   let long = b.lines[p.line].len > 2000
   if not long and b.path.endsWith(".nimble") and ch < 128 and char(ch) in {' ', '=', '>', '<', '@', '#', '^', '~', '.', '0'..'9'}:
     if nbVersionComplete(b, p, false): return                # (a requires' version: the package's versions)
+  if not long and b.path.endsWith(".nimble") and ch < 128 and (isWordByte(char(ch)) or char(ch) == '-'):
+    if nbNameComplete(b, p, false): return                   # (a requires' package: the names nimble knows)
   if not long and cEngineOn(b) and b.lines[p.line].strip(trailing = false).startsWith("#include"):
     # C: the headers there, in the quotes or <> of an #include, as the name is typed
     let c = if ch < 128: char(ch) else: 'a'

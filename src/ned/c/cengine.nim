@@ -151,14 +151,10 @@ proc cEngHover(b: Buffer, p: Pos): string =
     internalError("C engine", e)
     ""
 
-proc cEngDefinition(b: Buffer, p: Pos): bool =
-  ## F12: the declaration (a function's body first), through the #includes
-  if not cEngineOn(b): return false
-  var ts: seq[(CxFile, CxSym)]
-  try: ts = cxTargets(cxFileOf(b), p.line, p.col, jump = true)
-  except CatchableError as e:
-    internalError("C engine", e)
-    return false
+proc cEngDefTarget(b: Buffer, p: Pos): (string, int, int, string) =
+  ## where F12 goes from p: (the file, line, column, the declaration's text) — ("", -1, -1, "") nowhere
+  result = ("", -1, -1, "")
+  var ts = cxTargets(cxFileOf(b), p.line, p.col, jump = true)
   let cpp = cxIsCppBuf(b)
   proc projectC(): seq[string] =
     if rootDir.len > 0:
@@ -168,16 +164,16 @@ proc cEngDefinition(b: Buffer, p: Pos): bool =
   if ts.len == 0:
     # declared in no header this file includes: a function or global defined in the project's other .c files
     let (a, e) = cxWordAt(b.lines[p.line], p.col)
-    if a >= e: return false
+    if a >= e: return
     let w = b.lines[p.line][a ..< e]
-    if w in CxKeywords or (cpp and w in CxxKeywords): return false
+    if w in CxKeywords or (cpp and w in CxxKeywords): return
     let cs = projectC()
     for kind in (if cpp: @[cxFunc, cxVar, cxClass, cxStruct] else: @[cxFunc, cxVar, cxStruct]):
       let (h, k) = cxBodyIn(cs, w, kind)
       if h != nil:
         ts.add (h, h.syms[k])
         break
-    if ts.len == 0: return false
+    if ts.len == 0: return
   var (g, s) = ts[0]
   # on a definition's own name: its prototype (and from there back); a prototype: the body, in another .c file of
   # the project when it is not in this one's
@@ -191,14 +187,24 @@ proc cEngDefinition(b: Buffer, p: Pos): bool =
     if h == nil and cpp and s.kind == cxFunc and s.scope.len > 0:
       (h, k) = cxBodyIn(projectC(), s.name, cxMethod, owner = s.scope)
     if h != nil: (g, s) = (h, h.syms[k])
+  result = ((if g.path == b.path: b.path else: g.path), s.line, s.col, s.text)
+
+proc cEngDefinition(b: Buffer, p: Pos): bool =
+  ## F12: the declaration (a function's body first), through the #includes
+  if not cEngineOn(b): return false
+  var t: (string, int, int, string)
+  try: t = cEngDefTarget(b, p)
+  except CatchableError as e:
+    internalError("C engine", e)
+    return false
+  if t[0].len == 0: return false
   pushJump()
-  let path = if g.path == b.path: b.path else: g.path
-  let nb = if path == b.path: b else: openFile(path)
+  let nb = if t[0] == b.path: b else: openFile(t[0])
   if nb != nil:
-    let at = nb.clampPos(Pos(line: s.line, col: s.col))
+    let at = nb.clampPos(Pos(line: t[1], col: t[2]))
     nb.cursors = @[cur(at)]
     nb.centerOn(at)
-  info(s.text)
+  info(t[3])
   true
 
 proc cEngReferenceHits(b: Buffer, p: Pos): (seq[(string, int, int)], string) =

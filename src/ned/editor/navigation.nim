@@ -443,6 +443,7 @@ proc cmdDefinition() =
   let b = buf()
   if openLinkAt(b, b.primary.head): return       # a link: #include "x.h", @import, a URL in a comment
   if b.lang.mode == lmNim and pragmaStringGoto(b, b.primary.head): return  # header: "…" opens it, importc: "…" its C
+  if nbPackageDefinition(b, b.primary.head): return                       # a .nimble's requires: the package
   if cEngineOn(b) and cEngDefinition(b, b.primary.head): return          # C: ned's own engine
   if webDefinition(b, b.primary.head): return                            # JavaScript: ned's own engine
   if b.lang.mode == lmNim and emitGoto(b, b.primary.head): return          # in an emit: the C (or Nim) side
@@ -671,7 +672,7 @@ proc cmdRename() =
     return
   if s != nil and s.caps != nil and s.caps{"renameProvider"} != nil:
     openPrompt(pLspRename, "Rename '" & w & "' to", w)
-  elif nimEngineOn(b) or (s == nil and nsUsable(b)) or cEngineOn(b):
+  elif nimEngineOn(b) or (s == nil and nsUsable(b)) or cEngineOn(b) or webJsAt(b, b.primary.head):
     openPrompt(pLspRename, "Rename '" & w & "' to", w)
   else:
     b.cursors = @[cur(b.primary.head)]

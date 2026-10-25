@@ -254,7 +254,9 @@ proc initCommands() =
   add("Nim: go to the C declaration (importc)", "", (block:
     let b = buf()
     discard cGotoFromDecl(b, b.primary.head, anyUse = true)))
-  add("Nim: wrap a C header (c2nim)…", "", cmdWrapHeader())
+  add("Nim: wrap a C header…", "its functions, structs, enums and constants as Nim — by ned's own C engine",
+      cmdWrapHeader())
+  add("Nim: wrap a C header with c2nim…", "", cmdWrapHeader(c2nim = true))
   add("Nim: write compile_commands.json for clangd", "", cmdCompileCommands())
   add("Nim: check the importc wrappers against their headers", "", (block:
     let b = buf()

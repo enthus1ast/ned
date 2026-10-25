@@ -1,5 +1,7 @@
 # ── breadcrumbs ──
 
+var jsonCrumbsAt = ((-1, -1, -1, -1), newSeq[(string, int)]())   # ((buffer, change, line, column), the keys there)
+
 
 proc drawBreadcrumbs() =
   let y = lay.crumbY
@@ -56,6 +58,22 @@ proc drawBreadcrumbs() =
     x = putStr(x, y, sep, blend(theme.dim, cb, 0.4), cb, {}, lim)
     x = putStr(x, y, (if head.len > 0 and p.line > 0: head & "  (column " & $(k + 1) & ")" else: "column " & $(k + 1)),
                theme.fg, cb, {}, lim)
+  elif b.lang.mode == lmJson and b.lines.len > 1 and b.lines.len < 20000:
+    # a JSON file: the keys down to the cursor (scripts › build) — a key is a button to it
+    let p = b.primary.head
+    let key = (b.id, b.changeId, p.line, p.col)
+    if jsonCrumbsAt[0] != key: jsonCrumbsAt = (key, jsonPathPartsAt(b.lines, p.line, p.col))
+    for (name, l) in jsonCrumbsAt[1]:
+      if x + 4 >= lim: break
+      x = putStr(x, y, sep, blend(theme.dim, cb, 0.4), cb, {}, lim)
+      let line = l
+      let nm = name
+      capture line, nm:
+        x = button(x, y, truncTo(nm, max(4, lim - x)), proc() =
+          let bb = buf()
+          if line < bb.lines.len:
+            pushJump()
+            bb.centerOn(Pos(line: line, col: leadingWs(bb.lines[line]).len)), "Go to " & nm, theme.syn[tkProperty], cb)
   elif b.lines.len > 1 and b.lang.id notin ["html", "xml", "markdown", "text", "json"]:
     let p = b.primary.head
     for l in stickyLines(b, min(p.line + 1, b.lines.high), 4):
