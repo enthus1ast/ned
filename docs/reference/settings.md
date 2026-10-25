@@ -110,7 +110,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `editor.vimMode` | `false` | Vim keybindings (normal/insert/visual modes, :w :q …) |
 | `editor.dimInactiveCode` | `true` | Dim code a compile leaves out here: a Nim `when` branch that is false on this platform (when defined(windows) on Linux — hover the `when` for its value), C's #if 0 and #ifdef __cplusplus |
 | `editor.formatOnType` | `false` | Let the language server tidy the line as you type the characters it asks for (a closing }, ;, a new line) — servers that offer it: clangd, gopls, rust-analyzer … |
-| `pictures.open` | `true` | A .png, .jpg, .gif, .bmp or .webp file opens as a picture (Tab: its bytes, in the hex editor) — else in the hex editor |
+| `pictures.open` | `true` | A .png, .jpg, .gif, .bmp or .webp file opens as a picture (Tab: its bytes, in the hex editor; Shift+Tab: the picture again) — else in the hex editor |
 | `pictures.draw` | `"auto"` | How pictures are drawn: auto (the terminal's own way where it has one — kitty, iTerm2, sixel — else in cells) · cells (▀, two pixels a cell: any terminal) · kitty · iterm · sixel |
 
 ## Nim

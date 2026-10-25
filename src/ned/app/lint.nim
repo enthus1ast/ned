@@ -118,6 +118,15 @@ proc lintChecks(b: Buffer): seq[Diag] =
       for d in webDiagsOf(b):
         if d.sev <= ecWantSev: result.add d
     except CatchableError, Defect: discard
+  # (a field's typo the engine's check names, with the field meant: not again as a misspelled name)
+  var fieldTypos: HashSet[(int, int)]
+  for d in result:
+    if d.rule == "field-typo": fieldTypos.incl (d.line, d.col)
+  if fieldTypos.len > 0:
+    var keep: seq[Diag]
+    for d in result:
+      if not (d.rule == "typo" and (d.line, d.col) in fieldTypos): keep.add d
+    result = keep
   lintApply(b.path, b.lines, result)
   result.sort(proc(x, y: Diag): int = cmp((x.line, x.col), (y.line, y.col)))
 

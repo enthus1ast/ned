@@ -245,7 +245,10 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | New file at path… |  |
 | New folder… |  |
 | Next problem | Alt+N / F8 |
+| Nim 3: pnak fetch (the project's packages, in deps/) | pnak checks out the packages the .nimble (or pnak.nif) asks for and writes nimony.paths |
+| Nim 3: pnak pin (write pnak.nif) | every package the project needs, theirs too, at the commit in use: a lockfile |
 | Nim 3: port this file with AI |  |
+| Nim 3: the NIF of this file beside it | nimony's code for it, each side following the cursor in the other |
 | Nim 3: this project is Nim 2 (nim) |  |
 | Nim 3: this project is Nim 3 (nimony) |  |
 | Nim 3: what this file needs (porting problems) |  |
@@ -322,7 +325,8 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Nim: use ned's built-in engine |  |
 | Nim: use nimlangserver |  |
 | Nim: what can this proc raise? |  |
-| Nim: wrap a C header (c2nim)… |  |
+| Nim: wrap a C header with c2nim… |  |
+| Nim: wrap a C header… | its functions, structs, enums and constants as Nim — by ned's own C engine |
 | Nim: write compile_commands.json for clangd |  |
 | Nim: write tests for this proc (from running it) | sample arguments, its results as std/unittest checks in tests/t<module>.nim, then run with coverage |
 | Nimble: add a dependency by name… |  |
@@ -428,6 +432,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Settings |  |
 | Settings sync: export to a file… |  |
 | Settings sync: import from a file… |  |
+| Settings sync: install the other device's plugins | the ones offered here before and not installed |
 | Settings sync: pull (load from your settings repository) |  |
 | Settings sync: push (save to your settings repository) |  |
 | Settings sync: set the repository… |  |

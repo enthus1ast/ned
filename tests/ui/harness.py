@@ -237,6 +237,27 @@ def fake_nimble_dir():
                {"name": "jsonyAlias", "alias": "jsony"}], open(d + '/packages_official.json', 'w'))
     return d
 
+def code_sub(pat, repl, line):
+    """re.sub on the parts of a Nim line that are code: not inside a "…" string (\\" in one kept), not a comment"""
+    out, i, start, q = [], 0, 0, False
+    while i < len(line):
+        c = line[i]
+        if q:
+            if c == '\\': i += 1
+            elif c == '"':
+                q = False
+                out.append(line[start:i + 1]); start = i + 1
+        elif c == '"':
+            out.append(re.sub(pat, repl, line[start:i])); start = i; q = True
+        elif c == '#':
+            break
+        i += 1
+    rest = line[start:]
+    out.append(rest if q else re.sub(pat, repl, rest) if '#' not in rest else
+               re.sub(pat, repl, rest[:rest.index('#')]) + rest[rest.index('#'):])
+    return ''.join(out)
+
+
 def ned_single_file():
     """ned as one Nim file that compiles on its own (every include and ned module put in place): a big real
     program for the formatter to work on"""
@@ -277,11 +298,12 @@ def ned_single_file():
                 continue
             # (a file read at compile time, next to its source: by its full path now)
             line = re.sub(r'staticRead\("([^"/][^"]*)"\)', lambda mm: 'staticRead("' + os.path.abspath(os.path.join(base, mm.group(1))) + '")', line)
-            line = line.replace('currentSourcePath().parentDir', '"' + os.path.abspath(base) + '"')
+            # (the folder of the source, in code — not in a string that writes it, as ned's C header wrapper's do)
+            line = code_sub(r'currentSourcePath\(\)\.parentDir', lambda mm: '"' + os.path.abspath(base) + '"', line)
             # (… and the folders n levels up, as the plugin host and the index cache name them)
-            line = re.sub(r'currentSourcePath\(\)\.plugSrcUp\((\d+)\)', lambda mm: '"' + os.path.abspath(
+            line = code_sub(r'currentSourcePath\(\)\.plugSrcUp\((\d+)\)', lambda mm: '"' + os.path.abspath(
                 os.path.join(base, *(['..'] * (int(mm.group(1)) - 1)))) + '"', line)
-            line = line.replace('currentSourcePath().nxSrcUp', '"' + os.path.abspath(base) + '"')
+            line = code_sub(r'currentSourcePath\(\)\.nxSrcUp', lambda mm: '"' + os.path.abspath(base) + '"', line)
             out.append(line)
     out = []
     inline(src + '/ned.nim', out)
