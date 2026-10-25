@@ -405,7 +405,59 @@ proc htmlChecks*(lines: openArray[string], fragment = false): seq[WebDiag] =
       let ot = tags[ti]
       result.add WebDiag(line: ot.line, col: ot.col, eline: ot.line, ecol: ot.col + n.len + 1, sev: 2,
                          rule: "html-close", msg: "<" & n & "> is never closed")
+    # href="#x" with no element of that id (or name) in the page; an attribute a letter or two from one the
+    # element takes
+    var names: HashSet[string]
+    for t in tags:
+      for (n, v, _, _) in t.attrs:
+        if n == "name" and v.len > 0: names.incl v
+    var idList: seq[string]
+    for k in ids.keys: idList.add k
+    inForeign = 0
+    for t in tags:
+      if t.closing:
+        if t.name in ["svg", "math"] and inForeign > 0: dec inForeign
+        continue
+      if t.name in ["svg", "math"] and not t.selfClosing: inc inForeign
+      for (n, v, al, ac) in t.attrs:
+        if n == "href" and v.len > 1 and v[0] == '#' and v != "#top" and
+           v[1 .. ^1].allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '-', '_', ':', '.'}) and
+           v[1 .. ^1] notin ids and v[1 .. ^1] notin names:
+          let vc = max(ac, lines[al].find(v, ac))
+          let near = closest(v[1 .. ^1], idList)
+          result.add WebDiag(line: al, col: vc, eline: al, ecol: vc + v.len, sev: 2, rule: "html-anchor",
+                             msg: "no element has the id '" & v[1 .. ^1] & "'" &
+                                  (if near.len > 0: " — '#" & near & "'?" else: ""))
+        if inForeign == 0 and htmlTag(t.name) >= 0 and n.len > 2 and n.allCharsInSet({'a'..'z', '-'}) and
+           attrDesc(t.name, n).len == 0 and not n.startsWith("on") and not n.startsWith("aria-") and
+           not n.startsWith("data-") and not n.startsWith("x-") and not n.startsWith("v-") and
+           not n.startsWith("hx-") and not n.startsWith("ng-"):
+          var known = tagAttrs(t.name)
+          for (g, _) in HtmlGlobalAttrs:
+            if '*' notin g: known.add g
+          let near = closest(n, known, limit = 1)
+          if near.len > 0 and near != n:
+            result.add WebDiag(line: al, col: ac, eline: al, ecol: ac + n.len, sev: 2, rule: "html-attribute",
+                               msg: "<" & t.name & "> has no attribute '" & n & "' — '" & near & "'?")
   sortDiags(result)
+
+proc htmlLocalRefs*(lines: openArray[string]): seq[(int, int, int, string)] =
+  ## the page's links to files beside it: href and src values that are relative paths — (line, col, end col, the
+  ## path without its ?query and #part)
+  for t in htmlTags(lines):
+    if t.closing: continue
+    for (n, v, al, ac) in t.attrs:
+      if n notin ["href", "src"] or v.len == 0: continue
+      if v[0] in {'#', '/', '{', '$', '<', '?'} or "://" in v or ':' in v.split('/')[0] or "{{" in v or
+         "${" in v or v.startsWith("//"):
+        continue
+      var path = v
+      for c in ['?', '#']:
+        let k = path.find(c)
+        if k >= 0: path = path[0 ..< k]
+      if path.len == 0 or path.strip != path: continue
+      let vc = max(ac, lines[al].find(v, ac))
+      result.add (al, vc, vc + v.len, path)
 
 proc htmlClassesAndIds*(lines: openArray[string]): (seq[string], seq[string]) =
   ## the class names and ids a document's elements have

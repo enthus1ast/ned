@@ -616,6 +616,7 @@ proc webRename(b: Buffer, p: Pos, newName: string): bool =
 # ── problems: after a pause in typing, for the file in front ──
 
 proc webDiagsOf(b: Buffer): seq[Diag] =
+  if extractFilename(b.path) == "pnak.nif": return pnakDiags(b)     # (Nim 3's lockfile)
   var ws: seq[WebDiag]
   let fam = webFamily(b.lang.id)
   let own = (fam == "html" and webHtmlFile(b)) or fam in ["css", "sql", "js", "json"]
@@ -627,6 +628,14 @@ proc webDiagsOf(b: Buffer): seq[Diag] =
   of "html":
     if webHtmlFile(b):
       ws.add htmlChecks(b.lines)
+      # (the files it links to: beside it, as the browser looks for them)
+      if b.path.len > 0 and splitFile(b.path).ext.toLowerAscii in [".html", ".htm"]:
+        let dir = parentDir(b.path)
+        for (l, c, e, p) in htmlLocalRefs(b.lines):
+          let f = dir / p.replace("%20", " ")
+          if not fileExists(f) and not dirExists(f):
+            ws.add WebDiag(line: l, col: c, eline: l, ecol: e, sev: 2, rule: "html-link",
+                           msg: "no " & p & " beside this page")
       let css = webDoc(b, "css")
       var any = false
       for l in css:
@@ -698,7 +707,7 @@ proc webChecksPump(b: Buffer) =
   ## the problems ned's own engines find, once the text has settled (web.engine)
   if cfgWebEngine == "off" or b == nil or b.lang == nil or b.path.len == 0 or b.largeOn: return
   let fam = webFamily(b.lang.id)
-  if fam.len == 0 and b.lang.mode != lmNim: return
+  if fam.len == 0 and b.lang.mode != lmNim and extractFilename(b.path) != "pnak.nif": return
   if webChkAt.getOrDefault(b.id, -1) == b.changeId:
     # (done for this text — unless a problem under the cursor was held back and the cursor has moved on)
     if b.id notin webHeld or webHeld[b.id] == (b.changeId, b.primary.head): return

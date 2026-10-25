@@ -1,14 +1,14 @@
-# ── pictures: a .png, .jpg, .gif or .bmp file opens as a picture (Tab: its bytes, in the hex editor), and a
-#    Markdown preview shows the pictures it has. Drawn in the terminal's cells (▀, two pixels a cell: in any
-#    terminal, Termux too) — and, where the terminal draws pictures itself (kitty, iTerm2, sixel), by the terminal
-#    over them, sharper ──
+# ── pictures: a .png, .jpg, .gif or .bmp file opens as a picture (Tab: its bytes in the hex editor, Shift+Tab
+#    back), and a Markdown preview shows the pictures it has. Drawn in the terminal's cells (▀, two pixels a cell:
+#    in any terminal, Termux too) — and, where the terminal draws pictures itself (kitty, iTerm2, sixel), by the
+#    terminal over them, sharper ──
 
 const PicExts = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"]
 
 type PicView = object
   zoom: float                       # 1: the picture fits the view
   panX, panY: int                   # what of a zoomed picture is shown: its left and top, in cells and rows
-  hex: bool                         # Tab: the bytes instead
+  hex: bool                         # Tab: the bytes instead (Shift+Tab: the picture again)
 
 var
   picViews: Table[int, PicView]     # buffer id → its picture view
@@ -204,11 +204,14 @@ proc picKey(b: Buffer, k: Key): bool =
   ## the picture view's keys: + − zoom, 0 fit, arrows move (zoomed), Tab: the bytes; true when it took the key
   if b.id notin picViews: return false
   var pv = picViews[b.id]
-  if k.kind == kTab and k.mods == {}:
+  # (Tab: its bytes; there Tab goes between the hex and the text columns, as in any hex view, and Shift+Tab back to
+  # the picture)
+  if k.kind == kTab and ((not pv.hex and k.mods == {}) or (pv.hex and k.mods == {mShift})):
     pv.hex = not pv.hex
     picViews[b.id] = pv
     needRender = true
-    info(if pv.hex: "Its bytes — Tab: the picture again" else: "The picture — Tab: its bytes")
+    info(if pv.hex: "Its bytes — Tab: the hex or the text column · Shift+Tab: the picture again"
+         else: "The picture — Tab: its bytes")
     return true
   if pv.hex: return false
   case k.kind

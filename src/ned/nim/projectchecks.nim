@@ -192,6 +192,7 @@ proc pcConsOk(cons: string): bool =
 proc pcNimbleChecks*(b: Buffer): seq[Diag] =
   ## a .nimble file's own problems
   if b == nil or not b.path.endsWith(".nimble") or nxIsPkgPath(b.path) or isLibraryFile(b.path): return
+  result.add pnakUnpinned(b.path, b.lines)          # (a Nim 3 project's pnak.nif: what it does not pin)
   let dir = parentDir(b.path)
   var fields: Table[string, (int, string)]
   for l, raw in b.lines:

@@ -736,8 +736,10 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
     let generic = s.ret in ["auto", "untyped", "typed"] or nxIsGenericName(s.ret, s.generics)
     let raw = score * 2 + (if generic: 0 else: 1)
     var total = raw
-    if score == 2 and not recvLit and s.params.len > 0 and nxNumConv(sc, s.params[0].typ, recv):
-      total = 1             # (min(x, y: int) for a uint32: a conversion, after min[T](x, y: T) — Nim's order)
+    if score in 1 .. 2 and not recvLit and s.params.len > 0 and nxNumConv(sc, s.params[0].typ, recv):
+      # (min(x, y: int) for a uint32: a conversion, after min[T](x, y: T) — Nim's order; signed to unsigned and
+      # back, which nxCompat puts lower still, too)
+      total = 1
     cands.add (r, total)
     if total > bestScore:
       bestScore = total

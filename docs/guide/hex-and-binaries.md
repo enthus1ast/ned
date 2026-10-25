@@ -10,7 +10,8 @@ picture.
 
 A `.png`, `.jpg`, `.gif`, `.bmp` or `.webp` file opens as the picture, fitted to the tab, with its format, size in
 pixels and file size at the top. **+** and **−** zoom, **0** fits it again, the arrows (or h j k l, Page Up and Page
-Down) move a zoomed picture, and **Tab** shows its bytes in the hex editor (Tab again: the picture).
+Down) move a zoomed picture, and **Tab** shows its bytes in the hex editor (there Tab goes between the hex and
+the text columns, as in any file; **Shift+Tab**: the picture again).
 
 How it is drawn depends on the terminal (`pictures.draw`, `auto`): with the kitty graphics protocol (kitty, Ghostty),
 iTerm2's images (iTerm2, WezTerm) or sixel (a terminal that says it has sixel when ned asks: foot, mlterm, recent

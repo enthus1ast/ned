@@ -1,6 +1,6 @@
 # Package
 
-version       = "6.26.0"
+version       = "6.27.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
@@ -88,12 +88,15 @@ task android, "Check that ned compiles for Android (arm64) — generates C only"
   exec "nim c --os:android --cpu:arm64 -d:release --compileOnly --hints:off --nimcache:" &
        tmpDir() & "ned_android " & main
 
-task test, "Unit tests: the Nim index, the C index, the formatters (and nedfmt), the regular expressions, ARC/ORC copies, the CSS / HTML / SQL engines, text encodings":
-  for t in ["tests/unit/tindex.nim", "tests/unit/tcindex.nim", "tests/unit/tformat.nim", "tests/unit/tregex.nim",
-            "tests/unit/tcopies.nim", "tests/unit/tfmtcli.nim", "tests/unit/tdiskcache.nim", "tests/unit/tversions.nim",
-            "tests/unit/tlayout.nim", "tests/unit/tnimapis.nim", "tests/unit/tgcov.nim", "tests/unit/tasmview.nim",
-            "tests/unit/teffects.nim", "tests/unit/ttext.nim", "tests/unit/tbinfmt.nim", "tests/unit/twebdata.nim",
-            "tests/unit/tweb.nim", "tests/unit/twebfmt.nim", "tests/unit/tjs.nim", "tests/unit/tencodings.nim"]:
+import std/[algorithm, strutils, os]
+
+task test, "Unit tests: every tests/unit/t*.nim — the Nim index, the C index and its Nim bindings, the formatters (and nedfmt), the regular expressions, ARC/ORC copies, the JSON / JS / CSS / HTML / SQL engines, NIF, text encodings":
+  var ts: seq[string]
+  for f in listFiles("tests/unit"):
+    let n = f.extractFilename
+    if n.startsWith("t") and n.endsWith(".nim"): ts.add f
+  ts.sort()
+  for t in ts:
     exec "nim r -d:release --hints:off " & t
 
 task lsptest, "nedls driven by a test client: every feature, and 2000 random edits (needs python3)":

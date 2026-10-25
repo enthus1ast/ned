@@ -80,6 +80,16 @@ suite "CSS":
     check cssChecks(@["a { -webkit-appearance: none; --x: 1; }"]).len == 0
     check cssChecks(@["a {", "  &:hover { color: red; }", "  .b { margin: 0 }", "}"]).len == 0
 
+  test "custom properties: a typo of one the sheet sets":
+    let vs = cssChecks(@[":root { --primary: #333; --gap: 4px; }", "a { color: var(--primay); margin: var(--gap); }"])
+    check vs.len == 1 and vs[0].rule == "css-var" and "--primary" in vs[0].msg and vs[0].line == 1
+    check vs[0].col == "a { color: var(".len
+    # (one set nowhere near: another sheet may set it; a sheet that sets none: nothing to compare with)
+    check cssChecks(@[":root { --primary: #333; }", "a { color: var(--brand-accent); }"]).len == 0
+    check cssChecks(@["a { color: var(--primay); }"]).len == 0
+    check cssChecks(@[":root { --_fa-family: x; }", "a { font-family: var(--fa-family, var(--_fa-family)); }"]).len == 0
+    check cssChecks(@["/* --primay: x */ :root { --primary: 1; }", "a { color: var(--primary) }"]).len == 0
+
 suite "HTML":
   test "where the cursor is":
     var (ls, l, c) = at("<di|")
@@ -125,6 +135,25 @@ suite "HTML":
     check htmlChecks(@["<div>"], fragment = true).len == 0
     check htmlChecks(@["<script>if (a < b) { x = '</p>' }</script>"]).len == 0
 
+  test "links in the page, attributes":
+    let a = htmlChecks(@["<a href=\"#intro\">x</a> <a href=\"#intr\">y</a> <a href=\"#top\">t</a> <a href=\"#\">z</a>",
+                         "<h2 id=\"intro\">I</h2> <a name=\"old\"></a> <a href=\"#old\">o</a>"])
+    check a.len == 1 and a[0].rule == "html-anchor" and "'#intro'?" in a[0].msg and a[0].col == "<a href=\"#intro\">x</a> <a href=\"".len
+    let t = htmlChecks(@["<div clas=\"a\" class=\"b\" data-x=1 hx-get=\"/a\" v-if=\"ok\"></div>",
+                         "<img src=a.png alt=\"\" widht=3>", "<my-el foo=1></my-el>"])
+    check t.len == 2 and t.allIt(it.rule == "html-attribute")
+    check "'class'?" in t[0].msg and "'width'?" in t[1].msg
+    check htmlChecks(@["<input type=\"text\" placeholder=\"a\" autofocus>"]).len == 0
+
+  test "the files a page links to":
+    let rs = htmlLocalRefs(@["<link href=\"style.css?v=2\" rel=stylesheet><script src=\"./js/app.js\"></script>",
+                             "<a href=\"https://x.org/a\">x</a> <a href=\"mailto:a@b\">m</a> <a href=\"/root.html\">r</a>",
+                             "<img src=\"pics/a%20b.png#x\" alt=\"\"> <a href=\"{{ url }}\">t</a> <a href=\"#id\">i</a>"])
+    check rs.len == 3
+    check rs[0][3] == "style.css" and rs[0][0] == 0 and rs[0][1] == "<link href=\"".len
+    check rs[1][3] == "./js/app.js"
+    check rs[2][3] == "pics/a%20b.png" and rs[2][0] == 2
+
 suite "SQL":
   let schema = block:
     var sc: SqlSchema
@@ -169,6 +198,21 @@ suite "SQL":
     check col.len == 1 and col[0].rule == "sql-column" and "name" in col[0].msg
     check sqlChecks(@["WITH recent AS (SELECT * FROM orders) SELECT * FROM recent;"], schema).len == 0
     check sqlChecks(@["SELECT * FROM nothing;"], SqlSchema()).len == 0     # (no tables known: nothing to say)
+
+  test "INSERT and UPDATE: columns and values":
+    check sqlChecks(@["INSERT INTO users (id, name, email) VALUES (1, 'a', 'b'), (?, ?, ?);",
+                      "INSERT INTO orders VALUES (1, 2, 3.5, 'n');", "UPDATE users SET name = ?, email = lower(?) WHERE id = 1;"],
+                    schema).len == 0
+    let cols = sqlChecks(@["INSERT INTO users (id, nmae) VALUES (1, 'a');", "UPDATE users SET emal = ? WHERE id = ?;"], schema)
+    check cols.len == 2 and cols.allIt(it.rule == "sql-column")
+    check "'name'" in cols[0].msg and "'email'" in cols[1].msg
+    let vals = sqlChecks(@["INSERT INTO users (id, name) VALUES (1, 'a', 'b');", "INSERT INTO orders VALUES (1, 2);",
+                           "INSERT INTO users (id, name) VALUES (1, 'a'), (2);"], schema)
+    check vals.len == 3 and vals.allIt(it.rule == "sql-insert")
+    check vals[0].sev == 1 and vals[1].sev == 3 and vals[2].sev == 1        # (fewer, no columns named: PostgreSQL takes it)
+    check "3 values for 2 columns" in vals[0].msg and "name the columns" in vals[1].msg
+    check vals[2].line == 2 and vals[2].col == "INSERT INTO users (id, name) VALUES (1, 'a'), ".len
+    check sqlChecks(@["INSERT INTO users (id, name) SELECT id, name FROM users;"], schema).len == 0
 
   test "values for the `?` of a query":
     check sqlArgChecks(@["db.exec(sql\"INSERT INTO t VALUES (?, ?)\", a, b)"]).len == 0

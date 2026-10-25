@@ -440,6 +440,35 @@ newest. Two more choices add a job that builds ned from the repository you give 
 once; a link with a login in it is refused) and runs `ned --lint --format:github` — and `nedfmt --check`. The file
 is written, not committed: read it, then commit and push.
 
+## Nim 3 (Nimony)
+
+A project is Nim 3 when you say so (*Nim › Nim 3 (Nimony) › This project is Nim 3*, kept in its
+`.ned/settings.json` as `"nim.compiler": "nimony"`) and `nimony` is on PATH. Then:
+
+- nimony checks the file on save and as you type, and runs it (F5); F12 and *Find references* ask nimony
+  (`--def`, `--usages`) where ned's engine cannot tell which symbol a name is. ned's engine reads Nimony's own
+  library, not Nim 2's.
+- **What Nim 3 needs** (also for a Nim 2 file, when you ask: *Nim 3: what this file needs*): each change the
+  porting rules call for is a problem in the Problems dock — `except X as e`, `newException`, an unlabeled
+  `break` in a block, a template called without `()`, a name written in another case than it is declared (names
+  are case-sensitive in Nim 3) … Ctrl+. makes the ones that are mechanical.
+- **Contracts**: a call whose arguments break the routine's `{.requires: …}` is an error as you type, the one
+  nimony gives when it compiles: `needsPositive(0)` → *contract violated: requires x > 0 (x = 0)*. Only what can
+  be worked out from the arguments as written (numbers, true and false) is judged; the rest is left to nimony.
+- **Passive procs**: `delay(handle(c))` of a `.passive` proc that takes a `var`, `out` or `lent` parameter is an
+  error before you compile — its continuation can outlive the caller; take the parameter as `sink`.
+- **NIF**: `.nif` files have their colours (tags, symbols, line information), their routines and types in the
+  Outline, and hover: what a tag is (from Nimony's `doc/tags.md`) and where the node comes from in the Nim source
+  — F12 goes there, or, on a symbol, to where the NIF declares it. *Nim 3: the NIF of this file beside it* opens
+  what nimony made of the file (it checks the file first when there is none yet); each side follows the cursor
+  in the other.
+- **pnak**, Nim 3's package tool: *Nim 3: pnak fetch* checks out the packages the `.nimble` (or `pnak.nif`) asks
+  for in `deps/` and writes `nimony.paths`; *Nim 3: pnak pin* writes `pnak.nif`, the lockfile: every package,
+  the ones the project needs and theirs, at its commit. In `pnak.nif` the Outline lists the packages, hover says
+  where each one is checked out and at which commit, F12 opens the package's `.nimble`, and the Problems dock
+  says when a package has no commit or a branch's name instead of one, is listed twice, is not fetched yet or is
+  checked out at another commit. In the `.nimble`, a `requires` the lockfile does not have says so (rule `pnak`).
+
 ## Using nimlangserver instead
 
 Set `"nim.ide": "nimlangserver"` (or click *Use nimlangserver instead* in the Nim dock). All nimlangserver
@@ -495,8 +524,14 @@ Your own `nim.projectMapping` always wins.
   documents it in the header — in completion too), the C signature is shown dimmed after each wrapper
   (`nim.cSignatureHints`), `header: "…"` and `importc: "…"` are coloured and have a hover and F12, Alt+Enter
   rewrites a wrapper from its C declaration, and `proc ` + a C name completes a whole new wrapper; wrappers are checked
-  against their headers (`nim.checkWrappers`), completion in `header: "…"` and `importc: "…"`, *wrap a C header
-  (c2nim)*, *compile_commands.json for clangd*.
+  against their headers (`nim.checkWrappers`), completion in `header: "…"` and `importc: "…"`, *compile_commands.json
+  for clangd*.
+- *Nim: wrap a C header…*: Nim for a C header, made by ned's own C engine — nothing to install. Its functions as
+  `importc` procs (varargs too), its structs and unions as objects (bit fields, arrays, nested unions, an opaque
+  struct as `incompleteStruct`), its enums as Nim enums (as `cint` constants when the values do not rise), its
+  function-pointer typedefs as `proc … {.cdecl.}`, its `#define` numbers and strings as constants, its globals as
+  `var`s — in a `.nim` beside the header (a system header's: in the project), with a `const …H` naming the header.
+  *wrap a C header with c2nim…* uses c2nim (or futhark) instead.
 - Code inside strings in its own colours: `{.emit}` as C (C++, JS), `sql"…"`, `re"…"`, `peg"…"`, `parseJson("…")`,
   the `{expressions}` of `fmt"…"` and `&"…"`, and HTML or SQL in triple-quoted strings. `#[html]#` before a string
   marks it; `nim.embeddedLanguages` names your own procs (`{"render": "html"}`).

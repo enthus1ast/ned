@@ -2350,7 +2350,8 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   # (ned's own CSS, HTML and SQL — in their files and in Nim strings)
   ("sql-args", "a query given more (or fewer) values than it has `?` (db_connector's exec, getRow …)", 1),
   ("sql-table", "a table no CREATE TABLE of the project makes", 2),
-  ("sql-column", "a column its table does not have (`t.col`)", 2),
+  ("sql-column", "a column its table does not have (`t.col`, INSERT's column list, UPDATE … SET)", 2),
+  ("sql-insert", "an INSERT row with more or fewer values than columns", 1),
   ("css-property", "an unknown CSS property", 2),
   ("css-value", "a value its CSS property does not take", 2),
   ("css-semicolon", "a missing `;`: the next line is read as part of the value", 1),
@@ -2359,6 +2360,10 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("html-id", "an id used twice", 2),
   ("html-element", "an element HTML does not have", 2),
   ("html-alt", "an <img> without alt text", 4),
+  ("html-anchor", "a link to #id no element of the page has", 2),
+  ("html-attribute", "an attribute a letter away from one the element takes (a typo)", 2),
+  ("html-link", "a link or src to a file that is not beside the page", 2),
+  ("css-var", "var(--name) where the sheet sets custom properties but not this one: a typo of one", 2),
   # (ned's own JavaScript — in .js files and an HTML page's <script>s)
   ("js-brace", "a bracket (or `${`) never closed, or one that closes nothing", 1),
   ("js-redeclare", "a let, const, class or import declared twice in one scope", 1),
@@ -2370,7 +2375,14 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("json", "a mistake in a JSON file: a comma missing or too many, a string not closed, a comment JSON does not take", 1),
   ("json-duplicate-key", "a key an object has twice (the last one counts)", 2),
   ("json-schema", "a value a known file does not take there (package.json, tsconfig.json, ned's settings …)", 2),
-  ("json-unknown-key", "a key a known file does not have — a typo of one, mostly", 2)]
+  ("json-unknown-key", "a key a known file does not have — a typo of one, mostly", 2),
+  # (Nim 3)
+  ("contract", "Nim 3: a call whose arguments break the routine's {.requires: …} — nimony's \"contract violated\"", 1),
+  ("passive", "Nim 3: delay(f(…)) of a passive proc with a var, out or lent parameter — its continuation outlives " &
+   "the caller", 1),
+  # (Nim 3's package tool)
+  ("pnak", "pnak.nif: a package not pinned to a commit, listed twice, not fetched or at another commit; a " &
+   ".nimble's requires the lockfile does not have", 3)]
 
 var ecWantSev* = 4                     # ned --lint: rules less serious than what it shows or fails on are not looked for
 
@@ -2557,6 +2569,11 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
       if on("gcsafe"): ecGcsafe(f, b, code, result)
       if cfgEngineMoreChecks and on("raises"): ecRaisesDeclared(f, b, code, result)
       if port3 and on("nim3"): nim3Checks(f, b, code, result)
+      if nim3On() and (on("contract") or on("passive")):
+        var n3: seq[Diag]
+        nim3CodeChecks(f, b, code, n3)
+        for d in n3:
+          if on(d.rule): result.add d
     except CatchableError, Defect: discard
     if live:
       var others: seq[Diag]

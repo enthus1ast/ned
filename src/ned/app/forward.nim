@@ -177,6 +177,11 @@ proc nbHover(b: Buffer, p: Pos): string
 proc nifHover(b: Buffer, p: Pos): string            # nim/nifview.nim
 proc nifDefinition(b: Buffer, p: Pos): bool
 proc nifOutlineOf(b: Buffer): seq[SideItem]
+proc pnakHover(b: Buffer, p: Pos): string           # nim/pnak.nim
+proc pnakDefinition(b: Buffer, p: Pos): bool
+proc pnakOutlineOf(b: Buffer): seq[SideItem]
+proc pnakUnpinned(nimblePath: string, lines: seq[string]): seq[Diag]
+proc cmdPnak(sub: string)
 proc nbNameComplete(b: Buffer, p: Pos, manual: bool): bool
 proc nbPackageKnown(name: string): int
 proc nbPackageList(): seq[(string, string)]

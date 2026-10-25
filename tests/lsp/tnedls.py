@@ -1048,7 +1048,7 @@ console.log(join("b", "c"));
 def lx_lang(path):
     ext = os.path.splitext(path)[1]
     return {".c": "c", ".h": "c", ".js": "javascript", ".json": "json", ".css": "css", ".html": "html",
-            ".sql": "sql"}.get(ext, "plaintext")
+            ".sql": "sql", ".nif": "nif"}.get(ext, "plaintext")
 
 
 def run_langs(nedls, log):
@@ -1056,10 +1056,23 @@ def run_langs(nedls, log):
     files = {"shapes.h": LX_H, "shapes.c": LX_C, "main.c": LX_MAIN, "util.js": LX_UTIL, "app.js": LX_APP,
              "package.json": '{\n  "name": "demo",\n  "nmae": "x",\n  "type": "modul"\n}\n',
              "style.css": "a {\n  colr: red;\n}\n", "page.html": "<!doctype html>\n<html>\n<body>\n<di\n</body>\n</html>\n",
-             "q.sql": "CREATE TABLE users (id INTEGER, name TEXT);\nSELECT name FROM us\n"}
+             "q.sql": "CREATE TABLE users (id INTEGER, name TEXT);\nSELECT name FROM us\n",
+             "ins.sql": "INSERT INTO users (id, nmae) VALUES (1, 'a', 'b');\n",
+             "site.html": '<!doctype html>\n<html>\n<body>\n<a href="#intro">i</a> <a href="gone.html">g</a>\n'
+                          '<div clas="x" id="intro"></div>\n</body>\n</html>\n',
+             "vars.css": ":root { --primary: #333; }\na { color: var(--primay); }\n",
+             "pnak.nif": '(.nif27)\n(stmts\n (requires "https://github.com/a/jsony.git" "0123abcd")\n'
+                         ' (requires "https://github.com/b/zippy.git" "main")\n'
+                         ' (requires "https://github.com/a/jsony.git" "0123abcd"))\n'}
     for name, text in files.items():
         with open(os.path.join(root, name), "w") as f:
             f.write(text)
+    # (pnak fetched jsony, at another commit; zippy not yet)
+    os.makedirs(os.path.join(root, "deps", "jsony", ".git"))
+    with open(os.path.join(root, "deps", "jsony", ".git", "HEAD"), "w") as f:
+        f.write("ffff0000aaaa\n")
+    with open(os.path.join(root, "deps", "jsony", "jsony.nimble"), "w") as f:
+        f.write('version = "1.1.5"\n')
     c, init = new_client(nedls, root, log=log)
     try:
         def P(name):
@@ -1137,6 +1150,100 @@ def run_langs(nedls, log):
         check("6.27 SQL: completion of a table the project creates", "users" in lab, lab[:10])
         r = req("textDocument/semanticTokens/full", "main.c")
         check("6.27 langs: no Nim colours for another language", r == {"data": []}, r)
+        # ── more of HTML, CSS and SQL ──
+        ds = c.wait_diagnostics(uri(P("site.html")), lambda ds: len(ds) >= 2, timeout=20) or []
+        msgs = sorted(d["message"] for d in ds)
+        check("6.27 HTML: a link to a file not beside the page, an attribute's typo",
+              any("gone.html" in m for m in msgs) and any("'class'?" in m for m in msgs) and
+              not any("#intro" in m for m in msgs), msgs)
+        ds = c.wait_diagnostics(uri(P("vars.css")), lambda ds: len(ds) >= 1, timeout=20) or []
+        check("6.27 CSS: var() of a custom property the sheet does not set — a typo",
+              any("--primary" in d["message"] for d in ds), [d["message"] for d in ds])
+        ds = c.wait_diagnostics(uri(P("ins.sql")), lambda ds: len(ds) >= 2, timeout=20) or []
+        msgs = [d["message"] for d in ds]
+        check("6.27 SQL: INSERT — a column the table does not have, more values than columns",
+              any("'name'" in m for m in msgs) and any("3 values for 2 columns" in m for m in msgs), msgs)
+        # ── pnak.nif ──
+        ds = c.wait_diagnostics(uri(P("pnak.nif")), lambda ds: len(ds) >= 3, timeout=20) or []
+        msgs = [d["message"] for d in ds]
+        check("6.27 pnak.nif: twice, a branch for a commit, not fetched, at another commit",
+              any("twice" in m for m in msgs) and any("branch or a tag" in m for m in msgs) and
+              any("zippy is not in deps" in m for m in msgs) and any("deps/jsony is at ffff0000aa" in m for m in msgs),
+              msgs)
+        r = req("textDocument/documentSymbol", "pnak.nif") or []
+        check("6.27 pnak.nif: the packages in the outline", [x["name"] for x in r] == ["jsony", "zippy", "jsony"],
+              [x.get("name") for x in r])
+        h = req("textDocument/hover", "pnak.nif", 2, 12)
+        hv = ((h or {}).get("contents") or {}).get("value", "")
+        check("6.27 pnak.nif: hover — the package, its commit, where it is checked out",
+              "jsony" in hv and "0123abcd" in hv and "deps" in hv, hv)
+        r = req("textDocument/definition", "pnak.nif", 2, 12) or []
+        check("6.27 pnak.nif: definition — the package's .nimble in deps/",
+              len(r) == 1 and r[0]["uri"].endswith("deps/jsony/jsony.nimble"), r)
+    finally:
+        c.request("shutdown", None)
+        c.notify("exit", {})
+        c.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# ── Nim 3 (when nimony is installed): contracts and passive procs, as nimony would say ──
+
+N3_APP = """import std/syncio
+
+proc needsPositive(x: int) {.requires: x > 0.} =
+  echo x
+
+proc between(a, b: int) {.requires: a < b and b <= 100.} =
+  echo a
+
+proc handle(c: var int) {.passive.} =
+  inc c
+
+proc take(c: sink int) {.passive.} =
+  echo c
+
+needsPositive(5)
+needsPositive(0)
+between(1, 2)
+between(b = 1, a = 3)
+between(1, 200)
+var c = 1
+var n = 2
+needsPositive(n)
+discard delay(handle(c))
+discard delay(take(c))
+"""
+
+
+def run_nim3(nedls, log):
+    nimony = shutil.which("nimony")
+    if not nimony:
+        print("SKIP  6.27 Nim 3: nimony is not on PATH")
+        return
+    root = tempfile.mkdtemp(prefix="tnedls-n3-")
+    # (ned's settings, read by nedls: a config folder of the test's own that makes it Nim 3)
+    cfg = os.path.join(root, ".cfg")
+    os.makedirs(os.path.join(cfg, "ned"))
+    with open(os.path.join(cfg, "ned", "config.json"), "w") as f:
+        f.write('{"nim.compiler": "nimony"}\n')
+    path = os.path.join(root, "app.nim")
+    with open(path, "w") as f:
+        f.write(N3_APP)
+    c, _ = new_client(nedls, root, log=log, opts={"nedSettings": True},
+                      env=dict(os.environ, XDG_CONFIG_HOME=cfg))
+    try:
+        open_doc(c, path, N3_APP)
+        ds = c.wait_diagnostics(uri(path), lambda ds: sum("contract" in d["message"] for d in ds) >= 3 and
+                                any("delay" in d["message"] for d in ds), timeout=60) or []
+        mine = sorted((d["range"]["start"]["line"], d["message"]) for d in ds
+                      if "contract" in d["message"] or "delay" in d["message"])
+        lines = N3_APP.split("\n")
+        want = {lines.index("needsPositive(0)"), lines.index("between(b = 1, a = 3)"), lines.index("between(1, 200)"),
+                lines.index("discard delay(handle(c))")}
+        check("6.27 Nim 3: contract violated (literal arguments, named ones), delay of a passive proc with a var",
+              {l for l, _ in mine} == want and any("requires x > 0 (x = 0)" in m for _, m in mine) and
+              any("`c: var int`" in m and "sink" in m for _, m in mine), mine)
     finally:
         c.request("shutdown", None)
         c.notify("exit", {})
@@ -1684,6 +1791,7 @@ def main():
         run_checks(nedls, root, have_nim, log)
         run_actions(nedls, have_nim, log)
         run_langs(nedls, log)
+        run_nim3(nedls, log)
         if edits > 0:
             run_stress(nedls, root, edits, log)
     finally:

@@ -46,7 +46,8 @@ proc nifParse*(lines: openArray[string]): seq[NifNode] =
         inc c
       var v = 0
       while c < s.len and s[c] in B62:
-        v = v * 62 + b62(s[c])
+        # (a word that is no number — not NIF, or cut — stays a big one, not an overflow)
+        if v < 1_000_000_000: v = v * 62 + b62(s[c])
         given[k] = true
         inc c
       nums[k] = if neg: -v else: v
@@ -186,3 +187,71 @@ proc nifTagTable*(md: string): Table[string, (string, string)] =
     let tag = forms[k + 2 ..< e]
     let desc = if cells.len >= 3: cells[2].strip(chars = {' ', '|'}) else: ""
     if tag.len > 0 and tag notin result: result[tag] = (forms.replace("`", ""), desc)
+
+# ── pnak.nif: Nimony's package lockfile — (stmts (requires "<git url>" "<commit>") …) ──
+
+type PnakReq* = object
+  url*, commit*, name*: string
+  tline*, tcol*: int                   ## where its (requires starts
+  line*, col*, ecol*: int              ## the URL's string
+  cline*, ccol*, cecol*: int           ## the commit's string (-1: none)
+
+func pnakName*(url: string): string =
+  ## a package's name from its URL: https://github.com/a/foo.git → foo (a bare name stays as it is)
+  var u = url.strip
+  let h = u.find('#')
+  if h >= 0: u = u[0 ..< h]
+  while u.endsWith("/"): u.setLen(u.len - 1)
+  if u.endsWith(".git"): u.setLen(u.len - 4)
+  let k = max(u.rfind('/'), u.rfind(':'))
+  if k >= 0: u[k + 1 .. ^1] else: u
+
+func pnakIsCommit*(s: string): bool =
+  ## a commit's hash (7 to 40 hex digits) — not a branch or a tag, which can move
+  s.len >= 7 and s.len <= 40 and s.allCharsInSet({'0'..'9', 'a'..'f', 'A'..'F'})
+
+func pnakRequires*(lines: openArray[string]): seq[PnakReq] =
+  ## the lockfile's entries, where they are (a (requires …) may go over several lines)
+  var inReq = false
+  var cur: PnakReq
+  var strs = 0
+  for ln, s in lines:
+    var i = 0
+    while i < s.len:
+      let c = s[i]
+      if c == '"':
+        # (NIF's strings: \ and two hex digits for a character it escapes)
+        var e = i + 1
+        var v = ""
+        while e < s.len and s[e] != '"':
+          if s[e] == '\\' and e + 2 < s.len and s[e + 1] in HexDigits and s[e + 2] in HexDigits:
+            v.add chr(parseHexInt(s[e + 1 .. e + 2]))
+            e += 3
+          else:
+            v.add s[e]
+            inc e
+        if inReq:
+          if strs == 0:
+            cur.url = v
+            (cur.line, cur.col, cur.ecol) = (ln, i, min(e + 1, s.len))
+          elif strs == 1:
+            cur.commit = v
+            (cur.cline, cur.ccol, cur.cecol) = (ln, i, min(e + 1, s.len))
+          inc strs
+        i = e + 1
+        continue
+      if c == '(':
+        var e = i + 1
+        while e < s.len and s[e] in {'a'..'z', 'A'..'Z', '0'..'9', '.', '_'}: inc e
+        if s[i + 1 ..< e] == "requires":
+          inReq = true
+          strs = 0
+          cur = PnakReq(tline: ln, tcol: i, line: ln, col: i, ecol: e, cline: -1, ccol: -1, cecol: -1)
+        i = e
+        continue
+      if c == ')' and inReq:
+        inReq = false
+        if cur.url.len > 0:
+          cur.name = pnakName(cur.url)
+          result.add cur
+      inc i
