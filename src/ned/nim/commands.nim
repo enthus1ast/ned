@@ -218,6 +218,61 @@ proc cmdShowC() =
       nb.readOnly = true
       info("Generated " & (if cfgNimTarget == "cpp": "C++" else: "C") & " for " & want & " (read-only)"))
 
+type NimCall = object
+  path, name: string            ## the caller (incoming) or the routine called (outgoing): its file and name
+  line, col: int                ## where it is declared (-1: the module's top level)
+  endLine: int
+  sites: seq[(int, int)]        ## the calls: in the caller (incoming), in the routine itself (outgoing)
+
+proc nimCallers(b: Buffer, f: NxFile, ri: int): seq[NimCall] =
+  ## the routines that call f.syms[ri] (each with where it calls it), from the references to it
+  var hits: seq[(string, int, int)]
+  var decl = ""
+  try: discard engineReferences(b, Pos(line: f.syms[ri].line, col: f.syms[ri].col), hits, decl)
+  except Exception as e: internalError("Nim index", e)
+  var seen: Table[string, int]
+  for (path, l, c) in hits:
+    let nf = if path == b.path: f else: nxLoad(path)
+    if nf == nil: continue
+    let e = nxEnclosing(nf, l)
+    if e >= 0 and nf.syms[e].line == l: continue          # the declaration itself
+    let key = path & ":" & (if e >= 0: $e else: "top")
+    if key notin seen:
+      seen[key] = result.len
+      if e >= 0:
+        result.add NimCall(path: path, name: nf.syms[e].name, line: nf.syms[e].line, col: nf.syms[e].col,
+                           endLine: nf.syms[e].endLine)
+      else: result.add NimCall(path: path, name: "(top level)", line: -1, col: 0, endLine: -1)
+    result[seen[key]].sites.add (l, c)
+
+proc nimCallees(b: Buffer, f: NxFile, ri: int): seq[NimCall] =
+  ## the routines f.syms[ri] calls (each with where), from the calls in its body
+  var seen: Table[string, int]
+  var st: NxLexState
+  let (_, hl) = nxHeaderLast(b.lines, f.syms[ri])
+  for l in f.syms[ri].line .. min(max(f.syms[ri].endLine, hl), b.lines.high):
+    let ln = b.lines[l]
+    # (the header's own names are not calls: on its last line only what follows its `=`, a body on that line)
+    let bodyAt = if l < hl: high(int) elif l == hl: nxFindTop(nxCodeOf(ln), '=', 0) + 1 else: 0
+    for (a, e) in nxIdents(ln, st):
+      if l <= hl and (bodyAt <= 0 or a < bodyAt): continue
+      let w = ln[a ..< e]
+      if w in NxKeywords: continue
+      # a call — f(x), f x, x.f, x.f(y) — is a name that means a routine
+      var refs: seq[NxRef]
+      var locals: seq[NxSym]
+      var mp = ""
+      try: (refs, locals, mp) = nxTargets(f, b.lines, l, a)
+      except Exception: continue
+      if locals.len > 0 or mp.len > 0 or refs.len == 0 or refs[0].sym.kind notin NxRoutineKinds: continue
+      let r = refs[0]
+      let dp = if r.file == f or r.file.path == f.path: b.path else: r.file.path
+      let key = dp & ":" & $r.sym.line
+      if key notin seen:
+        seen[key] = result.len
+        result.add NimCall(path: dp, name: w, line: r.sym.line, col: r.sym.col, endLine: r.sym.endLine)
+      result[seen[key]].sites.add (l, a)
+
 proc cmdCallHierarchy() =
   ## who calls the routine at the cursor (←) and what it calls (→), from the Nim index
   let b = buf()
@@ -245,47 +300,38 @@ proc cmdCallHierarchy() =
     return
   var items: seq[PickItem]
   # ← incoming: every reference, grouped by the routine it is in
-  var hits: seq[(string, int, int)]
-  var decl = ""
-  var at = b.primary.head
-  if ri >= 0: at = Pos(line: f.syms[ri].line, col: f.syms[ri].col)
-  try: discard engineReferences(b, at, hits, decl)
-  except Exception as e: internalError("Nim index", e)
+  if ri < 0:
+    # (the name at the cursor is not declared here: the uses of what it names)
+    var hits: seq[(string, int, int)]
+    var decl = ""
+    try: discard engineReferences(b, b.primary.head, hits, decl)
+    except Exception as e: internalError("Nim index", e)
+    var seen: Table[string, int]
+    for (path, l, c) in hits:
+      let nf = if path == b.path: f else: nxLoad(path)
+      if nf == nil: continue
+      let e = nxEnclosing(nf, l)
+      if e >= 0 and nf.syms[e].line == l: continue
+      let caller = if e >= 0: nf.syms[e].name else: "(top level)"
+      let key = path & ":" & caller
+      if key in seen:
+        inc items[seen[key]].score
+        items[seen[key]].detail = relPath(path) & ":" & $(items[seen[key]].line + 1) & " · " & $items[seen[key]].score & " calls"
+        continue
+      seen[key] = items.len
+      items.add PickItem(label: "← " & caller, detail: relPath(path) & ":" & $(l + 1), icon: "ƒ", path: path, line: l, col: c, score: 1)
+  else:
+    for c in nimCallers(b, f, ri):
+      let (l, col) = c.sites[0]
+      items.add PickItem(label: "← " & c.name, detail: relPath(c.path) & ":" & $(l + 1) &
+                         (if c.sites.len > 1: " · " & $c.sites.len & " calls" else: ""), icon: "ƒ", path: c.path,
+                         line: l, col: col, score: c.sites.len)
   if nxRefsCut: warn(RefsCutMsg)
-  var seen: Table[string, int]
-  for (path, l, c) in hits:
-    let nf = if path == b.path: f else: nxLoad(path)
-    if nf == nil: continue
-    let e = nxEnclosing(nf, l)
-    if e >= 0 and nf.syms[e].line == l: continue          # the declaration itself
-    let caller = if e >= 0: nf.syms[e].name else: "(top level)"
-    let key = path & ":" & caller
-    if key in seen:
-      inc items[seen[key]].score
-      items[seen[key]].detail = relPath(path) & ":" & $(items[seen[key]].line + 1) & " · " & $items[seen[key]].score & " calls"
-      continue
-    seen[key] = items.len
-    items.add PickItem(label: "← " & caller, detail: relPath(path) & ":" & $(l + 1), icon: "ƒ", path: path, line: l, col: c, score: 1)
   # → outgoing: the calls inside its body
   if ri >= 0:
-    var outSeen: HashSet[string]
-    var st: NxLexState
-    for l in f.syms[ri].line + 1 .. min(f.syms[ri].endLine, b.lines.high):
-      let ln = b.lines[l]
-      for (a, e) in nxIdents(ln, st):
-        var k = e
-        while k < ln.len and ln[k] == ' ': inc k
-        if k >= ln.len or ln[k] notin {'(', '['}: continue
-        let w = ln[a ..< e]
-        if w in outSeen: continue
-        var defs: seq[(string, int, int, string)]
-        try: defs = nxDefinition(f, b.lines, l, a)
-        except Exception: continue
-        if defs.len == 0: continue
-        outSeen.incl w
-        let dp = if defs[0][0] == f.path or defs[0][0].len == 0: b.path else: defs[0][0]
-        items.add PickItem(label: "→ " & w, detail: relPath(dp) & ":" & $(defs[0][1] + 1), icon: "ƒ", path: dp,
-                           line: defs[0][1], col: defs[0][2])
+    for c in nimCallees(b, f, ri):
+      items.add PickItem(label: "→ " & c.name, detail: relPath(c.path) & ":" & $(c.line + 1), icon: "ƒ", path: c.path,
+                         line: c.line, col: c.col)
   if items.len == 0:
     info("No calls to or from " & name)
     return
@@ -327,9 +373,9 @@ proc moduleRefSpans(line, importerDir, oldPath: string, fromStmt: bool): seq[(in
       i = j
     else: inc i
 
-proc fixImportsAfterMove(oldPath, newPath: string) =
-  ## a Nim file was renamed or moved: the imports that name it follow (asks first)
-  if not (oldPath.endsWith(".nim") and newPath.endsWith(".nim")): return
+proc importEditsForMove(oldPath, newPath: string): (seq[(string, seq[string])], seq[string]) =
+  ## a Nim file renamed or moved: each file whose imports name it, with those imports changed (and the places to
+  ## change by hand: a path in a/[b, c] that moves to another folder)
   var edits: seq[(string, seq[string])]
   var skipped: seq[string]
   for path in nimSourceFiles():
@@ -373,6 +419,12 @@ proc fixImportsAfterMove(oldPath, newPath: string) =
         ls[l] = ls[l][0 ..< a] & repl & ls[l][e .. ^1]
         changed = true
     if changed: edits.add (path, ls)
+  (edits, skipped)
+
+proc fixImportsAfterMove(oldPath, newPath: string) =
+  ## a Nim file was renamed or moved: the imports that name it follow (asks first)
+  if not (oldPath.endsWith(".nim") and newPath.endsWith(".nim")): return
+  let (edits, skipped) = importEditsForMove(oldPath, newPath)
   if edits.len == 0:
     if skipped.len > 0: warn("Update these imports by hand: " & skipped.join(", "))
     return
@@ -464,6 +516,7 @@ proc cmdPeekReferences() =
 proc cmdReferences() =
   let b = buf()
   if cEngineOn(b) and cEngReferences(b, b.primary.head): return       # C: ned's own engine
+  if webReferences(b, b.primary.head): return                          # JavaScript: ned's own engine
   var w = b.wordAt(b.primary.head)
   if w.len == 0 and nimEngineOn(b): w = opAtCursor(b)
   if w.len == 0:

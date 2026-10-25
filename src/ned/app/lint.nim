@@ -105,8 +105,9 @@ proc lintChecks(b: Buffer): seq[Diag] =
     let f = if b.lang != nil and b.lang.mode == lmNim: nxFileFor(b) else: nil
     if f != nil:
       for (l, c, w, meant) in nxTypos(f, b.lines, 0, b.lines.high, (-1, -1)):
+        let m = nxTypoMsg(b.lines[l], c, w, meant)
         result.add Diag(line: l, col: c, eline: l, ecol: c + w.len, sev: 1, src: "ned", rule: "typo",
-                        msg: "undeclared identifier: '" & w & "' — did you mean '" & meant & "'?")
+                        msg: m[0 ..< m.find('\n')] & " — did you mean '" & meant & "'?")
   except CatchableError, Defect: discard
   if cfgEngineChecks and b.lang != nil and b.lang.mode == lmNim:
     try: result.add engineChecksFor(b)

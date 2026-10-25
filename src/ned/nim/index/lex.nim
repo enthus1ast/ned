@@ -62,6 +62,10 @@ const
 
 func nxIsIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
 
+func nxDotBefore*(t: string, a: int): bool {.inline.} =
+  ## a name at `a` that a dot puts after a receiver (x.name), not one after a range's .. (0..len(s))
+  a > 0 and t[a - 1] == '.' and not (a > 1 and t[a - 2] == '.')
+
 func nxKindWord*(k: NxKind): string =
   case k
   of nxProc: "proc"

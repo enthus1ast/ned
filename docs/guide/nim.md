@@ -297,7 +297,8 @@ default).
 ## nedls: ned's engine in other editors
 
 **`nedls`** is ned's Nim engine as a language server (LSP over stdin/stdout), for VS Code, Neovim, Helix, Zed,
-Emacs, Kate, Sublime — instead of nimlangserver or nimsuggest. Its answers are ned's own: the same code the editor
+Emacs, Kate, Sublime — instead of nimlangserver or nimsuggest — and ned's other engines for C, C++, JavaScript,
+HTML, CSS, SQL and JSON. Its answers are ned's own: the same code the editor
 runs, without its screen. `nimble install` builds it next to ned (or `nimble nedls`, or `nim c -d:release -o:nedls
 src/nedls.nim`).
 
@@ -310,8 +311,23 @@ extract, the missing case branches and fields …), Organize imports, Fix all, a
 and Fix with AI checked by `nim check` (see [What's new in 6.18](../../CHANGELOG.md#whats-new-in-618)) — and problems: ned's own
 checks at once, the compiler on the unsaved text after a pause, `nim check` on save. Positions are UTF-8 when the
 editor offers it, else UTF-16.
+Also, from 6.27: the call hierarchy (who calls a routine, what it calls), the type hierarchy (an object's bases
+and the types built on it), implementations (a base method's overrides), selection ranges (Expand selection),
+code lenses (▶ run a test, a suite, a `when isMainModule`, a nimble task — the result as a message), document links
+(an import to its module, `staticRead` to its file) and the imports fixed when a file is renamed or moved.
 It starts at about 6 MB, holds a big file with its imports in about 16 MB, and answers a hover in a few
 milliseconds and a completion in about 20.
+
+**The other languages.** nedls answers for the languages ned's own engines know, as the editor does: **C and C++**
+(completion — a struct's members after `.` and `->`, an `#include`'s files —, hover with the comment over a
+declaration, signature help, definition through the `#include`s to a function's body, references and rename across
+the project's files, symbols, parameter names before arguments, ned's checks and the C compiler's errors as you
+type, with its fix-its as quick fixes), **JavaScript** (completion, hover, definition and references across the
+modules that import a name, rename, symbols, its checks), **HTML, CSS and SQL** (completion, hover, checks) and
+**JSON** (its mistakes as you type; for `package.json`, `tsconfig.json`, `atlas.config`, `atlas.lock`,
+`nimble.lock`, ned's settings and `.ned/lint.json`, the keys and values each one takes, with what they mean), and
+formatting for each language ned formats (C, JSON, Markdown, CSS, SCSS, YAML, TOML, HTML, SQL). Point your editor
+at nedls for those languages too (in VS Code: `nedls.languages`).
 
 Settings (in the editor's `initializationOptions`, or under `nedls` in its settings): `inlayHints` (true),
 `parameterHints` (`literals`, `all`, `off`), `raisesHints` (false: what a routine can raise, after its header),
@@ -340,8 +356,10 @@ language-servers = ["nedls"]
 - **Kate** (LSP Client › User Server Settings): `{"servers": {"nim": {"command": ["nedls"], "highlightingModeRegex": "^Nim$"}}}`
 - **Sublime** (LSP settings): `"clients": {"nedls": {"enabled": true, "command": ["nedls"], "selector": "source.nim"}}`
 - **Zed** (with the Nim extension): `"lsp": {"nimlangserver": {"binary": {"path": "/path/to/nedls"}}}`
-- **VS Code:** a generic LSP client extension pointed at `nedls` for the `nim` language (turn off the Nim
-  extension's own server).
+- **VS Code:** the extension in [editors/vscode](../../editors/vscode/README.md) — each release has it as
+  `vscode-nedls-<version>.vsix` (*Extensions › … › Install from VSIX…*). It knows Nim's files, colours them before
+  the server does, and passes its settings (`nedls.path`, `nedls.languages`, `nedls.inlayHints` …) on. Turn off the
+  Nim extension's own server if you have it.
 - **ned itself:** `{"nim.ide": "nimlangserver", "lsp": {"nim": ["nedls"]}}` — mostly for testing nedls; the
   editor has the engine built in anyway.
 

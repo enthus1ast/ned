@@ -333,6 +333,116 @@ proc nxLocalRoutine(locals: seq[NxSym], w: string, line: int): seq[NxSym] =
     template s: untyped = locals[i]
     if s.kind in NxRoutineKinds and nxNorm(s.name) == nxNorm(w) and s.line <= line: return @[s]
 
+proc nxCallArgs(lines: seq[string], line, e: int): (bool, seq[string]) =
+  ## the arguments of the call whose name ends at `e` (`name(…)`, `name[T](…)`, over a few lines too): (a call
+  ## with brackets, its arguments as written)
+  let text = lines[line]
+  var k = e
+  if k < text.len and text[k] == '[':
+    let ge = nxMatchClose(text, k)
+    if ge < 0: return
+    k = ge + 1
+  let a0 = if e > 0: nxWordAt(text, e - 1)[0] else: 0
+  if k < text.len and text[k] == ' ' and k == e and k + 1 < text.len and nxDotBefore(text, a0):
+    # a command call after a dot: s.addInt i, x.add "a" — its arguments, to the end of the line
+    var j = k + 1
+    while j < text.len and text[j] == ' ': inc j
+    if j < text.len and (nxIsIdent(text[j]) or text[j] in {'"', '\'', '@'}):
+      var w = j
+      while w < text.len and nxIsIdent(text[w]): inc w
+      if text[j .. w - 1] notin ["and", "or", "in", "notin", "is", "isnot", "of", "div", "mod", "shl", "shr",
+                                 "xor", "as", "not"]:
+        var rest = text[j .. ^1]
+        let hash = nxFindTop(rest, '#')
+        if hash >= 0: rest = rest[0 ..< hash]
+        rest = rest.strip
+        if rest.endsWith(":") or rest.endsWith("="): return       # (a block or an assignment follows: not args)
+        result[0] = true
+        for a in nxSplitTop(rest, {','}): result[1].add a.strip
+        return
+  if k >= text.len or text[k] != '(': return
+  var s = text[k .. ^1]
+  var ce = nxMatchClose(s, 0)
+  var j = line + 1
+  while ce < 0 and j < lines.len and j <= line + 8:
+    s.add " " & lines[j].strip
+    ce = nxMatchClose(s, 0)
+    inc j
+  if ce < 0: return
+  result[0] = true
+  let inner = s[1 ..< ce].strip
+  if inner.len > 0:
+    for a in nxSplitTop(inner, {','}): result[1].add a.strip
+
+proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string], line, e: int,
+                  cands: seq[NxRef], recv: string): seq[NxRef] =
+  ## of several overloads, the ones that take the call's arguments best — their number (defaults and varargs
+  ## counted), each one's type where it is known, named ones by name, the receiver of a method call — as the
+  ## compiler picks (an exact type before a conversion, before a generic). All of them when nothing tells them apart
+  result = cands
+  if cands.len < 2: return
+  let (isCall, args) = nxCallArgs(lines, line, e)
+  if not isCall and recv.len == 0: return
+  let off = if recv.len > 0: 1 else: 0
+  var argT = newSeq[string](args.len)
+  var known = newSeq[bool](args.len)
+  var best: seq[NxRef]
+  var bestScore = -1
+  for r in cands:
+    let s = r.sym
+    if s.kind notin NxRoutineKinds: continue
+    if isCall and not nxArgsFit(s, args.len + off): continue
+    var score = 1
+    if recv.len > 0:
+      if s.params.len == 0: continue
+      let c = nxCompatP(sc, s.params[0], s.generics, recv)
+      if c == 0: continue
+      score += c
+    var ok = true
+    for j, a in args:
+      let eq = nxFindTop(a, '=')
+      if eq > 0 and (eq + 1 >= a.len or a[eq + 1] != '='):
+        # a named argument: the routine has a parameter by that name
+        let nm = a[0 ..< eq].strip
+        var has = false
+        for p in s.params:
+          if nxNorm(p.name) == nxNorm(nm): has = true
+        if not has:
+          ok = false
+          break
+        continue
+      var pi = j + off
+      if pi >= s.params.len:
+        if s.params.len > 0 and s.params[^1].typ.startsWith("varargs"): pi = s.params.high
+        else:
+          ok = false
+          break
+      let lit = nxLiteralType(a)
+      if lit in ["int", "float"]:
+        # (a number literal goes into any number type)
+        let pb = nxResolveAlias(sc, nxBaseName(nxStripMods(s.params[pi].typ)))
+        if pb in NxInts or pb in NxFloats or pb in ["Natural", "Positive", "SomeNumber", "SomeInteger",
+                                                     "SomeFloat", "SomeOrdinal", "Ordinal"]:
+          score += (if (lit == "int") == (pb in NxInts or pb in ["Natural", "Positive"]): 3 else: 2)
+          continue
+      if a == "nil": continue
+      if not known[j]:
+        known[j] = true
+        argT[j] = nxTypeOfExpr(f, sc, locals, a, line, 1).typ
+      let at = argT[j]
+      if at.len == 0 or (at.len <= 2 and at[0] in {'A'..'Z'}): continue     # (unknown, or a generic T)
+      let c = nxCompatP(sc, s.params[pi], s.generics, at)
+      if c == 0:
+        ok = false
+        break
+      score += c
+    if not ok: continue
+    if score > bestScore:
+      best = @[r]
+      bestScore = score
+    elif score == bestScore: best.add r
+  if best.len > 0: result = best
+
 proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq[NxSym], string) =
   ## the declarations the word at line:col refers to: (index symbols, locals, module path)
   let f = nxAt(f, lines, line)
@@ -405,12 +515,41 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
   if e < text.len and (text[e] == ':' or text[e] == ' '):
     let cf = nxCtorField(sc, lines, line, a, e)
     if cf.len > 0: return (cf, @[], "")
+  if e < text.len and text[e] == ':' and not (e + 1 < text.len and text[e + 1] == ':'):
+    # a named argument — formatErrorIndexBound(i, len: s.len) —: the call's parameter, not a routine or a
+    # variable that has the name too (a routine's header is not a call: its parameters are declared there)
+    var q = a - 1
+    while q >= 0 and text[q] == ' ': dec q
+    if q >= 0 and text[q] in {'(', ','}:
+      var d = 0
+      var k = q
+      var opener = -1
+      while k >= 0:
+        let ch = text[k]
+        if ch in {')', ']', '}'}: inc d
+        elif ch in {'(', '[', '{'}:
+          if d == 0:
+            opener = k
+            break
+          dec d
+        dec k
+      let tl = text.strip
+      var header = false
+      for kw in ["proc ", "func ", "method ", "iterator ", "template ", "macro ", "converter "]:
+        if tl.startsWith(kw) or tl.startsWith("of " & kw): header = true
+      if not header:
+        # (a header over several lines: its later lines declare parameters too)
+        let ri = nxEnclosing(f, line)
+        if ri >= 0 and f.syms[ri].kind in NxRoutineKinds and line <= nxHeaderLast(lines, f.syms[ri])[1]: header = true
+      if opener > 0 and text[opener] == '(' and nxIsIdent(text[opener - 1]) and not header and
+         "proc (" notin text[0 ..< opener] and "proc(" notin text[0 ..< opener]:
+        return (@[], @[], "")
   block typeExpr:
     # a parameter of a proc type, a field of a tuple type: itself
     let m = nxTypeExprMember(lines, line, a, e)
     if m.name.len > 0: return (@[], @[m], "")
   let locals = nxLocals(f, lines, line, e)
-  if a > 0 and text[a - 1] == '.':
+  if nxDotBefore(text, a):
     let recv = nxReceiver(text, a - 1)
     let v = nxTypeOfExpr(f, sc, locals, recv, line, 0)
     if v.module.len > 0:
@@ -444,6 +583,7 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
           best = @[r]
           bestScore = c
         elif c == bestScore and c > 0: best.add r
+      if best.len > 1: best = nxNarrowCall(f, sc, locals, lines, line, e, best, vt)
       if best.len > 0: return (best, @[], "")
     # unknown receiver: any routine of that name
     let lr = nxLocalRoutine(locals, w, line)
@@ -499,25 +639,11 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
       let s = nxTemplateFree(f, lines, w, line)
       if s.name.len > 0: return (@[], @[s], "")
   if result[0].len > 1:
-    # a call: its first argument picks among overloads  parseJson("{}") → the string one
+    # a call: its arguments pick among overloads — parseJson("{}") is the string one, setLen(s, 0) the string's or
+    # the seq's by what s is
     var k = e
     while k < text.len and text[k] == ' ': inc k
-    if k < text.len and text[k] == '(':
-      let ce = nxMatchClose(text, k)
-      let args = if ce > k: text[k + 1 ..< ce] else: text[k + 1 .. ^1]
-      let first = nxSplitTop(args, {','})[0].strip
-      if first.len > 0 and nxFindTop(first, '=') < 0:
-        let at = nxTypeOfExpr(f, sc, locals, first, line, 0).typ
-        if at.len > 0:
-          var best: seq[NxRef]
-          var bestScore = 0
-          for r in result[0]:
-            if r.sym.kind notin NxRoutineKinds or r.sym.params.len == 0: continue
-            let c = nxCompatP(sc, r.sym.params[0], r.sym.generics, at)
-            if c > bestScore:
-              best = @[r]
-              bestScore = c
-            elif c == bestScore and c > 0: best.add r
-          if best.len > 0: result[0] = best
+    if k < text.len and text[k] in {'(', '['}:          # (hasKey[A, B](t, key): its explicit generics skipped)
+      result[0] = nxNarrowCall(f, sc, locals, lines, line, k, result[0], "")
   # own declarations first, then imports, then system
   result[0].sort(proc(x, y: NxRef): int = cmp(nxRank(f, x), nxRank(f, y)))

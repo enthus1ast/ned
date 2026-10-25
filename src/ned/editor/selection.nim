@@ -256,16 +256,15 @@ proc structuralCands(b: Buffer, a, e: Pos): seq[(Pos, Pos)] =
       if c < hs: result.add (Pos(line: c, col: 0), Pos(line: hd, col: b.lines[hd].len))
       break
 
-proc expandSelection() =
-  ## the selection grows to the next piece of code around it (shrinkSelection goes back)
-  let b = buf()
-  let (a, e) = b.primary.range
+proc selectionCands(b: Buffer, a, e: Pos, head: Pos): seq[(Pos, Pos)] =
+  ## the pieces of code a selection a..e (its cursor at `head`) can grow to: the word, a string, an argument, the
+  ## expression, the statement, the blocks around it with their headers, the file — in no order
   var cands: seq[(Pos, Pos)]
-  let (wa, we) = b.wordRangeAt(b.primary.head)
+  let (wa, we) = b.wordRangeAt(head)
   if wa != we: cands.add (wa, we)
   for obj in ['"', '\'', '`']:
     for kind in ['i', 'a']:
-      let (ok, x, y) = b.textObject(kind, obj, b.primary.head)
+      let (ok, x, y) = b.textObject(kind, obj, head)
       if ok and x != y: cands.add (x, y)
   # (a selection ending at the start of a line ends at the end of the line before it, for the pieces of code)
   let eL = if e.col == 0 and e.line > a.line: Pos(line: e.line - 1, col: b.lines[e.line - 1].len) else: e
@@ -278,6 +277,13 @@ proc expandSelection() =
     let (_, fe) = b.foldRange(h)
     cands.add (Pos(line: h, col: selIndent(b.lines[h])), Pos(line: fe, col: b.lines[fe].len))
   cands.add (Pos(), Pos(line: b.lines.high, col: b.lines[^1].len))
+  cands
+
+proc expandSelection() =
+  ## the selection grows to the next piece of code around it (shrinkSelection goes back)
+  let b = buf()
+  let (a, e) = b.primary.range
+  let cands = b.selectionCands(a, e, b.primary.head)
   var best = (Pos(line: -1), Pos())
   var bestSize = high(int)
   for (x0, y0) in cands:

@@ -256,7 +256,7 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("Nim: add a doc comment to this proc", "Add doc comment")]),
       msub("C interop", @[mc("Nim: go to the C declaration (importc)", "Go to the C declaration"),
         mc("Nim: check the importc wrappers against their headers", "Check wrappers against headers"),
-        mc("Nim: wrap a C header (c2nim)…", "Wrap a C header (c2nim)…"),
+        mc("Nim: wrap a C header…", "Wrap a C header…"),
         mc("Nim: write compile_commands.json for clangd", "compile_commands.json for clangd")]),
       msub("Documentation", @[mc("Nim: open documentation for symbol", "Documentation for symbol"),
         mc("Nim: standard library docs browser…", "Standard library docs…"),

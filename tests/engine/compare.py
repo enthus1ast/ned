@@ -287,20 +287,28 @@ for (l, c, w, m) in msample:
 report['sug'] = dict(n=len(msample), ned=found_ned, nimsuggest=found_ns)
 report['sug_bad'] = mbad
 
-# 5. references: at a third of the places, the file's uses of what the name is — ned's against nimsuggest's `use`
-rs = dict(same=0, n=0)
+# 5. references: at a third of the places, the file's uses of what the name is — ned's against nimsuggest's `use`.
+# (Compared where nimsuggest resolves every name: not in runnableExamples, which it does not check, nor in a
+# `when` branch not taken here, nor in the body of a template or a generic routine, where a name is bound when it
+# is used. ned finds the uses there too — a rename changes them — and they are counted apart)
+rs = dict(same=0, n=0, ned_hidden=0)
 rbad = []
+hidden = eng('hidden', 0, 0).get('hidden', [])
+def visible(l1):
+    return not any(a <= l1 - 1 <= e for a, e in hidden)
 for (l, c, w, m) in sample[:max(1, len(sample) // 3)]:
     rows = [x.split('\t') for x in ask('def %s:%d:%d' % (path, l, c)) if x.startswith('def\t')]
     if not rows or rows[0][1] in ('skUnknown', 'skModule', 'skParam', 'skResult', 'skForVar', 'skTemp') or \
             '`gensym' in rows[0][2]:
         continue
     uses = [x.split('\t') for x in ask('use %s:%d:%d' % (path, l, c)) if x.startswith('use\t') or x.startswith('def\t')]
-    ns_set = set((int(u[5]), int(u[6])) for u in uses if len(u) > 6 and u[4] == path)
+    ns_set = set((int(u[5]), int(u[6])) for u in uses if len(u) > 6 and u[4] == path and visible(int(u[5])))
     if not ns_set: continue
     col_bytes = c
     er = eng('refs', l - 1, len(lines[l-1].encode()[:col_bytes].decode('utf-8', 'replace'))).get('refs', [])
-    ned_set = set((r[0] + 1, len(lines[r[0]][:r[1]].encode())) if r[0] < len(lines) else (r[0] + 1, r[1]) for r in er)
+    ned_all = set((r[0] + 1, len(lines[r[0]][:r[1]].encode())) if r[0] < len(lines) else (r[0] + 1, r[1]) for r in er)
+    ned_set = set(x for x in ned_all if visible(x[0]))
+    rs['ned_hidden'] += len(ned_all) - len(ned_set)
     rs['n'] += 1
     if ned_set == ns_set: rs['same'] += 1
     else: rbad.append((l, w, sorted(ns_set - ned_set)[:3], sorted(ned_set - ns_set)[:3]))
@@ -334,5 +342,6 @@ s = report['sug']
 print('  member completion: ned %d/%d · nimsuggest %d/%d' % (s['ned'], s['n'], s['nimsuggest'], s['n']))
 for b in report['sug_bad'][:a.show]: print('    ', b)
 r = report['refs']
-print('  references in the file: the same as nimsuggest\'s at %d of %d' % (r['same'], r['n']))
+print('  references in the file: the same as nimsuggest\'s at %d of %d (and %d more in code nimsuggest does not read)' %
+      (r['same'], r['n'], r.get('ned_hidden', 0)))
 for b in report['refs_bad'][:a.show]: print('    ', b)

@@ -77,16 +77,22 @@ proc leaveRaw() =
   discard tcSetAttr(0, TCSAFLUSH, addr gOrigTerm)
   gRaw = false
 
+const CubeLevels = [0, 95, 135, 175, 215, 255]          # (the 6×6×6 cube's steps of the 256-colour palette)
+
 proc rgbTo256(c: Rgb): int =
+  ## the nearest colour of the 256-colour palette: of the cube's and the grey ramp's, the one closer to the eye —
+  ## a dark blue-grey background stays dark grey (the cube's nearest is a strong blue, #00005F)
   let r = int((c shr 16) and 0xFF)
   let g = int((c shr 8) and 0xFF)
   let b = int(c and 0xFF)
-  if abs(r - g) < 12 and abs(g - b) < 12:
-    if r < 8: return 16
-    if r > 246: return 231
-    return 232 + (r - 8) * 24 div 240
-  proc q(v: int): int = (if v < 48: 0 elif v < 115: 1 else: (v - 35) div 40)
-  16 + 36 * q(r) + 6 * q(g) + q(b)
+  template q(v: int): int = (if v < 48: 0 elif v < 115: 1 else: (v - 35) div 40)
+  let (qr, qg, qb) = (q(r), q(g), q(b))
+  template dist(x, y, z: int): int = 2 * (r - x) * (r - x) + 4 * (g - y) * (g - y) + 3 * (b - z) * (b - z)
+  let cube = 16 + 36 * qr + 6 * qg + qb
+  let dc = dist(CubeLevels[qr], CubeLevels[qg], CubeLevels[qb])
+  let k = clamp(((r + g + b) div 3 - 3) div 10, 0, 23)   # (232 + k is 8 + 10k on every channel)
+  let gv = 8 + 10 * k
+  if dist(gv, gv, gv) < dc: 232 + k else: cube
 
 proc gridResize() =
   (scrW, scrH) = getTermSize()

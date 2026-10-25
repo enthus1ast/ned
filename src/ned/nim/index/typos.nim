@@ -55,6 +55,8 @@ proc nxTypos*(f: NxFile, lines: seq[string], lo, hi: int, cur: (int, int)): seq[
     # (a module ned cannot find may declare it)
     if nxResolve(f.path, im.spec).len == 0: return
   let sc = nxScope(f)
+  # (a `.` macro or template in scope — jsffi's, a DSL's —: any name after a dot may be meant)
+  let dotOps = nxLookup(sc, ".").len > 0 or nxLookup(sc, "`.`").len > 0 or nxLookup(sc, ".()").len > 0
   # how often each name is written in the file
   var count: CountTable[string]
   var st0: NxLexState
@@ -102,7 +104,14 @@ proc nxTypos*(f: NxFile, lines: seq[string], lo, hi: int, cur: (int, int)): seq[
         let nw = nxNorm(w)
         if w.len < 4 or w in NxKeywords or count[nw] > 1 or nw in known: continue
         if l == cur[0] and cur[1] >= s and cur[1] <= e: continue            # (being typed)
-        if s > 0 and raw[s - 1] in {'.', '`'}: continue
+        if s > 0 and raw[s - 1] == '`': continue
+        if s > 0 and raw[s - 1] == '.':
+          # a method call or a field (x.toLwer()): misspelled when nothing in scope has the name — not after a
+          # module's name (os.name), not in a generic routine (its T's procs are bound when it is instantiated)
+          if dotOps or r.generics.len > 0 or (s > 1 and raw[s - 2] == '.'): continue
+          let recv = nxReceiver(raw, s - 1)
+          if recv.len == 0 or recv in sc.modules or nxNorm(recv) == nxNorm(f.module) or
+             (recv.len > 0 and recv[0] in {'A'..'Z'} and nxLookup(sc, recv).len == 0): continue
         var k = e
         while k < raw.len and raw[k] == ' ': inc k
         if k < raw.len and (raw[k] == ':' or (raw[k] == '=' and (k + 1 >= raw.len or raw[k + 1] != '='))): continue
@@ -155,3 +164,14 @@ proc nxTypos*(f: NxFile, lines: seq[string], lo, hi: int, cur: (int, int)): seq[
             shown = s2.sym.name
             break
         result.add (l, s, w, shown)
+
+proc nxTypoMsg*(line: string, col: int, w, meant: string): string =
+  ## the compiler's words for a misspelled name: a call after a dot is an undeclared routine, a name after a dot
+  ## an undeclared field, else an undeclared identifier — then the name meant, as its --spellSuggest says it
+  var k = col + w.len
+  while k < line.len and line[k] == ' ': inc k
+  let dot = col > 0 and line[col - 1] == '.'
+  let head = if dot and k < line.len and line[k] == '(': "attempting to call undeclared routine: '" & w & "'"
+             elif dot: "undeclared field: '" & w & "'"
+             else: "undeclared identifier: '" & w & "'"
+  head & "\ncandidates (edit distance, scope distance); see '--spellSuggest': \n (1, 0): '" & meant & "'"

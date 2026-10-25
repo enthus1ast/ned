@@ -876,7 +876,9 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
         if ms > NxRefsLimitMs:
           nxRefsCut = true
           break
-      if lowW[0] notin lines[l].toLowerAscii: continue
+      if lowW[0] notin lines[l].toLowerAscii:
+        discard nxIdents(lines[l], st)    # (the lexer follows the line anyway: a """ there opens a string)
+        continue
       for (s, e) in nxIdents(lines[l], st):
         if nxNorm(lines[l][s ..< e]) != nw: continue
         let d = nxSymAt(g, l, s)

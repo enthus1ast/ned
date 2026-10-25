@@ -253,6 +253,14 @@ proc pcNimbleChecks*(b: Buffer): seq[Diag] =
             " (Nim › choose the Nim for this project)")
       continue
     if "://" in r.name or r.name.startsWith("git@"): continue
+    if nxInstalled.getOrDefault(r.name.toLowerAscii).len == 0 and nbPackageKnown(r.name) == 0:
+      # (a name nimble's package lists do not have — a typo, mostly: nimble install would not find it)
+      var names: seq[string]
+      for (n, _) in nbPackageList(): names.add n
+      let near = closest(r.name, names)
+      add(r.line, r.col, r.ecol, 2, "'" & r.name & "' is not in nimble's package list" &
+          (if near.len > 0: " — '" & near & "'?" else: " (a URL, or `nimble refresh`)"))
+      continue
     let inst = nxInstalled.getOrDefault(r.name)
     if inst.len == 0 and cons.len > 0 and not cons.startsWith("#"):
       continue                                  # (not installed at all: nimble install says so; no noise here)

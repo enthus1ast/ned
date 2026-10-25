@@ -155,6 +155,123 @@ proc nbVersionComplete(b: Buffer, p: Pos, manual: bool, force = false): bool =
   if compItems.len == 0 and manual: info("No versions of " & name & " known yet — looking them up…")
   true
 
+# ── the package names nimble knows: completion in `requires "…"`, a name it does not know, F12 to a package ──
+
+var nbPkgList: (string, seq[(string, string)], HashSet[string])   # (the lists' stamp, (name, what it is), names)
+
+proc nbPackageList(): seq[(string, string)] =
+  ## every package of nimble's package lists: (its name, what it is) — read again only when the lists change
+  var stamp = ""
+  let files = packageListFiles()
+  for f in files:
+    try:
+      if fileExists(f): stamp.add $getLastModificationTime(f).toUnix & ":" & $getFileSize(f) & ";"
+    except CatchableError: discard
+  if stamp == nbPkgList[0] and nbPkgList[1].len > 0: return nbPkgList[1]
+  var res: seq[(string, string)]
+  var names: HashSet[string]
+  for f in files:
+    try:
+      if not fileExists(f) or getFileSize(f) < 10: continue
+      for e in jitems(parseJson(readFile(f))):
+        let n = e{"name"}.getStr
+        if n.len == 0 or n.toLowerAscii in names: continue
+        names.incl n.toLowerAscii
+        let d = e{"description"}.getStr
+        res.add (n, (if d.len > 0: d elif e{"alias"}.getStr.len > 0: "another name for " & e{"alias"}.getStr else: ""))
+    except CatchableError: discard
+  nbPkgList = (stamp, res, names)
+  res
+
+proc nbPackageKnown(name: string): int =
+  ## is a package in nimble's lists: 1 yes, 0 no, -1 no lists to tell
+  let pl = nbPackageList()
+  if pl.len < 50: return -1
+  if name.toLowerAscii in nbPkgList[2]: 1 else: 0
+
+func nbNameAt(line: string, col: int): (bool, int) =
+  ## the cursor on the package name of `requires "…"` (or after a comma in it): (yes, where the name starts)
+  let t = line.strip(trailing = false)
+  if not (t.startsWith("requires") or t.startsWith("taskRequires") or t.startsWith("task_requires")): return
+  let c = min(col, line.len)
+  if line[0 ..< c].count('"') mod 2 == 0: return
+  var s = c
+  while s > 0 and line[s - 1] notin {'"', ','}: dec s
+  if s == 0: return
+  var i = s
+  while i < c and line[i] == ' ': inc i
+  for j in i ..< c:
+    if line[j] notin IdentChars + {'-', '.'}: return
+  (true, i)
+
+proc nbNameComplete(b: Buffer, p: Pos, manual: bool): bool =
+  ## in a .nimble's `requires "…"`: the packages nimble knows, with what each is (the installed ones first)
+  if b.path.len == 0 or not b.path.endsWith(".nimble") or p.line >= b.lines.len: return false
+  let (ok, start) = nbNameAt(b.lines[p.line], p.col)
+  if not ok: return false
+  if not manual and p.col - start < 1: return false
+  if compOpen and compLine == p.line and compStartCol == start and compItems.len > 0 and compItems[0].kind == 9:
+    refilterComp()
+    return true
+  let pl = nbPackageList()
+  if pl.len == 0:
+    if manual: info("nimble's package list is not here yet — nimble refresh")
+    return manual
+  var items: seq[CompItem]
+  for (n, d) in pl:
+    let inst = nxInstalled.getOrDefault(n.toLowerAscii).len > 0
+    items.add CompItem(label: n, insert: n, filter: n, kind: 9, rank: (if inst: 0 else: 2),
+                       detail: (if inst: "installed" else: ""), doc: d, docMade: true)
+  if "nim" notin nbPkgList[2]:
+    items.add CompItem(label: "nim", insert: "nim", filter: "nim", kind: 9, rank: 0, detail: "the compiler",
+                       doc: "the Nim versions the package builds with: requires \"nim >= 2.0\"", docMade: true)
+  compLine = p.line
+  compStartCol = start
+  compManual = manual
+  compNx.setLen(0)
+  compItems = items
+  compFromLsp = true
+  refilterComp()
+  true
+
+proc nbPackageTarget(b: Buffer, p: Pos): (string, string, string) =
+  ## a package a .nimble requires, at p: (its name, the folder it is installed in, its own .nimble there) — ""s
+  ## when p is not on one
+  if b.path.len == 0 or not b.path.endsWith(".nimble") or p.line >= b.lines.len: return
+  let line = b.lines[p.line]
+  let t = line.strip(trailing = false)
+  if not (t.startsWith("requires") or t.startsWith("taskRequires")): return
+  let (wa, we) = b.wordRangeAt(p)
+  if wa.col >= we.col: return
+  var k = wa.col
+  while k > 0 and line[k - 1] == ' ': dec k
+  if k == 0 or line[k - 1] notin {'"', ','}: return
+  let name = line[wa.col ..< we.col]
+  if name.toLowerAscii == "nim": return
+  result[0] = name
+  var dir = engineDepOf(parentDir(b.path), name).dir
+  if dir.len == 0:
+    let inst = nxInstalled.getOrDefault(name.toLowerAscii)
+    if inst.len > 0: dir = inst[^1].dir
+  result[1] = dir
+  if dir.len == 0: return
+  try:
+    for kind, f in walkDir(dir):
+      if kind in {pcFile, pcLinkToFile} and f.endsWith(".nimble"): result[2] = f
+  except OSError: discard
+  if result[2].len == 0 and fileExists(dir / name & ".nim"): result[2] = dir / name & ".nim"
+
+proc nbPackageDefinition(b: Buffer, p: Pos): bool =
+  ## F12 on a package a .nimble requires: its own .nimble, where it is installed (the version the project uses)
+  let (name, dir, target) = nbPackageTarget(b, p)
+  if name.len == 0: return false
+  if dir.len == 0: info("'" & name & "' is not installed — nimble install -d")
+  elif target.len == 0: info("'" & name & "' is in " & tildePath(dir))
+  else:
+    pushJump()
+    discard openFile(target)
+  true
+
 proc nbHover(b: Buffer, p: Pos): string =
   ## a package in a .nimble's `requires`: what it is, the versions installed, the one the project uses, the newest
   if b.path.len == 0 or not b.path.endsWith(".nimble") or p.line >= b.lines.len: return ""

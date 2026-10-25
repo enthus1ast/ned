@@ -1,0 +1,85 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nim",
+  "scopeName": "source.nim",
+  "comment": "Nim's colours before nedls's semantic ones arrive: comments, strings, numbers, keywords, pragmas, routine names",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#pragmas" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#routines" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.block.documentation.nim", "begin": "##\\[", "end": "\\]##", "patterns": [{ "include": "#comments" }] },
+        { "name": "comment.block.nim", "begin": "#\\[", "end": "\\]#", "patterns": [{ "include": "#comments" }] },
+        { "name": "comment.line.documentation.nim", "match": "##.*$" },
+        { "name": "comment.line.number-sign.nim", "match": "#.*$" }
+      ]
+    },
+    "pragmas": {
+      "name": "meta.pragma.nim",
+      "begin": "\\{\\.",
+      "end": "\\.?\\}",
+      "beginCaptures": { "0": { "name": "punctuation.section.pragma.nim" } },
+      "endCaptures": { "0": { "name": "punctuation.section.pragma.nim" } },
+      "patterns": [
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "name": "entity.name.function.preprocessor.nim", "match": "\\b[A-Za-z_]\\w*\\b" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        { "name": "string.quoted.triple.nim", "begin": "\\b(?:[rR]|[A-Za-z_]\\w*)?\"\"\"", "end": "\"\"\"(?!\")" },
+        { "name": "string.quoted.double.raw.nim", "begin": "\\b[rR]\"", "end": "\"(?!\")", "patterns": [{ "match": "\"\"", "name": "constant.character.escape.nim" }] },
+        { "name": "string.quoted.double.nim", "begin": "\\b(?:fmt|&)?\"", "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.nim", "match": "\\\\(?:[nrtlfvabce\\\\\"'p]|x\\h{2}|u\\h{4}|u\\{\\h+\\}|\\d+)" }] },
+        { "name": "string.quoted.double.nim", "begin": "\"", "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.nim", "match": "\\\\(?:[nrtlfvabce\\\\\"'p]|x\\h{2}|u\\h{4}|u\\{\\h+\\}|\\d+)" }] },
+        { "name": "string.quoted.single.nim", "match": "'(?:\\\\(?:[nrtlfvabce\\\\\"']|x\\h{2}|\\d+)|[^'\\\\])'" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.nim", "match": "\\b0[xX][\\h_]+(?:'?[iIuUfF](?:8|16|32|64)?)?\\b" },
+        { "name": "constant.numeric.nim", "match": "\\b0[oO][0-7_]+(?:'?[iIuU](?:8|16|32|64)?)?\\b" },
+        { "name": "constant.numeric.nim", "match": "\\b0[bB][01_]+(?:'?[iIuU](?:8|16|32|64)?)?\\b" },
+        { "name": "constant.numeric.nim", "match": "\\b\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d+)?(?:'?[iIuUfFdD](?:8|16|32|64|128)?)?\\b" }
+      ]
+    },
+    "routines": {
+      "match": "\\b(proc|func|method|iterator|converter|template|macro)\\s+(`[^`]+`|[A-Za-z_]\\w*)(\\*?)",
+      "captures": {
+        "1": { "name": "keyword.declaration.function.nim" },
+        "2": { "name": "entity.name.function.nim" },
+        "3": { "name": "keyword.operator.export.nim" }
+      }
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.nim", "match": "\\b(if|elif|else|when|case|of|while|for|break|continue|return|yield|try|except|finally|raise|defer|block|discard|await|async)\\b" },
+        { "name": "keyword.declaration.nim", "match": "\\b(proc|func|method|iterator|converter|template|macro|type|object|tuple|enum|concept|distinct|ref|ptr|var|let|const|using|static|out|sink|lent)\\b" },
+        { "name": "keyword.other.import.nim", "match": "\\b(import|export|include|from|as|bind|mixin)\\b" },
+        { "name": "keyword.operator.word.nim", "match": "\\b(and|or|not|xor|shl|shr|div|mod|in|notin|is|isnot|addr|cast|of)\\b" },
+        { "name": "constant.language.nim", "match": "\\b(true|false|nil)\\b" },
+        { "name": "variable.language.nim", "match": "\\b(result)\\b" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "support.type.nim", "match": "\\b(int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|float32|float64|bool|char|string|cstring|pointer|void|auto|any|untyped|typed|seq|array|set|openArray|varargs|Natural|Positive|byte|cint|cuint|clong|csize_t|cfloat|cdouble|cchar)\\b" },
+        { "name": "entity.name.type.nim", "match": "\\b[A-Z]\\w*\\b" }
+      ]
+    },
+    "operators": {
+      "name": "keyword.operator.nim",
+      "match": "[=+\\-*/<>@$~&%|!?^.:\\\\]+"
+    }
+  }
+}

@@ -44,7 +44,7 @@ proc nxExpandTemplate*(f: NxFile, lines: seq[string], line, col: int): (string, 
   if tpls.len == 0: return
   var args: seq[string]
   var call = name
-  if a > 0 and text[a - 1] == '.':
+  if nxDotBefore(text, a):
     let recv = nxReceiver(text, a - 1)
     if recv.len > 0:
       args.add recv                                  # x.name(…): x is the first argument

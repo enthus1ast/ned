@@ -293,7 +293,7 @@ proc wkWeb(b: Buffer): bool =
   ## worker — true when it was asked (the answer comes back)
   if not wkOn() or b.path.len == 0 or not wkReady(b): return false
   var srv = newJArray()
-  for fam in ["css", "html", "sql", "js"]:
+  for fam in ["css", "html", "sql", "js", "json"]:
     if webServerFor(b, fam): srv.add %fam
   block:
     let st0 = getMonoTime()

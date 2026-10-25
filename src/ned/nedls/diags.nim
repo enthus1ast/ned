@@ -168,11 +168,21 @@ proc lsEngineChecks(d: LsDoc) =
   textH = keepH
   lsDiagsDirty = true
 
+proc lxPumpChecks(d: LsDoc, active: bool)
+proc lxNextCheckMs(d: LsDoc): int
+
 proc lsPumpChecks() =
   ## the editor's main-loop rules, for the document typed into last
   lsPumpCheckQueue()
-  if not cfgLiveCheck: return
   let d = lsActive
+  # (C, JavaScript, HTML, CSS, SQL, JSON: ned's own checks — of every open document; the C compiler's of the one
+  # typed into last)
+  for _, od in lsDocs:
+    if od.b.lang != nil and od.b.lang.mode != lmNim:
+      try: lxPumpChecks(od, od == d)
+      except Exception as e: lsLog("checks: " & e.msg)
+  if d != nil and d.b.lang != nil and d.b.lang.mode != lmNim: return
+  if not cfgLiveCheck: return
   if d == nil or d.b.lang == nil or d.b.lang.mode != lmNim or d.b.path.len == 0: return
   let cb = d.b
   let quiet = msSince(d.changedAt)
@@ -198,8 +208,11 @@ proc lsTimeToNextCheck(): int =
   ## ms until lsPumpChecks has something to do (for poll's timeout)
   result = 1000
   if lsCheckQueue.len > 0: result = 100
-  if not cfgLiveCheck: return
   let d = lsActive
+  for _, od in lsDocs:
+    if od.b.lang != nil and od.b.lang.mode != lmNim: result = min(result, lxNextCheckMs(od))
+  if d != nil and d.b.lang != nil and d.b.lang.mode != lmNim: return
+  if not cfgLiveCheck: return
   if d == nil or d.b.path.len == 0: return
   let cb = d.b
   let quiet = int(msSince(d.changedAt))

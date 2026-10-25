@@ -52,6 +52,9 @@ proc webComplete(b: Buffer, p: Pos, manual: bool): bool
 proc webEngineOn(b: Buffer, p: Pos): bool
 proc webHoverInfo(b: Buffer, p: Pos): string
 proc webDefinition(b: Buffer, p: Pos): bool
+proc webReferences(b: Buffer, p: Pos): bool
+proc webRename(b: Buffer, p: Pos, newName: string): bool
+proc webJsAt(b: Buffer, p: Pos): bool
 proc webChecksPump(b: Buffer)
 proc webDiagsOf(b: Buffer): seq[Diag]
 proc embHover(b: Buffer, p: Pos, auto: bool): bool
@@ -171,6 +174,11 @@ proc buildPluginItems(): seq[SideItem]
 proc plugAskDone(text: string)
 proc nbVersionComplete(b: Buffer, p: Pos, manual: bool, force = false): bool
 proc nbHover(b: Buffer, p: Pos): string
+proc nbNameComplete(b: Buffer, p: Pos, manual: bool): bool
+proc nbPackageKnown(name: string): int
+proc nbPackageList(): seq[(string, string)]
+proc nbPackageDefinition(b: Buffer, p: Pos): bool
+proc nbPackageTarget(b: Buffer, p: Pos): (string, string, string)
 proc nbVersionFixes(b: Buffer): seq[(string, string, Action)]
 proc plugComplete(b: Buffer, p: Pos)
 proc plugHasCompletions(b: Buffer): bool

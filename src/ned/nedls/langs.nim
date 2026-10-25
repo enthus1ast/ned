@@ -1,0 +1,493 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  nedls — the other languages ned's own engines know, as the editor has them: C and C++ (completion, hover,
+#  signature help, definition through the #includes, references, rename, symbols, parameter names, the compiler's
+#  errors as you type and its fixes), JavaScript (completion, hover, definition and references across the modules
+#  that import a name, rename, symbols, its checks), HTML, CSS, SQL and JSON (completion, hover, checks, symbols —
+#  JSON's from a schema: package.json, tsconfig.json, ned's settings …), and formatting for every language ned
+#  formats. A document in another language gets these answers (or none), never the Nim engine's.
+# ════════════════════════════════════════════════════════════════════════════
+
+type LxLang = enum lxNim, lxC, lxWeb, lxOther
+
+var lxCheckedAt: Table[int, int]        # buffer id → the change ned's own checks last looked at
+
+proc lxLangOf(d: LsDoc): LxLang =
+  if d == nil or d.b.lang == nil or d.b.lang.mode == lmNim: return lxNim
+  let id = d.b.lang.id
+  if id in ["c", "cpp"]: lxC
+  elif webFamily(id).len > 0: lxWeb
+  else: lxOther
+
+proc lxFmtKind(b: Buffer): string =
+  ## which of ned's formatters fits the document ("" none)
+  result = fmtKindOf(b.path)
+  if result.len == 0 and b.lang != nil:
+    case b.lang.id
+    of "cpp", "c": result = "c"
+    of "json": result = "json"
+    of "markdown": result = "markdown"
+    of "css": result = "css"
+    of "scss", "less": result = "scss"
+    of "yaml": result = "yaml"
+    of "toml": result = "toml"
+    of "html": result = "html"
+    of "sql": result = "sql"
+    else: discard
+
+# ── completion ──
+
+proc lxCompItems(d: LsDoc, p: Pos): JsonNode =
+  ## what ned's completion list holds now (compItems, as compShown orders it), as LSP's items
+  let b = d.b
+  var items = newJArray()
+  let n = min(compShown.len, lsCompLimit)
+  let line = b.lines[p.line]
+  for k in 0 ..< n:
+    let it = compItems[compShown[k]]
+    let start = min(compStartCol, p.col)
+    let snip = it.snippet.len > 0 and lsSnippets
+    let text = if snip: it.snippet elif it.snippet.len > 0: stripSnippet(it.snippet) else: compInsert(it)
+    var j = %*{"label": it.label, "kind": max(1, it.kind), "sortText": align($k, 5, '0'),
+               "filterText": line[start ..< min(compStartCol, line.len)] & compFilter(it),
+               "textEdit": {"range": lsRangeIn(b.lines, p.line, start, p.line, p.col), "newText": text}}
+    if snip: j["insertTextFormat"] = %2
+    if it.detail.len > 0: j["detail"] = %it.detail
+    if it.doc.len > 0: j["documentation"] = lsMd(it.doc)
+    items.add j
+  %*{"isIncomplete": compShown.len > n, "items": items}
+
+proc lxCompletion(d: LsDoc, params: JsonNode): JsonNode =
+  result = %*{"isIncomplete": false, "items": []}
+  let b = d.b
+  let p = lsToPos(b, params{"position"})
+  lsFocus(d, p)
+  let ctx = params{"context"}
+  let invoked = ctx == nil or ctx{"triggerKind"}.getInt(1) == 1
+  let trig = ctx{"triggerCharacter"}.getStr
+  let before = b.lines[p.line][0 ..< min(p.col, b.lines[p.line].len)]
+  compItems.setLen(0)
+  compShown.setLen(0)
+  case lxLangOf(d)
+  of lxC:
+    # (`->`, `::`, an #include's "…" or <…>: not every > or :)
+    if trig == ">" and not before.endsWith("->"): return
+    if trig == ":" and not before.endsWith("::"): return
+    if trig in ["\"", "<", "/"] and not before.strip.startsWith("#"): return
+    if not cEngComplete(b, p, invoked): return
+  of lxWeb:
+    if not webComplete(b, p, invoked): return
+  else: return
+  result = lxCompItems(d, p)
+
+# ── hover, signature help ──
+
+proc lxHover(d: LsDoc, params: JsonNode): JsonNode =
+  let b = d.b
+  let p = lsToPos(b, params{"position"})
+  lsFocus(d, p)
+  let md = case lxLangOf(d)
+           of lxC: cEngHover(b, p)
+           of lxWeb: webHoverInfo(b, p)
+           else: ""
+  if md.strip.len == 0: return newJNull()
+  result = %*{"contents": lsMd(md)}
+  let (wa, we) = b.wordRangeAt(p)
+  if wa.col < we.col: result["range"] = %*{"start": lsPos(b, wa), "end": lsPos(b, we)}
+
+func lxParamSpans(lbl: string): seq[(int, int)] =
+  ## the parameters of a signature's label: `int f(int a, char *b)` → the spans of `int a` and `char *b`
+  let a = lbl.find('(')
+  let e = lbl.rfind(')')
+  if a < 0 or e <= a + 1: return
+  var depth = 0
+  var s = a + 1
+  for i in a + 1 .. e:
+    let c = lbl[i]
+    if c in {'(', '[', '<', '{'}: inc depth
+    elif c in {')', ']', '>', '}'} and i < e: dec depth
+    if (c == ',' and depth == 0) or i == e:
+      var x = s
+      var y = i
+      while x < y and lbl[x] == ' ': inc x
+      while y > x and lbl[y - 1] == ' ': dec y
+      if y > x: result.add (x, y)
+      s = i + 1
+
+proc lxSignatureHelp(d: LsDoc, params: JsonNode): JsonNode =
+  if lxLangOf(d) != lxC: return newJNull()
+  let b = d.b
+  let p = lsToPos(b, params{"position"})
+  lsFocus(d, p)
+  if not cEngSignature(b, p): return newJNull()
+  sigOpen = false
+  var ps = newJArray()
+  var active = -1
+  for k, (a, e) in lxParamSpans(sigLabel):
+    ps.add %*{"label": [lsChar(sigLabel, a), lsChar(sigLabel, e)]}
+    if (a, e) == sigHl: active = k
+  var sig = %*{"label": sigLabel, "parameters": ps}
+  if sigDoc.len > 0: sig["documentation"] = lsMd(sigDoc)
+  result = %*{"signatures": [sig], "activeSignature": 0}
+  if active >= 0: result["activeParameter"] = %active
+
+# ── definition, references, highlights, rename ──
+
+proc lxDefinitions(d: LsDoc, p: Pos): seq[(string, int, int)] =
+  let b = d.b
+  case lxLangOf(d)
+  of lxC:
+    if not cEngineOn(b): return
+    let t = cEngDefTarget(b, p)
+    if t[0].len > 0: result.add (t[0], t[1], t[2])
+  of lxWeb:
+    if not webJsAt(b, p): return
+    let doc = webDoc(b, "js", near = -1)
+    if p.line >= doc.len: return
+    let o = jsCrossDefinition(b, doc, p)
+    if o[0].len > 0: return @[o]
+    let (l, c) = jsDefinition(doc, p.line, p.col)
+    if l >= 0: result.add (b.path, l, c)
+  else: discard
+
+proc lxDefinition(d: LsDoc, params: JsonNode): JsonNode =
+  result = newJArray()
+  let p = lsToPos(d.b, params{"position"})
+  lsFocus(d, p)
+  for (path, l, c) in lxDefinitions(d, p): result.add lsLocation(path, l, c)
+
+proc lxRefHits(d: LsDoc, p: Pos, rename = false): seq[(string, int, int)] =
+  ## where the name at p is used, as ned's Find references lists it
+  let b = d.b
+  case lxLangOf(d)
+  of lxC:
+    if cEngineOn(b): result = cEngReferenceHits(b, p)[0]
+  of lxWeb:
+    if webJsAt(b, p): result = jsProjectRefs(b, p, rename)
+  else: discard
+
+proc lxReferences(d: LsDoc, params: JsonNode): JsonNode =
+  result = newJArray()
+  let p = lsToPos(d.b, params{"position"})
+  lsFocus(d, p)
+  lsEnsureFiles()
+  let withDecl = params{"context"}{"includeDeclaration"}.getBool(true)
+  var decls: HashSet[(string, int, int)]
+  if not withDecl:
+    for x in lxDefinitions(d, p): decls.incl x
+  var seen: HashSet[(string, int, int)]
+  for h in lxRefHits(d, p):
+    if h in seen or h in decls: continue
+    seen.incl h
+    result.add lsLocation(h[0], h[1], h[2])
+
+proc lxHighlights(d: LsDoc, params: JsonNode): JsonNode =
+  result = newJArray()
+  let b = d.b
+  let p = lsToPos(b, params{"position"})
+  lsFocus(d, p)
+  case lxLangOf(d)
+  of lxC:
+    if not cEngineOn(b): return
+    let (wa, we) = b.wordRangeAt(p)
+    if wa.col >= we.col: return
+    let w = b.lines[p.line][wa.col ..< we.col]
+    let f = cxFileOf(b)
+    let ts = cxTargets(f, p.line, p.col)
+    if ts.len > 0 and ts[0][1].kind in {cxLocal, cxParam, cxLabel}:
+      for (path, l, c) in cEngReferenceHits(b, p)[0]:
+        if path == b.path: result.add %*{"range": lsRangeIn(b.lines, l, c, l, c + w.len), "kind": 1}
+    else:
+      for (l, c) in cxOccurrences(b.lines, w): result.add %*{"range": lsRangeIn(b.lines, l, c, l, c + w.len), "kind": 1}
+  of lxWeb:
+    if not webJsAt(b, p): return
+    let doc = webDoc(b, "js", near = -1)
+    if p.line >= doc.len: return
+    for (l, c, e) in jsReferences(doc, p.line, p.col):
+      result.add %*{"range": lsRangeIn(b.lines, l, c, l, e), "kind": 1}
+  else: discard
+
+proc lxPrepareRename(d: LsDoc, params: JsonNode): JsonNode =
+  let b = d.b
+  let p = lsToPos(b, params{"position"})
+  lsFocus(d, p)
+  let (a, e) = b.wordRangeAt(p)
+  if a.col >= e.col: lsRaise(ErrRequestFailed, "no name here")
+  let w = b.lines[p.line][a.col ..< e.col]
+  if lxRefHits(d, p, rename = true).len == 0:
+    lsRaise(ErrRequestFailed, "'" & w & "' is not declared where ned can find it — nothing to rename")
+  %*{"range": lsRangeIn(b.lines, a.line, a.col, e.line, e.col), "placeholder": w}
+
+proc lxRename(d: LsDoc, params: JsonNode): JsonNode =
+  let b = d.b
+  let p = lsToPos(b, params{"position"})
+  lsFocus(d, p)
+  lsEnsureFiles()
+  let nn = params{"newName"}.getStr.strip
+  let old = b.wordAt(p)
+  if old.len == 0: lsRaise(ErrRequestFailed, "no name here")
+  let js = lxLangOf(d) == lxWeb
+  if nn.len == 0 or not (nn[0] in IdentStartChars or (js and nn[0] == '$')) or
+     not nn.allCharsInSet(if js: IdentChars + {'$'} else: IdentChars):
+    lsRaise(ErrRequestFailed, "'" & nn & "' is not a name")
+  if lxLangOf(d) == lxC:
+    if nn in CxKeywords or (cxIsCppBuf(b) and nn in CxxKeywords): lsRaise(ErrRequestFailed, "'" & nn & "' is a keyword")
+    let ts = cxTargets(cxFileOf(b), p.line, p.col)
+    if ts.len > 0 and ts[0][1].kind notin {cxLocal, cxParam, cxLabel} and
+       not (ts[0][0].path == b.path or (rootDir.len > 0 and ts[0][0].path.startsWith(rootDir & "/"))):
+      lsRaise(ErrRequestFailed, "'" & old & "' is declared in " & ts[0][0].path & " — outside this project, so it is not renamed")
+  let hits = lxRefHits(d, p, rename = true)
+  var byFile: OrderedTable[string, seq[(int, int)]]
+  for (path, l, c) in hits: byFile.mgetOrPut(path, @[]).add (l, c)
+  var changes = newJObject()
+  for path, at in byFile:
+    let ls = lsLinesOf(path)
+    var es = newJArray()
+    var done: HashSet[(int, int)]
+    for (l, c) in at:
+      if l >= ls.len or (l, c) in done or not ls[l].continuesWith(old, c): continue
+      done.incl (l, c)
+      es.add %*{"range": lsRangeIn(ls, l, c, l, c + old.len), "newText": nn}
+    if es.len > 0: changes[lsUriOf(path)] = es
+  %*{"changes": changes}
+
+# ── symbols ──
+
+func lxSymKind(it: SideItem, lang: string): int =
+  case it.icon
+  of "ƒ": (if it.depth > 0: 6 else: 12)            # a method, a function
+  of "T": (if lang in ["c", "cpp"] and not it.detail.startsWith("class"): 23 else: 5)
+  of "#": (if lang == "markdown": 15 else: 14)       # a heading, a macro
+  of "{": 19
+  of "[": 18
+  of "·": 7
+  else: (if it.depth > 0: 8 else: 13)                # a field, a variable
+
+proc lxOutline(d: LsDoc): seq[SideItem] =
+  let b = d.b
+  case lxLangOf(d)
+  of lxC: cEngOutline(b)
+  of lxWeb:
+    if b.lang.id == "json": jsonOutlineOf(b)
+    elif b.lang.id == "javascript" and b.lines.len < 40_000: jsOutlineOf(b)
+    else: heuristicOutline(b)
+  else: heuristicOutline(b)
+
+proc lxDocumentSymbol(d: LsDoc): JsonNode =
+  result = newJArray()
+  let b = d.b
+  if b.lines.len == 0: return
+  let items = lxOutline(d)
+  let lang = if b.lang != nil: b.lang.id else: ""
+  # each item's range: to the line before the next item at its depth or above (the end of the file)
+  var ends = newSeq[int](items.len)
+  for i, it in items:
+    var e = b.lines.high
+    for j in i + 1 ..< items.len:
+      if items[j].depth <= it.depth:
+        e = max(it.line, items[j].line - 1)
+        break
+    ends[i] = e
+  proc symJson(i: int): JsonNode =
+    let it = items[i]
+    let l = clamp(it.line, 0, b.lines.high)
+    let s = b.lines[l]
+    let c = clamp(it.col, 0, s.len)
+    var e = c
+    while e < s.len and (s[e] in IdentChars or s[e] in {'$', '-'}): inc e
+    if e == c and c < s.len and s[c] == '"':
+      e = s.find('"', c + 1) + 1
+      if e <= c: e = s.len
+    let last = clamp(ends[i], l, b.lines.high)
+    result = %*{"name": (if it.text.len > 0: it.text else: "?"), "kind": lxSymKind(it, lang),
+                "range": lsRangeIn(b.lines, l, 0, last, b.lines[last].len),
+                "selectionRange": lsRangeIn(b.lines, l, c, l, max(e, c))}
+    if it.detail.len > 0: result["detail"] = %it.detail
+  if not lsHierSymbols:
+    for i in 0 ..< items.len:
+      let j = symJson(i)
+      result.add %*{"name": j["name"], "kind": j["kind"], "location": {"uri": d.uri, "range": j["range"]}}
+    return
+  var stack: seq[(int, JsonNode)]                  # (depth, symbol) of the items open above
+  for i in 0 ..< items.len:
+    let j = symJson(i)
+    let dep = items[i].depth
+    while stack.len > 0 and stack[^1][0] >= dep: discard stack.pop()
+    if stack.len == 0: result.add j
+    else:
+      let parent = stack[^1][1]
+      if parent{"children"} == nil: parent["children"] = newJArray()
+      parent["children"].add j
+    stack.add (dep, j)
+
+# ── parameter names, quick fixes, links ──
+
+proc lxInlayHints(d: LsDoc, params: JsonNode): JsonNode =
+  result = newJArray()
+  let b = d.b
+  if lxLangOf(d) != lxC or not cEngineOn(b) or not cfgInlayHints: return
+  let r = params{"range"}
+  let lo = clamp(lsToPos(b, r{"start"}).line, 0, b.lines.high)
+  let hi = clamp(lsToPos(b, r{"end"}).line, lo, b.lines.high)
+  lsFocus(d, b.primary.head)
+  cEngInlays(b, lo, hi)
+  var ls: seq[int]
+  for l in b.inlays.keys: ls.add l
+  ls.sort()
+  for l in ls:
+    if l < lo or l > hi or l > b.lines.high: continue
+    for (c, label) in b.inlays[l]:
+      result.add %*{"position": lsPosIn(b.lines, l, min(c, b.lines[l].len)), "label": label.strip(leading = false),
+                    "kind": 2, "paddingRight": true}
+
+proc lxCodeActions(d: LsDoc, params: JsonNode): JsonNode =
+  ## the compiler's own fixes (C, C++) and ned's engine's, for the problems in the range
+  result = newJArray()
+  let b = d.b
+  let r = params{"range"}
+  let a = lsToPos(b, r{"start"})
+  let e = lsToPos(b, r{"end"})
+  for dg in diagsFor(b.path):
+    if dg.fixes == nil or dg.line > e.line or max(dg.line, dg.eline) < a.line: continue
+    for f in jitems(dg.fixes):
+      if f{"at"}.getInt(-1) != b.changeId: continue
+      var es = newJArray()
+      for x in jitems(f{"nedEdits"}):
+        let s0 = x{"range"}{"start"}
+        let s1 = x{"range"}{"stop"}
+        es.add %*{"range": lsRangeIn(b.lines, s0{"line"}.getInt, s0{"col"}.getInt, s1{"line"}.getInt, s1{"col"}.getInt),
+                  "newText": x{"text"}.getStr}
+      if es.len == 0: continue
+      let (sc, el, ec) = lsDiagRange(b.lines, dg)
+      result.add %*{"title": f{"title"}.getStr, "kind": "quickfix", "isPreferred": result.len == 0,
+                    "diagnostics": [{"range": lsRangeIn(b.lines, dg.line, max(0, sc), el, max(0, ec)),
+                                     "severity": clamp(dg.sev, 1, 4), "message": dg.msg}],
+                    "edit": {"changes": {d.uri: es}}}
+
+proc lxDocumentLinks(d: LsDoc): JsonNode =
+  ## the files a document names: C's #include "…" and <…> (where the engine finds them), JavaScript's imports of a
+  ## file, HTML's href and src of a file of the project
+  result = newJArray()
+  let b = d.b
+  if b.path.len == 0: return
+  let dir = parentDir(b.path)
+  template link(l, a, e: int, target: string) =
+    if target.len > 0 and fileExists(target):
+      result.add %*{"range": lsRangeIn(b.lines, l, a, l, e), "target": lsUriOf(target)}
+  let lang = if b.lang != nil: b.lang.id else: ""
+  for l, s in b.lines:
+    if l > 20000: break
+    if lang in ["c", "cpp"]:
+      let t = s.strip
+      if t.startsWith("#") and "include" in t:
+        let q0 = s.find({'"', '<'})
+        if q0 < 0: continue
+        let q1 = s.find(if s[q0] == '"': '"' else: '>', q0 + 1)
+        if q1 <= q0 + 1: continue
+        let name = s[q0 + 1 ..< q1]
+        var target = if s[q0] == '"' and fileExists(dir / name): dir / name else: ""
+        if target.len == 0:
+          cxSetDirsFor(b.path)
+          target = cxFindInclude(name, dir)
+        link(l, q0 + 1, q1, target)
+    elif lang == "javascript":
+      for kw in ["from ", "import ", "require("]:
+        var k = s.find(kw)
+        while k >= 0:
+          var q = k + kw.len
+          while q < s.len and s[q] == ' ': inc q
+          if q < s.len and s[q] in {'"', '\'', '`'}:
+            let e = s.find(s[q], q + 1)
+            if e > q + 1: link(l, q + 1, e, jsModulePath(b.path, s[q + 1 ..< e]))
+          k = s.find(kw, k + 1)
+    elif lang in ["html", "css"]:
+      for kw in ["href=\"", "src=\"", "href='", "src='", "url("]:
+        var k = s.find(kw)
+        while k >= 0:
+          var q = k + kw.len
+          let close = if kw == "url(": ')' else: kw[^1]
+          var e = s.find(close, q)
+          if kw == "url(" and q < s.len and s[q] in {'"', '\''}:
+            inc q
+            e = s.find(s[q - 1], q)
+          if e > q:
+            var t = s[q ..< e].split({'#', '?'})[0]
+            if t.len > 0 and "://" notin t and not t.startsWith("data:") and not t.startsWith("mailto:"):
+              let target = if t.startsWith("/") and rootDir.len > 0: rootDir / t[1 .. ^1] else: dir / t
+              link(l, q, q + t.len, normalizedPath(target))
+          k = s.find(kw, k + 1)
+
+# ── formatting ──
+
+proc lxFormatting(d: LsDoc): JsonNode =
+  ## ned's formatter for the document's language (C and C++, JSON, Markdown, CSS, SCSS, YAML, TOML, HTML, SQL)
+  result = newJArray()
+  let b = d.b
+  let kind = lxFmtKind(b)
+  if kind.len == 0 or kind == "nim" or b.largeOn: return
+  applySettingsFor(b.path)
+  let (ok, outp) = lsInChild(proc(): string =
+    let text = b.allText & "\n"
+    let (res, err) = fmtTextOf(kind, text, b.path)
+    if err.len > 0 and res == text: "E" & err
+    elif res == text: "R[]"
+    else: "R" & $lsLineEdits(b.lines, lsTextLines(res), lsEol(b)))
+  result = lsFormatAnswer(d, ok, outp, "format")
+
+# ── problems ──
+
+proc lxPumpChecks(d: LsDoc, active: bool) =
+  ## ned's own checks of a document in another language, after a pause in typing: C's (and, for the document typed
+  ## into last, the C compiler on the unsaved text), JavaScript's, HTML's, CSS's, SQL's and JSON's
+  let b = d.b
+  if b.path.len == 0 or msSince(d.changedAt) < 400: return
+  if lxCheckedAt.getOrDefault(b.id, -1) == b.changeId: return
+  lxCheckedAt[b.id] = b.changeId
+  case lxLangOf(d)
+  of lxC:
+    if not cEngineOn(b): return
+    cEngChecks(b)
+    if active and cfgLiveCheck and b.path notin cTypingChecks and (b.dirty or b.chkAt == 0): cTypingCheck(b)
+  of lxWeb:
+    var ds = webDiagsOf(b)
+    lintApply(b.path, b.lines, ds)
+    if ds.len > 0: diagsWeb[b.path] = ds
+    else: diagsWeb.del b.path
+  else: return
+  lsDiagsDirty = true
+
+proc lxNextCheckMs(d: LsDoc): int =
+  ## ms until lxPumpChecks has something to do for this document
+  result = 1000
+  if d == nil or d.b.path.len == 0 or lxLangOf(d) notin {lxC, lxWeb}: return
+  if lxCheckedAt.getOrDefault(d.b.id, -1) != d.b.changeId:
+    result = max(10, 400 - int(msSince(d.changedAt)) + 5)
+
+# ── the dispatch: a request about a document in another language ──
+
+proc lxHandle(meth: string, params: JsonNode, id: JsonNode): bool =
+  ## answer a request about a document that is not Nim (true when answered here)
+  if not meth.startsWith("textDocument/"): return false
+  let d = lsDocOf(params, required = false)
+  if d == nil or lxLangOf(d) == lxNim: return false
+  case meth
+  of "textDocument/completion": lsReply(id, lxCompletion(d, params))
+  of "textDocument/hover": lsReply(id, lxHover(d, params))
+  of "textDocument/signatureHelp": lsReply(id, lxSignatureHelp(d, params))
+  of "textDocument/definition", "textDocument/declaration", "textDocument/implementation":
+    lsReply(id, lxDefinition(d, params))
+  of "textDocument/references": lsReply(id, lxReferences(d, params))
+  of "textDocument/documentHighlight": lsReply(id, lxHighlights(d, params))
+  of "textDocument/prepareRename": lsReply(id, lxPrepareRename(d, params))
+  of "textDocument/rename": lsReply(id, lxRename(d, params))
+  of "textDocument/documentSymbol": lsReply(id, lxDocumentSymbol(d))
+  of "textDocument/formatting": lsReply(id, lxFormatting(d))
+  of "textDocument/inlayHint": lsReply(id, lxInlayHints(d, params))
+  of "textDocument/codeAction": lsReply(id, lxCodeActions(d, params))
+  of "textDocument/documentLink": lsReply(id, lxDocumentLinks(d))
+  of "textDocument/semanticTokens/full", "textDocument/semanticTokens/range": lsReplyRaw(id, "{\"data\":[]}")
+  of "textDocument/foldingRange", "textDocument/selectionRange": return false      # (the same for every language)
+  of "textDocument/prepareCallHierarchy", "textDocument/prepareTypeHierarchy", "textDocument/typeDefinition",
+     "textDocument/rangeFormatting", "textDocument/codeLens":
+    lsReply(id, (if meth.startsWith("textDocument/prepare"): newJNull() else: newJArray()))
+  else: return false
+  true

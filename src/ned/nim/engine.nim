@@ -260,8 +260,7 @@ proc engineTyposApply(b: Buffer, found: seq[(int, int, string, string)], mine: s
       if d.line == l and ("'" & w & "'") in d.msg: dup = true
     if dup: continue
     ds.add Diag(line: l, col: c, eline: l, ecol: -1, sev: 1, src: "ned", rule: "typo",
-                msg: "undeclared identifier: '" & w & "'\ncandidates (edit distance, scope distance); see " &
-                     "'--spellSuggest': \n (1, 0): '" & meant & "'")
+                msg: nxTypoMsg((if l < b.lines.len: b.lines[l] else: ""), c, w, meant))
   var checked = 0
   if checksOn:
     for d in mine:

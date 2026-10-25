@@ -64,6 +64,8 @@ def seen(text, timeout):
 
 check("ned.exe starts in a console and shows the file's name", seen("hello.nim", 30), "".join(out)[-400:])
 check("… and its text", seen("greet", 10), "".join(out)[-400:])
+check("… in 24-bit colour (the theme's own colours, not the 256-colour palette's)", seen("48;2;", 5),
+      "".join(out)[-400:])
 time.sleep(1.0)
 p.write("x")                                     # a letter at the start of the first line
 time.sleep(0.5)

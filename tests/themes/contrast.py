@@ -10,7 +10,7 @@ import itertools, math, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, '..', '..', 'src', 'ned', 'core', 'themes.nim')
 OWN = ['nim-crown', 'frankincense', 'desert-dusk', 'lagoon', 'sea-glass', 'paper-ink', 'rose-quartz', 'amber-crt',
-       'green-phosphor']
+       'green-phosphor', 'oled-black', 'oled-warm', 'oled-dim', 'lcd-soft', 'lcd-warm', 'lcd-paper']
 MONO = ['amber-crt', 'green-phosphor', 'monochrome', 'monochrome-light']
 NAMES = 'bg fg accent sel comment keyword type string number func operator macro property error warning ok'.split()
 

@@ -2365,7 +2365,12 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("js-const-assign", "an assignment to a const (or an import)", 1),
   ("js-unused", "a function, let, const or import nothing uses (in a module)", 4),
   ("js-eqeq", "== or != with a literal: === and !== do not convert", 4),
-  ("js-typo", "a name nothing declares, a letter or two away from one that is", 2)]
+  ("js-typo", "a name nothing declares, a letter or two away from one that is", 2),
+  # (ned's own JSON)
+  ("json", "a mistake in a JSON file: a comma missing or too many, a string not closed, a comment JSON does not take", 1),
+  ("json-duplicate-key", "a key an object has twice (the last one counts)", 2),
+  ("json-schema", "a value a known file does not take there (package.json, tsconfig.json, ned's settings …)", 2),
+  ("json-unknown-key", "a key a known file does not have — a typo of one, mostly", 2)]
 
 var ecWantSev* = 4                     # ned --lint: rules less serious than what it shows or fails on are not looked for
 

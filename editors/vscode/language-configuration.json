@@ -1,0 +1,18 @@
+{
+  "comments": { "lineComment": "#", "blockComment": ["#[", "]#"] },
+  "brackets": [["{", "}"], ["[", "]"], ["(", ")"]],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" }, { "open": "[", "close": "]" }, { "open": "(", "close": ")" },
+    { "open": "\"", "close": "\"", "notIn": ["string"] }, { "open": "'", "close": "'", "notIn": ["string", "comment"] },
+    { "open": "#[", "close": "]#" }, { "open": "{.", "close": ".}" }
+  ],
+  "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""], ["`", "`"]],
+  "indentationRules": {
+    "increaseIndentPattern": "^.*(=|:|\\b(object|tuple|enum|concept)\\b|\\b(var|let|const|type|import|export)\\s*)\\s*(#.*)?$",
+    "decreaseIndentPattern": "^\\s*(elif|else|except|finally|of)\\b.*:\\s*(#.*)?$"
+  },
+  "onEnterRules": [
+    { "beforeText": "^\\s*##.*$", "action": { "indent": "none", "appendText": "## " } }
+  ],
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\s`~!@#$%^&*()\\-=+\\[{\\]}\\\\|;:'\\\",.<>/?]+)"
+}

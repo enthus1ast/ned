@@ -1,6 +1,35 @@
-# ── wrap a header with c2nim (or futhark) ──
+# ── a C header as Nim: by ned's own C engine (cnim.nim), or with c2nim or futhark ──
+
+proc cWrapOwn(header: string) =
+  ## the header's declarations as a Nim module beside it (a system header's: in the project), opened
+  let h = if header.isAbsolute: header else: rootDir / header
+  if not fileExists(h):
+    error("No such file: " & header)
+    return
+  let (dir, name, ext) = splitFile(h)
+  var sysDir = ""
+  for d in cSystemIncludeDirs():
+    if h.startsWith(d & "/"): sysDir = d
+  let outDir = if sysDir.len == 0: dir elif dirExists(rootDir / "src"): rootDir / "src" else: rootDir
+  var outp = outDir / name & ".nim"
+  if fileExists(outp): outp = outDir / name & "_c.nim"
+  var text = ""
+  var n = 0
+  try:
+    if cxPrepare != nil: cxPrepare(h)          # (where #include looks, the compiler's macros)
+    let f = cxLoad(h, readFile(h), "wrap:" & h, cpp = ext.toLowerAscii in [".hpp", ".hh", ".hxx", ".h++"])
+    let spec = if sysDir.len > 0: "<" & relativePath(h, sysDir) & ">" else: relativePath(h, parentDir(outp))
+    (text, n) = cxNimBindings(f, h, spec)
+    writeFile(outp, text)
+  except CatchableError as e:
+    error("Could not wrap " & extractFilename(h) & ": " & e.msg)
+    return
+  discard openFile(outp)
+  toast("Wrapped " & extractFilename(h) & " → " & extractFilename(outp) & ": " & $n & " declarations — check " &
+        "pointers that are arrays and out parameters", 3)
 
 proc cWrapWith(header: string) =
+  ## the header wrapped with c2nim (else futhark)
   let h = if header.isAbsolute: header else: rootDir / header
   if not fileExists(h):
     error("No such file: " & header)
@@ -41,16 +70,19 @@ proc cWrapWith(header: string) =
                 proc() = runInTerm("nimble install futhark"))
   openActions("Wrapping a C header needs c2nim or futhark", items)
 
-proc cmdWrapHeader() =
+proc wrapAct(path: string, c2nim: bool): Action =
+  (proc() = (if c2nim: cWrapWith(path) else: cWrapOwn(path)))
+
+proc cmdWrapHeader(c2nim = false) =
+  ## a header of the project (or any other) as Nim: by ned's own C engine, or with c2nim
   var items: seq[(string, string, Action)]
   for rel in projectFiles():
     let lr = rel.toLowerAscii
     if lr.endsWith(".h") or lr.endsWith(".hpp") or lr.endsWith(".hh"):
-      let r = rel
       let shown = relPath(if rel.isAbsolute: rel else: rootDir / rel)
-      capture r:
-        items.add act(shown, "", proc() = cWrapWith(r))
+      items.add act(shown, "", wrapAct(rel, c2nim))
       if items.len >= 400: break
   items.add act("Another header…", "a path, e.g. /usr/include/zlib.h",
-                proc() = askPath("Header to wrap", "", proc(t: string) = cWrapWith(t)))
-  openActions("Wrap a C header for Nim (c2nim)", items)
+                proc() = askPath("Header to wrap", "", proc(t: string) =
+                  if c2nim: cWrapWith(t) else: cWrapOwn(t)))
+  openActions(if c2nim: "Wrap a C header for Nim (c2nim)" else: "Wrap a C header for Nim", items)

@@ -48,13 +48,19 @@ proc lsImportEdit(d: LsDoc, module: string): JsonNode =
     if path == b.path:
       for e in lsLineEdits(before, after, lsEol(b)): result.add e
 
+proc lxCompItems(d: LsDoc, p: Pos): JsonNode
+
 proc lsCompletion(params: JsonNode): JsonNode =
   let d = lsDocOf(params)
   result = %*{"isIncomplete": false, "items": []}
   if not lsEngineOn(d): return
+  let tc = params{"context"}{"triggerCharacter"}.getStr
   let b = d.b
   let p = lsToPos(b, params{"position"})
   lsFocus(d, p)
+  if b.path.endsWith(".nimble") and (nbVersionComplete(b, p, true, force = true) or nbNameComplete(b, p, true)):
+    return lxCompItems(d, p)                 # (a requires: the packages nimble knows, their versions)
+  if tc.len > 0 and tc != ".": return        # (the other languages' triggers)
   if not engineComplete(b, true): return
   inc lsCompGen
   lsCompUri = d.uri
@@ -121,6 +127,7 @@ proc lsHover(params: JsonNode): JsonNode =
   var ra = wa
   var re = we
   if ph.len > 0: md = ph
+  elif b.path.endsWith(".nimble") and nbHover(b, p).len > 0: md = nbHover(b, p)   # (a package a requires names)
   else:
     let tk = if w.len > 0: b.tokenAt(p) else: tkText
     let onSymbol = w.len > 0 and not w[0].isDigit and tk notin {tkComment, tkString, tkDoc, tkNumber} and
@@ -192,6 +199,10 @@ proc lsSignatureHelp(params: JsonNode): JsonNode =
 proc lsDefinitions(d: LsDoc, p: Pos): seq[(string, int, int)] =
   ## where the name at p is declared (several when the index cannot tell overloads apart)
   let b = d.b
+  let (pkg, _, pkgFile) = nbPackageTarget(b, p)    # (a .nimble's requires: the package's own .nimble)
+  if pkg.len > 0:
+    if pkgFile.len > 0: result.add (pkgFile, 0, 0)
+    return
   let f = nxFileFor(b)
   if f == nil: return
   for (path, l, c, _) in nxDefinition(f, b.lines, p.line, p.col):

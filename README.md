@@ -132,10 +132,11 @@ are not yet told apart overload by overload. Today's:
 most-used first), left dock (files, search & replace, git, Nim, tests), right dock (AI assistant, outline,
 timeline), bottom panel (problems, output, terminal), tabs, breadcrumbs, minimap, sticky scroll, indent
 guides, rainbow brackets, tooltips, toasts, modal dialogs, context menus (right click), drop shadows,
-hover effects, 50 themes (VS Code dark/light, One Dark, Tokyo Night, Catppuccin, Gruvbox, Dracula, Nord,
+hover effects, 56 themes (VS Code dark/light, One Dark, Tokyo Night, Catppuccin, Gruvbox, Dracula, Nord,
 Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Slate, Monochrome, Everforest, Night Owl, from
 vim Molokai, Jellybeans, Iceberg, Sonokai and PaperColor, and ned's own: Nim Crown, Frankincense, Desert Dusk,
-Lagoon, Sea Glass, Paper Ink, Rose Quartz, Amber CRT and Green Phosphor …)
+Lagoon, Sea Glass, Paper Ink, Rose Quartz, Amber CRT, Green Phosphor, and six easy on the eyes for OLED and LCD
+screens …)
 — or `auto`, following the terminal's background or the time of day, your own colours (a theme editor that
 checks contrast), VS Code or base16 themes imported, and Termux's own colours set to match —
 three icon sets (unicode, Nerd Font, ASCII), phone layout below 70 columns, an accessibility mode (ASCII, letters

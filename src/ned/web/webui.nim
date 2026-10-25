@@ -1,6 +1,6 @@
-# ── ned's own CSS, HTML, SQL and JavaScript in the editor: in .css / .scss / .less, .html, .sql and .js files and
-#    where they are embedded (an HTML <style> or <script>, Nim strings) — completion, hover, go to definition and
-#    problems, when no language server does it (web.engine: auto) ──
+# ── ned's own CSS, HTML, SQL, JavaScript and JSON in the editor: in .css / .scss / .less, .html, .sql, .js and .json
+#    files and where they are embedded (an HTML <style> or <script>, Nim strings) — completion, hover, go to
+#    definition and problems, when no language server does it (web.engine: auto) ──
 
 var
   webDocMemo: Table[(int, string), (int, seq[string])]    # (buffer, language) → (the change it was made for, text)
@@ -77,6 +77,95 @@ proc webDoc(b: Buffer, fam: string, near = -1): seq[string] =
 
 var wkWebServed: seq[string]       # (the engine worker: the languages the editor has a server for — it asks)
 
+# ── JSON: the schemas of the files ned knows — package.json, tsconfig.json, atlas.config … and its own ──
+
+var nedSettingsSchemaMemo, nedLintSchemaMemo: JSchema
+
+proc nedSettingsSchema(): JSchema =
+  ## ned's settings (config.json, a project's .ned/settings.json): every setting, what it takes, what it does —
+  ## each by its whole name ("nim.engineHints") or in its section's object ("nim": {"engineHints": …})
+  if nedSettingsSchemaMemo != nil: return nedSettingsSchemaMemo
+  initSettingDefs()
+  result = JSchema(typ: "object", title: "ned's settings", other: JSchema(),
+                   desc: "ned's settings — Settings (Ctrl+,) shows them all, with what each does")
+  var sections: OrderedTable[string, JSchema]
+  for d in setDefs:
+    let s = JSchema(desc: d.doc & "  (" & d.cat & ")", default: $d.def)
+    case d.kind
+    of skBool: (s.typ = "boolean"; s.values = @["true", "false"])
+    of skInt: s.typ = "number"
+    of skStr: s.typ = "string"
+    of skEnum:
+      s.typ = "string"
+      for o in d.opts: s.values.add escapeJson(o)
+    of skJson: s.typ = (case d.def.kind
+                        of JArray: "array"
+                        of JObject: "object"
+                        else: "")
+    result.props[d.key] = s
+    let dot = d.key.find('.')
+    if dot > 0 and d.key[0 ..< dot] in SettingSections:
+      let sec = d.key[0 ..< dot]
+      if sec notin sections:
+        sections[sec] = JSchema(typ: "object", other: JSchema(), desc: "the " & sec & " settings, by their short names")
+      sections[sec].props[d.key[dot + 1 .. ^1]] = s
+  for sec, s in sections:
+    if sec notin result.props: result.props[sec] = s
+  nedSettingsSchemaMemo = result
+
+proc nedLintSchema(): JSchema =
+  ## .ned/lint.json: each of ned's own checks by its rule, how serious it is or off; the files left out
+  if nedLintSchemaMemo != nil: return nedLintSchemaMemo
+  let sevs = @["\"off\"", "\"error\"", "\"warning\"", "\"info\"", "\"hint\"", "true", "false"]
+  let rules = JSchema(typ: "object", desc: "a rule's severity, or off: \"var-let\": \"off\"")
+  for (r, what, sv) in NedRules:
+    rules.props[r] = JSchema(desc: what & " — on its own: " & ["off", "an error", "a warning", "information", "a hint"][sv],
+                             values: sevs)
+  result = JSchema(typ: "object", title: ".ned/lint.json", desc: "the rules of ned's own checks for this project", props:
+    {"rules": rules,
+     "exclude": JSchema(typ: "array", desc: "files left out: \"generated/\" (a folder), \"**/*_gen.nim\" (a glob)",
+                        items: JSchema(typ: "string"))}.toOrderedTable)
+  nedLintSchemaMemo = result
+
+proc jsonSchemaOf(path: string): JSchema =
+  ## the schema of a JSON file by its name and place (nil: none)
+  if path.len == 0: return nil
+  let p = path.replace('\\', '/')
+  if p.endsWith("/.ned/lint.json"): return nedLintSchema()
+  if p.endsWith("/.ned/settings.json") or path == configFile(): return nedSettingsSchema()
+  jsonSchemaFor(path)
+
+proc nedSettingsChecks(lines: seq[string]): seq[WebDiag] =
+  ## ned's settings file: keys ned does not know (a typo's near name), values a setting does not take — as ned reads
+  ## the file (a section's object as its keys)
+  let d = jsonRead(lines, comments = true)
+  if d.root == nil or d.root.kind != jkObject: return
+  var members: seq[(string, JNode)]
+  for k in d.root.kids:
+    if k.key in SettingSections and k.kind == jkObject:
+      for k2 in k.kids: members.add (k.key & "." & k2.key, k2)
+    else: members.add (k.key, k)
+  for (key, n) in members:
+    if n.kind == jkBad: continue
+    let i = setIndex.getOrDefault(key, -1)
+    if i < 0:
+      let note = unknownSettingNote(key)
+      if note.len > 0:
+        result.add WebDiag(line: n.keyLine, col: n.keyCol, eline: n.keyLine, ecol: n.keyEcol, sev: 2,
+                           rule: "json-unknown-key", msg: "not a setting ned has: " & note)
+      continue
+    let v = jsonToNode(n)
+    if v != nil and not validSetting(setDefs[i], v):
+      let sd = setDefs[i]
+      let want = case sd.kind
+                 of skBool: "true or false"
+                 of skInt: "a number"
+                 of skStr: "a string"
+                 of skEnum: "one of " & (if sd.opts.len > 8: sd.opts[0 ..< 8].join(", ") & " …" else: sd.opts.join(", "))
+                 of skJson: (if sd.def.kind == JArray: "a list […]" else: "an object {…}")
+      result.add WebDiag(line: n.line, col: n.col, eline: n.eline, ecol: n.ecol, sev: 2, rule: "json-schema",
+                         msg: "\"" & key & "\" takes " & want & " — ned uses its default (" & $sd.def & ")")
+
 proc webServerFor(b: Buffer, fam: string): bool =
   ## does a language server answer for this language here (the file's own, or the one embedded strings use)?
   if wkWorkerMode: return fam in wkWebServed
@@ -87,6 +176,7 @@ proc webServerFor(b: Buffer, fam: string): bool =
                                 of "css": "CSS"
                                 of "html": "HTML"
                                 of "js": "JavaScript"
+                                of "json": "JSON"
                                 else: "SQL"))
 
 proc webEngineOn(b: Buffer, p: Pos): bool =
@@ -94,6 +184,7 @@ proc webEngineOn(b: Buffer, p: Pos): bool =
   if cfgWebEngine == "off" or b.largeOn: return false
   let fam = webLangAt(b, p)
   if fam.len == 0: return false
+  if fam == "json" and (webFamily(b.lang.id) != "json" or jsonSchemaOf(b.path) == nil): return false   # (a schema's)
   cfgWebEngine == "on" or not webServerFor(b, fam)
 
 # ── what other files tell: the tables a project creates, the class names its stylesheets have ──
@@ -291,6 +382,13 @@ proc webComplete(b: Buffer, p: Pos, manual: bool): bool =
     if not manual and p.col - a < 1 and not afterDot: return false
     start = a
     items = its
+  of "json":
+    if b.lines.len > 20000: return false
+    let (a, its) = jsonComplete(b.lines, p.line, p.col, jsonSchemaOf(b.path), jsonComments(b.path))
+    # (as you type: after a key's opening quote, after `: `, and at the letters of a key or a value)
+    if not manual and its.len == 0: return false
+    start = a
+    items = its
   else: return false
   if items.len == 0:
     if manual: info("No completions")
@@ -317,21 +415,202 @@ proc webHoverInfo(b: Buffer, p: Pos): string =
     of "html": htmlHover(doc, p.line, p.col)
     of "sql": sqlHover(doc, p.line, p.col, sqlSchema(b))
     of "js": (if b.jsTooBig(): "" else: jsHover(doc, p.line, p.col))
+    of "json": (if b.lines.len > 20000: "" else: jsonHover(b.lines, p.line, p.col, jsonSchemaOf(b.path),
+                                                              jsonComments(b.path)))
     else: ""
   except CatchableError, Defect: ""
 
+# ── JavaScript across files: an import's module, what it exports, who imports it ──
+
+proc jsModulePath(fromPath, spec: string): string =
+  ## an import's module as a file — "./util.js", "./util" (.js .mjs .cjs, or its folder's index.js), from the
+  ## importing file's folder ("/x": from the project's) — "" for a package's
+  if not (spec.startsWith("./") or spec.startsWith("../") or spec.startsWith("/")): return ""
+  let base = if spec.startsWith("/"): (if rootDir.len > 0: rootDir / spec[1 .. ^1] else: spec)
+             else: parentDir(fromPath) / spec
+  let p = normalizedPath(base)
+  for cand in [p, p & ".js", p & ".mjs", p & ".cjs", p / "index.js", p / "index.mjs"]:
+    if fileExists(cand) and not dirExists(cand): return cand
+  ""
+
+proc jsLinesOf(path: string): seq[string] =
+  ## a file's lines as the editor has them (an open buffer's, unsaved), else as they are on disk
+  let i = bufIndexByPath(path)
+  if i >= 0: return bufs[i].lines
+  try: readFile(path).splitLines
+  except CatchableError: @[]
+
+proc jsCrossDefinition(b: Buffer, doc: seq[string], p: Pos): (string, int, int) =
+  ## an imported name (or `ns.name` of an `import * as ns`): where its module declares it — ("", -1, -1) none
+  result = ("", -1, -1)
+  if b.path.len == 0 or webFamily(b.lang.id) != "js": return
+  var (name, spec) = jsImportAt(doc, p.line, p.col)
+  if spec.len == 0:
+    # ns.name: the word before the dot is a namespace import
+    let s = doc[p.line]
+    var a = min(p.col, s.len)
+    while a > 0 and (s[a - 1] in IdentChars or s[a - 1] == '$'): dec a
+    var e = a
+    while e < s.len and (s[e] in IdentChars or s[e] == '$'): inc e
+    if a >= 2 and s[a - 1] == '.' and s[a - 2] in IdentChars:
+      let (nm, sp) = jsImportAt(doc, p.line, a - 2)
+      if nm == "*" and e > a: (name, spec) = (s[a ..< e], sp)
+  if spec.len == 0 or name == "*": return
+  let path = jsModulePath(b.path, spec)
+  if path.len == 0: return
+  let (l, c) = jsExportAt(jsLinesOf(path), name)
+  result = if l < 0: (path, 0, 0) else: (path, l, c)     # (no such export: the module, at least)
+
+proc jsImportersOf(home, name: string, rename: bool, skip: seq[string]): seq[(string, int, int)] =
+  ## in the project's other JavaScript files: the places that import `name` (or, "default", the default export)
+  ## from the module `home`, and their uses of it — for a rename only the imported name (`{name as x}` keeps x;
+  ## a default import's own name stays)
+  if rootDir.len == 0: return
+  let stem = splitFile(home).name
+  var n = 0
+  for rel in projectFiles():
+    let lr = rel.toLowerAscii
+    if not (lr.endsWith(".js") or lr.endsWith(".mjs") or lr.endsWith(".cjs")): continue
+    let full = if rel.isAbsolute: rel else: rootDir / rel
+    if full == home or full in skip: continue
+    inc n
+    if n > 3000: break
+    let ls = jsLinesOf(full)
+    var any = false
+    for l in ls:
+      if "import" in l and (name in l or stem in l):
+        any = true
+        break
+    if not any: continue
+    # each import statement, from `import` to its "module"
+    var l = 0
+    while l < ls.len:
+      if not ls[l].strip.startsWith("import"):
+        inc l
+        continue
+      var last = l
+      while last < ls.len - 1 and last - l < 40 and not ("\"" in ls[last] or "'" in ls[last]): inc last
+      for k in l .. last:
+        let s = ls[k]
+        var c = 0
+        while c < s.len:
+          if s[c] notin IdentStartChars and s[c] != '$':
+            inc c
+            continue
+          var e = c
+          while e < s.len and (s[e] in IdentChars or s[e] == '$'): inc e
+          let w = s[c ..< e]
+          if w notin ["import", "from", "as"]:
+            var bindAt = c
+            var aliased = false
+            # `name as x`: the binding is x
+            var q = e
+            while q < s.len and s[q] == ' ': inc q
+            if s.continuesWith("as ", q):
+              q += 3
+              while q < s.len and s[q] == ' ': inc q
+              if q < s.len and s[q] in IdentStartChars:
+                bindAt = q
+                aliased = true
+            let (nm, sp) = jsImportAt(ls, k, bindAt)
+            if sp.len > 0 and (nm == name or (name == "default" and nm == "default")) and
+               (aliased or nm == "default" or w == name) and jsModulePath(full, sp) == home:
+              if aliased: result.add (full, k, c)                     # (`{name as x}`: the name, not x)
+              elif nm == "default" and rename: discard                # (a default import's name is its own)
+              else:
+                for (rl, rc, _) in jsReferences(ls, k, bindAt): result.add (full, rl, rc)
+          c = e
+      l = last + 1
+
+proc jsProjectRefs(b: Buffer, p: Pos, rename = false): seq[(string, int, int)] =
+  ## the name at p in this file and, when a module exports it, in the module it comes from and the files that
+  ## import it
+  let doc = webDoc(b, "js", near = -1)
+  if p.line >= doc.len: return
+  let local = jsReferences(doc, p.line, p.col)
+  if local.len == 0: return
+  let (imp, spec) = jsImportAt(doc, p.line, p.col)
+  let word = block:
+    var w = ""
+    for (l, c, e) in local:
+      if l == p.line and c <= p.col and p.col <= e: w = doc[l][c ..< e]
+    if w.len == 0: doc[local[0][0]][local[0][1] ..< local[0][2]]
+    else: w
+  let aliasOnly = spec.len > 0 and imp != word          # (`{join as j}`: j is this file's own name)
+  for (l, c, _) in local: result.add (b.path, l, c)
+  if b.path.len == 0 or webFamily(b.lang.id) != "js" or aliasOnly or imp == "*": return
+  var home = b.path
+  var exportName = word
+  if spec.len > 0:
+    home = jsModulePath(b.path, spec)
+    exportName = imp
+    if home.len == 0: return
+    if imp == "default" and rename: return            # (a default import's name is the importer's own)
+    let hl = jsLinesOf(home)
+    let (dl, dc) = jsExportAt(hl, imp)
+    if dl >= 0:
+      for (rl, rc, _) in jsReferences(hl, dl, dc): result.add (home, rl, rc)
+  else:
+    let (dl, dc) = jsExportAt(doc, "default")
+    if dl >= 0 and (dl, dc, dc + word.len) in local: exportName = "default"
+    elif jsExportAt(doc, word)[0] < 0: return         # (not the module's own top-level name)
+  for h in jsImportersOf(home, exportName, rename, @[b.path]):
+    if h notin result: result.add h
+
 proc webDefinition(b: Buffer, p: Pos): bool =
-  ## JavaScript: where the name at p is declared (in the file, or the <script>s of the page)
+  ## JavaScript: where the name at p is declared (in the file, or the <script>s of the page) — an imported name in
+  ## the module it comes from
   if not webEngineOn(b, p) or webLangAt(b, p) != "js" or b.jsTooBig(): return false
   let doc = webDoc(b, "js", near = -1)
   if p.line >= doc.len: return false
   var at = (-1, -1)
-  try: at = jsDefinition(doc, p.line, p.col)
+  var other = ("", -1, -1)
+  try:
+    other = jsCrossDefinition(b, doc, p)
+    if other[0].len == 0: at = jsDefinition(doc, p.line, p.col)
   except CatchableError, Defect: return false
+  if other[0].len > 0:
+    pushJump()
+    let nb = openFile(other[0])
+    if nb != nil:
+      let q = nb.clampPos(Pos(line: other[1], col: other[2]))
+      nb.setSingle(q)
+      nb.centerOn(q)
+    return true
   if at[0] < 0: return false
   pushJump()
   b.setSingle(b.clampPos(Pos(line: at[0], col: at[1])))
   b.centerOn(b.primary.head)
+  true
+
+proc webJsAt(b: Buffer, p: Pos): bool =
+  ## does ned's own JavaScript engine answer at p (a .js file, a page's <script>)?
+  webEngineOn(b, p) and webLangAt(b, p) == "js" and not b.jsTooBig()
+
+proc webReferences(b: Buffer, p: Pos): bool =
+  ## JavaScript: the uses of the name at p — across the project's modules for an exported one
+  if not webJsAt(b, p): return false
+  var hits: seq[(string, int, int)]
+  try: hits = jsProjectRefs(b, p)
+  except CatchableError, Defect: return false
+  if hits.len == 0:
+    info("No references — '" & b.wordAt(p) & "' is not declared in this file")
+    return true
+  showReferences("REFERENCES " & b.wordAt(p), hits)
+  true
+
+proc webRename(b: Buffer, p: Pos, newName: string): bool =
+  ## JavaScript: the name at p renamed everywhere it means the same (with a preview)
+  if not webJsAt(b, p): return false
+  let nn = newName.strip
+  if nn.len == 0 or not (nn[0] in IdentStartChars or nn[0] == '$') or not nn.allCharsInSet(IdentChars + {'$'}):
+    warn("'" & nn & "' is not a JavaScript name")
+    return true
+  var hits: seq[(string, int, int)]
+  try: hits = jsProjectRefs(b, p, rename = true)
+  except CatchableError, Defect: return false
+  if hits.len == 0: info("'" & b.wordAt(p) & "' is not declared in this file — nothing to rename")
+  else: previewRenameHits(hits, b.wordAt(p), nn)
   true
 
 # ── problems: after a pause in typing, for the file in front ──
@@ -339,7 +618,7 @@ proc webDefinition(b: Buffer, p: Pos): bool =
 proc webDiagsOf(b: Buffer): seq[Diag] =
   var ws: seq[WebDiag]
   let fam = webFamily(b.lang.id)
-  let own = (fam == "html" and webHtmlFile(b)) or fam in ["css", "sql", "js"]
+  let own = (fam == "html" and webHtmlFile(b)) or fam in ["css", "sql", "js", "json"]
   if own and not (cfgWebEngine == "on" or not webServerFor(b, fam)): return
   case fam
   of "css":
@@ -367,6 +646,17 @@ proc webDiagsOf(b: Buffer): seq[Diag] =
   of "sql": ws.add sqlChecks(b.lines, sqlSchema(b))
   of "js":
     if not b.jsTooBig(): ws.add jsChecks(b.lines)
+  of "json":
+    # (a file of megabytes — data, not something typed: what std/json says of it once is enough)
+    var n = 0
+    for l in b.lines: n += l.len
+    if n <= 4_000_000:
+      let p = b.path.replace('\\', '/')
+      if p.endsWith("/.ned/settings.json") or b.path == configFile():
+        ws.add jsonChecks(b.lines, nil, comments = true)
+        ws.add nedSettingsChecks(b.lines)
+      else:
+        ws.add jsonChecks(b.lines, jsonSchemaOf(b.path), jsonComments(b.path))
   else:
     var any3 = false                     # (HTML, CSS and SQL live in triple-quoted strings and sql"…")
     if b.lang.mode == lmNim and b.lines.len <= 15000:

@@ -1341,6 +1341,133 @@ proc jsDefinition*(lines: openArray[string], line, col: int): (int, int) =
   let r = d.resolve(d.t[k].text, k)
   if r >= 0: return (d.decls[r].line, d.decls[r].col)
 
+proc jsReferences*(lines: openArray[string], line, col: int): seq[(int, int, int)] =
+  ## the declaration of the name at (line, col) and each use of it in this document, as (line, column, end column):
+  ## a name by its scope (a `x` another function declares is another x), a member of a class of the file by its
+  ## class (`.name` after something of that class, `this.name` inside it) — nothing for a name the file does not
+  ## declare
+  if line < 0 or line > lines.high: return
+  let d = analyze(lines)
+  let k = d.tokAt(line, col)
+  if k < 0: return
+  let name = d.t[k].text
+  template add(x: JsTok) =
+    let e = (x.line, x.col, x.ecol)
+    if e notin result: result.add e
+  # a member: by its class
+  var mi = -1
+  if d.afterDot(k):
+    let r = d.recvOf(k - 2)
+    if r.cls >= 0: mi = d.memberOf(r.cls, name)
+    if mi < 0: return
+  else:
+    for i, x in d.members:
+      if x.tok == k: mi = i
+  if mi >= 0:
+    let m = d.members[mi]
+    add d.t[m.tok]
+    for j in 0 ..< d.t.len:
+      if d.t[j].text != name or j == m.tok: continue
+      if d.afterDot(j):
+        let r = d.recvOf(j - 2)
+        if r.cls >= 0 and d.memberOf(r.cls, name) == mi: add d.t[j]
+    result.sort(proc(a, b: (int, int, int)): int = cmp((a[0], a[1]), (b[0], b[1])))
+    return
+  # a name: its declaration and the uses that mean it
+  var di = -1
+  if d.isDef[k]:
+    for i, x in d.decls:
+      if x.tok == k: di = i
+  else: di = d.resolve(name, k)
+  if di < 0: return
+  add d.t[d.decls[di].tok]
+  for (j, r) in d.refs:
+    if r == di: add d.t[j]
+  result.sort(proc(a, b: (int, int, int)): int = cmp((a[0], a[1]), (b[0], b[1])))
+
+type JsOutlineItem* = object
+  name*, detail*: string
+  kind*: JsDeclKind
+  line*, col*, depth*: int
+
+proc jsOutline*(lines: openArray[string]): seq[JsOutlineItem] =
+  ## the document's top-level declarations (functions, classes with their methods and fields, its consts, lets and
+  ## vars, what it imports), in order
+  let d = analyze(lines)
+  var items: seq[JsOutlineItem]
+  for x in d.decls:
+    if x.scope != 0 or x.kind == jdParam or x.inner: continue
+    let det = case x.kind
+              of jdFunction: x.params
+              of jdClass: (if x.cls >= 0 and d.classes[x.cls].base.len > 0: "extends " & d.classes[x.cls].base else: "class")
+              else: (if x.typ.len > 0: x.typ else: $x.kind)
+    items.add JsOutlineItem(name: x.name, detail: det, kind: x.kind, line: x.line, col: x.col)
+    if x.kind == jdClass and x.cls >= 0:
+      var ms: seq[JsDecl]
+      for m in d.members:
+        if m.cls == x.cls: ms.add m
+      ms.sort(proc(a, b: JsDecl): int = cmp((a.line, a.col), (b.line, b.col)))
+      for m in ms:
+        items.add JsOutlineItem(name: (if m.isStatic: "static " else: "") & m.name, kind: m.kind, line: m.line,
+                                col: m.col, depth: 1, detail: (if m.kind == jdMethod: m.params else: "field"))
+  items
+
+proc jsImportAt*(lines: openArray[string], line, col: int): (string, string) =
+  ## the name at (line, col), when an import declares it: (the name the other module exports, the module as the
+  ## import names it: "./util.js") — ("", "") when it is not an import; "default" and "*" for those
+  if line < 0 or line > lines.high: return
+  let d = analyze(lines)
+  let k = d.tokAt(line, col)
+  if k < 0: return
+  var di = -1
+  if d.isDef[k]:
+    for i, x in d.decls:
+      if x.tok == k: di = i
+  else: di = d.resolve(d.t[k].text, k)
+  if di < 0 or d.decls[di].kind != jdImport: return
+  let t = d.decls[di].tok
+  # the statement: back to `import`, on to its "module"
+  var a = t
+  while a > 0 and d.word(a) != "import": dec a
+  var e = t
+  while e < d.t.high and d.t[e].kind != jtString: inc e
+  if d.t[e].kind != jtString: return
+  let module = d.t[e].text.strip(chars = {'"', '\'', '`'})
+  # which name: `{a as b}` → a, `{a}` → a, `* as ns` → *, a bare name → default
+  var inBraces = false
+  for j in a .. t:
+    if d.punct(j, "{"): inBraces = true
+    if d.punct(j, "}"): inBraces = false
+  if d.word(t - 1) == "as":
+    if d.punct(t - 2, "*"): return ("*", module)
+    return (d.t[t - 2].text, module)
+  if inBraces: return (d.t[t].text, module)
+  ("default", module)
+
+proc jsExportAt*(lines: openArray[string], name: string): (int, int) =
+  ## where a module declares what it exports by that name ("default": its export default) — (-1, -1) none
+  result = (-1, -1)
+  let d = analyze(lines)
+  if name == "default":
+    for j in 0 ..< d.t.len - 1:
+      if d.word(j) == "export" and d.word(j + 1) == "default":
+        let n = j + 2
+        if n < d.t.len:
+          let m = if d.word(n) in ["function", "class", "async"]: (if d.word(n) == "async": n + 2 else: n + 1) else: n
+          if m < d.t.len and d.t[m].kind == jtIdent:
+            let r = d.resolve(d.t[m].text, m)
+            if r >= 0: return (d.decls[r].line, d.decls[r].col)
+            return (d.t[m].line, d.t[m].col)
+          return (d.t[j].line, d.t[j].col)
+    return
+  var r = d.names[0].getOrDefault(name, -1)
+  if r >= 0: return (d.decls[r].line, d.decls[r].col)
+  # export {local as name}
+  for j in 2 ..< d.t.len:
+    if d.t[j].text == name and d.word(j - 1) == "as" and d.t[j - 2].kind == jtIdent:
+      r = d.names[0].getOrDefault(d.t[j - 2].text, -1)
+      if r >= 0: return (d.decls[r].line, d.decls[r].col)
+
 # ── the problems ──
 
 func diagAt(x: JsTok, sev: int, rule, msg: string): WebDiag =
