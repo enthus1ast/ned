@@ -154,6 +154,25 @@ class Host:
         elif fn == "setting": v = 120 if a.get("key") == "width" else (True if a.get("key") == "sortCaseSensitive" else None)
         elif fn == "dataDir": v = os.path.join(self.tmp, "data", j.get("plugin", ""))
         elif fn == "allowed": v = a.get("what") in getattr(self, "allowed", {"shell", "network", "files", "clipboard"})
+        elif fn in ("regexFind", "regexReplace"):
+            # (ned's own regular expressions, as Python's: the same for what the tests ask — $1 for \1 in a
+            # replacement; positions in bytes, as ned's)
+            import re
+            try:
+                rx = re.compile(a.get("pattern", "").encode(), re.I if a.get("ignoreCase") else 0)
+            except re.error as e:
+                self.send({"t": "res", "id": j["id"], "err": "not a regular expression: " + str(e)})
+                return
+            text = a.get("text", "").encode()
+            ms = list(rx.finditer(text))[:a.get("limit", 10000)]
+            if a.get("once"): ms = ms[:1]
+            if fn == "regexFind":
+                v = [{"start": m.start(), "stop": m.end(), "groups": [list(m.span(g)) for g in range(1, rx.groups + 1)]}
+                     for m in ms]
+            else:
+                w = re.sub(r"\$\{?(\d+)\}?", r"\\g<\1>", a.get("with", "")).replace("$&", "\\g<0>")
+                out = rx.sub(w.encode(), text, count=len(ms)) if ms else text
+                v = {"text": out.decode(), "count": len(ms)}
         elif fn in ("dataRead", "dataWrite"):
             f = os.path.join(self.tmp, "data", j.get("plugin", ""), a.get("name", ""))
             if fn == "dataRead": v = open(f).read() if os.path.exists(f) else ""

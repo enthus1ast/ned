@@ -259,7 +259,7 @@ def main():
                     mod.run(factory, tag)
                 except Exception as e:                       # (a check that broke: counted, the rest go on)
                     import traceback
-                    check(tag + "its checks ran to the end", False, traceback.format_exc()[-800:])
+                    check(tag + "its checks ran to the end", False, traceback.format_exc()[-1600:])
                 finally:
                     for h in made: h.close()
     finally:

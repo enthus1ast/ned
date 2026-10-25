@@ -1,7 +1,7 @@
 # Plugins
 
 New to writing plugins? The [tutorial](tutorial.md) builds one step by step; the [API reference](api.md) lists
-every proc and type. This page says what plugins can do and how they run. ned comes with nineteen plugins of its
+every proc and type. This page says what plugins can do and how they run. ned comes with thirty-four plugins of its
 own, off until you turn one on: [ned's own plugins](available.md).
 
 A plugin is a folder with a `plugin.nims` — NimScript, the Nim of `config.nims` — or a `plugin.nim`, a plugin in

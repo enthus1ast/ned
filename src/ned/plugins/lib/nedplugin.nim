@@ -389,6 +389,27 @@ proc shellAsync*(cmd: string, cb: proc(output: string, code: int), dir = "") =
   cbOwner.add curPlugin
   discard api("shellAsync", %*{"cmd": cmd, "dir": dir, "cb": callbacks.high})
 
+type RegexMatch* = object
+  ## one match of a regular expression: where it is in the text (bytes, the end not in it) and each group's place
+  ## (-1, -1 for a group that matched nothing)
+  start*, stop*: int
+  groups*: seq[(int, int)]
+
+proc regexMatches*(pattern, text: string, ignoreCase = false, limit = 10000): seq[RegexMatch] =
+  ## every match of `pattern` in `text`, by ned's own regular expressions (the search's: . [a-z] \d \w \s \b
+  ## * + ? {n,m} lazy *? groups (…) (?:…) | ^ $); raises ValueError with ned's words for a pattern that is not one
+  let r = api("regexFind", %*{"pattern": pattern, "text": text, "ignoreCase": ignoreCase, "limit": limit})
+  for m in r:
+    var g: seq[(int, int)]
+    for x in m{"groups"}: g.add (x[0].getInt, x[1].getInt)
+    result.add RegexMatch(start: m{"start"}.getInt, stop: m{"stop"}.getInt, groups: g)
+
+proc regexReplace*(pattern, text, replacement: string, ignoreCase = false): tuple[text: string, count: int] =
+  ## `text` with each match of `pattern` replaced: $0 the match, $1 … $9 and ${12} its groups, \n \t — and how
+  ## many there were
+  let r = api("regexReplace", %*{"pattern": pattern, "text": text, "with": replacement, "ignoreCase": ignoreCase})
+  (r{"text"}.getStr, r{"count"}.getInt)
+
 proc unixTime*(): float = api("unixTime").getFloat
   ## now, in seconds since 1970 (NimScript has no clock of its own)
 proc localTime*(): string = api("localTime").getStr
