@@ -45,9 +45,9 @@ it picks the nearest of them for each colour, not one channel at a time. *Check 
 **The Nim engine against nimsuggest** — references now tell an overloaded name's uses apart (`len`, `addInt`),
 and a type in a long proc header with pragmas is read (57% → 96% the same as nimsuggest's). **nedls against
 nimlangserver**, file by file: hover, definition and member completion the same as the compiler's far more often,
-answers in about 2 ms instead of 260, ready in 50 ms instead of seconds. **The formatter against nph**: 99.6% of
-the lines of Nim's own library formatted the same, two to three times faster. The scoreboard below has them all,
-and CI keeps them from going down.
+answers in about 2 ms instead of 260, ready in under a tenth of a second instead of seconds. **The formatter
+against nph**: 99.6% of the lines of Nim's own library formatted the same, in less than half the time. The
+scoreboard below has them all, and CI keeps them from going down.
 
 **nedls**, more of LSP: the call and type hierarchies, implementations, selection ranges, code lenses (▶ run a
 test, a suite, a nimble task), document links, the imports fixed when a file is renamed. And **every language
@@ -100,11 +100,49 @@ blue, for the evening), `oled-dim` (for a dark room), and for LCD screens `lcd-s
 
 **Fixed:** in a picture's bytes Tab goes between the hex and the text columns (Shift+Tab: the picture again);
 Settings sync offers a plugin of your other device once, not at every sync (*install the other device's plugins*
-offers it again); a NIF file with a word after `@` that is no number no longer stops its view.
+offers it again); a NIF file with a word after `@` that is no number no longer stops its view; the Plugins dock
+shows the plugins' log above the (now long) list of ned's own; a misspelled field is one problem, with the field
+meant, not two.
 
 Today's scoreboard:
 
 <!-- scoreboard -->
+| | score | at least |
+|---|---|---|
+| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
+| nim: go to definition, the same place | 100.0% ✓ | 98% |
+| nim: a variable's type, the same | 98.7% ✓ | 97% |
+| nim: member completion, ned | 98.4% ✓ | 96% |
+| nim: member completion, nimsuggest (not checked) | 70.9% |  |
+| nim: references in the file, the same as nimsuggest's | 95.6% ✓ | 92% |
+| nim: as you type, the compiler's errors found | 90.9% ✓ | 85% |
+| nim: as you type, clean files with no wrong error | 100.0% ✓ | 95% |
+| nedls: completion: the name offered | 100.0% ✓ | 98% |
+| nedls: hover: its doc comment | 100.0% ✓ | 97% |
+| nedls: hover: the same declaration | 98.9% ✓ | 97% |
+| nedls: hover: there | 100.0% ✓ | 98% |
+| nedls: signature help: the routine | 100.0% ✓ | 97% |
+| c: go to definition, the same as clangd's | 93.5% ✓ | 90% |
+| c: member completion, ned | 96.9% ✓ | 95% |
+| c: member completion, clangd (not checked) | 96.9% |  |
+| c: hover, the same parameters | 94.4% ✓ | 92% |
+| c++: go to definition, the same as clangd's | 94.7% ✓ | 90% |
+| c++: member completion, ned | 100.0% ✓ | 95% |
+| c++: member completion, clangd (not checked) | 96.2% |  |
+| c++: hover, the same parameters | 96.2% ✓ | 92% |
+| versus nimlangserver: hover, nedls | 98.3% ✓ | 90% |
+| versus nimlangserver: hover, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: definition, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: definition, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: member offered, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: member offered, nimlangserver (not checked) | 63.3% |  |
+| versus nimlangserver: the same definition where both answer | 97.0% ✓ | 90% |
+| format: lines the same as nph's | 99.6% ✓ | 99% |
+| format: files formatted, of those nph formats | 100.0% ✓ | 99% |
+
+against nimlangserver: nedls answers in 1.8 ms (the median), ready after 79 ms; nimlangserver in 260.6 ms, ready after 2720 ms
+
+against nph: 463 files formatted in 1.59 s by ned, 3.43 s by nph; nph refused 0, ned left 0 alone
 <!-- /scoreboard -->
 
 ---
