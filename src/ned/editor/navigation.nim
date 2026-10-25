@@ -444,6 +444,7 @@ proc cmdDefinition() =
   if openLinkAt(b, b.primary.head): return       # a link: #include "x.h", @import, a URL in a comment
   if b.lang.mode == lmNim and pragmaStringGoto(b, b.primary.head): return  # header: "…" opens it, importc: "…" its C
   if nbPackageDefinition(b, b.primary.head): return                       # a .nimble's requires: the package
+  if nifDefinition(b, b.primary.head): return                             # NIF: the declaration, or the source
   if cEngineOn(b) and cEngDefinition(b, b.primary.head): return          # C: ned's own engine
   if webDefinition(b, b.primary.head): return                            # JavaScript: ned's own engine
   if b.lang.mode == lmNim and emitGoto(b, b.primary.head): return          # in an emit: the C (or Nim) side
@@ -542,6 +543,10 @@ proc cmdHover(auto = false) =
   let asmH = asmHoverAt(b, p)                      # assembly: what the instruction or the register is
   if asmH.len > 0:
     showHoverAuto(asmH, auto)
+    return
+  let nifH = nifHover(b, p)                        # NIF: what the tag is, where the node comes from
+  if nifH.len > 0:
+    showHoverAuto(nifH, auto)
     return
   if b.path.endsWith(".nimble"):
     let nh = nbHover(b, p)                         # a package a requires names: its versions, the one used

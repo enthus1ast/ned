@@ -165,6 +165,33 @@ proc nim3Checks(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
     if "cast[cstring]" in c:
       let k = c.find("cast[cstring]")
       res.n3Problem(l, k, k + 13, "a string has no terminating zero: s.toCString (a copy that has one)", sev = 3)
+  # ── names are case-sensitive in Nim 3: each one written as it is declared (`toUpperascii` → toUpperAscii)
+  if sc != nil:
+    var spell: Table[string, seq[string]]           # (Nim 2's identity of a name → how its declarations write it)
+    template learn(nm: string) =
+      if nm.len > 1 and nm[0] in IdentStartChars:
+        let k = nxNorm(nm)
+        if k notin spell: spell[k] = @[nm]
+        elif nm notin spell[k]: spell[k].add nm
+    for s0 in f.syms: learn(s0.name)
+    for r in sc.refs: learn(r.file.syms[r.idx].name)
+    var st: NxLexState
+    var said = 0
+    for l, c in code:
+      for (a, e) in nxIdents(c, st):
+        let w = c[a ..< e]
+        if w.len < 2 or w in NxKeywords or (a > 0 and c[a - 1] == '`'): continue
+        let k = nxNorm(w)
+        if k notin spell or w in spell[k]: continue
+        let want = spell[k]
+        if want.len == 1:
+          res.n3Problem(l, a, e, "names are case-sensitive: it is declared `" & want[0] & "`",
+                        "Write it " & want[0], @[(l, a, l, e, want[0])])
+        else:
+          res.n3Problem(l, a, e, "names are case-sensitive: it is declared " & want.join(" or "))
+        inc said
+        if said >= 200: break
+      if said >= 200: break
 
 proc cmdNim3Problems() =
   ## Nim › Nim 3: what this file needs — the porting problems of a Nim 2 file shown (and from then on nimony checks

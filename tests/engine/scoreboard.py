@@ -3,7 +3,8 @@
 files, each score against the minimum tests/engine/scoreboard.json sets — CI fails when one falls below it.
 
   python3 tests/engine/scoreboard.py [--engine ned-engine] [--cdriver ned-cengine] [--nedls nedls]
-                                     [--c-files F.c …] [--cpp-files F.cpp …] [--n 40] [--readme] [--json OUT]
+                                     [--c-files F.c …] [--cpp-files F.cpp …] [--nimlangserver NLS]
+                                     [--nedfmt NEDFMT --nph NPH] [--n 40] [--readme] [--json OUT]
 
   --engine   the Nim engine driver (tests/engine/build.sh makes it)       — compare.py: type hints, definitions,
                                                                            variables' types, member completion,
@@ -14,6 +15,10 @@ files, each score against the minimum tests/engine/scoreboard.json sets — CI f
   --cdriver  the C engine driver (nim c -d:release tests/engine/cdriver.nim) and --c-files: C files with clangd on
              PATH                                                          — ccompare.py: definitions, members, hover
   --cpp-files  C++ files for the same, with clangd                        — the same questions, as C++
+  --nimlangserver  nimlangserver, with --nedls                         — lspversus.py: the same hovers, definitions
+                                                                           and member completions asked of both
+  --nedfmt, --nph  ned's formatter and nph (the nim on PATH a source tree) — vsnph.py: the lines the same, the
+                                                                           files each formats, the time each takes
   --readme   the numbers written into the README (between <!-- scoreboard --> and <!-- /scoreboard -->)
 
 A part whose tool is missing (nimsuggest, clangd, a driver not given) is left out and said so; its minimums are not
@@ -114,6 +119,46 @@ def c_part(cdriver, files, n, tmp, lang='c'):
     }
 
 
+def versus_part(nedls, other, files, n, tmp, notes):
+    """lspversus.py: nedls and nimlangserver asked the same, each file with servers of its own"""
+    out = os.path.join(tmp, 'versus.json')
+    run([sys.executable, os.path.join(HERE, 'lspversus.py'), '--nedls', nedls, '--other', other, '--n', str(n),
+         '--json', out] + files, timeout=3600)
+    if not os.path.exists(out): return {}
+    x = json.load(open(out))
+    p, m = x['places'], x['members']
+    a, b = x['nedls'], x['other']
+    notes.append('against nimlangserver: nedls answers in %s ms (the median), ready after %s ms; nimlangserver in %s '
+                 'ms, ready after %s ms' % (a['median_ms'], a['first_ms'], b['median_ms'], b['first_ms']))
+    return {
+        'versus nimlangserver: hover, nedls': pc(a['hover'], p),
+        'versus nimlangserver: hover, nimlangserver (not checked)': pc(b['hover'], p),
+        'versus nimlangserver: definition, nedls': pc(a['def'], p),
+        'versus nimlangserver: definition, nimlangserver (not checked)': pc(b['def'], p),
+        'versus nimlangserver: member offered, nedls': pc(a['member'], m),
+        'versus nimlangserver: member offered, nimlangserver (not checked)': pc(b['member'], m),
+        'versus nimlangserver: the same definition where both answer': pc(x['def_same'], x['def_both']),
+    }
+
+
+def nph_part(nedfmt, nph, tmp, notes):
+    """tests/format/vsnph.py over Nim's compiler and standard library (the nim on PATH must be a source tree)"""
+    nim = shutil.which('nim')
+    root = os.path.dirname(os.path.dirname(os.path.realpath(nim))) if nim else ''
+    if not os.path.isdir(os.path.join(root, 'compiler')): return {}
+    out = os.path.join(tmp, 'vsnph.json')
+    run([sys.executable, os.path.join(REPO, 'tests', 'format', 'vsnph.py'), nedfmt, nph, root, '--json', out],
+        timeout=3600)
+    if not os.path.exists(out): return {}
+    x = json.load(open(out))
+    notes.append('against nph: %d files formatted in %.2f s by ned, %.2f s by nph; nph refused %d, ned left %d alone'
+                 % (x['files'], x['ned_s'], x['nph_s'], len(x['nph_refused']), len(x['ned_left_alone'])))
+    return {
+        'format: lines the same as nph\'s': pc(x['lines_same'], x['lines_total']),
+        'format: files formatted, of those nph formats': pc(x['both'], x['files'] - len(x['nph_refused'])),
+    }
+
+
 def table(scores):
     rows = ['| | score | at least |', '|---|---|---|']
     for k, v in scores.items():
@@ -133,12 +178,16 @@ def main():
     ap.add_argument('--n', type=int, default=40)
     ap.add_argument('--readme', action='store_true')
     ap.add_argument('--json', default='')
+    ap.add_argument('--nimlangserver', default='')
+    ap.add_argument('--nedfmt', default='')
+    ap.add_argument('--nph', default='')
     a = ap.parse_args()
     lib = nim_lib()
     files = [os.path.join(lib, f) for f in NIM_FILES if lib and os.path.exists(os.path.join(lib, f))]
     tmp = tempfile.mkdtemp(prefix='ned-scoreboard-')
     scores = {}
     left = []
+    notes = []
     try:
         if a.engine and files and shutil.which('nimsuggest'): scores.update(nim_part(os.path.abspath(a.engine), files, a.n, tmp))
         else: left.append('the Nim engine (needs --engine, nimsuggest and the standard library)')
@@ -153,9 +202,14 @@ def main():
         if a.cdriver and xf and shutil.which('clangd'):
             scores.update(c_part(os.path.abspath(a.cdriver), xf, a.n, tmp, 'c++'))
         elif a.cpp_files: left.append('the C engine on C++ (needs --cdriver, --cpp-files and clangd)')
+        if a.nedls and a.nimlangserver and files and shutil.which('nimsuggest'):
+            scores.update(versus_part(os.path.abspath(a.nedls), os.path.abspath(a.nimlangserver), files[:3], a.n // 2,
+                                      tmp, notes))
+        elif a.nimlangserver: left.append('nedls against nimlangserver (needs --nedls, --nimlangserver and nimsuggest)')
+        if a.nedfmt and a.nph: scores.update(nph_part(os.path.abspath(a.nedfmt), os.path.abspath(a.nph), tmp, notes))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    t = table(scores)
+    t = table(scores) + ''.join('\n\n' + x for x in notes)
     print('\n' + t)
     for l in left: print('left out: ' + l)
     if a.json: json.dump(scores, open(a.json, 'w'), indent=1)

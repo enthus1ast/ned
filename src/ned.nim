@@ -36,7 +36,7 @@ from std/math import pow
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
 import ned/core/images, ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
-       ned/nim/arccopies, ned/c/cindex, ned/c/cnim, ned/version, ned/testing/gcovdata, ned/editor/binfmt, ned/web/web, ned/core/encodings,
+       ned/nim/arccopies, ned/c/cindex, ned/c/cnim, ned/nim/nifread, ned/version, ned/testing/gcovdata, ned/editor/binfmt, ned/web/web, ned/core/encodings,
        ned/editor/asmview
 
 const
@@ -220,6 +220,7 @@ include ned/ui/split
 include ned/ui/contextmenus
 include ned/editor/decompile
 include ned/editor/cexplorer
+include ned/nim/nifview
 include ned/nim/astview
 include ned/git/mergeeditor
 include ned/ui/frame

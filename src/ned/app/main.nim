@@ -290,6 +290,7 @@ proc mainLoop() =
       if lfBusy() or buf().viewer != nil: timedWork("the large-file viewer"): lfPump()
       if dcView.bufId > 0: dcPump()
       if ce.viewBufId > 0: timedWork("Compiler Explorer"): cePump()
+      if nifv.viewBufId > 0: timedWork("NIF view"): nifPump()
       if astOn: astPump()
       if docPvSrc >= 0: docPvPump()
       if mcpWaitReq and not mcpStarting():

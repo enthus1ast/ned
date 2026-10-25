@@ -247,6 +247,7 @@ proc initLangs() =
       consts: ws"true false null", indentChars: {'{', '['}, dedentChars: {'}', ']'},
       indentWidth: 2, fmt: @["prettier --stdin-filepath \"$file\""], lsp: @[@["vscode-json-language-server", "--stdio"]],
       pairs: "[]{}\"\""),
+    Lang(name: "NIF", id: "nif", exts: @["nif"], mode: lmNif, quotes: {'"'}, indentWidth: 1, pairs: "()\"\""),
     Lang(name: "YAML", id: "yaml", exts: @["yml", "yaml"], mode: lmYaml, lineComment: "#",
       commentNeedsSpace: true, quotes: {'"', '\''}, consts: ws"true false null yes no on off ~",
       indentChars: {':'}, indentWidth: 2, lsp: @[@["yaml-language-server", "--stdio"]], pairs: "[]{}\"\"''"),

@@ -39,6 +39,11 @@ proc ensureOutline(b: Buffer) =
     b.outlineAt = b.changeId
     b.outlineReqAt = b.changeId
     return
+  if b.lang.mode == lmNif and b.lines.len < 300_000:
+    b.outline = nifOutlineOf(b)                    # (NIF: its routines, types, globals)
+    b.outlineAt = b.changeId
+    b.outlineReqAt = b.changeId
+    return
   if b.lang.mode == lmJson and b.lines.len < 200_000:
     b.outline = jsonOutlineOf(b)                   # (JSON: its keys, nested)
     b.outlineAt = b.changeId
