@@ -10,5 +10,11 @@
   "nedls: hover: there": 98,
   "nedls: hover: the same declaration": 97,
   "nedls: hover: its doc comment": 97,
-  "c: hover, the same parameters": 92
+  "c: hover, the same parameters": 92,
+  "nim: references in the file, the same as nimsuggest's": 52,
+  "nim: as you type, the compiler's errors found": 75,
+  "nim: as you type, clean files with no wrong error": 85,
+  "c++: go to definition, the same as clangd's": 90,
+  "c++: member completion, ned": 95,
+  "c++: hover, the same parameters": 92
 }

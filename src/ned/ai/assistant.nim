@@ -25,11 +25,15 @@ type ChatSpan = object
   t: string
   fg, bg: Rgb
   at: set[Attr]
+  link: string          # the Markdown preview: where a tap on it goes (a URL, a file, #a-heading)
 type ChatLine = object
   spans: seq[ChatSpan]
   bg: Rgb
   act: Action
   tip: string
+  src: int              # the Markdown preview: the source line it comes from
+  pic: string           # … a picture's row: its file (picRow of picRows)
+  picRow, picRows: int
   file: string          # code block header: the file the block is for (```nim src/app.nim)
 
 var

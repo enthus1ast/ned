@@ -278,6 +278,9 @@ proc initCommandsV4() =
   add("Nim: profile", "where the time goes, by proc and by line", cmdProfile())
   add("Nim: show the profile", "", (if profRows.len > 0: (profShown = true; profPanel()) else: info("No profile yet — Nim: profile")))
   add("Nim: hide the profile", "", (profShown = false; needRender = true))
+  add("Nim: flame graph of the profile", "the call stacks, as wide as the time they took — tap a box to look inside",
+      cmdFlame())
+  add("Nim: compare with the previous profile", "each proc's share of the time, before and after", cmdProfileCompare())
   add("Nim: share to the Playground (link to the clipboard)", "", cmdShareToPlayground())
   add("Nim: switch compiler version…", "choosenim · grabnim", cmdSwitchNim())
   add("Nim: standard library docs browser…", "", cmdDocsBrowser())

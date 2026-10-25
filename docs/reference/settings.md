@@ -110,6 +110,8 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `editor.vimMode` | `false` | Vim keybindings (normal/insert/visual modes, :w :q …) |
 | `editor.dimInactiveCode` | `true` | Dim code a compile leaves out here: a Nim `when` branch that is false on this platform (when defined(windows) on Linux — hover the `when` for its value), C's #if 0 and #ifdef __cplusplus |
 | `editor.formatOnType` | `false` | Let the language server tidy the line as you type the characters it asks for (a closing }, ;, a new line) — servers that offer it: clangd, gopls, rust-analyzer … |
+| `pictures.open` | `true` | A .png, .jpg, .gif, .bmp or .webp file opens as a picture (Tab: its bytes, in the hex editor) — else in the hex editor |
+| `pictures.draw` | `"auto"` | How pictures are drawn: auto (the terminal's own way where it has one — kitty, iTerm2, sixel — else in cells) · cells (▀, two pixels a cell: any terminal) · kitty · iterm · sixel |
 
 ## Nim
 
@@ -369,7 +371,9 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 
 | Setting | Default | What it does |
 |---|---|---|
-| `sync.repository` | `""` | A git repository of yours for Settings sync: push / pull (settings, key bindings, snippets, themes, dictionary words — never API keys or tokens). An ssh URL or one your credential helper knows |
+| `sync.repository` | `""` | A git repository of yours for Settings sync (settings, key bindings, snippets, themes, dictionary words, macros, the list of your plugins — never API keys or tokens). An ssh URL or one your credential helper knows |
+| `sync.auto` | `"off"` | Settings sync both ways on its own: off · start (a few seconds after ned starts) · quit (when ned quits, a few seconds at most) · both |
+| `sync.exclude` | `[]` | Settings that stay on this device, never synced: ["terminal.shell", "ui.mouse"] |
 
 ## Remote (SSH)
 
@@ -384,6 +388,9 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 |---|---|---|
 | `repl.commands` | `{}` | REPLs for Send to REPL (Shift+Enter), per language id, over ned's own choice (nim: inim --noAutoIndent or nim secret · python: the project's .venv, ipython or python3 · javascript: node · typescript: tsx · ruby: irb · lua: lua): {"python": "python3 -q"} |
 | `debug.adapters` | `{}` | Debuggers (Debug Adapter Protocol) per language id, over ned's own choice (python: debugpy · c, cpp, rust: gdb -i dap or lldb-dap · go: delve): {"python": {"command": ["python3", "-m", "debugpy.adapter"], "launch": {"program": "$file", "cwd": "$dir"}}} — also "build" (a command run first), "connect": true with $port for TCP adapters, "request": "attach" |
+| `notebook.nim` | `"vm"` | Notebook (a .nim file's # %% cells, Ctrl+Enter): vm — nim secret, one session that keeps the cells' variables, instant, but no C libraries (importc, FFI: std/times' now …) · compiled — each run builds and runs the cells up to that one as a program (slower; everything Nim has) |
+| `notebook.outputLines` | `30` | Notebook: the lines of a cell's output shown under it (the rest: Notebook: the cell's whole output) |
+| `notebook.timeoutSeconds` | `120` | Notebook: a cell that has not finished after this long is stopped (its session too: the next run starts a new one) |
 | `debug.inlineValues` | `true` | While stopped: the values of the variables a line uses, at its end |
 | `run.configs` | `[]` | Ways to run this project (best in its .ned/settings.json), picked with the ▶ menu or Run › Configurations: [{"name": "server", "main": "src/app.nim", "args": "--port 8080", "env": {"DEBUG": "1"}, "defines": ["ssl"], "mode": "release", "backend": "c", "cwd": "."}] — or {"name": …, "command": "any shell command"} |
 

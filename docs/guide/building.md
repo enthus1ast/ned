@@ -51,7 +51,10 @@ nim c -d:release --os:windows --cpu:amd64 --cc:clang --clang.exe:./zcc --clang.l
 (`aarch64-macos`, `x86_64-macos` with `--os:macosx`; `aarch64-linux-musl` with `--os:android --cpu:arm64` for
 Termux.) GitHub Actions does the same natively on each platform: `.github/workflows/build.yml` builds Linux
 (x86_64, arm64), macOS (arm64, x86_64), Termux, Windows (native and WSL), runs each in a pseudo-terminal, and
-attaches the programs to the release when a tag such as `v6.24.0` is pushed.
+attaches the programs to the release when a tag such as `v6.24.0` is pushed. On every push, `tests.yml` also tests
+the native Windows build: the unit tests that do not need a POSIX system, and `.github/ci/win_smoke.py` — `ned.exe`
+started in a Windows console (ConPTY), typed into, saved and quit; `nedls.exe` answering hover and the file's
+symbols; `nedfmt.exe` formatting.
 
 ## Why it is fast
 

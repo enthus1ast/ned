@@ -514,12 +514,13 @@ proc ecRoutineKind(sc: NxScope, name: string): int =
       return 2
 
 proc ecImportsKnown(f: NxFile): int =
-  ## how many modules the file imports, every one found (-1: one is not found, or the file includes others or is
-  ## included itself — an overload or a name the engine cannot see may be the one meant)
+  ## how many modules the file imports, every one found (-1: one is not found, or the file is included itself — an
+  ## overload or a name the engine cannot see may be the one meant). A file it includes, found, is read with it:
+  ## its names are in the file's scope (the standard library's `include "system/inclrtl"` too)
   if nxIncluderOf(f.path).len > 0: return -1
   for im in f.imports:
-    if im.isInclude or im.spec.len == 0 or nxResolve(f.path, im.spec).len == 0: return -1
-    inc result
+    if im.spec.len == 0 or nxResolve(f.path, im.spec).len == 0: return -1
+    if not im.isInclude: inc result
 
 proc ecSkipLines(f: NxFile, sc: NxScope, code: seq[string]): seq[bool] =
   ## the lines a template or macro may rewrite: their own bodies, and the blocks given to a call that is not a

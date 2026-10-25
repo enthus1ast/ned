@@ -6,14 +6,22 @@ import std/[monotimes, times, os, exitprocs]
 {.push profiler: off, stackTrace: off, lineTrace: off, checks: off.}
 const
   NedSlots = 1 shl 15
+  NedStackSlots = 1 shl 12
+  NedDepth = 40
 type
   NedSlot = object
     file, name: cstring
     line: int32
     self, total: int32
+  NedStack = object                     # a whole call stack (for the flame graph): its procs, the innermost first
+    used: bool
+    n: int32
+    procs, files: array[NedDepth, cstring]
+    count: int32
 var
   nedLines: array[NedSlots, NedSlot]      # (file, line) → counts
   nedProcs: array[NedSlots, NedSlot]      # (file, proc) → counts
+  nedStacks: array[NedStackSlots, NedStack]   # the call stacks → how often each was seen
   nedSamples = 0
   nedLast: MonoTime
   nedEvery = initDuration(microseconds = 1000)
@@ -41,10 +49,51 @@ proc nedWanted(): bool {.nimcall, gcsafe.} =
     if result: nedLast = now
     nedBusy = false
 
+proc nedStackAdd(procs, files: array[NedDepth, cstring], n: int32) =
+  var h = 0'u
+  for i in 0 ..< n: h = h * 1000003'u + cast[uint](procs[i]) * 31'u + cast[uint](files[i])
+  var k = int(h and uint(NedStackSlots - 1))
+  for _ in 0 ..< NedStackSlots:
+    let s = addr nedStacks[k]
+    if not s.used:
+      s.used = true
+      s.n = n
+      s.procs = procs
+      s.files = files
+      s.count = 1
+      return
+    if s.n == n:
+      var same = true
+      for i in 0 ..< n:
+        if s.procs[i] != procs[i] or s.files[i] != files[i]:
+          same = false
+          break
+      if same:
+        inc s.count
+        return
+    k = (k + 1) and (NedStackSlots - 1)
+
 proc nedHook(st: StackTrace) {.nimcall.} =
   nedBusy = true
   var f = getFrame()
   inc nedSamples
+  # (a stack deeper than NedDepth keeps its outermost procs: the program's top stays at the top of the graph)
+  var all: array[512, PFrame]
+  var an = 0
+  block:
+    var g = f
+    while g != nil and an < all.len:
+      if g.procname != nil:
+        all[an] = g
+        inc an
+      g = g.prev
+  var sp, sf: array[NedDepth, cstring]
+  var sn = 0'i32
+  for i in max(0, an - NedDepth) ..< an:
+    sp[sn] = all[i].procname
+    sf[sn] = all[i].filename
+    inc sn
+  nedStackAdd(sp, sf, sn)
   var seenL, seenP: array[64, int]
   var nL, nP = 0
   var top = true
@@ -84,6 +133,12 @@ proc nedWrite() {.noconv.} =
     if s.file != nil: o.add "L\t" & $s.self & "\t" & $s.total & "\t" & $s.line & "\t" & $s.file & "\n"
   for s in nedProcs:
     if s.file != nil: o.add "P\t" & $s.self & "\t" & $s.total & "\t" & $s.name & "\t" & $s.file & "\n"
+  for s in nedStacks:
+    if not s.used: continue
+    o.add "S\t" & $s.count
+    for i in countdown(s.n - 1, 0):            # (the outermost first)
+      o.add "\t" & $s.procs[i] & "\x1f" & (if s.files[i] == nil: "" else: $s.files[i])
+    o.add "\n"
   try: writeFile(getEnv("NED_LINEPROF", "ned_lineprof.txt"), o)
   except CatchableError: discard
 
@@ -101,6 +156,11 @@ proc profLoad(path: string): bool =
   try: lines0 = readFile(path).splitLines
   except CatchableError: return false
   if lines0.len == 0 or not lines0[0].startsWith("ned-lineprof"): return false
+  # (the profile before: kept for Nim: compare with the previous profile)
+  if profRows.len > 0:
+    profPrevRows = profRows
+    profPrevSamples = profSamples
+  profStacks.setLen(0)
   profLines.clear()
   profDecls.clear()
   profRows.setLen(0)
@@ -124,6 +184,18 @@ proc profLoad(path: string): bool =
       let k = (f[3], file)
       let o = procs.getOrDefault(k)
       procs[k] = (o[0] + selfN, o[1] + totN)
+  for l in lines0[1 .. ^1]:
+    if not l.startsWith("S\t"): continue
+    let f = l.split('\t')
+    let n = (try: parseInt(f[1]) except ValueError: 0)
+    var st: seq[(string, string)]
+    for x in f[2 .. ^1]:
+      let k = x.find('\x1f')
+      if k < 0: continue
+      let name = x[0 ..< k]
+      if name in ["NimMain", "NimMainInner", "PreMain", "PreMainInner"]: continue
+      st.add (name, normalizedPath(x[k + 1 .. ^1]))
+    if n > 0 and st.len > 0: profStacks.add (st, n)
   # each proc at its declaration: in the file the sample names, else (an iterator from the standard library ran
   # inside it) the project's proc of that name
   let projFiles = nimSourceFiles()
@@ -226,5 +298,8 @@ proc cmdProfile() =
       return
     profChecked.clear()
     profPanel()
-    info("Profile ready — the procs that took the most time are at the top; each line's share is beside it " &
-         "(Nim: hide the profile)"))
+    for b in bufs:
+      if b.id in flameViews: needRender = true          # (an open flame graph shows the new profile)
+    info("Profile ready — the procs that took the most time are at the top; each line's share is beside it · " &
+         "Nim: flame graph of the profile" & (if profPrevRows.len > 0: " · Nim: compare with the previous profile"
+                                              else: "")))

@@ -347,7 +347,10 @@ proc editorKey(k: Key) =
     b.pasteFinish(l0)
   of kEnter:
     closeComp()
-    if alt or ctrl: cmdCodeActions()          # Alt+Enter: quick fixes (imports, AI fix, server actions)
+    if ctrl and not alt and nbCanRun(b): nbRunAt(b, b.primary.head.line)   # Ctrl+Enter: the notebook's cell
+    elif alt or ctrl: cmdCodeActions()          # Alt+Enter: quick fixes (imports, AI fix, server actions)
+    elif shift and nbActive(b) and nbCanRun(b):
+      nbRunAt(b, b.primary.head.line, advance = true)   # Shift+Enter once the notebook runs: the cell, then on
     elif shift and replCommandFor(b.lang)[0].len > 0 and b.lang.id != "shellscript":
       replSendSelOrStatement()                # Shift+Enter (terminals that report it): send to the REPL
     else:
@@ -636,8 +639,11 @@ proc handleKey(k: Key) =
     promptKey(k)
     return
   if focus == fEditor and buf().id in diffViews and diffKey(k): return
+  # (a picture's keys before the hex editor's: its bytes are the hex editor's only when Tab shows them)
+  if focus == fEditor and buf().id in picViews and picKey(buf(), k): return
   if focus == fEditor and buf().hex != nil and hexKey(buf(), k): return
   if focus == fEditor and renamePv.bufId > 0 and buf().id == renamePv.bufId and renamePvKey(k): return
+  if focus == fEditor and buf().id in flameViews and flameKey(k): return
   if focus == fEditor and k.kind == kEnter and k.mods == {} and ceIsView(buf()) and ceEnter(): return
   if focus == fEditor and k.kind == kEnter and k.mods == {} and buf().id in graphBufs:
     let h = graphHashAt(buf().lines[buf().primary.head.line])

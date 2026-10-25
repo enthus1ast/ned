@@ -16,6 +16,9 @@
 ## Settings: plugins.oil.hidden (show the hidden files, false), plugins.oil.trash (deleted files to the trash
 ## folder rather than gone, true).
 import nedplugin
+
+requiresNed(">= 6.26")
+permission("files", "renames, moves, makes and deletes the files and folders you change in its view")
 import std/[strutils, algorithm, tables]
 
 settingDef("hidden", false, "show the files and folders whose names start with a dot")

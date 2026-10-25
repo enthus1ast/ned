@@ -8736,6 +8736,394 @@ def t_624_compiler_explorer_c():
     check('624 CE (C, binary): a call shows its target, not an address', re.search(r'call\S*\s+\w*(printf|puts)', s),
           s)
 
+
+# ── 6.26 ──
+
+def open626(name):
+    """another file opened (Ctrl+P, its name)"""
+    keys('Escape'); time.sleep(0.2); keys('C-p'); text(name); time.sleep(0.6); keys('Enter'); time.sleep(1.0)
+
+
+FEAT626 = ('#ifndef FEAT_H\n#define FEAT_H\n#ifdef USE_FAST\nint fast_path(void);\n#define SPEED 9\n#else\n'
+           'int slow_path(void);\n#define SPEED 1\n#endif\n#endif\n')
+
+def t_626_c_header_macros():
+    # 6.26: a header's #ifs see the macros of the file that includes it — a.c defines USE_FAST before it includes
+    # feat.h, so the header's SPEED is 9 there (the #if SPEED == 9 branch read, the #else dimmed), and F12 on
+    # fast_path goes to its declaration in the header; b.c does not: SPEED is 1 there
+    need('cc')
+    setup({"c.engine": "builtin", "nim.nimsuggest": False})
+    os.makedirs(W + '/c626', exist_ok=True)
+    open(W + '/c626/feat.h', 'w').write(FEAT626)
+    body = ('#include "feat.h"\n#if SPEED == 9\nint nine(void) { return fast_path(); }\n#else\n'
+            'int one(void) { return slow_path(); }\n#endif\n')
+    open(W + '/c626/a.c', 'w').write('/* a comment */\n#define USE_FAST\n' + body)
+    open(W + '/c626/b.c', 'w').write('/* a comment */\n#undef USE_FAST\n' + body)
+    start('c626/a.c', w=140, h=40); wait_for('nine', 8); time.sleep(1.5)
+    rc, rn, ro = ansi_row('a comment'), ansi_row('nine(void)'), ansi_row('one(void)')
+    check("626 C: USE_FAST defined before the #include — the header's SPEED is 9 (#else dimmed)",
+          fg_at(ro, 'one') == fg_at(rc, 'comment') and fg_at(rn, 'nine') != fg_at(rc, 'comment'),
+          str((fg_at(rn, 'nine'), fg_at(ro, 'one'), fg_at(rc, 'comment'))) + '\n' + screen())
+    keys('C-g'); text('5:30'); keys('Enter'); keys('F12'); time.sleep(1.2)
+    s = screen()
+    check("626 C: F12 on fast_path — the header's declaration, in the branch USE_FAST reads",
+          'feat.h' in s and status_pos() and status_pos()[0] == 4, s[-400:])
+    tm('kill-server'); time.sleep(0.3)
+    start('c626/b.c', w=140, h=40); time.sleep(1.5)
+    wait_for('one', 6)
+    rc, rn, ro = ansi_row('a comment'), ansi_row('nine(void)'), ansi_row('one(void)')
+    check("626 C: #undef USE_FAST before it — SPEED is 1 there (the SPEED == 9 branch dimmed)",
+          fg_at(rn, 'nine') == fg_at(rc, 'comment') and fg_at(ro, 'one') != fg_at(rc, 'comment'),
+          str((fg_at(rn, 'nine'), fg_at(ro, 'one'), fg_at(rc, 'comment'))) + '\n' + screen())
+
+
+CLIP_PLUGIN = '''import nedplugin
+
+permission("clipboard", "copies the line for you")
+
+command "Clipper: copy the line":
+  let b = current()
+  setClipboard("from clipper: " & b.line(b.cursor.line))
+  message("clipper copied — " & clipboard())
+
+command "Clipper: run a program":
+  try:
+    discard api("terminal", %*{"cmd": "echo hi"})
+    message("clipper ran it")
+  except ValueError as e:
+    message("clipper: " & e.msg)
+'''
+
+def t_626_plugin_permissions():
+    # 6.26: a plugin that asks for the clipboard waits for your OK — a note says so; Plugins: permissions… lists
+    # it, the dialog says what it asks for, why (its own words) and where in its source; Not now keeps it waiting,
+    # Allow runs it; what it did not ask for (a terminal, through the raw API) is refused when it runs
+    setup()
+    os.makedirs(STATE + '/ned', exist_ok=True)
+    open(STATE + '/ned/plugin-permissions.json', 'w').write('{"granted": {}}\n')    # (not the first ned that asks)
+    d = CFG + '/ned/plugins/clipper'
+    os.makedirs(d, exist_ok=True)
+    open(d + '/plugin.nims', 'w').write(CLIP_PLUGIN)
+    open(W + '/notes.txt', 'w').write('the first line\nsecond\n')
+    start('notes.txt', w=150, h=40)
+    ok = wait_for(r'clipper asks to use the clipboard', 15)
+    check("626 permissions: a plugin that asks waits — a note says what for", ok, screen())
+    palette('Plugins: permissions')
+    ok = wait_for(r'clipper\s+waiting', 6)
+    check("626 permissions: Plugins: permissions… lists it, waiting", ok, screen())
+    keys('Enter')
+    ok = wait_for(r"A plugin's permissions", 6)
+    s = screen()
+    check("626 permissions: the dialog — what it asks for, why, where in its source",
+          ok and 'read and set the clipboard' in s and 'it says: copies the line for you' in s and
+          re.search(r'in its source: .*[Cc]lipboard', s) is not None, s)
+    nn = place_of('Not now')
+    if nn: click(*nn)
+    else: keys('n')
+    time.sleep(0.6)
+    palette('Clipper: copy the line'); time.sleep(1.0)
+    check("626 permissions: Not now — it still waits (its command does not run)", 'clipper copied' not in screen(),
+          screen())
+    keys('Escape')
+    palette('Plugins: permissions'); wait_for(r'clipper\s+waiting', 6); keys('Enter')
+    wait_for(r"A plugin's permissions", 6)
+    al = None                                      # (the button: the last "Allow" — the text above says it too)
+    for r, l in enumerate(screen().splitlines()):
+        c = l.rfind('Allow')
+        if c >= 0: al = (c + 2, r + 1)
+    if al: click(*al)
+    else: keys('a')
+    ok = plugins_ready(40)
+    check("626 permissions: Allow — it runs", ok, screen())
+    g = open(STATE + '/ned/plugin-permissions.json').read()
+    check("626 permissions: what you allowed is kept (state folder)", re.search(r'"clipper":\s*\[\s*"clipboard"', g),
+          g)
+    palette('Clipper: copy the line')
+    ok = wait_for(r'clipper copied — from clipper: the first line', 10)
+    check("626 permissions: allowed — it sets and reads the clipboard", ok, screen())
+    palette('Clipper: run a program')
+    ok = wait_for(r'clipper: not allowed: run programs', 10)
+    check("626 permissions: what it did not ask for is refused when it runs (a terminal)", ok, screen())
+    # taken back: it waits again
+    palette('Plugins: permissions'); wait_for(r'clipper\s+allowed', 6); keys('Enter'); time.sleep(1.0)
+    g = open(STATE + '/ned/plugin-permissions.json').read()
+    check("626 permissions: taken back — not kept any more", '"clipper"' not in g and
+          wait_for('permissions taken back', 6), g + screen())
+
+
+MEM626_C = ('#include <stdlib.h>\n#include <string.h>\n\nint main(void) {\n    char *p = malloc(8);\n'
+            '    strcpy(p, "0123456789");\n    free(p);\n    int *q = malloc(4 * sizeof(int));\n'
+            '    q[0] = 1;\n    return q[0] == 7 || p[0] == 0;\n}\n')
+
+def t_626_memory_checks():
+    # 6.26: Run with memory checks — a C program built with the address and undefined-behaviour checks: a write past
+    # the end of a block on its line in Problems (the line that made the block too), a block never freed
+    need('cc')
+    setup({"nim.nimsuggest": False})
+    open(W + '/mem.c', 'w').write(MEM626_C)
+    start('mem.c', w=150, h=40); time.sleep(1.0)
+    palette('Run with memory checks')
+    ok = wait_for(r'memory checks \(.*\): (\d+ found|nothing found)|this compiler has none', 90)
+    s = screen()
+    if 'this compiler has none' in s or 'undefined-behaviour checks only' in s:
+        check('626 memory checks: (this C compiler has no address checks — not tested)', True); return
+    check('626 memory checks: a C program run with them — what they found, in the panel', ok and 'found' in s and
+          'nothing found' not in s, s)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check('626 memory checks: the overflow in Problems, on its line (6), where the block was made said',
+          re.search(r'memory: .*(overflow|past the end)', s) and
+          re.search(r'●\s+6\s.*memory: the program writes past the end', s), s)
+    check('626 memory checks: a read after free, on its line (10)',
+          re.search(r'●\s+10\s.*memory: the program reads memory after it was freed', s), s)
+    check('626 memory checks: the block never freed (made on line 8)', re.search(r'never freed', s), s)
+    keys('Escape')
+    # Nim: an index past the end, through a pointer (no bound check catches it)
+    open(W + '/memn.nim', 'w').write('proc main() =\n  var s = newSeq[int](3)\n'
+                                     '  let p = cast[ptr UncheckedArray[int]](s[0].addr)\n  p[5] = 1\n  echo s.len\n'
+                                     'main()\n')
+    open626('memn.nim')
+    palette('Run with memory checks')
+    ok = wait_for(r'memory checks \(.*\): (\d+ found|nothing found)', 240)
+    s = screen()
+    check('626 memory checks: Nim too — the write past the end found', ok and 'found' in s and 'nothing found' not in s,
+          s)
+    palette('Show problems'); time.sleep(0.8)
+    s = screen()
+    check('626 memory checks: … on its line of the Nim file (4)', re.search(r'memn\.nim', s) and
+          re.search(r'memory:', s), s)
+
+
+NB626 = ('# %%\nvar total = 0\nfor i in 1 .. 4: total += i\necho "total ", total\n\n# %%\necho total * 2\n\n'
+         '# %%\necho undefinedQzx\n')
+
+def t_626_notebook():
+    # 6.26: a Nim file with # %% cells as a notebook — ▶ run on a cell's marker line (a tap), its output under it
+    # (Out [1]), one session (the next cell sees its variables), a changed cell says so, an error in Problems on
+    # its line; Python too (a cell's last expression shown)
+    setup({"nim.nimsuggest": False})
+    open(W + '/nb.nim', 'w').write(NB626)
+    start('nb.nim', w=140, h=40); time.sleep(1.0)
+    b = place_of('▶ run')
+    check('626 notebook: ▶ run on the cells\' marker lines', b is not None, screen())
+    if b: click(b[0] + 2, b[1])
+    else: palette('Notebook: run the cell')
+    # (the pointer moved off the code: no hover over the outputs)
+    tm('send-keys', '-t', 'f', '-l', '\x1b[<35;2;39M'); time.sleep(0.2); keys('Escape')
+    ok = wait_for(r'Out \[1\]', 60)
+    s = screen()
+    check('626 notebook: the cell\'s output under it', ok and 'total 10' in s, s)
+    keys('C-g'); text('7'); keys('Enter')
+    palette('Notebook: run the cell'); time.sleep(1.5); keys('Escape')      # (Escape: the hover of the cursor's word)
+    ok = wait_for(r'Out \[2\]', 60)
+    s = screen()
+    ls = s.split('\n')
+    k = next((i for i, l in enumerate(ls) if 'Out [2]' in l), -1)
+    check('626 notebook: one session — the next cell sees its variables (20)',
+          ok and k >= 0 and k + 1 < len(ls) and re.search(r'\b20\b', ls[k + 1]) is not None, s)
+    keys('C-g'); text('4'); keys('Enter', 'End'); text(' # changed'); time.sleep(0.8)
+    check('626 notebook: a cell changed since it ran says so', 'the cell changed since it ran' in screen(), screen())
+    keys('C-g'); text('10'); keys('Enter')
+    palette('Notebook: run the cell'); time.sleep(1.5); keys('Escape')
+    ok = wait_for(r'Out \[3\]', 60)
+    s = screen()
+    check('626 notebook: an error under its cell', ok and 'undefinedQzx' in s, s)
+    palette('Show problems'); time.sleep(0.6)
+    s = screen()
+    check('626 notebook: … and in Problems on its line', re.search(r"undeclared identifier: 'undefinedQzx'", s), s)
+    keys('Escape')
+    if which('python3'):
+        open(W + '/nb.py', 'w').write('# %%\nx = 21\nprint("x is", x)\n\n# %%\nx * 2\n')
+        open626('nb.py')
+        palette('Notebook: run all the cells')
+        ok = wait_for(r'Out \[2\]', 30)
+        s = screen()
+        check('626 notebook: Python — each cell\'s output, the last expression\'s value (42)', ok and 'x is 21' in s and
+              re.search(r'\b42\b', s) is not None, s)
+
+
+PT626 = ('proc clampAdd*(a, b: int): int =\n  ## adds, at most 50\n  if a < 0: raise newException(ValueError, "negative")\n'
+         '  min(a + b, 50)\n')
+
+def t_626_proc_tests():
+    # 6.26: Nim: write tests for this proc (from running it) — sample arguments run, what it returned written as
+    # checks (an exception as `expect`), in tests/t<module>.nim beside the .nimble, opened
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/mathy.nim', 'w').write(PT626)
+    start('src/mathy.nim', w=140, h=40); time.sleep(0.8)
+    keys('C-g'); text('4:5'); keys('Enter')
+    palette('Nim: write tests for this proc')
+    p = W + '/tests/tmathy.nim'
+    ok = wait_for(r'suite "clampAdd"', 120)
+    t = open(p).read() if os.path.exists(p) else ''
+    check('626 proc tests: the tests written beside the .nimble (tests/tmathy.nim) and opened', ok and 'tmathy.nim' in screen()
+          and 'suite "clampAdd"' in t, screen() + '\n' + t)
+    check('626 proc tests: then run (with coverage)', wait_for(r'✓ passed', 120) and wait_for(r'COVERAGE', 60), screen())
+    check('626 proc tests: its values as checks (0, 2, 50)', 'check clampAdd(0, 0) == 0' in t and
+          'check clampAdd(1, 1) == 2' in t and 'check clampAdd(42, 42) == 50' in t, t)
+    check('626 proc tests: an exception as expect', re.search(r'expect ValueError:\s*\n\s*discard clampAdd\(-1, -1\)', t), t)
+    check('626 proc tests: the module imported (clampAdd is exported)', 'import ../src/mathy' in t or
+          re.search(r'import .*mathy', t), t)
+    r = sh('cd %s && nim c -r --hints:off %s 2>&1' % (W, p))
+    check('626 proc tests: they compile and pass', r.returncode == 0 and '[OK]' in r.stdout, r.stdout[-800:])
+
+
+HOT626 = ('proc slow(n: int): int =\n  for i in 0 ..< n:\n    result += i mod 7\nproc fast(n: int): int = n * 2\n'
+          'proc work(): int =\n  for k in 0 ..< 3000:\n    result += slow(20000)\n    result += fast(k)\n'
+          'echo work()\n')
+
+def t_626_flame():
+    # 6.26: the profile as a flame graph (the call stacks, as wide as their time) — a tap on a box looks inside it,
+    # the top bar goes back; and two profiles compared, before and after
+    setup({"nim.nimsuggest": False})
+    open(W + '/hot.nim', 'w').write(HOT626)
+    start('hot.nim', w=140, h=36); time.sleep(1)
+    palette('Nim: profile')
+    ok = wait_for(r'of the time', 150)
+    check('626 flame: profiled', ok, screen())
+    palette('Nim: flame graph of the profile')
+    ok = wait_for(r'FLAME GRAPH · \d+ samples', 10)
+    s = screen()
+    check('626 flame: the flame graph — work, and slow inside it', ok and 'work' in s and 'slow' in s, s)
+    sp = None
+    for r, l in enumerate(s.splitlines()):
+        if 'FLAME GRAPH' in l: continue
+        c = l.find('slow')
+        if c >= 0: sp = (c + 1, r + 1); break
+    if sp: click(*sp)
+    ok = wait_for(r'↑ ', 6)
+    check('626 flame: a tap on a box looks inside it (↑ back at the top)', sp and ok, screen())
+    keys('BSpace'); time.sleep(0.5)
+    check('626 flame: Backspace — back up one (work)', re.search(r'↑ work · ', screen()) is not None, screen())
+    for _ in range(4):                             # (the top bar: back up one a tap — to the whole program)
+        tb = place_of('↑ ')
+        if not tb: break
+        click(*tb); time.sleep(0.5)
+    check('626 flame: taps on the top bar — up to the whole program', '↑ ' not in screen() and
+          'the whole program · 100.0%' in screen(), screen())
+    keys('C-w'); time.sleep(0.4)
+    # faster now: compared with the profile before
+    s2 = HOT626.replace('slow(20000)', 'slow(2000)')
+    open(W + '/hot.nim', 'w').write(s2)
+    palette('Reload from disk'); time.sleep(0.5)
+    palette('Nim: profile')
+    ok = wait_for(r'of the time', 150)
+    palette('Nim: compare with the previous profile')
+    ok = wait_for(r'PROFILE · BEFORE AND AFTER', 10)
+    s = screen()
+    check('626 flame: two profiles compared — slow listed, before and after', ok and 'slow' in s, s)
+
+
+def png626(path, w, h, px):
+    """a PNG file w × h, each pixel's (r, g, b) from px(x, y)"""
+    import zlib, struct
+    raw = b''.join(b'\x00' + b''.join(bytes(px(x, y)) for x in range(w)) for y in range(h))
+    def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) +
+                           chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+def t_626_pictures():
+    # 6.26: a picture file opens as the picture (here in the terminal's cells: half blocks, its colours), + zooms,
+    # Tab shows its bytes and back
+    setup({"nim.nimsuggest": False})
+    png626(W + '/pic.png', 16, 8, lambda x, y: (255, 0, 0) if x < 8 else (0, 0, 255))
+    start('pic.png', w=140, h=40); time.sleep(1.0)
+    s = screen()
+    check('626 pictures: a PNG opens as the picture — its name, format and size at the top',
+          re.search(r'▣ pic\.png\s+PNG · 16×8', s) is not None and '▀' in s, s)
+    row = ''
+    for l in screen_ansi().split('\n'):
+        if '▀' in re.sub(r'\x1b\[[0-9;:]*m', '', l): row = l; break
+    plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)
+    a, z = plain.find('▀'), plain.rfind('▀')
+    check('626 pictures: its colours — red on the left, blue on the right',
+          fg_at_col(row, a) == ('255', '0', '0') and fg_at_col(row, z) == ('0', '0', '255'),
+          str((fg_at_col(row, a), fg_at_col(row, z))))
+    text('+'); time.sleep(0.4)
+    check('626 pictures: + zooms in', '150% of the view' in screen(), screen()[:300])
+    text('0'); keys('Tab'); time.sleep(0.5)
+    s = screen()
+    check('626 pictures: Tab — its bytes (hex)', re.search(r'89 50 4[Ee] 47', s) is not None, s)
+    keys('Tab'); time.sleep(0.5)
+    check('626 pictures: Tab again — the picture', '▀' in screen(), screen())
+
+
+MD626 = ('# Guide\n\n| Name | Size |\n|:-----|-----:|\n| alpha | 1 |\n| beta | 22 |\n\n- [ ] write it\n- [x] test it\n\n'
+         '> [!NOTE]\n> Read this first.\n\n![logo](logo.png)\n\nSee [the setup part](#setup).\n\n' +
+         ''.join('Filler paragraph %d.\n\n' % i for i in range(40)) + '## Setup\n\nRun it.\n')
+
+def t_626_markdown_preview():
+    # 6.26: the Markdown preview — a table drawn with its columns lined up, task lists, a GitHub note, a picture,
+    # a link to a heading (a tap goes there in the file, the preview follows)
+    setup({"nim.nimsuggest": False})
+    open(W + '/doc.md', 'w').write(MD626)
+    png626(W + '/logo.png', 8, 4, lambda x, y: (0, 200, 0))
+    start('doc.md', w=150, h=44); time.sleep(0.6)
+    palette('Markdown: open preview'); time.sleep(1.2)
+    s = screen()
+    check('626 markdown: a table, its columns lined up', '┌' in s and re.search(r'│ alpha\s*│\s+1 │', s) is not None, s)
+    check('626 markdown: task lists (☐ ☑)', '☐ write it' in s and '☑ test it' in s, s)
+    check('626 markdown: a GitHub note', 'ℹ Note' in s and 'Read this first.' in s, s)
+    check('626 markdown: the picture drawn', '▀' in s, s)
+    lp = None
+    for r, l in enumerate(s.splitlines()):
+        c = l.find('the setup part')
+        if c > 0 and l[c - 1] != '[': lp = (c + 3, r + 1)
+    if lp: click(*lp)
+    time.sleep(0.8)
+    want = MD626.split('\n').index('## Setup') + 1
+    p = status_pos()
+    s = screen()
+    check('626 markdown: a tap on a link to a heading — the file goes there, the preview follows',
+          lp and '## Setup' in s and 'Run it.' in s and 'Filler paragraph 0.' not in s, str((lp, p, want)) + '\n' + s)
+
+
+def t_626_settings_sync():
+    # 6.26: Settings sync both ways — each device's changes merged key by key: what only one changed taken from
+    # it, changed on both this device's kept (and said); at start (sync.auto) it pulls what the other pushed
+    repo = TMP + '/sync626.git'
+    shutil.rmtree(repo, ignore_errors=True)
+    sh('git init -q --bare %s' % repo)
+    url = 'file://' + repo
+    cfg2, state2 = TMP + '/cfg-b', TMP + '/state-b'
+    # device A
+    setup({"editor.tabSize": 3, "sync.repository": url})
+    start('src/demo.nim', w=140, h=34); time.sleep(0.5)
+    palette('Settings sync: sync now')
+    check('626 sync: device A — in sync (the repository had nothing)', wait_for('Settings in sync with', 20), screen())
+    tm('kill-server'); time.sleep(0.3)
+    a_cfg = open(CFG + '/ned/config.json').read()
+    # device B: its own settings and state
+    shutil.rmtree(cfg2, ignore_errors=True); shutil.rmtree(state2, ignore_errors=True)
+    os.makedirs(cfg2 + '/ned', exist_ok=True)
+    json.dump({"editor.tabSize": 8, "editor.rulers": [100], "sync.repository": url, "security.folderTrust": "off",
+               "nim.nimsuggest": False}, open(cfg2 + '/ned/config.json', 'w'))
+    start('src/demo.nim', w=140, h=34, env_extra='XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s' % (cfg2, state2)); time.sleep(0.5)
+    palette('Settings sync: sync now')
+    ok = wait_for('changed on both devices, this one.s kept', 20)
+    c = open(cfg2 + '/ned/config.json').read()
+    check("626 sync: device B — changed on both (tabSize): this device's kept, and said", ok and
+          re.search(r'"editor.tabSize":\s*8', c), screen() + c)
+    tm('kill-server'); time.sleep(0.3)
+    pushed = sh('git --git-dir=%s show HEAD:ned-settings.json' % repo).stdout
+    check("626 sync: the repository has B's rulers now", '100' in pushed, pushed[:400])
+    # device A again, sync.auto at start: B's tabSize (A did not change it since) and rulers come over
+    c = json.load(open(CFG + '/ned/config.json'))
+    c["sync.auto"] = "start"
+    json.dump(c, open(CFG + '/ned/config.json', 'w'))
+    start('src/demo.nim', w=140, h=34)
+    end = time.time() + 25
+    c = ''
+    while time.time() < end:
+        c = open(CFG + '/ned/config.json').read()
+        if re.search(r'"editor.tabSize":\s*8', c) and '100' in c: break
+        time.sleep(0.5)
+    check("626 sync: sync.auto start — A takes what only B changed (tabSize 8, rulers)",
+          re.search(r'"editor.tabSize":\s*8', c) and '100' in c, c + screen())
+    tm('kill-server'); time.sleep(0.3)
+
 tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_6241_plugin_check, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list, t_621_emit_format, t_621_reset, t_621_settings_form, t_621_fields, t_621_context_menus, t_621_drag_drop, t_621_atlas, t_621_decompile, t_621_new_project, t_622_settings_controls, t_622_nimscript, t_622_plugin_api, t_622_doc_comments, t_623_decompile_menu, t_623_align_comments, t_623_c_engine, t_623_emit_builtin_c, t_623_nim_rewrites, t_623_call_args, t_624_compiler_explorer, t_624_ce_toolbar, t_6241_dock_view_menu, t_6241_ce_all_procs, t_625_indent, t_625_plugins_menu, t_625_which_key, t_625_oil, t_625_engine_checks,
          t_625_chain_hints, t_625_rename_reach, t_625_completion_recent, t_625_oracle, t_625_c_if, t_625_c_checks,
-         t_625_cpp_overloads, t_624_compiler_explorer_c]
+         t_625_cpp_overloads, t_624_compiler_explorer_c,
+         t_626_c_header_macros, t_626_plugin_permissions, t_626_memory_checks, t_626_notebook, t_626_proc_tests,
+         t_626_flame, t_626_pictures, t_626_markdown_preview, t_626_settings_sync]

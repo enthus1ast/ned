@@ -437,7 +437,17 @@ proc scan(files, ms: seq[string]): seq[(string, Note)] =
 ```
 
 `shell(cmd)` runs a command in the project's folder (`shell(cmd, dir)` in another) and gives its output and exit
-code; `quoteShell` makes a path safe to put in one. grep does the reading: it skips binary files, and a file it
+code; `quoteShell` makes a path safe to put in one. Running programs is a permission: ned reads the plugin's source
+before it runs it, sees `shell`, and asks you once whether notes may run programs. Say why at the top of the
+plugin, under `requiresNed` — ned shows it when it asks:
+
+```nim
+permission("shell", "finds the notes in your files with grep")
+```
+
+The other permissions are `"files"` (writeFile, mkDir, mvFile, rmFile … — a file of the plugin's own data folder
+needs none: `writeData("notes.json", text)`, `appendData`, `readData`), `"clipboard"` and `"network"` (a compiled
+plugin's sockets). A call the plugin was not allowed fails with an error that says which permission it needs. grep does the reading: it skips binary files, and a file it
 cannot read is no error to it, while in NimScript an error of `readFile` cannot be caught. (The plugin's own
 process does not run in the project's folder: a path for `readFile` starts from `projectRoot()`, as in
 `projectRoot() & "/src/app.nim"`.)
@@ -881,8 +891,11 @@ Give it a `requiresNed`, say in its `##` comment what it does, and declare its s
 
 ### Safety
 
-Plugins run with your rights, like any program you install: a plugin can read and write your files and run
-commands. Read a plugin before you install it. A project's plugins (`.ned/plugins/`) run only in a folder you
+Plugins run with your rights, like any program you install. Before a plugin runs, ned reads its source for what it
+uses beyond editing — running programs, changing files, the clipboard, the network — and asks you once (each
+plugin's menu in the Plugins dock, or *Plugins: permissions…*, shows and takes back what you allowed); a call it
+was not allowed fails. This keeps a plugin to what it said it does, but it is not a sandbox: code written to hide
+what it does could get past a reading of its source. Read a plugin before you install it. A project's plugins (`.ned/plugins/`) run only in a folder you
 trust, and a tool that a plugin gives the assistant asks you first unless it is declared read-only, so only
 declare a tool read-only when it really only reads. See [safety](../guide/safety.md) for what ned does to protect
 your work.

@@ -35,7 +35,7 @@ from std/hashes import hash
 from std/math import pow
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
-import ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
+import ned/core/images, ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
        ned/nim/arccopies, ned/c/cindex, ned/version, ned/testing/gcovdata, ned/editor/binfmt, ned/web/web, ned/core/encodings,
        ned/editor/asmview
 
@@ -202,6 +202,8 @@ include ned/ai/offline
 include ned/ai/suggestions
 include ned/editor/nextedit
 include ned/ai/chatview
+include ned/ui/mdpreview
+include ned/editor/pictures
 include ned/ui/welcome
 include ned/editor/spell
 include ned/ui/codeline
@@ -277,10 +279,14 @@ include ned/nim/rewrites
 include ned/nim/quickfixes
 include ned/testing/coverage
 include ned/nim/profile
+include ned/nim/flame
+include ned/run/memcheck
+include ned/testing/proctests
 include ned/nim/misc
 include ned/nim/nimbletree
 include ned/editor/csv
 include ned/term/repl
+include ned/editor/notebook
 include ned/git/conflicts
 include ned/ai/review
 include ned/ui/compare
@@ -316,6 +322,7 @@ include ned/app/usercommands
 include ned/app/lint
 include ned/web/webui
 include ned/nim/worker
+include ned/plugins/perms
 include ned/plugins/host
 include ned/app/commandlist
 include ned/app/control

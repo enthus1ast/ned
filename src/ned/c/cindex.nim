@@ -74,6 +74,10 @@ type
                                       # directives use (#ifs', the branches left out's too)
     liveNames*: seq[string]           # … those of its code read (and of its #defines), not in attributes
     namesMade: bool                   # (names and liveNames are there: cxUsedNames)
+    free*: seq[int32]                 # the macros its #ifs (and its headers' #ifs) ask about that neither it nor
+                                      # they define first — what the file including it can change (guards not)
+    envSig: string                    # read with the includer's macros: which ("" — as if on its own)
+    envIn: Table[int32, CxMacro]      # (those macros, to read it again the same way)
   CxIncl* = object                    # an #include
     line*: int
     name*: string                     # what it names: <x.h>, "y.h" (an #include HEADER: what the macro is)
@@ -90,6 +94,7 @@ type
     tokd: bool
     raw: string                       # (the #define's text after the name, until it is first needed)
     ready: bool
+    proj: bool                        # a project file's #define (or #undef): a header's #ifs see it (cxPre)
   CxTokKind = enum ctWord, ctNum, ctStr, ctChar, ctPunct, ctTemplate
   CxTok = object
     kind: CxTokKind
@@ -265,6 +270,10 @@ var
   cxBaseSig: string                            # (what cxBase was made from)
   cxBase: array[bool, Table[string, CxMacro]]  # C's and C++'s macros before the first line: the compiler's, -D, -U
   cxParsing: HashSet[string]                   # the files being read (an #include of one of them: left out)
+  cxParsingPath: HashSet[string]               # … by path, however each is read (with an includer's macros or not)
+  cxEnvIn: Table[int32, CxMacro]               # the includer's macros for the header read next (cxLoad sets it)
+  cxVariants: Table[string, HashSet[string]]   # a header → the ways it was read with includers' macros (a few)
+  cxProjDefined: HashSet[int32]                # the macros a project's file #defines or #undefs somewhere
   cxNoHeaders: bool                            # (a file read without the headers it includes: cxLoad's shallow)
   cxTextInactive: seq[(Hash, int, bool, seq[(int, int)])]   # (the last texts read for a buffer, C or C++: what
                                                             # their #ifs leave out — cxInactiveIn of the same text)
@@ -272,6 +281,7 @@ var
                                                # c.engineChecks: which of the engine's checks are on (c/cchecks.nim)
   cxUnknownM = CxMacro(state: msUnknown)
   cxUndefM = CxMacro(state: msUndef)
+  cxUndefProjM = CxMacro(state: msUndef, proj: true)
 
 func cxIsCppPath*(path: string): bool =
   ## a C++ file by its name: .cpp .cc .cxx .hpp .hh .hxx …
@@ -577,7 +587,8 @@ func cxParams(toks: seq[CxTok], a, b: int): (seq[CxParam], bool) =
 #    compiler's own macros (cxPredef), and what the file and the headers it includes #define before the #if, in
 #    order. A condition that names a macro the engine does not know stays undecided: all its branches are read ──
 
-proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path), shallow = false): CxFile
+proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path), shallow = false,
+             env = initTable[int32, CxMacro](), envSig = ""): CxFile
 proc cxFindInclude*(name, fromDir: string): string
 proc cxIsSystem*(path: string): bool
 
@@ -703,6 +714,7 @@ proc cxMacroOf(r: string): (string, CxMacro) =
 
 var
   cxMNames: Table[string, int32]           # a macro's name → its number (the same in every file)
+  cxMNameList: seq[string]                 # … and back
   cxFids: Table[string, int32]             # a file's path → its number
   cxDefiners: seq[seq[int32]]              # a macro's number → the files whose #defines or #undefs touch it
 
@@ -740,11 +752,19 @@ proc cxFinal(f: CxFile, id: int32, depth = 0): CxMacro =
       if x != nil: return (if maybe: cxUnknownM else: x)
   r
 
+proc cxMacroSig(m: CxMacro): string =
+  ## a macro as an #if sees it, in a few characters: "?" not known, "-" not defined, else its parameters and body
+  if m == nil or m.state == msUnknown: return "?"
+  if m.state == msUndef: return "-"
+  cxReady(m)
+  (if m.fn: "(" & m.params.join(",") & ")" else: "") & "=" & m.body.strip
+
 proc cxIntern(name: string): int32 =
   result = cxMNames.getOrDefault(name, -1)
   if result < 0:
     result = int32(cxMNames.len)
     cxMNames[name] = result
+    cxMNameList.add name
 
 proc cxBaseFresh() =
   ## the macros before a file's first line (the compiler's, -D, -U), made again when what they come from changed —
@@ -753,6 +773,7 @@ proc cxBaseFresh() =
             cxSysDirs.join(":")                # (the compiler's folders: a header not found before may be now)
   if sig == cxBaseSig: return
   cxBaseSig = sig
+  cxVariants.clear()
   cxCache.clear()
   cxCheckedAt.clear()
   cxClosureCache.clear()
@@ -1265,6 +1286,8 @@ type
     incNames: Table[int, string]      # a computed #include's line (`#include HEADER`) → the header it names
     incAt: seq[CxIncl]
     viaAt: Table[(int, int), seq[(string, string)]]   # where an expansion put names: (name, the macro)
+    free: HashSet[int32]              # (CxFile.free)
+    guards: HashSet[int32]            # its #ifndef X / #define X pairs: not what an includer would change
   CxFrame = object
     dead: bool                        # inside a branch left out: every branch of it is
     cur: int                          # this branch: 1 taken, 0 left out, -1 not known
@@ -1292,17 +1315,26 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
   var applied: HashSet[string]
   applied.incl (if cpp: "c++:" else: "") & path
   var step = 0'i32
-  var seen: Table[int32, (int32, CxMacro)]       # (what was looked up since the last directive)
+  var seen: Table[int32, (int32, CxMacro, bool)]  # (what was looked up since the last directive; from before it)
+  let envIn = cxEnvIn                             # (the includer's macros, when it is read with them)
+  cxEnvIn.clear()                                 # (… for this file only: its own headers get theirs from it)
+  var rec = false                                 # an #if's condition is being read: note the macros from before
+  let projFile = path.len == 0 or not cxIsSystem(path)
   proc look(n: string): CxMacro =
-    # this file's own #define, or a header's included after it (the last first). (A proc, not a closure kept in a
-    # variable: the other procs here would keep it, and it them — a cycle that holds the file's tokens until ORC
-    # collects it)
-    let id = cxMNames.getOrDefault(n, -1)
-    if id < 0: return cxBaseLook(n, cpp)
+    # this file's own #define, or a header's included after it (the last first); then the includer's, then the
+    # compiler's. (A proc, not a closure kept in a variable: the other procs here would keep it, and it them — a
+    # cycle that holds the file's tokens until ORC collects it)
+    var id = cxMNames.getOrDefault(n, -1)
+    if id < 0:
+      if not rec: return cxBaseLook(n, cpp)
+      id = cxIntern(n)                            # (an includer that defines it later finds it among `free`)
     seen.withValue(id, e):
-      if e[][0] == step: return e[][1]
+      if e[][0] == step:
+        if rec and e[][2]: w.free.incl id
+        return e[][1]
     var at = -1'i32
     var r: CxMacro = nil
+    var before = false
     w.own.withValue(id, e): (at, r) = e[]
     block found:
       for k in countdown(w.incs.high, 0):
@@ -1312,8 +1344,12 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
         if x != nil:
           r = if maybe: cxUnknownM else: x
           break found
-    if r == nil: r = cxBaseLook(n, cpp)
-    seen[id] = (step, r)
+    if r == nil:
+      before = true
+      r = envIn.getOrDefault(id)
+      if r == nil: r = cxBaseLook(n, cpp)
+      if rec: w.free.incl id
+    seen[id] = (step, r, before)
     r
   proc setM(id: int32, m: CxMacro) =
     inc step
@@ -1462,7 +1498,13 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
   proc defd(r: string): int =
     ## #ifdef r: 1, 0, -1 not known
     let n = firstWord(r)
-    if n.len > 0: cxDefinedOf(n, lookC) else: -1
+    rec = true
+    result = if n.len > 0: cxDefinedOf(n, lookC) else: -1
+    rec = false
+  proc cond(r: string): int =
+    rec = true
+    result = cxPPCond(r, lookC, fromDir)
+    rec = false
   func notOf(v: int): int = (if v < 0: -1 else: 1 - v)
   for pi, (l, d) in pp:
     tokensTo(l)
@@ -1480,8 +1522,8 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
       var c = case word
         of "ifdef": defd(rest)
         of "ifndef": notOf(defd(rest))
-        else: cxPPCond(rest, lookC, fromDir)
-      if c < 0 and pi + 1 < pp.len:
+        else: cond(rest)
+      if pi + 1 < pp.len and word != "ifdef":
         # #ifndef X then #define X — a header's guard (or a default value): the first time, taken
         var g = ""
         if word == "ifndef": g = firstWord(rest)
@@ -1490,8 +1532,9 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
           if r.startsWith("!defined(") and r.endsWith(")") and r.count('(') == 1: g = r[9 ..< r.high]
           elif r.startsWith("!defined") and r.len > 8 and r[8 .. ^1].allCharsInSet(IdentChars): g = r[8 .. ^1]
         let nx = pp[pi + 1][1][1 .. ^1].strip
-        if g.len > 0 and look(g) == nil and nx.startsWith("define") and firstWord(nx[6 .. ^1]) == g:
-          c = 1
+        if g.len > 0 and nx.startsWith("define") and firstWord(nx[6 .. ^1]) == g:
+          w.guards.incl cxIntern(g)
+          if c < 0 and look(g) == nil: c = 1
       frames.add CxFrame(cur: c, taken: c == 1, maybe: c < 0, start: l, atIf: braces)
     of "elif", "else", "elifdef", "elifndef":
       if frames.len == 0 or frames[^1].dead: continue
@@ -1508,7 +1551,7 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
           of "else": 1
           of "elifdef": defd(rest)
           of "elifndef": notOf(defd(rest))
-          else: cxPPCond(rest, lookC, fromDir)
+          else: cond(rest)
         if c == 1 and frames[k].maybe: c = -1
       frames[k].cur = c
       if c == 1: frames[k].taken = true
@@ -1533,6 +1576,8 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
       let (n, m) = cxMacroOf(rest)
       if n.len > 0:
         let id = cxIntern(n)
+        m.proj = projFile
+        if projFile: cxProjDefined.incl id
         setM(id, m)
         if s < 0: note(id, frames.len)
     of "undef":
@@ -1541,7 +1586,8 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
       let n = firstWord(rest)
       if n.len > 0:
         let id = cxIntern(n)
-        setM(id, cxUndefM)
+        if projFile: cxProjDefined.incl id
+        setM(id, (if projFile: cxUndefProjM else: cxUndefM))
         if s < 0: note(id, frames.len)
     of "include", "include_next", "import":
       let s = state()
@@ -1556,7 +1602,9 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
           var ts: seq[CxPT]
           for x in cxPPToks(rest): ts.add CxPT(t: x, src: -1)
           var r = ""
+          rec = true
           for x in cxExpand(ts, look, bud): r.add x.t
+          rec = false
           if r.len > 2 and ((r[0] == '"' and r[^1] == '"') or (r[0] == '<' and r[^1] == '>')):
             name = r
             w.incNames[l] = r
@@ -1583,13 +1631,38 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
         let hcpp = cpp and not cxIsSystem(hp)
         if cpp and cxIsSystem(hp) and ("/c++/" in hp or hp.splitFile.ext.len == 0): break read
         let key = (if hcpp: "c++:" else: "") & hp
-        if key in applied or key in cxParsing:
+        if key in applied or key in cxParsing or key in cxParsingPath:
           ic.file = cxCache.getOrDefault(key)
           break read
-        let dep = cxLoad(hp, cpp = hcpp)
+        var dep = cxLoad(hp, cpp = hcpp)
         if dep == nil:
           inc w.missing
           break read
+        if dep.free.len > 0:
+          # the macros its #ifs ask about, as this file has them here: when one a project's file set is not what the
+          # header saw on its own (#define _GNU_SOURCE before <string.h>, #define FEATURE_X before a config header),
+          # it is read with them — a few such ways for each header, then as on its own. (What system headers set
+          # for each other — their guards, __need_size_t, __WORDSIZE — is left as it was: read again for each, the
+          # system's headers would be read hundreds of times)
+          var env: Table[int32, CxMacro]
+          var sig = ""
+          for id in dep.free:
+            if id >= cxMNameList.len or id notin cxProjDefined: continue
+            let n = cxMNameList[id]
+            let m = look(n)
+            if m == nil or not m.proj: continue
+            let mine = cxMacroSig(m)
+            if mine != cxMacroSig(cxBaseLook(n, hcpp)):
+              env[id] = m
+              sig.add n & "=" & mine & ";"
+          if sig.len > 0:
+            let seenWays = cxVariants.getOrDefault(key)
+            if sig in seenWays or seenWays.len < 8:
+              cxVariants.mgetOrPut(key, initHashSet[string]()).incl sig
+              let v = cxLoad(hp, cpp = hcpp, env = env, envSig = sig)
+              if v != nil: dep = v
+        for id in dep.free:
+          if id notin w.own: w.free.incl id         # (what it asks about, this file's includer can change too)
         ic.file = dep
         if s == 1: applied.incl key
         if dep notin w.deps: w.deps.add dep
@@ -1598,6 +1671,7 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
       w.incAt.add ic
     else: discard
   tokensTo(high(int))
+  for g in w.guards: w.free.excl g
   for k in countdown(frames.high, 0):
     if not frames[k].dead:
       if frames[k].cur == 0: w.gone.add (frames[k].start, high(int))
@@ -2129,6 +2203,8 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
     f.sub[w] = f.sub[w] or (1'u64 shl (int(d.fid) and 63))
   f.missing = walk.missing
   f.incAt = walk.incAt
+  for id in walk.free: f.free.add id
+  f.free.sort()
   var gone = walk.gone
   if project and not full: (f.names, f.liveNames) = cxNamesOf(used, usedText, pp, walk.gone)
   f.namesMade = project and not full
@@ -3145,18 +3221,20 @@ proc cxStampOf(path: string): string =
 proc cxDepsOk(f: CxFile): bool =
   ## are the headers whose macros f's #ifs saw still the ones on disk?
   for d in f.deps:
-    if cxLoad(d.path, cpp = d.cpp) != d: return false
+    if cxLoad(d.path, cpp = d.cpp, env = d.envIn, envSig = d.envSig) != d: return false
   true
 
-proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path), shallow = false): CxFile =
+proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path), shallow = false,
+             env = initTable[int32, CxMacro](), envSig = ""): CxFile =
   ## a file's index: from `text` (an open buffer, with its own stamp) or from disk; cached until it changes, or a
   ## header it includes does (a file read from disk does not keep its lines: headers are many). cpp: read as C++
   ## (a header can be read both ways: each is kept). shallow: its headers not read (a .c file looked in for a body:
-  ## its #ifs see only its own macros)
+  ## its #ifs see only its own macros). env, envSig: a header read with the macros its includer has (its #ifs see
+  ## them), each such way kept too
   if cxParsing.len == 0: cxBaseFresh()
   let full = if cpp: "c++:" & path else: path
   if shallow and full in cxCache: return cxLoad(path, text, stamp, cpp)
-  let key = (if shallow: "shallow:" else: "") & full
+  let key = (if shallow: "shallow:" else: "") & full & (if envSig.len > 0: "|" & envSig else: "")
   if text.len == 0 and stamp.len == 0 and key in cxCache:
     let now = epochTime()
     if now - cxCheckedAt.getOrDefault(key, 0.0) < 1.0 or key in cxParsing: return cxCache[key]
@@ -3171,13 +3249,20 @@ proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path), shall
       if t.len > 6_000_000: t.setLen(6_000_000)
     except CatchableError: return nil
   cxParsing.incl key
+  let wasIn = full in cxParsingPath
+  cxParsingPath.incl full
   let wasShallow = cxNoHeaders
   cxNoHeaders = shallow
+  cxEnvIn = env                                  # (cxPre takes them, and clears them for the headers it reads)
   try: result = cxParse(t, path, full = text.len > 0, cpp = cpp)
   finally:
     cxParsing.excl key
+    if not wasIn: cxParsingPath.excl full
     cxNoHeaders = wasShallow
+    cxEnvIn.clear()
   result.stamp = st
+  result.envSig = envSig
+  result.envIn = env
   if text.len == 0: result.lines = @[]
   else:
     let n = if text.endsWith("\n"): text.len - 1 else: text.len
@@ -3186,6 +3271,7 @@ proc cxLoad*(path: string, text = "", stamp = "", cpp = cxIsCppPath(path), shall
   if cxCache.len > 3000:
     cxCache.clear()
     cxCheckedAt.clear()
+    cxVariants.clear()
   cxCache[key] = result
   if text.len == 0: cxCheckedAt[key] = epochTime()
 
@@ -3244,6 +3330,12 @@ proc cxClosure*(f: CxFile, maxFiles = 400): seq[CxFile] =
     if g == nil or ((if g.cpp: "c++:" else: "") & g.path) in seen: continue
     seen.incl ((if g.cpp: "c++:" else: "") & g.path)
     result.add g
+    # the headers as g read them (with its macros, when they change what a header declares); the rest by name
+    var asRead: HashSet[string]
+    for ic in g.incAt:
+      if ic.file != nil and ic.file.envSig.len > 0:
+        asRead.incl ic.file.path
+        if ((if ic.file.cpp: "c++:" else: "") & ic.file.path) notin seen: stack.add ic.file
     for (inc0, _) in g.includes:
       var inc = inc0
       if g.cpp and inc.startsWith("<") and '.' notin inc:
@@ -3254,7 +3346,7 @@ proc cxClosure*(f: CxFile, maxFiles = 400): seq[CxFile] =
           inc = "<" & n[1 .. ^1] & ".h>"
         else: continue
       let p = cxFindInclude(inc, parentDir(g.path))
-      if p.len == 0: continue
+      if p.len == 0 or p in asRead: continue
       let cpp = g.cpp and not cxIsSystem(p)
       if g.cpp and cxIsSystem(p) and ("/c++/" in p or p.splitFile.ext.len == 0): continue
       if ((if cpp: "c++:" else: "") & p) notin seen:
@@ -4761,6 +4853,15 @@ proc cxxTargets(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
     if g == f and s.line == line and s.col == a: return            # (on a declaration's own name)
   var k = e
   while k < t.len and t[k] == ' ': inc k
+  if k >= t.len or t[k] != '(':
+    # a class's name not called — `Point::norm`, `const Point* p`, `std::vector<Point>` —: the class, not its
+    # constructors
+    var cls, rest: seq[(CxFile, CxSym)]
+    for x in result:
+      if x[1].kind in {cxClass, cxStruct, cxUnion, cxEnum, cxTypedef}: cls.add x else: rest.add x
+    if cls.len > 0 and rest.len > 0:
+      cls.sort(proc(x, y: (CxFile, CxSym)): int = cmp(ord(y[1].isDef), ord(x[1].isDef)))
+      return cls & rest
   if k < t.len and t[k] == '<':
     # a class template with arguments: the specialisation they fit first
     let close = cxxNameEnd(t, a)

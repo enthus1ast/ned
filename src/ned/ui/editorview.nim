@@ -98,8 +98,18 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     fillRect(x0, y0, w, h, theme.fg, theme.bg)
     drawDiffView(b, x0, y0, w, h)
     return
+  if b.hex != nil and b.id in picViews and not picViews[b.id].hex:
+    editorRect = (x0, y0, w, h)
+    fillRect(x0, y0, w, h, theme.fg, theme.bg)
+    drawPicture(b, x0, y0, w, h)
+    return
   if b.hex != nil:
     drawHexView(b, x0, y0, w, h, active)
+    return
+  if b.id in flameViews:
+    editorRect = (x0, y0, w, h)
+    fillRect(x0, y0, w, h, theme.fg, theme.bg)
+    drawFlame(b, x0, y0, w, h)
     return
   if b.mdSrc != 0:
     editorRect = (x0, y0, w, h)
@@ -144,8 +154,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         b.topSub = 0
   inlayShown.clear()
   let showInlays = (cfgInlayHints or b.lang.mode == lmCsv) and b.inlays.len > 0
-  if not cfgWrap: b.topSub = 0
-  else: b.topSub = clamp(b.topSub, 0, b.segCount(b.topLine) - 1)
+  if not cfgWrap and b.vrows.len == 0: b.topSub = 0
+  else: b.topSub = clamp(b.topSub, 0, b.segCount(b.topLine) - 1)   # (rows under a line count too)
   let ph = b.primary.head
   if ph != b.lastHead or b.changeId != b.lastChange:
     if zenMode and cfgZenTypewriter:
@@ -789,6 +799,15 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         for xx in x0 ..< x0 + w:
           let gi = y * scrW + xx
           grid[gi].fg = blend(grid[gi].fg, grid[gi].bg, 0.62)
+      if si == 0 and replMarker(s) and nbCanRun(b) and active:
+        # a cell's marker: ▶ runs the cell (a tap on a tablet; Ctrl+Enter with a keyboard)
+        let bx = tx0 + visColOf(s, s.len) - baseVc + 2
+        if bx + 8 < limX:
+          let bb = b
+          let ml = line
+          capture bb, ml:
+            discard button(bx, y, " ▶ run ", proc() = nbRunAt(bb, ml + 1), "Run the cell (Ctrl+Enter)", theme.accent,
+                           theme.btnBg)
       if conflictStart >= 0 and si == 0:
         # on the <<<<<<< line: the choices, clickable
         var bx = tx0 + visColOf(s, s.len) - baseVc + 2
@@ -800,6 +819,20 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           capture cidx, chc:
             bx = button(bx, y, lab, proc() = buf().resolveConflict(cidx, chc), "", theme.fg, theme.btnBg) + 1
       inc row
+    if b.vrows.len > 0 and line in b.vrows:
+      # the rows under the line that are not text (a notebook cell's output): a bar in the gutter, then the spans
+      let vr {.cursor.} = b.vrows[line]
+      for vi in max(0, sub0 - segs.len) ..< vr.len:
+        if row >= h: break
+        let y = y0 + row
+        let vbg = if vr[vi].bg == NoColor: blend(theme.bg, theme.fg, 0.045) else: vr[vi].bg
+        fillRect(x0, y, w, 1, theme.fg, vbg)
+        setCell(x0 + gw - 2, y, Cell(ch: 0x2502, fg: theme.border, bg: vbg))
+        var xx = tx0
+        for (t, fg, at) in vr[vi].spans:
+          xx = putStr(xx, y, t, fg, vbg, at, limX - 1)
+          if xx >= limX - 1: break
+        inc row
     sub0 = 0
     if b.folds.len > 0:
       let nl = b.nextVisible(line)

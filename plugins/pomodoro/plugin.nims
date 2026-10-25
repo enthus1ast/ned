@@ -13,7 +13,7 @@
 ## clock's: a session that ends while the device sleeps has ended when it wakes.
 import nedplugin
 
-requiresNed(">= 6.25")
+requiresNed(">= 6.26")
 
 settingDef("focusMinutes", 25, "Focus: how long a focus session is (minutes)")
 settingDef("shortBreakMinutes", 5, "Focus: how long a short break is (minutes)")
@@ -62,7 +62,7 @@ proc addOne(): int =
   let t = today()
   result = j{t}.getInt(0) + 1
   j[t] = %result
-  writeFile(countFile(), j.pretty & "\n")
+  writeData("sessions.json", j.pretty & "\n")
 
 # ── sessions ──
 

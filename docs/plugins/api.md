@@ -648,7 +648,7 @@ a command of ned's palette, by its name ("Format document", "Save" …)
 proc shell(cmd: string, dir = ""): tuple[output: string, code: int]
 ```
 
-a shell command's output and exit code (in `dir`, else the project's folder)
+a shell command's output and exit code (in `dir`, else the project's folder) — with permission "shell"
 
 #### `shellAsync`
 
@@ -789,6 +789,46 @@ proc dataDir(): string
 ```
 
 a folder of this plugin's own (made when asked for)
+
+#### `readData`
+
+```nim
+proc readData(name: string): string
+```
+
+a file of this plugin's own data folder ("" when there is none): `name` is relative to dataDir() — "lists.json", "2026-10/day.log"
+
+#### `writeData`
+
+```nim
+proc writeData(name, text: string)
+```
+
+a file of this plugin's own data folder written (its folders made): needs no permission, unlike writeFile
+
+#### `appendData`
+
+```nim
+proc appendData(name, text: string)
+```
+
+text added at the end of a file of this plugin's own data folder (made when there is none)
+
+#### `permission`
+
+```nim
+proc permission(what, why: string)
+```
+
+what this plugin needs beyond editing, and why — "shell" (run programs: shell, shellAsync, runInTerminal, NimScript's exec and gorgeEx), "network" (a compiled plugin's sockets), "files" (writeFile, mkDir, mvFile, rmFile … — its own data needs none: writeData) or "clipboard". ned reads these lines, and what the source uses, before the plugin runs, and asks you once: `permission("shell", "sends your requests with curl")`. A call that was not allowed fails with an error. (Nothing happens when this runs: ned reads it from the source)
+
+#### `allowed`
+
+```nim
+proc allowed(what: string): bool
+```
+
+did you allow this plugin "shell", "network", "files" or "clipboard"?
 
 #### `pluginDir`
 

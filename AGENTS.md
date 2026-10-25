@@ -50,9 +50,10 @@ python3 tests/lsp/tnedls.py ./nedls                   # nedls: every feature, th
 sh tests/format/parsecheck.sh "$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")"   # the formatter
 python3 tests/ui/run.py ./ned [t_name …]              # the editor through tmux: ~1300 checks, about an hour
 python3 .github/ci/pty_smoke.py ./ned && python3 .github/ci/bench.py ./ned && python3 tests/perf/rounds.py ./ned
+python .github/ci/win_smoke.py ned.exe nedls.exe nedfmt.exe   # on Windows (pip install pywinpty)
 NEDBIN=./ned_debug bash tests/fuzz/batch.sh 120 mixed palette hex   # random input; no crash, no internal error
 python3 tests/docs/apiref.py --check && python3 tests/docs/links.py  # the docs (and the two below)
-python3 tests/engine/scoreboard.py --engine E --nedls ./nedls --cdriver C --c-files …  # the engines' minimum scores
+python3 tests/engine/scoreboard.py --engine E --nedls ./nedls --cdriver C --c-files … --cpp-files …  # minimum scores
 ```
 
 A change to a setting or a command: `ned --doc-settings > docs/reference/settings.md` and

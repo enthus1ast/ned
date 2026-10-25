@@ -4,6 +4,10 @@ import std/osproc
 when isMainModule:
   # the engine's answers for the comparison harness: one JSON request per line on stdin, one JSON answer per line
   when declared(engineInlayBudget): engineInlayBudget = 1_000_000
+  # (the languages and the settings' defaults, as ned --lint has them: no one's own settings)
+  putEnv("XDG_CONFIG_HOME", getTempDir() / "ned-engine-no-settings")
+  initLangs()
+  loadConfig()
   nxInitDefines()
   let lib = nxGuessLib()
   nxLibFound = lib
@@ -91,6 +95,35 @@ when isMainModule:
         for l, hs in b.inlays:
           for (c, lab) in hs: arr.add %*[l, c, lab]
         ans["hints"] = arr
+      of "refs":
+        # (the references in this file: what nimsuggest's `use` says for it)
+        let b = newBuffer()
+        b.path = path
+        b.lines = ls
+        b.lang = detectLang(path, "")
+        var hits: seq[(string, int, int)]
+        var decl = ""
+        var arr = newJArray()
+        if engineReferences(b, Pos(line: line, col: col), hits, decl):
+          for (p, l, c) in hits:
+            if p == path: arr.add %*[l, c]
+        ans["refs"] = arr
+      of "checks":
+        # the engine's own checks of a text (as you type, before the compiler): what ned --lint reports — a
+        # misspelled name, then the checks
+        let b = newBuffer()
+        b.path = path
+        b.lines = (if j.hasKey("text"): j["text"].getStr.split('\n') else: ls)
+        if b.lines.len > 1 and b.lines[^1].len == 0: b.lines.setLen(b.lines.len - 1)
+        b.lang = detectLang(path, b.lines[0])
+        var arr = newJArray()
+        var errs = ""
+        try:
+          for d in lintChecks(b): arr.add %*[d.line, d.col, d.sev, d.msg]
+        except CatchableError, Defect:
+          errs = getCurrentExceptionMsg()
+        ans["checks"] = arr
+        if errs.len > 0: ans["error"] = %errs
       of "syms":
         var arr = newJArray()
         if f != nil:

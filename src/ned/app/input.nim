@@ -169,6 +169,9 @@ proc editorPosAt(x, y: int): (bool, Pos) =
   while line < b.lines.len:
     let s = b.lines[line]
     let segs = b.lineSegs(line)
+    let vr = b.vrowCount(line)
+    if row >= segs.len - sub and row < segs.len + vr - sub:
+      return (true, Pos(line: line, col: s.len))        # (a row under the line — a cell's output: its end)
     let n = segs.len - sub
     if row < n:
       let si = sub + row
@@ -184,7 +187,7 @@ proc editorPosAt(x, y: int): (bool, Pos) =
         col = colAtVis(s, b.leftCol + tx)
       if si + 1 < segs.len and col >= segs[si + 1]: col = prevRune(s, segs[si + 1])
       return (true, Pos(line: line, col: col))
-    row -= n
+    row -= max(0, segs.len + vr - sub)
     line = if b.folds.len > 0: b.nextVisible(line) else: line + 1
     sub = 0
   (true, Pos(line: b.lines.high, col: b.lines[^1].len))

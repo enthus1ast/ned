@@ -48,6 +48,22 @@ the processes (click: restart, stop), the plugins' views, each plugin with what 
 own process), and their log (`echo` goes there). ned waits `plugins.timeoutMs` (1500) for what it must have before
 it goes on: an event before saving, a NimScript formatter, a text object, code actions (1 s).
 
+**Permissions.** Before a plugin runs, ned reads its source (every `.nims` and `.nim` file in its folder) for what
+it does beyond editing: **run programs** (`shell`, `shellAsync`, `runInTerminal`, NimScript's `exec` and `gorgeEx`,
+`osproc`), **change files** (`writeFile`, `mkDir`, `mvFile`, `rmFile`, `removeFile` …), **use the clipboard**, and,
+for a plugin in full Nim, **use the network** (`std/net`, `httpclient` …). A plugin says why it needs each one with
+`permission("shell", "sends your requests with curl")`. The first time it would run — installed, copied in, or one
+of ned's own turned on — ned shows what it asks for, why, and where in its source, and runs it only after you
+*Allow*; until then the Plugins dock says it is waiting (a toast too, once). What you allowed is kept on this
+device only (`~/.local/state/ned/plugin-permissions.json`, never in synced settings); a plugin's menu in the dock and
+*Plugins: permissions…* show it and take it back. A plugin that later asks for more waits again. At run time a call
+the plugin was not allowed (`shell`, `shellAsync`, the clipboard, a command of ned's that runs programs, saving a
+file outside the project) fails with an error that names the permission. Its own data folder needs no permission:
+`writeData(name, text)`, `appendData`, `readData`. Code ned cannot read ahead — `{.importc.}`, `{.emit.}`, `asm`,
+macros that make code from text, a module from outside the plugin's folder — counts as asking for everything. This
+keeps a plugin to what it said; it is not a sandbox against code written to hide what it does. The first 6.26 start
+gives the plugins you had on what they use, since they could do all of it before.
+
 **The API** (`nedplugin.nim` — *Plugins: the API* opens it; lines and columns from 0, columns in bytes, a `Range`
 from `start` up to `stop`):
 
@@ -69,7 +85,7 @@ from `start` up to `stop`):
 | views | `view("Title") do () -> seq[ViewItem]: …` — a section of the Plugins dock (`text`, `detail`, `icon`, `color`, `id`, `path`, `line`, `depth`), with `do (id: string): …` for a click; `refreshView("Title")` |
 | vim | `nmap("<leader>f") do (count: int): …` (`nmap("<leader>f", "find a file") do …` says what it does, for which-key), `vmap`, `nmapIn(lang, …)` / `vmapIn` (only in files of one language), `vimMode()`, `operator("gc") do (b: Buf, r: Range, linewise: bool): …` (with motions, text objects, `gcc`, visual), `textObject("ie") do (b: Buf, p: Pos) -> Range: …` (after `d c y`, a plugin's operator, in visual mode), `exCommand("Name") do (args: string): …`; the leader is the space bar |
 | time | `every(ms) do (): …`, `after(ms) do (): …`, `stopTimer(id)`, `unixTime()`, `localTime()` |
-| settings, files | `settingDef("width", 80, "…")` (in ned's Settings panel as `plugins.<name>.width`), `setting("width", 80)`; `dataDir()` (`~/.local/share/ned/plugins/<name>`), `pluginDir()`, `projectRoot()`, `shell(cmd)` (output, exit code), `shellAsync(cmd) do (output: string, code: int): …` (in the background), `clipboard()`, `setClipboard(s)`, `log(s)`; `requiresNed(">= 6.20")` |
+| settings, files | `settingDef("width", 80, "…")` (in ned's Settings panel as `plugins.<name>.width`), `setting("width", 80)`; `dataDir()` (`~/.local/share/ned/plugins/<name>`), `readData(name)`, `writeData(name, text)`, `appendData(name, text)` (its own data, no permission), `pluginDir()`, `projectRoot()`, `shell(cmd)` (output, exit code), `shellAsync(cmd) do (output: string, code: int): …` (in the background), `clipboard()`, `setClipboard(s)`, `log(s)`; `requiresNed(">= 6.20")`; `permission("shell", "why")`, `allowed("shell")` |
 
 **A language server in NimScript.** `import nedlsp`, answer requests with `onRequest("textDocument/hover") do
 (params: JsonNode) -> JsonNode: …`, take notifications with `onNotification`, and end with

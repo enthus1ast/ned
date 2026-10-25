@@ -61,6 +61,7 @@ proc render() =
   regions.setLen(0)
   modalStart = -1
   tipShown = false
+  gfxNow = GfxReq()                 # (a picture view sets it again when it draws)
   fillRect(0, 0, scrW, scrH, theme.fg, theme.bg)
   if scrW < 16 or scrH < 5:
     discard putStr(0, 0, "ned: window too small", theme.fg, theme.bg)
@@ -134,6 +135,10 @@ proc render() =
        not (focus == fTree and sideView == svSearch) and not (focus == fRight and rightView == svAssistant) and
        not (focus == fPanel and panelKind == pkTerminal):
     cursorX = -1
+  # (a menu, a dialog, a popup over the picture: the terminal's own picture would hide it — the cells' one shows)
+  if gfxNow.key.len > 0 and (dialogOpen() or menuOpen() or helpOpen or pickKind != pickNone or compOpen or hoverOpen or
+                             promptKind != pNone or formOpen() or toasts.len > 0):
+    gfxNow = GfxReq()
   frameBuildUs = int((getMonoTime() - renderT0).inMicroseconds)
   flushScreen()
   updatePointer()

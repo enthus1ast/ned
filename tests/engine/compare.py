@@ -13,6 +13,7 @@ What it measures, over the file:
   2. go to definition at --n random identifiers, against nimsuggest's `def`
   3. the types of the variables among them, against the type `def` reports
   4. member completion at --n random `x.member` places: is the member written there offered right after the dot?
+  5. references: at a third of the places, the file's uses of what the name is, against nimsuggest's `use`
 """
 import sys, re, random, subprocess, json, os, time, argparse
 ap = argparse.ArgumentParser()
@@ -285,6 +286,26 @@ for (l, c, w, m) in msample:
     if norm(w) in set(norm(r[2].split('.')[-1]) for r in rows): found_ns += 1
 report['sug'] = dict(n=len(msample), ned=found_ned, nimsuggest=found_ns)
 report['sug_bad'] = mbad
+
+# 5. references: at a third of the places, the file's uses of what the name is — ned's against nimsuggest's `use`
+rs = dict(same=0, n=0)
+rbad = []
+for (l, c, w, m) in sample[:max(1, len(sample) // 3)]:
+    rows = [x.split('\t') for x in ask('def %s:%d:%d' % (path, l, c)) if x.startswith('def\t')]
+    if not rows or rows[0][1] in ('skUnknown', 'skModule', 'skParam', 'skResult', 'skForVar', 'skTemp') or \
+            '`gensym' in rows[0][2]:
+        continue
+    uses = [x.split('\t') for x in ask('use %s:%d:%d' % (path, l, c)) if x.startswith('use\t') or x.startswith('def\t')]
+    ns_set = set((int(u[5]), int(u[6])) for u in uses if len(u) > 6 and u[4] == path)
+    if not ns_set: continue
+    col_bytes = c
+    er = eng('refs', l - 1, len(lines[l-1].encode()[:col_bytes].decode('utf-8', 'replace'))).get('refs', [])
+    ned_set = set((r[0] + 1, len(lines[r[0]][:r[1]].encode())) if r[0] < len(lines) else (r[0] + 1, r[1]) for r in er)
+    rs['n'] += 1
+    if ned_set == ns_set: rs['same'] += 1
+    else: rbad.append((l, w, sorted(ns_set - ned_set)[:3], sorted(ned_set - ns_set)[:3]))
+report['refs'] = rs
+report['refs_bad'] = rbad
 report['ns_first_s'] = round(t_first, 1)
 if CACHE_DIR:
     if ns is None: ns_crashes = cache.get('__crashes__', [0, 0])[0]     # (every answer came from the cache)
@@ -312,3 +333,6 @@ for b in report['type_bad'][:a.show]: print('    ', b)
 s = report['sug']
 print('  member completion: ned %d/%d · nimsuggest %d/%d' % (s['ned'], s['n'], s['nimsuggest'], s['n']))
 for b in report['sug_bad'][:a.show]: print('    ', b)
+r = report['refs']
+print('  references in the file: the same as nimsuggest\'s at %d of %d' % (r['same'], r['n']))
+for b in report['refs_bad'][:a.show]: print('    ', b)

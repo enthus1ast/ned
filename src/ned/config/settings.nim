@@ -641,8 +641,13 @@ proc initSettingDefs() =
        "characters a name may have)")
   defS("Languages", "snippets", newJObject(),
        "Your snippets per language id (\"*\" = all): {\"nim\": {\"dbg\": \"echo \\\"${1:x} = \\\", $1\"}} — a body may also be a list of lines")
-  defS("Settings sync", "sync.repository", %"", "A git repository of yours for Settings sync: push / pull (settings, key " &
-       "bindings, snippets, themes, dictionary words — never API keys or tokens). An ssh URL or one your credential helper knows")
+  defS("Settings sync", "sync.repository", %"", "A git repository of yours for Settings sync (settings, key bindings, " &
+       "snippets, themes, dictionary words, macros, the list of your plugins — never API keys or tokens). An ssh URL or one " &
+       "your credential helper knows")
+  defS("Settings sync", "sync.auto", %"off", "Settings sync both ways on its own: off · start (a few seconds after ned " &
+       "starts) · quit (when ned quits, a few seconds at most) · both")
+  defS("Settings sync", "sync.exclude", newJArray(), "Settings that stay on this device, never synced: " &
+       "[\"terminal.shell\", \"ui.mouse\"]")
   defS("Remote (SSH)", "remote.exclude", %*[".git", "node_modules", ".venv", "venv", "target", "nimcache", "__pycache__",
        ".mypy_cache", ".pytest_cache"], "Folders left on the server when a remote folder is copied over (Remote: open a folder over SSH)")
   defS("Remote (SSH)", "remote.autoSync", %10, "Every this many seconds, files changed on the server (by a build, " &
@@ -655,6 +660,17 @@ proc initSettingDefs() =
        "choice (python: debugpy · c, cpp, rust: gdb -i dap or lldb-dap · go: delve): {\"python\": {\"command\": " &
        "[\"python3\", \"-m\", \"debugpy.adapter\"], \"launch\": {\"program\": \"$file\", \"cwd\": \"$dir\"}}} — also " &
        "\"build\" (a command run first), \"connect\": true with $port for TCP adapters, \"request\": \"attach\"")
+  defS("Editor", "pictures.open", %true, "A .png, .jpg, .gif, .bmp or .webp file opens as a picture (Tab: its bytes, in " &
+       "the hex editor) — else in the hex editor")
+  defS("Editor", "pictures.draw", %"auto", "How pictures are drawn: auto (the terminal's own way where it has one — " &
+       "kitty, iTerm2, sixel — else in cells) · cells (▀, two pixels a cell: any terminal) · kitty · iterm · sixel")
+  defS("Run", "notebook.nim", %"vm", "Notebook (a .nim file's # %% cells, Ctrl+Enter): vm — nim secret, one session " &
+       "that keeps the cells' variables, instant, but no C libraries (importc, FFI: std/times' now …) · compiled — each " &
+       "run builds and runs the cells up to that one as a program (slower; everything Nim has)")
+  defS("Run", "notebook.outputLines", %30, "Notebook: the lines of a cell's output shown under it (the rest: Notebook: " &
+       "the cell's whole output)")
+  defS("Run", "notebook.timeoutSeconds", %120, "Notebook: a cell that has not finished after this long is stopped " &
+       "(its session too: the next run starts a new one)")
   defS("Run", "debug.inlineValues", %true, "While stopped: the values of the variables a line uses, at its end")
   defS("Run", "run.configs", newJArray(), "Ways to run this project (best in its .ned/settings.json), picked with the ▶ " &
        "menu or Run › Configurations: [{\"name\": \"server\", \"main\": \"src/app.nim\", \"args\": \"--port 8080\", " &

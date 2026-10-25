@@ -58,7 +58,7 @@ def run(factory, tag):
         return
     cmd = h.reg("command", title="JSON → Nim types")
     check(tag + "its command, the ned it needs, its setting",
-          cmd is not None and h.reg("requires")["spec"] == ">= 6.25" and
+          cmd is not None and h.reg("requires")["spec"] == ">= 6.26" and
           h.reg("setting", key="rootName")["default"] == "Root", h.regs)
     # the selection, in a text file: a new tab
     text = json.dumps(SAMPLE, indent=2)

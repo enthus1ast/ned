@@ -127,6 +127,10 @@ var
   profMtime: Table[string, int64]              # the files as they were profiled (a changed file's numbers are not shown)
   profChecked: Table[int, int]                 # buffer → the change its staleness was checked at
   profStale: Table[int, bool]
+  profStacks: seq[(seq[(string, string)], int)]   # its call stacks (the outermost first: (proc, file)) → samples
+  profPrevRows: seq[(string, string, int, int, int)]   # the profile before it (Nim: compare with the previous profile)
+  profPrevSamples = 0
+  flameViews: HashSet[int]                     # the tabs that show the profile as a flame graph (nim/flame.nim)
   dbgWatches: seq[string]                      # debugger: watch expressions (Nim), kept with the session
   cmdUses = initTable[string, int]()
   compRecent = initTable[string, int]()   # completion: what you chose ("<language>:<label>") → when (compRecentN then)

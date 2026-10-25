@@ -366,7 +366,10 @@ proc runCommand*(name: string) = discard api("runCommand", %*{"name": name})
   ## a command of ned's palette, by its name ("Format document", "Save" …)
 
 proc shell*(cmd: string, dir = ""): tuple[output: string, code: int] =
-  ## a shell command's output and exit code (in `dir`, else the project's folder)
+  ## a shell command's output and exit code (in `dir`, else the project's folder) — with permission "shell"
+  if not api("allowed", %*{"what": "shell"}).getBool:
+    raise newException(ValueError, "this plugin may not run programs: permission(\"shell\", \"why\") in its " &
+                       "source, then allow it (Plugins dock › its menu)")
   let d = if dir.len > 0: dir else: api("root").getStr
   let full = "cd " & quoteShell(d) & " && " & cmd
   when defined(nimscript):
@@ -453,6 +456,21 @@ proc projectDir*(): string = api("root").getStr
   ## own: the script's folder), or projectRoot
 proc dataDir*(): string = api("dataDir").getStr
   ## a folder of this plugin's own (made when asked for)
+proc readData*(name: string): string = api("dataRead", %*{"name": name}).getStr
+  ## a file of this plugin's own data folder ("" when there is none): `name` is relative to dataDir() —
+  ## "lists.json", "2026-10/day.log"
+proc writeData*(name, text: string) = discard api("dataWrite", %*{"name": name, "text": text})
+  ## a file of this plugin's own data folder written (its folders made): needs no permission, unlike writeFile
+proc appendData*(name, text: string) = discard api("dataWrite", %*{"name": name, "text": text, "append": true})
+  ## text added at the end of a file of this plugin's own data folder (made when there is none)
+proc permission*(what, why: string) = discard
+  ## what this plugin needs beyond editing, and why — "shell" (run programs: shell, shellAsync, runInTerminal,
+  ## NimScript's exec and gorgeEx), "network" (a compiled plugin's sockets), "files" (writeFile, mkDir, mvFile,
+  ## rmFile … — its own data needs none: writeData) or "clipboard". ned reads these lines, and what the source
+  ## uses, before the plugin runs, and asks you once: `permission("shell", "sends your requests with curl")`.
+  ## A call that was not allowed fails with an error. (Nothing happens when this runs: ned reads it from the source)
+proc allowed*(what: string): bool = api("allowed", %*{"what": what}).getBool
+  ## did you allow this plugin "shell", "network", "files" or "clipboard"?
 proc pluginDir*(): string = api("pluginDir").getStr
   ## the plugin's own folder (where its plugin.nims or plugin.nim is)
 proc log*(s: string) = discard api("log", %*{"text": s})

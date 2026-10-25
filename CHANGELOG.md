@@ -1,6 +1,96 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-625). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-626). Older releases:
+
+## What's new in 6.25
+
+6.25 brings **nineteen plugins of ned's own** — vim's favourites, VS Code's and four languages — with a
+**Plugins menu** to find and manage them, and an engine that answers more of what only the compiler knew:
+**the compiler as an oracle in the background**, chain hints, three more checks while you type, completion that
+remembers what you chose, a rename that reaches strings and doc comments, and a C engine that runs the
+preprocessor's `#if`. A **scoreboard** in CI keeps the engines' scores against nimsuggest and clangd from going
+down.
+
+**ned's own plugins**, off until you turn one on — in the Plugins dock, under **AVAILABLE**: a tap shows what it
+does, *Turn on*, *View its source*, *Copy to my plugins*. The [list](docs/plugins/available.md):
+- editing: **dial** (Ctrl+A / Ctrl+X on numbers, dates, times, true/false), **case-change** (snake_case,
+  camelCase … — vim's `crs`, `crc`), **split-join** (`gS`, `gJ`), **text-objects** (an argument, an indentation
+  level, any quotes, a part of a name), **exchange** (`cx`), **align** (`ga`, Markdown tables too);
+- moving around: **harpoon** (a few pinned files, one key each), **which-key** (after `g`, `z`, `<leader>`, C-x
+  or helix's space: a box of what each next key does — tap one), **oil** (a folder as text: rename, delete and
+  make files by editing lines, then save — ned asks first, deleted files go to a trash folder);
+- tools: **json-to-nim** (Nim types from a sample of JSON), **rest-client** (`.http` files sent with curl),
+  **path-complete**, **markdown-tools** (a table of contents, lists, checkboxes), **pomodoro**, **time-tracker**;
+- languages: **Odin**, **Gleam**, **Elixir**, **Haskell** — colours, indentation, F5, snippets, an outline, and
+  their language servers and formatters when installed.
+
+**The Plugins menu** in the menu bar: the Plugins panel, ned's own plugins, a plugin's commands, turn one on or
+off, uninstall, reload, update, install from git or from the list, a new plugin, the API. In the dock a plugin's
+menu has *its settings*, *view its source*, *uninstall*; **+** adds one.
+
+**The plugin API** grew for them: tabs of a plugin's own (`newTab` reused by title, `onSaveTab`, `markSaved`,
+`setTitle`, `closeTab`), keys of one language (`keyIn`, `nmapIn`, `vmapIn`), which-key's (`onKeysWaiting`,
+`showKeyHints`, `keyMaps`, mappings that say what they do), `onEnter` and `onQuit`, `shellAsync`, `unixTime`,
+`clipboard`, `vimMode`; the language spec's lexer options (nested comments, strings over several lines,
+`'a'` characters, Capitalised types, `@decorators`, doc comments, the characters of a name, dedent words such as
+`end`); `setting()` in a plugin's top-level code; vim's visual selection as vim means it, plugin operators with
+`gg` and `f{char}`, a mapping after an operator (`cxc`), whole-line text objects, ned's own `ip`/`ap`;
+completions from plugins inside strings. `projectRoot()` is `projectDir()` without NimScript's clash.
+
+**The Nim engine:**
+- **The compiler as an oracle** (`nim.compilerOracle`): what the engine cannot work out by reading — a type a
+  macro or a `when compiles` makes, which overload a call picks — is asked of the compiler after a pause, one
+  nimsuggest run for the lines around the screen, which then quits. The answers are kept on disk by each line's
+  text: the type hints have them, an overloaded call's hover says **Called here — the compiler's choice**, Go to
+  definition goes straight to it, and the next time the file opens they are there at once.
+- **Chain hints** (`nim.chainHints`): a call chain written over several lines shows the type after each step.
+- **Checks while you type**: a `case` over an enum that leaves values out (Alt+Enter adds the branches), an
+  argument that can never be the parameter's type (`twice("x")`), a method call whose value is dropped
+  (`s.pop()`) — in the compiler's words, so its fixes apply.
+- **Completion** ranks what you chose lately first (kept between sessions); the type wanted still counts.
+- **Rename** reaches `{name}` in `fmt"…"` and `&"…"` strings, `` `name` `` in doc comments, and your other
+  packages (a workspace's folders, `nimble develop`'s).
+- A generic routine's instance on hover (`T = int`) also for a call over several lines.
+
+**The C engine** (ned's own, no clangd needed):
+- **`#if` worked out** as the compiler would: `-D` and `-U` from `compile_commands.json`, the file's and its
+  headers' `#define`s, and the compiler's own macros (`__linux__`, `_WIN32`, `__GNUC__` …, asked once of `cc -dM
+  -E`). A branch left out is dimmed and declares nothing: of a function in both branches of `#ifdef _WIN32`, you get
+  the one compiled here.
+- **Declarations macros make**: `DECLARE_GETTER(width, int)` declares `get_width` — completed, hovered ("declared
+  by the macro DECLARE_GETTER"), F12 to the macro's use; `#define Node struct node` gives `head->` the members.
+- **Checks while you type, without a compiler** (`c.engineChecks`): an `#include` nothing of which is used
+  (*Remove the #include*), a struct that takes less room with its fields ordered by size (*Order the fields*),
+  printf and scanf formats against their arguments (*Use %f*, *Pass &n*).
+- **C++**: an overloaded function or method's call goes to, hovers and helps with the overload its arguments fit;
+  a class template's explicit or partial specialisation is gone to, hovered and completed from.
+- Against clangd 18 (definitions · hover with the same parameters): OpenSSH 91.1% · 94.7% (from 84.2%), tinyxml2
+  87.8% (from 80.8%) · 95.9% (from 82.6%), LevelDB 93.8% · 98.9%.
+
+**Indent and unindent** wherever you look: *Indent lines* and *Unindent lines (outdent, dedent)* in the Edit menu
+and the palette, ⇤ (and with `indent` in `ui.touchBarKeys`, ⇥) on the touch bar, Tab and Shift+Tab, vim's `>>` `<<` and,
+in insert mode, Ctrl+T and Ctrl+D.
+
+**The scoreboard** (`tests/engine/scoreboard.py`, in CI on every push): the Nim engine and nedls against
+nimsuggest on standard-library modules, the C engine against clangd on Lua's sources — each score against its
+minimum. Today's:
+
+| | score | at least |
+|---|---|---|
+| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
+| nim: go to definition, the same place | 100.0% ✓ | 98% |
+| nim: a variable's type, the same | 98.7% ✓ | 97% |
+| nim: member completion, ned | 98.4% ✓ | 96% |
+| nim: member completion, nimsuggest (not checked) | 70.9% |  |
+| nedls: completion: the name offered | 100.0% ✓ | 98% |
+| nedls: hover: its doc comment | 100.0% ✓ | 97% |
+| nedls: hover: the same declaration | 98.9% ✓ | 97% |
+| nedls: hover: there | 100.0% ✓ | 98% |
+| nedls: signature help: the routine | 100.0% ✓ | 97% |
+| c: go to definition, the same as clangd's | 93.5% ✓ | 90% |
+| c: member completion, ned | 96.9% ✓ | 95% |
+| c: member completion, clangd (not checked) | 96.9% |  |
+| c: hover, the same parameters | 94.4% ✓ | 92% |
 
 ## What's new in 6.24.1
 

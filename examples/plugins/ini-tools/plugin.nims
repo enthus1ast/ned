@@ -6,7 +6,8 @@
 ## Copy this folder to ~/.config/ned/plugins/ (or Plugins dock › + › an example).
 import nedplugin
 
-requiresNed(">= 6.20")
+requiresNed(">= 6.26")
+permission("shell", "finds the .ini files of the project and reads them for the assistant")
 
 settingDef("sortCaseSensitive", false, "Sort a section's keys with upper case first (A-Z, then a-z)")
 

@@ -121,7 +121,9 @@ proc lensAt(b: Buffer, l: int): (string, Action) =
   let p = b.path
   if replMarker(b.lines[l]) and b.lang.lineComment.len > 0 and b.lines[l].strip.startsWith(b.lang.lineComment):
     let (bb, ll) = (b, l)
-    return (ic("run"), proc() = replSendCell(bb, ll))          # a # %% cell: run it in the REPL
+    # a # %% cell: run in the notebook (Nim, Python: its output under it), else sent to the REPL
+    if nbCanRun(b): return (ic("run"), proc() = nbRunAt(bb, ll + 1))
+    return (ic("run"), proc() = replSendCell(bb, ll))
   if b.lang.mode != lmNim:
     if testLangOf(p) notin ["py", "go", "rs", "php", "cs", "jvm"]: return ("", nil)
     let (tn, _) = b.otherTestAt(l)

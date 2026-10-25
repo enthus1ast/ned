@@ -152,8 +152,72 @@ proc drawDiffView(b: Buffer, x0, y0, w, h: int) =
         let gi = y * scrW + xx
         if gi < grid.len: grid[gi].bg = blend(grid[gi].bg, theme.fg, 0.06)
 
+var mdFollow: Table[int, (int, int)]      # preview → the source's (top line, cursor line) it last followed
+
+proc mdOpenLink(target, baseDir: string, pv: Buffer) =
+  ## a link in the preview: #a-heading scrolls there; a web address, the browser; a file (a picture too), opened
+  if target.startsWith("#"):
+    let want = target[1 .. ^1].toLowerAscii
+    let src = bufById(pv.mdSrc)
+    if src == nil: return
+    for i, l in src.lines:
+      let t = l.strip
+      if t.startsWith("#") and mdHeadingAnchor(t.strip(chars = {'#', ' '})) == want:
+        src.setSingle(Pos(line: i, col: 0))
+        src.centerOn(Pos(line: i, col: 0))
+        # (the file in the other pane: that pane's own view of it moved, else drawing it puts the old one back)
+        for j in 0 .. 1:
+          if splitOn and j != activePane and panes[j].bufId == src.id:
+            panes[j].snap.cursors = src.cursors
+            panes[j].snap.prim = src.prim
+            panes[j].snap.topLine = src.topLine
+            panes[j].snap.topSub = 0
+        needRender = true
+        return
+    info("No heading " & target & " in the file")
+  elif "://" in target or target.startsWith("mailto:"): openLinkTarget(target)
+  else:
+    var p = target
+    let h = p.find('#')
+    if h >= 0: p = p[0 ..< h]
+    if not p.isAbsolute: p = baseDir / p
+    if not fileExists(p):
+      info("The link's file is not there: " & relPath(p))
+      return
+    pushJump()
+    discard openToSide(p)
+
+proc mdLinkAct(target, baseDir: string, pv: Buffer): Action =
+  ## (an action of its own for each link: closures made in a loop would share the loop's variables)
+  result = proc() = mdOpenLink(target, baseDir, pv)
+
+proc drawMdRich(pv: Buffer, lines: seq[ChatLine], x, y, w, h, scroll: int, bg: Rgb, curSrc: int, baseDir: string) =
+  ## the preview's rows: the rows of the line the cursor is on in the file marked, links to tap, pictures drawn
+  for r in 0 ..< h:
+    let li = scroll + r
+    fillRect(x - 2, y + r, w + 2, 1, theme.fg, bg)
+    if li >= lines.len: continue
+    let cl = lines[li]
+    let lb = if cl.bg == NoColor: bg else: cl.bg
+    if lb != bg: fillRect(x, y + r, w, 1, theme.fg, lb)
+    if curSrc >= 0 and cl.src == curSrc: setCell(x - 2, y + r, Cell(ch: 0x258E, fg: theme.accent, bg: bg))   # ▎
+    if cl.pic.len > 0:
+      let cells = mdPicRow(cl.pic, w, cl.picRows, cl.picRow)
+      for k, (top, bot) in cells:
+        if k >= w: break
+        setCell(x + k, y + r, Cell(ch: 0x2580, fg: top, bg: bot))                                   # ▀
+      let pp = cl.pic
+      region(x, y + r, min(w, cells.len), 1, mdLinkAct(pp, baseDir, pv), "Open the picture")
+      continue
+    var xx = x
+    for sp in cl.spans:
+      let x1 = putStr(xx, y + r, sp.t, sp.fg, (if sp.bg == NoColor or sp.bg == cl.bg: lb else: sp.bg),
+                      sp.at - {aItalic}, x + w)
+      if sp.link.len > 0 and x1 > xx: region(xx, y + r, x1 - xx, 1, mdLinkAct(sp.link, baseDir, pv), sp.link)
+      xx = x1
+
 proc drawMdPreview(b: Buffer, x0, y0, w, h: int) =
-  ## a Markdown preview: the source rendered (headings, lists, code), scrolling like a file
+  ## a Markdown preview: the file rendered — it follows the file's cursor and scrolling, and scrolls on its own too
   let src = bufById(b.mdSrc)
   cursorX = -1
   cursorY = -1
@@ -164,14 +228,32 @@ proc drawMdPreview(b: Buffer, x0, y0, w, h: int) =
   var c = mdPreviewCache.getOrDefault(b.id, (-1, -1, @[]))
   # (a Nim file's docs: made again after a pause in the typing, not at every key)
   let wait = b.mdNimDocs and c[2].len > 0 and c[1] == tw and msSince(lastInputAt) < 400
+  let baseDir = if src.path.len > 0: parentDir(src.path) else: rootDir
   if (c[0] != src.changeId or c[1] != tw) and not wait:
-    c = (src.changeId, tw, markdownLines((if b.mdNimDocs: docPvText(src) else: src.lines.join("\n")), tw, theme.bg))
+    c = (src.changeId, tw, (if b.mdNimDocs: markdownLines(docPvText(src), tw, theme.bg)
+                            else: mdRender(src.lines.join("\n"), tw, theme.bg, baseDir)))
     mdPreviewCache[b.id] = c
     b.lines = newSeq[string](max(1, c[2].len))
-  let hd = b.primary.head.line
-  if hd != viewHead.getOrDefault(b.id, -1):
-    viewHead[b.id] = hd
-    if hd < b.topLine: b.topLine = hd
-    if hd >= b.topLine + h: b.topLine = hd - h + 1
+  if b.mdNimDocs:
+    let hd = b.primary.head.line
+    if hd != viewHead.getOrDefault(b.id, -1):
+      viewHead[b.id] = hd
+      if hd < b.topLine: b.topLine = hd
+      if hd >= b.topLine + h: b.topLine = hd - h + 1
+    b.topLine = clamp(b.topLine, 0, max(0, c[2].len - 1))
+    drawDocLines(c[2], x0 + 2, y0, tw, h, b.topLine, theme.bg)
+    return
+  # the file's cursor or scrolling moved: the preview shows the same place, at the same height
+  let cur = src.primary.head.line
+  let key = (src.topLine, cur)
+  if mdFollow.getOrDefault(b.id, (-1, -1)) != key:
+    mdFollow[b.id] = key
+    var row = -1
+    for i, cl in c[2]:
+      if cl.src >= cur:
+        row = i
+        break
+    if row < 0: row = max(0, c[2].len - 1)
+    b.topLine = row - clamp(cur - src.topLine, 0, max(0, h - 1))
   b.topLine = clamp(b.topLine, 0, max(0, c[2].len - 1))
-  drawDocLines(c[2], x0 + 2, y0, tw, h, b.topLine, theme.bg)
+  drawMdRich(b, c[2], x0 + 2, y0, tw, h, b.topLine, theme.bg, cur, baseDir)

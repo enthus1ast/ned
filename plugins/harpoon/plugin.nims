@@ -12,7 +12,7 @@
 ##   settings              plugins.harpoon.size — how many files the list holds
 import nedplugin
 
-requiresNed(">= 6.25")
+requiresNed(">= 6.26")
 
 settingDef("size", 4, "How many files Harpoon's list holds (Harpoon: go to 1 … 4 and <leader>1 … 4 reach the " &
            "first four; the list and the Plugins dock all of them)")
@@ -47,7 +47,7 @@ proc save(ps: seq[Pin]) =
   var a = newJArray()
   for p in ps: a.add %*{"path": p.path, "line": p.line}
   store[projectRoot()] = a
-  writeFile(storeFile, store.pretty & "\n")
+  writeData("harpoon.json", store.pretty & "\n")       # (its own data folder: no permission needed)
   refreshView("Harpoon")
 
 proc listSize(): int = max(1, setting("size", 4))

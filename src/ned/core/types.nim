@@ -134,6 +134,9 @@ type
     srv: int            # the language server that reported it (its uid; 0: not a language server)
     rule: string        # ned's own checks: the rule that found it ("var-let", "unused-import" …; .ned/lint.json)
 
+  VRow = object                        # a row drawn under a line of a file, not part of its text (a cell's output)
+    spans: seq[(string, Rgb, set[Attr])]
+    bg: Rgb
   Buffer = ref object
     id: int
     lines: seq[string]
@@ -199,6 +202,7 @@ type
     welcome: bool
     folds: seq[(int, int)]                 # folded blocks: (header line, last hidden line)
     inlays: Table[int, seq[(int, string)]] # line → (col, label) inlay hints
+    vrows: Table[int, seq[VRow]]       # line → rows drawn under it (a notebook cell's output: editor/notebook.nim)
     inlayAt, inlayLo, inlayHi: int
     inlayReqTime: MonoTime
     marks: seq[int]                        # bookmarked lines (Ctrl+F2 / F2)

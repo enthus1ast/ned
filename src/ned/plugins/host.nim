@@ -103,6 +103,8 @@ type
     err: string                           # why it is not running ("" running, or off)
     bundled: bool                         # one of ned's own plugins (plugins/ in ned's source), turned on
     desc: string                          # what it does (ned's own: the first line of its ## comment)
+    scan: PlugScan                        # what its source uses beyond editing, and what it says it needs it for
+    waiting: bool                         # it is on, but asks for more than you allowed: not run until you say
   PlugReg = object
     plugin, kind: string
     cb: int
@@ -308,6 +310,47 @@ proc plugNeedsOf(file: string): string =
   except CatchableError: discard
   ""
 
+proc plugPermKey(p: PlugInfo): string =
+  ## what you allowed a plugin is kept by its name (a project's: with the project's folder)
+  if p.project: "project:" & rootDir & ":" & p.id else: p.id
+
+var plugPermToasted: HashSet[string]       # (a plugin waiting for your OK: said once a session)
+
+proc plugAskPerms(id: string, then: proc() {.closure.} = nil)
+
+proc plugPermsCheck() =
+  ## each plugin's source read for what it uses beyond editing: one asking for more than you allowed waits
+  plugGrantLoad()
+  for p in plugs.mitems: p.scan = plugScanDir(p.dir)
+  if plugGrantedNew:
+    # (the first ned that asks: the plugins you had on keep what they use — they could do all of it before)
+    var any = false
+    for p in plugs:
+      if p.enabled:
+        plugGranted[plugPermKey(p)] = p.scan.uses
+        if p.scan.uses != {}: any = true
+    plugGrantSave()
+    if any:
+      toast("Plugins now ask before they run programs, change files or use the clipboard — yours keep what they " &
+            "use (a plugin's menu in the Plugins dock › Permissions)", 3)
+  for p in plugs.mitems:
+    if not p.enabled: continue
+    let missing = p.scan.uses - plugGranted.getOrDefault(plugPermKey(p))
+    if missing == {}: continue
+    p.enabled = false
+    p.waiting = true
+    p.err = "waiting for your OK: it asks to " & plugPermsList(missing)
+    if p.id notin plugPermToasted:
+      plugPermToasted.incl p.id
+      let pid = p.id
+      toast(p.id & " asks to " & plugPermsList(missing) & " — it waits for your OK", 2, "Review",
+            proc() = plugAskPerms(pid))
+
+proc plugAllowed(plugin: string, what: PlugPerm): bool =
+  for p in plugs:
+    if p.id == plugin: return what in plugGranted.getOrDefault(plugPermKey(p))
+  false
+
 proc plugDiscover() =
   ## the plugin folders: yours, then the project's (a name that is yours is yours)
   plugs.setLen(0)
@@ -365,6 +408,7 @@ proc plugDiscover() =
         p.enabled = false
         p.err = "it broke the plugins' start"
       plugs.add p
+  plugPermsCheck()
 
 proc plugInfoOf(id: string): int =
   for i, p in plugs:
@@ -1139,11 +1183,19 @@ proc plugTerminal(cmd, dir: string) =
     t = curTermObj()
   termRunText(t, (if dir.len > 0: "cd " & quoteShell(dir) & " && " else: "") & cmd)
 
+proc plugDataName(name: string): bool =
+  ## a file of a plugin's data folder: relative, inside it
+  name.len > 0 and name.len <= 200 and not name.isAbsolute and not name.startsWith("~") and "\\" notin name and
+    ".." notin name.split('/') and not name.endsWith("/")
+
 proc plugApi(h: PlugHost, j: JsonNode) =
   let id = j{"id"}.getInt
   let fn = j{"fn"}.getStr
   let a = j{"args"}
-  let plugin = j{"plugin"}.getStr
+  # (the plugin it says it is: one of the process's own, else — one plugin to a process — that one)
+  let plugin = block:
+    let c = j{"plugin"}.getStr
+    if c in h.ids: c elif h.ids.len == 1: h.ids[0] else: ""
   let rid = j{"rid"}.getInt
   h.lastUse = getMonoTime()
   let b = if a != nil and a.hasKey("buf"): bufById(a["buf"].getInt) else: nil
@@ -1154,8 +1206,49 @@ proc plugApi(h: PlugHost, j: JsonNode) =
       return
   template rng(n: JsonNode): (Pos, Pos) =
     (b.clampPos(posOf(n{"start"})), b.clampPos(posOf(n{"stop"})))
+  template need(pp: PlugPerm) =
+    if not plugAllowed(plugin, pp):
+      plugLogAdd(plugin, "refused " & fn & ": it may not " & PlugPermShort[pp] & " (permission \"" & $pp & "\")")
+      answer(nil, "not allowed: " & PlugPermShort[pp] & " — this plugin did not ask for \"" & $pp &
+                  "\" (permission(\"" & $pp & "\", \"why\") in its source, then allow it in the Plugins dock)")
+      return
+  case fn
+  of "shellAsync", "terminal": need(ppShell)
+  of "clipboard", "setClipboard": need(ppClipboard)
+  of "runCommand":
+    if plugCommandRuns(a{"name"}.getStr): need(ppShell)
+  of "save":
+    if b != nil and b.path.len > 0 and not (rootDir.len > 1 and b.path.startsWith(rootDir & "/")) and
+       not b.path.startsWith(plugDataRoot() / plugin & "/"):
+      need(ppFiles)
+  else: discard
   try:
     case fn
+    of "allowed":
+      var ok = false
+      for pp in PlugPerm:
+        if a{"what"}.getStr == $pp: ok = plugAllowed(plugin, pp)
+      answer(%ok)
+    of "dataRead", "dataWrite":
+      let name = a{"name"}.getStr
+      if plugin.len == 0 or not plugDataName(name):
+        answer(nil, "not a file of the plugin's data folder: " & name)
+        return
+      let f = plugDataRoot() / plugin / name
+      if fn == "dataRead":
+        answer(%(try: readFile(f) except CatchableError: ""))
+      else:
+        let t = a{"text"}.getStr
+        if t.len > 64 * 1024 * 1024:
+          answer(nil, "too much for one write")
+          return
+        createDir(parentDir(f))
+        if a{"append"}.getBool:
+          let fh = open(f, fmAppend)
+          try: fh.write(t)
+          finally: fh.close()
+        else: writeFile(f, t)
+        answer(newJNull())
     of "current": answer(%buf().id)
     of "root": answer(%rootDir)
     of "open":
@@ -1249,9 +1342,15 @@ proc plugApi(h: PlugHost, j: JsonNode) =
         else: discard
       for k, v in cfgKeys: arr.add %*{"mode": "key", "keys": k, "desc": v, "lang": "", "plugin": ""}
       answer(arr)
-    of "clipboard": answer(%clipGet())
+    of "clipboard":
+      # (what paste would paste: the system's clipboard, else what was copied in ned — no helper to read it)
+      let sys = clipGet()
+      answer(%(if sys.len > 0: sys elif clipLineMode: clipParts.join("") else: clipParts.join("\n")))
     of "setClipboard":
-      clipSet(a{"text"}.getStr)
+      let t = a{"text"}.getStr
+      clipSet(t)
+      clipParts = @[t]                    # (paste in ned gets it too, where the system's cannot be read)
+      clipLineMode = false
       answer(newJNull())
     of "buffers":
       var arr = newJArray()
@@ -2321,7 +2420,68 @@ proc plugFileSaved(path: string) =
 
 # ── the Plugins dock and its commands ──
 
+proc plugOpenSource(file: string, bundled: bool)
+
+proc plugAskPerms(id: string, then: proc() {.closure.} = nil) =
+  ## what a plugin's source uses beyond editing, and what it says it is for: allowed (and it runs), or not now
+  var sc: PlugScan
+  var file = ""
+  var bundled = false
+  var key = id
+  let i = plugInfoOf(id)
+  if i >= 0:
+    sc = plugs[i].scan
+    file = plugs[i].file
+    bundled = plugs[i].bundled
+    key = plugPermKey(plugs[i])
+  elif id in PlugBundledNames:
+    sc = plugScanDir(plugBundledRoot() / id)
+    file = plugBundledRoot() / id / "plugin.nims"
+    bundled = true
+  else: return
+  plugGrantLoad()
+  let missing = sc.uses - plugGranted.getOrDefault(key)
+  if missing == {}:
+    if then != nil: then()
+    return
+  var body = id & " asks to:\n"
+  for pp in missing:
+    body.add "\n• " & PlugPermWhat[pp]
+    if sc.why[pp].len > 0: body.add "\n   it says: " & sc.why[pp]
+    if sc.seen[pp].len > 0: body.add "\n   in its source: " & sc.seen[pp]
+  body.add "\n\nned read its source to find these. Allow them only if you trust what it does: it can do them " &
+           "without asking again (its menu in the Plugins dock › Permissions takes them back)."
+  let k = key
+  let uses = sc.uses
+  let f = file
+  let bd = bundled
+  openDialog("A plugin's permissions", body, @[("Allow", 'a'), ("View its source", 'v'), ("Not now", 'n')],
+             proc(c: char) =
+               case c
+               of 'a':
+                 plugGranted[k] = uses
+                 plugGrantSave()
+                 plugPermToasted.excl id
+                 if then != nil: then() else: plugReload()
+               of 'v': plugOpenSource(f, bd)
+               else: discard)
+
+proc plugTakeBack(id: string) =
+  ## what you allowed a plugin, taken back: it waits for your OK again
+  let i = plugInfoOf(id)
+  if i < 0: return
+  plugGranted.del plugPermKey(plugs[i])
+  plugGrantSave()
+  plugPermToasted.incl id                  # (no toast: you just said so)
+  plugReload()
+  info(id & ": permissions taken back — it waits until you allow them (its menu › Allow…)")
+
 proc plugSetEnabled(id: string, on: bool) =
+  if on:
+    let i = plugInfoOf(id)
+    if i >= 0 and (plugs[i].scan.uses - plugGranted.getOrDefault(plugPermKey(plugs[i]))) != {}:
+      plugAskPerms(id, proc() = plugSetEnabled(id, true))
+      return
   var off: seq[string]
   for x in plugDisabledIds():
     if x != id: off.add x
@@ -2339,6 +2499,12 @@ proc plugSetAlone(id: string, on: bool) =
 
 proc plugSetBundled(n: string, on: bool) =
   ## one of ned's own plugins on (it runs from now on, and after ned starts again) or removed (plugins.bundled)
+  if on:
+    plugGrantLoad()
+    let sc = plugScanDir(plugBundledRoot() / n)
+    if (sc.uses - plugGranted.getOrDefault(n)) != {}:
+      plugAskPerms(n, proc() = plugSetBundled(n, true))
+      return
   var xs: seq[string]
   for x in plugBundledOn():
     if x != n: xs.add x
@@ -2644,11 +2810,20 @@ proc plugViewClick(v: PlugView, it: JsonNode): Action =
 proc plugMenuAction(pid, file: string, on, alone, full, bundled: bool): Action =
   ## a plugin's own menu in the Plugins dock: see it, turn it off or on, its settings, remove it
   proc() =
-    var items = @[mi((if bundled: "View its source" else: "Open " & extractFilename(file)), "",
-                     proc() = plugOpenSource(file, bundled)),
-                  mi((if on: "Turn off" else: "Turn on"), "", proc() = plugSetEnabled(pid, not on)),
-                  mi("Its settings…", "", proc() = plugSettingsOf(pid)),
-                  mi("Reload it", "", proc() = plugReloadPlugin(pid))]
+    var items: seq[MenuItem]
+    let i = plugInfoOf(pid)
+    let waiting = i >= 0 and plugs[i].waiting
+    if waiting:
+      items.add mi("Allow… (it asks to " & plugPermsList(plugs[i].scan.uses -
+                   plugGranted.getOrDefault(plugPermKey(plugs[i]))) & ")", "", proc() = plugAskPerms(pid))
+    elif i >= 0 and plugs[i].scan.uses != {}:
+      items.add mi("Permissions: " & plugPermsList(plugs[i].scan.uses) & " — take them back", "",
+                   proc() = plugTakeBack(pid))
+    items.add mi((if bundled: "View its source" else: "Open " & extractFilename(file)), "",
+                 proc() = plugOpenSource(file, bundled))
+    items.add mi((if on or waiting: "Turn off" else: "Turn on"), "", proc() = plugSetEnabled(pid, not (on or waiting)))
+    items.add mi("Its settings…", "", proc() = plugSettingsOf(pid))
+    items.add mi("Reload it", "", proc() = plugReloadPlugin(pid))
     if not full:
       items.add mi((if alone: "Run it with the others" else: "Run it in a process of its own"), "",
                    proc() = plugSetAlone(pid, not alone))
@@ -2832,6 +3007,27 @@ proc cmdPluginToggle() =
     info("No plugins yet — Plugins: new plugin…")
     return
   openActions("Plugins — turn one on or off", items)
+
+proc plugPermAct(pid: string, waiting: bool): Action =
+  ## (an action of its own for each plugin: closures made in a loop would share the loop's variables)
+  result = proc() =
+    if waiting: plugAskPerms(pid) else: plugTakeBack(pid)
+
+proc cmdPluginPermissions() =
+  ## what each plugin may do beyond editing: allow what one waits for, or take back what you allowed
+  plugDiscover()
+  var items: seq[(string, string, Action)]
+  for p in plugs:
+    if p.scan.uses == {}: continue
+    let missing = p.scan.uses - plugGranted.getOrDefault(plugPermKey(p))
+    let det = if p.waiting: "waiting — asks to " & plugPermsList(missing) & " · Enter: review"
+              elif missing == {}: "allowed: " & plugPermsList(p.scan.uses) & " · Enter: take them back"
+              else: "asks to " & plugPermsList(missing) & " (off)"
+    items.add act((if p.waiting: "○ " else: "● ") & p.id, det, plugPermAct(p.id, p.waiting or missing != {}))
+  if items.len == 0:
+    info("No plugin asks for more than editing")
+    return
+  openActions("Plugins — what each may do beyond editing", items)
 
 proc cmdPluginReloadOne() =
   plugDiscover()

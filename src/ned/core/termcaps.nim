@@ -21,6 +21,7 @@ var
   tcUndercurl = false            # it said it draws curly underlines (Smulx) or is known to
   tcUlColor = false              # … in a colour of their own (Setulc)
   tcRgb = false                  # it said it does 24-bit colour
+  tcSixel = false                # its DA1 answer has 4: it draws sixel pictures
   tcScheme = 0                   # mode 2031: 1 dark, 2 light (0: never said)
   tcSchemeNews = false           # (a new answer for the main loop: the theme may follow it)
   tcAnswers: seq[string]         # (what it answered, for Help › Check setup)
@@ -92,7 +93,7 @@ proc termCapsStart() =
   if tc2027On: writeAll("\e[?2027h")
   writeAll("\e[?2031h")                # (tell me when light and dark switch)
   if termKnownName(): return
-  var q = "\e[?u\e[?2027$p\e[?996n"
+  var q = "\e[?u\e[?2027$p\e[?996n\e[c"
   for name in ["RGB", "Tc", "Smulx", "Setulc"]:
     q.add "\eP+q" & toHex(name).toLowerAscii & "\e\\"
   if not trueColor: q.add "\e[48;2;1;2;3m\eP$qm\e\\\e[0m"   # (does a 24-bit colour stay what it was set to?)
@@ -130,6 +131,12 @@ proc termCsiReply(priv, inter, fin: char, params: seq[int]): bool =
     tcScheme = params[1]
     tcSchemeNews = true
     tcNote("light/dark notifications (mode 2031)")
+    return true
+  if fin == 'c' and inter == '\0' and params.len > 1:
+    # DA1: what the terminal is (62, 64 …) and what it has — 4 is sixel graphics
+    if 4 in params[1 .. ^1]:
+      tcSixel = true
+      tcNote("sixel pictures")
     return true
   fin in {'c', 'y', 'n'}            # (DA1 and other answers: not keys)
 
