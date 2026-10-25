@@ -1,6 +1,6 @@
 # ned's own plugins
 
-ned comes with nineteen plugins of its own. They are all off until you turn one on. Turn one on in the
+ned comes with thirty-four plugins of its own. They are all off until you turn one on. Turn one on in the
 **Plugins dock** (View › Plugins panel, or the menu bar's **Plugins** › Plugins panel): its **AVAILABLE ·
 ned's own plugins** section lists the ones that are off, each with a line saying what it does. Tap one, then
 *Turn on*, *View its source* (read-only) or *Copy to my plugins*. Copying makes the plugin yours to change: your
@@ -16,11 +16,14 @@ Once a plugin is on, it is under **INSTALLED** in the dock, marked *ned's*. Tap 
 - run it in a process of its own;
 - remove it, which puts it back in AVAILABLE. *Plugins: uninstall / remove one…* does the same from the palette.
 
-Four of them do more than edit, and ask first when you turn them on (what you allow is kept on this device):
+Some of them do more than edit, and ask first when you turn them on (what you allow is kept on this device):
 **rest-client** runs curl and uses the clipboard (*REST: copy as curl*), **json-to-nim** runs git to list a
 project's `.json` files and reads JSON from the clipboard, **markdown-tools** reads a link's address from the
-clipboard, and **oil** changes files — that is what it is for. The others only edit; harpoon, pomodoro and
-time-tracker keep their data in their own folder, which needs no permission.
+clipboard, **oil** changes files — that is what it is for —, **commit-helper** runs git, **nim-eval** runs nim,
+**sqlite** runs sqlite3, **web-preview** opens your browser and starts a web server, **mermaid** runs mmdc,
+**license-header** runs git and writes headers into files, **dotenv** writes an `.env.example`, and **transform**
+puts a sum on the clipboard. The others only edit; harpoon, pomodoro and time-tracker keep their data in their own
+folder, which needs no permission.
 
 The plugins you have turned on are listed in the setting `plugins.bundled`. A project cannot set it until you
 trust the folder.
@@ -38,6 +41,8 @@ it. In short:
 | **text-objects** | more vim text objects: `ia aa` an argument, `ii ai` an indentation level, `iq aq` any quotes, `il al` the line, `ie ae` everything, `i_ a_` a part of a name |
 | **exchange** | swap two pieces of text: mark one, then the other. In vim: `cx{motion}`, `cxx`, `cxc` to clear, `X` in visual mode |
 | **align** | line up the `=`, `:`, `,`, `|` (or any text) of several lines in one column; Markdown tables too. In vim: `ga{motion}` |
+| **transform** | the selected lines (or the whole file) sorted, made unique, reversed, shuffled, numbered, joined; the selection encoded and decoded (base64, URL, hex, HTML, a string literal), JSON made pretty or one line, numbers added up |
+| **license-header** | the copyright and licence line at the top of a file, in the file's own comments: the licence of the project's LICENSE file, your name from git, this year — on one file or on every file of the project |
 
 ## Moving around and seeing what keys do
 
@@ -57,6 +62,12 @@ it. In short:
 | **markdown-tools** | a table of contents kept up to date (on save too), lists renumbered, checkboxes, bold, italic and links, completion of `#anchors` |
 | **pomodoro** | a focus timer: 25 minutes, then a break, with the time left in the status bar |
 | **time-tracker** | how long you work on each project and file (only while you do something), in the status bar and in a report. It stays on your device |
+| **regex-lab** | try a regular expression on the file: its matches lit up, their groups beside them; a replace with $1 … (how many it changes asked first); a pattern explained a piece at a time |
+| **sqlite** | an SQLite database beside the code: its tables and columns in the Plugins dock and in completion, the query at the cursor run on it, the rows in a tab |
+| **web-preview** | the page you are writing in your browser: the file as it is, or served from the project's folder so its links and scripts work; the address at the cursor opened |
+| **commit-helper** | a commit message drafted from what is staged — the kind of change, where, what — to read, fix and commit |
+| **nim-eval** | the selected Nim (or the line) compiled and run where you write it, what it prints shown beside it |
+| **mermaid** | Mermaid diagrams: their colours, snippets, an outline, and the picture made by mermaid-cli (mmdc) and shown in ned — of a `.mmd` file or a Markdown ```` ```mermaid ```` block |
 
 ## Languages
 
@@ -66,6 +77,13 @@ it. In short:
 | **gleam** | Gleam: colours, comments, indentation, F5 (`gleam run`, `gleam test`), snippets, an outline; `gleam lsp` and `gleam format` |
 | **elixir** | Elixir: colours, comments, indentation, F5 (mix), snippets, an outline; Expert, Next LS, Lexical or ElixirLS, and `mix format` |
 | **haskell** | Haskell: colours, comments, indentation, F5 (stack, cabal, runghc), snippets, an outline; HLS, and ormolu or fourmolu |
+| **zig** | Zig: colours, comments, indentation, F5 (`zig build run`, `zig run`, `zig test`), snippets, an outline; zls and `zig fmt` |
+| **julia** | Julia: colours, comments, indentation, F5 (`julia --project`), snippets, an outline; LanguageServer.jl and JuliaFormatter when you set them (they start slowly) |
+| **ocaml** | OCaml: colours, `(* *)` comments, indentation, F5 (dune or ocaml), snippets, an outline; ocamllsp and ocamlformat |
+| **crystal** | Crystal: colours, comments, indentation, F5 (`crystal run`, `crystal spec`), snippets, an outline; crystalline and `crystal tool format` |
+| **dart** | Dart and Flutter: colours, comments, indentation, F5 (`dart run`, `dart test`, `flutter run`), snippets (widgets too), an outline; Dart's language server and `dart format` |
+| **clojure** | Clojure, ClojureScript, EDN and Babashka: colours, comments, indentation, F5 (clojure, lein, bb), snippets, an outline; clojure-lsp, and zprint or cljfmt |
+| **dotenv** | `.env` files: colours, their keys in the outline, their mistakes as you type, a `${KEY}`'s value on hover, an `.env.example` made from them |
 
 A language plugin works without its tools; the language server, formatter or compiler is used once it is on
 PATH. Each plugin's description says how to install them, in Termux and elsewhere.

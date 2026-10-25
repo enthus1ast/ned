@@ -658,6 +658,22 @@ proc shellAsync(cmd: string, cb: proc(output: string, code: int), dir = "")
 
 a shell command ned runs in the background (in `dir`, else the project's folder): cb with its output and exit code when it ends. The plugin goes on meanwhile (`shell` waits): a slow request, a build
 
+#### `regexMatches`
+
+```nim
+proc regexMatches(pattern, text: string, ignoreCase = false, limit = 10000): seq[RegexMatch]
+```
+
+every match of `pattern` in `text`, by ned's own regular expressions (the search's: . [a-z] \d \w \s \b * + ? {n,m} lazy *? groups (…) (?:…) | ^ $); raises ValueError with ned's words for a pattern that is not one
+
+#### `regexReplace`
+
+```nim
+proc regexReplace(pattern, text, replacement: string, ignoreCase = false): tuple[text: string, count: int]
+```
+
+`text` with each match of `pattern` replaced: $0 the match, $1 … $9 and ${12} its groups, \n \t — and how many there were
+
 #### `unixTime`
 
 ```nim

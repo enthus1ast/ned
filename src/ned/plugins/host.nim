@@ -24,9 +24,9 @@ const
   PlugExDir = currentSourcePath().plugSrcUp(4) & "/" & "examples" & "/" & "plugins"
   PlugBundledDir = currentSourcePath().plugSrcUp(4) & "/" & "plugins"
   # ned's own plugins: in ned, off until you turn one on (Plugins dock › AVAILABLE, Plugins › Available plugins…)
-  PlugBundledNames = ["align", "case-change", "dial", "elixir", "exchange", "gleam", "harpoon", "haskell",
-                      "json-to-nim", "markdown-tools", "odin", "oil", "path-complete", "pomodoro", "rest-client",
-                      "split-join", "text-objects", "time-tracker", "which-key"]
+  PlugBundledNames = ["align", "case-change", "clojure", "commit-helper", "crystal", "dart", "dial", "dotenv", "elixir", "exchange", "gleam", "harpoon", "haskell",
+                      "json-to-nim", "julia", "license-header", "markdown-tools", "mermaid", "nim-eval", "ocaml", "odin", "oil", "path-complete", "pomodoro", "regex-lab",
+                      "rest-client", "split-join", "sqlite", "text-objects", "time-tracker", "transform", "web-preview", "which-key", "zig"]
   PlugBundled = block:
     var r: seq[(string, string, string)]           # name, what it does (its first ## line), its source
     for n in PlugBundledNames:
@@ -1281,6 +1281,35 @@ proc plugApi(h: PlugHost, j: JsonNode) =
       answer(newJNull())
     of "unixTime": answer(%epochTime())
     of "localTime": answer(%now().format("yyyy-MM-dd HH:mm:ss"))
+    of "regexFind", "regexReplace":
+      # (ned's own regular expressions — the search's: NimScript has none)
+      let text = a{"text"}.getStr
+      let re = compileRegex(a{"pattern"}.getStr, a{"ignoreCase"}.getBool)
+      if re.err.len > 0:
+        answer(nil, "not a regular expression: " & re.err)
+        return
+      let limit = clamp(a{"limit"}.getInt(10000), 1, 100000)
+      var found = newJArray()
+      var outText = ""
+      var at = 0
+      var last = 0
+      var caps: seq[int]
+      while at <= text.len and found.len < limit:
+        if not reSearch(re, text, at, caps): break
+        let (m0, m1) = (caps[0], caps[1])
+        var groups = newJArray()
+        for g in 1 ..< re.ncap: groups.add %*[caps[2 * g], caps[2 * g + 1]]
+        found.add %*{"start": m0, "stop": m1, "groups": groups}
+        if fn == "regexReplace":
+          outText.add text[last ..< m0]
+          outText.add reExpand(a{"with"}.getStr, text, caps, re.ncap)
+          last = m1
+        at = if m1 > m0: m1 else: m1 + 1
+        if a{"once"}.getBool: break
+      if fn == "regexReplace":
+        if last <= text.len: outText.add text[last .. ^1]
+        answer(%*{"text": outText, "count": found.len})
+      else: answer(found)
     of "shellAsync":
       # (a command run in the background: its output to the plugin's callback when it ends)
       let dir = if a{"dir"}.getStr.len > 0: a{"dir"}.getStr elif rootDir.len > 0: rootDir else: getCurrentDir()
