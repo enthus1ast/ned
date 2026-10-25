@@ -20,7 +20,8 @@ import nedplugin
 import std/tables
 from std/unicode import nil
 
-requiresNed(">= 6.25")
+requiresNed(">= 6.26")
+permission("clipboard", "a link takes the address on the clipboard")
 
 settingDef("tocOnSave", true, "Markdown: update the table of contents (between <!-- toc --> and <!-- tocstop -->) " &
            "when you save the file")

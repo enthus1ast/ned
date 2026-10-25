@@ -13,7 +13,7 @@
 import nedplugin
 import std/[tables, algorithm]
 
-requiresNed(">= 6.25")
+requiresNed(">= 6.26")
 
 settingDef("idleMinutes", 5, "Time: a gap without typing, saving or moving longer than this (minutes) is a pause, " &
            "not counted")
@@ -115,14 +115,7 @@ proc flush() =
     if s - float(int(s)) > 0: rest.add (p, f, s - float(int(s)))
   pending = rest
   if text.len == 0: return
-  let file = monthFile(day)
-  when defined(nimscript):
-    # (NimScript cannot add to the end of a file: the shell does)
-    discard gorgeEx("printf '%s' " & quoteShell(text) & " >> " & quoteShell(file))
-  else:
-    let fh = open(file, fmAppend)
-    fh.write(text)
-    fh.close()
+  appendData(day[0 .. 6] & ".jsonl", text)      # (its own data folder: ned adds the lines, no permission needed)
 
 proc showStatus() =
   let t = if paused: "⏸ time paused"

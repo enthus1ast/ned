@@ -85,6 +85,16 @@ server's folding ranges, when it has them); `editor.folding` turns it off.
   (`symbols`), or kept together for a ligature font to draw (`font`).
 - **Inactive code** — a Nim `when` branch that is false on this platform — is dimmed (`editor.dimInactiveCode`).
 
+## Markdown
+
+*Markdown: open preview to the side* (View › Markdown preview) shows the file rendered beside it, and
+follows it: the line at the cursor is at the same height in the preview, marked ▎, as you move or scroll. It has
+headings, paragraphs reflowed to the width, **bold**, *italics*, ~~struck~~ and `code`, code blocks, quotes, lists
+(nested, numbered, and task lists as ☐ and ☑), tables (box-drawn, the columns aligned as the `|:--|--:|` line says,
+long cells wrapped), GitHub's notes (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), and
+pictures (drawn in the text's cells, as in [the picture view](hex-and-binaries.md#pictures)). A tap on a link opens
+it: a heading of the file (`#setup`) goes there, a web address opens in the browser, another file opens beside.
+
 ## Spell check
 
 Misspelled words are underlined in Markdown files and commit messages (`editor.spellCheck`: off, markdown, or on —

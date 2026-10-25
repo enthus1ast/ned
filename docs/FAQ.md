@@ -22,7 +22,7 @@ a language server, an AI key …) is optional and picked up when it is on your `
 found and how to install the rest. See [Installing](../README.md#installing).
 
 **How do I install it on Termux?** Either the ready-made package of a release — `pkg install
-./ned_6.25.0_aarch64.deb` (ned, nedls and nedfmt, the example plugins in `$PREFIX/share/ned/plugins`) — or from the
+./ned_6.26.0_aarch64.deb` (ned, nedls and nedfmt, the example plugins in `$PREFIX/share/ned/plugins`) — or from the
 source: `pkg install nim git`, then `nim c -d:release --opt:speed -d:strip -o:$PREFIX/bin/ned src/ned.nim` (or
 `nimble termux` in the project folder).
 
@@ -98,6 +98,13 @@ says what is needed (Termux: `pkg install gdb`).
 
 **My program reads from the keyboard.** The Output panel does not take input: use *Run in terminal (interactive)*.
 
+**My C or Nim program crashes now and then.** *Run with memory checks* runs it with the compiler's address and
+undefined-behaviour checks: an overflow, a use after free or a leak goes to Problems on its line — see
+[Memory checks](guide/run-and-debug.md#memory-checks).
+
+**Can I try code a piece at a time, as in Jupyter?** Put `# %%` lines in a Nim or Python file: Ctrl+Enter (or ▶ run)
+runs a cell and shows its output under it — see [Notebooks](guide/run-and-debug.md#notebooks).
+
 ## Formatting
 
 **Which formatter does Alt+F use?** For Nim, ned's own (nph's style; `nim.formatter` can choose nph or
@@ -162,6 +169,10 @@ panel*, then **AVAILABLE** — dial, which-key, oil, harpoon, rest-client, Odin,
 list](plugins/available.md)). *Plugins: add an example…* (six examples, the tutorial's among them), *Plugins:
 install from git…* and *Plugins: browse the plugin list…* (`plugins.indexUrl`) add others. Plugins run with your
 rights: read one before you install it.
+
+**A plugin says it waits for my OK.** It asks to do more than edit — run programs, change files, use the clipboard
+or the network — and ned runs it only once you allow that: the note's *Review*, or *Plugins: permissions…*, shows
+what it asks for, why, and where in its source. See [Permissions](plugins/README.md).
 
 **How do I remove a plugin?** *Plugins › Uninstall…*, or tap it in the Plugins dock: *Uninstall…* deletes the
 folder of one you installed (it asks first); one of ned's own goes back to AVAILABLE.

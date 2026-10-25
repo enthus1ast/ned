@@ -608,6 +608,39 @@ suite "the preprocessor's #if, worked out; declarations macros make (6.25)":
     check "seven" in ns and "not_seven" notin ns
     check "mode2" in ns and "mode1" in ns                  # (MODE: 1 or 2, as MAYBE_X is — not known)
 
+  test "a header's #ifs see the macros of the file that includes it, through the headers between (6.26)":
+    writeFile(d / "feat.h", "#ifndef FEAT_H\n#define FEAT_H\n#ifdef USE_FAST\nint fast_path(void);\n#else\n" &
+              "int slow_path(void);\n#endif\n#if LEVEL > 2\nint deep(void);\n#elif LEVEL == 1\nint shallow(void);\n" &
+              "#endif\n#ifdef USE_FAST\n#define SPEED 9\n#else\n#define SPEED 1\n#endif\n#endif\n")
+    writeFile(d / "inner.h", "#ifndef INNER_H\n#define INNER_H\n#include \"feat.h\"\n#endif\n")
+    proc closureNames(g: CxFile): seq[string] =
+      for h in cxClosure(g):
+        for s in h.syms: result.add s.name
+    let srcA = "#define USE_FAST\n#define LEVEL 3\n#include \"inner.h\"\n#if SPEED == 9\nint nine;\n#endif\n" &
+               "int use(void) { return fast_path(); }\n"
+    let a = cxLoad(d / "fa.c", srcA, "env1")
+    let na = closureNames(a)
+    check "fast_path" in na and "slow_path" notin na and "deep" in na and "shallow" notin na and "nine" in names(a)
+    let la = lineOf2(srcA, "int use")
+    let ts = cxTargets(a, la, srcA.splitLines[la].find("fast_path"))
+    check ts.len == 1 and ts[0][0].path == d / "feat.h"
+    let b = cxLoad(d / "fb.c", "#define LEVEL 1\n#undef USE_FAST\n#include \"feat.h\"\n#if SPEED == 1\nint one;\n" &
+                   "#endif\n", "env2")
+    let nb = closureNames(b)
+    check "slow_path" in nb and "fast_path" notin nb and "shallow" in nb and "deep" notin nb and "one" in names(b)
+    # on its own (nothing says what USE_FAST and LEVEL are): every branch read, as before
+    let c = cxLoad(d / "fc.c", "#include \"feat.h\"\n", "env3")
+    let nc = closureNames(c)
+    check "fast_path" in nc and "slow_path" in nc
+    # the same way again: the header's reading kept, not made again
+    let a2 = cxLoad(d / "fa2.c", srcA, "env4")
+    var fa, fa2: CxFile
+    for h in cxClosure(a):
+      if h.path == d / "feat.h": fa = h
+    for h in cxClosure(a2):
+      if h.path == d / "feat.h": fa2 = h
+    check fa != nil and fa == fa2
+
   test "a file compile_commands.json gives all the flags of: a macro defined nowhere is not defined":
     let src = "#ifdef HAVE_NOTHING_LIKE_IT\nint nope;\n#else\nint yes;\n#endif\n"
     var g = cxLoad(d / "s.c", src, "pp4")

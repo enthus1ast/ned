@@ -3,14 +3,17 @@
 files, each score against the minimum tests/engine/scoreboard.json sets — CI fails when one falls below it.
 
   python3 tests/engine/scoreboard.py [--engine ned-engine] [--cdriver ned-cengine] [--nedls nedls]
-                                     [--c-files F.c …] [--n 40] [--readme] [--json OUT]
+                                     [--c-files F.c …] [--cpp-files F.cpp …] [--n 40] [--readme] [--json OUT]
 
   --engine   the Nim engine driver (tests/engine/build.sh makes it)       — compare.py: type hints, definitions,
-                                                                           variables' types, member completion
+                                                                           variables' types, member completion,
+                                                                           references; diagcompare.py: the engine's
+                                                                           errors as you type against nim check
   --nedls    nedls (ned's engine as a language server)                    — parity.py: hover, completion,
                                                                            signature help where nimsuggest knows
   --cdriver  the C engine driver (nim c -d:release tests/engine/cdriver.nim) and --c-files: C files with clangd on
-             PATH                                                          — ccompare.py: definitions, members
+             PATH                                                          — ccompare.py: definitions, members, hover
+  --cpp-files  C++ files for the same, with clangd                        — the same questions, as C++
   --readme   the numbers written into the README (between <!-- scoreboard --> and <!-- /scoreboard -->)
 
 A part whose tool is missing (nimsuggest, clangd, a driver not given) is left out and said so; its minimums are not
@@ -47,7 +50,7 @@ def run(cmd, **kw):
 def nim_part(engine, files, n, tmp):
     """compare.py on each file: the totals as aggregate.py adds them"""
     t = dict(h_agree=0, h_diff=0, h_ns=0, d_agree=0, d_ns=0, d_dis=0, t_agree=0, t_diff=0, t_none=0, s_n=0, s_ned=0,
-             s_ns=0)
+             s_ns=0, r_same=0, r_n=0)
     env = dict(os.environ, NED_DRIVER=engine)
     for f in files:
         out = os.path.join(tmp, os.path.basename(f) + '.json')
@@ -62,12 +65,26 @@ def nim_part(engine, files, n, tmp):
         d = x['def']; t['d_agree'] += d['agree']; t['d_ns'] += d['ns_only']; t['d_dis'] += d['disagree']
         ty = x['types']; t['t_agree'] += ty['agree']; t['t_diff'] += ty['differ']; t['t_none'] += ty['ned_none']
         s = x['sug']; t['s_n'] += s['n']; t['s_ned'] += s['ned']; t['s_ns'] += s['nimsuggest']
+        r = x.get('refs', {}); t['r_same'] += r.get('same', 0); t['r_n'] += r.get('n', 0)
     return {
         'nim: type hints, the same as nimsuggest\'s': pc(t['h_agree'], t['h_agree'] + t['h_diff'] + t['h_ns']),
         'nim: go to definition, the same place': pc(t['d_agree'], t['d_agree'] + t['d_ns'] + t['d_dis']),
         'nim: a variable\'s type, the same': pc(t['t_agree'], t['t_agree'] + t['t_diff'] + t['t_none']),
         'nim: member completion, ned': pc(t['s_ned'], t['s_n']),
         'nim: member completion, nimsuggest (not checked)': pc(t['s_ns'], t['s_n']),
+        'nim: references in the file, the same as nimsuggest\'s': pc(t['r_same'], t['r_n']),
+    }
+
+
+def diag_part(engine, files, tmp):
+    """diagcompare.py: the engine's errors as you type against nim check"""
+    out = os.path.join(tmp, 'diag.json')
+    run([sys.executable, os.path.join(HERE, 'diagcompare.py'), engine, out] + files + ['--n', '6'], timeout=3600)
+    if not os.path.exists(out): return {}
+    x = json.load(open(out))
+    return {
+        'nim: as you type, the compiler\'s errors found': pc(x['engine_found'], x['compiler_found']),
+        'nim: as you type, clean files with no wrong error': pc(x['clean_ok'], x['clean_files']),
     }
 
 
@@ -83,17 +100,17 @@ def nedls_part(nedls, files, n, tmp):
     return res
 
 
-def c_part(cdriver, files, n, tmp):
-    out = os.path.join(tmp, 'c')
+def c_part(cdriver, files, n, tmp, lang='c'):
+    out = os.path.join(tmp, lang)
     run([sys.executable, os.path.join(HERE, 'ccompare.py'), cdriver, out] + files + ['--n', str(n)], timeout=3600)
     p = os.path.join(out, 'totals.json')
     if not os.path.exists(p): return {}
     t = json.load(open(p))
     return {
-        'c: go to definition, the same as clangd\'s': pc(t['def_agree'], t['def_agree'] + t['def_differ']),
-        'c: member completion, ned': pc(t['mem_ned'], t['mem_n']),
-        'c: member completion, clangd (not checked)': pc(t['mem_clangd'], t['mem_n']),
-        'c: hover, the same parameters': pc(t.get('hov_same', 0), t.get('hov_ned', 0)),
+        lang + ': go to definition, the same as clangd\'s': pc(t['def_agree'], t['def_agree'] + t['def_differ']),
+        lang + ': member completion, ned': pc(t['mem_ned'], t['mem_n']),
+        lang + ': member completion, clangd (not checked)': pc(t['mem_clangd'], t['mem_n']),
+        lang + ': hover, the same parameters': pc(t.get('hov_same', 0), t.get('hov_ned', 0)),
     }
 
 
@@ -112,6 +129,7 @@ def main():
     ap.add_argument('--nedls', default='')
     ap.add_argument('--cdriver', default='')
     ap.add_argument('--c-files', nargs='*', default=[])
+    ap.add_argument('--cpp-files', nargs='*', default=[])
     ap.add_argument('--n', type=int, default=40)
     ap.add_argument('--readme', action='store_true')
     ap.add_argument('--json', default='')
@@ -124,12 +142,17 @@ def main():
     try:
         if a.engine and files and shutil.which('nimsuggest'): scores.update(nim_part(os.path.abspath(a.engine), files, a.n, tmp))
         else: left.append('the Nim engine (needs --engine, nimsuggest and the standard library)')
+        if a.engine and files and shutil.which('nim'): scores.update(diag_part(os.path.abspath(a.engine), files, tmp))
         if a.nedls and files and shutil.which('nimsuggest'):
             scores.update(nedls_part(os.path.abspath(a.nedls), files[:4], a.n, tmp))
         else: left.append('nedls (needs --nedls and nimsuggest)')
         cf = [f for f in a.c_files if os.path.exists(f)]
         if a.cdriver and cf and shutil.which('clangd'): scores.update(c_part(os.path.abspath(a.cdriver), cf, a.n, tmp))
         else: left.append('the C engine (needs --cdriver, --c-files and clangd)')
+        xf = [f for f in a.cpp_files if os.path.exists(f)]
+        if a.cdriver and xf and shutil.which('clangd'):
+            scores.update(c_part(os.path.abspath(a.cdriver), xf, a.n, tmp, 'c++'))
+        elif a.cpp_files: left.append('the C engine on C++ (needs --cdriver, --cpp-files and clangd)')
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     t = table(scores)

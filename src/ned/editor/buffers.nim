@@ -74,6 +74,7 @@ proc openFile(path: string, line = -1, col = -1): Buffer =
     else:
       bufs.add b
       i = bufs.high
+    if b.hex != nil and isPicturePath(full) and sBool("pictures.open"): picOpen(b)    # (a picture: shown as one)
     lspAttach(b)
     refreshGit(b)
     offerRecovery(b)

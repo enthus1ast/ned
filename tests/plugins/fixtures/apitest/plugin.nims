@@ -26,6 +26,11 @@ command "API: settings and shell":
   let (o, code) = shell("echo hi")
   message("width " & $w & " · " & o & " " & $code & " · " & dataDir())
 
+command "API: its data":
+  writeData("notes/a.txt", "one\n")
+  appendData("notes/a.txt", "two\n")
+  message("read: " & readData("notes/a.txt").replace("\n", "|"))
+
 onSave("*.txt") do (ev: Event):
   log("saved " & ev.path & " (" & ev.lang & ")")
 

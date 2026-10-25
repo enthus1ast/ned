@@ -53,27 +53,34 @@ for raw in stdin.lines:
   of "def":
     var defs = newJArray()
     var ts = cxTargets(f, line, col, jump = true)
-    # as the editor does: a body (or a global's definition) in the other .c files of the folder
+    # as the editor does: a body (or a global's definition) in the other .c files of the folder — C++: its .cpp
+    # files too, a method's body by its class
     let dir = if root.len > 0: root else: parentDir(path)
-    if dir notin dirFiles:
-      dirFiles[dir] = @[]
+    let cpp = f.cpp
+    let key = dir & (if cpp: "|c++" else: "")
+    if key notin dirFiles:
+      dirFiles[key] = @[]
       for p in walkDirRec(dir):
-        if p.endsWith(".c") and dirFiles[dir].len < 5000: dirFiles[dir].add p
+        let ext = p.splitFile.ext
+        if (ext == ".c" or (cpp and ext in [".cpp", ".cc", ".cxx", ".c++"])) and dirFiles[key].len < 5000:
+          dirFiles[key].add p
     var cs: seq[string]
-    for p in dirFiles[dir]:
+    for p in dirFiles[key]:
       if p != path: cs.add p
     if ts.len == 0:
       let (a, e) = cxWordAt(f.lines[line], col)
       if a < e and f.lines[line][a ..< e] notin CxKeywords:
-        for kind in [cxFunc, cxVar, cxStruct]:
+        for kind in (if cpp: @[cxFunc, cxVar, cxClass, cxStruct] else: @[cxFunc, cxVar, cxStruct]):
           let (h, k) = cxBodyIn(cs, f.lines[line][a ..< e], kind)
           if h != nil:
             ts.add (h, h.syms[k])
             break
-    elif ts[0][1].kind in {cxFunc, cxStruct, cxUnion, cxVar} and not ts[0][1].isDef and
+    elif ts[0][1].kind in {cxFunc, cxStruct, cxUnion, cxVar, cxClass, cxMethod} and not ts[0][1].isDef and
        not (ts[^1][1].isDef and ts[^1][0] == f and ts[^1][1].line == line) and
        (root.len == 0 or ts[0][0].path.startsWith(root & "/")):
-      let (h, k) = cxBodyIn(cs, ts[0][1].name, ts[0][1].kind)
+      let s = ts[0][1]
+      var (h, k) = cxBodyIn(cs, s.name, s.kind, owner = (if s.kind == cxMethod: s.owner else: ""))
+      if h == nil and cpp and s.kind == cxFunc and s.scope.len > 0: (h, k) = cxBodyIn(cs, s.name, cxMethod, owner = s.scope)
       if h != nil: ts.insert((h, h.syms[k]), 0)
     for (g, s) in ts: defs.add %*[g.path, s.line]
     res["defs"] = defs

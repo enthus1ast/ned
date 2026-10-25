@@ -7,6 +7,17 @@ const
 
 var titleReset = false          # (raw mode left: the terminal's title is set again when it comes back)
 
+type GfxReq = object             # a picture the terminal draws itself (kitty, sixel, iTerm2) over the cells
+  key: string                    # what it is (a new key: sent again)
+  x, y, w, h: int                # where, in cells
+  payload: string                # the escape sequence that draws it
+  del: string                    # … and the one that takes it away (kitty: delete; sixel: nothing — text covers it)
+  again: bool                    # sent again when the cells under it were drawn (sixel: text erases it)
+var
+  gfxNow: GfxReq                 # this frame's (set while drawing; none when a menu or dialog is over it)
+  gfxShown: GfxReq               # what the terminal has
+  gfxDirty = false               # (a row under it drawn again this frame)
+
 proc writeAll(s: string) =
   var off = 0
   while off < s.len:
@@ -363,6 +374,7 @@ proc flushScreen() =
   for y in 0..<scrH:
     let base = y * scrW
     if not full and equalMem(addr grid[base], addr prevGrid[base], scrW * sizeof(Cell)): continue
+    if gfxNow.key.len > 0 and y >= gfxNow.y and y < gfxNow.y + gfxNow.h: gfxDirty = true
     var x0 = 0
     var x1 = scrW - 1
     var hasWide = false
@@ -457,6 +469,17 @@ proc flushScreen() =
       inc x
     copyMem(addr prevGrid[base], addr grid[base], scrW * sizeof(Cell))
   o.add "\e[0m"
+  # a picture the terminal draws: sent when it is new (or the cells under it were drawn again: sixel), taken away
+  # when it is gone
+  if gfxNow.key.len > 0:
+    if gfxShown.key.len > 0 and gfxShown.key != gfxNow.key: o.add gfxShown.del
+    if gfxShown.key != gfxNow.key or full or (gfxNow.again and gfxDirty):
+      o.add "\e[" & $(gfxNow.y + 1) & ";" & $(gfxNow.x + 1) & "H" & gfxNow.payload
+    gfxShown = gfxNow
+  elif gfxShown.key.len > 0:
+    o.add gfxShown.del
+    gfxShown = GfxReq()
+  gfxDirty = false
   if cursorX >= 0 and cursorY >= 0 and cursorX < scrW and cursorY < scrH:
     o.add "\e[" & $(cursorY + 1) & ";" & $(cursorX + 1) & "H\e[?25h"
   o.add "\e[?2026l"

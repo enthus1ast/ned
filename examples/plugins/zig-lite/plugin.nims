@@ -5,6 +5,9 @@
 ## is installed, else with the small formatter below (written in NimScript); and opens zls, Zig's language server,
 ## when it is on PATH.
 import nedplugin
+
+requiresNed(">= 6.26")
+permission("shell", "runs zig build and zig fmt")
 import std/os
 
 language("zig", LangSpec(

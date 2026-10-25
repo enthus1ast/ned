@@ -202,3 +202,9 @@ proc splitEditor(down = false)                       # ui/split.nim
 proc atlasConfigHover(b: Buffer, p: Pos): string           # nim/atlas.nim
 proc verCmp(a, b: string): int                        # nim/nimbleupdates.nim
 proc rebuildProblems()                                # ui/panel.nim
+proc nbCanRun(b: Buffer): bool                        # editor/notebook.nim
+proc isPicturePath(path: string): bool                # editor/pictures.nim
+proc picOpen(b: Buffer)
+proc drawPicture(b: Buffer, x0, y0, w, h: int)
+proc drawFlame(b: Buffer, x0, y0, w, h: int)          # nim/flame.nim
+proc nbRunAt(b: Buffer, line: int, advance = false)   # editor/notebook.nim

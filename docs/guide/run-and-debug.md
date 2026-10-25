@@ -83,6 +83,15 @@ Rust (cargo llvm-cov or tarpaulin) and JavaScript/TypeScript (Node's own); *Test
 any other tool's. *Test coverage: summary by file* gives each file's share and the total, and names the procs no
 test reaches. For Nim the count is exact per Nim line — [the Nim IDE](nim.md) explains how.
 
+**Tests from running a proc.** *Nim: write tests for this proc (from running it)* (the Nim menu) calls the proc at
+the cursor with sample arguments — 0, 1, −1 and 42 for integers, empty and short strings, both ends of an enum, empty
+and short seqs, a default object — and writes what each call returned as a `check`, and an exception it raised as
+`expect`, into `tests/t<module>.nim` beside the `.nimble` file (made if it is missing, added to if not). The file is
+opened and run with coverage. These tests keep the proc doing what it does now: read the values, since a wrong one is
+a bug they would keep. A proc that is not exported is reached by `include`-ing its module (the test file says so). A
+`var` parameter's value after the call is checked too; a result ned cannot write (a ref, a proc) is called and
+discarded. A call that does not end within 20 seconds is left out.
+
 The assistant can help too: *AI: write tests* keeps the tests it writes only when they compile and pass, and *AI:
 make the failing test pass* keeps its change only when the test then passes — see [The AI assistant](ai.md).
 
@@ -138,10 +147,47 @@ sends a `# %%` cell (a ▶ appears beside each one), *REPL: send the proc / func
 whole file* the rest. `repl.commands` chooses another REPL per language. In Nim, *Nim: run the selection*
 (Alt+Enter with code selected) compiles just that code, with the file's imports, and shows what it prints.
 
+## Notebooks
+
+A Nim or Python file with `# %%` lines is a notebook: each `# %%` starts a cell, and running a cell shows its output
+under it, in the editor, as **Out [n] · 12 ms** and the lines it printed. The file stays an ordinary file — the
+outputs are not saved in it.
+
+- **Ctrl+Enter** runs the cell at the cursor; **▶ run** on a cell's `# %%` line (and the ▶ in the gutter) does it with
+  a tap. Once the notebook runs, **Shift+Enter** runs the cell and goes to the next one.
+- The cells run in one session, so a cell sees what the cells run before it made — as in Jupyter. *Notebook: run all
+  the cells*, *run the cells above and this one*, *clear the outputs* and *restart the session* (its variables
+  forgotten) are in Run › Notebook.
+- A cell changed since it ran says so, and its output is dimmed. An error is shown under its cell in red and goes to
+  Problems on its line.
+- A long output shows its first `notebook.outputLines` lines (30); *Notebook: the cell's whole output* opens all of
+  it in a tab. A cell that runs longer than `notebook.timeoutSeconds` (120) is stopped.
+- Nim cells run in Nim's VM (`nim secret`), which starts at once but has no C libraries: a cell that needs them (FFI,
+  `importc`) says so — `notebook.nim` set to `compiled` runs each cell as a compiled program instead (the cells
+  before it with it, slower but everything works). Python cells run in `python3`, and a cell's last expression is
+  shown as Python's prompt would show it.
+
+## Memory checks
+
+*Run with memory checks* (the Run menu) builds the Nim, C or C++ program with the compiler's address and
+undefined-behaviour checks (AddressSanitizer and UBSan, with gcc or clang) and runs it. What they find goes to
+Problems on the line where it happened — a write or read past the end of a block, a use after `free`, a block freed
+twice, a signed overflow, a shift too far, memory never freed when the program ends — with where the block was made
+and freed. The program goes on after the first problem, so one run finds them all. A compiler that cannot build with
+the address checks gets the undefined-behaviour ones alone; one with neither runs the program under valgrind, if it is
+installed. Memory never freed is found on Linux, not on Android or macOS on ARM (the checks have no leak finder
+there). For Nim the program is built with `-d:useMalloc`, so the checks see each block.
+
 ## Finding where the time goes
 
 - *Nim: profile* builds the program with ned's line profiler and runs it: the procs that took the most time are
   listed in the panel, and each line's share of the time is shown beside it (*Nim: hide the profile*).
+- *Nim: flame graph of the profile* draws the call stacks the profiler saw: each box a proc, as wide as the share of
+  the time it and what it called took, the procs it called below it. Your procs are in warm colours, the libraries'
+  in cool ones. A tap on a box (or Enter) looks inside it, the bar at the top (or Backspace) goes back out, and the
+  line at the bottom names the box under the pointer.
+- *Nim: compare with the previous profile* puts the last two profiles side by side — each proc's share of the time
+  before and after, and the change — so you can see what a change to the code did.
 - *Nim: benchmark a call…* times any expression in a release build: seven rounds of many calls, and the time per
   call — the median, the fastest and the slowest.
 - [Compiler Explorer](compiler-explorer.md) shows the machine code a proc compiles to, and

@@ -16,6 +16,12 @@ Once a plugin is on, it is under **INSTALLED** in the dock, marked *ned's*. Tap 
 - run it in a process of its own;
 - remove it, which puts it back in AVAILABLE. *Plugins: uninstall / remove one…* does the same from the palette.
 
+Four of them do more than edit, and ask first when you turn them on (what you allow is kept on this device):
+**rest-client** runs curl and uses the clipboard (*REST: copy as curl*), **json-to-nim** runs git to list a
+project's `.json` files and reads JSON from the clipboard, **markdown-tools** reads a link's address from the
+clipboard, and **oil** changes files — that is what it is for. The others only edit; harpoon, pomodoro and
+time-tracker keep their data in their own folder, which needs no permission.
+
 The plugins you have turned on are listed in the setting `plugins.bundled`. A project cannot set it until you
 trust the folder.
 

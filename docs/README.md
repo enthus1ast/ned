@@ -10,9 +10,9 @@ every command is in the menus (F10) and the palette (Ctrl+E).
 |---|---|
 | [Key bindings](guide/keys.md) | every key, by what it is for |
 | [Files, folders and projects](guide/projects.md) | starting ned, the project folder, the file tree, Ctrl+P, tabs, splits, sessions |
-| [Editing](guide/editing.md) | cursors and selections, surround, snippets, the undo tree, macros, folding, spell check, encodings, big files, CSV |
+| [Editing](guide/editing.md) | cursors and selections, surround, snippets, the undo tree, macros, folding, the Markdown preview, spell check, encodings, big files, CSV |
 | [Search and replace](guide/search.md) | in the file and in the project, multibuffers |
-| [Running, testing and debugging](guide/run-and-debug.md) | running a file, run configurations, tasks, tests, coverage, the debugger, the REPL, profiling |
+| [Running, testing and debugging](guide/run-and-debug.md) | running a file, run configurations, tasks, tests, coverage, the debugger, the REPL, notebooks, memory checks, profiling and flame graphs |
 | [Git](guide/git.md) | the dock, the changes view, blame, history, rebase, bisect, GitHub |
 | [The AI assistant](guide/ai.md) | chat, the agent, providers, models on your device, MCP |
 | [Formatting](guide/formatting.md) | Nim in nph's style and every `nim.format.*` setting, C in clang-format's styles, `nedfmt`, other languages |
@@ -20,7 +20,7 @@ every command is in the menus (F10) and the palette (Ctrl+E).
 | [Themes and appearance](guide/themes.md) | the themes, your own colours, icons, accessibility |
 | [Vim mode and zen mode](guide/vim-and-zen.md) | vim, Emacs and Helix keys; writing without distractions |
 | [Settings](guide/settings.md) | where they live, a project's own, settings sync |
-| [Hex editor, programs and the decompiler](guide/hex-and-binaries.md) | binary files, a program's sections and symbols, decompiling a proc |
+| [Hex editor, programs and the decompiler](guide/hex-and-binaries.md) | pictures, binary files, a program's sections and symbols, decompiling a proc |
 
 ## Languages
 
@@ -34,7 +34,7 @@ every command is in the menus (F10) and the palette (Ctrl+E).
 
 | page | what it covers |
 |---|---|
-| [Plugins](plugins/README.md) | what a plugin can do, how they run, installing and managing them |
+| [Plugins](plugins/README.md) | what a plugin can do, how they run, permissions, installing and managing them |
 | [ned's own plugins](plugins/available.md) | the nineteen that come with ned — dial, which-key, oil, harpoon, rest-client, Odin, Gleam, Elixir, Haskell … — and how to turn one on |
 | [Tutorial](plugins/tutorial.md) | a plugin built step by step — its result is `examples/plugins/notes`, run by the plugin tests |
 | [API reference](plugins/api.md) | every type and proc of `nedplugin` and `nedlsp` (made from their doc comments) |

@@ -43,8 +43,12 @@ A branch left out is dimmed, and what it declares is not offered, shown or gone 
 branches of `#ifdef _WIN32 … #else … #endif`, you get the one that is compiled here. A condition that names a macro
 ned does not know (`#ifdef HAVE_FOO` with nothing defining it) is not decided, and every branch of it is read, as
 before. When `compile_commands.json` lists the file with all its flags, a macro defined nowhere is taken as not
-defined, as the compiler takes it. A header's own `#if`s see the macros of the headers it includes, not those its
-includer defines before including it.
+defined, as the compiler takes it.
+
+A header's `#if`s see the macros of the headers it includes, and those your files set before including it: with
+`#define USE_FAST` (or `#undef`) before `#include "config.h"`, the header's `#ifdef USE_FAST` branch is the one read —
+through the headers in between too. A header read with different macros from different files is kept each way (a
+few ways each).
 
 ## Declarations macros make
 

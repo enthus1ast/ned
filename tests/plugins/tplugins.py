@@ -153,6 +153,13 @@ class Host:
         elif fn == "setting" and a.get("key") in self.settings: v = self.settings[a["key"]]
         elif fn == "setting": v = 120 if a.get("key") == "width" else (True if a.get("key") == "sortCaseSensitive" else None)
         elif fn == "dataDir": v = os.path.join(self.tmp, "data", j.get("plugin", ""))
+        elif fn == "allowed": v = a.get("what") in getattr(self, "allowed", {"shell", "network", "files", "clipboard"})
+        elif fn in ("dataRead", "dataWrite"):
+            f = os.path.join(self.tmp, "data", j.get("plugin", ""), a.get("name", ""))
+            if fn == "dataRead": v = open(f).read() if os.path.exists(f) else ""
+            else:
+                os.makedirs(os.path.dirname(f), exist_ok=True)
+                with open(f, "a" if a.get("append") else "w") as fh: fh.write(a.get("text", ""))
         else:
             self.send({"t": "res", "id": j["id"], "err": "no " + fn})
             return
@@ -238,6 +245,17 @@ def run_host(tmp, native):
     st = h.call(h.reg("command", title="API: settings and shell")["cb"])
     msg = h.messages[-1] if h.messages else ""
     check(tag + "a setting, a shell command, the data folder", st and msg.startswith("width 120 · hi 0 · "), msg)
+    # permissions (6.26): a shell command the plugin was not allowed fails with an error; its own data needs none
+    h.allowed = set()
+    st2 = h.call(h.reg("command", title="API: settings and shell")["cb"])
+    check(tag + "permissions: shell() without \"shell\" allowed is refused, with a clear error",
+          st2 and "may not run programs" in st2.get("err", ""), st2)
+    h.allowed = {"shell", "network", "files", "clipboard"}
+    dw = h.call(h.reg("command", title="API: its data")["cb"])
+    dfile = os.path.join(tmp, "data", "apitest", "notes", "a.txt")
+    check(tag + "writeData, appendData, readData: a file of its own data folder",
+          dw and "err" not in dw and os.path.exists(dfile) and open(dfile).read() == "one\ntwo\n" and
+          h.messages[-1] == "read: one|two|", (dw, h.messages[-1:]))
     h.lines = ["x", "trailing   "]
     bs = h.reg("event", event="beforeSave")
     h.call(bs["cb"], {"buf": 1, "path": os.path.join(tmp, "a.txt"), "lang": "plaintext"})
@@ -290,7 +308,7 @@ def run_ini(h, tag):
     h.lang = "toml"
     h.lines = ["[server]", "port = 80", "host = a", "[client]", "port = 81", "port = 82", "zeta = 1", "alpha = 2", "ho"]
     reg = h.reg("requires")
-    check(tag + "ini-tools: requiresNed (the ned it needs)", reg and reg["spec"] == ">= 6.20", reg)
+    check(tag + "ini-tools: requiresNed (the ned it needs)", reg and reg["spec"] == ">= 6.26", reg)
     sd = h.reg("setting", key="sortCaseSensitive")
     check(tag + "ini-tools: a setting's definition (default, description)",
           sd and sd["default"] is False and "Sort" in sd["description"], sd)
@@ -370,7 +388,7 @@ def run_notes(tmp, native):
           {"Notes: add a TODO", "Notes: go to a note…", "Notes: add a note…", "Notes: remove the DONE notes…",
            "Notes: find the project's notes", "Notes: remind me later", "Notes: cancel the reminder"} <= titles and
           h.reg("command", title="Notes: add a TODO")["keys"] == "ctrl+alt+n" and
-          h.reg("requires")["spec"] == ">= 6.20" and h.reg("setting", key="markers")["default"] == "NOTE TODO FIXME"
+          h.reg("requires")["spec"] == ">= 6.26" and h.reg("setting", key="markers")["default"] == "NOTE TODO FIXME"
           and h.reg("setting", key="problems")["default"] is True and
           h.reg("setting", key="reminderMinutes")["default"] == 25, (titles, h.regs))
     ev = {"buf": 1, "path": os.path.join(tmp, "a.txt"), "lang": "plaintext"}

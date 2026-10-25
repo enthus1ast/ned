@@ -27,7 +27,9 @@ import std/[tables, base64]
 when not defined(nimscript):
   import std/osproc
 
-requiresNed(">= 6.25")
+requiresNed(">= 6.26")
+permission("shell", "sends your requests with curl")
+permission("clipboard", "REST: copy as curl puts the command there")
 
 settingDef("timeoutSeconds", 30, "REST: how long a request may take before curl gives up (seconds)")
 settingDef("followRedirects", true, "REST: follow redirects (3xx) to the response at their end")
@@ -430,8 +432,7 @@ proc send(b: Buf) =
     return
   let r = h.req
   let d = dataDir() / "run"
-  when defined(nimscript): mkDir(d)
-  else: createDir(d)
+  writeData("run/.keep", "")                    # (the folder curl writes its answer in: its own data, no permission)
   limit = max(1, setting("timeoutSeconds", 30))
   var args = "curl -sS --max-time " & $limit
   if setting("followRedirects", true): args.add " -L"
@@ -444,7 +445,7 @@ proc send(b: Buf) =
       return
     args.add " --data-binary @" & quoteShell(r.bodyFile)
   elif r.body.len > 0:
-    writeFile(d / "req.body", r.body)
+    writeData("run/req.body", r.body)
     args.add " --data-binary @req.body"
   args.add " -o body.out -D headers.out -w '%{http_code} %{time_total}' --url " & quoteShell(r.url)
   running = true

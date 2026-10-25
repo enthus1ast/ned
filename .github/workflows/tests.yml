@@ -3,6 +3,7 @@
 #   nedls — the language server driven by a test client; the formatter checked by Nim's own parser
 #   plugins — the plugins' host with the example plugins, the API, a NimScript language server (ned --lsp-bridge);
 #           and the documentation: the references are what the sources make, every link goes somewhere (tests/docs)
+#   windows — on Windows itself: the unit tests of ned's own logic; ned.exe in a console (ConPTY), nedls, nedfmt
 #   ui    — the whole editor driven through tmux, its screen read back (tests/ui), in four parts side by side,
 #           with the tools the tests use installed (language servers, clangd, gdb, shells, an SSH server)
 #   scoreboard — the engines against nimsuggest and clangd on fixed files, each score against its minimum
@@ -144,9 +145,43 @@ jobs:
           name: fuzz-logs
           path: /tmp/ned-fuzz-*-logs
 
+  windows:
+    # ned on Windows itself, run: the unit tests of its own logic, then the three programs built here and started
+    # as a person would — the editor in a console (ConPTY), a key typed, the file saved, quit; nedls over the
+    # Language Server Protocol; nedfmt (.github/ci/win_smoke.py)
+    name: windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep Unix line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Unit tests (ned's own logic)
+        run: |
+          for t in ttext tencodings tregex twebdata tweb twebfmt tformat timages tnimapis; do
+            nim r -d:release --hints:off "tests/unit/$t.nim" || exit 1
+          done
+      - name: Build
+        run: |
+          nim c -d:release --hints:off -o:ned.exe src/ned.nim
+          nim c -d:release --hints:off -o:nedls.exe src/nedls.nim
+          nim c -d:release --hints:off -o:nedfmt.exe src/nedfmt.nim
+      - name: Run them (ConPTY, LSP)
+        run: |
+          python -m pip install --quiet pywinpty
+          python .github/ci/win_smoke.py ned.exe nedls.exe nedfmt.exe
+
   scoreboard:
-    # the engines' scoreboard: ned's Nim engine against nimsuggest and nedls' answers (standard-library modules),
-    # its C engine against clangd (Lua's sources) — each score against its minimum in tests/engine/scoreboard.json
+    # the engines' scoreboard: ned's Nim engine against nimsuggest and nedls' answers (standard-library modules), its
+    # errors as you type against nim check; its C engine against clangd (Lua's sources) and on C++ (tinyxml2's) —
+    # each score against its minimum in tests/engine/scoreboard.json
     name: engine scoreboard
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -163,11 +198,13 @@ jobs:
           nim c -d:release --hints:off -o:nedls src/nedls.nim
           nim c -d:release --hints:off -o:ned-cengine tests/engine/cdriver.nim
           git clone -q --depth 1 https://github.com/lua/lua /tmp/lua
+          git clone -q --depth 1 https://github.com/leethomason/tinyxml2 /tmp/tinyxml2
       - name: The scores
         run: |
           set +e
           python3 tests/engine/scoreboard.py --engine ./ned-engine --nedls ./nedls --cdriver ./ned-cengine \
             --c-files /tmp/lua/lapi.c /tmp/lua/lcode.c /tmp/lua/ltable.c /tmp/lua/lvm.c /tmp/lua/lstring.c \
+            --cpp-files /tmp/tinyxml2/tinyxml2.cpp /tmp/tinyxml2/xmltest.cpp \
             --n 40 > /tmp/scores.txt 2>&1
           code=$?
           cat /tmp/scores.txt

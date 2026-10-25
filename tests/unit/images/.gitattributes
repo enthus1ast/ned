@@ -1,0 +1,6 @@
+# the pictures and the pixels they decode to are bytes: never line endings to convert, never a diff
+*.png binary
+*.jpg binary
+*.gif binary
+*.bmp binary
+*.rgba binary

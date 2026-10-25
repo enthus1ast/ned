@@ -124,8 +124,15 @@ proc lineSegs(b: Buffer, line: int): seq[int] =
   ## where each visual row of a line starts, its type hints counted
   wrapSegs(b.lines[line], textW, b.hintWidths(line))
 
+proc vrowCount(b: Buffer, line: int): int {.inline.} =
+  ## the rows drawn under a line that are not its text (a notebook cell's output)
+  if b.vrows.len == 0: return 0
+  b.vrows.withValue(line, v): return v[].len
+
 proc segCount(b: Buffer, line: int): int =
-  if not cfgWrap or line < 0 or line >= b.lines.len: 1 else: b.lineSegs(line).len
+  ## the rows a line takes on the screen: its own (more than one when soft wrap breaks it), and those under it
+  if line < 0 or line >= b.lines.len: return 1
+  (if not cfgWrap: 1 else: b.lineSegs(line).len) + b.vrowCount(line)
 
 proc stepBack(b: Buffer, line, sub, n: int): (int, int) =
   var l = clamp(line, 0, b.lines.high)

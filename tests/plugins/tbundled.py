@@ -47,6 +47,7 @@ class BHost(tplugins.Host):
         self.vim_mode = ""                   # vimMode(): normal, insert, visual, visual line ("" not vim)
         self.closed = []                     # closeTab: the buffers
         self.jobs = []                       # shellAsync: (cmd, dir, cb) — run_jobs() runs them and calls back
+        self.allowed = {"shell", "network", "files", "clipboard"}   # (what you allowed: ned's tests allow them all)
         self.clock = None                    # unixTime: this (None: the real clock)
 
     # (another buffer's call: it is made the current one for the call, then put back)
@@ -165,6 +166,19 @@ class BHost(tplugins.Host):
         elif fn == "dataDir":
             v = os.path.join(self.tmp, "data", j.get("plugin", ""))
             os.makedirs(v, exist_ok=True)
+        elif fn in ("dataRead", "dataWrite"):
+            # (as ned: a file of the plugin's own data folder, by a name relative to it)
+            name = a.get("name", "")
+            if not name or name.startswith("/") or ".." in name.split("/"):
+                self.send({"t": "res", "id": j["id"], "err": "not a file of the plugin's data folder"})
+                return
+            f = os.path.join(self.tmp, "data", j.get("plugin", ""), name)
+            if fn == "dataRead":
+                v = open(f).read() if os.path.exists(f) else ""
+            else:
+                os.makedirs(os.path.dirname(f), exist_ok=True)
+                with open(f, "a" if a.get("append") else "w") as fh: fh.write(a.get("text", ""))
+        elif fn == "allowed": v = a.get("what") in self.allowed
         elif fn == "dirty": v = self.dirty_
         elif fn == "save":
             self.saved += 1

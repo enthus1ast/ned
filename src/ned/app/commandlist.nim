@@ -56,6 +56,19 @@ proc initCommands() =
   add("HTML: expand Emmet abbreviation", "Tab", (block:
     if not buf().tryEmmet(): info("No Emmet abbreviation before the cursor (ul>li*3, div.box>p{text}, !)")))
   add("Run current file", "Alt+R / F5", runCurrent())
+  add("Notebook: run the cell", "Ctrl+Enter — a .nim or .py file's # %% cell; its output under it", cmdNbRunCell(false))
+  add("Notebook: run the cell and go to the next", "Shift+Enter once the notebook runs", cmdNbRunCell(true))
+  add("Notebook: run all the cells", "", cmdNbRunAll())
+  add("Notebook: run the cells above and this one", "", cmdNbRunAbove())
+  add("Notebook: clear the outputs", "", cmdNbClear())
+  add("Notebook: restart the session", "its variables forgotten", cmdNbRestart())
+  add("Notebook: the cell's whole output", "in a tab", cmdNbWholeOutput())
+  add("Nim: write tests for this proc (from running it)", "sample arguments, its results as std/unittest checks " &
+      "in tests/t<module>.nim, then run with coverage", cmdWriteProcTests())
+  add("Picture: show the picture / its bytes", "a .png, .jpg, .gif, .bmp or .webp file (Tab in its view)",
+      cmdPictureToggle())
+  add("Run with memory checks", "Nim, C, C++: overflows, uses after free, leaks, undefined behaviour — in Problems",
+      cmdMemoryChecks())
   add("Build current file", "Alt+B", runCurrent(true))
   add("Run command…", "", openPrompt(pRunCmd, "Run command", lastRunCmd))
   add("Run in terminal (interactive)", "", (block:
@@ -322,6 +335,7 @@ proc initCommands() =
     prevGrid.setLen(0)))
   add("Settings sync: export to a file…", "", askPath("Export your settings to", "~/" & SyncFile, proc(t: string) = syncExport(t)))
   add("Settings sync: import from a file…", "", askPath("Import settings from", "~/" & SyncFile, proc(t: string) = syncImport(t)))
+  add("Settings sync: sync now (both ways)", "this device's changes and the other's merged, key by key", syncBoth())
   add("Settings sync: push (save to your settings repository)", "", syncGit(true))
   add("Settings sync: pull (load from your settings repository)", "", syncGit(false))
   add("Settings sync: set the repository…", "", askText("Your settings repository (a private git repository you can push to)",
@@ -443,6 +457,8 @@ proc initCommands() =
   add("Plugins: install from git…", "", openPrompt(pPluginInstall, "Plugin repository (https://…)", ""))
   add("Plugins: reload", "", plugReload())
   add("Plugins: turn one on or off…", "", cmdPluginToggle())
+  add("Plugins: permissions…", "what each may do beyond editing: run programs, change files, the clipboard",
+      cmdPluginPermissions())
   add("Plugins: the API (nedplugin.nim)", "", plugHelp())
   add("Plugins: available plugins (ned's own)…", "turn one on: increment, case changes, align, harpoon …",
       cmdPluginsAvailable())

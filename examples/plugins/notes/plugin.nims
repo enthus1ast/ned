@@ -15,7 +15,8 @@
 ## Copy this folder to ~/.config/ned/plugins/notes/.
 import nedplugin
 
-requiresNed(">= 6.20")
+requiresNed(">= 6.26")
+permission("shell", "finds the notes in your files with grep")
 
 # ── 2. a first command: reading and changing the text ──
 

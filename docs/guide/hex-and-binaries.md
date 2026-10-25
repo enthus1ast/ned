@@ -3,7 +3,20 @@
 A file that is not text — a program, a library, an image, a database — opens in ned's **hex editor**: its bytes as
 they are, nothing turned into lines. A program (ELF on Linux and Android, Mach-O on macOS, PE on Windows) is also
 read for its sections and symbols, and a Nim program's procs by their Nim names. The **decompiler** shows one
-function of a program as C, or as its machine code with the source lines it came from.
+function of a program as C, or as its machine code with the source lines it came from. A picture opens as the
+picture.
+
+## Pictures
+
+A `.png`, `.jpg`, `.gif`, `.bmp` or `.webp` file opens as the picture, fitted to the tab, with its format, size in
+pixels and file size at the top. **+** and **−** zoom, **0** fits it again, the arrows (or h j k l, Page Up and Page
+Down) move a zoomed picture, and **Tab** shows its bytes in the hex editor (Tab again: the picture).
+
+How it is drawn depends on the terminal (`pictures.draw`, `auto`): with the kitty graphics protocol (kitty, Ghostty),
+iTerm2's images (iTerm2, WezTerm) or sixel (a terminal that says it has sixel when ned asks: foot, mlterm, recent
+Windows Terminal …) the terminal draws the fitted picture at its own resolution; otherwise — Termux, tmux, others —
+and when zoomed in, it is drawn in the text's cells, two pixels to a cell. WebP needs `dwebp` or ImageMagick. `pictures.open` set to false opens pictures in the hex editor as
+before. Pictures in a Markdown file's preview are drawn the same way (in cells).
 
 ## The hex editor
 

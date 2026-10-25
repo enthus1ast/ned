@@ -267,6 +267,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Nim: check project |  |
 | Nim: check the importc wrappers against their headers |  |
 | Nim: choose the Nim for this project… | for every tool: nim, nimble, nimsuggest, the terminal |
+| Nim: compare with the previous profile | each proc's share of the time, before and after |
 | Nim: compile with nim |  |
 | Nim: compile with nimony |  |
 | Nim: debug with gdb |  |
@@ -276,6 +277,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Nim: expand macro/template at cursor | Alt+M |
 | Nim: exports nothing uses… |  |
 | Nim: extract selection into a proc |  |
+| Nim: flame graph of the profile | the call stacks, as wide as the time they took — tap a box to look inside |
 | Nim: format with ned's built-in formatter (nph style) |  |
 | Nim: format with nimpretty |  |
 | Nim: format with nph |  |
@@ -322,6 +324,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Nim: what can this proc raise? |  |
 | Nim: wrap a C header (c2nim)… |  |
 | Nim: write compile_commands.json for clangd |  |
+| Nim: write tests for this proc (from running it) | sample arguments, its results as std/unittest checks in tests/t<module>.nim, then run with coverage |
 | Nimble: add a dependency by name… |  |
 | Nimble: add a dependency… |  |
 | Nimble: build |  |
@@ -340,6 +343,13 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Nimble: test |  |
 | Nimony: check file |  |
 | Nimony: run file |  |
+| Notebook: clear the outputs |  |
+| Notebook: restart the session | its variables forgotten |
+| Notebook: run all the cells |  |
+| Notebook: run the cell | Ctrl+Enter — a .nim or .py file's # %% cell; its output under it |
+| Notebook: run the cell and go to the next | Shift+Enter once the notebook runs |
+| Notebook: run the cells above and this one |  |
+| Notebook: the cell's whole output | in a tab |
 | Open file… | Ctrl+P |
 | Open folder… |  |
 | Open in browser |  |
@@ -353,6 +363,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Peek definition | Alt+F12 |
 | Peek references | Alt+Shift+F12 |
 | Performance report | frame time, what the terminal is sent, background work, memory |
+| Picture: show the picture / its bytes | a .png, .jpg, .gif, .bmp or .webp file (Tab in its view) |
 | Plugins panel |  |
 | Plugins: add an example… |  |
 | Plugins: available plugins (ned's own)… | turn one on: increment, case changes, align, harpoon … |
@@ -360,6 +371,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Plugins: install from git… |  |
 | Plugins: new plugin in full Nim (compiled)… |  |
 | Plugins: new plugin… |  |
+| Plugins: permissions… | what each may do beyond editing: run programs, change files, the clipboard |
 | Plugins: reload |  |
 | Plugins: reload one… |  |
 | Plugins: run a plugin's command… |  |
@@ -396,6 +408,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Run current file | Alt+R / F5 |
 | Run in terminal (interactive) |  |
 | Run tests in file |  |
+| Run with memory checks | Nim, C, C++: overflows, uses after free, leaks, undefined behaviour — in Problems |
 | Run: configurations… |  |
 | Run: current file with arguments… |  |
 | Save | Ctrl+S |
@@ -418,6 +431,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Settings sync: pull (load from your settings repository) |  |
 | Settings sync: push (save to your settings repository) |  |
 | Settings sync: set the repository… |  |
+| Settings sync: sync now (both ways) | this device's changes and the other's merged, key by key |
 | Settings: open project settings (this folder) |  |
 | Settings: quick list (type a name, Enter changes it)… |  |
 | Settings: reset to defaults |  |

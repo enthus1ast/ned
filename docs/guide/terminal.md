@@ -146,15 +146,21 @@ servers cover all of them.
 
 ## Settings sync
 
-Your settings, key bindings, snippets and commands (all in `config.json`), your themes, your dictionary words and
-your saved macros go together into one file — **never API keys, tokens, passwords or MCP servers' `env` values**,
-which stay on each device.
+Your settings, key bindings, snippets and commands (all in `config.json`), your themes, your dictionary words, your
+saved macros and the list of your plugins go together into one file — **never API keys, tokens, passwords or MCP
+servers' `env` values**, which stay on each device.
 
 - *Settings sync: export to a file…* and *Settings sync: import from a file…* (`~/ned-settings.json` by default).
   Importing keeps this device's secrets and leaves the old file beside it as `config.json.bak-sync`.
 - *Settings sync: push (save to your settings repository)* and *Settings sync: pull (load from your settings
   repository)* keep that file in a private git repository of yours: `sync.repository` (or *Settings sync: set the
   repository…*). Use an ssh URL or one your credential helper knows — a URL with a token in it is refused.
+- *Settings sync: sync now (both ways)* merges the two: each setting you changed on one device only is taken from
+  that device, one removed there is removed here too, and a setting changed on both keeps this device's value (ned
+  says which). Words and plugins are put together; a plugin your other device has and this one does not is offered
+  for installing (each asks for its [permissions](../plugins/README.md) as it would anyway).
+- `sync.auto` does that on its own: `start` (a few seconds after ned starts), `quit` (as ned quits — a few seconds at
+  most) or `both`. `sync.exclude` lists the settings that stay on this device, such as `["terminal.shell"]`.
 
 All of them are in File › Preferences › *Settings sync*. See also [Settings](settings.md).
 
@@ -198,6 +204,8 @@ list the settings that help.
 | `terminal.editorEnv` | `true` | in ned's terminal, ned is git's editor (`GIT_EDITOR`, and `EDITOR` / `VISUAL` where not set) |
 | `remote.exclude` | `[".git", "node_modules", …]` | folders left on the server when a remote folder is copied |
 | `remote.autoSync` | `10` | seconds between copies of the server's changes (0: only after Run, tasks and the assistant) |
-| `sync.repository` | `""` | the git repository for *Settings sync: push / pull* |
+| `sync.repository` | `""` | the git repository for *Settings sync* |
+| `sync.auto` | `"off"` | sync both ways on its own: `start`, `quit` or `both` |
+| `sync.exclude` | `[]` | settings that stay on this device |
 
 Every setting: [settings reference](../reference/settings.md#terminal).
