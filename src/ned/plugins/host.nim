@@ -2993,15 +2993,16 @@ proc buildPluginItems(): seq[SideItem] =
   let bon = plugBundledOn()
   for (n, what, _) in PlugBundled:
     if n notin bon and plugInfoOf(n) < 0: avail.add (n, what)
+  # (the log before that list, which is long: what the plugins said last, in sight)
+  if plugLog.len > 0:
+    result.add sideItem("LOG", 6)
+    for k in countdown(plugLog.high, max(0, plugLog.len - (if avail.len > 0: 12 else: 40))):
+      let (p, l) = plugLog[k]
+      result.add sideItem(p & ": " & l, (if "rror" in l: 3 else: 2), "", depth = 1)
   if avail.len > 0:
     result.add sideItem("AVAILABLE · ned's own plugins", 6)
     for (n, what) in avail:
       result.add sideItem(n, 1, "+", what, plugAvailableAction(n))
-  if plugLog.len > 0:
-    result.add sideItem("LOG", 6)
-    for k in countdown(plugLog.high, max(0, plugLog.len - 40)):
-      let (p, l) = plugLog[k]
-      result.add sideItem(p & ": " & l, (if "rror" in l: 3 else: 2), "", depth = 1)
 
 proc cmdPlugins() =
   showSide(svPlugins)

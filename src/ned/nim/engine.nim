@@ -258,6 +258,10 @@ proc engineTyposApply(b: Buffer, found: seq[(int, int, string, string)], mine: s
     var dup = false
     for d in ds:
       if d.line == l and ("'" & w & "'") in d.msg: dup = true
+    # (a field's typo the engine's own check names, with the field meant: said once)
+    if checksOn:
+      for d in mine:
+        if d.line == l and d.col == c and d.rule == "field-typo": dup = true
     if dup: continue
     ds.add Diag(line: l, col: c, eline: l, ecol: -1, sev: 1, src: "ned", rule: "typo",
                 msg: nxTypoMsg((if l < b.lines.len: b.lines[l] else: ""), c, w, meant))

@@ -2,7 +2,9 @@
 ##    a schema does not take), what a key or a value can be and what a key means (from a schema: package.json,
 ##    tsconfig.json, ned's own settings …), the file's outline and the path of keys to the cursor ──
 
-import std/[strutils, tables, json, unicode]
+import std/[strutils, tables, json]
+from std/unicode import Rune, `$`    # (only these: all of unicode would make strutils' splitWhitespace ambiguous where
+                                     # ned is merged into one file)
 import webcommon
 
 type

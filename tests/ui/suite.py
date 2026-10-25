@@ -2929,9 +2929,11 @@ def t_521_format_self():
     s = screen()
     check('521 format: ned.nim itself formats', ok and 'Formatted (built-in' in s and 'block structure' not in s, s)
     keys('C-s'); time.sleep(1.5)
-    r = subprocess.run(('cd %s && ' + NIMBIN + '/nim check --hints:off big.nim 2>&1 | grep -c Error') % W,
+    r = subprocess.run(('cd %s && ' + NIMBIN + '/nim check --hints:off big.nim 2>&1 | grep Error') % W,
                        shell=True, capture_output=True, text=True)
-    check('521 format: … and still compiles', r.stdout.strip() == '0' and ftext('big.nim').count('\n') > 50000, r.stdout)
+    errs = [l for l in r.stdout.split('\n') if l.strip()]
+    check('521 format: … and still compiles', not errs and ftext('big.nim').count('\n') > 50000,
+          '%d errors:\n%s' % (len(errs), '\n'.join(errs[:8])))
     keys('M-f'); check('521 format: … and formatting it again changes nothing', wait_for('Already formatted', 30), screen()[-300:])
 
 def t_523_include():
@@ -3328,7 +3330,7 @@ def t_512_c_interop():
     check('512 it has the project\'s own C file with its command',
           any(e['file'].endswith('/mathx.c') and ' -c ' in ' ' + e['command'] + ' ' for e in cc), str(cc)[:400])
     # wrap a header with c2nim
-    palette('Nim: wrap a C header'); time.sleep(0.8)
+    palette('Nim: wrap a C header with c2nim'); time.sleep(0.8)
     text('mathx.h'); time.sleep(0.4); keys('Enter')
     if which('c2nim'): check('512 c2nim wraps the header', wait_for('Wrapped mathx.h', 20), screen()[-400:])
     out = open(W + '/mathx.nim').read() if os.path.exists(W + '/mathx.nim') else ''
@@ -3336,7 +3338,8 @@ def t_512_c_interop():
     # without c2nim or futhark: an offer to install
     prep()
     start('wrap.nim', w=150, h=40, path=no_nim_dir() + ':/usr/bin:/bin')     # (nim, and no c2nim or futhark)
-    palette('Nim: wrap a C header'); time.sleep(0.8); text('mathx.h'); time.sleep(0.4); keys('Enter'); time.sleep(3)
+    # (6.27: "Nim: wrap a C header…" is ned's own wrapper; c2nim has a command of its own)
+    palette('Nim: wrap a C header with c2nim'); time.sleep(0.8); text('mathx.h'); time.sleep(0.4); keys('Enter'); time.sleep(3)
     if not any(os.path.exists(d + '/' + x) for d in ['/usr/bin', '/bin'] for x in ['c2nim', 'futhark']):
         check('512 no c2nim: an offer to install it', 'Install c2nim' in screen(), screen())
     keys('Escape')

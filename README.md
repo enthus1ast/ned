@@ -69,8 +69,8 @@ letter from one the element takes (`clas`). **CSS**: `var(--primay)` where the s
 an `INSERT` with more or fewer values than columns, a column the table does not have in its column list or in
 `UPDATE … SET`.
 
-**.nimble**: a `requires` package name completed from nimble's package list, explained on hover (F12: its
-checkout), and one the list does not have flagged with the one meant.
+**.nimble**: a `requires` package name completed from nimble's package list, explained on hover (F12: its own
+.nimble, where it is installed), and one the list does not have flagged with the one meant.
 
 **Nim 3 (Nimony)**: `.nif` files have their colours, an Outline and a hover that says what each tag is and where
 the node comes from in the Nim source (F12 goes there); *Nim 3: the NIF of this file beside it*, each side
