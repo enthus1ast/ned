@@ -88,7 +88,10 @@ proc lxHover(d: LsDoc, params: JsonNode): JsonNode =
   let md = case lxLangOf(d)
            of lxC: cEngHover(b, p)
            of lxWeb: webHoverInfo(b, p)
-           else: (if b.lang.id == "nif": nifHover(b, p) else: "")      # (NIF: the tag, the source place)
+           else:
+             if pnakFile(b.path): pnakHover(b, p)                     # (pnak's lockfile: the package)
+             elif b.lang.id == "nif": nifHover(b, p)                  # (NIF: the tag, the source place)
+             else: ""
   if md.strip.len == 0: return newJNull()
   result = %*{"contents": lsMd(md)}
   let (wa, we) = b.wordRangeAt(p)
@@ -147,7 +150,17 @@ proc lxDefinitions(d: LsDoc, p: Pos): seq[(string, int, int)] =
     if o[0].len > 0: return @[o]
     let (l, c) = jsDefinition(doc, p.line, p.col)
     if l >= 0: result.add (b.path, l, c)
-  else: discard
+  else:
+    if pnakFile(b.path):
+      # (pnak's lockfile: the package's .nimble in deps/)
+      let i = pnakAt(b, p)
+      if i >= 0:
+        let (there, _, at) = pnakCheckout(parentDir(b.path), pnakRequires(b.lines)[i].name)
+        if there:
+          try:
+            for kind, f in walkDir(at):
+              if kind == pcFile and f.endsWith(".nimble"): return @[(f, 0, 0)]
+          except CatchableError: discard
 
 proc lxDefinition(d: LsDoc, params: JsonNode): JsonNode =
   result = newJArray()
@@ -270,7 +283,10 @@ proc lxOutline(d: LsDoc): seq[SideItem] =
     if b.lang.id == "json": jsonOutlineOf(b)
     elif b.lang.id == "javascript" and b.lines.len < 40_000: jsOutlineOf(b)
     else: heuristicOutline(b)
-  else: (if b.lang.id == "nif": nifOutlineOf(b) else: heuristicOutline(b))
+  else:
+    if pnakFile(b.path): pnakOutlineOf(b)
+    elif b.lang.id == "nif": nifOutlineOf(b)
+    else: heuristicOutline(b)
 
 proc lxDocumentSymbol(d: LsDoc): JsonNode =
   result = newJArray()
@@ -452,13 +468,18 @@ proc lxPumpChecks(d: LsDoc, active: bool) =
     lintApply(b.path, b.lines, ds)
     if ds.len > 0: diagsWeb[b.path] = ds
     else: diagsWeb.del b.path
-  else: return
+  else:
+    if not pnakFile(b.path): return
+    var ds = pnakDiags(b)
+    lintApply(b.path, b.lines, ds)
+    if ds.len > 0: diagsWeb[b.path] = ds
+    else: diagsWeb.del b.path
   lsDiagsDirty = true
 
 proc lxNextCheckMs(d: LsDoc): int =
   ## ms until lxPumpChecks has something to do for this document
   result = 1000
-  if d == nil or d.b.path.len == 0 or lxLangOf(d) notin {lxC, lxWeb}: return
+  if d == nil or d.b.path.len == 0 or (lxLangOf(d) notin {lxC, lxWeb} and not pnakFile(d.b.path)): return
   if lxCheckedAt.getOrDefault(d.b.id, -1) != d.b.changeId:
     result = max(10, 400 - int(msSince(d.changedAt)) + 5)
 

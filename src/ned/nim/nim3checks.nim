@@ -212,3 +212,208 @@ proc cmdNim3Problems() =
   info("Nim 3: what " & extractFilename(b.path) & " needs is in Problems (Ctrl+. fixes what ned can)" &
        (if nimonyExe().len > 0: " — nimony checks it on save" else: " — install nimony to check it"))
   showProblems()
+
+# ── Nim 3's contracts and passive procs: what nimony says when it compiles, said as you type ──
+
+type N3Val = tuple[known: bool, v: BiggestInt]
+
+proc n3Eval(e: string, vals: Table[string, BiggestInt]): N3Val =
+  ## the value of a `requires` condition with the parameters given (booleans as 1 and 0) — known: false when it
+  ## names something else (s.len, a call, a constant ned does not know)
+  var toks: seq[string]
+  var i = 0
+  while i < e.len:
+    let c = e[i]
+    if c in {' ', '\t'}: inc i
+    elif c in IdentStartChars:
+      var k = i
+      while k < e.len and e[k] in IdentChars: inc k
+      toks.add e[i ..< k]
+      i = k
+    elif c in {'0'..'9'}:
+      var k = i
+      while k < e.len and e[k] in {'0'..'9', '_', 'x', 'X', 'a'..'f', 'A'..'F', '\''}: inc k
+      toks.add e[i ..< k]
+      i = k
+    elif i + 1 < e.len and e[i .. i + 1] in ["<=", ">=", "==", "!="]:
+      toks.add e[i .. i + 1]
+      i += 2
+    elif c in {'<', '>', '+', '-', '*', '(', ')'}:
+      toks.add $c
+      inc i
+    else: return (false, 0)                         # (s.len, a[i], "…": not worked out here)
+  var p = 0
+  proc peek(): string = (if p < toks.len: toks[p] else: "")
+  proc expr(): N3Val
+  proc primary(): N3Val =
+    let t = peek()
+    inc p
+    if t == "(":
+      result = expr()
+      if peek() == ")": inc p
+      else: result.known = false
+    elif t == "-":
+      let x = primary()
+      result = (x.known, -x.v)
+    elif t == "not":
+      let x = primary()
+      result = (x.known, BiggestInt(x.v == 0))
+    elif t == "true": result = (true, 1)
+    elif t == "false": result = (true, 0)
+    elif t.len > 0 and t[0] in {'0'..'9'}:
+      var s = t.replace("_", "")
+      let q = s.find('\'')
+      if q >= 0: s = s[0 ..< q]
+      try: result = (true, BiggestInt(if s.startsWith("0x") or s.startsWith("0X"): parseHexInt(s) else: parseBiggestInt(s)))
+      except ValueError: result = (false, 0)
+    elif t.len > 0 and t in vals and peek() notin ["(", "."]: result = (true, vals[t])
+    else: result = (false, 0)
+  proc term(): N3Val =
+    result = primary()
+    while peek() in ["*", "div", "mod"]:
+      let op = peek()
+      inc p
+      let r = primary()
+      if not (result.known and r.known) or (op != "*" and r.v == 0): result.known = false
+      else: result.v = (if op == "*": result.v * r.v elif op == "div": result.v div r.v else: result.v mod r.v)
+  proc sum(): N3Val =
+    result = term()
+    while peek() in ["+", "-"]:
+      let op = peek()
+      inc p
+      let r = term()
+      result = (result.known and r.known, (if op == "+": result.v + r.v else: result.v - r.v))
+  proc cmp(): N3Val =
+    result = sum()
+    if peek() in ["<", "<=", ">", ">=", "==", "!="]:
+      let op = peek()
+      inc p
+      let r = sum()
+      let ok = case op
+               of "<": result.v < r.v
+               of "<=": result.v <= r.v
+               of ">": result.v > r.v
+               of ">=": result.v >= r.v
+               of "==": result.v == r.v
+               else: result.v != r.v
+      result = (result.known and r.known, BiggestInt(ok))
+  proc conj(): N3Val =
+    result = cmp()
+    while peek() == "and":
+      inc p
+      let r = cmp()
+      # (false and anything is false, even when the other side is not known)
+      if (result.known and result.v == 0) or (r.known and r.v == 0): result = (true, 0)
+      else: result = (result.known and r.known, 1)
+  proc expr(): N3Val =
+    result = conj()
+    while peek() == "or":
+      inc p
+      let r = conj()
+      if (result.known and result.v != 0) or (r.known and r.v != 0): result = (true, 1)
+      else: result = (result.known and r.known, 0)
+  result = expr()
+  if p < toks.len: result.known = false
+
+func n3PragmaValue(prag, key: string): string =
+  ## `requires: (x > 0)` in a routine's pragmas: the condition
+  var k = prag.find(key & ":")
+  while k > 0 and prag[k - 1] in IdentChars: k = prag.find(key & ":", k + 1)
+  if k < 0: return ""
+  var i = k + key.len + 1
+  while i < prag.len and prag[i] == ' ': inc i
+  var depth = 0
+  var e = i
+  while e < prag.len:
+    if prag[e] in {'(', '['}: inc depth
+    elif prag[e] in {')', ']'}: dec depth
+    elif prag[e] == ',' and depth == 0: break
+    inc e
+  prag[i ..< e].strip
+
+func n3Args(s: string, open: int): (seq[string], int) =
+  ## the arguments of the call whose ( is at `open`, split at its top-level commas, and where its ) is (-1: not on
+  ## this line)
+  var depth = 0
+  var a = open + 1
+  for i in open ..< s.len:
+    case s[i]
+    of '(', '[', '{': inc depth
+    of ')', ']', '}':
+      dec depth
+      if depth == 0:
+        if s[a ..< i].strip.len > 0: result[0].add s[a ..< i].strip
+        result[1] = i
+        return
+    of ',':
+      if depth == 1:
+        result[0].add s[a ..< i].strip
+        a = i + 1
+    else: discard
+  result[1] = -1
+
+proc nim3CodeChecks(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## a call whose literal arguments break the routine's {.requires: …} (`contract`); delay(f(…)) of a passive proc
+  ## with a var, out or lent parameter (`passive`) — nimony's own errors, before it compiles
+  let sc = try: nxScope(f) except CatchableError: nil
+  if sc == nil: return
+  var said = 0
+  for l, c in code:
+    if '(' notin c: continue
+    var k = c.find('(')
+    while k >= 0 and said < 100:
+      var ma = k
+      while ma > 0 and c[ma - 1] in IdentChars: dec ma
+      if ma < k and c[ma] notin {'0'..'9'} and (ma == 0 or c[ma - 1] != '.'):
+        let name = c[ma ..< k]
+        # (one routine of that name in scope: an overload ned cannot tell apart is not judged)
+        var routs: seq[NxSym]
+        for r in nxLookup(sc, name):
+          if r.sym.kind in {nxProc, nxFunc, nxMethod, nxIterator, nxConverter}: routs.add r.sym
+        let (args, close) = n3Args(c, k)
+        if name == "delay" and args.len == 1:
+          # delay(handle(c)): the callee's continuation outlives this frame
+          let inner = args[0]
+          let ip = inner.find('(')
+          if ip > 0:
+            let callee = inner[0 ..< ip].strip
+            var cs: seq[NxSym]
+            for r in nxLookup(sc, callee):
+              if r.sym.kind in {nxProc, nxFunc, nxMethod}: cs.add r.sym
+            if cs.len == 1 and "passive" in cs[0].pragmas:
+              for prm in cs[0].params:
+                let t = prm.typ.strip
+                if t.startsWith("var ") or t.startsWith("out ") or t.startsWith("lent "):
+                  let at = c.find(callee, k)
+                  res.add Diag(line: l, col: max(0, at), eline: l, ecol: max(0, at) + callee.len, sev: 1, src: "ned",
+                               rule: "passive", msg: "Nim 3: `delay` hands `" & callee & "` to a scheduler, so its " &
+                               "continuation can outlive this frame; parameter `" & prm.name & ": " & t &
+                               "` would alias a location that is already gone. Take it as `sink` instead")
+                  inc said
+                  break
+        elif routs.len == 1 and "requires" in routs[0].pragmas and args.len > 0 and close > 0:
+          let s = routs[0]
+          let cond = n3PragmaValue(s.pragmas, "requires")
+          if cond.len > 0 and args.len <= s.params.len:
+            var vals: Table[string, BiggestInt]
+            var shown: seq[string]
+            var ok = true
+            for i, a in args:
+              var pname = s.params[i].name
+              var av = a
+              let eq = a.find('=')
+              if eq > 0 and a[0 ..< eq].strip.allCharsInSet(IdentChars) and (eq + 1 >= a.len or a[eq + 1] != '='):
+                pname = a[0 ..< eq].strip                  # (a named argument)
+                av = a[eq + 1 .. ^1].strip
+              let v = n3Eval(av, initTable[string, BiggestInt]())
+              if v.known:
+                vals[pname] = v.v
+                shown.add pname & " = " & av
+              elif av.len == 0: ok = false
+            if ok and vals.len > 0:
+              let r = n3Eval(cond, vals)
+              if r.known and r.v == 0:
+                res.add Diag(line: l, col: ma, eline: l, ecol: close + 1, sev: 1, src: "ned", rule: "contract",
+                             msg: "Nim 3: contract violated: requires " & cond & " (" & shown.join(", ") & ")")
+                inc said
+      k = c.find('(', k + 1)

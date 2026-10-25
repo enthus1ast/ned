@@ -40,7 +40,8 @@ proc ensureOutline(b: Buffer) =
     b.outlineReqAt = b.changeId
     return
   if b.lang.mode == lmNif and b.lines.len < 300_000:
-    b.outline = nifOutlineOf(b)                    # (NIF: its routines, types, globals)
+    # (NIF: its routines, types, globals — pnak's lockfile: its packages)
+    b.outline = if extractFilename(b.path) == "pnak.nif": pnakOutlineOf(b) else: nifOutlineOf(b)
     b.outlineAt = b.changeId
     b.outlineReqAt = b.changeId
     return

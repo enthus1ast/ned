@@ -441,6 +441,7 @@ proc lspExtras(b: Buffer) =
 proc cmdDefinition() =
   if ceIsView(buf()) and ceDefinition(buf()): return     # (Compiler Explorer: a label, a function of the file)
   let b = buf()
+  if pnakDefinition(b, b.primary.head): return   # pnak.nif: the package's checkout (not its URL in the browser)
   if openLinkAt(b, b.primary.head): return       # a link: #include "x.h", @import, a URL in a comment
   if b.lang.mode == lmNim and pragmaStringGoto(b, b.primary.head): return  # header: "…" opens it, importc: "…" its C
   if nbPackageDefinition(b, b.primary.head): return                       # a .nimble's requires: the package
@@ -543,6 +544,10 @@ proc cmdHover(auto = false) =
   let asmH = asmHoverAt(b, p)                      # assembly: what the instruction or the register is
   if asmH.len > 0:
     showHoverAuto(asmH, auto)
+    return
+  let pnakH = pnakHover(b, p)                      # pnak.nif: the package, its commit, its checkout
+  if pnakH.len > 0:
+    showHoverAuto(pnakH, auto)
     return
   let nifH = nifHover(b, p)                        # NIF: what the tag is, where the node comes from
   if nifH.len > 0:

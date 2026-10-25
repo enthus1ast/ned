@@ -342,6 +342,92 @@ proc sqlHover*(lines: openArray[string], line, col: int, sc: SqlSchema): string 
         if cl.name.lowerWord == lw:
           return "**" & sc.tables[tn].name & "." & cl.name & "** — column" & (if cl.typ.len > 0: " · " & cl.typ else: "")
 
+proc sqlColumnNote(sc: SqlSchema, tn: string, x: SqlToken, res: var seq[WebDiag]) =
+  ## a column the table does not have (with the nearest one it has)
+  let cn = x.text.unquote
+  var names: seq[string]
+  for cl in sc.tables[tn].cols:
+    if cl.name.lowerWord == cn.lowerWord: return
+    names.add cl.name
+  if cn.lowerWord in ["rowid", "oid", "_rowid_", "ctid", "excluded"]: return
+  let near = closest(cn, names)
+  res.add WebDiag(line: x.line, col: x.col, eline: x.line, ecol: x.col + x.text.len, sev: 2, rule: "sql-column",
+                  msg: "table '" & sc.tables[tn].name & "' has no column '" & cn & "'" &
+                       (if near.len > 0: " — did you mean '" & near & "'?" else: ""))
+
+proc sqlInsertChecks(tks: seq[SqlToken], sc: SqlSchema, res: var seq[WebDiag]) =
+  ## INSERT INTO t (a, b) VALUES (…): columns t has, and as many values in each row as columns named (or as the
+  ## table has, when none are named); UPDATE t SET a = …: columns t has
+  template w(k: int): string = (if k < tks.len and tks[k].kind in {stWord, stQuoted}: tks[k].text.lowerWord else: "")
+  for k in 0 ..< tks.len:
+    if w(k) == "into" and k > 0 and w(k - 1) in ["insert", "replace", "ignore", "or"] and k + 1 < tks.len:
+      let tn = tks[k + 1].text.unquote.lowerWord
+      if tn notin sc.tables or sc.tables[tn].cols.len == 0 or (k + 2 < tks.len and tks[k + 2].text == "."): continue
+      var m = k + 2
+      var named = -1
+      if m < tks.len and tks[m].text == "(":
+        # the column list
+        named = 0
+        inc m
+        while m < tks.len and tks[m].text != ")":
+          if tks[m].kind in {stWord, stQuoted}:
+            inc named
+            sqlColumnNote(sc, tn, tks[m], res)
+          inc m
+        inc m
+      if w(m) != "values": continue
+      inc m
+      let want = if named >= 0: named else: sc.tables[tn].cols.len
+      # each row: ( … ) , ( … )
+      while m < tks.len and tks[m].text == "(":
+        let open = tks[m]
+        var depth = 0
+        var n = 1
+        var any = false
+        var holders = 0
+        while m < tks.len:
+          let t = tks[m].text
+          if t == "(": inc depth
+          elif t == ")":
+            dec depth
+            if depth == 0: break
+          elif t == "," and depth == 1: inc n
+          elif depth >= 1:
+            any = true
+            if tks[m].kind == stPlaceholder and depth == 1: inc holders
+          inc m
+        if any and n != want and not (named < 0 and n < want):
+          res.add WebDiag(line: open.line, col: open.col, eline: open.line, ecol: open.col + 1, sev: 1,
+                          rule: "sql-insert", msg: $n & " values for " & $want & " columns" &
+                          (if named >= 0: " (the ones named)" else: " (all of " & sc.tables[tn].name & "'s)"))
+        elif any and named < 0 and n < want:
+          # (PostgreSQL fills the rest with their defaults; SQLite and MySQL refuse it)
+          res.add WebDiag(line: open.line, col: open.col, eline: open.line, ecol: open.col + 1, sev: 3,
+                          rule: "sql-insert", msg: $n & " values for " & $want & " columns (all of " &
+                          sc.tables[tn].name & "'s): SQLite and MySQL want one for each — name the columns: " &
+                          "INSERT INTO " & sc.tables[tn].name & " (…)")
+        inc m
+        if m < tks.len and tks[m].text == ",": inc m
+    elif w(k) == "update" and k + 1 < tks.len:
+      let tn = tks[k + 1].text.unquote.lowerWord
+      if tn notin sc.tables or sc.tables[tn].cols.len == 0: continue
+      var m = k + 2
+      while m < tks.len and w(m) != "set": inc m
+      if m >= tks.len: continue
+      inc m
+      # a = …, b = … up to WHERE (or FROM, RETURNING)
+      var depth = 0
+      var expectCol = true
+      while m < tks.len and not (depth == 0 and w(m) in ["where", "from", "returning", "order", "limit"]):
+        let t = tks[m].text
+        if t == "(": inc depth
+        elif t == ")": dec depth
+        elif t == "," and depth == 0: expectCol = true
+        elif expectCol and depth == 0 and tks[m].kind in {stWord, stQuoted}:
+          if m + 1 < tks.len and tks[m + 1].text == "=": sqlColumnNote(sc, tn, tks[m], res)
+          expectCol = false
+        inc m
+
 proc sqlChecks*(lines: openArray[string], sc: SqlSchema): seq[WebDiag] =
   ## a table no CREATE TABLE of the project makes, a column its table does not have (`t.col`) — only when the
   ## project creates some tables (else nothing is known to compare with)
@@ -398,6 +484,7 @@ proc sqlChecks*(lines: openArray[string], sc: SqlSchema): seq[WebDiag] =
           result.add WebDiag(line: x.line, col: x.col, eline: x.line, ecol: x.col + x.text.len, sev: 2,
                              rule: "sql-column", msg: "table '" & sc.tables[tn].name & "' has no column '" & cn & "'" &
                              (if near.len > 0: " — did you mean '" & near & "'?" else: ""))
+      sqlInsertChecks(tks, sc, result)
     a = e + 1
   sortDiags(result)
 

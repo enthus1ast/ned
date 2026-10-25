@@ -221,6 +221,7 @@ include ned/ui/contextmenus
 include ned/editor/decompile
 include ned/editor/cexplorer
 include ned/nim/nifview
+include ned/nim/pnak
 include ned/nim/astview
 include ned/git/mergeeditor
 include ned/ui/frame

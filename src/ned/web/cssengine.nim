@@ -331,6 +331,47 @@ proc cssHover*(lines: openArray[string], line, col: int): string =
     let t = htmlTag(lw)
     if t >= 0: return "**" & lw & "** — HTML element\n\n" & HtmlTags[t][1]
 
+proc cssVarTypos*(lines: openArray[string]): seq[WebDiag] =
+  ## var(--name) where the sheet sets custom properties but not this one, and one a letter or two away (a typo:
+  ## the browser uses nothing) — a name set nowhere near is left alone (another sheet may set it), and so is one
+  ## with a fallback (var(--name, 4px): unset on purpose, often)
+  var defs: seq[string]
+  var uses: seq[(string, int, int)]
+  var inComment = false
+  for l, s in lines:
+    var i = 0
+    while i < s.len:
+      if inComment:
+        if s.continuesWith("*/", i):
+          inComment = false
+          inc i
+        inc i
+        continue
+      if s.continuesWith("/*", i):
+        inComment = true
+        i += 2
+        continue
+      if s.continuesWith("--", i) and (i == 0 or s[i - 1] notin {'a'..'z', 'A'..'Z', '0'..'9', '-', '_'}):
+        var e = i + 2
+        while e < s.len and s[e] in {'a'..'z', 'A'..'Z', '0'..'9', '-', '_'}: inc e
+        let name = s[i ..< e]
+        var k = e
+        while k < s.len and s[k] == ' ': inc k
+        let isUse = i >= 4 and s[0 ..< i].strip(leading = false).endsWith("var(")
+        # (var(--x, fallback): one that may be unset on purpose — a library's hook for its users)
+        if isUse and not (k < s.len and s[k] == ','): uses.add (name, l, i)
+        elif k < s.len and s[k] == ':' and name.len > 2 and name notin defs: defs.add name
+        i = e
+        continue
+      inc i
+  if defs.len == 0: return
+  for (name, l, c) in uses:
+    if name in defs: continue
+    let near = closest(name, defs)
+    if near.len > 0:
+      result.add WebDiag(line: l, col: c, eline: l, ecol: c + name.len, sev: 2, rule: "css-var",
+                         msg: "'" & name & "' is not set in this sheet — '" & near & "'?")
+
 proc cssChecks*(lines: openArray[string], strict = true): seq[WebDiag] =
   ## the mistakes a browser drops silently: an unknown property, a value its property does not take, a missing
   ## `;` between declarations on two lines, a brace too many or never closed (strict: the braces too — not for CSS
@@ -474,4 +515,5 @@ proc cssChecks*(lines: openArray[string], strict = true): seq[WebDiag] =
   if strict:
     for (bk, l, c) in stack:
       result.add WebDiag(line: l, col: c, eline: l, ecol: c + 1, sev: 1, rule: "css-brace", msg: "'{' is never closed")
+  result.add cssVarTypos(lines)
   sortDiags(result)

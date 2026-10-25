@@ -225,6 +225,30 @@ proc syncPluginList(): JsonNode =
     except CatchableError: discard
     result.add %*{"name": n, "url": url}
 
+# (the other device's plugins offered here once: not offered again at each sync — and still listed in this device's
+# bundle, so that not installing one here does not take it off the list, and off the other device's next sync)
+proc syncOfferedPath(): string = stateDir() / "settings-sync-offered.json"
+
+proc syncOffered(): OrderedTable[string, string] =
+  ## the plugins offered here: name → its git address
+  try:
+    if fileExists(syncOfferedPath()):
+      for k, v in parseJson(readFile(syncOfferedPath())): result[k] = v.getStr
+  except CatchableError: discard
+
+proc syncOfferedSave(t: OrderedTable[string, string]) =
+  var j = newJObject()
+  for k, v in t: j[k] = %v
+  try: writeFileSafe(syncOfferedPath(), j.pretty & "\n", 0o600)
+  except CatchableError: discard
+
+proc syncNotInstalled(): seq[(string, string)] =
+  ## the plugins offered here and not installed: (name, address)
+  var have: HashSet[string]
+  for x in jitems(syncPluginList()): have.incl x{"name"}.getStr
+  for n, u in syncOffered():
+    if n notin have and u.len > 0: result.add (n, u)
+
 proc syncBundleNow(): JsonNode =
   ## this device's bundle, its plugins too, without what sync.exclude keeps here
   result = syncBundle()
@@ -232,7 +256,9 @@ proc syncBundleNow(): JsonNode =
   if ex.len > 0 and result{"settings"} != nil:
     for k in ex:
       if result["settings"].hasKey(k): result["settings"].delete(k)
-  result["plugins"] = syncPluginList()
+  var ps = syncPluginList()
+  for (n, u) in syncNotInstalled(): ps.add %*{"name": n, "url": u}
+  result["plugins"] = ps
 
 func syncSame(a, b: JsonNode): bool =
   (a == nil and b == nil) or (a != nil and b != nil and $a == $b)
@@ -347,21 +373,38 @@ proc syncApplyMerged(merged, base: JsonNode): string =
       writeFileSafe(spellUserFile(), ws.join("\n") & (if ws.len > 0: "\n" else: ""))
       spellReset()
   except CatchableError: discard
-  # the other device's plugins this one has not: installed when you say so
+  # the other device's plugins this one has not: installed when you say so — offered once (Settings sync: install
+  # the other device's plugins offers them again)
   var have: HashSet[string]
   for x in jitems(syncPluginList()): have.incl x{"name"}.getStr
+  var offered = syncOffered()
   var missing: seq[(string, string)]
   for x in jitems(merged{"plugins"}):
     let n = x{"name"}.getStr
-    if n.len > 0 and n notin have and x{"url"}.getStr.len > 0: missing.add (n, x{"url"}.getStr)
+    if n.len > 0 and n notin have and n notin offered and x{"url"}.getStr.len > 0: missing.add (n, x{"url"}.getStr)
   if missing.len > 0:
     var names: seq[string]
-    for (n, _) in missing: names.add n
+    for (n, u) in missing:
+      names.add n
+      offered[n] = u
+    syncOfferedSave(offered)
     let ms = missing
     toast("Your other device has the plugins " & names.join(", ") & " — install them here? (each asks its " &
           "permissions)", 3, "Install", proc() =
             for (n, u) in ms: plugInstall(u, n), 20000)
   ""
+
+proc cmdSyncOfferedPlugins() =
+  ## the other device's plugins offered here before and not installed: offered again
+  let ms = syncNotInstalled()
+  if ms.len == 0:
+    info("No plugins of your other device are waiting here (Settings sync: sync now brings its list)")
+    return
+  var names: seq[string]
+  for (n, _) in ms: names.add n
+  toast("Your other device's plugins not installed here: " & names.join(", ") & " — install them? (each asks its " &
+        "permissions)", 3, "Install", proc() =
+          for (n, u) in ms: plugInstall(u, n), 20000)
 
 var syncBusy = false
 

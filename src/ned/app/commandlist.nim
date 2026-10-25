@@ -338,6 +338,8 @@ proc initCommands() =
   add("Settings sync: export to a file…", "", askPath("Export your settings to", "~/" & SyncFile, proc(t: string) = syncExport(t)))
   add("Settings sync: import from a file…", "", askPath("Import settings from", "~/" & SyncFile, proc(t: string) = syncImport(t)))
   add("Settings sync: sync now (both ways)", "this device's changes and the other's merged, key by key", syncBoth())
+  add("Settings sync: install the other device's plugins", "the ones offered here before and not installed",
+      cmdSyncOfferedPlugins())
   add("Settings sync: push (save to your settings repository)", "", syncGit(true))
   add("Settings sync: pull (load from your settings repository)", "", syncGit(false))
   add("Settings sync: set the repository…", "", askText("Your settings repository (a private git repository you can push to)",
@@ -440,6 +442,10 @@ proc initCommands() =
   add("Hex: copy as a C array", "", (if buf().hex != nil: buf().hexCopy("c") else: info("Open a binary file")))
   add("Hex: insert mode on/off", "Insert", (if buf().hex != nil: discard buf().hexKey(Key(kind: kInsert)) else: info("Open a binary file")))
   add("Hex: show as text", "", cmdHexAsText())
+  add("Nim 3: pnak fetch (the project's packages, in deps/)", "pnak checks out the packages the .nimble (or " &
+      "pnak.nif) asks for and writes nimony.paths", cmdPnak("fetch"))
+  add("Nim 3: pnak pin (write pnak.nif)", "every package the project needs, theirs too, at the commit in use: a " &
+      "lockfile", cmdPnak("pin"))
   add("Nim 3: port this file with AI", "", cmdNim3PortAi())
   add("Nim 3: this project is Nim 3 (nimony)", "", setProjectSetting("nim.compiler", %"nimony"))
   add("Nim 3: this project is Nim 2 (nim)", "", setProjectSetting("nim.compiler", %"nim"))

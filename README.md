@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.26](#whats-new-in-626) · [6.25](CHANGELOG.md#whats-new-in-625) · [6.24.1](CHANGELOG.md#whats-new-in-6241) · [6.24](CHANGELOG.md#whats-new-in-624) · [older releases](CHANGELOG.md)
+- [What's new in 6.27](#whats-new-in-627) · [6.26](CHANGELOG.md#whats-new-in-626) · [6.25](CHANGELOG.md#whats-new-in-625) · [6.24.1](CHANGELOG.md#whats-new-in-6241) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,98 +30,81 @@ library, and builds to one binary of about 12 MB.
 
 ---
 
-## What's new in 6.26
+## What's new in 6.27
 
-6.26 brings **notebooks** (a Nim or Python file's `# %%` cells, their output under each one), **memory checks**
-for Nim, C and C++, **tests written from running a proc**, the profile as a **flame graph** and two profiles
-compared, **pictures** that open as pictures, a **Markdown preview** with tables, task lists and links, **plugin
-permissions**, **settings sync both ways**, a C engine whose headers see the macros of the file that includes them,
-and a wider **scoreboard** — with Windows tested in CI.
+6.27 puts **ned's engines head to head with nimsuggest, nimlangserver and nph** and makes `nedls` a language
+server for **every language ned knows** (with a VS Code extension), adds a **JSON engine**, **JavaScript across
+modules**, more checks for HTML, CSS and SQL, **NIF and more of Nim 3** (contracts, passive procs, pnak), **Nim
+for a C header** made by ned itself, **fifteen new plugins of its own** — six languages among them — and **six
+themes easy on the eyes** for OLED and LCD screens. Windows Terminal now gets its colours right.
 
-**Notebooks.** In a Nim or Python file with `# %%` lines, **Ctrl+Enter** — or **▶ run** on a cell's line, a tap —
-runs the cell and shows its output under it (**Out [n] · 12 ms**). The cells share one session, as in Jupyter; a
-cell changed since it ran says so; an error is shown under its cell and in Problems on its line; Shift+Enter runs
-the cell and goes to the next. Run › Notebook has *run all*, *run the cells above*, *clear the outputs*, *restart
-the session*. Nim cells run in Nim's VM (`nim secret`, at once); `notebook.nim` = `compiled` runs them as a program
-for code that needs C libraries. The outputs are not saved in the file.
-[Notebooks](docs/guide/run-and-debug.md#notebooks).
+**Windows Terminal**: some themes showed on a blue, teal or grey background. ned now takes Windows Terminal (and
+the Windows console, also through WSL) for the 24-bit terminal it is, and where a terminal has only 256 colours
+it picks the nearest of them for each colour, not one channel at a time. *Check setup* says which it uses and why.
 
-**Run with memory checks** (the Run menu): the program built with the compiler's address and undefined-behaviour
-checks and run — a write past the end of a block, a use after `free`, a double free, a signed overflow, memory never
-freed — each in Problems on its line, with where the block was made and freed; the program goes on after the first,
-so one run finds them all. valgrind when the compiler has neither. Nim, C and C++.
+**The Nim engine against nimsuggest** — references now tell an overloaded name's uses apart (`len`, `addInt`),
+and a type in a long proc header with pragmas is read (57% → 96% the same as nimsuggest's). **nedls against
+nimlangserver**, file by file: hover, definition and member completion the same as the compiler's far more often,
+answers in about 2 ms instead of 260, ready in 50 ms instead of seconds. **The formatter against nph**: 99.6% of
+the lines of Nim's own library formatted the same, two to three times faster. The scoreboard below has them all,
+and CI keeps them from going down.
 
-**Tests from running a proc** — *Nim: write tests for this proc (from running it)*: the proc at the cursor called
-with sample arguments (0, 1, −1, 42, empty and short strings, an enum's ends …), what each call returned written as
-a `check` and an exception as `expect`, in `tests/t<module>.nim`; then run with coverage. They keep the proc doing
-what it does now — read the values.
+**nedls**, more of LSP: the call and type hierarchies, implementations, selection ranges, code lenses (▶ run a
+test, a suite, a nimble task), document links, the imports fixed when a file is renamed. And **every language
+ned's own engines know**: C and C++ (completion, hover, definition through the `#include`s, references and rename
+across the project, the compiler's errors as you type with its fix-its), JavaScript (definition, references and
+rename across the modules that import a name), HTML, CSS, SQL and JSON — and formatting for each. **VS Code**:
+the extension in `editors/vscode` (each release has it as a `.vsix`). [nedls](docs/guide/nim.md#nedls-neds-engine-in-other-editors).
 
-**Profiling:** *Nim: flame graph of the profile* — the call stacks the profiler saw, each box as wide as its share
-of the time, yours in warm colours, the libraries' in cool ones; a tap on a box looks inside it, the top bar goes
-back. *Nim: compare with the previous profile*: each proc's share before and after a change.
+**JSON**, ned's own engine: a comma missing or one too many, a string not closed, a key twice, comments where
+JSON takes none (JSONC files take them) — as you type; for `package.json`, `tsconfig.json`, `atlas.config`,
+`atlas.lock`, `nimble.lock`, ned's own settings and `.ned/lint.json`, the keys and values each takes, completed,
+explained on hover and checked (`"nmae" is not a key of package.json — "name"?`); the keys in the Outline and the
+key path at the cursor in the breadcrumbs.
 
-**Pictures** (`.png`, `.jpg`, `.gif`, `.bmp`, `.webp`) open as the picture, fitted, with its size at the top: + and
-− zoom, the arrows move, Tab shows the bytes. kitty, Ghostty, iTerm2, WezTerm and sixel terminals draw it at their
-own resolution; elsewhere — Termux, tmux — it is drawn in the text's cells.
+**JavaScript across modules**: F12 on an imported name opens the module it comes from; *Find references* and
+rename reach the files that import it; the Outline lists functions, classes with their members, constants.
+**HTML**: a link to `#id` no element has, a link or `src` to a file that is not beside the page, an attribute a
+letter from one the element takes (`clas`). **CSS**: `var(--primay)` where the sheet sets `--primary`. **SQL**:
+an `INSERT` with more or fewer values than columns, a column the table does not have in its column list or in
+`UPDATE … SET`.
 
-**The Markdown preview** (View › Markdown preview) follows the file — the cursor's line at the same height, marked
-▎ — and now draws tables (box-drawn, aligned, long cells wrapped), task lists (☐ ☑), nested lists and quotes,
-GitHub's notes (`[!NOTE]`, `[!TIP]`, `[!WARNING]` …), ~~strikethrough~~ and pictures. A tap on a link opens it: a
-heading of the file goes there, a web address to the browser, a file beside.
+**.nimble**: a `requires` package name completed from nimble's package list, explained on hover (F12: its
+checkout), and one the list does not have flagged with the one meant.
 
-**Plugin permissions.** Before a plugin runs, ned reads its source for what it does beyond editing — run programs,
-change files, use the clipboard or the network — and asks you once, showing what, why (the plugin says, with
-`permission("shell", "sends your requests with curl")`) and where in its source. Until you allow it, it waits; at
-run time what it was not allowed is refused with an error that names the permission. *Plugins: permissions…* (and
-each plugin's menu) takes them back. Its own data folder needs none: `writeData`, `appendData`, `readData`. The
-plugins you had on keep what they use. [Permissions](docs/plugins/README.md).
+**Nim 3 (Nimony)**: `.nif` files have their colours, an Outline and a hover that says what each tag is and where
+the node comes from in the Nim source (F12 goes there); *Nim 3: the NIF of this file beside it*, each side
+following the cursor in the other. As you type: a call whose arguments break the routine's `{.requires: …}`
+(*contract violated*), `delay()` of a passive proc that takes a `var`, a name written in another case than it is
+declared (names are case-sensitive in Nim 3). **pnak**, Nim 3's package tool: *pnak fetch* and *pnak pin*;
+`pnak.nif`, its lockfile, with its packages in the Outline, hover and F12 to each one's checkout, and its problems
+(no commit, a branch's name, listed twice, not fetched, at another commit). [Nim 3](docs/guide/nim.md#nim-3-nimony).
 
-**Settings sync both ways** — *Settings sync: sync now*: this device's changes and the other's merged setting by
-setting (changed on one side: that side's; on both: this device's, and ned says which), words and the list of your
-plugins put together (one your other device has is offered for installing). `sync.auto`: `start`, `quit` or
-`both`; `sync.exclude`: settings that stay on this device.
+**Nim for a C header** — *Nim: wrap a C header…* — by ned's own C engine, nothing to install: the functions as
+`importc` procs, structs and unions as objects (bit fields too), enums, function-pointer types, `#define`
+constants, globals. (c2nim or futhark: *… with c2nim*.)
 
-**The C engine:** a header's `#if`s see the macros of the file that includes it — `#define USE_FAST` before
-`#include "config.h"` — through the headers between; a header read two ways is kept each way. C++: a class name goes to the class, not to its constructors.
+**Fifteen new plugins of ned's own** (Plugins dock › AVAILABLE): **regex-lab** (a pattern's matches lit up in the
+file, a replace checked first, a pattern explained), **transform** (sort, unique, number, encode and decode, JSON
+pretty, add up), **sqlite** (a database's tables in the dock and in completion, the query at the cursor run),
+**web-preview** (the page in your browser, served from the project), **commit-helper** (a commit message drafted
+from what is staged), **nim-eval** (the selection run, its output beside it), **license-header**, **dotenv**
+(`.env` files checked), **mermaid** (diagrams drawn), and the languages **Zig, Julia, OCaml, Crystal, Dart** and
+**Clojure** — colours, indentation, F5, snippets, an outline, and their language servers and formatters when they
+are installed. Plugins can use ned's regular expressions (`regexMatches`, `regexReplace`).
+[ned's own plugins](docs/plugins/available.md).
 
-**The Nim engine's checks while you type** now also run in a file that `include`s others, when ned finds them —
-most of the standard library's modules (they include `system/inclrtl`) among them.
+**Six themes easy on the eyes**: `oled-black` (true black, those pixels off, soft grey text), `oled-warm` (no
+blue, for the evening), `oled-dim` (for a dark room), and for LCD screens `lcd-soft`, `lcd-warm` and the light
+`lcd-paper`. [Themes](docs/guide/themes.md).
 
-**Windows tested in CI**: `ned.exe` started in a Windows console (ConPTY), typed into, saved and quit; `nedls.exe`
-and `nedfmt.exe` answering; and the unit tests that do not need a POSIX system.
+**Fixed:** in a picture's bytes Tab goes between the hex and the text columns (Shift+Tab: the picture again);
+Settings sync offers a plugin of your other device once, not at every sync (*install the other device's plugins*
+offers it again); a NIF file with a word after `@` that is no number no longer stops its view.
 
-**Fixed:** a plugin's `clipboard()` is what Ctrl+V would paste, also where ned cannot read the system's clipboard
-(no helper: it was empty there), and `setClipboard` gives ned's own paste the text too.
-
-**The scoreboard** now also measures references against nimsuggest's, the engine's checks as you type against
-`nim check` (mistakes made on purpose: found; clean files: no wrong error), and the C++ engine against clangd on
-tinyxml2. References are where ned differs most from nimsuggest: the uses of an overloaded name (`len`, `addInt`)
-are not yet told apart overload by overload. Today's:
+Today's scoreboard:
 
 <!-- scoreboard -->
-| | score | at least |
-|---|---|---|
-| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
-| nim: go to definition, the same place | 100.0% ✓ | 98% |
-| nim: a variable's type, the same | 98.7% ✓ | 97% |
-| nim: member completion, ned | 98.4% ✓ | 96% |
-| nim: member completion, nimsuggest (not checked) | 70.9% |  |
-| nim: references in the file, the same as nimsuggest's | 57.4% ✓ | 52% |
-| nim: as you type, the compiler's errors found | 86.4% ✓ | 75% |
-| nim: as you type, clean files with no wrong error | 100.0% ✓ | 85% |
-| nedls: completion: the name offered | 100.0% ✓ | 98% |
-| nedls: hover: its doc comment | 100.0% ✓ | 97% |
-| nedls: hover: the same declaration | 98.9% ✓ | 97% |
-| nedls: hover: there | 100.0% ✓ | 98% |
-| nedls: signature help: the routine | 100.0% ✓ | 97% |
-| c: go to definition, the same as clangd's | 93.5% ✓ | 90% |
-| c: member completion, ned | 96.9% ✓ | 95% |
-| c: member completion, clangd (not checked) | 96.9% |  |
-| c: hover, the same parameters | 94.4% ✓ | 92% |
-| c++: go to definition, the same as clangd's | 94.7% ✓ | 90% |
-| c++: member completion, ned | 100.0% ✓ | 95% |
-| c++: member completion, clangd (not checked) | 96.2% |  |
-| c++: hover, the same parameters | 96.2% ✓ | 92% |
 <!-- /scoreboard -->
 
 ---
@@ -171,10 +154,11 @@ hierarchy, document links, pull diagnostics and formatting as you type — and a
 as ruff), their problems and fixes merged; formatters per language; debugging through the Debug Adapter Protocol (Python, C, C++, Rust, Go, JS/TS …) with logpoints and
 stops when a value changes; tests for pytest, go
 test, cargo test, PHPUnit, dotnet test and Gradle/Maven; coverage for **Nim**, Python, Go, Rust, JS/TS and any lcov file;
-Send to REPL, and `# %%` cells run as a notebook (the output under each cell); Emmet for HTML and CSS; **ned's own CSS, HTML, SQL and JavaScript** — completion,
+Send to REPL, and `# %%` cells run as a notebook (the output under each cell); Emmet for HTML and CSS; **ned's own CSS, HTML, SQL, JavaScript and JSON** — completion,
 hover and problems in their files and in Nim strings (and a page's `<script>`s), with your project's class names,
 tables and columns, the `?` of a query counted against the values it is given, a script's classes and the
-browser's globals (`web.engine`). → [Running, testing and debugging](docs/guide/run-and-debug.md) · [Settings](docs/guide/settings.md) · [Formatting](docs/guide/formatting.md)
+browser's globals, JavaScript's definitions and references across its modules, and the keys and values of
+package.json, tsconfig.json, atlas's and nimble's files and ned's settings (`web.engine`). → [Running, testing and debugging](docs/guide/run-and-debug.md) · [Settings](docs/guide/settings.md) · [Formatting](docs/guide/formatting.md)
 
 **Nim IDE** — a built-in Nim engine (completion with documentation beside the list, hover, go to definition,
 signature help, references with counts beside each declaration (operators too), rename, type hierarchy, go to
@@ -261,7 +245,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.26.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.27.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -316,7 +300,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.26.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.27.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

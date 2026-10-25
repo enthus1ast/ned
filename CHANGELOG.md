@@ -1,6 +1,98 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-626). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-627). Older releases:
+
+## What's new in 6.26
+
+6.26 brings **notebooks** (a Nim or Python file's `# %%` cells, their output under each one), **memory checks**
+for Nim, C and C++, **tests written from running a proc**, the profile as a **flame graph** and two profiles
+compared, **pictures** that open as pictures, a **Markdown preview** with tables, task lists and links, **plugin
+permissions**, **settings sync both ways**, a C engine whose headers see the macros of the file that includes them,
+and a wider **scoreboard** — with Windows tested in CI.
+
+**Notebooks.** In a Nim or Python file with `# %%` lines, **Ctrl+Enter** — or **▶ run** on a cell's line, a tap —
+runs the cell and shows its output under it (**Out [n] · 12 ms**). The cells share one session, as in Jupyter; a
+cell changed since it ran says so; an error is shown under its cell and in Problems on its line; Shift+Enter runs
+the cell and goes to the next. Run › Notebook has *run all*, *run the cells above*, *clear the outputs*, *restart
+the session*. Nim cells run in Nim's VM (`nim secret`, at once); `notebook.nim` = `compiled` runs them as a program
+for code that needs C libraries. The outputs are not saved in the file.
+[Notebooks](docs/guide/run-and-debug.md#notebooks).
+
+**Run with memory checks** (the Run menu): the program built with the compiler's address and undefined-behaviour
+checks and run — a write past the end of a block, a use after `free`, a double free, a signed overflow, memory never
+freed — each in Problems on its line, with where the block was made and freed; the program goes on after the first,
+so one run finds them all. valgrind when the compiler has neither. Nim, C and C++.
+
+**Tests from running a proc** — *Nim: write tests for this proc (from running it)*: the proc at the cursor called
+with sample arguments (0, 1, −1, 42, empty and short strings, an enum's ends …), what each call returned written as
+a `check` and an exception as `expect`, in `tests/t<module>.nim`; then run with coverage. They keep the proc doing
+what it does now — read the values.
+
+**Profiling:** *Nim: flame graph of the profile* — the call stacks the profiler saw, each box as wide as its share
+of the time, yours in warm colours, the libraries' in cool ones; a tap on a box looks inside it, the top bar goes
+back. *Nim: compare with the previous profile*: each proc's share before and after a change.
+
+**Pictures** (`.png`, `.jpg`, `.gif`, `.bmp`, `.webp`) open as the picture, fitted, with its size at the top: + and
+− zoom, the arrows move, Tab shows the bytes. kitty, Ghostty, iTerm2, WezTerm and sixel terminals draw it at their
+own resolution; elsewhere — Termux, tmux — it is drawn in the text's cells.
+
+**The Markdown preview** (View › Markdown preview) follows the file — the cursor's line at the same height, marked
+▎ — and now draws tables (box-drawn, aligned, long cells wrapped), task lists (☐ ☑), nested lists and quotes,
+GitHub's notes (`[!NOTE]`, `[!TIP]`, `[!WARNING]` …), ~~strikethrough~~ and pictures. A tap on a link opens it: a
+heading of the file goes there, a web address to the browser, a file beside.
+
+**Plugin permissions.** Before a plugin runs, ned reads its source for what it does beyond editing — run programs,
+change files, use the clipboard or the network — and asks you once, showing what, why (the plugin says, with
+`permission("shell", "sends your requests with curl")`) and where in its source. Until you allow it, it waits; at
+run time what it was not allowed is refused with an error that names the permission. *Plugins: permissions…* (and
+each plugin's menu) takes them back. Its own data folder needs none: `writeData`, `appendData`, `readData`. The
+plugins you had on keep what they use. [Permissions](docs/plugins/README.md).
+
+**Settings sync both ways** — *Settings sync: sync now*: this device's changes and the other's merged setting by
+setting (changed on one side: that side's; on both: this device's, and ned says which), words and the list of your
+plugins put together (one your other device has is offered for installing). `sync.auto`: `start`, `quit` or
+`both`; `sync.exclude`: settings that stay on this device.
+
+**The C engine:** a header's `#if`s see the macros of the file that includes it — `#define USE_FAST` before
+`#include "config.h"` — through the headers between; a header read two ways is kept each way. C++: a class name goes to the class, not to its constructors.
+
+**The Nim engine's checks while you type** now also run in a file that `include`s others, when ned finds them —
+most of the standard library's modules (they include `system/inclrtl`) among them.
+
+**Windows tested in CI**: `ned.exe` started in a Windows console (ConPTY), typed into, saved and quit; `nedls.exe`
+and `nedfmt.exe` answering; and the unit tests that do not need a POSIX system.
+
+**Fixed:** a plugin's `clipboard()` is what Ctrl+V would paste, also where ned cannot read the system's clipboard
+(no helper: it was empty there), and `setClipboard` gives ned's own paste the text too.
+
+**The scoreboard** now also measures references against nimsuggest's, the engine's checks as you type against
+`nim check` (mistakes made on purpose: found; clean files: no wrong error), and the C++ engine against clangd on
+tinyxml2. References are where ned differs most from nimsuggest: the uses of an overloaded name (`len`, `addInt`)
+are not yet told apart overload by overload. Today's:
+
+| | score | at least |
+|---|---|---|
+| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
+| nim: go to definition, the same place | 100.0% ✓ | 98% |
+| nim: a variable's type, the same | 98.7% ✓ | 97% |
+| nim: member completion, ned | 98.4% ✓ | 96% |
+| nim: member completion, nimsuggest (not checked) | 70.9% |  |
+| nim: references in the file, the same as nimsuggest's | 57.4% ✓ | 52% |
+| nim: as you type, the compiler's errors found | 86.4% ✓ | 75% |
+| nim: as you type, clean files with no wrong error | 100.0% ✓ | 85% |
+| nedls: completion: the name offered | 100.0% ✓ | 98% |
+| nedls: hover: its doc comment | 100.0% ✓ | 97% |
+| nedls: hover: the same declaration | 98.9% ✓ | 97% |
+| nedls: hover: there | 100.0% ✓ | 98% |
+| nedls: signature help: the routine | 100.0% ✓ | 97% |
+| c: go to definition, the same as clangd's | 93.5% ✓ | 90% |
+| c: member completion, ned | 96.9% ✓ | 95% |
+| c: member completion, clangd (not checked) | 96.9% |  |
+| c: hover, the same parameters | 94.4% ✓ | 92% |
+| c++: go to definition, the same as clangd's | 94.7% ✓ | 90% |
+| c++: member completion, ned | 100.0% ✓ | 95% |
+| c++: member completion, clangd (not checked) | 96.2% |  |
+| c++: hover, the same parameters | 96.2% ✓ | 92% |
 
 ## What's new in 6.25
 

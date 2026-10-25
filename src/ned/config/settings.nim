@@ -661,7 +661,7 @@ proc initSettingDefs() =
        "[\"python3\", \"-m\", \"debugpy.adapter\"], \"launch\": {\"program\": \"$file\", \"cwd\": \"$dir\"}}} — also " &
        "\"build\" (a command run first), \"connect\": true with $port for TCP adapters, \"request\": \"attach\"")
   defS("Editor", "pictures.open", %true, "A .png, .jpg, .gif, .bmp or .webp file opens as a picture (Tab: its bytes, in " &
-       "the hex editor) — else in the hex editor")
+       "the hex editor; Shift+Tab: the picture again) — else in the hex editor")
   defS("Editor", "pictures.draw", %"auto", "How pictures are drawn: auto (the terminal's own way where it has one — " &
        "kitty, iTerm2, sixel — else in cells) · cells (▀, two pixels a cell: any terminal) · kitty · iterm · sixel")
   defS("Run", "notebook.nim", %"vm", "Notebook (a .nim file's # %% cells, Ctrl+Enter): vm — nim secret, one session " &

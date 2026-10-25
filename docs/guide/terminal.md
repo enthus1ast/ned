@@ -158,7 +158,9 @@ servers' `env` values**, which stay on each device.
 - *Settings sync: sync now (both ways)* merges the two: each setting you changed on one device only is taken from
   that device, one removed there is removed here too, and a setting changed on both keeps this device's value (ned
   says which). Words and plugins are put together; a plugin your other device has and this one does not is offered
-  for installing (each asks for its [permissions](../plugins/README.md) as it would anyway).
+  for installing (each asks for its [permissions](../plugins/README.md) as it would anyway). It is offered once: one
+  you do not install stays on the list (the other device keeps it) and is not offered at every sync — *Settings
+  sync: install the other device's plugins* offers it again.
 - `sync.auto` does that on its own: `start` (a few seconds after ned starts), `quit` (as ned quits — a few seconds at
   most) or `both`. `sync.exclude` lists the settings that stay on this device, such as `["terminal.shell"]`.
 
