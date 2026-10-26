@@ -59,9 +59,11 @@ proc openFile(path: string, line = -1, col = -1): Buffer =
     return nil
   var i = bufIndexByPath(full)
   if i < 0:
+    let fetched = remoteFetch(full)        # (a remote server's file outside the folder: to read)
     let b = newBuffer()
     if not b.loadFile(full): return nil
-    if not b.readOnly and isLibraryFile(full):
+    if fetched: b.readOnly = true
+    elif not b.readOnly and isLibraryFile(full):
       b.readOnly = true            # (the standard library, an installed package: not changed by accident)
       b.libLocked = true
     if curBuf in 0..bufs.high and bufs[curBuf].isWelcome():

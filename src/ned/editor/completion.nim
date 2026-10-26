@@ -329,6 +329,7 @@ proc acceptComp() =
     # a postfix template (xs.for) replaces its receiver as well
     let a = if it.postfix > 0 and h.line == compLine: min(it.postfix - 1, h.col) else: min(compStartCol, h.col)
     b.expandSnippet(Pos(line: h.line, col: a), h, it.snippet)
+    if it.addImport.startsWith("#include "): cAddInclude(b, it.addImport)    # (C: the header that declares it)
     return
   b.beginEdit()
   for i in countdown(b.cursors.high, 0):
@@ -340,4 +341,5 @@ proc acceptComp() =
   b.normalize()
   closeComp()
   compItems.setLen(0)
-  if it.addImport.len > 0: b.addImport(it.addImport)      # e.g. initTable → import std/tables
+  if it.addImport.startsWith("#include "): cAddInclude(b, it.addImport)   # C: printf → #include <stdio.h>
+  elif it.addImport.len > 0: b.addImport(it.addImport)      # e.g. initTable → import std/tables

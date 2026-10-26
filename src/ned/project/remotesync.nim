@@ -449,3 +449,18 @@ proc cmdRemoteMenu() =
       discard runFilter(sshCmd(remotes[ri]) & " -O exit 2>&1", "", rootDir, 4000)
       info("Disconnected from " & remotes[ri].host & " — the next save or Run connects again"))
   openActions("Remote (SSH)" & (if ri >= 0: " — " & remotes[ri].host & ":" & remotes[ri].absPath else: ""), items)
+
+proc remoteFetch(local: string): bool =
+  ## a file of the server's that a language server pointed to (a definition in its library): copied over to read,
+  ## when it is not here yet (false: not such a file, or the server did not give it)
+  if remotes.len == 0: return false
+  let (ri, there) = remoteFileOf(local)
+  if ri < 0: return false
+  if fileExists(local): return true
+  let (ok, o, _) = runFilter(sshRun(remotes[ri], "cat " & quoteShell(there)), "", rootDir, 15000)
+  if not ok: return false
+  try:
+    createDir(parentDir(local))
+    writeFile(local, o)
+    true
+  except CatchableError: false

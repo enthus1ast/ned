@@ -104,7 +104,8 @@ proc openaiBody(): JsonNode =
   for mi, m in aiMsgs:
     case m.role
     of 0:
-      msgs.add %*{"role": "user", "content": (if noSys and first: aiSystemPrompt() & "\n\n" & m.text else: m.text)}
+      msgs.add %*{"role": "user", "content": aiUserContent(m, (if noSys and first: aiSystemPrompt() & "\n\n" & m.text
+                                                                else: m.text), "openai")}
       first = false
     of 1:
       var o = %*{"role": "assistant", "content": m.text}
@@ -138,7 +139,7 @@ proc responsesBody(): JsonNode =
   let lastUser = aiLastUser()
   for mi, m in aiMsgs:
     case m.role
-    of 0: items.add %*{"role": "user", "content": m.text}
+    of 0: items.add %*{"role": "user", "content": aiUserContent(m, m.text, "responses")}
     of 1:
       if m.text.len > 0: items.add %*{"role": "assistant", "content": m.text}
       for c in m.calls:
@@ -167,6 +168,12 @@ proc aiPlanInterrupted() =
 
 proc aiFail(msg: string) =
   aiPlanInterrupted()
+  var msg = msg
+  var pics = false
+  for m in aiMsgs:
+    if m.pics.len > 0: pics = true
+  if pics and ("image" in msg.toLowerAscii or "vision" in msg.toLowerAscii or "multimodal" in msg.toLowerAscii):
+    msg.add " — the message has pictures: this model may not read them (choose one that does, or send it without)"
   aiMsgs.add AiMsg(role: 3, text: msg)
   aiBusy = false
   aiPhase = ""
@@ -591,6 +598,7 @@ proc mcpMentionOf(w: string): (McpServer, string) =
   (nil, "")
 
 proc aiSend(text: string, withContext = true, shownAs = "")
+proc aiMentionedPics(t: string, quiet = false): seq[string]
 
 proc mcpFetchMentions(t: string, withContext: bool, shownAs: string): bool =
   ## @server:uri mentions: read them first (the message goes once they are in); true while waiting
@@ -637,7 +645,7 @@ proc aiSend(text: string, withContext = true, shownAs = "") =
   if withContext and cfgAiIncludeFile:
     let ctx = fileContext()
     if ctx.len > 0: full = ctx & "\n\n" & full        # (the @mentions' attachments too, not only the text)
-  aiMsgs.add AiMsg(role: 0, text: full, shown: (if shownAs.len > 0: shownAs else: t))
+  aiMsgs.add AiMsg(role: 0, text: full, shown: (if shownAs.len > 0: shownAs else: t), pics: aiMentionedPics(t))
   aiRunCp = -1
   aiWarnOk = false
   aiSteps = 0

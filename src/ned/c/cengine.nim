@@ -1,7 +1,9 @@
-# ── C files with ned's own engine (c.engine): completion — struct members after `.` and `->` too —, hover with the
-#    comment that documents a declaration, F12 through #includes, references and rename, the outline, signature
-#    help, the C compiler's errors while you type, and a missing #include added. No clangd needed. C++ files
-#    (.cpp .cc .hpp …, and a .h that is C++) too: classes, methods, namespaces, templates read past ──
+# ── C files with ned's own engine (c.engine): completion — struct members after `.` and `->` too, a call's
+#    parameters to fill in, a header's names with their #include —, hover with the comment that documents a
+#    declaration, F12 through #includes, type definition, references, highlights and rename by symbol, the outline
+#    and symbols, signature help, colours by what names are, the C compiler's errors while you type, a missing
+#    #include added, refactors. No clangd needed. C++ files (.cpp .cc .hpp …, and a .h that is C++) too: classes,
+#    methods, namespaces, templates read past; the type hierarchy and a method's overrides ──
 
 proc cEngineOn(b: Buffer): bool =
   ## does ned's own C engine answer for this file? (c.engine: auto — when clangd is not installed —, builtin, both)
@@ -117,6 +119,30 @@ proc cxFileOf(b: Buffer): CxFile =
   if b.lines.len > 20_000: cxBufParse[b.id] = (b.changeId, now, result)
   else: cxBufParse.del b.id
 
+func cEngCallSnippet(it: CxItem, line: string, col, wordStart: int): string =
+  ## a function's call with its parameters to fill in — `area(${1:width}, ${2:height})$0` —, the parentheses only
+  ## for overloads (signature help tells the rest); "" for anything else, where a call is there already (`(` after
+  ## the word), on a preprocessor line, or after a unary `&` (the function's address)
+  if not it.call: return ""
+  var e = min(col, line.len)
+  while e < line.len and line[e] in IdentChars: inc e
+  while e < line.len and line[e] in {' ', '\t'}: inc e
+  if e < line.len and line[e] == '(': return ""
+  if line.strip(trailing = false).startsWith("#"): return ""
+  var k = wordStart
+  while k > 0 and line[k - 1] in {' ', '\t'}: dec k
+  if k > 0 and line[k - 1] == '&':
+    var j = k - 1
+    while j > 0 and line[j - 1] in {' ', '\t'}: dec j
+    if j == 0 or line[j - 1] notin IdentChars + {')', ']'}: return ""
+  if it.overloads: return it.label & "($0)"
+  var ps: seq[string]
+  for i, prm in it.params:
+    ps.add "${" & $(i + 1) & ":" & prm.multiReplace(("$", ""), ("}", ""), ("\\", "")) & "}"
+  it.label & "(" & ps.join(", ") & ")$0"
+
+proc cEngIncludeItems(b: Buffer, p: Pos, have: HashSet[string]): seq[CompItem]
+
 proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool =
   if not cEngineOn(b): return false
   var res: (seq[CxItem], bool, string)
@@ -129,11 +155,19 @@ proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool =
     if manual: info(if typ.len > 0: "No members known for " & typ else: "The type there is not known")
     return true
   let fence = if cxIsCppBuf(b): "```cpp\n" else: "```c\n"
+  let ws = b.wordStart(p)
   var out0: seq[CompItem]
   for it in items:
     out0.add CompItem(label: it.label, insert: it.label, detail: it.detail, kind: cxKindIcon(it.kind),
                       filter: it.label, sortText: $it.rank & it.label, rank: it.rank,
+                      snippet: cEngCallSnippet(it, b.lines[p.line], p.col, ws),
                       doc: (if it.detail.len > 0: fence & it.detail & "\n```\n" else: "") & it.doc, docMade: true)
+  if not member:
+    # (names of headers it does not include: choosing one adds the #include)
+    var have: HashSet[string]
+    for it in items: have.incl it.label
+    try: out0.add cEngIncludeItems(b, p, have)
+    except CatchableError as e: internalError("C engine", e)
   if out0.len == 0: return false
   compLine = p.line
   compStartCol = b.wordStart(p)
@@ -150,6 +184,16 @@ proc cEngHover(b: Buffer, p: Pos): string =
   except CatchableError as e:
     internalError("C engine", e)
     ""
+
+proc cEngJump(b: Buffer, path: string, line, col: int, what: string) =
+  ## to a declaration (the jump remembered: Alt+← comes back)
+  pushJump()
+  let nb = if path == b.path: b else: openFile(path)
+  if nb != nil:
+    let at = nb.clampPos(Pos(line: line, col: col))
+    nb.cursors = @[cur(at)]
+    nb.centerOn(at)
+  if what.len > 0: info(what)
 
 proc cEngDefTarget(b: Buffer, p: Pos): (string, int, int, string) =
   ## where F12 goes from p: (the file, line, column, the declaration's text) — ("", -1, -1, "") nowhere
@@ -198,26 +242,43 @@ proc cEngDefinition(b: Buffer, p: Pos): bool =
     internalError("C engine", e)
     return false
   if t[0].len == 0: return false
-  pushJump()
-  let nb = if t[0] == b.path: b else: openFile(t[0])
-  if nb != nil:
-    let at = nb.clampPos(Pos(line: t[1], col: t[2]))
-    nb.cursors = @[cur(at)]
-    nb.centerOn(at)
-  info(t[3])
+  cEngJump(b, t[0], t[1], t[2], t[3])
   true
 
-proc cEngReferenceHits(b: Buffer, p: Pos): (seq[(string, int, int)], string) =
-  ## where the name at p is used: a local in its function, anything else in the project's C files (and the
-  ## open ones); second result: why there are none
+proc cEngTypeTarget(b: Buffer, p: Pos): (string, int, int, string) =
+  ## where go to type definition goes from p: (the file, line, column, the declaration) — ("", …) nowhere
+  result = ("", -1, -1, "")
+  let (g, s) = cxTypeTarget(cxFileOf(b), p.line, p.col)
+  if g != nil: result = ((if g.path == b.path: b.path else: g.path), s.line, s.col, s.text)
+
+proc cEngTypeDefinition(b: Buffer): bool =
+  ## the declaration of the type of what the name at the cursor names — a struct's body through its typedef
+  if not cEngineOn(b) or b.wordAt(b.primary.head).len == 0: return false
+  var t: (string, int, int, string)
+  try: t = cEngTypeTarget(b, b.primary.head)
+  except CatchableError as e:
+    internalError("C engine", e)
+    return false
+  if t[0].len == 0: return false
+  cEngJump(b, t[0], t[1], t[2], t[3])
+  true
+
+proc cEngReferenceHits(b: Buffer, p: Pos, onlyHere = false): (seq[(string, int, int)], string) =
+  ## where what the name at p names is used: a local in its function, anything else in the project's C files (and
+  ## the open ones) — each place checked with the engine: a field of another struct, a static function of another
+  ## file or another function's local of that name is not among them. A name the engine does not know: where it
+  ## does not know it either. onlyHere: in this file only. Second result: why there are none
   let f = cxFileOf(b)
-  let ts = cxTargets(f, p.line, p.col)
   let (a, e) = cxWordAt(b.lines[p.line], p.col)
   if a >= e: return (@[], "No symbol under cursor")
   let w = b.lines[p.line][a ..< e]
   let cpp = f.cpp
   if w in CxKeywords: return (@[], w & " is a C keyword")
   if cpp and w in CxxKeywords: return (@[], w & " is a C++ keyword")
+  let ts = cxTargets(f, p.line, p.col)
+  let keys = cxKeysOf(ts)
+  let unknown = keys.len == 0
+  let member = cxIsMember(b.lines[p.line], a)
   if ts.len > 0 and ts[0][1].kind in {cxLocal, cxParam, cxLabel}:
     let s = ts[0][1]
     var lo = s.scopeA
@@ -227,15 +288,28 @@ proc cEngReferenceHits(b: Buffer, p: Pos): (seq[(string, int, int)], string) =
            (not cpp or (x.line <= s.line and x.endLine >= s.line)): lo = x.line
         elif cpp and x.kind == cxMethod and x.name == s.owner and x.isDef and x.line <= s.line and x.endLine >= s.line:
           lo = x.line
-    for (l, c) in cxOccurrences(b.lines, w, lo, s.scopeB): result[0].add (b.path, l, c)
+    for (l, c) in cxUsesOf(f, w, keys, lo, s.scopeB): result[0].add (b.path, l, c)
     return
-  if ts.len > 0 and not ts[0][0].path.startsWith(rootDir & "/") and ts[0][0].path != b.path and rootDir.len > 0:
-    discard               # (declared outside the project: its uses inside it are still listed)
+  # (a function or a global with linkage: a call in a file that sees no prototype of it is still one)
+  let loose = keys.len > 0 and keys[0].startsWith("G:") and ts[0][1].kind in {cxFunc, cxVar}
+  for (l, c) in cxUsesOf(f, w, keys, loose = loose, unknown = unknown, member = member):
+    result[0].add (b.path, l, c)
+  if onlyHere: return
+  # (a static one, a type, a field, a macro or a constant a source file declares: that file only)
+  var own = keys.len > 0
+  for k in keys:
+    if not (k.len > 2 and k[0] in {'S', 'T', 'F', '#', 'E'} and k[2 .. ^1].startsWith(b.path & ":")): own = false
+  if own: return
   var seen: HashSet[string]
+  seen.incl b.path
   for x in bufs:
-    if x.path.len == 0 or x.lang == nil or x.lang.id notin ["c", "cpp"]: continue
+    if x.path.len == 0 or x.lang == nil or x.lang.id notin ["c", "cpp"] or x.path in seen: continue
     seen.incl x.path
-    for (l, c) in cxOccurrences(x.lines, w): result[0].add (x.path, l, c)
+    var g: CxFile
+    try: g = cxFileOf(x)
+    except CatchableError: continue
+    for (l, c) in cxUsesOf(g, w, keys, loose = loose, unknown = unknown, member = member):
+      result[0].add (x.path, l, c)
   if rootDir.len > 0:
     var n = 0
     for f2 in projectFiles():
@@ -244,13 +318,29 @@ proc cEngReferenceHits(b: Buffer, p: Pos): (seq[(string, int, int)], string) =
       if full in seen: continue
       inc n
       if n > 3000: break
-      var ls: seq[string]
+      var t: string
       try:
-        let t = readFile(full)
+        t = readFile(full)
         if w notin t: continue
-        ls = t.splitLines
       except CatchableError: continue
-      for (l, c) in cxOccurrences(ls, w): result[0].add (full, l, c)
+      # (a header: as the files that include it have it, its lines lent for the look; a source file: read whole,
+      # its functions' locals too)
+      var g: CxFile
+      var lent = false
+      try:
+        if cxIsHeaderPath(full):
+          g = cxLoad(full, cpp = cpp or cxIsCppPath(full))
+          if g != nil and g.lines.len == 0:
+            g.lines = t.splitLines
+            lent = true
+        else: g = cxLoad(full, t, "refs:" & $hash(t), cpp = cxIsCppPath(full))
+      except CatchableError: g = nil
+      if g == nil: continue
+      try:
+        for (l, c) in cxUsesOf(g, w, keys, loose = loose, unknown = unknown, member = member):
+          result[0].add (full, l, c)
+      finally:
+        if lent: g.lines = @[]
 
 proc cEngReferences(b: Buffer, p: Pos): bool =
   if not cEngineOn(b): return false
@@ -262,6 +352,18 @@ proc cEngReferences(b: Buffer, p: Pos): bool =
     showReferences("REFERENCES " & b.wordAt(p), hits)
   except CatchableError as e: internalError("C engine", e)
   true
+
+proc cEngHighlights(b: Buffer, p: Pos): seq[(Pos, Pos)] =
+  ## the uses in this file of what the name at p names (the editor marks them, as it marks a language server's)
+  if not cEngineOn(b) or p.line >= b.lines.len: return
+  let (a, e) = cxWordAt(b.lines[p.line], p.col)
+  if a >= e: return
+  # (a name written hundreds of times: not each use looked at — the editor marks the word, as without the engine)
+  if cxOccurrences(b.lines, b.lines[p.line][a ..< e]).len > 400: return
+  try:
+    for (path, l, c) in cEngReferenceHits(b, p, onlyHere = true)[0]:
+      if path == b.path: result.add (Pos(line: l, col: c), Pos(line: l, col: c + e - a))
+  except CatchableError as ex: internalError("C engine", ex)
 
 proc cEngRename(b: Buffer, p: Pos, newName: string): bool =
   ## every use renamed (with a preview): a local in its function, anything else across the project's C files
@@ -330,7 +432,7 @@ var cEngLast: Table[string, (int, seq[Diag])]   # file → (the change, the engi
 proc cEngInlays(b: Buffer, lo, hi: int) =
   ## the names of the parameters before a call's arguments, as clangd shows them: `pt_move(p, dx: 1, dy: 2)` —
   ## before literals unless nim.parameterHints is "all"; not for one-parameter functions, single-letter names, an
-  ## argument that is the name already, a call over several lines, or a macro's (…) beyond its parameters
+  ## argument that is the name already, or a macro's (…) beyond its parameters. A call over several lines too
   cEngChecks(b)                        # (the engine's checks too: when the file is opened, and after a change)
   b.inlays.clear()
   b.inlayAt = b.changeId
@@ -342,44 +444,20 @@ proc cEngInlays(b: Buffer, lo, hi: int) =
   let f = cxFileOf(b)
   if f == nil: return
   let t0 = getMonoTime()
+  # (the code of the lines around: comments and strings blanked — a call begun above the first line shown counts)
+  let first = max(0, lo - 30)
+  let last = min(b.lines.high, hi + 30)
+  var code: seq[string]
   var inBlock = false
-  for l in lo .. min(hi, b.lines.high):
+  for l in first .. last: code.add(if b.lines[l].len > 500: "" else: cxCodeOf(b.lines[l], inBlock))
+  template cd(l: int): string = code[l - first]
+  var hs: Table[int, seq[(int, string)]]
+  for l in first .. min(hi, last):
     if msSince(t0) > 40: break
-    let s = b.lines[l]
-    if s.len > 500: continue
-    # where the code is on this line (not in comments, strings, characters)
-    var code = newSeq[bool](s.len)
-    var i = 0
-    while i < s.len:
-      if inBlock:
-        let e = s.find("*/", i)
-        if e < 0:
-          i = s.len
-          break
-        inBlock = false
-        i = e + 2
-        continue
-      if s[i] == '/' and i + 1 < s.len and s[i + 1] == '/': break
-      if s[i] == '/' and i + 1 < s.len and s[i + 1] == '*':
-        inBlock = true
-        i += 2
-        continue
-      if s[i] in {'"', '\''}:
-        let q = s[i]
-        code[i] = true
-        inc i
-        while i < s.len and s[i] != q:
-          if s[i] == '\\': inc i
-          inc i
-        if i < s.len: code[i] = true
-        inc i
-        continue
-      code[i] = true
-      inc i
+    let s = cd(l)
     if '(' notin s or s.strip(trailing = false).startsWith("#"): continue
-    var hs: seq[(int, string)]
     for open in 1 ..< s.len:
-      if s[open] != '(' or not code[open]: continue
+      if s[open] != '(': continue
       var e = open
       while e > 0 and s[e - 1] == ' ': dec e
       var a = e
@@ -390,51 +468,67 @@ proc cEngInlays(b: Buffer, lo, hi: int) =
                   "_Alignof", "typeof", "__typeof__", "decltype", "defined", "_Generic", "static_assert",
                   "_Static_assert"]:
         continue
-      # its arguments, when they close on this line
+      # its arguments — (first line, column, last line, column) of each —, when they close within 30 lines
       var d = 0
-      var close = -1
-      var args: seq[(int, int)]
-      var argStart = open + 1
+      var closed = false
+      var args: seq[(int, int, int, int)]
+      var (al, ac) = (l, open + 1)
+      var ln = l
       var k = open
-      while k < s.len:
-        if code[k]:
-          let c = s[k]
-          if c in {'"', '\''}:
-            let q = c
+      block scan:
+        while ln <= last and ln - l <= 30:
+          let u = cd(ln)
+          if ln > l and u.strip(trailing = false).startsWith("#"): break scan
+          while k < u.len:
+            let c = u[k]
+            if c in {'(', '[', '{'}: inc d
+            elif c in {')', ']', '}'}:
+              dec d
+              if d == 0:
+                args.add (al, ac, ln, k)
+                closed = true
+                break scan
+            elif c == ',' and d == 1:
+              args.add (al, ac, ln, k)
+              (al, ac) = (ln, k + 1)
+            elif c == ';': break scan
             inc k
-            while k < s.len and s[k] != q:
-              if s[k] == '\\': inc k
-              inc k
-          elif c in {'(', '[', '{'}: inc d
-          elif c in {')', ']', '}'}:
-            dec d
-            if d == 0:
-              close = k
-              break
-          elif c == ',' and d == 1:
-            args.add (argStart, k)
-            argStart = k + 1
-        inc k
-      if close < 0 or close == open + 1: continue
-      args.add (argStart, close)
+          inc ln
+          k = 0
+      if not closed or (args.len == 1 and args[0][0] == args[0][2] and cd(args[0][0])[args[0][1] ..< args[0][3]].strip.len == 0):
+        continue
+      # (each argument's text, and where it starts: the first of it that is not a space)
+      var texts: seq[(string, int, int)]
+      for (sl, sc, el, ec) in args:
+        var txt = ""
+        var at = (-1, -1)
+        for q in sl .. el:
+          let u = b.lines[q]
+          let a0 = if q == sl: sc else: 0
+          let e0 = if q == el: ec else: u.len
+          let cq = cd(q)
+          for c in a0 ..< min(e0, cq.len):
+            if at[0] < 0 and cq[c] notin Whitespace: at = (q, c)
+          if a0 < min(e0, u.len): txt.add (if txt.len > 0: " " else: "") & u[a0 ..< min(e0, u.len)]
+        texts.add (txt, at[0], at[1])
       var want = false
-      for (x, y) in args:
-        if all or cArgIsLiteral(s[x ..< y]): want = true
+      for (txt, _, _) in texts:
+        if all or cArgIsLiteral(txt): want = true
       if not want: continue
       var sym: CxSym
       try: sym = cxSignature(f, l, open + 1, whole = true)[0]     # (C++: the overload every argument fits)
       except CatchableError: continue
       if sym.name != name or sym.params.len < 2: continue
-      for ai, (x, y) in args:
+      for ai, (txt, ql, qc) in texts:
         if ai >= sym.params.len: break
-        let txt = s[x ..< y]
-        if not (all or cArgIsLiteral(txt)): continue
+        if ql < lo or ql > hi or not (all or cArgIsLiteral(txt)): continue
         let pn = sym.params[ai].name
         if pn.len <= 1 or txt.strip == pn or pn == "...": continue
-        var c = x
-        while c < y and s[c] == ' ': inc c
-        hs.add (c, pn & ": ")
-    if hs.len > 0: b.inlays[l] = hs
+        hs.mgetOrPut(ql, @[]).add (qc, pn & ": ")
+  for l, x in hs:
+    var xs = x
+    xs.sort(proc(p, q: (int, string)): int = cmp(p[0], q[0]))
+    b.inlays[l] = xs
 
 proc cEngOutlineOf(f: CxFile, path: string): seq[SideItem] =
   ## a C file's declarations as the outline lists them: its functions, types, macros and globals, a struct's or
@@ -460,6 +554,29 @@ proc cEngOutlineOf(f: CxFile, path: string): seq[SideItem] =
                                 line: x.line, col: x.col, depth: 1, icon: (if x.kind == cxMethod: "ƒ" else: "v"),
                                 role: (if x.kind == cxMethod: 7 else: 0))
   except CatchableError as e: internalError("C engine", e)
+
+proc cEngSymbolsOf(f: CxFile, path: string, rel = ""): seq[PickItem] =
+  ## Ctrl+T (and the project's symbols): a C file's declarations as the engine reads them — its functions, types,
+  ## macros and globals, a struct's fields and a class's methods as owner.name, an enum's constants
+  var owner = ""
+  for it in cEngOutlineOf(f, path):
+    if it.depth == 0: owner = it.text
+    let where = if rel.len > 0: rel & ":" & $(it.line + 1) & "  " else: ""
+    result.add PickItem(label: (if it.depth > 0 and owner.len > 0: owner & "." & it.text else: it.text),
+                        detail: truncTo(where & it.detail, 60), icon: (if it.depth > 0 and it.icon == "v": "m" else: it.icon),
+                        path: path, line: it.line, col: it.col)
+  for s in f.syms:
+    if s.kind == cxEnumConst and not cxLineInactive(f, s.line):
+      result.add PickItem(label: s.name, detail: truncTo((if rel.len > 0: rel & ":" & $(s.line + 1) & "  " else: "") &
+                          "enum " & s.owner, 60), icon: "c", path: path, line: s.line, col: s.col)
+  result.sort(proc(x, y: PickItem): int = cmp(x.line, y.line))
+
+proc cEngSymbols(b: Buffer): seq[PickItem] =
+  if not cEngineOn(b): return
+  try: cEngSymbolsOf(cxFileOf(b), b.path)
+  except CatchableError as e:
+    internalError("C engine", e)
+    @[]
 
 proc cEngOutline(b: Buffer): seq[SideItem] =
   if not cEngineOn(b): return
@@ -537,8 +654,12 @@ proc cFixItJson(b: Buffer, edits: seq[(Pos, Pos, string)], note: string, at: int
               "text": nt}
   %*{"title": truncTo(title.replace("\n", " "), 70), "nedEdits": es, "at": at}
 
+proc cEngCursorFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)]
+
 proc cFixItActions*(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
-  ## the compiler's fixes for the problems here (C/C++ without clangd: cc -fsyntax-only's fix-its)
+  ## the compiler's fixes for the problems here (C/C++ without clangd: cc -fsyntax-only's fix-its), then the
+  ## engine's own at the cursor: the #include an unknown name needs, a switch's missing cases, a selection in a
+  ## variable, an if/else inverted
   let bid = b.id
   var fixes: seq[(string, string, Action)]             # (filled inside `capture`, where `result` is its own)
   for d in ds:
@@ -564,6 +685,9 @@ proc cFixItActions*(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
           for (a, e, t) in es: discard x.replaceText(x.clampPos(a), x.clampPos(e), t)
           x.endEdit()
           needRender = true)
+  if cEngineOn(b):
+    try: fixes.add cEngCursorFixes(b, ds)
+    except CatchableError as e: internalError("C engine", e)
   fixes
 
 proc cTypingCheck(b: Buffer) =
@@ -730,32 +854,104 @@ const CxStdHeaders = ["stdio.h", "stdlib.h", "string.h", "math.h", "ctype.h", "s
   "stdatomic.h", "threads.h", "complex.h", "tgmath.h", "uchar.h", "wctype.h", "iso646.h", "stdalign.h",
   "stdnoreturn.h"]
 
-var cxHeaderOfCache: Table[string, string]
+var cxStdIdx: (bool, seq[string], Table[string, (int, CxSym)])   # (made, the headers as #include names them, names)
+
+proc cxStdIndex() =
+  ## what the standard headers declare (and the headers they include): read once, the first time it is asked
+  if cxStdIdx[0]: return
+  cxStdIdx[0] = true
+  let dirs = cSystemIncludeDirs()
+  var paths: seq[string]
+  for h in CxStdHeaders:
+    let hp = cFindHeader("<" & h & ">", dirs)
+    if hp.len > 0:
+      paths.add hp
+      cxStdIdx[1].add "<" & h & ">"
+  try: cxStdIdx[2] = cxHeaderNames(paths, closure = true)
+  except CatchableError as e: internalError("C engine", e)
 
 proc cxHeaderOf(name: string): string =
   ## the standard header that declares `name` (a function, type, macro or variable), as `<h>`, or ""
-  if name in cxHeaderOfCache: return cxHeaderOfCache[name]
-  result = ""
-  const quick = {"NULL": "stddef.h", "size_t": "stddef.h", "bool": "stdbool.h", "true": "stdbool.h",
-                 "false": "stdbool.h", "uint8_t": "stdint.h", "int32_t": "stdint.h", "uint32_t": "stdint.h",
-                 "int64_t": "stdint.h", "uint64_t": "stdint.h", "va_list": "stdarg.h", "errno": "errno.h",
-                 "EOF": "stdio.h", "FILE": "stdio.h", "printf": "stdio.h", "malloc": "stdlib.h", "free": "stdlib.h",
-                 "strlen": "string.h", "memcpy": "string.h", "INT_MAX": "limits.h"}.toTable
-  if name in quick: result = "<" & quick[name] & ">"
-  else:
-    let dirs = cSystemIncludeDirs()
-    for h in CxStdHeaders:
-      let hp = cFindHeader("<" & h & ">", dirs)
-      if hp.len == 0: continue
-      var seen: HashSet[string]
-      if cFindIn(hp, name, dirs, 0, seen).kind.len > 0:
-        result = "<" & h & ">"
-        break
-  cxHeaderOfCache[name] = result
+  const quick = {"NULL": "stddef.h", "size_t": "stddef.h", "ptrdiff_t": "stddef.h", "offsetof": "stddef.h",
+                 "bool": "stdbool.h", "true": "stdbool.h", "false": "stdbool.h", "va_list": "stdarg.h",
+                 "va_start": "stdarg.h", "va_end": "stdarg.h", "va_arg": "stdarg.h", "errno": "errno.h",
+                 "ssize_t": "sys/types.h", "off_t": "sys/types.h", "pid_t": "sys/types.h"}.toTable
+  if name in quick: return "<" & quick[name] & ">"
+  cxStdIndex()
+  let (i, _) = cxStdIdx[2].getOrDefault(name, (-1, CxSym()))
+  if i >= 0: cxStdIdx[1][i] else: ""
+
+type CxProjIdx = object
+  root: string
+  cpp: bool
+  at: float                         # (when the headers were listed: listed and read again after ten seconds)
+  paths: seq[string]                # the project's headers
+  next: int                         # (how many of them are read: a few at a time, a tenth of a second each)
+  names: Table[string, (string, CxSym)]       # what they declare, and where (the last reading, while the next is
+  making: Table[string, (string, CxSym)]      # made)
+
+var cxProjIdx: CxProjIdx
+
+proc cxProjIndex(cpp: bool) =
+  ## what the project's own headers declare — read a slice at a time (a big project's first answer has some of
+  ## them), and again now and then: the last reading answers meanwhile
+  let now = epochTime()
+  if cxProjIdx.root != rootDir or cxProjIdx.cpp != cpp:
+    cxProjIdx = CxProjIdx(root: rootDir, cpp: cpp)
+  if now - cxProjIdx.at > 10.0 and cxProjIdx.next >= cxProjIdx.paths.len:
+    cxProjIdx.at = now
+    cxProjIdx.paths.setLen(0)
+    cxProjIdx.next = 0
+    cxProjIdx.making.clear()
+    if rootDir.len > 0:
+      for rel in projectFiles():
+        if cxIsHeaderPath(rel) and (cpp or not cxIsCppPath(rel)) and cxProjIdx.paths.len < 3000:
+          cxProjIdx.paths.add(if rel.isAbsolute: rel else: rootDir / rel)
+  let t0 = getMonoTime()
+  while cxProjIdx.next < cxProjIdx.paths.len and msSince(t0) < 100:
+    let i = cxProjIdx.next
+    inc cxProjIdx.next
+    var one: Table[string, (int, CxSym)]
+    try: one = cxHeaderNames([cxProjIdx.paths[i]], cpp = cpp)
+    except CatchableError: discard
+    for n, (_, s) in one:
+      if n notin cxProjIdx.making: cxProjIdx.making[n] = (cxProjIdx.paths[i], s)
+    if cxProjIdx.next == cxProjIdx.paths.len: cxProjIdx.names = move cxProjIdx.making
+
+proc cxProjNames(): ptr Table[string, (string, CxSym)] =
+  ## what the project's headers declare: the last reading (the first time, what is read so far)
+  if cxProjIdx.names.len == 0: addr cxProjIdx.making else: addr cxProjIdx.names
+
+proc cEngHeaderFor(b: Buffer, name: string): string =
+  ## the #include (as the file would write it: <stdio.h>, "util.h") of the header that declares `name` — one of the
+  ## project's, else a standard one —; "" when ned knows of none, or the file is that header
+  cxProjIndex(cxIsCppBuf(b))
+  let (hp, _) = cxProjNames()[].getOrDefault(name, ("", CxSym()))
+  if hp.len > 0 and hp != b.path:
+    cxSetDirs(b)
+    return cxIncludeText(hp, b.path, cxDirs)
+  cxHeaderOf(name)
+
+proc cAddInclude(b: Buffer, incl: string) =
+  ## `#include <h>` added where the file's #includes are (unless it is there already)
+  if not b.canEdit(): return
+  let h = incl.strip.replace("#include", "").strip
+  for l in b.lines:
+    let t = l.strip
+    if t.startsWith("#") and "include" in t and h in t: return
+  let at = cxIncludeLine(b.lines)
+  b.beginEdit()
+  if at >= b.lines.len:
+    let l = b.lines.high
+    discard b.replaceText(Pos(line: l, col: b.lines[l].len), Pos(line: l, col: b.lines[l].len), "\n#include " & h)
+  else: discard b.replaceText(Pos(line: at, col: 0), Pos(line: at, col: 0), "#include " & h & "\n")
+  b.endEdit()
+  needRender = true
+  info("Added #include " & h)
 
 proc cIncludeFix(b: Buffer, d: Diag): (string, string, Action) =
   ## the quick fix for "implicit declaration of function 'x'", "unknown type name 'y'", "'NULL' undeclared":
-  ## #include the standard header that declares it
+  ## #include the header (the project's, or a standard one) that declares it
   let m = d.msg
   if not ("implicit declaration of function" in m or "call to undeclared function" in m or
           "unknown type name" in m or "undeclared" in m or "use of undeclared identifier" in m):
@@ -770,22 +966,51 @@ proc cIncludeFix(b: Buffer, d: Diag): (string, string, Action) =
   while e < m.len and m[e] notin {'\'', '`', '"'} and not m.continuesWith("’", e): inc e
   let name = m[a + ql ..< e]
   if name.len == 0: return
-  let h = cxHeaderOf(name)
+  let h = cEngHeaderFor(b, name)
   if h.len == 0: return
   for l in b.lines:
     if l.strip.startsWith("#include") and h in l: return
   let bid = b.id
   ("#include " & h, "declares " & name, proc() =
     let x = bufById(bid)
-    if x == nil: return
-    var at = 0
-    for i, l in x.lines:
-      if l.strip.startsWith("#include"): at = i + 1
-    x.beginEdit()
-    discard x.replaceText(Pos(line: at, col: 0), Pos(line: at, col: 0), "#include " & h & "\n")
-    x.endEdit()
-    x.normalize()
-    info("Added #include " & h))
+    if x != nil: cAddInclude(x, "#include " & h))
+
+proc cEngIncludeItems(b: Buffer, p: Pos, have: HashSet[string]): seq[CompItem] =
+  ## completion of a name a header the file does not include declares (the project's, then the standard ones —
+  ## a word of two letters or more): choosing it adds the #include
+  let line = b.lines[p.line]
+  let ws = b.wordStart(p)
+  let prefix = line[ws ..< min(p.col, line.len)]
+  if prefix.len < 2 or line.strip(trailing = false).startsWith("#") or cxIsMember(line, ws): return
+  let lp = prefix.toLowerAscii
+  let fence = if cxIsCppBuf(b): "```cpp\n" else: "```c\n"
+  var added: HashSet[string]
+  proc add(name, incl: string, s: CxSym, rank: int, res: var seq[CompItem]) =
+    var it = CxItem(label: name, kind: s.kind)
+    cxCallOf(it, s)
+    let detail = if s.kind == cxFunc: s.text else: s.typ
+    res.add CompItem(label: name, insert: name, detail: "#include " & incl, kind: cxKindIcon(s.kind), filter: name,
+                     sortText: "5" & name.toLowerAscii, rank: rank, addImport: "#include " & incl,
+                     snippet: cEngCallSnippet(it, line, p.col, ws),
+                     doc: (if detail.len > 0: fence & detail & "\n```\n" else: "") & "Adds `#include " & incl & "`" &
+                          (if s.doc.len > 0: "\n\n" & s.doc else: ""), docMade: true)
+    added.incl name
+  cxProjIndex(cxIsCppBuf(b))
+  cxSetDirs(b)
+  var closure: HashSet[string]
+  try:
+    for g in cxClosure(cxFileOf(b)): closure.incl g.path
+  except CatchableError: discard
+  for n, (hp, s) in cxProjNames()[]:
+    if result.len >= 40: break
+    if n in have or n in added or not n.toLowerAscii.startsWith(lp) or hp == b.path or hp in closure: continue
+    add(n, cxIncludeText(hp, b.path, cxDirs), s, 4, result)
+  cxStdIndex()
+  for n, (i, s) in cxStdIdx[2]:
+    if result.len >= 40: break
+    if n in have or n in added or not n.toLowerAscii.startsWith(lp): continue
+    let incl = cxHeaderOf(n)
+    if incl.len > 0: add(n, incl, s, 5, result)
 
 proc cEngCallHierarchy(b: Buffer): bool =
   ## who calls the function at the cursor (←) and what it calls (→): its references in the project's C files, each
@@ -918,3 +1143,250 @@ proc cmdSwitchHeaderSource() =
          " here or in the project")
     return
   discard openFile(o)
+
+# ── the engine's own fixes and refactors at the cursor (Alt+Enter): the #include an unknown name needs, a switch's
+#    missing cases, a selection in a variable, an if/else inverted ──
+
+proc cEngApply(b: Buffer, fx: CkFix) =
+  ## a fix's edits made, as one step (from the last back: the earlier places stay where they are)
+  var es = fx.edits
+  es.sort(proc(p, q: CkEdit): int = cmp((q.line, q.col), (p.line, p.col)))
+  b.beginEdit()
+  for e in es:
+    discard b.replaceText(b.clampPos(Pos(line: e.line, col: e.col)), b.clampPos(Pos(line: e.eline, col: e.ecol)), e.text)
+  b.endEdit()
+  needRender = true
+
+proc cEngFixAct(bid, at: int, fx: CkFix): Action =
+  ## (made by a proc of its own: each action with its own fix)
+  result = proc() =
+    let x = bufById(bid)
+    if x == nil or not x.canEdit(): return
+    if x.changeId != at:
+      info("The file changed since — try again")
+      return
+    cEngApply(x, fx)
+
+proc cEngExtractAct(bid, at, line, a, e: int, guess: string): Action =
+  ## the selection into a variable: its name asked (the one ned would give it offered), then the cursor on it
+  result = proc() =
+    askText("Name of the variable", guess, proc(name: string) =
+      let x = bufById(bid)
+      if x == nil or not x.canEdit(): return
+      let n = name.strip
+      if n.len == 0 or n[0] notin IdentStartChars or not n.allCharsInSet(IdentChars) or n in CxKeywords:
+        error(n & " is not a C name")
+        return
+      if x.changeId != at:
+        info("The file changed since — try again")
+        return
+      var fx: seq[CkFix]
+      try: fx = ckExtractVar(cxFileOf(x), line, a, e, n)
+      except CatchableError as ex: internalError("C engine", ex)
+      if fx.len == 0: return
+      cEngApply(x, fx[0])
+      let ins = fx[0].edits[1]
+      let c = x.lines[min(ins.line, x.lines.high)].find(n & " = ")
+      if c >= 0: x.setSingle(Pos(line: ins.line, col: c))
+      info("Extracted into " & n & " — F2 renames it everywhere"))
+
+proc cEngCursorFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
+  let f = cxFileOf(b)
+  let p = b.primary.head
+  let bid = b.id
+  let at = b.changeId
+  # an unknown name: the header that declares it (unless the compiler's problem there offers it already)
+  let t = b.lines[p.line]
+  let (wa, we) = cxWordAt(t, p.col)
+  if wa < we and t[wa] notin Digits and not cxIsMember(t, wa) and
+     b.tokenAt(Pos(line: p.line, col: wa)) notin {tkComment, tkDoc, tkString, tkChar}:
+    let w = t[wa ..< we]
+    if w notin CxKeywords and not (f.cpp and w in CxxKeywords) and cxTargets(f, p.line, p.col).len == 0:
+      let h = cEngHeaderFor(b, w)
+      var offered = false
+      for d in ds:
+        if cIncludeFix(b, d)[0] == "#include " & h: offered = true
+      if h.len > 0 and not offered:
+        result.add act("#include " & h, "declares " & w, proc() =
+          let x = bufById(bid)
+          if x != nil: cAddInclude(x, "#include " & h))
+  for fx in ckFillSwitch(f, p.line, p.col):
+    result.add act(fx.title, "ned's engine", cEngFixAct(bid, at, fx))
+  let (sa, se) = b.primary.range
+  if sa != se and sa.line == se.line:
+    let fx = ckExtractVar(f, sa.line, sa.col, se.col)
+    if fx.len > 0:
+      let decl = fx[0].edits[1].text.strip
+      let guess = fx[0].edits[0].text
+      result.add act("Extract into a variable", truncTo(decl, 50), cEngExtractAct(bid, at, sa.line, sa.col, se.col, guess))
+  for fx in ckInvertIf(b.lines, p.line):
+    result.add act("Invert the if", "!(condition), the branches swapped", cEngFixAct(bid, at, fx))
+
+# ── semantic colours (nim.semanticColors): a C file's names coloured by what the engine knows they are — a
+#    parameter, a global, a macro, a field, an enum constant, a type, a function ──
+
+var cEngSem: Table[int, (int, CxSemMap)]     # buffer id → (the change its map was made for, the map)
+
+proc cEngSemMap(b: Buffer, make: bool): CxSemMap =
+  ## the buffer's map of names (nil: none yet) — made again once typing pauses, in a quiet moment (make): kept by
+  ## name meanwhile, so the lines an edit moves keep their colours
+  if not cfgSemColors or not cEngineOn(b): return nil
+  let have = cEngSem.getOrDefault(b.id, (-1, CxSemMap(nil)))
+  result = have[1]
+  if not make or have[0] == b.changeId or msSince(b.lspChangeAt) < 300: return
+  try:
+    result = cxSemMapOf(cxFileOf(b))
+    if cEngSem.len > 64:
+      # (the maps of buffers closed since go)
+      var open: HashSet[int]
+      for x in bufs: open.incl x.id
+      var gone: seq[int]
+      for id in cEngSem.keys:
+        if id notin open: gone.add id
+      for id in gone: cEngSem.del id
+    cEngSem[b.id] = (b.changeId, result)
+    needRender = true
+  except CatchableError as e: internalError("C engine", e)
+
+proc cEngSemApply(s: string, toks: var seq[TokKind], m: CxSemMap, line: int) =
+  ## recolour a line's names by what the engine knows they are (where the lexer coloured them by their shape)
+  var code = s
+  for q in 0 ..< min(s.len, toks.len):
+    if toks[q] in {tkComment, tkDoc, tkString, tkChar, tkEscape}: code[q] = ' '
+  for (c, n, k) in cxSemLine(m, line, code):
+    let tk = case k
+             of cxParam: tkParam
+             of cxVar: (if cfgRichColors: tkGlobalVar else: tkText)
+             of cxField: tkProperty
+             of cxEnumConst: tkConst
+             of cxMacro: tkPreproc
+             of cxTypedef, cxNamespace: tkType
+             of cxFunc: tkFunc
+             else: tkText
+    for q in c ..< min(c + n, toks.len):
+      if tk == tkText:
+        if toks[q] in {tkType, tkConst}: toks[q] = tkText     # (a variable whose capital letter looked like a type)
+      elif toks[q] in {tkText, tkType, tkVariable, tkFunc, tkConst}: toks[q] = tk
+
+proc cEngProjectSymbols(path, rel: string): seq[PickItem] =
+  ## Go to symbol in project: a C or C++ file's declarations from the engine (an open file as it is now; the others
+  ## read on their own, without their headers — quick), when the engine answers for C (c.engine); none otherwise —
+  ## the pattern search then
+  if not (cfgCEngine in ["builtin", "both"] or (cfgCEngine == "auto" and not haveExe("clangd"))): return
+  try:
+    let bi = bufIndexByPath(path)
+    var f: CxFile
+    if bi >= 0 and cEngineOn(bufs[bi]): f = cxFileOf(bufs[bi])
+    else:
+      let cpp = cxIsCppPath(path) or (path.endsWith(".h") and cxLooksCpp(readFile(path)))
+      f = cxLoad(path, cpp = cpp, shallow = true)
+    if f != nil: result = cEngSymbolsOf(f, path, rel)
+  except CatchableError as e: internalError("C engine", e)
+
+# ── C++: the type hierarchy (a class's bases, the classes derived from it) and go to implementation (a method's
+#    overrides, a class's derived classes) ──
+
+proc cEngCppFiles(): seq[CxFile] =
+  ## the project's C++ files and headers as the engine reads them (an open one as it is now) — four seconds at most
+  ## the first time (each kept after, while it is unchanged)
+  let t0 = getMonoTime()
+  var seen: HashSet[string]
+  for x in bufs:
+    if x.path.len == 0 or x.path in seen or x.lang == nil or x.lang.id notin ["c", "cpp"] or not cxIsCppBuf(x): continue
+    seen.incl x.path
+    try: result.add cxFileOf(x)
+    except CatchableError: discard
+  if rootDir.len == 0: return
+  for rel in projectFiles():
+    if msSince(t0) > 4000 or result.len > 3000: break
+    if not (cxIsCppPath(rel) or rel.endsWith(".h")): continue
+    let full = if rel.isAbsolute: rel else: rootDir / rel
+    if full in seen: continue
+    seen.incl full
+    try:
+      let g = cxLoad(full, cpp = true)
+      if g != nil: result.add g
+    except CatchableError: discard
+
+proc cEngClassItem(g: CxFile, s: CxSym, label: string): PickItem =
+  PickItem(label: label, detail: relPath(g.path) & ":" & $(s.line + 1) & " · " & s.text, icon: "T", path: g.path,
+           line: s.line, col: s.col)
+
+proc cEngTypeHierarchy(b: Buffer): bool =
+  ## C++: the class at the cursor (or a value's class): the classes it derives from, and those derived from it
+  if not cEngineOn(b) or not cxIsCppBuf(b): return false
+  var items: seq[PickItem]
+  var here = -1
+  var name = ""
+  try:
+    let p = b.primary.head
+    let (g, cls) = cxxClassAt(cxFileOf(b), p.line, p.col)
+    if g == nil: return false
+    name = cls.name
+    # (its bases, theirs above them: the farthest first)
+    var ups: seq[(CxFile, CxSym, int)]
+    var level = @[(g, cls)]
+    var seen: HashSet[string]
+    seen.incl cxxKey(cls)
+    for depth in 1 .. 8:
+      var next: seq[(CxFile, CxSym)]
+      for (h, c) in level:
+        for (h2, c2) in cxxBasesOf(h, c):
+          if cxxKey(c2) in seen: continue
+          seen.incl cxxKey(c2)
+          next.add (h2, c2)
+          ups.add (h2, c2, depth)
+      if next.len == 0: break
+      level = next
+    var top = 0
+    for (_, _, dp) in ups: top = max(top, dp)
+    for k in countdown(ups.high, 0):
+      items.add cEngClassItem(ups[k][0], ups[k][1], "↑ " & repeat("  ", top - ups[k][2]) & ups[k][1].name)
+    here = items.len
+    items.add cEngClassItem(g, cls, "• " & repeat("  ", top) & cls.name)
+    for (h, d, depth) in cxxDerived(cEngCppFiles(), cls):
+      items.add cEngClassItem(h, d, "↓ " & repeat("  ", top + depth) & d.name)
+  except CatchableError as e:
+    internalError("C engine", e)
+    return false
+  if items.len <= 1:
+    info(name & " derives from nothing, and nothing in this project derives from it")
+    return true
+  openPicker(pickSymbol, "Type hierarchy — " & name & "  (↑ derives from · ↓ derived from it)", items)
+  if here >= 0: pickSel = max(0, pickShown.find(here))
+  true
+
+proc cEngImplementations(b: Buffer): bool =
+  ## C++: a method — the overrides of it in the classes derived from its class; a class — the classes derived from it
+  if not cEngineOn(b) or not cxIsCppBuf(b): return false
+  var items: seq[PickItem]
+  var name = ""
+  try:
+    let f = cxFileOf(b)
+    let p = b.primary.head
+    let ts = cxTargets(f, p.line, p.col)
+    if ts.len == 0: return false
+    if ts[0][1].kind == cxMethod:
+      let (m, ov) = cxxOverrides(cEngCppFiles(), f, p.line, p.col)
+      if m.name.len == 0: return false
+      name = m.name
+      for (g, x) in ov:
+        items.add PickItem(label: cxxNoArgs(cxxSplit(x.owner)[^1]) & "::" & x.name, detail: relPath(g.path) & ":" &
+                           $(x.line + 1) & " · " & x.text, icon: "ƒ", path: g.path, line: x.line, col: x.col)
+    else:
+      let (g, cls) = cxxClassAt(f, p.line, p.col)
+      if g == nil or ts[0][1].kind notin {cxClass, cxStruct, cxUnion, cxTypedef}: return false
+      name = cls.name
+      for (h, d, depth) in cxxDerived(cEngCppFiles(), cls):
+        items.add cEngClassItem(h, d, repeat("  ", depth - 1) & d.name)
+  except CatchableError as e:
+    internalError("C engine", e)
+    return false
+  if items.len == 0:
+    info("Nothing in this project overrides or derives from " & name)
+    return true
+  if items.len == 1:
+    cEngJump(b, items[0].path, items[0].line, items[0].col, items[0].detail)
+    return true
+  openPicker(pickSymbol, "Implementations — " & name, items)
+  true

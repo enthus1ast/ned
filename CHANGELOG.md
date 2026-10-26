@@ -1,6 +1,103 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-628). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-629). Older releases:
+
+## What's new in 6.28
+
+6.28 makes ned's engines **catch every compiler error the scoreboard tries as you type**, brings **C and C++
+definitions and hovers level with clangd's**, the **formatter closer to nph**, **more of LSP in `nedls`** (problems
+the editor asks for, Enter formatting a line, HTML tags renamed in pairs, workspace symbols in every language), and
+**more of Nim 3** — contracts that see constants and loops, Nimony's own test runner in the test explorer. Plugins
+turn on with **one tap**, and Julia's language server starts by itself.
+
+**Nim errors as you type.** The engine now finds every one of the compiler's errors the scoreboard plants in Nim's
+own library (91% before), and no wrong one in a clean file: a call's value left unused where it is a block's last
+statement but not the routine's value; a module-qualified call (`posix.nanosleep(…)` not discarded); a misspelled
+name inside a `when` branch that is taken. On 33 more files, with other mistakes: all 88 found.
+
+**C and C++ against clangd.** In C, definition 97.5% the same as clangd's (93.5% before), hover 100% (94.4%),
+member completion 100% (96.9%); in C++, definitions and hovers 100%. ned's C engine now reads Lua's
+`LUA_API void (lua_concat) (…)` declarations, the macros of the `#if` branch that is taken, a struct's members a
+macro gives it (`CommonHeader;`), the type of a comma expression and of a cast in extra parentheses, and a class's
+own name inside it.
+
+**The formatter, closer to nph** (99.6% of 248 000 lines of Nim's library the same, 334 files identical, up from
+325): a name with its pragmas whose type does not fit (`var X* {.importc: "…".}:` ⏎ `cint`), `let (a, b) = …`, a
+condition whose `:` stood on a line of its own, an if-expression among a call's arguments, no empty lines between an
+enum's values, `tuple[…]`, `ptr [T]`, `iterator (…)` and `` `$`*( `` written as nph writes them. What ned cannot lay
+out as nph would keeps the line breaks you wrote, rather than becoming one line of 200 columns. (These turned out to
+be nph's ways in 0.6 as in 0.7 — not a newer style — so ned simply writes them so: there is no setting to keep the
+old way.) [Formatting](docs/guide/formatting.md#compared-with-nph).
+
+**nedls** — an editor that asks for a document's problems (LSP 3.17's pull diagnostics) gets them when it asks and
+is told when they change; Enter formats the statement just written (on-type formatting, where your editor has it
+on); an HTML tag's name and its closing tag's are renamed together (linked editing); workspace symbols find the
+project's C, C++, JavaScript and JSON names too, in files not open as well.
+[nedls](docs/guide/nim.md#nedls-neds-engine-in-other-editors).
+
+**Nim 3 (Nimony).** Contracts as you type see more: a `const`, a `let` given a value, and a loop's variable over
+`a .. b` or `a ..< b` — held to its first and last value (`for i in 0 ..< 3: needsPositive(i)` breaks it when
+i = 0); a `return` or `result =` that breaks the routine's own `{.ensures: …}`. **Tests**: a file in `tests/` with
+the output it should print beside it (`t1.output`) or the messages it should give (`t1.msgs`) — the way Nimony's
+own tests are written — is in the test explorer and runs with Nimony's `hastur` (*Run all tests*: ✓ and ✗). When
+nimony stops on an error of its own while F12 asks it, the status bar says so, not "no definition".
+[Nim 3](docs/guide/nim.md#nim-3-nimony).
+
+**HTML**: a link to an `#id` is checked only in a whole page, and not in one whose script makes elements (it may
+make the id) — a fragment or a template no longer gets its links flagged.
+
+**Plugins.** A tap on one of ned's own in the Plugins dock's AVAILABLE turns it on: the dock goes to it, and when
+it runs the status bar says what it added — "the Zig language, a formatter, 6 snippets, 2 commands"; a right-click
+gives its menu (view its source first, copy it). **Julia**: LanguageServer.jl, when it is installed, starts the first
+time you save a Julia file (it takes a while: reading files costs nothing); a plugin can ask the same of its own
+server (`languageServer(…, afterSave = true)`). [ned's own plugins](docs/plugins/available.md).
+
+**Fixed:** on Windows, the Nim parser check (`nim.format.verify`) was built again at every format and then said it
+could not be, without saying why — ned looked for the program without its `.exe`; now it is found, and a build
+that does fail says why, once, with the whole output in a file. The Julia plugin's server command with quotes
+(`julia -e "using LanguageServer; runserver()"`) was cut at its spaces; the formatter left a condition's `:` on a
+line of its own, and made lines of over 200 columns of a condition with a comment inside its brackets; a wrapped
+if-expression among a call's arguments was laid out again the next time; the UI tests that waited a fixed time now
+wait for what they look for.
+
+The scoreboard of 6.28:
+
+| | score | at least |
+|---|---|---|
+| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
+| nim: go to definition, the same place | 100.0% ✓ | 98% |
+| nim: a variable's type, the same | 98.7% ✓ | 97% |
+| nim: member completion, ned | 98.4% ✓ | 96% |
+| nim: member completion, nimsuggest (not checked) | 70.9% |  |
+| nim: references in the file, the same as nimsuggest's | 95.6% ✓ | 92% |
+| nim: as you type, the compiler's errors found | 100.0% ✓ | 95% |
+| nim: as you type, clean files with no wrong error | 100.0% ✓ | 95% |
+| nedls: completion: the name offered | 100.0% ✓ | 98% |
+| nedls: hover: its doc comment | 100.0% ✓ | 97% |
+| nedls: hover: the same declaration | 98.9% ✓ | 97% |
+| nedls: hover: there | 100.0% ✓ | 98% |
+| nedls: signature help: the routine | 100.0% ✓ | 97% |
+| c: go to definition, the same as clangd's | 97.5% ✓ | 95% |
+| c: member completion, ned | 100.0% ✓ | 96% |
+| c: member completion, clangd (not checked) | 96.9% |  |
+| c: hover, the same parameters | 100.0% ✓ | 96% |
+| c++: go to definition, the same as clangd's | 100.0% ✓ | 95% |
+| c++: member completion, ned | 100.0% ✓ | 95% |
+| c++: member completion, clangd (not checked) | 96.2% |  |
+| c++: hover, the same parameters | 100.0% ✓ | 96% |
+| versus nimlangserver: hover, nedls | 98.3% ✓ | 90% |
+| versus nimlangserver: hover, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: definition, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: definition, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: member offered, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: member offered, nimlangserver (not checked) | 63.3% |  |
+| versus nimlangserver: the same definition where both answer | 97.0% ✓ | 90% |
+| format: lines the same as nph's | 99.6% ✓ | 99% |
+| format: files formatted, of those nph formats | 100.0% ✓ | 99% |
+
+against nimlangserver: nedls answers in 1.6 ms (the median), ready after 21 ms; nimlangserver in 253.5 ms, ready after 2144 ms
+
+against nph: 463 files formatted in 1.13 s by ned, 1.71 s by nph; nph refused 0, ned left 0 alone
 
 ## What's new in 6.27
 

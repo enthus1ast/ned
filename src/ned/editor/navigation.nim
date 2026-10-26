@@ -150,6 +150,11 @@ proc cmdSymbols() =
     if items.len > 0:
       openPicker(pickSymbol, "Go to symbol", items)
       return
+  if cEngineOn(b):
+    let items = cEngSymbols(b)                     # (C: the declarations as ned's engine reads them)
+    if items.len > 0:
+      openPicker(pickSymbol, "Go to symbol", items)
+      return
   let pp = plugSymbolPicks(b)                      # (a plugin's symbols for the language)
   if pp.len > 0:
     openPicker(pickSymbol, "Go to symbol", pp)
@@ -389,6 +394,7 @@ proc nimImplementations(b: Buffer): bool =
 proc cmdTypeDefinition() =
   let b = buf()
   if nimEngineOn(b) and nimTypeDefinition(b): return
+  if cEngineOn(b) and cEngTypeDefinition(b): return             # C: ned's own engine
   let s = lspReady(b)
   if s.capOn("typeDefinitionProvider"):
     lspSync(b)
@@ -400,6 +406,7 @@ proc cmdImplementation() =
   let b = buf()
   let s = lspReady(b)
   if nimEngineOn(b) and nimImplementations(b): return
+  if cEngineOn(b) and cEngImplementations(b): return        # C++: ned's own engine (overrides, derived classes)
   if s.capOn("implementationProvider"):
     lspSync(b)
     discard s.lspRequest("textDocument/implementation", %*{"textDocument": b.docId,
@@ -410,6 +417,7 @@ proc cmdImplementation() =
 proc cmdTypeHierarchy() =
   let b = buf()
   if nimEngineOn(b) and nimTypeHierarchy(b): return
+  if cEngineOn(b) and cEngTypeHierarchy(b): return          # C++: ned's own engine
   let s = lspReady(b)
   if not s.capOn("typeHierarchyProvider"):
     info("Type hierarchy needs a language server that offers it (Java, C++, TypeScript …)")
@@ -419,8 +427,25 @@ proc cmdTypeHierarchy() =
     "position": s.lspPos(b, b.primary.head)}, LspReq(kind: lrTypePrep, bufId: b.id))
 
 proc lspExtras(b: Buffer) =
-  ## when the editor is idle: the server's folding ranges, and the uses of the symbol at the cursor
+  ## when the editor is idle: the server's folding ranges, and the uses of the symbol at the cursor (C and Nim: ned's
+  ## engines know them, when no server offers them)
   if b.path.len == 0: return
+  discard cEngSemMap(b, make = true)                # (C: the names' colours, once typing pauses)
+  if cfgHighlightOcc and (cEngineOn(b) or nimEngineOn(b)) and not lspFor(b, false).capOn("documentHighlightProvider"):
+    let h = b.primary.head
+    var inUse = false                               # (the cursor moved within a use already marked: the same marks)
+    if docHl.bufId == b.id and docHl.change == b.changeId and docHl.pos != h:
+      for (ra, re) in docHl.ranges:
+        if h.line == ra.line and h.col >= ra.col and h.col <= re.col: inUse = true
+    if inUse: docHl.pos = h
+    elif (docHl.bufId != b.id or docHl.pos != h or docHl.change != b.changeId) and msSince(navAt) > 150 and
+         (cEngineOn(b) or msSince(b.lspChangeAt) > 400):     # (Nim: once the typing pauses — words are marked till then)
+      docHl = (b.id, b.changeId, h, @[])
+      if not b.primary.hasSel and b.wordAt(h).len > 0:
+        # (Nim: the lines on screen and a screen around them — it is asked as the cursor moves)
+        docHl.ranges = if cEngineOn(b): cEngHighlights(b, h)
+                       else: nimEngHighlights(b, h, b.topLine - scrH, b.topLine + 2 * scrH)
+        needRender = true
   let s = lspReady(b)
   if s == nil: return
   if s.capOn("foldingRangeProvider") and b.lspFoldsAt != b.changeId and msSince(b.lspChangeAt) > 500 and

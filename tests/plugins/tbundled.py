@@ -49,6 +49,7 @@ class BHost(tplugins.Host):
         self.jobs = []                       # shellAsync: (cmd, dir, cb) — run_jobs() runs them and calls back
         self.allowed = {"shell", "network", "files", "clipboard"}   # (what you allowed: ned's tests allow them all)
         self.clock = None                    # unixTime: this (None: the real clock)
+        self.indent_styles = []              # indentStyle: each look the plugin gave, in order
 
     # (another buffer's call: it is made the current one for the call, then put back)
     def _state(self):
@@ -191,6 +192,7 @@ class BHost(tplugins.Host):
             self.commands_run.append(a["name"])
             v = True
         elif fn == "terminal": self.terminal.append(a)
+        elif fn == "indentStyle": self.indent_styles.append(a)
         else:
             return super().api(j)
         self.send({"t": "res", "id": j["id"], "value": v})

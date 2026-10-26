@@ -97,7 +97,7 @@ proc isLibraryFile(path: string): bool =
   if nxLibFound.len > 0:
     roots.add nxLibFound
     let top = parentDir(nxLibFound)               # a Nim tree (choosenim, a checkout): its compiler/ too
-    if lastPathPart(nxLibFound) == "lib" and dirExists(top / "compiler") and fileExists(top / "bin" / "nim"):
+    if lastPathPart(nxLibFound) == "lib" and dirExists(top / "compiler") and fileExists(top / "bin" / addFileExt("nim", ExeExt)):
       roots.add top
   let nimble = getEnv("NIMBLE_DIR", getHomeDir() / ".nimble")
   roots.add nimble / "pkgs2"
@@ -146,6 +146,60 @@ proc nxDumpApply(proj, o: string) =
     needRender = true
   except CatchableError: discard
 
+proc nxRemoteDump(ri: int, proj: string) =
+  ## a remote folder, and no Nim here: the server's `nim dump`, its library and the packages the project uses
+  ## fetched once (only their .nim files) to read — then completion, hover and F12 into the library as with a Nim
+  ## here (remote.languageServers)
+  let r = remotes[ri]
+  let there = remotePath(r, proj)
+  let fr = remoteFilesRoot(r)
+  nxDumping.incl proj
+  setMsg("Asking " & r.host & "'s Nim about the project…")
+  let script = RemoteEnv & "cd " & quoteShell(parentDir(there)) & " && nim dump --hints:off --warnings:off " &
+               "--dump.format:json " & quoteShell(there) & " 2>/dev/null"
+  discard startJob(jkTool, sshRun(r, script), parentDir(proj), proc(j: Job) =
+    let o = j.output
+    let a = o.find('{')
+    let e = o.rfind('}')
+    var js: JsonNode
+    if a >= 0 and e > a:
+      try: js = parseJson(o[a .. e])
+      except CatchableError: discard
+    if js == nil or js.kind != JObject or js{"libpath"}.getStr.len == 0:
+      nxDumping.excl proj
+      nxDumped.incl proj
+      return
+    # the server's paths made the local copy's (the folder) or the fetched copy's (the rest)
+    var fetch: seq[string]
+    proc here(p: string, get: bool): string =
+      if p == r.absPath or p.startsWith(r.absPath & "/"): return r.mirror & p[r.absPath.len .. ^1]
+      if get and p.startsWith("/") and not fileExists(fr & p / ".ned-fetched") and p notin fetch: fetch.add p
+      fr & p
+    js["libpath"] = %here(js{"libpath"}.getStr, true)
+    for key in ["lib_paths", "lazyPaths"]:
+      if js{key} != nil and js[key].kind == JArray:
+        for x in js[key].elems: x.str = here(x.getStr, key == "lib_paths")
+    let local = $js
+    proc apply() =
+      nxDumping.excl proj
+      nxDumped.incl proj
+      nxDumpApply(proj, local)
+      wkDump(proj, local)
+    if fetch.len == 0:
+      apply()
+      return
+    var rel, marks = ""
+    for p in fetch:
+      rel.add " " & quoteShell(p[1 .. ^1])
+      marks.add " " & quoteShell(fr & p / ".ned-fetched")
+    setMsg("Fetching " & r.host & "'s Nim library to read (once)…")
+    let get = sshRun(r, "cd / && find" & rel & " \\( -name '*.nim' -o -name '*.nims' -o -name '*.cfg' \\) " &
+                        "-print 2>/dev/null | tar czf - -T -") & " | (mkdir -p " & quoteShell(fr) & " && tar xzf - -C " &
+              quoteShell(fr) & ") && touch" & marks
+    discard startJob(jkTool, get, parentDir(proj), proc(j2: Job) =
+      if j2.code != 0: setMsg("Could not fetch " & r.host & "'s Nim library: " & j2.output.strip.truncTo(120), 2)
+      apply()))
+
 proc nxEnsureToolchain(b: Buffer) =
   ## guess the toolchain at once; ask `nim dump` (in the background, once per project) for the real
   ## search paths: config.nims / nim.cfg --path, nimble packages
@@ -161,11 +215,17 @@ proc nxEnsureToolchain(b: Buffer) =
     needRender = true
   if nxNim3Applied: return
   if wkWorkerMode: return                          # (the engine worker: the editor runs `nim dump` and tells it)
-  if b == nil or b.path.len == 0 or nxDumping.len > 0 or not haveExe("nim"): return
+  if b == nil or b.path.len == 0 or nxDumping.len > 0: return
+  let ri = if remotes.len > 0 and not haveExe("nim") and sStr("remote.languageServers") != "here":
+             remoteOf(b.path) else: -1
+  if ri < 0 and not haveExe("nim"): return
   let proj = nimProjectFile(b)
   if proj in nxDumped: return
   if not codeTrusted(parentDir(proj)):
     askTrust(parentDir(proj), quiet = true)        # (nim dump runs config.nims: the guess stands meanwhile)
+    return
+  if ri >= 0:
+    nxRemoteDump(ri, proj)
     return
   nxDumping.incl proj
   discard startJob(jkTool, "nim dump --hints:off --warnings:off --dump.format:json " & quoteShell(proj) & " 2>/dev/null",

@@ -72,7 +72,7 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("Search in project…", "Find in files…"), mc("Search: replace in files…", "Replace in files…"),
       mc("Open results in a multibuffer (edit many files at once)", "Edit search results together (multibuffer)"),
       msep(), mc("Quick fix / code actions…", "Quick fix…"), mc("Toggle comment"),
-      mc("TODO: insert a tag comment…", "Insert TODO comment…"), mc("Format document"), mc("Format selection (Nim built in, or the language server)", "Format selection"),
+      mc("TODO: insert a tag comment…", "Insert TODO comment…"), mc("Format document"), mc("Format selection (ned's own for Nim and C, or the language server)", "Format selection"),
       mc("Duplicate line/selection"), mc("Move line up"), mc("Move line down"),
       mc("Indent lines", "Indent"), mc("Unindent lines (outdent, dedent)", "Unindent"), msep(),
       msub("Macros", @[mc("Macro: start or stop recording", (if macroRecording: "Stop recording" else: "Record a macro")),

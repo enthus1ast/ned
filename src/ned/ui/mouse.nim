@@ -95,6 +95,9 @@ proc dragTo(x, y: int) =
   of dtField: fieldDragTo(x)
   of dtTabOut, dtFile, dtText: dropHover(x, y)
   of dtFormScroll: formScrollTo(y)
+  of dtMove:
+    # (the offset from where the box opens: it opens there again, this session)
+    boxMoves[moveGrab.key] = (x - moveGrab.dx - moveGrab.x0, y - moveGrab.dy - moveGrab.y0)
   of dtNone: discard
   needRender = true
 
@@ -337,6 +340,15 @@ proc handleMouse(k: Key) =
             return
       closeMenus()
     return
+  # a box's title bar (a dialog's, a form's, a picker's): a drag moves the box — a button on it still acts
+  if moveBar.x >= 0 and y == moveBar.y and x >= moveBar.x and x < moveBar.x + moveBar.w and
+     (dialogOpen() or formOpen() or pickKind != pickNone):
+    let base = if dialogOpen() or formOpen(): modalStart else: pickRegions
+    let i = hitRegion(x, y, max(0, base))
+    if i < 0 or (i == base and (dialogOpen() or formOpen())):        # (nothing there but the box)
+      dragTarget = dtMove
+      moveGrab = (x - moveBar.x, y - moveBar.y, moveBar.x0, moveBar.y0, moveBar.key)
+      return
   if dialogOpen() or formOpen():
     let i = hitRegion(x, y, modalStart)
     if i >= 0: regions[i].act()
@@ -377,6 +389,13 @@ proc handleMouse(k: Key) =
       regions[i].act()                  # (the field: the cursor there, a drag selects — or a button)
       return
     closePrompt()
+  # (a button drawn over the minimap or the scroll bar — the find bar's ×, a note, a hover — takes the click: the
+  # handle under it does not)
+  if overlayStart >= 0:
+    let oi = hitRegion(x, y, overlayStart)
+    if oi >= 0 and dragHandleAt(x, y) in {dtMinimap, dtScroll}:
+      regions[oi].act()
+      return
   # drag handles: the split divider, dock edges, the bottom panel's header, the scrollbar
   let dt = dragHandleAt(x, y)
   if dt != dtNone:

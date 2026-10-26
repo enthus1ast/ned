@@ -907,7 +907,7 @@ proc winShell*(): seq[string] =
     if c.len > 0 and fileExists(c): return @[c, "-c"]
   @[getEnv("ComSpec", "cmd.exe"), "/d", "/s", "/c"]
 
-proc isCmdExe(p: string): bool = extractFilename(p).toLowerAscii in ["cmd.exe", "cmd"]
+proc isCmdExe*(p: string): bool = extractFilename(p).toLowerAscii in ["cmd.exe", "cmd"]
 
 proc winCmdLine*(argv: seq[string]): string =
   ## argv as one Windows command line; cmd.exe's /c command as it is, in quotes (cmd.exe has its own quoting: /s

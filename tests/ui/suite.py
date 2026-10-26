@@ -7053,6 +7053,534 @@ def t_628_parser_check_fails():
     check("628 parser check: not built again (nor said again) at the next format", 'not built' not in s and
           'building the Nim parser check' not in s, s)
 
+def t_629_move_boxes():
+    # 6.29: a dialog, a form or a picker moves with its title bar dragged, and opens where it was left the next time
+    setup()
+    start('src/demo.nim', w=120, h=34)
+    keys('C-p'); time.sleep(0.6)
+    p = place_of('─ Open file')
+    check('629 move: the picker is open', p is not None, screen())
+    if not p: return
+    x, y = p[0] + 15, p[1]
+    press(x, y); drag(x, y + 2); drag(x, y + 5); release(x, y + 5)
+    q = place_of('─ Open file')
+    check('629 move: the picker follows its title bar', q and q[1] == p[1] + 5, '%s → %s\n%s' % (p, q, screen()))
+    keys('Escape'); time.sleep(0.3); keys('C-p'); time.sleep(0.6)
+    r = place_of('─ Open file')
+    check('629 move: … and opens there again', r == q, '%s / %s\n%s' % (q, r, screen()))
+    keys('Escape'); time.sleep(0.3)
+    # a dialog (unsaved changes at quit)
+    text('xx'); keys('C-q'); time.sleep(0.6)
+    p = place_of('─ Unsaved changes')
+    check('629 move: the dialog is open', p is not None, screen())
+    if not p: return
+    x, y = p[0] + 10, p[1]
+    press(x, y); drag(x - 6, y - 3); drag(x - 12, y - 5); release(x - 12, y - 5)
+    q = place_of('─ Unsaved changes')
+    check('629 move: the dialog follows its title bar', q == (p[0] - 12, p[1] - 5), '%s → %s\n%s' % (p, q, screen()))
+    keys('Escape'); time.sleep(0.3); keys('C-q'); time.sleep(0.6)
+    r = place_of('─ Unsaved changes')
+    check('629 move: … and opens there again', r == q, '%s / %s\n%s' % (q, r, screen()))
+    # a click on the title bar alone moves nothing, and the dialog's buttons still work
+    click(x - 12, y - 5)
+    check('629 move: a click on the title moves nothing', place_of('─ Unsaved changes') == q, screen())
+    keys('Escape'); time.sleep(0.3)
+
+def kept_terminals_end():
+    """end the terminals the tests kept running (terminal.keepRunning) in the scratch project"""
+    import glob, signal
+    for f in glob.glob(os.environ.get('TMPDIR', '/tmp') + '/ned-%d/term-*.json' % os.getuid()):
+        try:
+            j = json.load(open(f))
+            if j.get('project', '').startswith(TMP): os.kill(j['shell'], signal.SIGKILL)
+        except (OSError, ValueError, KeyError): pass
+
+def t_629_kept_terminals():
+    # 6.29 (terminal.keepRunning): a terminal's shell goes on after ned quits — what it runs still running — and the
+    # next ned in the folder takes it back, with what it printed; Terminal: kill ends it for good
+    kept_terminals_end()
+    setup({"terminal.shell": "/bin/bash", "terminal.keepRunning": True})
+    start('src/demo.nim')
+    keys('C-\\'); time.sleep(1.2); text('echo kept-$$'); keys('Enter')
+    wait_for(r'kept-\d+', 5)
+    m = re.search(r'kept-(\d+)', screen())
+    check('629 kept: the terminal runs a shell', m, screen())
+    if not m: return
+    pid = m.group(1)
+    text('for i in $(seq 1 400); do echo $i > %s/tick; sleep 0.2; done' % W); keys('Enter'); time.sleep(0.8)
+    keys('C-\\'); time.sleep(0.3); keys('C-q')
+    for _ in range(30):
+        if os.path.exists(W + '/exit'): break
+        time.sleep(0.2)
+    check('629 kept: ned quits', os.path.exists(W + '/exit') and 'EXITED 0' in open(W + '/exit').read(), screen())
+    tm('kill-session', '-t', 'f'); time.sleep(0.5)          # (its window closed too)
+    a = open(W + '/tick').read(); time.sleep(1.0); b = open(W + '/tick').read()
+    check('629 kept: … and what ran in its terminal runs on', a != b and os.path.exists('/proc/' + pid), a + ' / ' + b)
+    os.remove(W + '/exit')
+    start('src/demo.nim')
+    palette('Show recent messages'); time.sleep(0.6)
+    s = screen()
+    check('629 kept: the next ned says it took the terminal back', 'kept running since last time' in s, s)
+    keys('Escape'); time.sleep(0.2)
+    keys('C-\\'); time.sleep(1.0)
+    check('629 kept: … with what it printed', 'kept-' + pid in screen(), screen())
+    keys('C-c'); time.sleep(0.4); text('echo again-$$'); keys('Enter')
+    check('629 kept: … the same shell, still running', wait_for('again-' + pid, 5), screen())
+    keys('C-\\'); time.sleep(0.3)
+    palette('Terminal: kept terminals…'); time.sleep(0.6)
+    s = screen()
+    check('629 kept: the kept terminals, listed', 'End bash in this folder' in s and 'End all 1' in s, s)
+    keys('Escape'); time.sleep(0.2)
+    palette('Terminal: kill'); time.sleep(1.5)
+    keys('C-\\'); time.sleep(0.5)
+    check('629 kept: Terminal: kill ends it for good', not os.path.exists('/proc/' + pid) and 'process exited' in screen(),
+          screen())
+    kept_terminals_end()
+
+def t_629_remote_servers():
+    # 6.29 (remote.languageServers): a remote folder's language server runs on the server — where its program is (not
+    # here) — and sees the server's paths; what it answers comes back as the local copy's, and a file of the server's
+    # outside the folder that it points to (F12) is fetched, to read
+    need('ssh-server')
+    srv = TMP + '/remote-srv/proj'
+    shutil.rmtree(TMP + '/remote-srv', ignore_errors=True)
+    os.makedirs(srv); os.makedirs(TMP + '/remote-srv/lib')
+    open(srv + '/hello.py', 'w').write('import helper\nhelper.go()\n')
+    open(TMP + '/remote-srv/lib/helper.py', 'w').write('def go():\n    print("on the server only")\n')
+    log = TMP + '/remote-srv/ls.log'
+    # the server's program: in ~/.local/bin, on the server's PATH (a login's) and not on this ned's
+    bindir = os.path.expanduser('~/.local/bin')
+    os.makedirs(bindir, exist_ok=True)
+    exe = bindir + '/ned-test-remotels'
+    open(exe, 'w').write('#!/bin/sh\nexec python3 %s "$@"\n' % (MOCKS + '/mockremotels.py'))
+    os.chmod(exe, 0o755)
+    SP = SSH_DIR + ':' + TOOLS + ':/usr/bin:/bin'
+    sh('for c in ' + SSH_CTL + '/*; do ' + SSH_DIR + '/ssh -o ControlPath=$c -O exit x 2>/dev/null; done; rm -f ' + SSH_CTL + '/*')
+    try:
+        setup({"lsp": {"python": ["ned-test-remotels", log, TMP + '/remote-srv/lib/helper.py']}})
+        start('src/demo.nim', w=130, h=40, path=SP); time.sleep(0.5)
+        palette('Remote: open a folder over SSH'); time.sleep(0.3); text('devbox:' + srv); keys('Enter')
+        check('629 remote servers: the folder opens', wait_for('every save goes', 30), screen())
+        keys('C-p'); time.sleep(0.3); text('hello.py'); time.sleep(0.4); keys('Enter')
+        ok = wait_for('seen at', 15)
+        l = open(log).read() if os.path.exists(log) else ''
+        check('629 remote servers: it runs on the server, told the folder there', 'rootUri=file://' + srv in l and
+              'processId=null' in l, l)
+        check('629 remote servers: … and the file by its path there', 'didOpen file://' + srv + '/hello.py' in l, l)
+        palette('Show problems'); time.sleep(0.8)
+        s = screen()
+        check('629 remote servers: its problem is on the file here', ok and 'seen at ' in s and 'hello.py' in s, s)
+        keys('Escape'); time.sleep(0.2)
+        keys('C-g'); text('2:2'); keys('Enter'); keys('F12')
+        ok = wait_for('on the server only', 15)
+        s = screen()
+        check('629 remote servers: F12 into a file of the server\'s outside the folder: fetched, to read', ok and
+              'helper.py' in s, s)
+        text('x'); time.sleep(0.3)
+        check('629 remote servers: … read-only', 'xdef go' not in screen() and 'def go' in screen(), screen())
+    finally:
+        os.remove(exe)
+
+def tiny_png(path, w=8, h=6, rgb=(200, 40, 40)):
+    """a small PNG of one colour"""
+    import zlib, struct
+    raw = b''.join(b'\x00' + bytes(rgb) * w for _ in range(h))
+    def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) +
+                           chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+def t_629_ai_pictures():
+    # 6.29: a picture with a message (@shot.png, a pasted path, AI: attach a picture…) goes to the model as a picture —
+    # OpenAI's image_url, Anthropic's image — and the chat shows it; one too big or of another kind is said why
+    import base64
+    setup()
+    tiny_png(W + '/shot.png')
+    open(W + '/notes.bmp', 'wb').write(b'BM' + b'\0' * 60)
+    data = base64.b64encode(open(W + '/shot.png', 'rb').read()).decode()
+    start('src/demo.nim', w=130, h=40)
+    keys('M-c'); time.sleep(0.4); text('what is in '); paste(W + '/shot.png'); time.sleep(0.4)
+    check('629 pictures: a pasted picture path becomes @shot.png: it goes with the message',
+          'The picture goes with the message' in screen(), screen())
+    keys('Enter')
+    wait_for('You said', 8); time.sleep(0.5)
+    log = open(MOCK_LOG).read().splitlines()
+    body = json.loads(log[-1])['body'] if log else {}
+    um = [m for m in body.get('messages', []) if m.get('role') == 'user']
+    c = um[-1]['content'] if um else ''
+    ok = isinstance(c, list) and any(x.get('type') == 'image_url' and x['image_url']['url'] == 'data:image/png;base64,' + data
+                                      for x in c) and any(x.get('type') == 'text' and 'what is in' in x.get('text', '') for x in c)
+    check('629 pictures: sent as a picture (OpenAI: image_url, data:image/png;base64)', ok, json.dumps(c)[:600])
+    s = screen()
+    check('629 pictures: the chat shows it (drawn, its name and size)', '▣ shot.png' in s and '8×6' in s and '▀' in s, s)
+    # Anthropic: an image block before the text
+    keys('C-l'); time.sleep(0.3)
+    setup({"ai.provider": "anthropic", "ai.model": "claude-test"})
+    tiny_png(W + '/shot.png')
+    start('src/demo.nim', w=130, h=40)
+    keys('M-c'); time.sleep(0.4); text('and now '); paste(W + '/shot.png'); time.sleep(0.3); keys('Enter')
+    time.sleep(2.5)
+    log = open(MOCK_LOG).read().splitlines()
+    body = json.loads(log[-1])['body'] if log else {}
+    um = [m for m in body.get('messages', []) if m.get('role') == 'user']
+    c = um[-1]['content'] if um else ''
+    ok = isinstance(c, list) and c and c[0].get('type') == 'image' and c[0]['source'] == {
+        'type': 'base64', 'media_type': 'image/png', 'data': data} and c[-1].get('type') == 'text'
+    check('629 pictures: Anthropic: an image block, then the text', ok, json.dumps(c)[:600])
+    # a pasted path; a kind the assistants do not read
+    setup()
+    tiny_png(W + '/shot.png')
+    open(W + '/notes.bmp', 'wb').write(b'BM' + b'\0' * 60)
+    start('src/demo.nim', w=130, h=40)
+    keys('M-c'); time.sleep(0.4)
+    paste("'" + W + "/notes.bmp'"); time.sleep(0.4)
+    check('629 pictures: a pasted path in quotes too (a BMP: said why it will not go)',
+          'notes.bmp: the assistant takes PNG' in screen(), screen())
+    keys('Enter'); time.sleep(1.0)
+    palette('Show recent messages'); time.sleep(0.6)
+    check('629 pictures: a BMP is not sent, and ned says why', 'PNG, JPEG, GIF and WebP' in screen(), screen())
+    keys('Escape'); time.sleep(0.2)
+    palette('AI: attach a picture…'); time.sleep(0.6)
+    s = screen()
+    check('629 pictures: AI: attach a picture… lists the project\'s', 'shot.png' in s and '8×6' in s, s)
+
+def t_629_jinja():
+    # 6.29: Jinja-style templates (Nimja's .nimja, Jinja's .j2): HTML, with {{ }} and {% %} coloured as Nim, the
+    # statement words (extends, endfor …) as keywords, {# #} as a comment
+    setup({"theme": "one-dark", "editor.languageServerHints": False, "nim.ide": "off"})
+    open(W + '/page.nimja', 'w').write('{% extends "base.nimja" %}\n{# a comment here #}\n<ul class="list">\n'
+                                       '{% for item in items %}\n  <li>{{ item.name.toUpperAscii() }}</li>\n'
+                                       '{% endfor %}\n</ul>\n')
+    start('page.nimja', w=110, h=30); time.sleep(1.5)
+    m = fg_map(tm('capture-pane', '-t', 'f', '-e', '-p').stdout)
+    kw, tag = fg_of(m, 'for item'), fg_of(m, '<ul', 1)
+    check('629 jinja: {% for … %} is Nim (for: a keyword, not as the name after it)',
+          kw is not None and kw != fg_of(m, 'item in'), str((kw, fg_of(m, 'item in'))))
+    check('629 jinja: extends and endfor are keywords', fg_of(m, 'extends') == kw and fg_of(m, 'endfor') == kw,
+          str((fg_of(m, 'extends'), fg_of(m, 'endfor'), kw)))
+    check('629 jinja: the rest is HTML', fg_of(m, '<li', 1) == tag, str((fg_of(m, '<li', 1), tag)))
+    check('629 jinja: {# … #} is a comment', fg_of(m, 'a comment') == fg_of(m, '{# a') and
+          fg_of(m, 'a comment') not in (tag, kw, None), str((fg_of(m, 'a comment'), fg_of(m, '{# a'))))
+    check('629 jinja: {{ … }} stands out from the text', fg_of(m, 'toUpperAscii') not in (tag, None),
+          str(fg_of(m, 'toUpperAscii')))
+    check('629 jinja: the status bar names it', 'Jinja template' in screen(), screen()[-300:])
+
+def last_ai_user_text():
+    """the newest request's last user message, as text"""
+    lines = open(MOCK_LOG).read().splitlines() if os.path.exists(MOCK_LOG) else []
+    if not lines: return ''
+    body = json.loads(lines[-1])['body']
+    for m in reversed(body.get('messages', [])):
+        if m.get('role') == 'user':
+            c = m.get('content')
+            return ' '.join(x.get('text', '') for x in c if isinstance(x, dict)) if isinstance(c, list) else (c or '')
+    return ''
+
+def t_629_ai_git():
+    # 6.29: the assistant with git — why a line changed (its commit, explained in the chat); a file's merge conflicts
+    # resolved by it, checked by the compiler and shown side by side to take
+    setup()
+    open(W + '/src/demo/utils.nim', 'a').write('\nproc why*(): int = 42   # WHYLINE\n')
+    git('add -A'); git('-c user.name=t -c user.email=t@t commit -qm "Add why, the answer"')
+    n = open(W + '/src/demo/utils.nim').read().split('\n').index('proc why*(): int = 42   # WHYLINE') + 1
+    start('src/demo/utils.nim', w=130, h=40)
+    keys('C-g'); text(str(n)); keys('Enter'); time.sleep(0.3)
+    palette('Git: why did this line change? (AI)')
+    ok = wait_for('You said', 12)
+    u = last_ai_user_text()
+    check('629 ai git: why a line changed — its commit goes to the assistant', ok and '<commit>' in u and
+          'Add why, the answer' in u and 'WHYLINE' in u, u[-600:])
+    check('629 ai git: … and the chat says which commit', 'Why did line %d of utils.nim change?' % n in screen(),
+          screen())
+    keys('Escape'); time.sleep(0.2)
+    open(W + '/src/merged.nim', 'w').write('proc a*(): int = 1\n<<<<<<< HEAD\nproc b*(): int = 2\n=======\n'
+                                          'proc c*(): int = 3\n>>>>>>> other\n')
+    keys('C-p'); text('src/merged.nim'); time.sleep(0.6); keys('Enter'); time.sleep(0.6)
+    palette('Git: resolve the conflicts with AI')
+    ok = wait_for('Take it', 20)
+    s = screen()
+    check('629 ai git: the resolution, side by side, checked by the compiler', ok and 'the compiler finds no error' in s,
+          s)
+    keys('Enter'); time.sleep(0.6); keys('C-s'); time.sleep(0.4)
+    t = ftext('src/merged.nim')
+    check('629 ai git: … taken: both sides, no conflict marks', 'proc b*' in t and 'proc c*' in t and '<<<<' not in t, t)
+
+def t_629_code_from_comments():
+    # 6.29: a comment says what to write — ✦ (or Alt+Shift+C on it) and the assistant writes it below, checked by the
+    # compiler and shown side by side first; a comment ending in AI! is acted on at save
+    setup()
+    open(W + '/src/calc.nim', 'w').write('proc twice*(x: int): int = x * 2\n\n# triple a number\n')
+    start('src/calc.nim', w=130, h=40)
+    keys('C-g'); text('3'); keys('Enter'); time.sleep(0.4)
+    check('629 comments: ✦ write it after the comment the cursor is on', '✦ write it' in screen(), screen())
+    keys('M-C')
+    ok = wait_for('Take it', 20)
+    s = screen()
+    check('629 comments: Alt+Shift+C: the code, side by side, checked', ok and 'the compiler finds no error' in s, s)
+    keys('Enter'); time.sleep(0.6); keys('C-s'); time.sleep(0.4)
+    t = ftext('src/calc.nim')
+    check('629 comments: … taken: the code below the comment', '# triple a number\nproc triple*' in t, t)
+    keys('C-End'); text('\n# make twice use a shift AI!'); keys('C-s')
+    ok = wait_for('Take it', 20)
+    check('629 comments: AI! at save: the change it asks for, shown', ok and 'AI!' in screen(), screen())
+    keys('Enter'); time.sleep(0.6); keys('C-s'); time.sleep(0.4)
+    t = ftext('src/calc.nim')
+    check('629 comments: … taken: done, and the AI! comment gone', 'x shl 1' in t and 'AI!' not in t, t)
+
+def t_629_plugin_updates():
+    # 6.29: a plugin's version and author (pluginInfo) in the Plugins dock; Check for updates sees a newer version in
+    # its repository; Update brings it; Roll back takes it back; a pinned plugin is left alone
+    setup()
+    origin = TMP + '/plug-origin'
+    shutil.rmtree(origin, ignore_errors=True); os.makedirs(origin)
+    src = ('## upd — a plugin to update\nimport nedplugin\n\npluginInfo(version = "%s", author = "Tester", '
+           'license = "MIT")\n\ncommand("Upd: hello"):\n  message("hello %s")\n')
+    open(origin + '/plugin.nims', 'w').write(src % ('1.0.0', '1.0.0'))
+    sh('cd %s && git init -q -b main && git add -A && git -c user.name=t -c user.email=t@t commit -qm one' % origin)
+    shutil.rmtree(CFG + '/ned/plugins/upd', ignore_errors=True)
+    sh('git clone -q %s %s' % (origin, CFG + '/ned/plugins/upd'))
+    start('src/demo.nim', w=130, h=40)
+    palette('Plugins panel'); time.sleep(1.5)
+    s = screen()
+    check('629 plugin updates: the dock shows its version', 'upd' in s and '1.0.0' in s, s)
+    open(origin + '/plugin.nims', 'w').write(src % ('1.1.0', '1.1.0'))
+    sh('cd %s && git -c user.name=t -c user.email=t@t commit -qam two' % origin)
+    palette('Plugins: check for updates')
+    ok = wait_for(r'upd 1\.0\.0 → 1\.1\.0', 15)
+    check('629 plugin updates: Check for updates: 1.0.0 → 1.1.0', ok, screen())
+    palette('Plugins: update (git pull)')
+    ok = wait_for('Updated: upd', 15)
+    time.sleep(1.0)
+    check('629 plugin updates: updated', ok and 'version = "1.1.0"' in open(CFG + '/ned/plugins/upd/plugin.nims').read(),
+          screen())
+    palette('Upd: hello'); time.sleep(1.0)
+    check('629 plugin updates: … and running as 1.1.0', wait_for('hello 1.1.0', 8), screen())
+    # roll back, through the plugin's menu in the dock
+    palette('Plugins panel'); time.sleep(1.0)
+    p = place_of('upd ')
+    if p: click(p[0] + 1, p[1]); time.sleep(0.6)
+    s = screen()
+    check('629 plugin updates: its menu: who made it, roll back, pin', '1.1.0 · Tester · MIT' in s and
+          'Roll back to 1.0.0' in s and 'Pin at 1.1.0' in s, s)
+    p = place_of('Roll back to 1.0.0')
+    if p: click(p[0] + 1, p[1]); time.sleep(2.0)
+    check('629 plugin updates: rolled back to 1.0.0', 'version = "1.0.0"' in open(CFG + '/ned/plugins/upd/plugin.nims').read(),
+          screen())
+    p = place_of('Pin')
+    if p: click(p[0] + 1, p[1]); time.sleep(0.8)
+    c = open(CFG + '/ned/config.json').read()
+    check('629 plugin updates: pinned (kept in plugins.pinned)', '"upd"' in c and 'pinned' in c, c[-400:])
+    palette('Plugins: update (git pull)'); time.sleep(2.0)
+    check('629 plugin updates: a pinned plugin is left alone', 'version = "1.0.0"' in open(CFG + '/ned/plugins/upd/plugin.nims').read(),
+          screen())
+
+def t_629_git_watch():
+    # 6.29: git status when something changes, not every few seconds: a file staged or committed from outside ned
+    # shows in the Git dock at once
+    setup()
+    start('src/demo.nim', w=130, h=40)
+    keys('M-g'); time.sleep(1.5)
+    open(W + '/src/demo.nim', 'a').write('# changed outside\n')
+    git('add src/demo.nim')
+    ok = wait_for('STAGED CHANGES', 4)
+    check('629 git watch: a stage from outside ned shows at once', ok, screen())
+    git('-c user.name=t -c user.email=t@t commit -qm outside')
+    ok = wait_for('Working tree clean', 4)
+    check('629 git watch: … and a commit', ok, screen())
+
+def t_629_update():
+    # 6.29: ned --update — whether a newer release is out (GitHub's list of releases; here a file in its place), and
+    # how it would be installed; nothing is run without asking
+    rel = TMP + '/release.json'
+    json.dump({"tag_name": "v99.1.0", "assets": [{"name": "ned_99.1.0_aarch64.deb",
+               "browser_download_url": "https://example.invalid/ned_99.1.0_aarch64.deb"}]}, open(rel, 'w'))
+    r = subprocess.run([BIN, '--update', '--check'], capture_output=True, text=True, env=dict(os.environ, NED_UPDATE_URL=rel))
+    check('629 update: --check says a newer release is out', r.returncode == 0 and 'ned 99.1.0 is out' in r.stdout, r.stdout + r.stderr)
+    r = subprocess.run([BIN, '--update'], capture_output=True, text=True, input='n\n',
+                       env=dict(os.environ, NED_UPDATE_URL=rel))
+    check('629 update: it says what it would run (or the ways to get it), and changes nothing unasked',
+          ('It will run:' in r.stdout and 'Nothing changed' in r.stdout) or 'Any of these brings 99.1.0' in r.stdout,
+          r.stdout + r.stderr)
+    json.dump({"tag_name": "v1.0.0"}, open(rel, 'w'))
+    r = subprocess.run([BIN, '--update'], capture_output=True, text=True, env=dict(os.environ, NED_UPDATE_URL=rel))
+    check('629 update: an older release is not one to install', r.returncode == 0 and 'This is the newest' in r.stdout,
+          r.stdout + r.stderr)
+
+def t_629_telescope():
+    # 6.29: Telescope (Alt+Shift+F) — a list of finders, each a picker with its preview beside it: live grep (the
+    # file at the line), settings (what one does, its default), git commits (the change); Telescope: resume opens
+    # the last finder again with what was typed
+    setup()
+    start('src/demo.nim', w=150, h=40)
+    keys('M-F')
+    ok = wait_for('Telescope — what to find', 4)
+    s = screen()
+    check('629 telescope: Alt+Shift+F lists the finders, the selected one explained beside them',
+          ok and 'Live grep' in s and 'Git: commits' in s and 'Settings' in s and 'The project' in s, s)
+    text('settings'); time.sleep(0.4); keys('Enter')
+    ok = wait_for('Settings — Enter opens', 4)
+    text('editor.tabsize'); time.sleep(0.6)
+    s = screen()
+    check("629 telescope: settings — each one's description, value and default beside it",
+          ok and 'Default:' in s and 'Now:' in s, s)
+    keys('Escape'); time.sleep(0.3)
+    keys('M-F'); wait_for('Telescope — what to find', 4)
+    text('git: commits'); time.sleep(0.4); keys('Enter')
+    ok = wait_for('Git: commits — the change', 4) and wait_for(r'diff --git|demo\.nimble *\|', 6)
+    check('629 telescope: git commits — the change of the selected one beside it', ok, screen())
+    keys('Escape'); time.sleep(0.3)
+    keys('M-F'); wait_for('Telescope — what to find', 4)
+    text('live grep'); time.sleep(0.4); keys('Enter')
+    wait_for('Live grep — type', 4)
+    text('greet'); time.sleep(0.2)
+    ok = wait_for('lines with “greet”', 6)
+    s = screen()
+    check('629 telescope: live grep — the lines found as you type, the file at the line beside them',
+          ok and 'src/demo.nim:4' in s and 'proc greet*' in s, s)
+    keys('Escape'); time.sleep(0.3)
+    palette('Telescope: resume')
+    ok = wait_for('lines with “greet”', 6)
+    check('629 telescope: resume — the last finder again, with what was typed', ok, screen())
+    keys('Enter'); time.sleep(0.5)
+    s = screen()
+    check('629 telescope: Enter goes to the line', re.search(r'Ln [49], Col', s) is not None and 'demo.nim' in s, s)
+
+def t_629_cursor_glide():
+    # 6.29: ui.cursorAnimation — a jump of the cursor glides there with a fading trail (frames of its own, only the
+    # trail's cells), then the cursor shows where it went; a step of one column does not glide; off: no trail
+    setup({"ui.cursorAnimation": "glide", "ui.cursorAnimationMs": 300, "ui.cursorStyle": "block"})
+    log = TMP + '/perf-glide.txt'
+    if os.path.exists(log): os.remove(log)
+    start('src/demo.nim', w=120, h=34, env_extra='NED_PERF_LOG=' + log)
+    time.sleep(0.5)
+    base = screen().count('█')
+    tm('send-keys', '-t', 'f', 'C-End')
+    trail, end = 0, time.time() + 0.5
+    while time.time() < end:
+        trail = max(trail, screen().count('█') - base)
+    time.sleep(0.5)
+    s = screen()
+    check('629 cursor glide: a jump to the end of the file draws a trail on the way', trail >= 2, (trail, s))
+    check('629 cursor glide: … gone when the cursor has arrived', s.count('█') == base and
+          re.search(r'Ln 1[01], Col', s) is not None, s)
+    tm('send-keys', '-t', 'f', 'Left')
+    small, end = 0, time.time() + 0.4
+    while time.time() < end:
+        small = max(small, screen().count('█') - base)
+    check('629 cursor glide: a step of one column does not glide', small == 0, small)
+    keys('C-q'); time.sleep(1.0)
+    for k in ('Escape', 'n', 'Enter'):
+        if os.path.exists(log): break
+        keys(k); time.sleep(0.6)
+    t = open(log).read() if os.path.exists(log) else ''
+    check('629 cursor glide: the performance report counts the glides and their frames',
+          re.search(r'Cursor glides: [1-9]\d* \([1-9]\d* frames of their own', t) is not None, t[:1500])
+    setup({"ui.cursorAnimation": "off", "ui.cursorStyle": "block"})
+    start('src/demo.nim', w=120, h=34)
+    time.sleep(0.5)
+    base = screen().count('█')
+    tm('send-keys', '-t', 'f', 'C-End')
+    trail, end = 0, time.time() + 0.4
+    while time.time() < end:
+        trail = max(trail, screen().count('█') - base)
+    check('629 cursor glide: off — the cursor jumps, no trail', trail == 0, trail)
+
+def bg_at_col(row, k):
+    """the 24-bit background colour at column k of an ANSI row, or None"""
+    bg, col, i = None, 0, 0
+    while i < len(row):
+        m = re.match(r'\x1b\[([0-9;:]*)m', row[i:])
+        if m:
+            ps = m.group(1).split(';')
+            j = 0
+            while j < len(ps):
+                if ps[j] == '48' and j + 4 < len(ps) and ps[j + 1] == '2':
+                    bg = tuple(ps[j + 2:j + 5]); j += 5
+                elif ps[j] in ('0', '49', ''):
+                    bg = None; j += 1
+                elif ps[j] in ('38', '58') and j + 4 < len(ps) and ps[j + 1] == '2':
+                    j += 5
+                else: j += 1
+            i += m.end(); continue
+        if col == k: return bg
+        col += 1; i += 1
+    return None
+
+def t_629_engine_highlights():
+    # 6.29: the other uses of the name under the cursor marked by what it names (ned's engines, as clangd's document
+    # highlights): a local of another proc (another C function) with the same name is left alone
+    setup({"nim.nimsuggest": False, "c.engine": "builtin", "editor.hoverDelay": 10000})
+    open(W + '/hl.nim', 'w').write('proc first(): int =\n  var count = 1\n  count += 1\n  count\n\n'
+                                  'proc second(): int =\n  var count = 2\n  count\n')
+    open(W + '/hl.c', 'w').write('int first(void) {\n  int count = 1;\n  count += 1;\n  return count;\n}\n\n'
+                                'int second(void) {\n  int count = 2;\n  return count;\n}\n')
+    for f in ('hl.nim', 'hl.c'):
+        start(f, w=110, h=30)
+        keys('C-g'); text('2:9'); keys('Enter'); time.sleep(1.2)
+        rows = screen_ansi().split('\n')
+        plain = [re.sub(r'\x1b\[[0-9;:]*m', '', r) for r in rows]
+        def bg_of(line_no):
+            for r, t in zip(rows, plain):
+                m = re.match(r'^[^0-9]*?(\d+)\s', t)
+                if m is not None and int(m.group(1)) == line_no and 'count' in t:
+                    return bg_at_col(r, t.index('count'))
+            return 'missing'
+        own, other_bg = bg_of(3), bg_of(8 if f == 'hl.nim' else 9)
+        check('629 engine highlights (%s): the uses of this local are marked, the same name in the other routine is not'
+              % f, own not in (None, 'missing') and other_bg != own and other_bg != 'missing',
+              repr((own, other_bg)) + '\n' + '\n'.join(plain[:14]))
+        tm('kill-server'); time.sleep(0.3)
+
+def t_629_click_over_minimap():
+    # 6.29 (Foxoman's bug): a box drawn over the minimap — the find and replace bar — took no clicks there: its ×
+    # did not close it, the minimap under it jumped instead
+    setup({"ui.minimap": "on"})
+    open(W + '/long.nim', 'w').write(''.join('let value%d = %d  # a line long enough to fill the minimap\n' % (i, i)
+                                             for i in range(400)))
+    start('long.nim', w=150, h=40)
+    keys('C-r'); time.sleep(0.4); text('value'); time.sleep(0.5)
+    s = screen()
+    rows = s.split('\n')
+    y = next((i for i, l in enumerate(rows) if ' of ' in l and 'Aa' in l), -1)
+    x = rows[y].rfind('×') if y >= 0 else -1
+    check('629 click over the minimap: the find bar\'s × lies over the minimap', y >= 0 and x > 120, s)
+    click(x + 1, y + 1); time.sleep(0.4)
+    s = screen()
+    check('629 click over the minimap: the × closes the bar (the minimap under it does not jump)',
+          ' of ' not in s.split('\n')[y] and 'value0' in s, s)
+
+def t_629_indent_plugins():
+    # 6.29: indent-dots — a dot in each space of the indentation, up to the first letter, none between words, a blank
+    # line's as deep as the code around it; rainbow-indent — each level a band of its own colour (ned draws both)
+    setup({"plugins.bundled": ["indent-dots", "rainbow-indent"], "editor.indentGuides": False})
+    for p in ('indent-dots', 'rainbow-indent'):       # (their on/off from an earlier run: in their data folder)
+        shutil.rmtree(os.path.join(os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share')), 'ned',
+                                   'plugins', p), ignore_errors=True)
+    open(W + '/ind.py', 'w').write('def f(x):\n    if x:\n        print("a  b")\n\n    return 1\n')
+    start('ind.py', w=110, h=30)
+    ok = wait_for(r'········print', 30)
+    s = screen()
+    check('629 indent dots: · in the indentation up to the first letter, not between the words', ok and
+          'print("a  b")' in s and '····if x:' in s and '····return' in s, s)
+    rows = s.split('\n')
+    blank = next((l for l in rows if re.match(r'^[^0-9]*4\s', l)), '')
+    check('629 indent dots: a blank line\'s dots as deep as the code around it', '····' in blank and '·····' not in blank,
+          blank)
+    def bands_now():
+        row = ansi_row('print("a  b")')
+        plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)
+        k = plain.find('········print')
+        return k, [bg_at_col(row, k), bg_at_col(row, k + 4)], bg_at_col(row, plain.find('print') + 1), plain
+    good = lambda r: r[0] >= 0 and None not in r[1] and r[1][0] != r[1][1] and r[2] not in r[1]
+    wait_until(lambda: good(bands_now()), 10)          # (the plugins start one after the other)
+    k, bands, after, plain = bands_now()
+    check('629 rainbow indent: each level its own band, the text after them on the plain background',
+          good((k, bands, after, plain)), repr((bands, after)) + '\n' + plain)
+    palette('Rainbow indent: on/off'); time.sleep(1.0)
+    row = ansi_row('print("a  b")')
+    plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)
+    check('629 rainbow indent: off — no bands (the dots stay)',
+          bg_at_col(row, k) == bg_at_col(row, k + 4) and '········print' in plain, plain)
+
 def t_619_hot_exit():
     # files.hotExit: quitting with unsaved edits asks nothing; they come back, unsaved, in their tabs (a file and an
     # untitled one) the next time ned opens the folder — the file on disk untouched meanwhile
@@ -8410,7 +8938,7 @@ def t_625_plugins_menu():
     ok = wait_for(r"AVAILABLE · ned's own plugins", 8)
     s = screen()
     check('625 the dock lists ned\'s own plugins under AVAILABLE, each with what it does',
-          ok and 'dial' in s and 'which-key' in s, s)
+          ok and 'dial' in s and 'case-change' in s and 'line up the =' in s, s)
     def avail_at(name):
         for r, l in enumerate(screen().splitlines()):
             m = re.search(r'\+ ' + name + r'\b', l)
@@ -9337,4 +9865,8 @@ tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_te
          t_626_c_header_macros, t_626_plugin_permissions, t_626_memory_checks, t_626_notebook, t_626_proc_tests,
          t_626_flame, t_626_pictures, t_626_markdown_preview, t_626_settings_sync,
          t_627_256_colours, t_627_json, t_627_web_more, t_627_pnak, t_627_nim3_contracts,
-         t_628_plugin_server_after_save, t_628_hastur_tests, t_628_parser_check_fails]
+         t_628_plugin_server_after_save, t_628_hastur_tests, t_628_parser_check_fails,
+         t_629_move_boxes, t_629_kept_terminals, t_629_remote_servers, t_629_ai_pictures,
+         t_629_jinja, t_629_ai_git, t_629_code_from_comments, t_629_plugin_updates, t_629_git_watch,
+         t_629_update, t_629_telescope, t_629_cursor_glide, t_629_engine_highlights,
+         t_629_click_over_minimap, t_629_indent_plugins]

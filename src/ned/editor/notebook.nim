@@ -405,7 +405,7 @@ proc nbRunCompiled(b: Buffer, upto: int) =
   let path = b.path
   let t0 = getMonoTime()
   let cmd = "nim c -r --hints:off --warnings:off --path:" & quoteShell(parentDir(b.path)) & " --nimcache:" &
-            quoteShell(tmp / "nc") & " -o:" & quoteShell(tmp / "prog") & " " & quoteShell(main)
+            quoteShell(tmp / "nc") & " -o:" & quoteShell(tmp / "prog" & ExeDot) & " " & quoteShell(main)
   let j = startJob(jkRun, cmd, parentDir(b.path), proc(j: Job) =
     nbBuild.del bid
     var per = newSeq[seq[string]](upto + 1)

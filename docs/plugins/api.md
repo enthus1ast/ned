@@ -748,6 +748,14 @@ proc status(text: string)
 
 this plugin's item in the status bar ("" removes it)
 
+#### `indentStyle`
+
+```nim
+proc indentStyle(s: IndentStyle)
+```
+
+this plugin's look for indentation — one for each plugin: a new one takes the place of the last, and `indentStyle(IndentStyle())` takes it away. Selections, search matches and highlights keep their own colours
+
 ### settings, its folder
 
 #### `setting`
@@ -1350,6 +1358,14 @@ template requiresNed(spec: string)
 ```
 
 the ned it needs (">= 6.20"): an older ned leaves the plugin out and says why
+
+#### `pluginInfo`
+
+```nim
+template pluginInfo(version: string, author = "", homepage = "", license = "")
+```
+
+the plugin's version ("1.2.0": major.minor.patch), who wrote it, where it lives and its licence — shown in the Plugins dock. ned reads them from the source, not by running it, so give them as plain strings. Check for updates compares the version with the one in the plugin's repository
 
 #### `settingDef`
 

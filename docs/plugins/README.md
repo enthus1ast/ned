@@ -1,15 +1,16 @@
 # Plugins
 
 New to writing plugins? The [tutorial](tutorial.md) builds one step by step; the [API reference](api.md) lists
-every proc and type. This page says what plugins can do and how they run. ned comes with thirty-four plugins of its
-own, off until you turn one on: [ned's own plugins](available.md).
+every proc and type. This page says what plugins can do and how they run. ned comes with plugins of its own, off
+until you turn one on: [ned's own plugins](available.md).
 
 A plugin is a folder with a `plugin.nims` — NimScript, the Nim of `config.nims` — or a `plugin.nim`, a plugin in
 full Nim. Yours are in `~/.config/ned/plugins/<name>/`; a project's in `.ned/plugins/<name>/` run once you trust
 the folder. *Plugins: new plugin…* (and *new plugin in full Nim…*) makes one from a template, *Plugins: add an
 example…* copies one of the six below, *Plugins: install from git…* clones a repository that has a `plugin.nims`
 (or `plugin.nim`) at its top, *Plugins: browse the plugin list…* installs from a list (`plugins.indexUrl`: a URL or a
-file of JSON, `[{"name", "url", "description"}]`), and *Plugins: update* pulls the ones that came from git. Saving a
+file of JSON, `[{"name", "url", "description"}]`), and *Plugins: update* pulls the ones that came from git (see
+[Versions and updates](#versions-and-updates)). Saving a
 plugin's file reloads it (*Plugins: reload one…* too). While you write one, `import nedplugin` (and `nedlsp`)
 resolves wherever the plugin is: every proc, type and field of the API has its hover with its doc, completion
 after `b.` lists what a buffer offers, and NimScript's own procs (`exec`, `readFile` …) are there too.
@@ -17,7 +18,8 @@ after `b.` lists what a buffer offers, and NimScript's own procs (`exec`, `readF
 ```nim
 import nedplugin
 
-requiresNed(">= 6.20")                               # an older ned leaves it out, and says why
+requiresNed(">= 6.29")                               # an older ned leaves it out, and says why
+pluginInfo(version = "1.2.0", author = "You", homepage = "https://…", license = "MIT")   # shown in the dock
 
 command "Upper-case the line", "ctrl+alt+u":       # the palette (and the Plugins dock), on a key
   let b = current()
@@ -38,8 +40,12 @@ ned for the text, to edit it, to show things. One process for all of them keeps 
 only when one of its plugins is needed — ned keeps what they registered (`~/.cache/ned/plugins/manifest.json`), so
 their commands and keys are there at once — or right after ned starts when a plugin answers events, keeps time,
 formats, completes, hovers, lists symbols or shows a view; it stops after `plugins.idleStopMinutes` without a call.
-`plugins.native` (auto): a set of plugins started before as it is now is compiled (`nim c`, in the background) for
-the next start — a faster start, calls 0.3 ms instead of 3–6, less memory; on: always; off: never. A **plugin in
+`plugins.native` (auto): a set of plugins is compiled (`nim c`, in the background) as soon as it starts, for the next
+start — and for this one, once the process has stopped while idle — a faster start, calls 0.3 ms instead of 3–6,
+less memory; a plugin you are writing (changed in the last 10 minutes) waits until it has started unchanged once;
+on: always; off: never. A plugin reading a file line by line asks ned once, not once a line: ned sends the version
+of the buffers a call is about with the call, and the plugin keeps a copy of their lines while that version stays
+(a file of 5000 lines read with `b.line(i)`: two requests instead of 5002 — 2.6 s → 0.19 s under `nim e`, 95 → 2 ms compiled). A **plugin in
 full Nim** (`plugin.nim`) is always compiled into a program of its own: the whole standard library (std/times,
 osproc, threads, sockets …); while it is built the dock says *compiling…*, and its errors go to Problems. A plugin
 that does not compile is left out — its error is in Problems and its file — and the others start without it; an
@@ -76,7 +82,7 @@ from `start` up to `stop`):
 | the text | `current()`, `openFile(path, line)`, `buffers()`; `b.path`, `b.lang`, `b.lineCount`, `b.line(i)`, `b.lines(a, e)`, `b.text`, `b.textIn(r)`, `b.setText(s)` (only the lines that differ change), `b.replace(r, s)`, `b.insert(p, s)`, `b.delete(r)`, `b.cursor`, `b.setCursor(p)`, `b.selection`, `b.selections`, `b.select(r)`, `b.wordAt(p)`, `b.dirty`, `b.save()`, `b.indentUnit`, `b.lineComment` |
 | you | `message(s)`, `warn(s)`, `toast(s)`, `pick(title, items)` (the index, -1), `ask(prompt, default)`, `confirm(question)` |
 | problems | `b.setProblems([Problem(range, severity, message, fixes)])` — Problems, the underline, and Alt+Enter applies a `Fix(title, edits)` |
-| in the editor | `b.sign(line, "★", "warn")` (the gutter), `b.virtualText(line, text)` (after the line), `b.highlight(r, "accent")`, `b.clearDecorations`, `status(text)`, `progress("Indexing", 40)` / `progressDone()` (the status bar), `output(text)` / `showOutput()` (the Output panel; `file:line:col` in it can be clicked), `runInTerminal(cmd, dir)` (ned's terminal) |
+| in the editor | `b.sign(line, "★", "warn")` (the gutter), `b.virtualText(line, text)` (after the line), `b.highlight(r, "accent")`, `b.clearDecorations`, `indentStyle(IndentStyle(dot: "·", levels: @["warn", "info"]))` (how indentation looks: dots, a colour for each level — ned draws it with each line, nothing is sent per line), `status(text)`, `progress("Indexing", 40)` / `progressDone()` (the status bar), `output(text)` / `showOutput()` (the Output panel; `file:line:col` in it can be clicked), `runInTerminal(cmd, dir)` (ned's terminal) |
 | a language's features | `completions("zig") do (b: Buf, p: Pos, prefix: string) -> seq[CompletionItem]: …` (`label`, `insert`, `detail`, `doc`, `kind`, `snippet`; merged with ned's and a language server's), `hover("zig") do (b, p) -> string` (Markdown, under ned's own), `codeActions("zig") do (b: Buf, r: Range) -> seq[Fix]` (Alt+Enter), `symbols("zig") do (b: Buf) -> seq[Symbol]` (`name`, `kind`, `detail`, `line`, `col`, `depth`: the Outline, Go to symbol, the breadcrumbs), `snippet("zig", "fn", "fn ${1:name}() {\n\t$0\n}", "a function")`; `"*"` for every language |
 | languages | `language("zig", LangSpec(extensions, lineComment, blockComment, keywords, types, constants, builtins, functionWords, indentAfter, dedent, dedentWords, indentSize, tabs, run, build, check, pairs, nestedComments, tripleQuotes, multilineStrings, charLiterals, capitalTypes, decorators, docComment, docBlockComment, nameChars))`; `filetype("python", indentSize = 4)`; your `languages` setting wins over a plugin's |
 | formatters | `formatter("zig", "zig fmt --stdin")` or one in NimScript: `formatter("zig") do (text: string) -> string: …` (Alt+F and format on save; your `formatters` setting wins) |
@@ -111,3 +117,24 @@ completion and hover, vim keys and text objects, a reminder on a timer, and two 
 **Settings:** `plugins.enabled`, `plugins.disabled` (names), `plugins.alone` (names), `plugins.native` (auto · on ·
 off), `plugins.timeoutMs`, `plugins.idleStopMinutes`, `plugins.indexUrl`, and each plugin's own
 `plugins.<name>.<key>`. Plugins run with your rights, like any program: read one before you install it.
+
+## Versions and updates
+
+`pluginInfo(version = "1.2.0", author = "…", homepage = "https://…", license = "MIT")` in a plugin's source gives
+its version (major.minor.patch), who wrote it, where it lives and its licence. ned reads them from the source, not
+by running it — plain strings, by name or in that order — so a plugin that is off shows them too. The Plugins dock
+shows the version next to the plugin; its menu shows the rest, with *Its home page*.
+
+For a plugin that came from git (*Plugins: install from git…*):
+
+- **Check for updates**: *Plugins: check for updates* (or the plugin's menu) asks each repository what it has now
+  (`git fetch`), and says which have a newer version — *upd 1.2.0 → 1.3.0* — or newer commits with the same
+  version. With `plugins.checkForUpdates` (on), ned asks once a day by itself, in the background. The dock marks a
+  plugin with an update waiting: *↑ 1.3.0*.
+- **Update** one from its menu (*Update to 1.3.0*), or all with *Plugins: update (git pull)* — fast-forward only: a
+  plugin with changes of your own is left as it is, and says so.
+- **Roll back**: its menu's *Roll back to 1.2.0* takes it back to the version it had before its last update.
+- **Pin**: *Pin at 1.2.0* keeps it at the version it is at — updates leave it alone (📌 in the dock) — until
+  *Unpin*. The pins are the setting `plugins.pinned` (`{"notes": "1.2.0"}`).
+
+ned's own plugins come with ned and update with it; each has its version and author as well.

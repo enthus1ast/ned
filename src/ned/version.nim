@@ -1,2 +1,2 @@
 ## ned's version — one place for ned, nedfmt and nedls (and ned.nimble's `version`, kept the same)
-const NedVersion* = "6.28.0"
+const NedVersion* = "6.29.0"

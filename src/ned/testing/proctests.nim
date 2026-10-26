@@ -159,7 +159,7 @@ proc cmdWriteProcTests() =
   let exported = s.exported
   info("Running " & name & " with " & $n & " sets of arguments…")
   let cmd = "nim c -r --hints:off --warnings:off --nimcache:" & quoteShell(tmp / "nc") & " -o:" &
-            quoteShell(tmp / "run") & " " & quoteShell(tmp / "run.nim")
+            quoteShell(tmp / "run" & ExeDot) & " " & quoteShell(tmp / "run.nim")
   # (a case that never ends: stopped after 20 s — the cases before it are kept)
   discard startJob(jkRun, (if haveExe("timeout"): "timeout 20 " else: "") & cmd & " 2>&1", modDir, proc(j: Job) =
     try: removeFile(helper)

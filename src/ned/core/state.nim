@@ -207,6 +207,7 @@ var
   cfgSearchMax = 5000
   cfgTermShell = ""
   cfgTermIntegration = true
+  cfgTermKeep = true                  # terminal.keepRunning
   cfgTermScrollback = 3000
   cfgTermCwd = "project"
   cfgGitGutter = true
@@ -454,6 +455,22 @@ var
 type DockList = object
   items: seq[SideItem]
   sel, scroll: int
+
+# ── boxes you move: a dialog, a form or a picker dragged by its title bar stays where you put it (this session) ──
+
+var
+  boxMoves: Table[string, (int, int)]       # a box's offset from where it opens, by its kind
+  moveBar: tuple[x, y, w, x0, y0: int, key: string] = (-1, -1, 0, 0, 0, "")   # the top box's title bar now
+  moveGrab: tuple[dx, dy, x0, y0: int, key: string]                            # where it was taken
+
+proc boxPlace(key: string, x0, y0, w, h: int): (int, int) =
+  ## where a box opening at (x0, y0) is drawn — moved by its offset, kept on the screen — and its title bar the
+  ## one a press may take (the last box drawn is the one on top)
+  let off = boxMoves.getOrDefault(key, (0, 0))
+  let x = clamp(x0 + off[0], 0, max(0, scrW - w))
+  let y = clamp(y0 + off[1], 0, max(0, scrH - h - 1))
+  moveBar = (x, y, w, x0, y0, key)
+  (x, y)
 
 var
   leftList, rightList: DockList

@@ -922,3 +922,127 @@ suite "C++: a class's own name in its methods, a comparison given to an overload
     let l = lineOf(ls, "  same(\"t\", true, x.v == 0);")
     let ts = cxTargets(m, l, ls[l].find("same"))
     check ts.len >= 2 and ts[0][1].tparams.len == 0 and ts[0][1].params[1].typ == "bool"
+
+suite "references by symbol, not by name":
+  let d = getTempDir() / "ned_tcindex_refs"
+  createDir(d)
+  writeFile(d / "shapes.h", "struct a { int x; };\nstruct b { int x; };\nint area(struct a *p);\n")
+  let one = "#include \"shapes.h\"\nstatic int helper(int n) { return n; }\n" &
+            "int area(struct a *p) { return p->x + helper(1); }\n" &
+            "int f1(void) { int x = 1; return x; }\nint f2(void) { int x = 2; return x + 1; }\n"
+  let two = "#include \"shapes.h\"\nstatic int helper(int n) { return n * 2; }\n" &
+            "int g(struct b *q) { struct a *r = 0; return q->x + r->x + helper(2) + area(r); }\n"
+  let f1 = cxLoad(d / "one.c", one, "refs1")
+  let f2 = cxLoad(d / "two.c", two, "refs2")
+  let l1 = one.splitLines
+  let l2 = two.splitLines
+
+  test "a field: only the struct's own, not another struct's field of that name":
+    let l = lineOf(l1, "p->x")
+    let keys = cxKeysAt(f1, l, l1[l].find("x +"))
+    check keys == @["F:a.x"]                                           # (declared in a header: the same everywhere)
+    let there = cxUsesOf(f2, "x", keys)
+    check there == @[(2, l2[2].find("x + helper"))]                      # r->x, not q->x
+
+  test "a local: its function's, not another function's of that name; a static function: its file's":
+    let l = lineOf(l1, "int f1(void)")
+    let keys = cxKeysAt(f1, l, l1[l].find("x = 1"))
+    check keys.len == 1 and keys[0].startsWith("L:")
+    check cxUsesOf(f1, "x", keys).len == 2                              # its declaration and `return x`
+    let h = cxKeysAt(f1, 2, l1[2].find("helper"))
+    check h == @["S:" & d / "one.c" & ":helper"]
+    check cxUsesOf(f2, "helper", h).len == 0
+    check cxUsesOf(f1, "helper", h).len == 2
+
+  test "a function with linkage: in every file that calls it":
+    let keys = cxKeysAt(f1, 2, l1[2].find("area"))
+    check keys == @["G:area"]
+    check cxUsesOf(f2, "area", keys) == @[(2, l2[2].find("area"))]
+
+suite "signature help in a call written over several lines":
+  let src = "int area(int width, int height, const char *unit);\nint main(void) {\n  int a = area(3,\n" &
+            "               4, /* (a comment, with a comma) */\n               \"cm\");\n  return a;\n}\n"
+  let f = cxLoad(getTempDir() / "ned_sig.c", src, "sig1")
+  let ls = src.splitLines
+
+  test "the call's ( lines above: the function and the parameter being typed":
+    var (s, active) = cxSignature(f, 3, ls[3].find("4") + 1)
+    check s.name == "area" and active == 1
+    (s, active) = cxSignature(f, 4, ls[4].find("\"cm\"") + 2)
+    check s.name == "area" and active == 2
+    check cxSignature(f, 5, ls[5].find("a;"))[0].name.len == 0       # (after the call's `;`: none)
+
+suite "semantic colours":
+  test "parameters, locals, globals, macros, fields, enum constants, types and functions — by what they are":
+    let src = "#define LIMIT 10\nenum mode { FAST, SLOW };\ntypedef struct pt { int x; } Pt;\nint total;\n" &
+              "static int twice(int n) { return n * 2; }\n" &
+              "int run(Pt *p, enum mode m) {\n  int k = LIMIT;\n  total += twice(p->x) + k;\n  return m == FAST; /* x */\n}\n"
+    let f = cxLoad(getTempDir() / "ned_sem.c", src, "sem1")
+    let ls = src.splitLines
+    var at: Table[(int, string), CxKind]
+    for (l, c, n, k) in cxSemTokens(f, 0, ls.high): at[(l, ls[l][c ..< c + n])] = k
+    check at[(7, "total")] == cxVar and at[(7, "twice")] == cxFunc and at[(7, "p")] == cxParam and
+          at[(7, "x")] == cxField and at[(7, "k")] == cxLocal
+    check at[(6, "LIMIT")] == cxMacro and at[(8, "m")] == cxParam and at[(8, "FAST")] == cxEnumConst
+    check at[(5, "Pt")] == cxTypedef and at[(5, "mode")] == cxTypedef and at[(5, "run")] == cxFunc
+    check (8, "x") notin at and (4, "return") notin at              # (not in a comment; not a keyword)
+
+suite "a missing #include: the header that declares a name, how it is written, where it goes":
+  let d = getTempDir() / "ned_tcindex_incl"
+  createDir(d / "include" / "net")
+  createDir(d / "src")
+  writeFile(d / "include" / "net" / "sock.h", "#ifndef SOCK_H\n#define SOCK_H\nint sock_open(int port);\n" &
+            "#define SOCK_MAX 8\ntypedef struct sock { int fd; } Sock;\nint _sock_private(void);\n#endif\n")
+  writeFile(d / "src" / "util.h", "/* utilities */\nint util_sum(int a, int b);\n")
+
+  test "the names a header declares (not its fields, not _private ones), the first header that has each":
+    let names = cxHeaderNames([d / "include" / "net" / "sock.h", d / "src" / "util.h"])
+    check names["sock_open"][0] == 0 and names["SOCK_MAX"][0] == 0 and names["Sock"][0] == 0 and
+          names["util_sum"][0] == 1
+    check "fd" notin names and "_sock_private" notin names
+
+  test "how a file writes the #include: next to it, from an include folder, from its folder":
+    check cxIncludeText(d / "src" / "util.h", d / "src" / "main.c", @[d / "include"]) == "\"util.h\""
+    check cxIncludeText(d / "include" / "net" / "sock.h", d / "src" / "main.c", @[d / "include"]) == "\"net/sock.h\""
+    check cxIncludeText(d / "include" / "net" / "sock.h", d / "src" / "main.c", @[]) == "\"../include/net/sock.h\""
+
+  test "where the line goes: after the file's last #include, else after its comment and its include guard":
+    check cxIncludeLine(@["#include <stdio.h>", "#ifdef X", "#include <x.h>", "#endif", "#include \"a.h\"", "int x;"]) == 5
+    check cxIncludeLine(@["/* a file", "   about things */", "", "int x;"]) == 3
+    check cxIncludeLine(@["#ifndef A_H", "#define A_H", "#include <stddef.h>", "int f(void);", "#endif"]) == 3
+    check cxIncludeLine(@["#ifndef A_H", "#define A_H", "int f(void);", "#endif"]) == 2
+
+suite "go to type definition; C++: bases, derived classes, overrides":
+  test "the struct behind a variable's, a parameter's, a field's or a function's type, through typedefs":
+    let src = "struct list { struct list *next; int v; };\ntypedef struct list List;\ntypedef enum { A, B } Mode;\n" &
+              "int total;\nList *head(List *l, Mode m) {\n  struct list *n = l->next;\n  return n;\n}\n"
+    let f = cxLoad(getTempDir() / "ned_td.c", src, "td1")
+    let ls = src.splitLines
+    proc at(l: int, w: string): string =
+      let (g, s) = cxTypeTarget(f, l, ls[l].find(w))
+      if g == nil: "" else: $s.kind & " " & s.name & ":" & $s.line
+    check at(4, "head") == "cxStruct list:0" and at(4, "l,") == "cxStruct list:0" and at(5, "next") == "cxStruct list:0"
+    check at(4, "m)") == "cxEnum Mode:2" and at(2, "A") == "cxEnum Mode:2" and at(1, "List") == "cxStruct list:0"
+    check at(3, "total") == ""                                        # (an int: C's own)
+
+  test "C++: a class's bases, the classes derived from it (and theirs), a virtual method's overrides":
+    let src = "class Shape {\npublic:\n  virtual double area() const = 0;\n  virtual void draw();\n};\n" &
+              "class Circle : public Shape {\npublic:\n  double area() const override;\n  void draw() override;\n};\n" &
+              "class Big : public Circle { public: void draw() override; };\n" &
+              "double Circle::area() const { return 3.14; }\nint f(const Shape &s) { return (int)s.area(); }\n"
+    let f = cxLoad(getTempDir() / "ned_hier.cpp", src, "hier1", cpp = true)
+    let ls = src.splitLines
+    let (g, c) = cxxClassAt(f, 5, ls[5].find("Circle"))
+    check g != nil and c.name == "Circle"
+    var names: seq[string]
+    for (_, b) in cxxBasesOf(g, c): names.add b.name
+    check names == @["Shape"]
+    let (_, s) = cxxClassAt(f, 12, ls[12].find("s)"))                # (a value's class)
+    names.setLen(0)
+    for (_, x, depth) in cxxDerived(@[f], s): names.add x.name & "/" & $depth
+    check s.name == "Shape" and names == @["Circle/1", "Big/2"]
+    let (m, ov) = cxxOverrides(@[f], f, 2, ls[2].find("area"))
+    check m.name == "area" and ov.len == 1 and ov[0][1].line == 11 and ov[0][1].isDef   # (Circle's body)
+    names.setLen(0)
+    for (_, x) in cxxOverrides(@[f], f, 3, ls[3].find("draw"))[1]: names.add x.owner
+    check names == @["Circle", "Big"]

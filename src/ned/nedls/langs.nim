@@ -36,6 +36,15 @@ proc lxFmtKind(b: Buffer): string =
 
 # ── completion ──
 
+proc lxIncludeEdit(b: Buffer, incl: string): JsonNode =
+  ## the edit that adds a C `#include` where ned's editor adds it (after the file's last one)
+  result = newJArray()
+  let at = cxIncludeLine(b.lines)
+  if at < b.lines.len: result.add %*{"range": lsRangeIn(b.lines, at, 0, at, 0), "newText": incl & lsEol(b)}
+  else:
+    let l = b.lines.high
+    result.add %*{"range": lsRangeIn(b.lines, l, b.lines[l].len, l, b.lines[l].len), "newText": lsEol(b) & incl}
+
 proc lxCompItems(d: LsDoc, p: Pos): JsonNode =
   ## what ned's completion list holds now (compItems, as compShown orders it), as LSP's items
   let b = d.b
@@ -46,13 +55,16 @@ proc lxCompItems(d: LsDoc, p: Pos): JsonNode =
     let it = compItems[compShown[k]]
     let start = min(compStartCol, p.col)
     let snip = it.snippet.len > 0 and lsSnippets
-    let text = if snip: it.snippet elif it.snippet.len > 0: stripSnippet(it.snippet) else: compInsert(it)
+    # (C: a call with its parameters to fill in, for a client that fills in snippets — the name for the others)
+    let text = if snip: it.snippet elif it.snippet.len > 0 and lxLangOf(d) != lxC: stripSnippet(it.snippet)
+               else: compInsert(it)
     var j = %*{"label": it.label, "kind": max(1, it.kind), "sortText": align($k, 5, '0'),
                "filterText": line[start ..< min(compStartCol, line.len)] & compFilter(it),
                "textEdit": {"range": lsRangeIn(b.lines, p.line, start, p.line, p.col), "newText": text}}
     if snip: j["insertTextFormat"] = %2
     if it.detail.len > 0: j["detail"] = %it.detail
     if it.doc.len > 0: j["documentation"] = lsMd(it.doc)
+    if it.addImport.startsWith("#include "): j["additionalTextEdits"] = lxIncludeEdit(b, it.addImport)
     items.add j
   %*{"isIncomplete": compShown.len > n, "items": items}
 
@@ -168,6 +180,85 @@ proc lxDefinition(d: LsDoc, params: JsonNode): JsonNode =
   lsFocus(d, p)
   for (path, l, c) in lxDefinitions(d, p): result.add lsLocation(path, l, c)
 
+proc lxImplementation(d: LsDoc, params: JsonNode): JsonNode =
+  ## C++: a method's overrides in the classes derived from its class, a class's derived classes — else (C, and
+  ## anything else) its definition
+  result = newJArray()
+  let b = d.b
+  let p = lsToPos(b, params{"position"})
+  lsFocus(d, p)
+  if lxLangOf(d) == lxC and cEngineOn(b) and cxIsCppBuf(b):
+    lsEnsureFiles()
+    let f = cxFileOf(b)
+    let ts = cxTargets(f, p.line, p.col)
+    if ts.len > 0 and ts[0][1].kind == cxMethod:
+      for (g, x) in cxxOverrides(cEngCppFiles(), f, p.line, p.col)[1]: result.add lsLocation(g.path, x.line, x.col)
+      if result.len > 0: return
+    elif ts.len > 0 and ts[0][1].kind in {cxClass, cxStruct, cxUnion}:
+      let (g, cls) = cxxClassAt(f, p.line, p.col)
+      if g != nil:
+        for (h, x, _) in cxxDerived(cEngCppFiles(), cls): result.add lsLocation(h.path, x.line, x.col)
+      if result.len > 0: return
+  result = lxDefinition(d, params)
+
+proc lxCxxItem(g: CxFile, s: CxSym): JsonNode =
+  ## a TypeHierarchyItem for a C++ class: its whole body, its name
+  let path = g.path
+  let ls = lsLinesOf(path)
+  let el = clamp(max(s.endLine, s.line), 0, max(0, ls.high))
+  %*{"name": s.name, "kind": 5, "detail": s.text, "uri": lsUriOf(path),
+     "range": lsRangeIn(ls, s.line, 0, el, (if el < ls.len: ls[el].len else: 0)),
+     "selectionRange": lsRangeIn(ls, s.line, s.col, s.line, s.col + s.name.len),
+     "data": {"cxx": true, "path": path, "line": s.line, "col": s.col}}
+
+proc lxPrepareTypeHierarchy(d: LsDoc, params: JsonNode): JsonNode =
+  result = newJNull()
+  let b = d.b
+  if lxLangOf(d) != lxC or not cEngineOn(b) or not cxIsCppBuf(b): return
+  let p = lsToPos(b, params{"position"})
+  lsFocus(d, p)
+  let (g, cls) = cxxClassAt(cxFileOf(b), p.line, p.col)
+  if g != nil: result = %*[lxCxxItem(g, cls)]
+
+proc lxTypeHierarchyMore(meth: string, params: JsonNode): JsonNode =
+  ## a C++ class's bases (supertypes) or the classes derived from it (subtypes)
+  result = newJArray()
+  let dt = params{"item"}{"data"}
+  let path = dt{"path"}.getStr
+  let l = dt{"line"}.getInt(-1)
+  let c = dt{"col"}.getInt(-1)
+  let dd = lsDocByPath(path)
+  let f = if dd != nil: cxFileOf(dd.b) else: cxLoad(path, cpp = true)
+  if f == nil: return
+  var cls: CxSym
+  var found = false
+  for s in f.syms:
+    if s.kind in {cxClass, cxStruct, cxUnion} and s.line == l and s.col == c:
+      (cls, found) = (s, true)
+  if not found:
+    # (the file changed since: the class of that name nearest to where it was)
+    var best = high(int)
+    for s in f.syms:
+      if s.kind in {cxClass, cxStruct, cxUnion} and s.isDef and s.name == params{"item"}{"name"}.getStr and
+         abs(s.line - l) < best:
+        (cls, found, best) = (s, true, abs(s.line - l))
+  if not found: return
+  if meth == "typeHierarchy/supertypes":
+    for (g, x) in cxxBasesOf(f, cls): result.add lxCxxItem(g, x)
+  else:
+    lsEnsureFiles()
+    for (g, x, depth) in cxxDerived(cEngCppFiles(), cls):
+      if depth == 1: result.add lxCxxItem(g, x)
+
+proc lxTypeDefinition(d: LsDoc, params: JsonNode): JsonNode =
+  ## C: the declaration of the type of what the name names (a struct's body through its typedef)
+  result = newJArray()
+  if lxLangOf(d) != lxC or not cEngineOn(d.b): return
+  let p = lsToPos(d.b, params{"position"})
+  lsFocus(d, p)
+  let t = cEngTypeTarget(d.b, p)
+  if t[0].len > 0: result.add lsLocation(t[0], t[1], t[2])
+
 proc lxRefHits(d: LsDoc, p: Pos, rename = false): seq[(string, int, int)] =
   ## where the name at p is used, as ned's Find references lists it
   let b = d.b
@@ -200,17 +291,9 @@ proc lxHighlights(d: LsDoc, params: JsonNode): JsonNode =
   lsFocus(d, p)
   case lxLangOf(d)
   of lxC:
-    if not cEngineOn(b): return
-    let (wa, we) = b.wordRangeAt(p)
-    if wa.col >= we.col: return
-    let w = b.lines[p.line][wa.col ..< we.col]
-    let f = cxFileOf(b)
-    let ts = cxTargets(f, p.line, p.col)
-    if ts.len > 0 and ts[0][1].kind in {cxLocal, cxParam, cxLabel}:
-      for (path, l, c) in cEngReferenceHits(b, p)[0]:
-        if path == b.path: result.add %*{"range": lsRangeIn(b.lines, l, c, l, c + w.len), "kind": 1}
-    else:
-      for (l, c) in cxOccurrences(b.lines, w): result.add %*{"range": lsRangeIn(b.lines, l, c, l, c + w.len), "kind": 1}
+    # (the uses of what the name names, as the engine tells: not a field of another struct of that name)
+    for (ra, re) in cEngHighlights(b, p):
+      result.add %*{"range": lsRangeIn(b.lines, ra.line, ra.col, re.line, re.col), "kind": 1}
   of lxWeb:
     if not webJsAt(b, p): return
     let doc = webDoc(b, "js", near = -1)
@@ -468,6 +551,30 @@ proc lxCodeActions(d: LsDoc, params: JsonNode): JsonNode =
                     "diagnostics": [{"range": lsRangeIn(b.lines, dg.line, max(0, sc), el, max(0, ec)),
                                      "severity": clamp(dg.sev, 1, 4), "message": dg.msg}],
                     "edit": {"changes": {d.uri: es}}}
+  if lxLangOf(d) != lxC or not cEngineOn(b) or a.line >= b.lines.len: return
+  # ned's engine at the start of the range: the #include an unknown name needs, a switch's missing cases, the
+  # selection in a variable (the name ned gives it), an if/else inverted
+  let f = cxFileOf(b)
+  var refs: seq[(string, string, CkFix)]
+  let t = b.lines[a.line]
+  let (wa, we) = cxWordAt(t, a.col)
+  if wa < we and t[wa] notin Digits and not cxIsMember(t, wa) and t[wa ..< we] notin CxKeywords and
+     b.tokenAt(Pos(line: a.line, col: wa)) notin {tkComment, tkDoc, tkString, tkChar} and
+     cxTargets(f, a.line, a.col).len == 0:
+    let h = cEngHeaderFor(b, t[wa ..< we])
+    var have = false
+    for x in result: have = have or x{"title"}.getStr == "#include " & h
+    if h.len > 0 and not have:
+      result.add %*{"title": "#include " & h, "kind": "quickfix",
+                    "edit": {"changes": {d.uri: lxIncludeEdit(b, "#include " & h)}}}
+  for fx in ckFillSwitch(f, a.line, a.col): refs.add (fx.title, "quickfix", fx)
+  if a != e and a.line == e.line:
+    for fx in ckExtractVar(f, a.line, a.col, e.col): refs.add (fx.title, "refactor.extract", fx)
+  for fx in ckInvertIf(b.lines, a.line): refs.add (fx.title, "refactor.rewrite", fx)
+  for (title, kind, fx) in refs:
+    var es = newJArray()
+    for x in fx.edits: es.add %*{"range": lsRangeIn(b.lines, x.line, x.col, x.eline, x.ecol), "newText": x.text}
+    result.add %*{"title": title, "kind": kind, "edit": {"changes": {d.uri: es}}}
 
 proc lxDocumentLinks(d: LsDoc): JsonNode =
   ## the files a document names: C's #include "…" and <…> (where the engine finds them), JavaScript's imports of a
@@ -539,6 +646,25 @@ proc lxFormatting(d: LsDoc): JsonNode =
     else: "R" & $lsLineEdits(b.lines, lsTextLines(res), lsEol(b)))
   result = lsFormatAnswer(d, ok, outp, "format")
 
+proc lxRangeFormatting(d: LsDoc, params: JsonNode): JsonNode =
+  ## C and C++: what ned's own C formatter changes on the lines of the range (the whole file formatted — a line is
+  ## laid out by what is around it —, the rest left as it is)
+  result = newJArray()
+  let b = d.b
+  if lxFmtKind(b) notin ["c", "cpp"] or b.largeOn or b.lines.len == 0: return
+  applySettingsFor(b.path)
+  let r = params{"range"}
+  let a = lsToPos(b, r{"start"})
+  let e = lsToPos(b, r{"end"})
+  var l1 = e.line
+  if e.col == 0 and l1 > a.line: dec l1
+  let (ok, outp) = lsInChild(proc(): string =
+    let (nl, err) = b.cFormatLines(a.line, l1)
+    if err.len > 0: "E" & err
+    elif nl == b.lines: "R[]"
+    else: "R" & $lsLineEdits(b.lines, nl, lsEol(b)))
+  result = lsFormatAnswer(d, ok, outp, "format selection")
+
 # ── problems ──
 
 proc lxPumpChecks(d: LsDoc, active: bool) =
@@ -573,10 +699,64 @@ proc lxNextCheckMs(d: LsDoc): int =
   if lxCheckedAt.getOrDefault(d.b.id, -1) != d.b.changeId:
     result = max(10, 400 - int(msSince(d.changedAt)) + 5)
 
+# ── semantic tokens: C's names by what they are ──
+
+proc lxSemanticTokens(d: LsDoc, lo0, hi0: int): string =
+  ## C and C++: what the engine knows each name is, as semantic tokens (the legend nedls gives: a function, a macro,
+  ## a type, an enum constant, a field, a parameter, a local or a global — static: the file's own —, a namespace;
+  ## a declaration's own name marked so); none for the other languages
+  let b = d.b
+  if lxLangOf(d) != lxC or not cEngineOn(b) or b.lines.len == 0: return "{\"data\":[]}"
+  let lo = clamp(lo0, 0, b.lines.high)
+  let hi = clamp(hi0, lo, b.lines.high)
+  var toks: seq[CxSemTok]
+  var decls: HashSet[(int, int)]
+  try:
+    let f = cxFileOf(b)
+    toks = cxSemTokens(f, lo, hi)
+    for x in f.syms: decls.incl (x.line, x.col)
+  except CatchableError as e:
+    internalError("C engine", e)
+    return "{\"data\":[]}"
+  var o = newStringOfCap(4096)
+  o.add "{\"data\":["
+  var first = true
+  var pl = 0
+  var pc = 0
+  for (l, c, n, k) in toks:
+    var (t, mods) = case k
+                    of cxFunc: (6, 0)
+                    of cxMacro: (7, 0)
+                    of cxTypedef: (1, 0)
+                    of cxEnumConst: (2, 0)
+                    of cxField: (5, 0)
+                    of cxParam: (4, 0)
+                    of cxLocal: (3, 0)
+                    of cxVar: (3, 4)
+                    of cxNamespace: (0, 0)
+                    else: (-1, 0)
+    if t < 0: continue
+    if (l, c) in decls: mods = mods or 1
+    let s = b.lines[l]
+    let sc = lsChar(s, c)
+    let ln = lsChar(s, c + n) - sc
+    let dl = l - pl
+    let dc = if dl == 0: sc - pc else: sc
+    if not first: o.add ','
+    first = false
+    o.add $dl & "," & $dc & "," & $ln & "," & $t & "," & $mods
+    pl = l
+    pc = sc
+  o.add "]}"
+  o
+
 # ── the dispatch: a request about a document in another language ──
 
 proc lxHandle(meth: string, params: JsonNode, id: JsonNode): bool =
   ## answer a request about a document that is not Nim (true when answered here)
+  if meth in ["typeHierarchy/supertypes", "typeHierarchy/subtypes"] and params{"item"}{"data"}{"cxx"}.getBool:
+    lsReply(id, lxTypeHierarchyMore(meth, params))          # (a C++ class's)
+    return true
   if not meth.startsWith("textDocument/"): return false
   let d = lsDocOf(params, required = false)
   if d == nil or lxLangOf(d) == lxNim: return false
@@ -584,8 +764,9 @@ proc lxHandle(meth: string, params: JsonNode, id: JsonNode): bool =
   of "textDocument/completion": lsReply(id, lxCompletion(d, params))
   of "textDocument/hover": lsReply(id, lxHover(d, params))
   of "textDocument/signatureHelp": lsReply(id, lxSignatureHelp(d, params))
-  of "textDocument/definition", "textDocument/declaration", "textDocument/implementation":
-    lsReply(id, lxDefinition(d, params))
+  of "textDocument/definition", "textDocument/declaration": lsReply(id, lxDefinition(d, params))
+  of "textDocument/implementation": lsReply(id, lxImplementation(d, params))
+  of "textDocument/prepareTypeHierarchy": lsReply(id, lxPrepareTypeHierarchy(d, params))
   of "textDocument/references": lsReply(id, lxReferences(d, params))
   of "textDocument/documentHighlight": lsReply(id, lxHighlights(d, params))
   of "textDocument/prepareRename": lsReply(id, lxPrepareRename(d, params))
@@ -597,10 +778,14 @@ proc lxHandle(meth: string, params: JsonNode, id: JsonNode): bool =
   of "textDocument/documentLink": lsReply(id, lxDocumentLinks(d))
   of "textDocument/linkedEditingRange": lsReply(id, lxLinkedEditing(d, params))
   of "textDocument/onTypeFormatting": lsReply(id, newJArray())
-  of "textDocument/semanticTokens/full", "textDocument/semanticTokens/range": lsReplyRaw(id, "{\"data\":[]}")
+  of "textDocument/semanticTokens/full": lsReplyRaw(id, lxSemanticTokens(d, 0, d.b.lines.high))
+  of "textDocument/semanticTokens/range":
+    let r = params{"range"}
+    lsReplyRaw(id, lxSemanticTokens(d, lsToPos(d.b, r{"start"}).line, lsToPos(d.b, r{"end"}).line))
   of "textDocument/foldingRange", "textDocument/selectionRange": return false      # (the same for every language)
-  of "textDocument/prepareCallHierarchy", "textDocument/prepareTypeHierarchy", "textDocument/typeDefinition",
-     "textDocument/rangeFormatting", "textDocument/codeLens":
+  of "textDocument/typeDefinition": lsReply(id, lxTypeDefinition(d, params))
+  of "textDocument/rangeFormatting": lsReply(id, lxRangeFormatting(d, params))
+  of "textDocument/prepareCallHierarchy", "textDocument/codeLens":
     lsReply(id, (if meth.startsWith("textDocument/prepare"): newJNull() else: newJArray()))
   else: return false
   true

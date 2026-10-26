@@ -254,17 +254,20 @@ proc ghostRequest(b: Buffer) =
   pre.add b.lines[p.line][0 ..< p.col]
   var suf = b.lines[p.line][p.col .. ^1]
   for l in p.line + 1 .. min(b.lines.high, p.line + 25): suf.add "\n" & b.lines[l]
+  # (on the empty line under a comment: the code the comment describes, a block of it — as Alt+Shift+C writes)
+  let afterComment = p.line > 0 and b.aiIsComment(p.line - 1) and b.lines[p.line].strip.len == 0
   let instr = "You are a code completion engine. Continue the " & b.lang.name & " code at <CURSOR>. Reply with ONLY " &
               "the text to insert there — no explanation, no Markdown fences, nothing that is already after the " &
-              "cursor. At most a few lines; stop at the end of the statement or block. If nothing fits, reply with " &
-              "an empty message."
+              "cursor. " & (if afterComment: "The comment just above says what code goes here: write it, the " &
+                            "whole of it, at the cursor's indentation. " else: "At most a few lines; stop at the end " &
+                            "of the statement or block. ") & "If nothing fits, reply with an empty message."
   let defs = codeDefinitionsFor(b, max(0, p.line - 12), p.line + 3, 1500)   # (the names that exist, as they are)
   let user = "File: " & (if b.path.len > 0: relPath(b.path) else: b.name) & "\n<code>\n" & pre & "<CURSOR>" & suf &
              "\n</code>" & (if defs.len > 0: "\n" & defs else: "")
   let id = b.id
   let ch = b.changeId
   let at = p
-  let job = aiFastAsk(instr, user, 128, proc(t0: string) =
+  let job = aiFastAsk(instr, user, (if afterComment: 400 else: 128), proc(t0: string) =
     let bb = bufById(id)
     if bb == nil or bb.changeId != ch or bb.primary.head != at: return
     var t = t0.strip(leading = false)

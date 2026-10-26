@@ -948,13 +948,16 @@ proc nxSortByHash*(a: var seq[(uint32, int32)]) =
   if a.len < 64:
     a.sort(proc(x, y: (uint32, int32)): int = cmp(x[0], y[0]))
     return
+  # (three passes of 11 bits: 2048 counters to clear each time, not 65536 — a scope of 6600 names spent more on
+  # clearing the counters than on sorting)
   var tmp = newSeq[(uint32, int32)](a.len)
-  for shift in [0'u32, 16'u32]:
-    var count = newSeq[int](65537)
-    for x in a: inc count[int((x[0] shr shift) and 0xFFFF'u32) + 1]
-    for k in 1 .. 65536: count[k] += count[k - 1]
+  var count: array[2049, int]
+  for shift in [0'u32, 11'u32, 22'u32]:
+    zeroMem(addr count[0], sizeof(count))
+    for x in a: inc count[int((x[0] shr shift) and 0x7FF'u32) + 1]
+    for k in 1 .. 2048: count[k] += count[k - 1]
     for x in a:
-      let k = int((x[0] shr shift) and 0xFFFF'u32)
+      let k = int((x[0] shr shift) and 0x7FF'u32)
       tmp[count[k]] = x
       inc count[k]
     swap(a, tmp)

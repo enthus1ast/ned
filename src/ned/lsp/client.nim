@@ -13,9 +13,60 @@ proc lspFlush(s: LspServer) =
       break
   if off > 0: s.wbuf = s.wbuf[off .. ^1]
 
+# ── a remote folder's language server, run on the server: the paths in what goes there are the server's, the
+#    paths in what comes back the local copy's — and a file of the server's outside the folder (a definition in
+#    its library) one fetched to read (remoteFetch, when it is opened) ──
+
+func replacePaths(x, a, b: string): string =
+  ## `a` (a folder's path or URI) made `b` wherever it stands as a whole: not /home/u/proj in /home/u/project2
+  var i = 0
+  while true:
+    let k = x.find(a, i)
+    if k < 0: break
+    let e = k + a.len
+    result.add x[i ..< k]
+    if e < x.len and x[e] in IdentChars + {'.', '-', '~', '%'}: result.add a
+    else: result.add b
+    i = e
+  result.add x[i .. ^1]
+
+proc lspMapStr(s: LspServer, x: string, toServer: bool): string =
+  ## s.remoteMap: [local copy, its URI, the folder there, its URI, fetched files' folder, its URI]
+  let m = s.remoteMap
+  if x.len < 2 or (x[0] != '/' and not x.startsWith("file://") and m[2] notin x and m[0] notin x): return x
+  if toServer:
+    if x.startsWith(m[5] & "/"): return "file://" & x[m[5].len .. ^1]
+    if x.startsWith(m[4] & "/"): return x[m[4].len .. ^1]
+    result = replacePaths(replacePaths(x, m[1], m[3]), m[0], m[2])
+  else:
+    result = replacePaths(replacePaths(x, m[3], m[1]), m[2], m[0])
+    if result == x and x.startsWith("file:///"):
+      result = uriFromPath(m[4] & pathFromUri(x))     # (outside the folder: a file to fetch when it is opened)
+
+proc lspMapJson(s: LspServer, j: JsonNode, toServer: bool) =
+  case j.kind
+  of JString: j.str = s.lspMapStr(j.str, toServer)
+  of JArray:
+    for x in j.elems: s.lspMapJson(x, toServer)
+  of JObject:
+    var keys = false                   # (a workspace edit's `changes`: files are its keys)
+    for k, v in j.fields:
+      s.lspMapJson(v, toServer)
+      if s.lspMapStr(k, toServer) != k: keys = true
+    if keys:
+      var f: OrderedTable[string, JsonNode]
+      for k, v in j.fields: f[s.lspMapStr(k, toServer)] = v
+      j.fields = f
+  else: discard
+
 proc lspSend(s: LspServer, j: JsonNode) =
   if s.dead: return
-  let body = $j
+  var body: string
+  if s.remoteMap.len > 0:
+    let c = j.copy
+    s.lspMapJson(c, true)
+    body = $c
+  else: body = $j
   s.wbuf.add "Content-Length: " & $body.len & "\r\n\r\n" & body
   s.lspFlush()
 
@@ -112,15 +163,28 @@ proc lspInstallToast(langName: string, cands: seq[seq[string]]) =
           3, "Install", proc() = runInTerm(shown), 12000)
     return
 
-proc lspSpawn(id: string, c: seq[string], secondary: bool): LspServer =
-  ## start one language server (its `initialize` sent); nil when it cannot start
+proc lspSpawn(id: string, c: seq[string], secondary: bool, ri = -1): LspServer =
+  ## start one language server (its `initialize` sent); nil when it cannot start. `ri`: a remote folder's, run on
+  ## its server (through the shared ssh connection), in the folder there
   try:
-    var p = spawnProc(c, rootDir, siPipe, erPipe, 5)
+    var argv = c
+    if ri >= 0:
+      let r = remotes[ri]
+      var cmd = ""
+      for a in c: cmd.add (if cmd.len > 0: " " else: "") & quoteShell(a)
+      argv = @["ssh", "-o", "ControlPath=" & r.ctl, "-o", "BatchMode=yes", r.host,
+               remoteScript(RemoteEnv & "cd " & quoteShell(r.absPath) & " && exec " & cmd)]
+    var p = spawnProc(argv, rootDir, siPipe, erPipe, 5)
     let shown = if c.len > 1 and extractFilename(c[0]) in ["python", "python3", "node", "sh", "bash", "ruby"]:
                   extractFilename(c[1]) else: extractFilename(c[0])
     let s = LspServer(langId: id, name: shown, cmd: c, pr: p, inFd: p.inFd, uid: lspUidNext, secondary: secondary,
                       outFd: p.outFd, errFd: p.errFd, status: "starting…", startedAt: getMonoTime())
     inc lspUidNext
+    if ri >= 0:
+      let r = remotes[ri]
+      let fr = remoteFilesRoot(r)
+      s.remoteMap = @[r.mirror, uriFromPath(r.mirror), r.absPath, uriFromPath(r.absPath), fr, uriFromPath(fr)]
+      s.name = s.name & " on " & r.host
     s.pr.inFd = -1
     s.pr.outFd = -1
     s.pr.errFd = -1
@@ -128,7 +192,7 @@ proc lspSpawn(id: string, c: seq[string], secondary: bool): LspServer =
     servers.add s
     let root = uriFromPath(rootDir)
     let params = %*{
-      "processId": getCurrentProcessId(),
+      "processId": (if ri >= 0: newJNull() else: %getCurrentProcessId()),   # (on the server: not ned's)
       "rootUri": root, "rootPath": rootDir,
       "workspaceFolders": wsFoldersJson(),
       "clientInfo": {"name": AppName, "version": Version},
@@ -174,7 +238,10 @@ proc lspSpawn(id: string, c: seq[string], secondary: bool): LspServer =
                       "inlayHint": {"refreshSupport": true}, "symbol": {}, "executeCommand": {}},
         "window": {"workDoneProgress": true}}}
     if secondary: discard
-    elif id == "nim": params["initializationOptions"] = nimSection()
+    elif id == "nim":
+      params["initializationOptions"] = nimSection()
+      if ri >= 0 and params["initializationOptions"].hasKey("nimsuggestPath"):
+        params["initializationOptions"].delete("nimsuggestPath")
     elif id == "html":
       params["initializationOptions"] = %*{"embeddedLanguages": {"css": true, "javascript": true},
                                             "provideFormatter": true}
@@ -185,6 +252,32 @@ proc lspSpawn(id: string, c: seq[string], secondary: bool): LspServer =
 
 proc lspPullDiags(s: LspServer, b: Buffer)      # (doclinks.nim) pull diagnostics: the server's problems, asked for
 proc lspLinksAsk(s: LspServer, b: Buffer)       # … the file's links (#include, @import, URLs)
+
+var remoteExes: Table[string, bool]        # (host, program): the server has it
+
+proc remoteHas(ri: int, cands: seq[seq[string]]): HashSet[string] =
+  ## the programs among the candidates' that the remote folder's server has (asked once per server and program)
+  let r = remotes[ri]
+  var ask: seq[string]
+  for c in cands:
+    if c.len == 0: continue
+    let k = r.host & "\0" & c[0]
+    if k in remoteExes:
+      if remoteExes[k]: result.incl c[0]
+    elif c[0] notin ask and c[0].len > 0: ask.add c[0]
+  if ask.len == 0: return
+  var script = RemoteEnv
+  for e in ask: script.add "command -v " & quoteShell(e) & " >/dev/null 2>&1 && echo " & quoteShell(e) & "; "
+  script.add "true"                         # (the answer is what it printed: the last one missing is no failure)
+  setMsg("Looking for language servers on " & r.host & "…")
+  let (ok, o, _) = runFilter(sshRun(r, script), "", rootDir, 8000)
+  if not ok: return                         # (not asked again until it answers)
+  var have: HashSet[string]
+  for l in o.splitLines:
+    if l.strip.len > 0: have.incl l.strip
+  for e in ask:
+    remoteExes[r.host & "\0" & e] = e in have
+    if e in have: result.incl e
 
 proc bgServerStartOk(): bool =
   ## may a server that nothing asked for yet (clangd for an emit, HTML or SQL in strings) start now? Not while you
@@ -211,7 +304,16 @@ proc lspFor(b: Buffer, start = true): LspServer =
       askTrust(rootDir, quiet = true)              # (nimlangserver runs nimsuggest: the folder's config.nims)
       return nil
     prepareNimMapping(b)
+  # a remote folder's: on the server first (remote.languageServers), where its packages and toolchain are
+  let ri = if remotes.len > 0 and sStr("remote.languageServers") != "here": remoteOf(rootDir) else: -1
+  if ri >= 0:
+    let there = remoteHas(ri, cands)
+    for c in cands:
+      if c.len > 0 and c[0] in there:
+        let s = lspSpawn(id, c, secondary = false, ri = ri)
+        if s != nil: return s
   for c in cands:
+    if ri >= 0 and sStr("remote.languageServers") == "server": break
     if c.len == 0 or findExe(c[0]).len == 0: continue
     let s = lspSpawn(id, c, secondary = false)
     if s != nil: return s

@@ -68,8 +68,8 @@ proc drawWelcome(x0, y0, w, h: int) =
       discard putStr(lx, y, l, colors[i mod colors.len], theme.bg, {aBold}, x0 + w)
       inc y
     inc y
-  let tag = if w >= 60: "ned " & Version & " · the desktop-class editor for Termux, made for Nim"
-            else: "ned " & Version & " · made for Nim"
+  let longTag = "ned " & Version & " · the desktop-class editor for Termux, made for Nim"
+  let tag = if w >= strWidth(longTag) + 4: longTag else: "ned " & Version & " · made for Nim"
   discard putStr(x0 + max(0, (w - strWidth(tag)) div 2), y, truncTo(tag, w - 2), theme.dim, theme.bg, {}, x0 + w)
   y += 2
   proc row(x, yy: int, key, label, hint: string, a: Action, colW: int, rightAct: Action = nil) =
@@ -87,6 +87,10 @@ proc drawWelcome(x0, y0, w, h: int) =
   for i, (k, l, hnt, a) in starts:
     row(left, y, k, l, hnt, a, colW)
     inc y
+  if recents.len == 0 and wide:
+    # (nothing opened yet: the column says how to fill it rather than staying blank)
+    discard putStr(left + 38, top, "Nothing opened yet —", theme.dim, theme.bg, {aItalic}, x0 + w)
+    discard putStr(left + 38, top + 1, "the files you open come here", theme.dim, theme.bg, {aItalic}, x0 + w)
   if recents.len > 0:
     var ry = if wide: top else: y + 1
     var rx = if wide: left + 38 else: left

@@ -770,7 +770,7 @@ proc dbgStart() =
   # the file itself when it is a program (top-level code, `when isMainModule`), as F5 runs it; a library
   # module's breakpoints are reached through the project's main file
   let main = if isNimProgram(b): b.path else: nimProjectFile(b)
-  let exe = privDir() / ("ned_debug_" & splitFile(main).name)
+  let exe = privDir() / ("ned_debug_" & splitFile(main).name) & ExeDot
   let cmd = "nim c --debugger:native --opt:none --gcc.options.debug:-g3 --clang.options.debug:-g3 --hints:off " & (if cfgNimFlags.len > 0: cfgNimFlags & " " else: "") &
             "-o:" & quoteShell(exe) & " " & quoteShell(main)
   dbgState = "building " & extractFilename(main) & " with debug information…"

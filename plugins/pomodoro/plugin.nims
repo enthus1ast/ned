@@ -14,6 +14,7 @@
 import nedplugin
 
 requiresNed(">= 6.26")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 
 settingDef("focusMinutes", 25, "Focus: how long a focus session is (minutes)")
 settingDef("shortBreakMinutes", 5, "Focus: how long a short break is (minutes)")

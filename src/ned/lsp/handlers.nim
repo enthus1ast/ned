@@ -92,7 +92,11 @@ proc lspHandle(s: LspServer, m: JsonNode) =
       let arr = newJArray()
       let items = m{"params", "items"}
       if items != nil:
-        for it in jitems(items): arr.add sectionFor(it{"section"}.getStr)
+        for it in jitems(items):
+          let sec = sectionFor(it{"section"}.getStr)
+          # (a server on a remote folder's server finds its own nimsuggest: the one here is not there)
+          if s.remoteMap.len > 0 and sec.kind == JObject and sec.hasKey("nimsuggestPath"): sec.delete("nimsuggestPath")
+          arr.add sec
       s.lspReply(m["id"], arr)
       # files held back for a new project rule can open now (a moment later: the server applies it first)
       if s.langId == "nim": nimCfgWaitUntil = getMonoTime() + initDuration(milliseconds = 150)
@@ -432,7 +436,9 @@ proc lspRead(s: LspServer, budgetMs = 8) =
     let body = s.rbuf[he + 4 ..< he + 4 + clen]
     at = he + 4 + clen
     try:
-      lspHandle(s, parseJson(body))
+      let msg = parseJson(body)
+      if s.remoteMap.len > 0: s.lspMapJson(msg, false)
+      lspHandle(s, msg)
     except CatchableError: discard
   if at > 0: s.rbuf = s.rbuf[at .. ^1]
 

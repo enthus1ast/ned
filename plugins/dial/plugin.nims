@@ -16,6 +16,7 @@
 import nedplugin
 
 requiresNed(">= 6.25")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 
 settingDef("cycles", "", "Words of your own that Dial goes round, the lists apart with ; and the words with , " &
            "(red,green,blue;low,high) — they come before Dial's own")

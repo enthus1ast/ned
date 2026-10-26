@@ -59,7 +59,9 @@ proc render() =
   mmRect = (-1, 0, 0, 0)
   if grid.len != scrW * scrH: gridResize()
   regions.setLen(0)
+  moveBar.x = -1                 # (a box drawn this frame sets its title bar again)
   modalStart = -1
+  overlayStart = -1
   tipShown = false
   gfxNow = GfxReq()                 # (a picture view sets it again when it draws)
   fillRect(0, 0, scrW, scrH, theme.fg, theme.bg)
@@ -110,6 +112,7 @@ proc render() =
     elif not lay.overlay:
       for yy in lay.bodyTop ..< lay.bodyBot:
         setCell(lay.rightX - 1, yy, Cell(ch: 0x2502, fg: theme.border, bg: theme.dockBg))
+  overlayStart = regions.len         # (what is drawn from here may lie over the minimap or the scroll bar)
   drawTitleBar()
   drawStatusBar()
   drawTouchBar()

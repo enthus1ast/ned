@@ -130,6 +130,7 @@ class Host:
         elif fn == "progress": self.progress.append((a["text"], a["percent"]))
         elif fn == "output": self.output.append(a["text"])
         elif fn == "text": v = self.text()
+        elif fn == "snapshot": v = {"v": getattr(self, "ver", ""), "lines": self.lines}
         elif fn == "setText": self.set_text(a["text"])
         elif fn == "replace": self.replace(a["range"], a["text"])
         elif fn == "cursor": v = self.cursor
@@ -193,16 +194,20 @@ class Host:
             j = json.loads(line[1:])
             t = j.get("t")
             if t == "reg": self.regs.append(j)
-            elif t == "api": self.api(j)
+            elif t == "api":
+                self.api_fns = getattr(self, "api_fns", []) + [j["fn"]]
+                self.api(j)
             elif t == "ready" and self.ready_ms is None: self.ready_ms = int((time.time() - self.t0) * 1000)
             if until(j):
                 return j
         return None
 
-    def call(self, cb, args=None, timeout=20):
+    def call(self, cb, args=None, timeout=20, extra=None):
         self.rid += 1
         rid = self.rid
-        self.send({"t": "call", "cb": cb, "rid": rid, "args": args or {}})
+        m = {"t": "call", "cb": cb, "rid": rid, "args": args or {}}
+        m.update(extra or {})
+        self.send(m)
         return self.pump(lambda j: j.get("t") == "ret" and j.get("rid") == rid, timeout)
 
     def reg(self, kind, **kw):
@@ -217,6 +222,60 @@ class Host:
             self.p.wait(5)
         except Exception:
             self.p.kill()
+
+
+LINES_PLUGIN = """import nedplugin
+
+command "Count the characters":
+  let b = current()
+  var n = 0
+  for i in 0 ..< b.lineCount: n += b.line(i).len
+  message("chars " & $n)
+
+command "Edit then read":
+  let b = current()
+  b.setText("changed")
+  message("now " & b.line(0))
+"""
+
+
+def run_copies(tmp, native):
+    """6.29: a file read line by line asks ned once, not once a line — ned sends the buffers' versions with a call,
+    the plugin keeps a copy of the lines while the version stays; an edit of its own: no copy trusted"""
+    tag = "copies%s: " % (" (native)" if native else "")
+    d = os.path.join(tmp, "lines")
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, "plugin.nims"), "w").write(LINES_PLUGIN)
+    h = Host([("lines", d)], native=native, tmp=tmp)
+    if not h.build_ok:
+        check(tag + "the host compiles", False, h.build_err)
+        return
+    h.pump(lambda j: j.get("t") == "ready", 60)
+    cb = h.reg("command", title="Count the characters")["cb"]
+    cb2 = h.reg("command", title="Edit then read")["cb"]
+    h.lines = ["line %d of the file" % i for i in range(5000)]
+    want = sum(len(l) for l in h.lines)
+    h.api_fns = []
+    t0 = time.time()
+    h.call(cb)
+    old_ms, old_n = (time.time() - t0) * 1000, len([f for f in h.api_fns if f != "message"])
+    ok_old = h.messages and h.messages[-1] == "chars %d" % want
+    h.ver = "7:5000"
+    h.api_fns = []
+    t0 = time.time()
+    h.call(cb, extra={"vers": {"1": "7:5000"}, "cur": 1})
+    new_ms, new_n = (time.time() - t0) * 1000, len([f for f in h.api_fns if f != "message"])
+    check(tag + "the same answer, read as before and from the copy", ok_old and h.messages[-1] == "chars %d" % want,
+          h.messages[-2:])
+    check(tag + "5000 lines read: %d requests to ned before, %d with the copy (%.0f ms → %.0f ms)" %
+          (old_n, new_n, old_ms, new_ms), old_n > 5000 and new_n <= 3, h.api_fns[:8])
+    h.api_fns = []
+    h.call(cb, extra={"vers": {"1": "7:5000"}, "cur": 1})
+    check(tag + "the next call at the same version: no request at all", [f for f in h.api_fns if f != "message"] == [],
+          h.api_fns[:8])
+    h.call(cb2, extra={"vers": {"1": "7:5000"}, "cur": 1})
+    check(tag + "after an edit of its own, the copy is not used", h.messages[-1] == "now changed", h.messages[-2:])
+    h.close()
 
 
 def run_host(tmp, native):
@@ -725,6 +784,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="tplugins-")
     try:
         run_host(tmp, False)
+        run_copies(os.path.join(tmp, "copies"), False)
         t1 = os.path.join(tmp, "notes")
         os.makedirs(t1)
         run_notes(t1, False)
@@ -736,6 +796,7 @@ def main():
             t2 = os.path.join(tmp, "native")
             os.makedirs(t2)
             run_host(t2, True)
+            run_copies(os.path.join(tmp, "copies-native"), True)
             t4 = os.path.join(tmp, "notes-native")
             os.makedirs(t4)
             run_notes(t4, True)

@@ -13,6 +13,40 @@ when not defined(windows):   # (Windows: a pseudo-console — see sys/winposix's
   proc unlockpt(fd: cint): cint {.importc, cdecl.}
   proc ptsname(fd: cint): cstring {.importc, cdecl.}
 
+  proc ptyOpen(): (cint, string) =
+    ## a pseudo-terminal: the fd of ned's side and the name of the shell's ((-1, "") when there is none)
+    let fd = posix_openpt(O_RDWR or O_NOCTTY)
+    if fd < 0: return (-1.cint, "")
+    let pn = if grantpt(fd) == 0 and unlockpt(fd) == 0: ptsname(fd) else: nil
+    if pn == nil:
+      discard posix.close(fd)
+      return (-1.cint, "")
+    (fd, $pn)
+
+  proc ptyExec(fd: cint, slave, cwd: string, env: seq[(string, string)], argv: seq[string]) =
+    ## (in the child, after fork) become the shell on the pseudo-terminal's other side; never returns
+    discard setsid()
+    let s = posix.open(cstring(slave), O_RDWR)
+    if s < 0: exitnow(127)
+    discard ioctl(s, TIOCSCTTY, 0)
+    discard dup2(s, 0)
+    discard dup2(s, 1)
+    discard dup2(s, 2)
+    if s > 2: discard posix.close(s)
+    discard posix.close(fd)
+    putEnv("TERM", "xterm-256color")
+    putEnv("COLORTERM", "truecolor")
+    putEnv("TERM_PROGRAM", "ned")
+    if getEnv("LANG").len == 0 and getEnv("LC_ALL").len == 0:
+      putEnv("LANG", (when defined(macosx): "en_US.UTF-8" else: "C.UTF-8"))
+    signal(SIGPIPE, SIG_DFL)          # ned ignores it; the shell and its pipes (`yes | head`) must not
+    signal(SIGQUIT, SIG_DFL)          # … and Ctrl+\ quits programs in the terminal again
+    signal(SIGHUP, SIG_DFL)           # (a term host ignores it: the shell must not)
+    if cwd.len > 0: discard chdir(cstring(cwd))
+    for (k, v) in env: putEnv(k, v)
+    discard execvp(cstring(argv[0]), allocCStringArray(argv))
+    exitnow(127)
+
 type
   TCell = object
     ch: uint32
@@ -69,6 +103,9 @@ type
     cmds: seq[TermCmd]       # commands seen through shell integration
     navCmd: int              # the command Ctrl+↑/↓ went to (-1: none)
     integrated: bool         # the shell sends OSC 133 marks
+    hosted: bool             # terminal.keepRunning: the shell is a term host's (see termhost), fd its socket
+    hostId: string
+    inBuf: string            # … what came from it, not yet a whole message
 
 var
   terms: seq[Term]
@@ -99,8 +136,47 @@ proc termShell(): string =
     if p.len > 0: return p
   "/bin/sh"
 
+proc hostFrame(kind: char, payload: string): string =
+  ## one message between ned and a term host (see termhost): its kind, its length (4 bytes, big-endian), its bytes
+  let n = payload.len
+  kind & char((n shr 24) and 255) & char((n shr 16) and 255) & char((n shr 8) and 255) & char(n and 255) & payload
+
+proc hostTake(buf: string, at: var int, kind: var char, payload: var string): bool =
+  ## the whole message in `buf` at `at`, `at` moved past it (false: none yet). (The caller drops what was taken
+  ## once, at the end: a megabyte of output in 64 KB messages is not copied sixteen times over.)
+  if buf.len - at < 5: return false
+  let n = (ord(buf[at + 1]) shl 24) or (ord(buf[at + 2]) shl 16) or (ord(buf[at + 3]) shl 8) or ord(buf[at + 4])
+  if buf.len - at < 5 + n: return false
+  kind = buf[at]
+  payload = buf[at + 5 ..< at + 5 + n]
+  at += 5 + n
+  true
+
+proc hostTake(buf: var string, kind: var char, payload: var string): bool =
+  ## the first whole message in `buf`, taken off it (false: none yet)
+  var at = 0
+  result = hostTake(buf, at, kind, payload)
+  if result: buf = buf[at .. ^1]
+
+proc hostSend(t: Term, kind: char, payload: string) =
+  ## one message to the term host of a kept terminal
+  if t.fd < 0: return
+  let s = hostFrame(kind, payload)
+  var off = 0
+  var tries = 0
+  while off < s.len and tries < 2000:
+    let w = posix.write(t.fd, unsafeAddr s[off], s.len - off)
+    if w > 0: off += w
+    elif errno in [EAGAIN, EINTR]:
+      inc tries
+      os.sleep(1)
+    else: break
+
 proc setWinSize(t: Term) =
   if t.fd < 0: return
+  if t.hosted:
+    t.hostSend('r', $t.w & " " & $t.h)
+    return
   var ws: IOctl_WinSize
   ws.ws_row = uint16(t.h)
   ws.ws_col = uint16(t.w)

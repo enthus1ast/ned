@@ -2,6 +2,8 @@
 
 proc refreshGitStatus()
 
+var gitStatusRuns = 0                   # (git status runs since ned started: the performance report)
+
 proc gitRun(args: seq[string], okMsg: string) =
   ## run a git command in the repo root, report the result, refresh the git view
   let root = gitHome()
@@ -129,6 +131,7 @@ proc refreshGitStatus() =
   if roots.len == 0: return
   gitStatusBusy = true
   gitStatusStart = getMonoTime()
+  inc gitStatusRuns
   let st = GitStatusRun(pending: roots.len)
   for r in roots: gitStatusJob(st, r)
 

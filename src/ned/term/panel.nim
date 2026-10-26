@@ -1,4 +1,43 @@
-proc termRead(t: Term) =
+proc hostRead(t: Term) =
+  ## a kept terminal: what its host sent (see termhost)
+  var tmp: array[65536, char]
+  var got = 0
+  var gone = false
+  while got < 1_000_000:
+    let n = posix.read(t.fd, addr tmp[0], tmp.len)
+    if n > 0:
+      let old = t.inBuf.len
+      t.inBuf.setLen(old + n)
+      copyMem(addr t.inBuf[old], addr tmp[0], n)
+      got += n
+    elif n == 0 or (n < 0 and errno notin [EAGAIN, EINTR]):
+      gone = true
+      t.code = -1
+      break
+    else: break
+  var kind: char
+  var pay: string
+  var at = 0
+  while hostTake(t.inBuf, at, kind, pay):
+    case kind
+    of 'd', 'p':
+      t.feed(pay)
+      t.gotOutput = true
+      if kind == 'p': t.reply.setLen(0)        # (answers to what was asked before ned came back: not again)
+    of 'x':
+      t.code = try: parseInt(pay) except ValueError: -1
+      gone = true
+    else: discard
+  if at > 0: t.inBuf = t.inBuf[at .. ^1]
+  if gone:
+    t.dead = true
+    discard posix.close(t.fd)
+    t.fd = -1
+    t.inBuf = ""
+    t.feed("\r\n\e[2m[process exited" & (if t.code >= 0: " with code " & $t.code else: "") &
+           " — press Enter to start a new shell]\e[0m")
+
+proc ptyRead(t: Term) =
   var tmp: array[65536, char]
   var got = 0
   while got < 1_000_000:
@@ -18,6 +57,10 @@ proc termRead(t: Term) =
              " — press Enter to start a new shell]\e[0m")
       break
     else: break
+
+proc termRead(t: Term) =
+  if t.hosted: t.hostRead()
+  else: t.ptyRead()
   if t.reply.len > 0:
     t.termWrite(t.reply)
     t.reply.setLen(0)
@@ -57,26 +100,33 @@ proc remoteShellCmd(): string =
 proc openTerminal() =
   if terms.len == 0:
     let rc = remoteShellCmd()
-    terms.add newTerm(max(20, lay.edW), max(4, lay.panelH - 1), termCwd(), rc)
+    terms.add newTerm(max(20, lay.edW), max(4, lay.panelH - 1), termCwd(), rc, keep = true)
     if rc.len > 0: terms[^1].name = remotes[remoteOf(rootDir)].host
     curTerm = 0
 
 proc newTerminal() =
   let rc = remoteShellCmd()
-  terms.add newTerm(max(20, lay.edW), max(4, lay.panelH - 1), termCwd(), rc)
+  terms.add newTerm(max(20, lay.edW), max(4, lay.panelH - 1), termCwd(), rc, keep = true)
   if rc.len > 0: terms[^1].name = remotes[remoteOf(rootDir)].host
   curTerm = terms.high
   setPanel(pkTerminal)
   focus = fPanel
 
 proc killTerminals() =
+  ## (at quit) every terminal's shell ended — but a kept one's (terminal.keepRunning) goes on, for the next ned
   for t in terms:
+    if t.hosted:
+      if t.fd >= 0:
+        t.hostSend(if cfgTermKeep: 'q' else: 'k', "")
+        discard posix.close(t.fd)
+        t.fd = -1
+      continue
     if t.pid > 0:
       discard kill(t.pid, SIGHUP)
       discard kill(-t.pid, SIGHUP)
     if t.fd >= 0: discard posix.close(t.fd)
   for t in terms:
-    if t.pid > 0:
+    if t.pid > 0 and not t.hosted:
       var st: cint
       for _ in 0 ..< 20:
         if waitpid(t.pid, st, WNOHANG) != 0: break
@@ -240,7 +290,9 @@ proc drawTermPane(ti: int, x0, y0, w, h: int, focused: bool) =
     items.add mi("New terminal", "", proc() = newTerminal())
     items.add mi((if termSplit: "Unsplit" else: "Split: two side by side"), "", proc() = runCmd("Terminal: split"))
     items.add mi("Kill terminal", "", proc() =
-      if tt != nil and tt.pid > 0: discard kill(tt.pid, SIGHUP))
+      if tt != nil and tt.pid > 0:
+        if tt.hosted: tt.hostSend('k', "")
+        else: discard kill(tt.pid, SIGHUP))
     openMenu(items, mouseX, mouseY + 1))
 
 proc drawTerminal(x0, y0, w, h: int) =
@@ -534,7 +586,7 @@ proc terminalKey(k: Key) =
         nt.replLang = t.replLang
         nt.name = t.name
         terms[curTerm] = nt
-      else: terms[curTerm] = newTerm(w, h, termCwd())
+      else: terms[curTerm] = newTerm(w, h, termCwd(), keep = true)
     elif k.kind == kEsc: focus = fEditor
     return
   if k.kind == kChar and mCtrl in k.mods and mShift in k.mods and k.ch in [ord('c'), ord('C')]:

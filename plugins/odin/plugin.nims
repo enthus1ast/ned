@@ -25,6 +25,7 @@
 import nedplugin
 
 requiresNed(">= 6.25")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 
 settingDef("server", "", "The language server's command: empty for ols (when it is installed), \"off\" for " &
            "none. Plugins: reload after a change")

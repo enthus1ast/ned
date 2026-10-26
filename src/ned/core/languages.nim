@@ -262,6 +262,8 @@ proc initLangs() =
       fmt: @["prettier --stdin-filepath \"$file\""], pairs: "\"\""),
     Lang(name: "Nim template", id: "nimf", exts: @["nimf"], mode: lmNimf, quotes: {'"'},
       blockStart: "<!--", blockEnd: "-->", indentWidth: 2, pairs: "()[]{}\"\""),
+    Lang(name: "Jinja template", id: "jinja", exts: @["nimja", "jinja", "jinja2", "j2", "nwt", "twig", "njk"],
+      mode: lmJinja, quotes: {'"'}, blockStart: "{#", blockEnd: "#}", indentWidth: 2, pairs: "()[]\"\""),
     Lang(name: "CSS", id: "css", exts: @["css", "scss", "less"], mode: lmCss,
       blockStart: "/*", blockEnd: "*/", quotes: {'"', '\''},
       keywords: ws"important media import from to and not only supports keyframes",

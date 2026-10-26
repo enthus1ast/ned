@@ -216,7 +216,7 @@ proc dcIsProgram(b: Buffer): bool =
 proc dcNimProgram(b: Buffer, then: proc(exe: string) {.closure.}) =
   ## the program for a Nim file: built (with the C compiler's debug info and Nim's names) when its sources are newer
   let main = if dcIsProgram(b): b.path else: nimProjectFile(b)
-  let exe = privDir() / ("dc-" & splitFile(main).name & "-" & toHex(hash(main).uint32, 8).toLowerAscii)
+  let exe = privDir() / ("dc-" & splitFile(main).name & "-" & toHex(hash(main).uint32, 8).toLowerAscii) & ExeDot
   var newest = 0.0
   for x in bufs:
     if x.path.endsWith(".nim") and fileExists(x.path):

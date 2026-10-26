@@ -448,6 +448,16 @@ proc nxConstWhen(f: NxFile, cond: string, depth = 0): int =
       return (if v < 0: -1 elif neg: 1 - v else: v)
   -1
 
+func nxLineGoesOn(t: string): bool {.inline.} =
+  ## the line goes on on the next one: it ends in , | & or an operator word (`or`, `and`, `xor`, `+`)
+  if t.len == 0: return false
+  case t[^1]
+  of ',', '|', '&': true
+  of 'r': t.endsWith(" or") or t.endsWith(" xor")
+  of 'd': t.endsWith(" and")
+  of '+': t.endsWith(" +")
+  else: false
+
 proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxFile =
   ## the declarations of a file. A `when` branch left out on this platform is skipped (its lines are recorded in
   ## `inactive`); with keepInactive it is read too, and `symBranch` tells which declarations come from one: the
@@ -467,6 +477,7 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
   var moduleDocOpen = true
   var lastContent = 0
   var code, doc: string
+  var t: string                    # (the line's code, stripped: one string for every line, not one each)
   var i = 0
   let n = lines.len
   var whenTaken = initTable[int, int]()
@@ -620,10 +631,10 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
           f.syms[docTarget].doc.add "\n" & d
       # a line that starts inside a long string or comment: its indentation means nothing
       continue
-    var t = code.strip
+    t.stripInto(code)
     let ind = leadWs(raw)
     if t.len == 0:
-      if doc.len > 0 or raw.strip.startsWith("##"):
+      if doc.len > 0 or raw.blankOrStarts("##")[1]:
         # a pure doc comment line
         if moduleDocOpen and stack.len == 0 and ind == 0 and docTarget < 0:
           f.doc.add (if f.doc.len > 0: "\n" else: "") & doc
@@ -638,16 +649,14 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
           docInd = valDocInd
           let d = f.syms[docTarget].doc
           f.syms[docTarget].doc = (if d.len > 0: d & "\n" else: "") & doc
-      elif raw.strip.len == 0:
+      elif raw.blankOrStarts("")[0]:
         trailDoc = -1            # (an empty line ends a comment that went on from a declaration's line)
         if docTarget >= 0: discard     # a blank line inside a doc comment keeps it going
       continue
     moduleDocOpen = false
     # join continuation lines: open brackets, or a trailing comma
     var guard = 0
-    while (depth > 0 or t.endsWith(",") or t.endsWith("|") or t.endsWith(" or") or t.endsWith(" and") or
-           t.endsWith(" xor") or t.endsWith("&") or t.endsWith(" +")) and i < n and guard < 60 and
-          not st.inTriple and st.blockDepth == 0:
+    while (depth > 0 or nxLineGoesOn(t)) and i < n and guard < 60 and not st.inTriple and st.blockDepth == 0:
       # (and `A = B |⏎ C`: one type; `const X* = defined(linux) or⏎ defined(osx) ## doc`: one value, its doc)
       var c2, d2: string
       nxSplitLine(lines[i], st, c2, d2, depth)
@@ -655,7 +664,9 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       if d2.len > 0: doc = d2
       inc i
       inc guard
-    if not t.endsWith("=") and nxName(t, 0)[0] in NxRoutineKw:
+    # (the line's first word: what follows is only ever added to its end)
+    let (w0, w0end) = nxName(t, 0)
+    if not t.endsWith("=") and w0 in NxRoutineKw:
       # proc parseChunks(client: HttpClient): Future[void]
       #                  {.multisync.} =
       while i < n and guard < 60 and not st.inTriple and st.blockDepth == 0:
@@ -727,8 +738,10 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
     if t.startsWith("{.pragma:"):
       let (pn, _) = nxName(t, 9)
       if pn.len > 0: f.pragmas.add (pn, startLine)
-    let (w0, w0end) = nxName(t, 0)
-    let rest = if w0end < t.len: t[w0end .. ^1] else: ""
+    # (the rest of the line: inside a routine only a local type and a `when` read it — most lines need no copy)
+    let rest = if w0end < t.len and (fk notin {bkRoutine, bkLocal} or
+                                     (w0.len in 4 .. 5 and w0 in ["type", "when", "elif", "else"])):
+                 t[w0end .. ^1] else: ""
     let opensBlock = t.endsWith(":") or t.endsWith("=")
     case fk
     of bkTransparent:     # module level (or inside `when`)

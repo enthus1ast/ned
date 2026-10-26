@@ -31,8 +31,8 @@ when defined(windows): import ned/sys/winos as os   # (std/os, with '/' in the p
 else: import std/os
 when defined(windows): import ned/sys/winposix as posix   # (Win32 and the C runtime behind the same names)
 else: import std/[posix, termios]
-from std/hashes import hash
-from std/math import pow
+from std/hashes import hash, Hash, `!&`, `!$`
+from std/math import pow, round
 
 # the parts that stand on their own (modules: compiled separately, in parallel)
 import ned/core/images, ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
@@ -131,6 +131,7 @@ include ned/nim/semantic
 include ned/nim/answers
 include ned/nim/oraclerun
 include ned/nim/reflens
+include ned/nim/highlights
 include ned/nim/copies
 include ned/nim/outline
 include ned/editor/completion
@@ -149,6 +150,7 @@ include ned/editor/undotree
 include ned/format/folder
 include ned/nim/commands
 include ned/git/status
+include ned/git/watch
 include ned/ui/outline
 include ned/ui/fieldsel
 include ned/ui/pickers
@@ -316,6 +318,8 @@ include ned/git/signin
 include ned/git/undo
 include ned/git/precommit
 include ned/git/reviews
+include ned/git/aigit
+include ned/ai/comments
 include ned/run/configsui
 include ned/nim/extras
 include ned/nim/examples
@@ -326,6 +330,9 @@ include ned/web/webui
 include ned/nim/worker
 include ned/plugins/perms
 include ned/plugins/host
+include ned/ui/telescope
 include ned/app/commandlist
 include ned/app/control
+include ned/term/termhost
+include ned/app/update
 include ned/app/main

@@ -220,7 +220,7 @@ proc astCheckerBuildCmd*(): string =
     createDir(dir)
     writeFile(dir / "nedastcheck.nim", AstCheckSrc)
   except CatchableError: return ""
-  let nim = if fileExists(root / "bin" / "nim"): root / "bin" / "nim" else: "nim"
+  let nim = if fileExists(root / "bin" / addFileExt("nim", ExeExt)): root / "bin" / addFileExt("nim", ExeExt) else: "nim"
   quoteShell(nim) & " c -d:release --hints:off --warnings:off --verbosity:0 --path:" & quoteShell(root) &
     " --nimcache:" & quoteShell(astCheckerCacheDir()) & " -o:" & quoteShell(exe) & " " &
     quoteShell(dir / "nedastcheck.nim")

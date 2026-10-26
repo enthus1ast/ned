@@ -15,6 +15,7 @@ import nedplugin
 import std/[strutils, os]
 
 requiresNed(">= 6.26")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 permission("shell", "asks git for your name and for the project's files")
 permission("files", "License: add the header to every file — writes the header into each file")
 

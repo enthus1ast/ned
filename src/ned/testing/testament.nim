@@ -123,7 +123,7 @@ proc ttNext(r: TtRun) =
   r.queue.delete(0)
   let lines = try: readFile(f).splitLines except CatchableError: @[]
   let spec = testamentSpec(lines)
-  let exe = privDir() / ("ned_tt_" & splitFile(f).name)
+  let exe = privDir() / ("ned_tt_" & splitFile(f).name) & ExeDot
   let compile = "nim c --hints:off --warnings:off --colors:off -d:testing --nimcache:" &
                 quoteShell(privDir() / "tt_cache" / splitFile(f).name) & " -o:" & quoteShell(exe) & " " & quoteShell(f)
   proc finish(compiled: bool, compileOut, runOut: string, code: int) =

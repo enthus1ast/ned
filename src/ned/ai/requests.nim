@@ -157,7 +157,7 @@ proc anthropicBody(): JsonNode =
   let lastUser = aiLastUser()
   for mi, m in aiMsgs:
     case m.role
-    of 0: msgs.add %*{"role": "user", "content": m.text}
+    of 0: msgs.add %*{"role": "user", "content": aiUserContent(m, m.text, "anthropic")}
     of 1:
       var content = newJArray()
       if m.text.len > 0: content.add %*{"type": "text", "text": m.text}

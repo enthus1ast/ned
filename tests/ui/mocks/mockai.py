@@ -179,6 +179,27 @@ class H(BaseHTTPRequestHandler):
             text, finish = ('Add these:\n\n```nim\nlet z = 3\necho z\n```\n'), 'stop'
         elif 'Review this diff like a careful' in user:
             text, finish = ('{"file": "src/demo.nim", "line": 2, "severity": "warning", "message": "greet ignores empty names"}'), 'stop'
+        elif 'Resolve the merge conflicts in this file' in user:
+            # (both sides kept, ours first: the conflict marks gone)
+            f = user.split('">\n', 1)[1].rsplit('\n</file>', 1)[0]
+            out = []
+            for l in f.split('\n'):
+                if l.startswith(('<<<<<<<', '=======', '>>>>>>>', '|||||||')): continue
+                out.append(l)
+            text, finish = '\n'.join(out), 'stop'
+        elif 'The comment that ends at the marked line says what code to write' in user:
+            f = user.split('<file>\n', 1)[1].split('</file>', 1)[0]
+            out = []
+            for l in f.rstrip('\n').split('\n'):
+                if '\u27f5 (the comment ends here)' in l:
+                    out.append(l.replace('    \u27f5 (the comment ends here)', ''))
+                    out.append('proc triple*(x: int): int = x * 3')
+                else: out.append(l)
+            text, finish = '\n'.join(out), 'stop'
+        elif 'The comments ending in AI! in this file ask for changes' in user:
+            f = user.split('<file>\n', 1)[1].split('</file>', 1)[0]
+            out = [l.replace('x * 2', 'x shl 1') for l in f.rstrip('\n').split('\n') if 'AI!' not in l]
+            text, finish = '\n'.join(out), 'stop'
         elif 'Explain this file' in user:
             text, finish = ('`demo.nim` is the package entry point:\n\n- **greet** builds a greeting from a name.\n'
                             '- Under `when isMainModule` it creates a `Person`, greets them and prints `shout("done")` '

@@ -176,6 +176,8 @@ def setup(cfg=None):
     c["git.checksBeforeCommit"] = "off"  # (commits as they were; t_67_commit_checks turns the checks on)
     c["lsp.linters"] = False           # (no ruff next to the test servers; t_67_two_servers turns it on)
     c["files.hotExit"] = False         # (quitting asks, as the tests were written; t_619_hot_exit turns it on)
+    c["terminal.keepRunning"] = False  # (a test's shells end with its ned; t_629_kept_terminals keeps them)
+    c["ui.cursorAnimation"] = "off"    # (screens read while the cursor glides would show its trail; t_629_cursor_glide)
     c.update(cfg or {})
     c = {k: v for k, v in c.items() if v is not None}
     json.dump(c, open(CFG + '/ned/config.json', 'w'))

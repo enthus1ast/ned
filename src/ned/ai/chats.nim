@@ -31,7 +31,7 @@ proc saveChat() =
   for m in aiMsgs:
     let calls = newJArray()
     for c in m.calls: calls.add callJson(c)
-    msgs.add %*{"role": m.role, "text": m.text, "shown": m.shown, "calls": calls}
+    msgs.add %*{"role": m.role, "text": m.text, "shown": m.shown, "calls": calls, "pics": m.pics}
   let j = %*{"id": aiChatId, "title": chatTitle(), "root": rootDir, "provider": cfgAiProvider, "model": aiModel(),
              "updated": (epochTime() * 1000).int64, "usage": {"in": aiUsageIn, "out": aiUsageOut,
              "cacheRead": aiUsageCacheRead}, "msgs": msgs}
@@ -54,6 +54,8 @@ proc loadChat(path: string) =
     aiMsgs.setLen(0)
     for m in jitems(j{"msgs"}):
       var am = AiMsg(role: m{"role"}.getInt, text: m{"text"}.getStr, shown: m{"shown"}.getStr)
+      for p in jitems(m{"pics"}):
+        if fileExists(p.getStr): am.pics.add p.getStr       # (a picture removed since: the chat goes on without it)
       for c in jitems(m{"calls"}): am.calls.add callFrom(c)
       aiMsgs.add am
     # a chat that was cut off mid-tool-call would make the next request invalid: close it

@@ -42,6 +42,13 @@ know your code and not only its name.
 
 - **Mentions** add more: `@file`, `@selection`, `@diff` (what you changed), `@staged`, `@problems`, `@terminal`
   (the terminal's last output), `@tree` (the project's files), or `@path/to/file`.
+- **Pictures**: `@shot.png` — or a picture's path pasted into the message (a terminal pastes a dropped file's path),
+  or *AI: attach a picture…*, or *▣ a picture…* after typing `@` — sends the picture with the message, for a model
+  that reads pictures: a screenshot of an error, a design to build, a diagram. *AI: attach a picture…* lists the
+  project's pictures and the newest screenshots and photos (in Termux, `~/storage/shared/Pictures/Screenshots` and
+  the camera's, once `termux-setup-storage` has run). PNG, JPEG, GIF and WebP up to 5 MB; the chat shows each one
+  drawn small, with its size, and a tap opens it. A model that cannot read pictures says so in its error, and ned
+  adds that the message has some.
 - **Slash commands**: `/explain` `/fix` `/tests` `/doc` `/review` `/optimize` `/commit` `/plan` `/regen` `/new`
   `/history` `/model` `/provider` `/help`.
 - **Code blocks** have *Copy*, *Insert* (at the cursor) and — when the block names a file — *Apply*, which shows
@@ -100,9 +107,19 @@ a command line, and a project's settings cannot add servers until you trust its 
 
 - **Edit a selection** (Alt+Shift+C, *AI: edit selection…*): say what to change, and the selection — or the block
   the cursor is in — is rewritten in place; Ctrl+Z takes it back.
+- **Code from a comment** (as in Zed and Aider): write a comment saying what you want — `# parse the header and
+  return its fields` — and with the cursor on it press **Alt+Shift+C**, or tap the **✦ write it** after it. The
+  assistant writes the code below the comment; you see it side by side with the file first, with what the compiler
+  says of it (Nim: `nim check`), and *Take it* or *Leave it*.
+- **AI! and AI? comments**: a comment that ends in `AI!` — `# make this a func AI!`, `// handle the empty case AI!`
+  — is a request: when you save the file, the assistant makes the change, anywhere in the file, and removes the
+  comment; you see it side by side, checked, before it is used. A comment that ends in `AI?` — `# why is this slow
+  AI?` — is a question, answered in the chat. Each comment is acted on once. `ai.commentCommands` turns them off,
+  `ai.commentButton` the ✦.
 - **Inline suggestions** (`ai.inlineCompletion`, off by default because it sends code on every pause; *AI: toggle
   inline suggestions*): grey text after the cursor, Tab takes it. `ai.inlineCompletionModel` picks a fast model for
-  them; for Nim, a suggestion that names something that does not exist is dropped (`ai.checkSuggestions`).
+  them; for Nim, a suggestion that names something that does not exist is dropped (`ai.checkSuggestions`). On the
+  empty line under a comment, the suggestion is the code the comment describes — a whole block of it.
 - **Next edits from AI** (`ai.nextEdit`, off by default): after an edit with no repeat in the file, the quick model
   is asked what edit follows from it — shown as `→ … ⇥ (AI)`, Tab takes it.
 
@@ -110,5 +127,11 @@ a command line, and a project's settings cannot add servers until you trust its 
 
 - *Git: generate commit message with AI* (also in the Git dock and `/commit`): the staged diff goes to the model,
   and the message it writes waits in the commit prompt for you to change or accept — see [Git](git.md).
-- *AI: review staged changes (findings in Problems)*: the model reads your staged changes and its findings appear
-  in Problems, at their lines (*AI: clear review findings* removes them).
+- *AI: review staged changes (findings in Problems)* — also *Review the changes with AI* in the Git dock: the model
+  reads your staged changes and its findings appear in Problems, at their lines (*AI: clear review findings* removes
+  them).
+- *Git: why did this line change? (AI)*: the commit that last changed the line the cursor is on (git blame), its
+  message and what it did to the file go to the assistant, which explains in the chat what the change was for.
+- *Git: resolve the conflicts with AI* — also in the Git dock during a merge: the file's conflicts go to the
+  assistant with the rest of the file; for Nim, `nim check` reads what it wrote, and the compiler's errors go back
+  to it once to be fixed; then you see the result side by side with the conflicts, and take it or leave it.

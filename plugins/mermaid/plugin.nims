@@ -15,6 +15,7 @@ import nedplugin
 import std/[strutils, os]
 
 requiresNed(">= 6.26")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 permission("shell", "runs mmdc (mermaid-cli) to make the picture")
 
 settingDef("format", "png", "Mermaid: the picture's format — png, svg or pdf")

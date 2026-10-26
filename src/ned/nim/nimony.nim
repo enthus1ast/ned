@@ -15,8 +15,8 @@ proc nimonyFind() =
   if exe.len == 0:
     for c in [getHomeDir() / "nimony" / "bin" / "nimony", getHomeDir() / "src" / "nimony" / "bin" / "nimony",
               getHomeDir() / ".local" / "nimony" / "bin" / "nimony"]:
-      if fileExists(c):
-        exe = c
+      if fileExists(addFileExt(c, ExeExt)):
+        exe = addFileExt(c, ExeExt)
         break
   var root = ""
   if exe.len > 0:

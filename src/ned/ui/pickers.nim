@@ -7,6 +7,28 @@ var
   pickCand: seq[int]
   pickCandUpTo = 0
 
+# Telescope's finders (ui/telescope) are action pickers with a preview for each item
+type TsPreview = object
+  path: string            # a file to show, at `line`
+  line: int
+  find: string            # … the line that declares this name (looked for when first shown)
+  text: string            # else this text (a setting's description …)
+  lang: string            # … coloured as this language
+  cmd: string             # … or what this command prints (git show …), asked when first shown
+  asked: bool
+var
+  tsActive = false        # the open picker is a Telescope finder
+  tsPreviews: seq[TsPreview]
+  tsTextBufs: Table[int, Buffer]   # (a text preview, made once: a buffer to draw)
+  tsNoFilter = false      # its items are the query's answer (live grep): shown as they come
+  tsLive: proc(q: string) {.closure.} = nil
+  tsLiveQ = ""
+  tsLiveDue: MonoTime
+  tsGen = 0               # (each picker opened: an answer for an earlier one is dropped)
+  tsJob: Job
+  tsCurIsLast = false     # the finder Telescope: resume opens again (its query is kept)
+  tsLastQuery = ""
+
 proc pickQueryNorm(): string =
   var q = pickQuery
   if pickKind == pickFile and q.len > 0 and q[0] in {':', '@', '>', '#'}: q = ""
@@ -14,6 +36,16 @@ proc pickQueryNorm(): string =
 
 proc refilterPicker(keepSel = false) =
   ## incremental: a refined query only rescans the previous matches; huge sets use a greedy scorer
+  if tsActive and tsCurIsLast: tsLastQuery = pickQuery
+  if tsLive != nil and pickQuery != tsLiveQ: tsLiveDue = getMonoTime() + initDuration(milliseconds = 220)
+  if tsNoFilter:
+    # (live grep: what the search found for the query is the list, as it is)
+    pickShown = newSeq[int](pickItems.len)
+    for i in 0 ..< pickItems.len: pickShown[i] = i
+    pickSel = if keepSel: clamp(pickSel, 0, max(0, pickShown.high)) else: 0
+    if not keepSel: pickScroll = 0
+    needRender = true
+    return
   let lq = pickQueryNorm()
   pickShown.setLen(0)
   if lq.len == 0:
@@ -56,6 +88,14 @@ proc refilterPicker(keepSel = false) =
   needRender = true
 
 proc openPicker(kind: PickKind, title: string, items: seq[PickItem]) =
+  inc tsGen
+  tsActive = false
+  tsPreviews.setLen(0)
+  tsTextBufs.clear()
+  tsNoFilter = false
+  tsLive = nil
+  tsLiveQ = ""
+  tsCurIsLast = false
   closeComp()
   hoverOpen = false
   pickFolderDir = ""

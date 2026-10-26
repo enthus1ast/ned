@@ -8,6 +8,11 @@ includes), under a millisecond after.
   **members after `.` and `->`** — through typedefs, pointers, arrays, casts, calls and macros (`opts->`,
   `list.items[i].`, `get(x)->`, `P_OPERAND(p)->`), and in designated initializers (`{ .x = 1, .`), each with its type
   and comment beside the list. After `goto`, the function's labels; in `#include "` and `<`, the headers there.
+  A function (or a macro that takes arguments) is written with its call: `area(width, height)` with each parameter
+  to type over, Tab to the next — only the parentheses for C++ overloads, and nothing more where a `(` is there
+  already. After two letters, the list also has the names of headers the file does not include — the project's
+  own headers and the standard ones (`printf` *#include <stdio.h>*, `util_sum` *#include "util.h"*): choosing one
+  adds the `#include` after the file's others.
 - **Hover**: the declaration on one line, where it is, and the comment that documents it (`/** … */`, `///` or `//`
   above it, `/**< … */` after it); a definition without a comment shows its prototype's from the header. A struct
   lists its fields with its size, alignment, each field's offset and the padding between them (64-bit); a field
@@ -17,18 +22,40 @@ includes), under a millisecond after.
   `lib/`, the `-I` folders of `compile_commands.json`, `C_INCLUDE_PATH` and `CPATH`, then the compiler's own. On a
   function or global declared in a header, its definition — in the project's other `.c` files too (a system
   header's declaration stays); on a definition's name, its prototype, and back; on `goto x`, the label.
-- **References (Alt+Q) and rename (F2, with a preview)**: a local, parameter or label in its function, anything else
-  across the project's C files — never inside strings or comments. A name declared outside the project (in the
-  system's headers) is not renamed.
-- **Signature help** on `(` and `,` with the parameter being typed marked; the parameters' names before literal
-  arguments (inlay hints: `area(width: 3, height: 4)`); the **outline** with each struct's fields; symbols in the
-  file (Ctrl+T); the **call hierarchy** (callers and calls); **header ⇄ source** (*C: switch between header and
-  source*, Go › *Header ⇄ source (C)*).
+- **References (Alt+Q) and rename (F2, with a preview)**: what the name names, not every word spelt the same — a
+  local, parameter or label in its function, anything else across the project's C files, each use checked by the
+  engine: a field `x` of another struct, a `static` function of another file or a local of another function with
+  the same name is not among them. A call of a function in a file that has no prototype of it in sight still
+  counts; a name the engine does not know matches the uses it does not know either. Never inside strings or
+  comments. A name declared outside the project (in the system's headers) is not renamed.
+- **The uses of the name under the cursor** are marked in the file (`editor.highlightOccurrences`) by the same
+  rule: the field of one struct, not another's of the same name.
+- **Signature help** on `(` and `,` with the parameter being typed marked, in a call written over several lines
+  too; the parameters' names before literal arguments (inlay hints: `area(width: 3, height: 4)`, on each line of a
+  call that takes several); the **outline** with each struct's fields; the **call hierarchy** (callers and calls);
+  **header ⇄ source** (*C: switch between header and source*, Go › *Header ⇄ source (C)*).
+- **Symbols**: in the file (Ctrl+T) and in the project (Ctrl+P `#`), from the engine: functions, types, macros,
+  globals, a struct's fields as `point.x`, an enum's constants.
+- **Go to type definition**: on a variable, a parameter, a field or a call, the struct (union, enum, class) its type
+  is — through a typedef to the struct's body —; on a typedef's name, what it names.
+- **Colours by what a name is** (`nim.semanticColors`): parameters, globals (in bold, with `nim.richColors`),
+  macros, fields, enum constants, types and functions each in their colour, as the engine knows them — not by
+  their case or the `(` after them.
 - **Errors while you type**: the C compiler (`cc -fsyntax-only`) checks the unsaved text — a private copy, removed
-  after — with `compile_commands.json`'s `-D`s; **Alt+Enter adds a missing `#include`** for a standard function,
-  type or macro (`printf` → `<stdio.h>`, `size_t` → `<stddef.h>`), and offers **the compiler's own fixes** (its
-  fix-its: `.` → `->`, a misspelt member, a missing `;`, a printf format); ned's own checks are there at once — an
-  unused `#include`, a struct's padding, a printf format (see [Checks while you type](#checks-while-you-type)).
+  after — with `compile_commands.json`'s `-D`s, and Alt+Enter offers **the compiler's own fixes** (its fix-its:
+  `.` → `->`, a misspelt member, a missing `;`, a printf format); ned's own checks are there at once — an unused
+  `#include`, a struct's padding, a printf format (see [Checks while you type](#checks-while-you-type)).
+- **Alt+Enter adds a missing `#include`**, with no compiler too: on a name the engine does not know, the header
+  that declares it — one of the project's (`"util.h"`, `"net/sock.h"` from an include folder) or a standard one
+  (`printf` → `<stdio.h>`, `size_t` → `<stddef.h>`); and on the compiler's "implicit declaration of function".
+- **Refactors (Alt+Enter)**: on a `switch` on an enum (or in its body), *Add the missing cases* — each with its
+  `break;`, before `default:`, an `enum class`'s with their scope; with an expression selected, *Extract into a
+  variable* — its name asked, the variable declared before the statement with the type the engine knows (`int x =
+  p->x;`; C++: `auto`), not in a loop's condition or the body of an `if` without braces; on an `if` with an `else`,
+  *Invert the if* — the condition turned round (`a == b` → `a != b`, `!p` → `p`, else `!(…)`) and the two branches
+  swapped.
+- **Format selection**: with lines selected, Alt+F formats only those with ned's C formatter (see
+  [Formatting](formatting.md#c-and-c)).
 
 ## The preprocessor's `#if`, worked out
 
@@ -104,6 +131,11 @@ a class template whose arguments fit an explicit or partial specialisation (`tem
 `template <typename T> struct Box<T*> { … }`) goes to it, its hover is the specialisation's, and its members are
 completed from it. Dependent types, `decltype`, concepts and structured bindings are not understood — clangd answers
 those.
+
+**The type hierarchy** (Go › *Type hierarchy*) of a class — or of a value's class: the classes it derives from
+(theirs above them) and those the project derives from it, in a list to go to. **Go to implementation** on a
+method: its overrides in the classes derived from its class (their bodies where the project has them), one at once;
+on a class: the classes derived from it.
 
 ## Which engine
 

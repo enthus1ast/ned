@@ -47,6 +47,8 @@ proc drawFindWidget() =
   let bg = theme.menuBg
   fillRect(x, y, w, 1, theme.fg, bg)
   dropShadow(x, y, w, 1)
+  # (the bar itself: a click on it between its buttons is its own — not the text's, the minimap's under it)
+  region(x, y, w, 1, proc() = discard)
   if isReplace:
     var xx = putStr(x + 1, y, "Replace \"" & truncTo(replaceQuery, 14) & "\"?", theme.fg, bg, {aBold})
     xx += 1

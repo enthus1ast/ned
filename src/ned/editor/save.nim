@@ -134,6 +134,7 @@ proc saveBuffer(b: Buffer, path = "", force = false): bool =
   refreshGit(b)
   plugSaved(b)
   plugFileSaved(b.path)                            # (a plugin's own file: the plugins reload)
+  aiCommentsSaved(b)                               # (comments ending in AI! or AI?: ai.commentCommands)
   # (a remote folder's file goes to the server too: writeFileSafe → fileWritten)
   true
 

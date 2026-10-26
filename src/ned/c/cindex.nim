@@ -1,7 +1,9 @@
 ## ned's own C engine: an index of C files and the headers they include — functions, structs and their members,
 ## unions, enums, typedefs, macros, globals, a function's parameters and locals, and the comments that document
-## them — answering completion (members after `.` and `->` too), hover, go to definition, references, the outline
-## and signature help. Text in, answers out: no compiler, no server, a few milliseconds a file.
+## them — answering completion (members after `.` and `->` too), hover, go to definition and type definition,
+## references by symbol, the outline, signature help, colours by what names are, which header declares a name, and
+## (C++) a class's bases, derived classes and overrides. Text in, answers out: no compiler, no server, a few
+## milliseconds a file.
 ##
 ## It reads C the way a person skimming it does, not as a compiler: the preprocessor is not run (every #if branch
 ## is read, macros are not expanded), so code built out of macros is understood less than clangd understands it.
@@ -3656,6 +3658,25 @@ type
     kind*: CxKind
     rank*: int                  # 0 locals · 1 this file · 2 its headers · 3 system headers · 4 keywords
     insert*: string
+    call*: bool                 # a function, a method or a function-like macro: completed with its call
+    params*: seq[string]        # … its parameters to fill in (their names; an unnamed one's type)
+    overloads*: bool            # … several of that name (the parentheses only: signature help tells the rest)
+
+func cxParamTypes(s: CxSym): string =
+  ## a function's parameter types (a declaration and its definition have the same; an overload others)
+  for p in s.params: result.add p.typ.replace(" ", "") & ","
+  if s.varargs: result.add "..."
+
+proc cxCallOf*(it: var CxItem, s: CxSym) =
+  ## what completion needs to write a call of s (a parameter with a default value and those after it left out)
+  let fnMacro = s.kind == cxMacro and (s.params.len > 0 or s.varargs or
+                                       s.text.continuesWith("(", "#define ".len + s.name.len))
+  if s.kind notin {cxFunc, cxMethod} and not fnMacro: return
+  it.call = true
+  for p in s.params:
+    if p.opt: break
+    it.params.add(if p.name.len > 0: p.name elif p.typ.len > 0: p.typ else: "arg")
+  if it.params.len == 1 and it.params[0] == "void" and s.params[0].name.len == 0: it.params.setLen(0)
 
 func cxAfterWord(t: string, at: int, words: openArray[string]): bool =
   ## is the text before `at` one of `words` (as a whole word, spaces between)
@@ -4450,18 +4471,23 @@ proc cxxMemberItems(files: seq[CxFile], typ: string, arrow: bool, ctx: CxxCtx): 
       if g0 == grp:
         let t = cxxStdSubst(mt, grp, args)
         result.add CxItem(label: mem, detail: (if t.startsWith("fn:"): t[3 .. ^1] & " " & d.split(':')[0] else: t),
-                          doc: d, kind: (if t.startsWith("fn:"): cxMethod else: cxField), rank: 0)
+                          doc: d, kind: (if t.startsWith("fn:"): cxMethod else: cxField), rank: 0,
+                          call: t.startsWith("fn:"), overloads: true)     # (its parameters are not known)
     return
   let (key, rargs, _) = cxxRecord(files, b, ctx.scopes)
   if key.len == 0: return
-  var seen: HashSet[string]
+  var seen: Table[string, (int, string)]
   for (g, k, tps, targs) in cxxMembers(files, key, ctx.scopes, all = false, args = rargs):
     let s = g.syms[k]
-    if s.name in seen or cxxSpecial(s) or (s.kind == cxMethod and s.scope != s.owner) or
-       s.name.startsWith("(anonymous"): continue
-    seen.incl s.name
+    if cxxSpecial(s) or (s.kind == cxMethod and s.scope != s.owner) or s.name.startsWith("(anonymous"): continue
+    if s.name in seen:
+      # (another method of that name: an overload — or the base's that this one overrides)
+      if s.kind == cxMethod and seen[s.name][1] != cxParamTypes(s): result[seen[s.name][0]].overloads = true
+      continue
+    seen[s.name] = (result.len, cxParamTypes(s))
     result.add CxItem(label: s.name, detail: cxxSubst((if s.kind == cxMethod: s.text else: s.typ), tps, targs),
                       doc: s.doc, kind: s.kind, rank: 0)
+    cxCallOf(result[^1], s)
 
 proc cxxComplete(f: CxFile, line, col: int, systemDirs: seq[string]): (seq[CxItem], bool, string) =
   let t = f.lines[line]
@@ -4487,15 +4513,20 @@ proc cxxComplete(f: CxFile, line, col: int, systemDirs: seq[string]): (seq[CxIte
     if q in ["std", "::std"]:
       for (n, k, d) in CxxStdNames: result[0].add CxItem(label: n, detail: d, doc: d, kind: k, rank: 2)
       return
-    var seen: HashSet[string]
+    var seen: Table[string, (int, string)]
     for (g, k) in cxxScopeSyms(files, q, ctx.scopes):
       let s = g.syms[k]
-      if s.name in seen or s.kind in {cxParam, cxLocal, cxLabel} or s.name.startsWith("(anonymous") or
+      if s.kind in {cxParam, cxLocal, cxLabel} or s.name.startsWith("(anonymous") or
          cxxSpecial(s) or (s.kind == cxMethod and s.scope != s.owner): continue
-      seen.incl s.name
+      if s.name in seen:
+        if s.kind in {cxFunc, cxMethod} and seen[s.name][1] != cxParamTypes(s):
+          result[0][seen[s.name][0]].overloads = true
+        continue
+      seen[s.name] = (result[0].len, cxParamTypes(s))
       result[0].add CxItem(label: s.name, detail: (if s.kind in {cxFunc, cxMethod, cxClass, cxStruct, cxUnion, cxEnum,
                                                                  cxNamespace}: s.text else: s.typ),
                            doc: s.doc, kind: s.kind, rank: 1)
+      cxCallOf(result[0][^1], s)
     return
   # after . and ->: the members
   var mEnd = -1
@@ -4524,6 +4555,8 @@ proc cxxComplete(f: CxFile, line, col: int, systemDirs: seq[string]): (seq[CxIte
   for g in files:
     for (u, _) in g.usings:
       if u in ["std", "::std"]: stdUsed = true
+  var callAt: Table[string, (int, string)]   # (a function's item: another of that name with other parameters
+                                             # makes it overloaded — its prototype does not)
   for gi, g in files:
     let sys = gi > 0 and (cxIsSystem(g.path) or (block:
       var y = false
@@ -4531,15 +4564,22 @@ proc cxxComplete(f: CxFile, line, col: int, systemDirs: seq[string]): (seq[CxIte
         if g.path.startsWith(d): y = true
       y))
     for s in g.syms:
-      if s.name in seen or not cxxBareVisible(s, ctx.scopes) or cxxSpecial(s): continue
+      if s.name in seen:
+        if s.kind in {cxFunc, cxMethod} and s.name in callAt and cxxBareVisible(s, ctx.scopes) and
+           not (s.kind == cxMethod and s.scope != s.owner) and callAt[s.name][1] != cxParamTypes(s):
+          result[0][callAt[s.name][0]].overloads = true
+        continue
+      if not cxxBareVisible(s, ctx.scopes) or cxxSpecial(s): continue
       if s.name.startsWith("__") or (s.name.startsWith("_") and (sys or (gi > 0 and s.name.len > 1 and s.name[1] in {'A'..'Z'}))):
         continue
       if s.name.startsWith("(anonymous"): continue
       seen.incl s.name
       let member = s.scope.len > 0 and s.scope == ctx.cls
+      if s.kind in {cxFunc, cxMethod}: callAt[s.name] = (result[0].len, cxParamTypes(s))
       result[0].add CxItem(label: s.name, detail: (if s.kind in {cxFunc, cxMethod, cxClass, cxStruct, cxUnion, cxEnum,
                                                                  cxNamespace}: s.text else: s.typ),
                            doc: s.doc, kind: s.kind, rank: (if member or gi == 0: 1 elif sys: 3 else: 2))
+      cxCallOf(result[0][^1], s)
   if stdUsed:
     for (n, k, d) in CxxStdNames:
       if n notin seen:
@@ -5001,10 +5041,11 @@ proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq
       seen.incl s.name
       result[0].add CxItem(label: s.name, detail: (if s.kind == cxFunc: s.text else: s.typ), doc: s.doc, kind: s.kind,
                            rank: (if gi == 0: 1 elif sys: 3 else: 2))
+      cxCallOf(result[0][^1], s)
   for kw in CxKeywords:
     if kw notin seen: result[0].add CxItem(label: kw, detail: "keyword", kind: cxMacro, rank: 4)
 
-func cxLineInactive(g: CxFile, l: int): bool =
+func cxLineInactive*(g: CxFile, l: int): bool =
   ## is line l of g in a branch the preprocessor leaves out?
   for (a, b) in g.inactive:
     if l >= a and l <= b: return true
@@ -5552,27 +5593,68 @@ proc cxHover*(f: CxFile, line, col: int): string =
         if ex.len > 0 and ex.len < 600: result.add "\n\nExpands to:\n```c\n" & ex & "\n```"
     else: discard
 
+func cxCodeOf*(t: string, inBlock: var bool): string =
+  ## a line with its comments and the insides of its strings and characters blanked (the same length) — inBlock: in
+  ## a /* … */ that goes on (before the line, and after it)
+  result = t
+  var i = 0
+  while i < result.len:
+    if inBlock:
+      let e = result.find("*/", i)
+      let stop = if e < 0: result.len else: e + 2
+      for k in i ..< stop: result[k] = ' '
+      if e >= 0: inBlock = false
+      i = stop
+      continue
+    if result.continuesWith("//", i):
+      for k in i ..< result.len: result[k] = ' '
+      break
+    if result.continuesWith("/*", i):
+      inBlock = true
+      continue
+    if result[i] in {'"', '\''}:
+      let q = result[i]
+      var k = i + 1
+      while k < result.len and result[k] != q:
+        if result[k] == '\\': inc k
+        inc k
+      for x in i + 1 ..< min(k, result.len): result[x] = ' '
+      i = k + 1
+      continue
+    inc i
+
 proc cxSignature*(f: CxFile, line, col: int, whole = false): (CxSym, int) =
-  ## the call around line:col: the function (kind cxFunc, or a function-like macro) and the parameter being typed.
-  ## whole: C++'s overload the call's every argument fits (else those before line:col)
+  ## the call around line:col — its `(` on this line or one before it (a call written over several lines) —: the
+  ## function (kind cxFunc, or a function-like macro) and the parameter being typed. whole: C++'s overload the
+  ## call's every argument fits (else those before line:col)
   if f == nil or line >= f.lines.len: return
-  let t = f.lines[line]
-  var k = min(col, t.len) - 1
+  let first = max(0, line - 40)
+  var code: seq[string]
+  var inBlock = false
+  for l in first .. line: code.add cxCodeOf(f.lines[l], inBlock)
+  var l = line
+  var k = min(col, code[^1].len) - 1
   var d = 0
   var commas = 0
-  while k >= 0:
-    let c = t[k]
-    if c in {')', ']'}: inc d
-    elif c in {'(', '['}:
-      if d == 0:
-        if c == '(': break
-        return
-      dec d
-    elif c == ',' and d == 0: inc commas
-    elif c == '"':
-      dec k
-      while k >= 0 and t[k] != '"': dec k
-    dec k
+  block walk:
+    while l >= first:
+      let t = code[l - first]
+      if t.strip(trailing = false).startsWith("#") and l < line: return     # (a directive: not in the call)
+      while k >= 0:
+        let c = t[k]
+        if c in {')', ']', '}'}: inc d
+        elif c in {'(', '[', '{'}:
+          if d == 0:
+            if c == '(': break walk
+            return
+          dec d
+        elif c == ',' and d == 0: inc commas
+        elif c == ';' and d == 0: return
+        dec k
+      dec l
+      if l >= first: k = code[l - first].high
+    return
+  let t = f.lines[l]
   if k <= 0: return
   var e = k
   while e > 0 and t[e - 1] == ' ': dec e
@@ -5584,10 +5666,10 @@ proc cxSignature*(f: CxFile, line, col: int, whole = false): (CxSym, int) =
   if f.cpp:
     # C++: what the name is from here (a method of the receiver's class, a namespace's function …), of overloads
     # the one the arguments typed so far fit
-    let ts0 = cxxTargets0(f, line, a, false)
+    let ts0 = cxxTargets0(f, l, a, false)
     if ts0.len > 0:
-      let (closed, args) = if whole: cxxCallArgs(f, line, k) else: (false, cxxCallArgs(f, line, k, line, col)[1])
-      for (g, s) in cxxPickCall(files, f, line, cxxCtxAt(files, f, line), ts0, args, closed):
+      let (closed, args) = if whole: cxxCallArgs(f, l, k) else: (false, cxxCallArgs(f, l, k, line, col)[1])
+      for (g, s) in cxxPickCall(files, f, l, cxxCtxAt(files, f, l), ts0, args, closed):
         if s.kind in {cxFunc, cxMethod, cxMacro}: return (s, commas)
   var best = -1
   var bf: CxFile
@@ -5671,3 +5753,518 @@ proc cxUsedNames*(f: CxFile) =
   for (a, b) in f.inactive: gone.add (a - 1, (if b == high(int): b else: b + 1))
   let (used, usedText) = cxCodeWords(toks)
   (f.names, f.liveNames) = cxNamesOf(used, usedText, pp, gone)
+
+# ── references by symbol: what a use names, as a key its declaration has wherever it is seen from ──
+
+func cxIsHeaderPath*(path: string): bool =
+  path.splitFile.ext.toLowerAscii in [".h", ".hh", ".hpp", ".hxx", ".h++", ".inl", ".ipp", ".tpp"]
+
+proc cxStaticSym(g: CxFile, s: CxSym): bool =
+  ## declared `static` at file level: seen in its own file only (a variable's word is on its line, when the line is
+  ## there to look at)
+  if s.kind == cxFunc: return "static" in s.typ.splitWhitespace
+  if s.kind == cxVar and s.line < g.lines.len:
+    let t = g.lines[s.line]
+    var i = 0
+    while i < min(s.col, t.len):
+      if t[i] in IdentStartChars and (i == 0 or t[i - 1] notin IdentChars):
+        var e = i
+        while e < t.len and t[e] in IdentChars: inc e
+        if t[i ..< e] == "static": return true
+        i = e
+      else: inc i
+  false
+
+proc cxSymKey*(g: CxFile, s: CxSym): string =
+  ## what tells a declaration from others of its name, the same from wherever it is seen: a local's, a parameter's
+  ## or a label's place; a field's struct, a method's class; a function's or a global's name (and its file, when it
+  ## is static); a type's, a macro's or an enum constant's name — a field's, a type's, a macro's or a constant's file
+  ## too when a source file declares it (a header's are the same for every file that includes it)
+  case s.kind
+  of cxLocal, cxParam, cxLabel: "L:" & g.path & ":" & $s.line & ":" & $s.col
+  of cxField: "F:" & (if cxIsHeaderPath(g.path): "" else: g.path & ":") & s.owner & "." & s.name
+  of cxMethod: "M:" & cxxNoArgs(cxxSplit(s.owner)[^1]) & "::" & s.name    # (its class as written outside it too)
+  of cxFunc, cxVar: (if cxStaticSym(g, s): "S:" & g.path & ":" else: "G:") & cxxQual(s)
+  of cxNamespace: "N:" & cxxQual(s)
+  else:
+    (if s.kind == cxMacro: "#:" elif s.kind == cxEnumConst: "E:" else: "T:") &
+      (if cxIsHeaderPath(g.path): "" else: g.path & ":") & cxxQual(s)
+
+func cxKeyGroup(k: string): char =
+  ## (a static function and a global one are the same sort of thing: a function)
+  if k.len == 0: '?' elif k[0] == 'S': 'G' else: k[0]
+
+proc cxKeysOf*(ts: seq[(CxFile, CxSym)]): seq[string] =
+  ## the keys of cxTargets' answers, of the first one's sort only (a struct's tag, not a function of that name)
+  if ts.len == 0: return
+  let grp = cxKeyGroup(cxSymKey(ts[0][0], ts[0][1]))
+  for (g, s) in ts:
+    let k = cxSymKey(g, s)
+    if cxKeyGroup(k) == grp and k notin result: result.add k
+
+proc cxKeysAt*(f: CxFile, line, col: int): seq[string] =
+  ## the keys of what the word at line:col names — none when the engine does not know
+  cxKeysOf(cxTargets(f, line, col))
+
+func cxIsMember*(t: string, a: int): bool =
+  ## is the word at a written after `.`, `->` or `::` (a member, not a name of its own)
+  var k = a
+  while k > 0 and t[k - 1] in {' ', '\t'}: dec k
+  (k > 0 and t[k - 1] == '.' and not (k > 1 and t[k - 2] in Digits)) or
+    (k > 1 and t[k - 1] == '>' and t[k - 2] == '-') or (k > 1 and t[k - 1] == ':' and t[k - 2] == ':')
+
+proc cxUsesOf*(f: CxFile, name: string, keys: seq[string], a = 0, b = high(int), loose = false,
+               unknown = false, member = false): seq[(int, int)] =
+  ## where `name` is written in f (lines a..b, not in strings or comments) naming one of these declarations (keys:
+  ## cxKeysAt's). loose: also where the engine cannot tell what it names (a call with no prototype in sight — a
+  ## function of another file), but not as a member. unknown: only those, as a member when `member` (a name the
+  ## engine does not know at all: the others it does not know either)
+  if f == nil: return
+  for (l, c) in cxOccurrences(f.lines, name, a, b):
+    let ks = cxKeysAt(f, l, c)
+    if ks.len == 0:
+      if (loose and not cxIsMember(f.lines[l], c)) or (unknown and cxIsMember(f.lines[l], c) == member):
+        result.add (l, c)
+      continue
+    if unknown: continue
+    for k in ks:
+      if k in keys:
+        result.add (l, c)
+        break
+
+# ── a missing #include: which header declares a name, how a file names that header, where the line goes ──
+
+proc cxHeaderNames*(paths: openArray[string], closure = false, cpp = false): Table[string, (int, CxSym)] =
+  ## the names these headers declare — functions, types, macros, globals, enum constants; not parameters, locals,
+  ## fields or methods, nor names starting with `_` — each with the first header (its index in paths) that declares
+  ## it, its declaration (a definition before a prototype). closure: the names of the headers they include count
+  ## as theirs (a standard header's types are often in one of its own)
+  for i, p in paths:
+    let h = cxLoad(p, cpp = cpp)
+    if h == nil: continue
+    for g in (if closure: cxClosure(h, 120) else: @[h]):
+      for s in g.syms:
+        if s.kind in {cxParam, cxLocal, cxLabel, cxField, cxMethod} or s.name.len == 0 or s.name[0] == '_' or
+           s.name.startsWith("(anonymous") or s.weak or cxLineInactive(g, s.line): continue
+        let have = result.getOrDefault(s.name, (-1, CxSym()))
+        if have[0] < 0 or (have[0] == i and s.isDef and not have[1].isDef): result[s.name] = (i, s)
+
+proc cxIncludeText*(header, fromFile: string, dirs: openArray[string]): string =
+  ## how fromFile names a header in an #include: <…> from a system folder, "x.h" next to it (or below it), else
+  ## from the include folder that has it ("util/str.h"), else from the file's folder ("../include/x.h")
+  let h = normalizedPath(header)
+  proc under(d: string): string =
+    let dd = normalizedPath(d).strip(leading = false, chars = {'/'})
+    if dd.len > 0 and h.startsWith(dd & "/"): h[dd.len + 1 .. ^1] else: ""
+  for d in cxSysDirs:
+    let r = under(d)
+    if r.len > 0: return "<" & r & ">"
+  let here = under(parentDir(fromFile))
+  if here.len > 0: return "\"" & here & "\""
+  var best = ""
+  for d in dirs:
+    if d in cxSysDirs: continue
+    let r = under(d)
+    if r.len > 0 and (best.len == 0 or r.len < best.len): best = r
+  if best.len > 0: return "\"" & best & "\""
+  try: "\"" & relativePath(h, parentDir(fromFile)) & "\""
+  except CatchableError: "\"" & extractFilename(h) & "\""
+
+proc cxIncludeLine*(lines: seq[string]): int =
+  ## where a new #include goes: after the last one at the file's level (not one an #if keeps), else after the
+  ## comment at the top of the file, `#pragma once` and a header's include guard
+  var depth = 0
+  var guard = 0                     # (an include guard's #ifndef: the file's level is inside it)
+  var top = 0                       # (the first line after the comments, the guard and #pragma once)
+  var seenCode = false
+  var inBlock = false
+  result = -1
+  for i, l in lines:
+    let t = l.strip
+    if inBlock:
+      if "*/" in t: inBlock = false
+      if not seenCode: top = i + 1
+      continue
+    if t.len == 0 or t.startsWith("//"):
+      if not seenCode: top = i + 1
+      continue
+    if t.startsWith("/*"):
+      if "*/" notin t: inBlock = true
+      if not seenCode: top = i + 1
+      continue
+    let d = if t.startsWith("#"): t[1 .. ^1].strip(trailing = false) else: ""
+    if not seenCode and d.startsWith("ifndef") and i + 1 < lines.len and
+       lines[i + 1].strip.startsWith("#") and lines[i + 1].strip[1 .. ^1].strip(trailing = false).startsWith("define"):
+      guard = 1
+      depth = 1
+      top = i + 2
+      continue
+    if not seenCode and d.startsWith("pragma") and "once" in d:
+      top = i + 1
+      continue
+    if guard == 1 and i == top - 1: continue        # (the guard's #define)
+    seenCode = true
+    if d.startsWith("if"): inc depth
+    elif d.startsWith("endif"): dec depth
+    elif d.startsWith("include") and depth <= guard: result = i + 1
+  if result < 0: result = min(top, lines.len)
+
+proc cxEnumConsts*(f: CxFile, typ: string): (string, seq[CxSym]) =
+  ## the enum a type is (through typedefs and `using`) and its constants in the order they are declared: ("color",
+  ## [RED, GREEN, BLUE]) — none when the type is not an enum the engine knows
+  if f == nil: return
+  let files = cxClosure(f)
+  var (base, stars) = cxStrip(typ)
+  if stars > 0: return
+  for _ in 0 .. 8:
+    var name = base.strip
+    for kw in ["enum ", "class ", "struct "]:
+      if name.startsWith(kw): name = name[kw.len .. ^1].strip
+    if name.startsWith("::"): name = name[2 .. ^1]
+    if name.len == 0 or ' ' in name: return
+    var seen: HashSet[string]
+    for g in files:
+      for s in g.syms:
+        if s.kind == cxEnumConst and (s.owner == name or s.owner.endsWith("::" & name)) and s.name notin seen and
+           not cxLineInactive(g, s.line):
+          seen.incl s.name
+          result[1].add s
+      if result[1].len > 0:
+        result[0] = name
+        return
+    let (g, k) = cxFindSym(files, cxxSplit(name)[^1], {cxTypedef})
+    if g == nil: return
+    let (b2, s2) = cxStrip(g.syms[k].typ)
+    if s2 > 0: return
+    base = b2
+
+# ── semantic colours: each name of the code coloured by what it is — a parameter, a global, a macro, a field, an
+#    enum constant, a type, a function —, as the engine knows it ──
+
+type CxSemTok* = tuple[line, col, len: int, kind: CxKind]
+  ## a name and what it is: cxParam, cxLocal, cxVar (a global), cxField, cxEnumConst, cxMacro, cxTypedef (any type —
+  ## a typedef's, a struct's, a class's), cxFunc (a function or a method), cxNamespace
+
+type CxSemNames = ref object          # what the names a file's headers declare are (kept while the headers stay)
+  key: string
+  kinds: Table[string, CxKind]
+  fields, methods: HashSet[string]
+
+var cxSemMade: seq[CxSemNames]        # (the last few: the open files see much the same headers)
+
+func cxSemRank(k: CxKind): int =
+  ## (a name declared as several things: a function before a type before a constant … before a macro — the one
+  ## that wraps a function of its name)
+  case k
+  of cxFunc, cxMethod: 6
+  of cxTypedef, cxStruct, cxUnion, cxEnum, cxClass: 5
+  of cxEnumConst: 4
+  of cxVar: 3
+  of cxNamespace: 2
+  of cxMacro: 1
+  else: 0
+
+proc cxSemAdd(m: CxSemNames, g: CxFile) =
+  for s in g.syms:
+    case s.kind
+    of cxParam, cxLocal, cxLabel: continue
+    of cxField: m.fields.incl s.name
+    of cxMethod: m.methods.incl s.name
+    else: discard
+    if s.kind in {cxField, cxMethod} or s.name.startsWith("(anonymous") or cxLineInactive(g, s.line): continue
+    let have = m.kinds.getOrDefault(s.name, cxLabel)
+    if have == cxLabel or cxSemRank(s.kind) > cxSemRank(have): m.kinds[s.name] = s.kind
+
+type CxSemMap* = ref object
+  ## what the names of a file are, to colour its lines by: kept while the file is typed in (by name, so a line
+  ## moved by an edit is still coloured right)
+  hdr, own: CxSemNames
+  cpp: bool
+  fns: seq[(int, int, seq[(string, CxKind, int, int, int)])]   # each function's (first line, last line, its
+                                                               # parameters and locals: name, kind, line, seen from,
+                                                               # seen to)
+
+proc cxSemMapOf*(f: CxFile): CxSemMap =
+  ## the names of f and of its headers (those of the headers shared by the files that see the same ones)
+  if f == nil: return nil
+  result = CxSemMap(cpp: f.cpp, own: CxSemNames())
+  let files = cxClosure(f)
+  var key = (if f.cpp: "c++" else: "c")
+  for i in 1 ..< files.len: key.add "|" & files[i].path & "@" & files[i].stamp & "@" & files[i].envSig
+  for x in cxSemMade:
+    if x.key == key: result.hdr = x
+  if result.hdr == nil:
+    result.hdr = CxSemNames(key: key)
+    for i in 1 ..< files.len: cxSemAdd(result.hdr, files[i])
+    cxSemMade.add result.hdr
+    if cxSemMade.len > 4: cxSemMade.delete(0)
+  cxSemAdd(result.own, f)
+  for s in f.syms:
+    if s.kind in {cxFunc, cxMethod} and s.isDef and s.endLine > s.line:
+      result.fns.add (s.line, s.endLine, newSeq[(string, CxKind, int, int, int)]())
+  result.fns.sort(proc(x, y: (int, int, seq[(string, CxKind, int, int, int)])): int = cmp(x[0], y[0]))
+  for s in f.syms:
+    if s.kind notin {cxParam, cxLocal}: continue
+    # (the function it is in: the last one that starts on or before where it is seen)
+    var lo = 0
+    var hi = result.fns.high
+    var at = -1
+    while lo <= hi:
+      let mid = (lo + hi) div 2
+      if result.fns[mid][0] <= s.scopeA:
+        at = mid
+        lo = mid + 1
+      else: hi = mid - 1
+    if at >= 0 and s.scopeA <= result.fns[at][1]:
+      result.fns[at][2].add (s.name, s.kind, s.line, s.scopeA, s.scopeB)
+
+proc cxSemLine*(m: CxSemMap, line: int, code: string): seq[(int, int, CxKind)] =
+  ## the names on a line and what each is — (column, length, kind) —; code: the line with its comments and the
+  ## insides of its strings blanked (cxCodeOf). Not keywords, labels, an #include's name, nor what the engine does
+  ## not know
+  if m == nil or code.len > 4000: return
+  let t = code
+  let st = t.strip(trailing = false)
+  if st.startsWith("#") and st[1 .. ^1].strip(trailing = false).startsWith("include"): return
+  # (a macro's parameters, on its #define's line: not what a name of theirs means elsewhere)
+  var mparams: seq[string]
+  if st.startsWith("#") and st[1 .. ^1].strip(trailing = false).startsWith("define"):
+    let o = t.find('(')
+    let c = t.find(')', max(o, 0))
+    if o > 0 and t[o - 1] in IdentChars and c > o:
+      for x in t[o + 1 ..< c].split(','): mparams.add x.strip
+  # (the parameters and locals of the function the line is in)
+  var lo = 0
+  var hi = m.fns.high
+  var fi = -1
+  while lo <= hi:
+    let mid = (lo + hi) div 2
+    if m.fns[mid][0] <= line:
+      fi = mid
+      lo = mid + 1
+    else: hi = mid - 1
+  if fi >= 0 and line > m.fns[fi][1]: fi = -1
+  var i = 0
+  while i < t.len:
+    if t[i] notin IdentStartChars or (i > 0 and t[i - 1] in IdentChars + {'#'}):
+      inc i
+      continue
+    var e = i
+    while e < t.len and t[e] in IdentChars: inc e
+    let w = t[i ..< e]
+    let c0 = i
+    i = e
+    if w[0] in Digits or w in CxKeywords or (m.cpp and w in CxxKeywords) or
+       w in ["NULL", "true", "false", "nullptr", "defined", "__VA_ARGS__"] or w in mparams:
+      continue
+    var q = e
+    while q < t.len and t[q] in {' ', '\t'}: inc q
+    let call = q < t.len and t[q] == '('
+    var k = c0
+    while k > 0 and t[k - 1] in {' ', '\t'}: dec k
+    if (k > 0 and t[k - 1] == '.' and not (k > 1 and t[k - 2] in Digits)) or (k > 1 and t[k - 2 ..< k] == "->"):
+      # a member: a field, or (C++) a method called
+      if m.cpp and call and (w in m.hdr.methods or w in m.own.methods): result.add (c0, w.len, cxFunc)
+      elif w in m.hdr.fields or w in m.own.fields: result.add (c0, w.len, cxField)
+      continue
+    if cxAfterWord(t, c0, ["struct", "union", "enum", "class"]):
+      result.add (c0, w.len, cxTypedef)
+      continue
+    if cxAfterWord(t, c0, ["goto"]): continue
+    if q < t.len and t[q] == ':' and not (q + 1 < t.len and t[q + 1] == ':') and st.startsWith(w):
+      continue                                     # (a label)
+    var lk = cxLabel
+    if fi >= 0:
+      for j in countdown(m.fns[fi][2].high, 0):
+        let (n, kd, dl, sa, sb) = m.fns[fi][2][j]
+        if n == w and line >= sa and line <= sb and (kd != cxLocal or dl <= line):
+          lk = kd
+          break
+    if lk != cxLabel:
+      result.add (c0, w.len, lk)
+      continue
+    var kd = m.own.kinds.getOrDefault(w, cxLabel)
+    let hk = m.hdr.kinds.getOrDefault(w, cxLabel)
+    if kd == cxLabel or (hk != cxLabel and kd == cxMacro): kd = hk
+    case kd
+    of cxLabel: discard
+    of cxStruct, cxUnion, cxEnum, cxClass, cxTypedef: result.add (c0, w.len, cxTypedef)
+    of cxMethod: result.add (c0, w.len, cxFunc)
+    else: result.add (c0, w.len, kd)
+
+proc cxSemTokens*(f: CxFile, lo, hi: int): seq[CxSemTok] =
+  ## what each name on lines lo..hi of f is (not in strings, comments or #include lines; not keywords): a member
+  ## after `.` and `->`, a local or a parameter where it is seen, else what the file and its headers declare
+  if f == nil or f.lines.len == 0: return
+  let a = max(0, lo)
+  let b = min(hi, f.lines.high)
+  if b < a: return
+  let m = cxSemMapOf(f)
+  # (the code of the lines: from a little above, for a /* … */ begun before them)
+  var inBlock = false
+  for l in max(0, a - 40) ..< a: discard cxCodeOf(f.lines[l], inBlock)
+  for l in a .. b:
+    for (c, n, k) in cxSemLine(m, l, cxCodeOf(f.lines[l], inBlock)): result.add (l, c, n, k)
+
+# ── go to type definition ──
+
+proc cxTypeDecl*(f: CxFile, typ: string, line = 0): (CxFile, CxSym) =
+  ## where a type is declared: a struct's, union's, enum's or class's definition (through a typedef that names one,
+  ## pointers and qualifiers left out), else the typedef — (nil, …) for a type of C's own or one the engine does not
+  ## know
+  if f == nil or typ.len == 0: return
+  let files = cxClosure(f)
+  var base = if f.cpp: cxxStrip(typ)[0] else: cxStrip(typ)[0]
+  base = cxDropMarkers(files, base)
+  if f.cpp:
+    let scopes = cxxCtxAt(files, f, line).scopes
+    for _ in 0 .. 8:
+      var b = base
+      for kw in ["struct ", "class ", "union ", "enum ", "typename "]:
+        if b.startsWith(kw): b = b[kw.len .. ^1].strip
+      let (g, k) = cxxFindClass(files, b, scopes)
+      if g != nil: return (g, g.syms[k])
+      # (an enum, a typedef, `using T = …`)
+      let short = cxxSplit(cxxNoArgs(b))[^1]
+      var td: (CxFile, CxSym)
+      for g2 in files:
+        for k2 in cxNamed(g2, short):
+          let s = g2.syms[k2]
+          if s.kind == cxEnum and s.isDef: return (g2, s)
+          if s.kind == cxTypedef and td[0] == nil: td = (g2, s)
+      if td[0] == nil: return
+      let next = cxxStrip(td[1].typ)[0]
+      if next == base or cxFindSym(files, cxxSplit(cxxNoArgs(next))[^1], {cxClass, cxStruct, cxUnion, cxEnum,
+                                                                         cxTypedef})[0] == nil:
+        return td
+      base = next
+    return
+  for _ in 0 .. 8:
+    var tag = ""
+    for kw in ["struct ", "union ", "enum "]:
+      if base.startsWith(kw): tag = base[kw.len .. ^1].strip
+    if tag.len > 0:
+      var decl: (CxFile, CxSym)
+      for g in files:
+        for k in cxNamed(g, tag):
+          let s = g.syms[k]
+          if s.kind in {cxStruct, cxUnion, cxEnum}:
+            if s.isDef: return (g, s)
+            if decl[0] == nil: decl = (g, s)
+      return decl
+    let w = base.splitWhitespace
+    if w.len != 1: return
+    let (g, k) = cxFindSym(files, w[0], {cxTypedef})
+    if g == nil:
+      # (a struct the typedef only names: filed under the typedef's name)
+      let (g2, k2) = cxFindSym(files, w[0], {cxStruct, cxUnion, cxEnum})
+      if g2 != nil: return (g2, g2.syms[k2])
+      return
+    let next = cxDropMarkers(files, cxStrip(g.syms[k].typ)[0])
+    let nw = next.splitWhitespace
+    # (a typedef of a struct, a union or an enum the engine has the body of: that body; else the typedef)
+    if nw.len == 2 and nw[0] in ["struct", "union", "enum"]:
+      for g2 in files:
+        for k2 in cxNamed(g2, nw[1]):
+          if g2.syms[k2].kind in {cxStruct, cxUnion, cxEnum} and g2.syms[k2].isDef: return (g2, g2.syms[k2])
+      return (g, g.syms[k])
+    if next == base or nw.len != 1 or cxFindSym(files, nw[0], {cxTypedef, cxStruct, cxUnion, cxEnum})[0] == nil:
+      return (g, g.syms[k])
+    base = next
+
+proc cxTypeTarget*(f: CxFile, line, col: int): (CxFile, CxSym) =
+  ## go to type definition: the declaration of the type of what the word at line:col names — a variable's, a
+  ## parameter's, a field's, a function's result, an enum constant's enum —; on a type's own name, the struct (…)
+  ## behind it
+  let ts = cxTargets(f, line, col)
+  if ts.len == 0: return
+  let (g, s) = ts[0]
+  var typ = ""
+  case s.kind
+  of cxStruct, cxUnion, cxEnum, cxClass:
+    if s.isDef: return (g, s)
+    typ = (case s.kind
+           of cxStruct: "struct "
+           of cxUnion: "union "
+           of cxEnum: "enum "
+           else: "class ") & cxxQual(s)
+  of cxVar, cxParam, cxLocal:
+    typ = s.typ
+    if f.cpp and s.init.len > 0 and g == f:
+      let files = cxClosure(f)
+      typ = cxxAutoType(files, f, s, cxxCtxAt(files, f, line), 0)
+  of cxField, cxFunc, cxMethod, cxTypedef, cxEnumConst: typ = s.typ
+  else: return
+  if s.kind == cxEnumConst and not f.cpp: typ = "enum " & s.owner
+  elif s.kind == cxEnumConst: typ = s.owner
+  cxTypeDecl(f, typ, line)
+
+# ── C++: a class's bases and the classes derived from it; a method's overrides ──
+
+proc cxxClassAt*(f: CxFile, line, col: int): (CxFile, CxSym) =
+  ## the class the word at line:col names — or the class of the value it names (a variable's, a parameter's, a
+  ## field's, a function's result) — at its definition; (nil, …) when it is not one the engine knows
+  if f == nil or not f.cpp: return
+  let (g, s) = cxTypeTarget(f, line, col)
+  if g != nil and s.kind in {cxClass, cxStruct, cxUnion}: return (g, s)
+
+proc cxxBasesOf*(g: CxFile, cls: CxSym): seq[(CxFile, CxSym)] =
+  ## a class's direct bases, where they are defined (those the engine finds)
+  let files = cxClosure(g)
+  for b in cls.bases:
+    let (h, k) = cxxFindClass(files, b, cxxWithParents(cls.scope) & @[""])
+    if h != nil and cxxKey(h.syms[k]) != cxxKey(cls): result.add (h, h.syms[k])
+
+proc cxxDerived*(files: seq[CxFile], cls: CxSym, maxDepth = 8): seq[(CxFile, CxSym, int)] =
+  ## the classes of these files that derive from cls, and from them (each with how many steps down)
+  var frontier = @[cxxKey(cls)]
+  var seen: HashSet[string]
+  seen.incl frontier[0]
+  for depth in 1 .. maxDepth:
+    var next: seq[string]
+    for g in files:
+      if g == nil: continue
+      for s in g.syms:
+        if s.kind notin {cxClass, cxStruct} or not s.isDef or s.bases.len == 0 or cxxKey(s) in seen: continue
+        var hit = false
+        for b in s.bases:
+          let short = cxxSplit(cxxNoArgs(b))[^1]
+          for fk in frontier:
+            if cxxSplit(cxxNoArgs(fk))[^1] != short: continue
+            # (the base as the derived class's file sees it: that class?)
+            let (h, k) = cxxFindClass(cxClosure(g), b, cxxWithParents(s.scope) & @[""])
+            if h != nil and cxxKey(h.syms[k]) == fk: hit = true
+        if hit:
+          seen.incl cxxKey(s)
+          next.add cxxKey(s)
+          result.add (g, s, depth)
+    if next.len == 0: break
+    frontier = next
+
+proc cxxOverrides*(files: seq[CxFile], f: CxFile, line, col: int): (CxSym, seq[(CxFile, CxSym)]) =
+  ## a method (the cursor on its name, a call of it): the methods of the same name and parameters in the classes
+  ## derived from its class — each one's body where the files have it, else its declaration
+  if f == nil or not f.cpp: return
+  let ts = cxTargets(f, line, col)
+  if ts.len == 0 or ts[0][1].kind != cxMethod: return
+  let m = ts[0][1]
+  let cfiles = cxClosure(ts[0][0])
+  let scopes = cxxWithParents(m.scope) & @[""]
+  let (cg, ck) = cxxFindClass(cfiles, m.owner, scopes)
+  if cg == nil: return
+  result[0] = m
+  let want = cxParamTypes(m)
+  for (g, d, _) in cxxDerived(files, cg.syms[ck]):
+    let key = cxxKey(d)
+    let gfiles = cxClosure(g)
+    var decl, body: seq[(CxFile, CxSym)]
+    for h in files & gfiles:
+      if h == nil: continue
+      for k in cxNamed(h, m.name):
+        let x = h.syms[k]
+        if x.kind != cxMethod or cxParamTypes(x) != want or not cxxOwnersMatch(x.owner, key): continue
+        if x.isDef:
+          if (h, x) notin body: body.add (h, x)
+        elif (h, x) notin decl: decl.add (h, x)
+    if body.len > 0: result[1].add body[0]
+    elif decl.len > 0: result[1].add decl[0]

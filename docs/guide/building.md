@@ -56,6 +56,27 @@ the native Windows build: the unit tests that do not need a POSIX system, and `.
 started in a Windows console (ConPTY), typed into, saved and quit; `nedls.exe` answering hover and the file's
 symbols; `nedfmt.exe` formatting.
 
+## Nim's package list
+
+`nimble install ned` works once ned is in Nim's package list ([nim-lang/packages](https://github.com/nim-lang/packages),
+whose `packages.json` has no `ned` yet). The entry to add there, in a pull request:
+
+```json
+{
+  "name": "ned",
+  "url": "https://github.com/foxoman/ned",
+  "method": "git",
+  "tags": ["editor", "ide", "terminal", "tui", "termux", "lsp", "formatter", "nim"],
+  "description": "Terminal code editor and Nim IDE for Termux, Linux, macOS and Windows: a built-in Nim engine, an nph-style formatter, an AI assistant, plugins in NimScript",
+  "license": "MIT",
+  "web": "https://github.com/foxoman/ned"
+}
+```
+
+`nimble install` builds `ned`, `nedfmt` and `nedls` into `~/.nimble/bin` (checked: from a clean `NIMBLE_DIR`, the
+three start and answer `--version`). Until the entry is in, `nimble install https://github.com/foxoman/ned` does the
+same.
+
 ## Why it is fast
 
 A cell grid with per-cell diffing (only changed cells are sent, inside synchronized-output

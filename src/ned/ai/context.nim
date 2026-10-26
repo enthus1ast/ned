@@ -91,6 +91,18 @@ proc mentionNames(): seq[string] =
     if not s.dead:
       for r in s.resources: result.add "@" & s.name & ":" & r.uri
 
+proc aiMentionedPics(t: string, quiet = false): seq[string] =
+  ## the pictures a message names (@shot.png, @~/storage/shared/Pictures/Screenshots/x.png): they go with it, for a
+  ## model that reads pictures; one that cannot go is said why
+  for w0 in t.splitWhitespace:
+    let w = w0.strip(leading = false, chars = {',', ';', ':', '?', '!', ')'})
+    if w.len < 2 or w[0] != '@' or not isPicturePath(w[1 .. ^1]): continue
+    let p = absProjectPath(w[1 .. ^1])
+    if p in result: continue
+    let why = aiPicWhy(p)
+    if why.len == 0: result.add p
+    elif not quiet: setMsg(extractFilename(p) & ": " & why & " — not sent", 2)
+
 proc expandMentions(t: string): string =
   ## "@path" attaches a file; @file @selection @diff @staged @problems @terminal @tree attach context
   result = t
@@ -130,6 +142,7 @@ proc expandMentions(t: string): string =
                   "\n</resource>"
         continue
       let p = absProjectPath(w[1 .. ^1])
+      if isPicturePath(p): continue            # (a picture goes as one: aiMentionedPics)
       if fileExists(p) and getFileSize(p) < 400_000:
         try: extra.add "\n<file path=\"" & relPath(p) & "\">\n" & readFile(p) & "\n</file>"
         except CatchableError: discard

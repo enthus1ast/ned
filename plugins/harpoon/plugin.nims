@@ -13,6 +13,7 @@
 import nedplugin
 
 requiresNed(">= 6.26")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 
 settingDef("size", 4, "How many files Harpoon's list holds (Harpoon: go to 1 … 4 and <leader>1 … 4 reach the " &
            "first four; the list and the Plugins dock all of them)")

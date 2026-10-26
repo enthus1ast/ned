@@ -19,7 +19,8 @@ From the top, the dock shows:
 - the **branch**, with its upstream (`main → origin/main`) — click it for the branches;
 - a **merge, rebase, cherry-pick or revert in progress**, the files with conflicts (with how many each has left) and
   *Continue* / *Abort*; or **BISECTING** with *Good*, *Bad*, *Skip* and *Stop* (see [Bisect](#find-the-commit-that-broke-it-bisect));
-- *Commit…* and, when an AI provider is set up, *Write the message with AI*;
+- *Commit…* and, when an AI provider is set up, *Write the message with AI* and *Review the changes with AI*
+  (its findings in Problems); during a merge with conflicts, *Resolve this file's conflicts with AI*;
 - **STAGED CHANGES**, **CHANGES** and **UNTRACKED**, each file with its letter (M, A, D, U …). A new folder is one
   line with how many files it holds, not every file in it (`git.untrackedFiles`);
 - **ACTIONS**: *Stage everything*, *Sync (pull, then push)* with ↑ commits to push and ↓ to pull, *Pull*, *Push*,
@@ -41,9 +42,15 @@ In the dock (a hint line at the bottom repeats the main ones):
 | r · q | refresh · close the dock |
 
 Right-click a file for *Open file*, *Open diff* (side by side), *Open diff as text*, *Stage*, *Unstage* and *Discard
-changes…*. The header has ✓ (commit) and ⟳ (refresh). While the dock (or the Files dock) is shown, ned runs
-`git status` every few seconds (`git.autoRefresh`) — less often in a repository where it takes long, never while you
-are away, and without taking git's index lock, so a git command of yours never finds the index locked.
+changes…*. The header has ✓ (commit) and ⟳ (refresh).
+
+**git status runs when something changes**, not every few seconds: ned watches the repository's `.git` folder (a
+commit, a stage, a checkout, a pull — from ned, its terminal or anywhere else), the project's folders two levels
+down and the folders of the files you open, and asks git a moment after one changes — not more often than every 2
+seconds, or ten times what git status takes in a big repository. A change deeper in the project than what is
+watched shows at the next look, every minute while the dock is shown (`git.autoRefresh`). (On Nim's own
+repository, 4000 files, with the dock open and nothing changing: one git status a minute, where it was twelve.) Watching needs Linux or Android (inotify); elsewhere the dock looks every few seconds, as before. git
+status never takes git's index lock, so a git command of yours never finds the index locked.
 
 ## Committing
 
@@ -151,6 +158,8 @@ tracked*.
   commit.
 - **Timeline** (the right dock, or *Timeline* in the palette): the commits that changed the current file, following
   renames. Pick one to see that version side by side with yours.
+- *Git: why did this line change? (AI)*: the commit that last changed the line, its message and its change, given
+  to the assistant, which explains in the chat what the change was for.
 - *Git: history of these lines*: every commit that changed the selection — or, with nothing selected, the Nim proc
   the cursor is in (else the line) — each with the diff of just those lines (`git log -L`). Enter on one opens it.
 
@@ -234,6 +243,12 @@ itself, so you can also edit it. *✓ Accept* on either side, *Accept both*, ◀
 conflicts; once none are left, *Save and stage* finishes the file. While a merge or rebase is in progress the Git
 dock lists the conflicted files and has *Continue the merge* / *Abort the merge*.
 
+**With the assistant**: *Git: resolve the conflicts with AI* (or *Resolve this file's conflicts with AI* in the Git
+dock) gives the file's conflicts to the assistant, with the rest of the file, and asks it to keep what both sides
+meant. For Nim, the compiler reads what it wrote (`nim check`), and its errors go back to the assistant once to be
+fixed. You see the result side by side with the conflicts — with what the compiler said — and take it or leave it;
+taken, Ctrl+Z gives the conflicts back. See [the AI assistant](ai.md#with-git).
+
 ![The merge editor: ours and theirs above, the result below](../../screenshots/merge-editor.png)
 
 ## Worktrees and submodules
@@ -305,7 +320,7 @@ terminal, remote work and scripting ned](terminal.md#gits-editor-ned---wait).
 | setting | default | what it does |
 |---|---|---|
 | `git.gutter` | `true` | added / modified / deleted marks next to the line numbers |
-| `git.autoRefresh` | `true` | refresh the Git dock every few seconds while it is open |
+| `git.autoRefresh` | `true` | refresh the Git dock while it is open: every minute where the repository is watched (Linux, Android), every few seconds elsewhere |
 | `git.untrackedFiles` | `"folders"` | a new folder as one line with its file count (`folders`), or every file on its own line (`all`) |
 | `git.inlineBlame` | `false` | who last changed the current line, and when, at its end |
 | `git.checksBeforeCommit` | `"both"` | before a commit: `format`, `tests`, `both` or `off` |

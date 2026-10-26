@@ -248,6 +248,11 @@ proc nimCmd(b: Buffer, run: bool): string =
 
 proc openInBrowser(path: string) =
   let isUrl = "://" in path
+  when defined(windows):
+    # (Explorer opens a page in the default browser, a file with the program it belongs to)
+    discard startJob(jkAux, "explorer " & quoteShell(path), (if isUrl: rootDir else: parentDir(path)))
+    info("Opening " & (if isUrl: path else: extractFilename(path)) & " in the browser")
+    return
   for opener in (if isUrl: @["termux-open-url", "wslview", "xdg-open", "open"] else: @["termux-open", "wslview", "xdg-open", "open"]):
     if findExe(opener).len > 0:
       discard startJob(jkAux, opener & " " & quoteShell(path), (if isUrl: rootDir else: parentDir(path)))

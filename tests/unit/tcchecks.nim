@@ -161,4 +161,67 @@ suite "C checks: printf and scanf formats against their arguments":
     let other = "#include <sysio.h>\n#define FMT \"%d\"\nvoid k(const char *s) {\n  printf(FMT, s);\n" &
                 "  printf(\"%1$s\", 3);\n}\n"
     check ckFormats(load("other.c", other)).len == 0
+
+suite "C refactors: a switch's missing cases, a selection in a variable, an if/else inverted":
+  test "a switch on an enum: the cases it does not have, before default:, through a typedef":
+    let src = "enum color { RED, GREEN, BLUE };\ntypedef enum { M_A, M_B } Mode;\n" &
+              "int f(enum color c, Mode m) {\n  switch (c) {\n  case RED:\n    return 1;\n  default:\n    return 0;\n  }\n" &
+              "  switch (m) {\n  }\n  return 2;\n}\n"
+    let f = load("sw.c", src)
+    let fx = ckFillSwitch(f, 3, 4)
+    check fx.len == 1 and fx[0].title == "Add the 2 missing cases (color)"
+    check "  case RED:\n    return 1;\n  case GREEN:\n    break;\n  case BLUE:\n    break;\n  default:" in apply(src, fx[0])
+    let fm = ckFillSwitch(f, 9, 2)
+    check fm.len == 1 and "  switch (m) {\n    case M_A:\n      break;\n    case M_B:\n      break;\n  }" in apply(src, fm[0])
+    # (a body on one line: the cases on lines of their own before its `}`)
+    let one = "enum e { A, B, C };\nint h(enum e x) {\n  switch (x) { case A: return 1; }\n  return 0;\n}\n"
+    let fo = ckFillSwitch(load("sw1.c", one), 2, 4)
+    check fo.len == 1 and "  switch (x) { case A: return 1;\n    case B:\n      break;\n    case C:\n      break;\n  }\n" in
+          apply(one, fo[0])
+    # (every case there; not an enum: nothing)
+    let full = "enum e { A, B };\nvoid g(enum e x, int n) {\n  switch (x) { case A: case B: break; }\n  switch (n) {\n  }\n}\n"
+    let g = load("sw2.c", full)
+    check ckFillSwitch(g, 2, 3).len == 0 and ckFillSwitch(g, 3, 3).len == 0
+
+  test "C++: an enum class's constants with their scope":
+    let src = "enum class Color { Red, Green };\nint f(Color c) {\n  switch (c) {\n  case Color::Red: return 1;\n  }\n  return 0;\n}\n"
+    let f = cxLoad(d / "sw.cpp", src, "sw.cpp:1", cpp = true)
+    let fx = ckFillSwitch(f, 2, 3)
+    check fx.len == 1 and "  case Color::Green:\n    break;\n  }" in apply(src, fx[0])
+
+  test "an if/else inverted: the condition turned round, the branches swapped":
+    let src = "int f(int a, int *p) {\n  if (a == 1) {\n    return 2;\n  } else {\n    a++;\n    return 3;\n  }\n}\n"
+    let fx = ckInvertIf(src.splitLines, 1)
+    check fx.len == 1
+    check apply(src, fx[0]) == "int f(int a, int *p) {\n  if (a != 1) {\n    a++;\n    return 3;\n  } else {\n    return 2;\n  }\n}\n"
+    check ckNegate("!p") == "p" and ckNegate("p->next") == "!p->next" and ckNegate("a < b && c") == "!(a < b && c)" and
+          ckNegate("!(x || y)") == "x || y" and ckNegate("n >= 0") == "n < 0" and ckNegate("a + b") == "!(a + b)"
+    # (no else, or an else if: not this)
+    check ckInvertIf("void g(int a) {\n  if (a) {\n    a = 1;\n  }\n}\n".splitLines, 1).len == 0
+    check ckInvertIf("void g(int a) {\n  if (a) {\n    a = 1;\n  } else if (a > 2) {\n    a = 2;\n  }\n}\n".splitLines, 1).len == 0
+
+  test "a selection in a variable of the type the engine knows, declared before its statement":
+    let src = "struct pt { int x; double w; };\nint f(struct pt *p, int n) {\n  int r = 0;\n  if (p->w > 2.0)\n" &
+              "    r = 1;\n  return r + p->x * n;\n}\n"
+    let f = load("ex.c", src)
+    let ls = src.splitLines
+    var fx = ckExtractVar(f, 5, ls[5].find("p->x"), ls[5].find(" * n"))
+    check fx.len == 1 and fx[0].title == "Extract into a variable: int x = p->x;"
+    check apply(src, fx[0]).contains("  int x = p->x;\n  return r + x * n;")
+    fx = ckExtractVar(f, 3, ls[3].find("p->w"), ls[3].find(" > 2.0"), name = "weight")
+    check fx.len == 1 and apply(src, fx[0]).contains("  double weight = p->w;\n  if (weight > 2.0)")
+    # (the body of an if without braces; a name being assigned; half an expression: not these)
+    check ckExtractVar(f, 4, ls[4].find("1"), ls[4].find(";")).len == 0
+    check ckExtractVar(f, 2, ls[2].find("r"), ls[2].find(" = 0")).len == 0
+    check ckExtractVar(f, 5, ls[5].find("r + p"), ls[5].find("x * n")).len == 0
+    let sum = ckExtractVar(f, 5, ls[5].find("r +"), ls[5].find(";"))
+    check sum.len == 1 and sum[0].title == "Extract into a variable: int value = r + p->x * n;"
+    let mixed = ckExtractVar(f, 3, ls[3].find("p->w"), ls[3].find(")"))       # (a double against a literal)
+    check mixed.len == 1 and mixed[0].title == "Extract into a variable: int value = p->w > 2.0;"
+    let src2 = "double g(double w, int n, char *s) {\n  return w * n + 1 + (s - s);\n}\n"
+    let g = load("ex2.c", src2)
+    let l2 = src2.splitLines
+    check ckExtractVar(g, 1, l2[1].find("w * n"), l2[1].find(" + 1")).len == 1 and
+          ckExtractVar(g, 1, l2[1].find("w * n"), l2[1].find(" + 1"))[0].title == "Extract into a variable: double value = w * n;"
+    check ckExtractVar(g, 1, l2[1].find("(s - s)"), l2[1].find(";")).len == 0      # (a pointer's arithmetic)
 cxDirs = @[]

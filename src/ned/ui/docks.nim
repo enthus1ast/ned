@@ -304,6 +304,9 @@ proc buildGitItems(): seq[SideItem] =
                                 nil, full, data = "unstaged")
     result.add sideItem(st.toUpperAscii & " IN PROGRESS" & (if conflicted.len > 0: " · " & $conflicted.len & " file(s) with conflicts" else: ""), 6)
     for it in conflicted: result.add it
+    if conflicted.len > 0 and (cfgAiProvider in ["ollama", "custom"] or aiKey().len > 0):
+      result.add sideItem("Resolve this file's conflicts with AI", 7, ic("ai"), "checked, then shown", proc() =
+        aiResolveConflicts())
     result.add sideItem("Continue the " & st, 7, "▶", "", proc() = gitContinue())
     result.add sideItem("Abort the " & st, 7, "■", "", proc() = gitAbort())
   if gitBisecting(home):
@@ -319,6 +322,8 @@ proc buildGitItems(): seq[SideItem] =
   result.add sideItem("Commit…", 7, ic("ok"), "c", proc() = gitCommitBox(false))
   if cfgAiProvider in ["ollama", "custom"] or aiKey().len > 0:
     result.add sideItem("Write the message with AI", 7, ic("ai"), "", proc() = aiCommitMessage())
+    if staged.len + changes.len > 0:
+      result.add sideItem("Review the changes with AI", 7, ic("ai"), "findings in Problems", proc() = aiReviewStaged())
   if staged.len > 0:
     result.add sideItem("STAGED CHANGES  " & $staged.len, 6)
     for it in staged: result.add it

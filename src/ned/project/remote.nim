@@ -47,6 +47,20 @@ proc remoteCommand(r: Remote, cmd, localCwd: string, tty = false): string =
   let cwd = remotePath(r, (if localCwd.len > 0 and remoteOf(localCwd) >= 0: localCwd else: r.mirror))
   sshCmd(r, not tty) & (if tty: " -t" else: "") & " " & quoteShell(remoteScript("cd " & quoteShell(cwd) & " && " & c))
 
+const RemoteEnv = ". \"$HOME/.profile\" >/dev/null 2>&1; PATH=\"$PATH:$HOME/.nimble/bin:$HOME/.local/bin:" &
+                  "$HOME/.cargo/bin:$HOME/go/bin:$HOME/.npm-global/bin\"; export PATH; "
+  ## (before a program of the server's that a login sets up: a language server in ~/.nimble/bin …)
+
+proc remoteFilesRoot(r: Remote): string = parentDir(parentDir(r.mirror)) / "files"
+  ## where the server's files outside the folder are fetched to, to read (its library …): the server's path below it
+
+proc remoteFileOf(local: string): (int, string) =
+  ## a file fetched from a server (see remoteFilesRoot): its remote, and its path on the server ((-1, ""): none)
+  for i, r in remotes:
+    let fr = remoteFilesRoot(r)
+    if local.startsWith(fr & "/"): return (i, local[fr.len .. ^1])
+  (-1, "")
+
 proc remotePush(local: string)
 proc remoteFileOp(op, local: string, dest = "")
 proc remoteGitBefore(root: string): string

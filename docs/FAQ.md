@@ -22,7 +22,7 @@ a language server, an AI key …) is optional and picked up when it is on your `
 found and how to install the rest. See [Installing](../README.md#installing).
 
 **How do I install it on Termux?** Either the ready-made package of a release — `pkg install
-./ned_6.28.0_aarch64.deb` (ned, nedls and nedfmt, the example plugins in `$PREFIX/share/ned/plugins`) — or from the
+./ned_6.29.0_aarch64.deb` (ned, nedls and nedfmt, the example plugins in `$PREFIX/share/ned/plugins`) — or from the
 source: `pkg install nim git`, then `nim c -d:release --opt:speed -d:strip -o:$PREFIX/bin/ned src/ned.nim` (or
 `nimble termux` in the project folder).
 

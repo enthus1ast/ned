@@ -36,6 +36,7 @@ proc drawCompletion() =
   if compSel >= compScroll + n: compScroll = compSel - n + 1
   compRect = (px, py, pw, n)
   let lp = compPrefix().toLowerAscii
+  let counter = if compShown.len > n: $(compSel + 1) & "/" & $compShown.len else: ""
   for r in 0 ..< n:
     let idx = compScroll + r
     if idx >= compShown.len: break
@@ -53,13 +54,17 @@ proc drawCompletion() =
     var hl: seq[int]
     if compFilter(it) == it.label and lp.len > 0 and lp != "\0": discard fuzzyMatch(lp, it.label, hl)
     discard putHl(x, y, truncTo(it.label, lw), hl, fg, (if solid: fg else: theme.accent), bg, px + 2 + lw + 1)
-    if dw > 0 and it.detail.len > 0:
-      let d = truncTo(it.detail, min(dw, pw - lw - 5))
+    # (the last row leaves room for the counter: 12/30)
+    let cw = if counter.len > 0 and r == n - 1: strWidth(counter) + 2 else: 0
+    let room = min(dw, pw - lw - 5) - cw
+    if dw > 0 and it.detail.len > 0 and room > 0:
+      let d = truncTo(it.detail, room)
       let dfg = if solid: fg elif theme.popupFg != theme.fg: theme.popupFg else: theme.dim
-      discard putStr(px + pw - strWidth(d) - 1, y, d, dfg, bg, {}, px + pw)
-  if compShown.len > n:
-    discard putStr(px + pw - 6, py + n - 1, " " & $(compSel + 1) & "/" & $compShown.len, theme.dim,
-                   theme.popupBg, {}, px + pw)
+      discard putStr(px + pw - strWidth(d) - 1 - cw, y, d, dfg, bg, {}, px + pw)
+  if counter.len > 0:
+    let cy = py + n - 1
+    let cbg = if compScroll + n - 1 == compSel: theme.popupSel else: theme.popupBg
+    discard putStr(px + pw - strWidth(counter) - 1, cy, counter, theme.dim, cbg, {}, px + pw)
   dropShadow(px, py, pw, n)
   # documentation of the selected item, beside the list (or above/below it on a narrow screen)
   compDocRect = (0, 0, 0, 0)
@@ -156,7 +161,16 @@ proc pickPreviewTarget(): (string, int, Buffer) =
       let b = bufs[it.idx]
       return (b.path, b.primary.head.line, b)
   of pickAction:
-    return (if undoPickBuf >= 0: undoPreviewTarget() else: ("", -1, nil))
+    if tsActive:
+      # a Telescope finder: the item's file (a name's declaration found the first time it is shown)
+      if it.idx < 0 or it.idx >= tsPreviews.len: return ("", -1, nil)
+      if tsPreviews[it.idx].find.len > 0 and tsPreviews[it.idx].line < 0:
+        tsPreviews[it.idx].line = max(0, tsDeclLine(tsPreviews[it.idx].path, tsPreviews[it.idx].find))
+        tsPreviews[it.idx].find = ""
+      if tsPreviews[it.idx].path.len == 0: return ("", -1, nil)
+      result = (tsPreviews[it.idx].path, tsPreviews[it.idx].line, nil)
+    else:
+      return (if undoPickBuf >= 0: undoPreviewTarget() else: ("", -1, nil))
   else: return ("", -1, nil)
   for b in bufs:
     if b.path == result[0] and b.path.len > 0: return (result[0], result[1], b)
@@ -189,6 +203,31 @@ proc pickPreviewBuffer(path: string): Buffer =
 
 proc drawPickPreview(x, y, w, h: int) =
   let (path, line, open) = pickPreviewTarget()
+  if path.len == 0 and open == nil and tsActive and pickSel >= 0 and pickSel < pickShown.len:
+    # a Telescope item's text: a commit, a setting's description, a command's output
+    let idx = pickItems[pickShown[pickSel]].idx
+    let tb = tsPreviewText(idx)
+    if tb == nil: return
+    drawBox(x, y, w, h, "preview")
+    if tsPreviews[idx].cmd.len == 0 and tsPreviews[idx].lang in ["", "Text"]:
+      # (words — a description, a setting's help: wrapped to the box; code and diffs keep their lines)
+      var rows: seq[string]
+      for l in tb.lines:
+        for s in wrapText(l, max(8, w - 4)):
+          rows.add s
+          if rows.len >= h - 2: break
+      for r in 0 ..< h - 2:
+        fillRect(x + 1, y + 1 + r, w - 2, 1, theme.fg, theme.popupBg)
+        if r < rows.len:
+          let head = r == 0 and tsPreviews[idx].lang.len == 0        # (a description's first line: its name)
+          discard putStr(x + 2, y + 1 + r, rows[r], (if head: theme.accent else: theme.fg), theme.popupBg,
+                         (if head: {aBold} else: {}), x + w - 1)
+      return
+    for r in 0 ..< h - 2:
+      let yy = y + 1 + r
+      fillRect(x + 1, yy, w - 2, 1, theme.fg, theme.popupBg)
+      if r < tb.lines.len and tb.lines[r].len <= 4000: drawCodeLine(tb, r, x + 2, yy, x + w - 1, theme.popupBg)
+    return
   if path.len == 0 and open == nil: return
   let b = if open != nil: open else: pickPreviewBuffer(path)
   drawBox(x, y, w, h, (if path.len > 0: truncTo(relPath(path), max(8, w - 6))
@@ -218,14 +257,19 @@ proc drawPicker() =
   var n = min(maxRows, max(1, pickShown.len))
   var ph = n + 4
   # a preview beside it, when there is room (files, symbols, buffers)
-  let preview = cfgPickerPreview and not pickNear and scrW >= 110 and scrH >= 16 and
-                (pickKind in {pickFile, pickSymbol, pickBuffer, pickRecent} or (pickKind == pickAction and undoPickBuf >= 0))
+  let canPreview = cfgPickerPreview and not pickNear and
+                   (pickKind in {pickFile, pickSymbol, pickBuffer, pickRecent} or
+                    (pickKind == pickAction and (undoPickBuf >= 0 or tsActive)))
+  let preview = canPreview and scrW >= 110 and scrH >= 16
+  # (narrower — a tablet, a phone held upright — but tall: the preview under the list, the list shorter)
+  let below = canPreview and not preview and scrW >= 40 and scrH >= 26
+  if below: n = min(n, clamp((scrH - py - 4) div 2 - 5, 4, maxRows))
+  ph = n + 4
   if preview:
     pw = clamp((scrW - 3) * 11 div 20, 50, 96)      # (the list keeps room for its details; the rest previews)
     px = 1
     n = maxRows
     ph = n + 4
-    drawPickPreview(px + pw + 1, py, scrW - (px + pw + 1) - 1, max(ph, min(scrH - py - 2, ph + 6)))
   if pickNear and edCaretX >= 0 and edCaretY >= 0 and scrW >= 60:
     # quick fixes: a box as wide as its items, under the line they fix (or over it), so the problem stays in view
     var w = strWidth(pickTitle) + 8
@@ -251,6 +295,13 @@ proc drawPicker() =
   # (the buttons under the list, a desktop dialog's: a row more when there is room for it)
   let btnRow = cfgFormButtons and not pickNear and py + ph + 1 < scrH - 1
   if btnRow: ph += 1
+  # (moved by its title bar, when you took it there: not the quick fixes' box, which stays by its line)
+  if not pickNear:
+    let fullW = if preview: scrW - 1 - px else: pw
+    (px, py) = boxPlace("picker", px, py, fullW, ph)
+    if preview: moveBar.w = pw
+  if preview: drawPickPreview(px + pw + 1, py, scrW - (px + pw + 1) - 1, max(ph, min(scrH - py - 2, ph + 6)))
+  elif below and scrH - 2 - (py + ph + 1) >= 6: drawPickPreview(px, py + ph + 1, pw, scrH - 2 - (py + ph + 1))
   drawBox(px, py, pw, ph, title)
   let lq = pickQueryNorm()
   pickBox = (px, py, pw, ph)

@@ -38,6 +38,23 @@ and a tab whose last command failed says so with ✗. **◫** (or *Terminal: spl
 The REPLs run in terminal tabs of their own (Shift+Enter sends code to them — see [Nim](nim.md)). *Run in terminal
 (interactive)*, *Nim: debug with gdb* and the logins git and ssh ask for are typed into the terminal for you.
 
+## Terminals that outlive ned
+
+When ned quits — or its window closes, or Termux's session ends — its terminals **keep running**: a build, a server
+or a long test goes on. The next ned you start in the same folder takes them back, with what they showed, and says
+so in the status bar ("2 terminals kept running since last time"). They are the same shells: what ran in them is
+still running, and their history is there.
+
+- **Kill terminal** (its right-click menu, or *Terminal: kill*) ends one for good.
+- *Terminal: kept terminals…* lists every folder's kept terminals, with when each started, to end one or all of them.
+- A terminal that another ned has open stays with that ned; a second ned in the same folder starts its own.
+- `"terminal.keepRunning": false` ends the shells with ned, as before 6.29.
+- Not on Windows, and not for REPLs, the debugger's terminal or a remote folder's terminal (its ssh connection ends
+  with ned).
+
+How: each kept shell belongs to a small process of its own (`ned --term-host`), which holds the terminal and the last
+megabyte it printed; ned talks to it through a socket only you can open, in ned's private folder.
+
 ## Shell integration: the commands you ran
 
 With bash, zsh and fish, every prompt, command line, output and exit code is marked (OSC 133). ned adds this when it
@@ -114,7 +131,14 @@ or a `Host` from `~/.ssh/config` (alone: its home folder).
 
 - ned copies the folder to a local copy (in `~/.local/state/ned/remote/`), leaving out the folders in
   `remote.exclude` — `.git`, `node_modules`, `.venv`, `target`, `nimcache` and the like. You edit there, with the
-  tree, search and language servers as usual.
+  tree and search as usual.
+- **Language servers run on the server** when it has them (`remote.languageServers`: `auto`), with the packages
+  and the toolchain there — nimlangserver, pyright, clangd … through the same ssh connection. ned tells them the
+  server's paths and turns what they answer back into the local copy's; a file of the server's outside the folder
+  that one points to — a definition in its library — is fetched when you open it, to read. When the server does
+  not have a server's program, the one here is used on the local copy (`server`: only the server's, `here`: only
+  these). With no Nim here, ned's own Nim engine reads the server's library — fetched once, only its `.nim` files —
+  so completion, hover and F12 into the library work as with a Nim here.
 - **Every save goes to the server**, and so do deleting, renaming or moving files in the Files tree, new files and
   folders, the assistant's changes and a project-wide replace.
 - **The terminal, Run, tasks, tests and the assistant's commands run on the server**, in the folder, through `sh`
@@ -204,6 +228,8 @@ list the settings that help.
 | `terminal.cwd` | `"project"` | where new terminals start: `project` or the current `file`'s folder |
 | `terminal.shellIntegration` | `true` | command marks for bash, zsh and fish (Ctrl+↑/↓, failed commands, copy output) |
 | `terminal.editorEnv` | `true` | in ned's terminal, ned is git's editor (`GIT_EDITOR`, and `EDITOR` / `VISUAL` where not set) |
+| `terminal.keepRunning` | `true` | terminals keep running when ned quits; the next ned in the folder takes them back |
+| `remote.languageServers` | `"auto"` | where a remote folder's language servers run: `auto` (the server's when it has them), `server`, `here` |
 | `remote.exclude` | `[".git", "node_modules", …]` | folders left on the server when a remote folder is copied |
 | `remote.autoSync` | `10` | seconds between copies of the server's changes (0: only after Run, tasks and the assistant) |
 | `sync.repository` | `""` | the git repository for *Settings sync* |

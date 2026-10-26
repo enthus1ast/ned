@@ -905,3 +905,472 @@ proc ckChecks*(f: CxFile, includes = true, padding = true, formats = true,
   if f.cpp: return
   if includes: result.add ckUnusedIncludes(f)
   if padding: result.add ckPadding(f, extraTexts)
+
+# ── refactors at the cursor (Alt+Enter): a switch's missing cases, a selection put in a variable, an if/else turned
+#    round — each one edit of the text, made only where the engine is sure of what it changes ──
+
+type CkText = object                  # some lines' code as one string: comments and the insides of strings blanked
+  code: string
+  first: int                          # the first line's number
+  starts: seq[int]                    # where each line starts in code
+
+proc ckTextOf(lines: seq[string], a, b: int): CkText =
+  ## lines a..b as code (a /* … */ over several lines blanked too), joined with "\n": positions stay where they are
+  result.first = a
+  var inBlock = false
+  for l in a .. min(b, lines.high):
+    result.starts.add result.code.len
+    var t = lines[l]
+    var i = 0
+    while i < t.len:
+      if inBlock:
+        let e = t.find("*/", i)
+        let stop = if e < 0: t.len else: e + 2
+        for k in i ..< stop: t[k] = ' '
+        if e >= 0: inBlock = false
+        i = stop
+        continue
+      if t.continuesWith("//", i):
+        for k in i ..< t.len: t[k] = ' '
+        break
+      if t.continuesWith("/*", i):
+        inBlock = true
+        continue
+      if t[i] in {'"', '\''}:
+        let q = t[i]
+        var k = i + 1
+        while k < t.len and t[k] != q:
+          if t[k] == '\\': inc k
+          inc k
+        for x in i + 1 ..< min(k, t.len): t[x] = ' '
+        i = k + 1
+        continue
+      inc i
+    result.code.add t
+    result.code.add '\n'
+
+func ckPosOf(t: CkText, off: int): (int, int) =
+  ## an offset in t.code as (line, column)
+  var k = t.starts.high
+  while k > 0 and t.starts[k] > off: dec k
+  (t.first + k, off - t.starts[k])
+
+func ckOffOf(t: CkText, line, col: int): int = t.starts[line - t.first] + col
+
+func ckMatch(code: string, i: int): int =
+  ## the bracket that closes the one at i (`(`, `[`, `{`): its offset, -1 when it is not there
+  var d = 0
+  for k in i ..< code.len:
+    if code[k] in {'(', '[', '{'}: inc d
+    elif code[k] in {')', ']', '}'}:
+      dec d
+      if d == 0: return k
+  -1
+
+func ckSkipWs(code: string, i: int): int =
+  result = i
+  while result < code.len and code[result] in Whitespace: inc result
+
+func ckWordAt(code: string, i: int, w: string): bool =
+  code.continuesWith(w, i) and (i == 0 or code[i - 1] notin IdentChars) and
+    (i + w.len >= code.len or code[i + w.len] notin IdentChars)
+
+func ckTextBetween(lines: seq[string], a, b: (int, int)): string =
+  ## the text from a to b (b not included), lines joined with "\n"
+  if a[0] == b[0]: return lines[a[0]][a[1] ..< b[1]]
+  result = lines[a[0]][a[1] .. ^1]
+  for l in a[0] + 1 ..< b[0]: result.add "\n" & lines[l]
+  result.add "\n" & lines[b[0]][0 ..< b[1]]
+
+func ckIndentUnit(lines: seq[string]): string =
+  ## the file's step of indentation: a tab, or the number of spaces it steps in by most
+  var counts: array[1 .. 8, int]
+  var prev = -1
+  for l in 0 ..< min(lines.len, 2000):
+    let t = lines[l]
+    if t.strip.len == 0: continue
+    if t[0] == '\t': return "\t"
+    var n = 0
+    while n < t.len and t[n] == ' ': inc n
+    if prev >= 0 and n > prev and n - prev <= 8: inc counts[n - prev]
+    prev = n
+  var best = 4
+  for k in 1 .. 8:
+    if counts[k] > counts[best]: best = k
+  spaces(best)
+
+func ckLeading(t: string): string =
+  var n = 0
+  while n < t.len and t[n] in {' ', '\t'}: inc n
+  t[0 ..< n]
+
+proc ckFillSwitch*(f: CxFile, line, col: int): seq[CkFix] =
+  ## a `switch` on an enum (the cursor on it, or in its body): the cases it does not have yet, each with its
+  ## `break;` — before `default:` when there is one
+  if f == nil or line >= f.lines.len: return
+  let lines = f.lines
+  let t = ckTextOf(lines, max(0, line - 400), min(lines.high, line + 4000))
+  let here = t.ckOffOf(line, min(col, lines[line].len))
+  # the innermost switch whose body the cursor is in (or whose head it is on)
+  var k = here + 6
+  var sw, open, close = -1
+  while k >= 0:
+    k = t.code.rfind("switch", last = min(k, t.code.high))
+    if k < 0: break
+    if ckWordAt(t.code, k, "switch"):
+      let p = ckSkipWs(t.code, k + 6)
+      if p < t.code.len and t.code[p] == '(':
+        let pe = ckMatch(t.code, p)
+        let b = if pe > 0: ckSkipWs(t.code, pe + 1) else: -1
+        if b > 0 and b < t.code.len and t.code[b] == '{':
+          let be = ckMatch(t.code, b)
+          if be > 0 and ((here >= k and here <= be) or t.ckPosOf(k)[0] == line):
+            (sw, open, close) = (k, p, b)
+            break
+    dec k
+  if sw < 0: return
+  let bodyEnd = ckMatch(t.code, close)
+  let pe = ckMatch(t.code, open)
+  let (sl, _) = t.ckPosOf(sw)
+  let expr = t.code[open + 1 ..< pe].replace("\n", " ").strip
+  let (ename, consts) = cxEnumConsts(f, cxExprType(f, expr, sl))
+  if consts.len == 0: return
+  # the cases it has: at its own level (not a switch inside it)
+  var have: HashSet[string]
+  var caseLine, defaultLine = -1
+  var depth = 0
+  var i = close + 1
+  while i < bodyEnd:
+    let c = t.code[i]
+    if c in {'{', '(', '['}: inc depth
+    elif c in {'}', ')', ']'}: dec depth
+    elif depth == 0 and ckWordAt(t.code, i, "case"):
+      let j = ckSkipWs(t.code, i + 4)
+      var e = j
+      while e < bodyEnd and t.code[e] != '\n':
+        if t.code[e] == ':':
+          if e + 1 < bodyEnd and t.code[e + 1] == ':':        # (Color::Red)
+            e += 2
+            continue
+          break
+        inc e
+      let lbl = t.code[j ..< e].strip
+      have.incl cxxSplit(lbl)[^1]
+      if caseLine < 0: caseLine = t.ckPosOf(i)[0]
+      i = e
+      continue
+    elif depth == 0 and ckWordAt(t.code, i, "default"):
+      let j = ckSkipWs(t.code, i + 7)
+      if j < bodyEnd and t.code[j] == ':' and defaultLine < 0: defaultLine = t.ckPosOf(i)[0]
+    inc i
+  var missing: seq[string]
+  for s in consts:
+    if s.name notin have:
+      # (C++: an enum class's constants, and a namespace's, written with their scope)
+      missing.add(if f.cpp and s.scope.len > 0: s.scope & "::" & s.name else: s.name)
+  if missing.len == 0: return
+  let unit = ckIndentUnit(lines)
+  # (as its cases are indented — one on the switch's own line says nothing —, else a step in from the switch)
+  let caseInd = if caseLine >= 0 and caseLine != sl: ckLeading(lines[caseLine])
+                elif defaultLine >= 0 and defaultLine != sl: ckLeading(lines[defaultLine])
+                else: ckLeading(lines[sl]) & unit
+  var text = ""
+  for m in missing: text.add caseInd & "case " & m & ":\n" & caseInd & unit & "break;\n"
+  let (el, ec) = t.ckPosOf(bodyEnd)
+  var edit: CkEdit
+  if defaultLine >= 0: edit = CkEdit(line: defaultLine, col: 0, eline: defaultLine, ecol: 0, text: text)
+  elif lines[el][0 ..< ec].strip.len == 0: edit = CkEdit(line: el, col: 0, eline: el, ecol: 0, text: text)
+  else:
+    # (the body on one line with its `}`: the cases go before it, on lines of their own)
+    var sp = ec
+    while sp > 0 and lines[el][sp - 1] in {' ', '\t'}: dec sp
+    edit = CkEdit(line: el, col: sp, eline: el, ecol: ec, text: "\n" & text & ckLeading(lines[sl]))
+  result.add CkFix(title: "Add the " & (if missing.len == 1: "missing case " & missing[0]
+                                         else: $missing.len & " missing cases") & " (" & ename & ")",
+                   edits: @[edit])
+
+func ckIsOperand(e: string): bool =
+  ## a name, a call, a member or an element — what `!` can go in front of without parentheses
+  var d = 0
+  var i = 0
+  if e.len == 0 or e[0] notin IdentStartChars: return false
+  while i < e.len:
+    let c = e[i]
+    if c in {'(', '['}: inc d
+    elif c in {')', ']'}: dec d
+    elif d == 0 and not (c in IdentChars or c == '.' or (c == '-' and i + 1 < e.len and e[i + 1] == '>') or
+                         (c == '>' and i > 0 and e[i - 1] == '-')):
+      return false
+    inc i
+  d == 0
+
+func ckNegate*(c: string): string =
+  ## not c, written simply: a comparison turned round, `!x` → x, else `!x` or `!(…)`
+  let t = c.strip
+  if t.startsWith("!") and not t.startsWith("!="):
+    let r = t[1 .. ^1].strip
+    if r.startsWith("(") and ckMatch(r, 0) == r.high: return r[1 ..< r.high].strip
+    if ckIsOperand(r): return r
+  # (one comparison at the top level is turned round; && || ?: , = & | ^ there: the whole in !( … ))
+  var d = 0
+  var ops: seq[(int, string)]
+  var i = 0
+  while i < t.len:
+    let ch = t[i]
+    if ch in {'(', '['}: inc d
+    elif ch in {')', ']'}: dec d
+    elif d == 0:
+      if t.continuesWith("->", i) or t.continuesWith("<<", i) or t.continuesWith(">>", i):
+        i += 2
+        continue
+      var op = ""
+      for o in ["==", "!=", "<=", ">="]:
+        if t.continuesWith(o, i): op = o
+      if op.len == 0 and ch in {'<', '>'}: op = $ch
+      if op.len > 0:
+        ops.add (i, op)
+        i += op.len
+        continue
+      if ch in {'&', '|', '?', ',', '^', '='}: return "!(" & t & ")"
+    inc i
+  if ops.len == 1:
+    const flip = {"==": "!=", "!=": "==", "<": ">=", ">": "<=", "<=": ">", ">=": "<"}.toTable
+    let (k, op) = ops[0]
+    return t[0 ..< k].strip(leading = false) & " " & flip[op] & " " & t[k + op.len .. ^1].strip(trailing = false)
+  if ops.len == 0 and ckIsOperand(t): return "!" & t
+  "!(" & t & ")"
+
+proc ckInvertIf*(lines: seq[string], line: int): seq[CkFix] =
+  ## `if (c) { A } else { B }` (the `if` on the cursor's line) as `if (!c) { B } else { A }` — braces on both
+  ## branches, the else not an `else if`
+  if line >= lines.len or lines[line].strip.startsWith("#"): return
+  let t = ckTextOf(lines, line, min(lines.high, line + 4000))
+  var k = 0
+  while k < t.code.len and t.code[k] != '\n':
+    if ckWordAt(t.code, k, "if"): break
+    inc k
+  if k >= t.code.len or t.code[k] == '\n': return
+  let open = ckSkipWs(t.code, k + 2)
+  if open >= t.code.len or t.code[open] != '(': return
+  let pe = ckMatch(t.code, open)
+  if pe < 0: return
+  let a = ckSkipWs(t.code, pe + 1)
+  if a >= t.code.len or t.code[a] != '{': return
+  let ae = ckMatch(t.code, a)
+  if ae < 0: return
+  let el = ckSkipWs(t.code, ae + 1)
+  if not ckWordAt(t.code, el, "else"): return
+  let b = ckSkipWs(t.code, el + 4)
+  if b >= t.code.len or t.code[b] != '{': return
+  let be = ckMatch(t.code, b)
+  if be < 0: return
+  let thenText = ckTextBetween(lines, t.ckPosOf(a + 1), t.ckPosOf(ae))
+  let elseText = ckTextBetween(lines, t.ckPosOf(b + 1), t.ckPosOf(be))
+  if thenText.strip.len == 0 or elseText.strip.len == 0: return
+  var es: seq[CkEdit]
+  let (cl0, cc0) = t.ckPosOf(open + 1)
+  let (cl1, cc1) = t.ckPosOf(pe)
+  if cl0 == cl1:
+    es.add CkEdit(line: cl0, col: cc0, eline: cl1, ecol: cc1, text: ckNegate(lines[cl0][cc0 ..< cc1]))
+  else:
+    # (a condition over several lines: the whole of it in !( … ))
+    es.add CkEdit(line: cl1, col: cc1, eline: cl1, ecol: cc1, text: ")")
+    es.add CkEdit(line: cl0, col: cc0, eline: cl0, ecol: cc0, text: "!(")
+  let (al, ac) = t.ckPosOf(a + 1)
+  let (ael, aec) = t.ckPosOf(ae)
+  let (bl, bc) = t.ckPosOf(b + 1)
+  let (bel, bec) = t.ckPosOf(be)
+  es.add CkEdit(line: al, col: ac, eline: ael, ecol: aec, text: elseText)
+  es.add CkEdit(line: bl, col: bc, eline: bel, ecol: bec, text: thenText)
+  result.add CkFix(title: "Invert the if: !(condition), its branches swapped", edits: es)
+
+func ckLitType(e: string): string =
+  ## a literal's type ("" when e is not one)
+  if e.len == 0: return
+  if e[0] == '"': return "const char *"
+  if e[0] == '\'': return "char"
+  if e[0] notin Digits and not (e.len > 1 and e[0] == '.' and e[1] in Digits): return
+  let low = e.toLowerAscii
+  let hex = low.startsWith("0x")
+  if not hex and ('.' in low or 'e' in low): return (if low.endsWith("f"): "float" elif low.endsWith("l"): "long double"
+                                                     else: "double")
+  if low.endsWith("ull") or low.endsWith("llu"): "unsigned long long"
+  elif low.endsWith("ll"): "long long"
+  elif low.endsWith("ul") or low.endsWith("lu"): "unsigned long"
+  elif low.endsWith("l"): "long"
+  elif low.endsWith("u"): "unsigned"
+  else: "int"
+
+const CkArith = ["int", "unsigned", "long", "unsigned long", "long long", "unsigned long long", "float", "double",
+                 "long double"]        ## (the usual arithmetic conversions: the later one wins)
+
+func ckArithRank(t: string): int =
+  case t
+  of "char", "signed char", "unsigned char", "short", "short int", "unsigned short", "_Bool", "bool", "signed",
+     "signed int", "int": 0
+  of "unsigned int": 1
+  of "long int", "signed long": 2
+  of "unsigned long int": 3
+  of "long long int": 4
+  of "unsigned long long int": 5
+  else: CkArith.find(t)
+
+proc ckTypeOf(f: CxFile, expr: string, line: int, depth = 0): string =
+  ## the type of an expression, where the engine can tell: a literal's, a name's, a member's, a call's; a sum or a
+  ## product of numbers: the type C gives it; a comparison or a logical operation: int — "" otherwise (a pointer's
+  ## arithmetic too)
+  let e = expr.strip
+  if e.len == 0 or depth > 6: return
+  result = ckLitType(e)
+  if result.len > 0: return
+  if e.startsWith("sizeof"): return "size_t"
+  if e[0] == '(' and ckMatch(e, 0) == e.high: return ckTypeOf(f, e[1 ..< e.high], line, depth + 1)
+  if ckIsOperand(e) or (e[0] in {'*', '&'} and ckIsOperand(e[1 .. ^1].strip)):
+    result = cxExprType(f, e, line)
+    if result.startsWith("fn:"): result = ""
+    return
+  let c = ckCode(e)
+  if c.startsWith("!") or "==" in c or "!=" in c or "<=" in c or ">=" in c or "&&" in c or "||" in c: return "int"
+  if '?' in c or '=' in c or ',' in c: return ""
+  # (the operands of + - * / % << >> & | ^ at the top level — a sign is part of its operand)
+  var parts: seq[string]
+  var d = 0
+  var st = 0
+  var i = 0
+  var prevOp = true
+  while i < e.len:
+    let ch = e[i]
+    if ch in {'(', '['}: inc d
+    elif ch in {')', ']'}: dec d
+    elif d == 0 and e.continuesWith("->", i):
+      i += 2
+      continue
+    elif d == 0 and ch in {'<', '>'} and not (e.continuesWith("<<", i) or e.continuesWith(">>", i)):
+      return "int"                               # (a comparison)
+    elif d == 0 and ch in {'+', '-', '*', '/', '%', '<', '>', '&', '|', '^'}:
+      if not prevOp:
+        parts.add e[st ..< i]
+        if e.continuesWith("<<", i) or e.continuesWith(">>", i): inc i
+        st = i + 1
+        prevOp = true
+      inc i
+      continue
+    if ch notin Whitespace: prevOp = false
+    inc i
+  parts.add e[st .. ^1]
+  if parts.len < 2: return
+  var best = -1
+  var same = ""
+  for pt in parts:
+    let t = ckTypeOf(f, pt, line, depth + 1)
+    if t.len == 0: return ""
+    let (b, stars) = cxStrip(t)
+    if stars > 0: return ""                      # (a pointer's arithmetic: not said here)
+    let r = ckArithRank(b)
+    if r < 0:
+      # (a type C's conversions do not name here — size_t, a typedef —: only when every operand has it)
+      if same.len == 0 or same == b: same = b else: return ""
+      continue
+    best = max(best, r)
+  if same.len > 0: return (if best < 0: same else: "")
+  result = CkArith[best]
+
+proc ckExtractVar*(f: CxFile, line, c0, c1: int, name = ""): seq[CkFix] =
+  ## the expression selected on `line` (columns c0 ..< c1) put in a variable declared before its statement — of the
+  ## type the engine knows it has (C++: auto) — and used in its place. name: the variable's (else one made from the
+  ## expression)
+  if f == nil or line >= f.lines.len: return
+  let lines = f.lines
+  let s = lines[line]
+  var a = clamp(c0, 0, s.len)
+  var e = clamp(c1, a, s.len)
+  while a < e and s[a] in Whitespace: inc a
+  while e > a and s[e - 1] in Whitespace: dec e
+  if a >= e: return
+  let expr = s[a ..< e]
+  # (in a function's body)
+  var fn = -1
+  for i, x in f.syms:
+    if x.kind in {cxFunc, cxMethod} and x.isDef and x.line < line and line <= x.endLine: fn = i
+  if fn < 0: return
+  let code = ckTextOf(lines, line, line).code
+  # (a whole expression: brackets that close, no statement in it, not a name being assigned or a member's name)
+  var d = 0
+  for i in a ..< e:
+    if code[i] in {'(', '['}: inc d
+    elif code[i] in {')', ']'}:
+      dec d
+      if d < 0: return
+    elif code[i] in {';', '{', '}'}: return
+  if d != 0: return
+  if expr[0] in {'/', '%', '=', ',', '<', '>', '|', '^', '?', ':', '.', '+', ')', ']'} and
+     not (expr.len > 1 and expr[0] == '+' and expr[1] in Digits): return
+  if expr[^1] in {'*', '/', '%', '=', ',', '<', '>', '|', '^', '?', ':', '.', '+', '-', '&', '!'}: return
+  if expr in CxKeywords: return
+  var after = e
+  while after < s.len and s[after] in Whitespace: inc after
+  if after < s.len and ((s[after] == '=' and not s.continuesWith("==", after)) or s.continuesWith("++", after) or
+     s.continuesWith("--", after) or (s[after] in {'+', '-', '*', '/', '%', '&', '|', '^'} and
+     after + 1 < s.len and s[after + 1] == '=') or s.continuesWith("<<=", after) or s.continuesWith(">>=", after)):
+    return
+  var before = a
+  while before > 0 and s[before - 1] in Whitespace: dec before
+  if before > 0 and (s[before - 1] == '.' or s.continuesWith("->", max(0, before - 2)) or
+                     s.continuesWith("++", max(0, before - 2)) or s.continuesWith("--", max(0, before - 2))):
+    return
+  if before > 0 and s[before - 1] == '&' and not (before > 1 and s[before - 2] == '&'):
+    # (`&x`: its address — a copy in a variable has another one; `a & x` is fine)
+    var q = before - 1
+    while q > 0 and s[q - 1] in Whitespace: dec q
+    if q == 0 or s[q - 1] notin IdentChars + {')', ']'}: return
+  # its statement's first line: back while the line before goes on into this one
+  func control(p: string): bool =
+    ## (the head of an if, a for, a while or an else without braces: the next statement is its body)
+    for kw in ["if", "for", "while", "else", "} else", "}else"]:
+      if p.startsWith(kw) and (p.len == kw.len or p[kw.len] notin IdentChars): return p.endsWith(")") or
+                                                                                         p.endsWith("else")
+  var sl = line
+  let fnLine = f.syms[fn].line
+  while sl > fnLine + 1:
+    let p = ckCode(lines[sl - 1]).strip
+    if p.len == 0 or p[^1] in {';', '{', '}', ':'} or p.startsWith("#"): break
+    if control(p): return
+    dec sl
+  let first = ckCode(lines[sl]).strip
+  for kw in ["for", "while", "do", "else", "case", "default", "}", "{"]:
+    if first.startsWith(kw) and (first.len == kw.len or first[kw.len] notin IdentChars): return
+  # its type
+  let typ = if f.cpp: "auto" else: ckTypeOf(f, expr, line)
+  if typ.len == 0: return
+  # its name
+  var nm = name.strip
+  if nm.len == 0:
+    var w = expr
+    let p = w.find('(')
+    if p > 0: w = w[0 ..< p]
+    nm = "value"
+    var parts: seq[string]
+    var cur = ""
+    for ch in w & " ":
+      if ch in IdentChars: cur.add ch
+      else:
+        if cur.len > 0: parts.add cur
+        cur = ""
+    for i in countdown(parts.high, 0):
+      if not ckIsOperand(w): break                 # (a sum, a comparison …: "value")
+      if parts[i][0] notin Digits and parts[i] notin CxKeywords and (parts[i].len > 1 or i == parts.high):
+        nm = parts[i] & (if p > 0: "_result" else: "")
+        break
+    # (not a name already seen there)
+    var taken: HashSet[string]
+    for x in cxLocalsAt(f, line): taken.incl x.name
+    let base = nm
+    var n = 2
+    while nm in taken or nm == expr:
+      nm = base & $n
+      inc n
+  let ind = ckLeading(lines[sl])
+  let decl = typ & (if typ.endsWith("*"): "" else: " ") & nm & " = " & expr & ";"
+  result.add CkFix(title: "Extract into a variable: " & decl,
+                   edits: @[CkEdit(line: line, col: a, eline: line, ecol: e, text: nm),
+                            CkEdit(line: sl, col: 0, eline: sl, ecol: 0, text: ind & decl & "\n")])

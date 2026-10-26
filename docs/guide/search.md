@@ -58,6 +58,28 @@ tab: an excerpt per match, each headed by its file. Edit them as one file — wi
 macro — and **Ctrl+S** writes each change back to its own file. *Problems: all of them with their code* makes the
 same kind of view of every problem, and *Git › Changes* (Alt+Shift+G) of every change you have not committed.
 
+## Telescope: one finder for everything (Alt+Shift+F)
+
+**Alt+Shift+F** (or *Telescope…* in the palette) lists ned's finders; type to narrow the list, Enter to open one.
+Each is a picker with a preview beside it — the file at the line, a commit's change, a setting's description — that
+follows the selection; Enter acts on what is selected, Esc closes it.
+
+| finder | what it lists · what Enter does |
+|---|---|
+| Files · Open tabs · Recent files · Recent projects | as Ctrl+P does; the recent files, of this folder and others |
+| Live grep · Grep the word under the cursor | every line of the project with what you type, found as you type (ripgrep, else git grep, else grep; 1500 lines at most) · the file at the line |
+| Symbols in this file · Symbols in the project | as Ctrl+T and *Go to symbol in project* |
+| Commands · Keys | every command · the commands that have a key, by key · runs it |
+| Settings | every setting, its value, its default and what it does · the Settings panel at it |
+| Problems · TODOs · Bookmarks | errors and warnings of every file · the TODO comments of the project · your bookmarks — the place |
+| Git: changed files · commits · commits of this file · branches · stashes | the diff, the commit, the branch's last commits, the stash's change beside each · opens the file, shows the commit, checks out the branch, applies the stash |
+| Nim: the standard library's modules · names of the standard library · nimble packages installed | each module · every exported name, its declaration beside it · goes there |
+| Terminal: commands run | what you ran in ned's terminals, with its output · runs it again |
+| Themes · Languages · Plugins | as their own pickers; ned's plugins with their source |
+
+*Telescope: resume* opens the last finder again with what you had typed in it; *Telescope: live grep*, *…settings*,
+*…git commits* and *…git changed files* open one directly — give any of them a key in the `keys` setting.
+
 ## TODO comments
 
 `TODO`, `FIXME`, `BUG`, `HACK` and `NOTE` comments are coloured in the code, and **Alt+V** / **Alt+Shift+V** go to

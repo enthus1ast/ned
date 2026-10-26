@@ -1150,7 +1150,7 @@ def run_langs(nedls, log):
         r = req("textDocument/completion", "q.sql", 1, len("SELECT name FROM us"))
         lab = [i["label"] for i in (r or {}).get("items", [])]
         check("6.27 SQL: completion of a table the project creates", "users" in lab, lab[:10])
-        r = req("textDocument/semanticTokens/full", "main.c")
+        r = req("textDocument/semanticTokens/full", "app.js")
         check("6.27 langs: no Nim colours for another language", r == {"data": []}, r)
         # ── more of HTML, CSS and SQL ──
         ds = c.wait_diagnostics(uri(P("site.html")), lambda ds: len(ds) >= 2, timeout=20) or []
@@ -1210,6 +1210,206 @@ def run_langs(nedls, log):
         r = req("textDocument/linkedEditingRange", "tags.html", 1, 14) or {}
         rs = [(x["start"]["line"], x["start"]["character"], x["end"]["character"]) for x in r.get("ranges", [])]
         check("6.28 HTML: … and from the closing tag", rs == [(1, 11, 15), (1, 3, 7)], r)
+    finally:
+        c.request("shutdown", None)
+        c.notify("exit", {})
+        c.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# ── 6.29: ned's C engine — by symbol, call snippets, a missing #include, calls over several lines, highlights,
+#    semantic tokens, refactors, type definition, range formatting, C++'s type hierarchy and implementations ──
+
+CE_FIELDS = """struct a { int x; };
+struct b { int x; };
+static int helper(int n) { return n; }
+int use(struct a *p, struct b *q) {
+  int x = p->x + q->x;
+  return x + helper(1);
+}
+"""
+
+CE_OTHER = """static int helper(int n) { return n * 2; }
+int more(void) { return helper(3); }
+"""
+
+CE_UTIL_H = """#ifndef UTIL_H
+#define UTIL_H
+/* adds two numbers */
+int util_sum(int first, int second);
+#endif
+"""
+
+CE_COMP = """#include "fields.h"
+enum color { RED, GREEN, BLUE };
+int area(int width, int height);
+int f(enum color c, struct a *p, int n) {
+  int k = area(3,
+               4);
+  switch (c) {
+  case RED:
+    break;
+  }
+  if (n > 0) {
+    k = 1;
+  } else {
+    k = 2;
+  }
+  int s = util_sum(1, 2);
+  return k + p->x * n + s;
+}
+"""
+
+CE_FMT = """int g(int a,int b){
+int c=a+b;
+int d=a*b;
+return c+d;}
+"""
+
+CE_CPP = """class Shape {
+public:
+  virtual double area() const = 0;
+};
+class Circle : public Shape {
+public:
+  double area() const override;
+};
+class Ring : public Circle {
+public:
+  double area() const override;
+};
+double Circle::area() const { return 3.14; }
+double Ring::area() const { return 1.0; }
+double total(const Shape &s) { return s.area(); }
+"""
+
+
+def run_c_engine(nedls, log):
+    root = tempfile.mkdtemp(prefix="tnedls-ce-")
+    files = {"fields.c": CE_FIELDS, "other.c": CE_OTHER, "util.h": CE_UTIL_H, "comp.c": CE_COMP, "fmt.c": CE_FMT,
+             "shapes.cpp": CE_CPP,
+             "fields.h": "struct a { int x; };\n"}
+    for name, text in files.items():
+        with open(os.path.join(root, name), "w") as f:
+            f.write(text)
+    c, init = new_client(nedls, root, log=log)
+    try:
+        def P(name):
+            return os.path.join(root, name)
+        for name, text in files.items():
+            lang = "cpp" if name.endswith(".cpp") else "c"
+            c.notify("textDocument/didOpen", {"textDocument": {"uri": uri(P(name)), "languageId": lang,
+                                                               "version": 1, "text": text}})
+        def req(m, name, l=None, ch=None, **kw):
+            params = {"textDocument": {"uri": uri(P(name))}}
+            if l is not None:
+                params["position"] = {"line": l, "character": ch}
+            params.update(kw)
+            return (c.request(m, params) or {}).get("result")
+        fl = CE_FIELDS.split("\n")
+        # ── by symbol, not by name ──
+        r = req("textDocument/references", "fields.c", 4, fl[4].index("p->x") + 3, context={"includeDeclaration": True}) or []
+        where = sorted((os.path.basename(x["uri"]), x["range"]["start"]["line"], x["range"]["start"]["character"]) for x in r)
+        check("6.29 C references: a field — its struct's, not another struct's of that name, not a local",
+              where == [("fields.c", 0, fl[0].index("x")), ("fields.c", 4, fl[4].index("p->x") + 3)], where)
+        r = req("textDocument/rename", "fields.c", 4, fl[4].index("int x") + 4, newName="sum") or {}
+        es = sorted((e["range"]["start"]["line"], e["range"]["start"]["character"]) for es in r.get("changes", {}).values() for e in es)
+        check("6.29 C rename: a local — its uses only, not the fields of that name",
+              es == [(4, fl[4].index("int x") + 4), (5, fl[5].index("x +"))], es)
+        r = req("textDocument/references", "fields.c", 5, fl[5].index("helper"), context={"includeDeclaration": True}) or []
+        where = sorted(set(os.path.basename(x["uri"]) for x in r))
+        check("6.29 C references: a static function — its file's, not another file's static of that name",
+              where == ["fields.c"] and len(r) == 2, [(os.path.basename(x["uri"]), x["range"]["start"]["line"]) for x in r])
+        r = req("textDocument/documentHighlight", "fields.c", 4, fl[4].index("q->x") + 3) or []
+        hl = sorted((x["range"]["start"]["line"], x["range"]["start"]["character"]) for x in r)
+        check("6.29 C highlights: the uses of what the name names in the file",
+              hl == [(1, fl[1].index("x")), (4, fl[4].index("q->x") + 3)], hl)
+        # ── completion: a call's arguments to fill in; a name a header the file does not include declares ──
+        cl = CE_COMP.split("\n")
+        c.notify("textDocument/didChange", {"textDocument": {"uri": uri(P("comp.c")), "version": 2},
+                                           "contentChanges": [{"text": CE_COMP.replace("  int s = util_sum(1, 2);",
+                                                                                       "  int s = ar\n  prin\n  util_s")}]})
+        r = req("textDocument/completion", "comp.c", 15, len("  int s = ar"))
+        it = [i for i in (r or {}).get("items", []) if i["label"] == "area"]
+        check("6.29 C completion: a function with its parameters to fill in",
+              it and it[0].get("insertTextFormat") == 2 and it[0]["textEdit"]["newText"] == "area(${1:width}, ${2:height})$0",
+              it[:1])
+        r = req("textDocument/completion", "comp.c", 16, len("  prin"))
+        it = [i for i in (r or {}).get("items", []) if i["label"] == "printf"]
+        ed = (it[0].get("additionalTextEdits") or [{}])[0] if it else {}
+        check("6.29 C completion: printf from <stdio.h>, which the file does not include — the #include added",
+              ed.get("newText") == "#include <stdio.h>\n" and ed["range"]["start"]["line"] == 1, it[:1])
+        r = req("textDocument/completion", "comp.c", 17, len("  util_s"))
+        it = [i for i in (r or {}).get("items", []) if i["label"] == "util_sum"]
+        ed = (it[0].get("additionalTextEdits") or [{}])[0] if it else {}
+        check("6.29 C completion: a project header's function — its #include \"util.h\" added",
+              ed.get("newText") == '#include "util.h"\n', it[:1])
+        c.notify("textDocument/didChange", {"textDocument": {"uri": uri(P("comp.c")), "version": 3},
+                                           "contentChanges": [{"text": CE_COMP}]})
+        # ── quick fixes and refactors ──
+        def actions(l, ch, l2=None, ch2=None):
+            rng = {"start": {"line": l, "character": ch}, "end": {"line": l if l2 is None else l2,
+                                                                  "character": ch if ch2 is None else ch2}}
+            return req("textDocument/codeAction", "comp.c", range=rng, context={"diagnostics": []}) or []
+        acts = actions(15, cl[15].index("util_sum") + 2)
+        check("6.29 C quick fix: an unknown name — the #include of the header that declares it",
+              any(a["title"] == '#include "util.h"' for a in acts), [a["title"] for a in acts])
+        acts = actions(6, 3)
+        sw = [a for a in acts if a["title"].startswith("Add the 2 missing cases")]
+        new = sw[0]["edit"]["changes"][uri(P("comp.c"))][0]["newText"] if sw else ""
+        check("6.29 C refactor: a switch's missing cases", new == "  case GREEN:\n    break;\n  case BLUE:\n    break;\n",
+              [a["title"] for a in acts])
+        acts = actions(10, 3)
+        check("6.29 C refactor: an if/else inverted", any(a["title"].startswith("Invert the if") for a in acts),
+              [a["title"] for a in acts])
+        acts = actions(16, cl[16].index("p->x"), 16, cl[16].index(" * n"))
+        check("6.29 C refactor: a selection into a variable of its type",
+              any(a["title"] == "Extract into a variable: int x = p->x;" for a in acts), [a["title"] for a in acts])
+        # ── a call over several lines: signature help, the parameters' names ──
+        r = req("textDocument/signatureHelp", "comp.c", 5, cl[5].index("4") + 1)
+        check("6.29 C signature help: a call over two lines — its second parameter",
+              r and "area(" in r["signatures"][0]["label"] and r.get("activeParameter") == 1, r)
+        r = req("textDocument/inlayHint", "comp.c", range={"start": {"line": 0, "character": 0},
+                                                           "end": {"line": 17, "character": 0}}) or []
+        hs = sorted((h["position"]["line"], h["label"]) for h in r)
+        check("6.29 C parameter names: on both lines of the call", (4, "width:") in hs and (5, "height:") in hs, hs)
+        # ── type definition, semantic tokens ──
+        r = req("textDocument/typeDefinition", "comp.c", 16, cl[16].index("p->"))
+        check("6.29 C type definition: a parameter's struct", r and r[0]["uri"].endswith("fields.h") and
+              r[0]["range"]["start"]["line"] == 0, r)
+        r = req("textDocument/semanticTokens/full", "comp.c") or {}
+        data = r.get("data", [])
+        toks, l0, c0 = {}, 0, 0
+        for i in range(0, len(data), 5):
+            dl, dc, n, t, m = data[i:i + 5]
+            l0 = l0 + dl
+            c0 = c0 + dc if dl == 0 else dc
+            toks[(l0, cl[l0][c0:c0 + n])] = t
+        types = init["result"]["capabilities"]["semanticTokensProvider"]["legend"]["tokenTypes"]
+        want = {(4, "area"): "function", (16, "p"): "parameter", (16, "x"): "property", (16, "k"): "variable",
+                (7, "RED"): "enumMember", (3, "color"): "type"}
+        got = {k: types[toks[k]] if k in toks else None for k in want}
+        check("6.29 C semantic tokens: functions, parameters, fields, locals, enum constants, types", got == want, got)
+        # ── formatting a range ──
+        r = req("textDocument/rangeFormatting", "fmt.c", range={"start": {"line": 1, "character": 0},
+                                                                "end": {"line": 1, "character": 5}},
+                options={"tabSize": 2, "insertSpaces": True}) or []
+        lines = sorted(set(l for e in r for l in range(e["range"]["start"]["line"], e["range"]["end"]["line"] + 1)))
+        check("6.29 C range formatting: the lines of the range only",
+              lines == [1] and r[0]["newText"].strip() == "int c = a + b;", r)
+        # ── C++: the type hierarchy, implementations ──
+        pl = CE_CPP.split("\n")
+        r = req("textDocument/prepareTypeHierarchy", "shapes.cpp", 4, pl[4].index("Circle")) or []
+        check("6.29 C++ type hierarchy: a class", len(r) == 1 and r[0]["name"] == "Circle", r)
+        if r:
+            sup = (c.request("typeHierarchy/supertypes", {"item": r[0]}) or {}).get("result") or []
+            sub = (c.request("typeHierarchy/subtypes", {"item": r[0]}) or {}).get("result") or []
+            check("6.29 C++ type hierarchy: its base and the class derived from it",
+                  [x["name"] for x in sup] == ["Shape"] and [x["name"] for x in sub] == ["Ring"],
+                  ([x["name"] for x in sup], [x["name"] for x in sub]))
+        r = req("textDocument/implementation", "shapes.cpp", 2, pl[2].index("area")) or []
+        where = sorted(x["range"]["start"]["line"] for x in r)
+        check("6.29 C++ implementation: a virtual method's overrides (their bodies)", where == [12, 13], r)
     finally:
         c.request("shutdown", None)
         c.notify("exit", {})
@@ -1899,6 +2099,7 @@ def main():
         run_checks(nedls, root, have_nim, log)
         run_actions(nedls, have_nim, log)
         run_langs(nedls, log)
+        run_c_engine(nedls, log)
         run_628(nedls, log)
         run_nim3(nedls, log)
         if edits > 0:
