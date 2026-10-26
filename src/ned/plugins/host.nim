@@ -407,7 +407,13 @@ proc plugPermsCheck() =
             "use (a plugin's menu in the Plugins dock › Permissions)", 3)
   for p in plugs.mitems:
     if not p.enabled: continue
-    let missing = p.scan.uses - plugGranted.getOrDefault(plugPermKey(p))
+    var missing = p.scan.uses - plugGranted.getOrDefault(plugPermKey(p))
+    if missing == {ppShell} and p.bundled and p.scan.progOnly and plugPermKey(p) in plugGranted:
+      # (one of ned's own, on before 6.31 asked for this: the programs it gives ned to run — its language's run
+      # command, its language server — as it ran them)
+      plugGranted[plugPermKey(p)] = plugGranted[plugPermKey(p)] + {ppShell}
+      plugGrantSave()
+      missing = {}
     if missing == {}: continue
     p.enabled = false
     p.waiting = true
@@ -628,7 +634,11 @@ proc plugAiSchema(params: JsonNode): JsonNode =
   var props = newJObject()
   if params != nil and params.kind == JObject:
     for k, v in params:
-      props[k] = v
+      var p = v
+      if v.kind == JObject and v.hasKey("optional"):
+        p = copy(v)
+        p.delete("optional")                 # (ned's word, not JSON Schema's: a model may refuse what it does not know)
+      props[k] = p
       if not v{"optional"}.getBool(false): req.add %k
   %*{"type": "object", "properties": props, "required": req}
 
@@ -715,14 +725,29 @@ proc plugApplyRegs() =
       if keysTxt.len > 0: plugKeys[plugKeyNorm(keysTxt)] = name
     of "language":
       let id = d{"id"}.getStr.toLowerAscii
-      if id.len > 0 and d{"spec"} != nil and d{"spec"}.kind == JObject: plugLangSpecs.add (r.plugin, id, d["spec"])
+      if id.len > 0 and d{"spec"} != nil and d{"spec"}.kind == JObject:
+        var spec = d["spec"]
+        if not plugAllowed(r.plugin, ppShell):
+          # (the programs of a language — what F5, Build and the check run, its formatter and server — are
+          # programs the plugin runs: not without "shell")
+          spec = copy(spec)
+          for k in ["run", "build", "check", "formatter", "languageServer"]:
+            if spec.hasKey(k) and spec[k].kind != JNull and $spec[k] notin ["\"\"", "[]"]:
+              spec.delete(k)
+              plugLogAdd(r.plugin, "refused its language's " & k & ": it may not run programs (permission \"shell\")")
+        plugLangSpecs.add (r.plugin, id, spec)
     of "formatter":
       let lang = d{"lang"}.getStr.toLowerAscii
-      if d{"cmd"}.getStr.len > 0: plugFmtCmd[lang] = d["cmd"].getStr
+      if d{"cmd"}.getStr.len > 0:
+        if plugAllowed(r.plugin, ppShell): plugFmtCmd[lang] = d["cmd"].getStr
+        else: plugLogAdd(r.plugin, "refused its formatter " & d["cmd"].getStr & ": it may not run programs (permission \"shell\")")
       elif r.cb >= 0: plugFmtCb[lang] = (r.plugin, r.cb)
     of "lsp":
       var cmd: seq[string]
       for x in jitems(d{"cmd"}): cmd.add x.getStr
+      if cmd.len > 0 and d{"script"}.getStr.len == 0 and not plugAllowed(r.plugin, ppShell):
+        plugLogAdd(r.plugin, "refused its language server " & cmd[0] & ": it may not run programs (permission \"shell\")")
+        continue
       let script = d{"script"}.getStr
       if script.len > 0:
         var dir = ""
@@ -762,7 +787,11 @@ proc plugApplyRegs() =
       if k.len == 2:
         plugTextObjs[k] = key
         plugTextObjKeys.incl k
-    of "ex": plugExCmds[d{"name"}.getStr] = key
+    of "ex":
+      # (a capital first, as vim's own user commands: ned's — :w, :q, :s — are never a plugin's)
+      let n = d{"name"}.getStr
+      if n.len > 0 and n[0] in {'A'..'Z'}: plugExCmds[n] = key
+      else: plugLogAdd(r.plugin, "refused :" & n & ": a plugin's : command starts with a capital letter")
     of "timer":
       timers.add PlugTimer(plugin: r.plugin, cb: r.cb, ms: max(100, d{"ms"}.getInt(1000)), repeat: d{"repeat"}.getBool,
                            due: getMonoTime() + initDuration(milliseconds = max(100, d{"ms"}.getInt(1000))))
@@ -1373,6 +1402,12 @@ proc plugApi(h: PlugHost, j: JsonNode) =
     if b != nil and b.path.len > 0 and not (rootDir.len > 1 and b.path.startsWith(rootDir & "/")) and
        not b.path.startsWith(plugDataRoot() / plugin & "/"):
       need(ppFiles)
+    elif b != nil and b.id in multiBufs:
+      # (a multibuffer writes its pieces' files: one outside the project needs the permission as a file would)
+      for sc in multiBufs[b.id]:
+        if not (rootDir.len > 1 and sc.path.startsWith(rootDir & "/")):
+          need(ppFiles)
+          break
   else: discard
   try:
     case fn
@@ -1714,6 +1749,119 @@ proc plugApi(h: PlugHost, j: JsonNode) =
         if d.plugin != plugin: keepD.add d
       if keepD.len > 0: plugDecor[k] = keepD else: plugDecor.del k
       needRender = true
+      answer(newJNull())
+    # ── panes (6.31) ──
+    of "panes":
+      var arr = newJArray()
+      if not splitOn:
+        arr.add %*{"index": 0, "buf": buf().id, "path": buf().path, "active": true, "x": lay.edX, "y": lay.textY,
+                   "w": lay.edW, "h": lay.textH}
+      else:
+        for i in paneOrder():
+          let pb = if i == activePane: buf() else: bufById(panes[i].bufId)
+          let r = panes[i].rect
+          arr.add %*{"index": i, "buf": (if pb == nil: -1 else: pb.id), "path": (if pb == nil: "" else: pb.path),
+                     "active": i == activePane, "x": r.x, "y": r.y, "w": r.w, "h": r.h}
+      answer(arr)
+    of "splitPane":
+      let show = bufById(a{"show"}.getInt(-1))
+      let pi = a{"pane"}.getInt(-1)
+      if buf().isWelcome() and show == nil:
+        answer(nil, "nothing to split: no file open")
+        return
+      let ok = if not splitOn and show == nil: (splitEditor(a{"down"}.getBool); splitOn)
+               else: splitPaneOf((if pi >= 0 and pi < panes.len: pi else: activePane), a{"down"}.getBool, show)
+      answer(%(if ok: activePane else: -1))
+    of "focusPane":
+      let pi = a{"pane"}.getInt(-1)
+      if splitOn and pi >= 0 and pi < panes.len: focusPane(pi)
+      answer(%activePane)
+    of "closePane":
+      let pi = a{"pane"}.getInt(-1)
+      if splitOn and pi >= 0 and pi < panes.len: closePane(pi)
+      answer(newJNull())
+    of "showInPane":
+      needBuf()
+      let pi = a{"pane"}.getInt(-1)
+      if not splitOn or pi == activePane or pi < 0 or pi >= panes.len:
+        let k = bufs.find(b)
+        if k >= 0: curBuf = k
+      else:
+        panes[pi].bufId = b.id
+        panes[pi].snap = snapView(b)
+      needRender = true
+      answer(newJNull())
+    of "paneLayout":
+      let k = a{"kind"}.getStr
+      case k
+      of "columns 2", "columns 3", "grid", "main": paneLayoutPreset(k)
+      of "equal": equalizePanes()
+      of "zoom": toggleZoom()
+      of "one": closeSplit()
+      else:
+        answer(nil, "no layout " & k & " (columns 2, columns 3, grid, main, equal, zoom, one)")
+        return
+      answer(newJNull())
+    # ── multibuffers (6.31) ──
+    of "openMultibuffer":
+      var ranges: seq[tuple[path: string, first, last: int, note: string]]
+      for p in jitems(a{"pieces"}):
+        var path = p{"path"}.getStr
+        if path.len == 0: continue
+        if not path.isAbsolute: path = rootDir / path
+        # (what a plugin gives is clamped: no huge or negative numbers reach the arithmetic)
+        let first = clamp(p{"first"}.getInt, 0, 100_000_000)
+        ranges.add (path, first, clamp(p{"last"}.getInt(first), first, 100_000_000), p{"note"}.getStr)
+        if ranges.len >= 5000: break
+      let nb = openMultibufferOf(a{"title"}.getStr("plugin"), ranges, a{"focus"}.getBool(true))
+      answer(%(if nb == nil: -1 else: nb.id))
+    of "pieces":
+      needBuf()
+      var arr = newJArray()
+      let secs = multiBufs.getOrDefault(b.id)
+      let hs = b.mbHeaderLines()
+      for k, sc in secs:
+        let n = if k < hs.len: (if k + 1 < hs.len: hs[k + 1] else: b.lines.len) - hs[k] - 1 else: sc.orig.len
+        arr.add %*{"path": sc.path, "first": sc.start, "last": sc.start + max(1, n) - 1, "note": sc.note,
+                   "line": (if k < hs.len: hs[k] else: -1)}
+      answer(arr)
+    of "placeInFile":
+      needBuf()
+      let (ok, path, p) = b.mbPlace(posOf(a{"pos"}))
+      answer(if ok: %*{"path": path, "pos": jPos(p)} else: newJNull())
+    of "lineInMultibuffer":
+      needBuf()
+      var path = a{"path"}.getStr
+      if path.len > 0 and not path.isAbsolute: path = rootDir / path
+      answer(%b.mbLineOf(path, a{"line"}.getInt))
+    of "addPiece":
+      var path = a{"path"}.getStr
+      if path.len > 0 and not path.isAbsolute: path = rootDir / path
+      if b != nil and b.id in multiBufs: mbLast = b.id
+      let first = clamp(a{"first"}.getInt, 0, 100_000_000)
+      let added = path.len > 0 and mbAddRange(path, first, clamp(a{"last"}.getInt(first), first, 100_000_000))
+      let t = if added: bufById(mbLast) else: nil
+      if t != nil and not t.dirty and a{"note"}.getStr.len > 0:
+        var secs = multiBufs[t.id]
+        for sc in secs.mitems:
+          if sc.path == path and first >= sc.start and first < sc.start + sc.orig.len and sc.note.len == 0:
+            sc.note = a{"note"}.getStr.replace("\n", " ")
+        mbRebuild(t, secs)
+      answer(%(if t == nil: -1 else: t.id))
+    of "removePiece":
+      needBuf()
+      let k = a{"index"}.getInt(-1)
+      var secs = multiBufs.getOrDefault(b.id)
+      if b.dirty:
+        answer(nil, "the multibuffer has edits not saved")
+        return
+      if k >= 0 and k < secs.len:
+        secs.delete(k)
+        mbRebuild(b, secs)
+      answer(newJNull())
+    of "refreshMultibuffer":
+      needBuf()
+      if b.id in multiBufs: mbRefresh(b, true)
       answer(newJNull())
     of "indentStyle":
       var keep: seq[PlugIndent]

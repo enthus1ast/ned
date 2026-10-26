@@ -148,8 +148,7 @@ proc gcShow(files: seq[GcFile], reuse = -1) =
     if bi >= 0 and bufs[bi].dirty:
       dirty.add f.rel
       continue
-    ls = fileLinesNow(f.path)
-    if ls.len > 0 and ls[^1].len == 0 and bi < 0: ls.setLen(ls.len - 1)
+    ls = fileLinesNow(f.path)              # (a closed file: as a buffer has it — no empty line after the last)
     if ls.len == 0: continue
     var hs = f.head
     hs.sort(proc(x, y: GcHunk): int = cmp(x.newStart, y.newStart))
@@ -186,7 +185,7 @@ proc gcShow(files: seq[GcFile], reuse = -1) =
     text.add mbHeaderOf(lang, sc)
     start.add text.len
     text.add sc.orig
-  let b = openScratch("Git: changes", text.join("\n"), lang)
+  let b = openScratch("Git: changes", mbTextOf(text), lang)
   b.readOnly = false
   b.savedSeq = b.topSeq()
   multiBufs[b.id] = secs

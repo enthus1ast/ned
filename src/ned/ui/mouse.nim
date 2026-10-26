@@ -1,9 +1,12 @@
 # ── drag handles (split divider, dock edges, bottom panel, scrollbar) and sizes from the keyboard ──
 
 proc dragHandleAt(x, y: int): DragTarget =
-  if splitDiv.x >= 0:
-    if splitDiv.vertical and x == splitDiv.x and y >= splitDiv.y and y < splitDiv.y + splitDiv.len: return dtSplit
-    if not splitDiv.vertical and y == splitDiv.y and x >= splitDiv.x and x < splitDiv.x + splitDiv.len:
+  for k, d in splitDivs:
+    if (d.vertical and x == d.x and y >= d.y and y < d.y + d.len) or
+       (not d.vertical and y == d.y and x >= d.x and x < d.x + d.len):
+      if dragTarget != dtSplit:                     # (which divider a press takes; not changed during a drag)
+        dragDiv = k
+        dragNode = d.node
       return dtSplit
   if not lay.overlay and y >= lay.bodyTop and y < lay.bodyBot:
     if treeOpen and x == lay.leftW: return dtLeftDock
@@ -67,17 +70,30 @@ proc scrollbarJump(y: int) =
   let target = clamp((y - sbTop) * (total - 1) div (sbH - 1) - sbH div 2, 0, max(0, total - sbH))
   b.scrollBy(target - b.topLine)
 
-proc splitArea(): (int, int) =
-  let top = if lay.crumbY >= 0: lay.crumbY else: lay.textY
-  (top, lay.textY + lay.textH - top)
-
 proc dragTo(x, y: int) =
   case dragTarget
   of dtSplit:
-    if splitDiv.vertical: splitRatio = clamp((x - lay.edX).float / max(1, lay.edW - 1).float, 0.15, 0.85)
-    else:
-      let (top, fullH) = splitArea()
-      splitRatio = clamp((y - top).float / max(1, fullH - 1).float, 0.15, 0.85)
+    if dragDiv < 0 or dragDiv >= splitDivs.len or splitDivs[dragDiv].node != dragNode:
+      # (the panes changed under the drag: the divider of that split, where it is now)
+      dragDiv = -1
+      for k, d in splitDivs:
+        if d.node == dragNode: dragDiv = k
+    if dragDiv >= 0 and dragDiv < splitDivs.len:
+      # (the split's own area: x0 and size are its first column — or row — and its width — or height)
+      let d = splitDivs[dragDiv]
+      let at = clamp(if d.vertical: x else: y, d.x0 + 1, d.x0 + d.size - 2)
+      d.node.ratio = clamp((at - d.x0).float + 0.25, 1.0, float(d.size - 1)) / max(1, d.size - 1).float
+      # the dividers next to it that cut the same way stay where they are: only the two panes beside it change
+      for e in splitDivs:
+        if e.vertical != d.vertical: continue
+        let ex = if e.vertical: e.x else: e.y
+        if e.node == d.node.b and not d.node.b.leaf and ex > at + 1:
+          let st = at + 1
+          let sz = d.x0 + d.size - st
+          if sz > 2: e.node.ratio = clamp((ex - st).float + 0.25, 1.0, float(sz - 1)) / float(sz - 1)
+        elif e.node == d.node.a and not d.node.a.leaf and ex < at - 1:
+          let sz = at - d.x0
+          if sz > 2: e.node.ratio = clamp((ex - d.x0).float + 0.25, 1.0, float(sz - 1)) / float(sz - 1)
   of dtLeftDock: cfgLeftW = clamp(x, 16, max(16, scrW - 30))
   of dtRightDock: cfgRightW = clamp(scrW - x - 1, 24, max(24, scrW - 30))
   of dtPanel:
@@ -112,8 +128,7 @@ proc rememberSizes(t: DragTarget) =
 proc resizeBy(horizontal: bool, d: int) =
   ## Ctrl+Alt+arrows: the split divider, the dock that has the focus (or the open one), the bottom panel
   if horizontal:
-    if splitOn and not (splitDown or lay.edW < 60) and focus == fEditor:
-      splitRatio = clamp(splitRatio + d.float * 0.04, 0.15, 0.85)
+    if splitOn and focus == fEditor and not phoneFlip() and resizePane(true, d): discard
     elif rightOpen and lay.rightW > 0 and (focus == fRight or not treeOpen):
       cfgRightW = clamp(lay.rightW - d * 2, 24, max(24, scrW - 30))
       rememberSizes(dtRightDock)
@@ -122,12 +137,11 @@ proc resizeBy(horizontal: bool, d: int) =
       rememberSizes(dtLeftDock)
     else: info("Nothing to resize here — open a dock or split the editor")
   else:
-    if panelOpen and lay.panelH > 0 and (focus == fPanel or not (splitOn and splitDown)):
+    if splitOn and focus == fEditor and (if phoneFlip(): resizePane(true, d) else: resizePane(false, d)): discard
+    elif panelOpen and lay.panelH > 0:
       panelMax = false
       cfgPanelH = clamp(lay.panelH + d, 4, max(4, lay.bodyBot - lay.bodyTop - 4))
       rememberSizes(dtPanel)
-    elif splitOn and (splitDown or lay.edW < 60):
-      splitRatio = clamp(splitRatio + d.float * 0.05, 0.15, 0.85)
     else: info("Nothing to resize here — open the bottom panel or split the editor down")
   needRender = true
 

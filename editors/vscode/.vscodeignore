@@ -1,6 +1,6 @@
-# (what the .vsix leaves out)
+# (what the .vsix leaves out; tests/build/vsix.py reads this as vsce would)
 *.vsix
 .vscode/**
 **/*.map
-node_modules/**/test/**
-node_modules/**/*.md
+# (the extension needs no npm packages: any node_modules here is someone's leftover)
+node_modules/**

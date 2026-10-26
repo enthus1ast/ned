@@ -453,8 +453,11 @@ proc vimEx(cmd: string) =
   case head
   of "w", "write":
     if arg.len > 0: discard b.saveBuffer(absProjectPath(arg)) else: discard b.saveBuffer()
-  of "q", "quit", "close":
-    if bufs.len > 1: closeBuffer(curBuf) else: requestQuit()
+  of "q", "quit", "close", "clo":
+    if splitOn: closeActivePane()             # (as vim's: with panes, the pane closes — the file stays open)
+    elif head == "close" or head == "clo": info("One pane only")
+    elif bufs.len > 1: closeBuffer(curBuf)
+    else: requestQuit()
   of "q!", "quit!":
     if bufs.len > 1: closeBufferAt(curBuf) else: quitting = true
   of "wq", "x", "xit":

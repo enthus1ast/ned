@@ -1,3 +1,30 @@
+proc vimWindowKey(c: char): bool =
+  ## Ctrl+W then c: vim's window commands, on ned's panes
+  result = true
+  case c
+  of 'h': focusDir(-1, 0)
+  of 'l': focusDir(1, 0)
+  of 'k': focusDir(0, -1)
+  of 'j': focusDir(0, 1)
+  of 'w': toggleSplitFocus()
+  of 'W', 'p':
+    if splitOn:
+      let o = otherPane()
+      if c == 'p': focusPane(o)
+      else:
+        let ord = paneOrder()
+        focusPane(ord[(ord.find(activePane) + ord.len - 1) mod ord.len])
+  of 's', 'S': splitEditor(true)
+  of 'v': splitEditor(false)
+  of 'q', 'c': closeActivePane()
+  of 'o': closeSplit()
+  of '=': equalizePanes()
+  of 'x': swapPaneDir(1, 0)
+  of 'z', '_', '|': toggleZoom()
+  of 'H', 'J', 'K', 'L':
+    swapPaneDir((if c == 'H': -1 elif c == 'L': 1 else: 0), (if c == 'K': -1 elif c == 'J': 1 else: 0))
+  else: result = false
+
 proc vimKey(k: Key): bool =
   ## true when vim consumed the key
   let b = buf()
@@ -72,7 +99,14 @@ proc vimKey(k: Key): bool =
     let p = b.primary.head
     # (a plugin's mapping of <C-a> … <C-z> — dial's Ctrl+A: it comes as the control character)
     if c in {'a'..'z'} and mAlt notin k.mods and plugVimKey(b, chr(ord(c) - 96), visual): return true
+    if vimPending == "\x17":
+      vimPending = ""
+      return vimWindowKey(c)                  # (Ctrl+W Ctrl+H … as Ctrl+W h)
     case c
+    of 'w':
+      vimPending = "\x17"                    # Ctrl+W: a pane command follows (h j k l, w, s, v, q, o, =)
+      info("Ctrl+W: h j k l to that pane · w next · s v split · q close · o only this one · = equal · x swap")
+      return true
     of 'r':
       b.redo()
       return true
@@ -118,6 +152,10 @@ proc vimKey(k: Key): bool =
       if vimCount.len < 6: vimCount.add ch      # counts stop at 999999
       return true
   # pending two-key commands
+  if vimPending == "\x17":
+    vimPending = ""
+    discard vimWindowKey(ch)
+    return true
   if vimPending.len > 0:
     let pend = vimPending
     if pend in ["f", "t", "F", "T"] or (pend.len == 2 and pend[1] in {'f', 't', 'F', 'T'} and pend[0] in {'d', 'c', 'y', '>', '<'}):
@@ -582,6 +620,7 @@ proc vimKey(k: Key): bool =
     discard
   else: discard
   return true
+
 
 proc vimEditorKey(k: Key): bool =
   ## entry from editorKey; false = let the normal editor handle the key

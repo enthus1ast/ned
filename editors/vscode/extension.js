@@ -1,11 +1,17 @@
 // nedls in VS Code: starts ned's language server for the languages chosen (nedls.languages), passes the settings
-// on, and restarts it when they change.
+// on, and restarts it when they change. The language client is the extension's own (client.js, features.js,
+// convert.js, lsp.js) — plain JavaScript and the vscode API, no npm packages — so the .vsix is made with Python
+// alone (tests/build/vscode.sh).
+'use strict';
+
 const vscode = require('vscode');
-const { LanguageClient } = require('vscode-languageclient/node');
+const { Client } = require('./client');
 
 let client = null;
 let output = null;
+let queue = Promise.resolve();
 
+// the settings nedls reads at start (initializationOptions); the same ones go to it again when they change
 function options() {
   const c = vscode.workspace.getConfiguration('nedls');
   const o = {};
@@ -17,56 +23,93 @@ function options() {
   return o;
 }
 
+// (one start or stop at a time: a restart asked for twice must not leave two servers running)
+function serial(fn) {
+  const p = queue.then(fn);
+  queue = p.catch(() => {});
+  return p;
+}
+
 async function start() {
   const c = vscode.workspace.getConfiguration('nedls');
   const command = c.get('path') || 'nedls';
-  const selector = [];
-  for (const l of c.get('languages') || ['nim']) {
-    selector.push({ scheme: 'file', language: l }, { scheme: 'untitled', language: l });
-  }
-  if (!output) output = vscode.window.createOutputChannel('nedls');
-  client = new LanguageClient('nedls', 'nedls', { command, args: ['--stdio'] }, {
-    documentSelector: selector,
+  const cl = new Client({
+    command,
+    languages: c.get('languages') || ['nim'],
+    output,
+    trace: c.get('trace.server') || 'off',
     initializationOptions: options(),
-    synchronize: {
-      configurationSection: 'nedls',
-      fileEvents: vscode.workspace.createFileSystemWatcher('**/{*.nim,*.nims,*.nimble,nim.cfg,.ned/settings.json}')
-    },
-    outputChannel: output
+    onCrash: crashed
   });
+  client = cl;
   try {
-    await client.start();
+    await cl.start();
   } catch (e) {
-    client = null;
-    const pick = await vscode.window.showErrorMessage(
+    if (client === cl) client = null;
+    if (cl.stopping) return;               // (stopped while it started: a restart, not a failure)
+    cl.log(`nedls did not start: ${e.message || e}`);
+    // (not awaited: the message stays up as long as the person likes, and nothing waits for it)
+    vscode.window.showErrorMessage(
       `nedls did not start (${command}): ${e.message || e}. Is it installed? (nimble install ned, or set nedls.path)`,
-      'Set nedls.path');
-    if (pick) vscode.commands.executeCommand('workbench.action.openSettings', 'nedls.path');
+      'Set nedls.path').then((pick) => {
+      if (pick) vscode.commands.executeCommand('workbench.action.openSettings', 'nedls.path');
+    });
   }
 }
 
 async function stop() {
-  if (client) {
-    const c = client;
-    client = null;
-    try { await c.stop(); } catch (_) { /* (it may have ended already) */ }
+  if (!client) return;
+  const c = client;
+  client = null;
+  try {
+    await c.stop();
+  } catch (_) {
+    // (it may have ended already)
   }
 }
 
-async function activate(context) {
-  context.subscriptions.push(
-    vscode.commands.registerCommand('nedls.restart', async () => { await stop(); await start(); }),
-    vscode.commands.registerCommand('nedls.showOutput', () => output && output.show()),
-    vscode.workspace.onDidChangeConfiguration(async (e) => {
-      // (which program, which languages: a new server; the rest goes to the running one)
-      if (e.affectsConfiguration('nedls.path') || e.affectsConfiguration('nedls.languages')) {
-        await stop();
-        await start();
-      }
-    }));
-  await start();
+function restart() {
+  return serial(async () => {
+    await stop();
+    await start();
+  });
 }
 
-function deactivate() { return stop(); }
+// The server ended on its own. It is not started again by itself — a server that crashes at once would crash
+// again and again — the person gets a button for it, and its log.
+function crashed(cl, code, signal) {
+  if (client !== cl) return;
+  client = null;
+  const how = signal ? `signal ${signal}` : `exit code ${code}`;
+  vscode.window.showErrorMessage(`nedls stopped unexpectedly (${how}).`, 'Restart', 'Show the log').then((pick) => {
+    if (pick === 'Restart') restart();
+    else if (pick === 'Show the log') output.show();
+  });
+}
+
+async function activate(context) {
+  output = vscode.window.createOutputChannel('nedls');
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nedls.restart', restart),
+    vscode.commands.registerCommand('nedls.showOutput', () => output.show()),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration('nedls')) return;
+      // (which program, which languages: a new server; the rest goes to the running one)
+      if (e.affectsConfiguration('nedls.path') || e.affectsConfiguration('nedls.languages')) {
+        restart();
+      } else if (client) {
+        client.configurationChanged(e);
+      }
+    }));
+  await serial(start);
+}
+
+// (the Output channel is closed last: stopping writes to it)
+function deactivate() {
+  return serial(stop).then(() => {
+    if (output) output.dispose();
+    output = null;
+  });
+}
 
 module.exports = { activate, deactivate };

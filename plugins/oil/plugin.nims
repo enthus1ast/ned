@@ -18,7 +18,7 @@
 import nedplugin
 
 requiresNed(">= 6.26")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("files", "renames, moves, makes and deletes the files and folders you change in its view")
 import std/[strutils, algorithm, tables]
 

@@ -326,8 +326,11 @@ proc drawPicker() =
     var bx = px + pw - 2 - (strWidth(okLabel) + 4) - 1 - (strWidth("Cancel") + 4)
     let hintW = bx - px - 3
     if hintW > 12:
-      discard putStr(px + 2, by, truncTo("↑↓ choose · Enter " & okLabel.toLowerAscii & " · Esc cancel", hintW), theme.dim,
-                     theme.popupBg, {aItalic})
+      let places = pickKind in {pickFile, pickRecent, pickSymbol, pickBuffer} or
+                   (tsActive and pickPreviewTarget()[0].len > 0)
+      let more = if places and hintW > 60: " · Alt+V right · Alt+X below · Alt+Q all in a multibuffer" else: ""
+      discard putStr(px + 2, by, truncTo("↑↓ choose · Enter " & okLabel.toLowerAscii & more & " · Esc cancel", hintW),
+                     theme.dim, theme.popupBg, {aItalic})
     bx = pill(bx, by, "Cancel", proc() = closePicker(), "Esc", theme.fg, theme.btnBg) + 1
     discard pill(bx, by, okLabel, proc() = acceptPicker(), "Enter", theme.badgeFg, theme.accent, {aBold},
                  blend(theme.accent, theme.fg, 0.15))
@@ -404,8 +407,9 @@ const HelpLines = [
   "                     ◫ in the panel header: two terminals side by side · Ctrl+PgUp/PgDn the other one",
   "F6                   Move focus: editor → docks → panel",
   "Alt+Z                Zen mode: no chrome, centred column, focus dimming (Esc Esc leaves; vim: :zen)",
-  "Alt+\\                Split the editor / switch panes   Alt+|  close the split",
-  "Ctrl+Alt+← / →       Make the split or the focused dock narrower / wider",
+  "Alt+\\                Split the editor / the next pane   Alt+|  close this pane   View › Panes: layouts",
+  "Ctrl+Alt+Shift+arrow The pane that way (vim: Ctrl+W h j k l)",
+  "Ctrl+Alt+← / →       Make the pane or the focused dock narrower / wider",
   "Ctrl+Alt+↑ / ↓       Make the bottom panel taller / shorter (panes one above the other: move the divider)",
   "Panel ⤢ button       Maximize the bottom panel (palette › Toggle maximized panel)",
   "Drag                 Split divider, dock edges, panel header, scrollbar, minimap, a tab (to reorder it)",

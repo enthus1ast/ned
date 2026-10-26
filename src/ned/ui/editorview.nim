@@ -191,8 +191,12 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   let bpLines = if b.path.len > 0: breakpoints.getOrDefault(b.path) else: initHashSet[int]()
   let spellOnHere = b.spellOn() and b.id notin diffViews and b.id notin multiBufs
   let hasConflicts = conflicts.len > 0
+  # (a multibuffer's numbers: the lines of the files its pieces come from)
+  let mbSrc = if isMb and cfgLineNums > 0: b.mbSourceLines() else: @[]
+  var mbTop = 0
+  for n in mbSrc: mbTop = max(mbTop, n + 1)
   let numW = if cfgLineNums == 0 or (zenMode and cfgZenHideNums): 0
-             else: max(3, len($(b.lines.len + (if b.viewer != nil: b.viewer.base else: 0))))
+             else: max(3, len($(max(mbTop, b.lines.len + (if b.viewer != nil: b.viewer.base else: 0)))))
   let gw = 2 + numW + (if numW > 0: 1 else: 0)
   gutterW = gw
   textW = max(4, w - gw - 1)
@@ -309,6 +313,9 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   var prevIndent = 0
   let tx0 = x0 + gw
   let limX = x0 + w
+  # (zen: what follows a line's end — a C signature, a type hint, a problem, blame — may go on into the margin at
+  # the right of the column, up to the editor's edge, instead of being cut at the column)
+  let tailLim = if zenMode and lay.edX + lay.edW - 1 > limX: min(scrW, lay.edX + lay.edW - 1) else: limX
   # rulers (editor.rulers): a thin line at fixed columns, only in empty cells so it never hides text;
   # what goes past the last one is tinted
   let rulersOn = rulersSet() and not rulersHidden and not zenMode and b.id notin graphBufs
@@ -554,6 +561,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
             if fok: discard putStr(x0 + gw - 1, y, ic("chevD"), theme.dim, rowBg)
         if numW > 0:
           let n = if cfgLineNums == 2 and line != ph.line: abs(line - ph.line)
+                  elif line < mbSrc.len: mbSrc[line] + 1
                   else: line + 1 + (if b.viewer != nil: b.viewer.base else: 0)
           let cov = if covLines.len > 0 and b.path in covLines: covLines[b.path].getOrDefault(line, false) else: false
           let covKnown = covLines.len > 0 and b.path in covLines and line in covLines[b.path]
@@ -718,31 +726,31 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         while hk < hints.len:
           let hx = tx0 + vc - baseVc + rowOff + shift
           if hx >= tx0:
-            if hints[hk][1] == SwatchMark: drawSwatch(b, line, hints[hk][0], hx, y, limX, sw, rowBg)
-            elif hints[hk][1].strip.len == 0: discard putStr(hx, y, hints[hk][1], theme.fg, rowBg, {}, limX)  # (a CSV column's padding)
-            else: discard putStr(hx, y, hints[hk][1], theme.inlay, blend(rowBg, theme.fg, 0.05), {aItalic}, limX)
+            if hints[hk][1] == SwatchMark: drawSwatch(b, line, hints[hk][0], hx, y, tailLim, sw, rowBg)
+            elif hints[hk][1].strip.len == 0: discard putStr(hx, y, hints[hk][1], theme.fg, rowBg, {}, tailLim)  # (a CSV column's padding)
+            else: discard putStr(hx, y, hints[hk][1], theme.inlay, blend(rowBg, theme.fg, 0.05), {aItalic}, tailLim)
           shift += strWidth(hints[hk][1])
           inc hk
         let ex = tx0 + vc - baseVc + rowOff + shift
-        if piOn and piSt.lineEnd.len > 0 and ex >= tx0 and ex < limX and grid[y * scrW + ex].ch == 32 and
+        if piOn and piSt.lineEnd.len > 0 and ex >= tx0 and ex < tailLim and grid[y * scrW + ex].ch == 32 and
            grid[y * scrW + ex].bg == rowBg:
           setCell(ex, y, Cell(ch: runeAt(piSt.lineEnd, 0)[0].uint32, fg: theme.guide, bg: rowBg))
         if b.folds.len > 0:
           let fi = b.foldAt(line)
-          if fi >= 0 and ex + 2 < limX:
+          if fi >= 0 and ex + 2 < tailLim:
             let n = b.folds[fi][1] - b.folds[fi][0]
-            discard putStr(ex + 1, y, " ⋯ " & $n & " lines ", theme.dim, theme.codeBg, {}, limX)
+            discard putStr(ex + 1, y, " ⋯ " & $n & " lines ", theme.dim, theme.codeBg, {}, tailLim)
         for (a, e) in selR:
-          if e > s.len and ex < limX and ex >= tx0: setCell(ex, y, Cell(ch: 32, fg: theme.fg, bg: theme.sel))
-        if lineDiag >= 0 and (ds[lineDiag].sev <= 2 or line == ph.line) and ex + 3 < limX:
+          if e > s.len and ex < tailLim and ex >= tx0: setCell(ex, y, Cell(ch: 32, fg: theme.fg, bg: theme.sel))
+        if lineDiag >= 0 and (ds[lineDiag].sev <= 2 or line == ph.line) and ex + 3 < tailLim:
           let dg = ds[lineDiag]
           let txt = "● " & diagText(dg, (if isMb and b.lang.mode == lmNim: "x.nim" else: b.path))
-          let nx = putStr(ex + 2, y, txt, sevColor(dg.sev), rowBg, {aItalic, aDim}, limX)
+          let nx = putStr(ex + 2, y, txt, sevColor(dg.sev), rowBg, {aItalic, aDim}, tailLim)
           let hint = fixHint(dg)
           var hx = nx
-          if hint.len > 0 and nx + 4 < limX:
+          if hint.len > 0 and nx + 4 < tailLim:
             # what Alt+Enter would do — a click does it too
-            hx = putStr(nx, y, hint, theme.accent, rowBg, {aItalic}, limX)
+            hx = putStr(nx, y, hint, theme.accent, rowBg, {aItalic}, tailLim)
           if not isMb:
             let bid = b.id
             let dl = dg.line
@@ -755,29 +763,29 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                 bb.setSingle(bb.clampPos(Pos(line: dl, col: dc)))
                 if fixable: cmdCodeActions() else: cmdHover(),
                 (if fixable: "Fix it (" & fixKey() & ")" else: "The whole message (Alt+H)"))
-        elif plugDecor.len > 0 and (let (vt, vc) = b.plugTextAfter(line); vt.len > 0) and ex + 4 < limX:
-          discard putStr(ex + 3, y, vt, vc, rowBg, {aItalic}, limX)            # a plugin's text after the line
-        elif b.path.len > 0 and (let rn = reviewNoteAt(b.path, line); rn.len > 0) and ex + 6 < limX:
+        elif plugDecor.len > 0 and (let (vt, vc) = b.plugTextAfter(line); vt.len > 0) and ex + 4 < tailLim:
+          discard putStr(ex + 3, y, vt, vc, rowBg, {aItalic}, tailLim)            # a plugin's text after the line
+        elif b.path.len > 0 and (let rn = reviewNoteAt(b.path, line); rn.len > 0) and ex + 6 < tailLim:
           # a review comment of the branch's pull request (GitHub)
-          discard putStr(ex + 3, y, rn, blend(theme.info, theme.inlay, 0.3), rowBg, {aItalic}, limX)
-        elif b.lang.mode == lmNim and (let (tnote, tst) = b.testNoteAt(line); tst > 0) and ex + 6 < limX:
+          discard putStr(ex + 3, y, rn, blend(theme.info, theme.inlay, 0.3), rowBg, {aItalic}, tailLim)
+        elif b.lang.mode == lmNim and (let (tnote, tst) = b.testNoteAt(line); tst > 0) and ex + 6 < tailLim:
           # a test's last result (run on save, or by ▶)
           let tc = case tst
             of 1: theme.gitAdd
             of 2: theme.err
             else: theme.inlay
-          discard putStr(ex + 3, y, tnote, tc, rowBg, {aItalic}, limX)
-        elif active and line == ph.line and ex + 16 < limX and not b.readOnly and b.aiIsComment(line) and
+          discard putStr(ex + 3, y, tnote, tc, rowBg, {aItalic}, tailLim)
+        elif active and line == ph.line and ex + 16 < tailLim and not b.readOnly and b.aiIsComment(line) and
              not b.aiIsComment(line + 1) and not b.aiIsDocComment(line) and sBool("ai.commentButton") and
              (cfgAiProvider in ["ollama", "custom"] or aiKey().len > 0):
           # the comment the cursor is on: ✦ writes the code it describes (as Alt+Shift+C does)
-          let nx = putStr(ex + 3, y, "✦ write it", theme.inlay, rowBg, {aItalic}, limX)
+          let nx = putStr(ex + 3, y, "✦ write it", theme.inlay, rowBg, {aItalic}, tailLim)
           region(ex + 3, y, nx - ex - 3, 1, proc() = aiCodeFromComment(),
                  "The assistant writes the code this comment describes (Alt+Shift+C) — shown before it is used")
-        elif cfgBlame and active and line == ph.line and blameText.len > 0 and ex + 8 < limX and
+        elif cfgBlame and active and line == ph.line and blameText.len > 0 and ex + 8 < tailLim and
              blameFor.startsWith(b.path & ":" & $line & ":"):
-          discard putStr(ex + 3, y, blameText, theme.inlay, rowBg, {aItalic}, limX)
-        elif (profLn.len > 0 or profDl.len > 0) and (line in profLn or line in profDl) and ex + 6 < limX:
+          discard putStr(ex + 3, y, blameText, theme.inlay, rowBg, {aItalic}, tailLim)
+        elif (profLn.len > 0 or profDl.len > 0) and (line in profLn or line in profDl) and ex + 6 < tailLim:
           # the profile: this line's share of the time (with what it calls), a proc's on its first line
           let tot = max(profSamples, 1)
           var txt = ""
@@ -795,18 +803,18 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
               txt = bars[clamp(int(heat * 8), 0, 7)] & " " & formatFloat(tn * 100 / tot, ffDecimal, 1) & "%" &
                     (if sn * 200 >= tot and sn < tn: " · " & formatFloat(sn * 100 / tot, ffDecimal, 1) & "% on the line itself" else: "")
           if txt.len > 0:
-            discard putStr(ex + 3, y, txt, blend(theme.inlay, theme.err, clamp(heat * 1.6, 0.0, 1.0)), rowBg, {aItalic}, limX)
-        elif cfgRefCounts and b.lang.mode == lmNim and (let (rl, unused) = b.refLensAt(line); rl.len > 0) and ex + 6 < limX:
+            discard putStr(ex + 3, y, txt, blend(theme.inlay, theme.err, clamp(heat * 1.6, 0.0, 1.0)), rowBg, {aItalic}, tailLim)
+        elif cfgRefCounts and b.lang.mode == lmNim and (let (rl, unused) = b.refLensAt(line); rl.len > 0) and ex + 6 < tailLim:
           # "3 references" — a click lists them; an export nothing uses in the warning colour
           let rx = ex + 3
-          let nx = putStr(rx, y, rl, (if unused: theme.warn else: theme.inlay), rowBg, {aItalic}, limX)
+          let nx = putStr(rx, y, rl, (if unused: theme.warn else: theme.inlay), rowBg, {aItalic}, tailLim)
           let bid = b.id
           let ln = line
           capture bid, ln:
             region(rx, y, nx - rx, 1, proc() =
               let bb = bufById(bid)
               if bb != nil: refLensClick(bb, ln), "List them (Find references)")
-        elif ivMap.len > 0 and line >= ivA and line <= dbgAt[1] and ex + 6 < limX and s.len <= 2000:
+        elif ivMap.len > 0 and line >= ivA and line <= dbgAt[1] and ex + 6 < tailLim and s.len <= 2000:
           # stopped in the debugger: the values of the variables this line uses (like VS Code's inline values)
           var shown: seq[string]
           var k = 0
@@ -821,7 +829,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
               k = e
             else: inc k
           if shown.len > 0:
-            discard putStr(ex + 2, y, shown.join("  "), blend(theme.warn, rowBg, 0.25), rowBg, {aItalic}, limX)
+            discard putStr(ex + 2, y, shown.join("  "), blend(theme.warn, rowBg, 0.25), rowBg, {aItalic}, tailLim)
       if jumpCollect and active and b.id == jumpBufId and s.len <= 4000:
         # jump labels: the words this row shows
         var k = segStart
@@ -976,12 +984,20 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       let col = if "not staged" in note or "not tracked" in note: theme.gitMod
                 elif "partly" in note: theme.warn elif "staged" in note: theme.gitAdd else: theme.dim
       xx = putStr(xx + 2, y, note, col, hbg, {}, x0 + w - 2)
+    # (its buttons, for a touch screen: more lines above, below, the piece out — not in the Git changes view)
+    let btns = b.title != "Git: changes" and xx + 30 < x0 + w
     let hint = "↵ or click: open"
-    if xx + strWidth(hint) + 3 < x0 + w: discard putStr(x0 + w - strWidth(hint) - 2, y, hint, theme.dim, hbg)
+    let hx = x0 + w - strWidth(hint) - 2 - (if btns: 10 else: 0)
+    if xx + strWidth(hint) + 3 < hx + strWidth(hint): discard putStr(hx, y, hint, theme.dim, hbg)
     let pp = path
     let ll = fl
     capture pp, ll:
       region(x0 + gw, y, w - gw - 1, 1, proc() = mbOpen(pp, ll), "Open " & relPath(pp) & " at line " & $(ll + 1))
+    if btns:
+      var bx = x0 + w - 11
+      bx = button(bx, y, " ⇡ ", mbHeaderAct(b.id, line, 0), "More lines above this piece", theme.accent, hbg)
+      bx = button(bx, y, " ⇣ ", mbHeaderAct(b.id, line, 1), "More lines below this piece", theme.accent, hbg)
+      discard button(bx, y, " ✕ ", mbHeaderAct(b.id, line, 2), "This piece out of the multibuffer", theme.dim, hbg)
 
 proc spansWidth(cl: ChatLine): int =
   for sp in cl.spans: result += strWidth(sp.t)

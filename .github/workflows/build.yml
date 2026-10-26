@@ -215,26 +215,24 @@ jobs:
             nedls-windows-x86_64.exe
 
   vscode:
-    # the VS Code extension (editors/vscode): nedls in VS Code, as a .vsix to install
+    # the VS Code extension (editors/vscode): nedls in VS Code, as a .vsix to install — made with Python alone (the
+    # extension's language client is its own, no npm packages), its version checked against ned's
     name: VS Code extension
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
       - name: Package it
-        working-directory: editors/vscode
+        run: bash tests/build/vscode.sh dist-vscode
+      - name: Check it
         run: |
-          v=$(node -p "require('./package.json').version")
-          grep -q "\"$v\"" ../../src/ned/version.nim || { echo "editors/vscode/package.json's version $v is not ned's"; exit 1; }
-          npm install --no-audit --no-fund
-          npx --yes @vscode/vsce package --out "vscode-nedls-$v.vsix"
-          unzip -l "vscode-nedls-$v.vsix" | grep -q "node_modules/vscode-languageclient" || { echo "the client library is missing"; exit 1; }
+          v=$(python3 -c 'import json; print(json.load(open("editors/vscode/package.json"))["version"])')
+          for f in extension/extension.js extension/package.json; do
+            unzip -l "dist-vscode/vscode-nedls-$v.vsix" | grep -q " $f\$" || { echo "$f is not in the .vsix"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: vscode-nedls
-          path: editors/vscode/*.vsix
+          path: dist-vscode/*.vsix
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

@@ -15,7 +15,7 @@ import nedplugin
 import std/[strutils, algorithm]
 
 requiresNed(">= 6.29")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "reads git's tags and log for the CHANGELOG, and makes the release's tag")
 
 settingDef("tagPrefix", "v", "Release: tag it — what goes before the version in the tag's name (v1.2.4)")

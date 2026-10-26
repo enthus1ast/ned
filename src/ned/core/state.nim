@@ -368,8 +368,6 @@ var
   tabRanges: seq[(int, int, int)]       # (x0, x1, buffer index)
   # mouse and touch: what a drag moves, and the press a long-press (touch: the context menu) is timed from
   dragTarget = dtNone
-  splitRatio = 0.5                        # share of the first pane in a split
-  splitDiv: tuple[x, y, len: int, vertical: bool] = (-1, -1, 0, true)
   sbCol = -1                              # the active editor's scrollbar column (-1: none)
   sbTop, sbH: int
   mmRect: tuple[x, y, w, h: int] = (-1, 0, 0, 0)   # the minimap (x = -1: none)
@@ -514,7 +512,8 @@ var
   lastSwapCheck: MonoTime
   autoSaveWarned: HashSet[string]
 
-# ── split editor: two panes; the active one is `curBuf`, the other keeps a snapshot of its view ──
+# ── panes (6.31: tiled): the editor area cut into panes by a tree of splits; the active pane is `curBuf`, each
+#    other one keeps a snapshot of its view ──
 type
   ViewSnap = object
     topLine, topSub, leftCol, prim, lastChange: int
@@ -525,11 +524,62 @@ type
     snap: ViewSnap
     rect: tuple[x, y, w, h: int]
     gutterW, textW, textH: int
+  PaneNode = ref object
+    ## the layout: a leaf is a pane (its index in `panes`); a split cuts its area in two — side by side (`vertical`:
+    ## the divider between them is vertical) or one above the other — `ratio` of it to the first part
+    leaf: bool
+    pane: int
+    vertical: bool
+    ratio: float
+    a, b: PaneNode
 var
-  splitOn = false
-  splitDown = false      # stacked (one above the other) instead of side by side
+  splitOn = false        # more than one pane
   activePane = 0
-  panes: array[2, Pane]
+  panes: seq[Pane] = @[Pane(bufId: -1)]
+  paneRoot: PaneNode = PaneNode(leaf: true, pane: 0)
+  paneLast = -1          # the pane that had the focus before the active one (the "other pane" of two-pane commands)
+  paneZoom = false       # the active pane alone, full size, for a while (its layout kept)
+  splitDivs: seq[tuple[x, y, len: int, vertical: bool, node: PaneNode, x0, size: int]]   # the dividers on screen
+  dragDiv = -1           # the divider a drag moves (its index in splitDivs, which are drawn again each frame)
+  dragNode: PaneNode     # … and its split: the index is checked against it
+
+proc paneLeaves(n: PaneNode, acc: var seq[PaneNode]) =
+  if n == nil: return
+  if n.leaf: acc.add n
+  else:
+    paneLeaves(n.a, acc)
+    paneLeaves(n.b, acc)
+
+proc leafOf(n: PaneNode, i: int): PaneNode =
+  if n == nil: return nil
+  if n.leaf: return (if n.pane == i: n else: nil)
+  result = leafOf(n.a, i)
+  if result == nil: result = leafOf(n.b, i)
+
+proc parentOf(n, child: PaneNode): PaneNode =
+  if n == nil or n.leaf: return nil
+  if n.a == child or n.b == child: return n
+  result = parentOf(n.a, child)
+  if result == nil: result = parentOf(n.b, child)
+
+proc paneOrder(): seq[int] =
+  ## the panes in reading order: left to right, top to bottom, as the tree has them
+  var ls: seq[PaneNode]
+  paneLeaves(paneRoot, ls)
+  for l in ls: result.add l.pane
+
+proc otherPane(): int =
+  ## for the commands of two panes (show beside, the other pane): the pane that had the focus before, else the next
+  if not splitOn: return -1
+  if paneLast >= 0 and paneLast < panes.len and paneLast != activePane: return paneLast
+  let ord = paneOrder()
+  ord[(ord.find(activePane) + 1) mod ord.len]
+
+proc panesShowing(id: int): seq[int] =
+  ## the panes other than the active one that show buffer `id`
+  if not splitOn: return
+  for i in 0 ..< panes.len:
+    if i != activePane and panes[i].bufId == id: result.add i
 
 template panelLines: untyped = panelStore[panelKind]
 template panelSel: untyped = panelSelA[panelKind]

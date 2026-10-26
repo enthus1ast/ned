@@ -19,7 +19,7 @@
 import nedplugin
 
 requiresNed(">= 6.25")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 const CharLitLangs = ["nim", "c", "cpp", "rust", "go", "java", "csharp", "kotlin", "zig", "odin", "haskell", "elixir",
                       "gleam", "scala", "swift", "dart"]

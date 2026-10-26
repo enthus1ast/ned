@@ -247,6 +247,15 @@ proc drawStatusBar() =
     if cfgNimTarget != "c": nm.add cfgNimTarget
     if cfgNimMode != "debug": nm.add cfgNimMode
     if nm.len > 0: right.add (nm.join("·"), theme.accent, Action(proc() = openMenuBar(4)), "Build settings")
+  # Telescope, the Markdown preview (a Markdown file, or its preview), the assistant: a tap each
+  right.add (ic("telescope"), theme.dim, Action(proc() = telescope()), "Telescope: every finder (Alt+Shift+F)")
+  if (b.lang.mode == lmMarkdown and b.path.len > 0) or (b.mdSrc != 0 and not b.mdNimDocs):
+    var shown = b.mdSrc != 0
+    for pb in bufs:
+      if pb.mdSrc == b.id and not pb.mdNimDocs: shown = true
+    right.add (ic("markdown") & (if shown: " ✓" else: ""), (if shown: theme.accent else: theme.dim),
+               Action(proc() = cmdMarkdownPreview()),
+               (if shown: "Markdown preview: close it" else: "Markdown preview: beside the file, following your edits"))
   let ais = aiStatus()
   right.add ((if ais.len > 0: ic("ai") & " " & ais else: ic("ai")), (if ais.len > 0: theme.accent else: theme.dim),
              Action(proc() = toggleAssistant()), "AI assistant (Alt+C)")
@@ -257,6 +266,8 @@ proc drawStatusBar() =
     let t = r[0]
     prio.add (if t == pos: 100
               elif r[3].startsWith("AI"): 90
+              elif r[3].startsWith("Markdown preview"): 85
+              elif r[3].startsWith("Telescope"): 80
               elif r[3] == "Encoding — reopen or save with another": (if b.enc.len > 0: 70 else: 10)
               elif r[3] == "Line endings": (if b.crlf: 40 else: 20)
               elif r[3] == "Indentation": 30

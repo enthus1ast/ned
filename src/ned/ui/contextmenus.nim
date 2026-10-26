@@ -259,10 +259,21 @@ proc toastMenu(i: int): seq[MenuItem] =
 
 proc paneHeaderMenu(i: int): seq[MenuItem] =
   let pi = i
-  @[mi("Close this pane", "", proc() =
-      if pi == activePane: focusPane(1 - pi)
+  let par = parentOf(paneRoot, leafOf(paneRoot, i))
+  result = @[mi("Close this pane", (if i == activePane: "Alt+|" else: ""), proc() = closePane(pi)),
+    mi("Close the other panes", "", proc() =
+      focusPane(pi)
       closeSplit()),
-    mi((if splitDown: "Side by side" else: "One above the other"), "", proc() =
-      splitDown = not splitDown
-      needRender = true),
-    mc("View: show file in other pane", "Show this file in the other pane")]
+    msep(),
+    mi("Split right", "", proc() = discard splitPaneOf(pi, false)),
+    mi("Split down", "", proc() = discard splitPaneOf(pi, true))]
+  if par != nil:
+    result.add mi((if par.vertical: "Turn: one above the other" else: "Turn: side by side"), "", proc() =
+      par.vertical = not par.vertical
+      needRender = true)
+  result.add mi((if paneZoom: "Every pane again" else: "This pane alone"), "", proc() =
+    focusPane(pi)
+    toggleZoom())
+  result.add mi("Equal sizes", "", proc() = equalizePanes())
+  result.add msep()
+  result.add mc("View: show file in other pane", "Show this file in the other pane")

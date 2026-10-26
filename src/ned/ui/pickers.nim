@@ -369,6 +369,12 @@ proc pickerKey(k: Key) =
       if dirExists(d): browseFolder(d)
       else: error("No such folder: " & pickQuery)
       return
+  # (a finder of places — files, lines, symbols, Telescope's: Alt+V opens the one chosen in a pane at the right,
+  # Alt+X in a pane below, Alt+Q puts them all in a multibuffer)
+  if k.kind == kChar and k.mods == {mAlt} and k.ch in [ord('v'), ord('x'), ord('q')] and
+     pickKind in {pickFile, pickRecent, pickSymbol, pickBuffer, pickAction}:
+    if k.ch == ord('q'): pickToMultibuffer() else: pickOpenBeside(k.ch == ord('x'))
+    return
   case k.kind
   of kEsc: closePicker()
   of kEnter: acceptPicker()

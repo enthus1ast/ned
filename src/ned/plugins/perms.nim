@@ -46,6 +46,36 @@ type PlugScan = object
   uses: set[PlugPerm]
   seen: array[PlugPerm, string]          # where each was first seen: "plugin.nims:43 gorgeEx"
   why: array[PlugPerm, string]           # what the plugin says it needs it for (permission "shell", "…")
+  progs: bool                            # it gives ned programs to run: a language's run, build or check command,
+                                         # a formatter, a language server
+  ownShell: bool                         # it runs programs itself (or may do anything)
+
+func progOnly(sc: PlugScan): bool = sc.progs and not sc.ownShell
+  ## "shell" only for the programs ned runs for it
+
+func plugProgLine(t: string): string =
+  ## a line that gives ned a program to run for the plugin: what it is ("" none) — a language server
+  ## (languageServer, not a script), a formatter command (formatter "lang", "cmd"), a language's run, build or
+  ## check command (run: "…", .build = "…")
+  var i = t.find("languageServer")
+  if i >= 0 and not t.continuesWith("languageServerScript", i): return "languageServer"
+  i = t.find("formatter")
+  if i >= 0 and t.count('"') - t[0 ..< i].count('"') >= 4: return "formatter"
+  for kw in ["run", "build", "check"]:
+    var k = 0
+    while true:
+      k = t.find(kw, k)
+      if k < 0: break
+      let before = if k > 0: t[k - 1] else: ' '
+      var j = k + kw.len
+      if before notin IdentChars:
+        while j < t.len and t[j] == ' ': inc j
+        if j < t.len and t[j] in {':', '='}:
+          inc j
+          while j < t.len and t[j] == ' ': inc j
+          if j < t.len and t[j] == '"': return kw & " command"
+      k += kw.len
+  ""
 
 proc plugScanText(name, text: string, sc: var PlugScan) =
   ## one source file: its names outside comments and strings, its imports, its permission "…", "…" lines
@@ -152,6 +182,7 @@ proc plugScanText(name, text: string, sc: var PlugScan) =
   for (w, l, _) in words:
     if l in importLines and plugIdentNorm(w) == "macros": importsMacros = true
   template mark(p: PlugPerm, w: string, l: int) =
+    if p == ppShell: sc.ownShell = true
     if p notin sc.uses:
       sc.uses.incl p
       sc.seen[p] = name & ":" & $l & " " & w
@@ -179,6 +210,18 @@ proc plugScanText(name, text: string, sc: var PlugScan) =
       for (s, sl) in strs:
         if sl == l and (s.startsWith("/") or s.startsWith("..") or s.startsWith("~") or ':' in s):
           for p in PlugPerm: mark(p, w & " \"" & s & "\"", l)
+  # a program ned runs for it — a language's run command, a formatter, a language server — is a program it runs
+  var ln = 0
+  for raw in text.split('\n'):
+    inc ln
+    let t = raw.strip
+    if t.startsWith("#"): continue
+    let what = plugProgLine(t)
+    if what.len > 0:
+      sc.progs = true
+      if ppShell notin sc.uses:
+        sc.uses.incl ppShell
+        sc.seen[ppShell] = name & ":" & $ln & " " & what
   # permission "shell", "to send your requests with curl"
   for (w, l, _) in words:
     if plugIdentNorm(w) != "permission": continue
@@ -188,6 +231,7 @@ proc plugScanText(name, text: string, sc: var PlugScan) =
     if mine.len >= 1:
       for p in PlugPerm:
         if mine[0] == $p:
+          if p == ppShell: sc.ownShell = true
           sc.uses.incl p
           if sc.seen[p].len == 0: sc.seen[p] = name & ":" & $l & " permission"
           if mine.len >= 2: sc.why[p] = mine[1]
@@ -201,6 +245,7 @@ proc plugScanDir(dir: string): PlugScan =
       if not (f.endsWith(".nims") or f.endsWith(".nim")): continue
       inc count
       if count > 60 or budget <= 0:
+        result.ownShell = true
         for p in PlugPerm:
           result.uses.incl p
           if result.seen[p].len == 0: result.seen[p] = "too many files to read"

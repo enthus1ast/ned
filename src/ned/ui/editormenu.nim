@@ -11,8 +11,7 @@ proc openFolder(d: string) =
     return
   saveState()                       # remembers this folder's open files for next time
   # the previous project's tabs go; the new project's session comes back
-  splitOn = false
-  activePane = 0
+  closeSplit()
   for b in bufs:
     rememberPos(b)
     lspDidClose(b)
@@ -58,6 +57,18 @@ proc editorMenu(): seq[MenuItem] =
              mc("Toggle comment"), mc("Format document")]
   if hasSel: result.add mc("Format selection (ned's own for Nim and C, or the language server)", "Format selection")
   result.add mc("Surround with…")
+  if b.id in multiBufs:
+    result.add msep()
+    result.add msub("Multibuffer", @[mc("Multibuffer: open the file here", "Open the file here"),
+      mc("Multibuffer: more lines around this piece", "More lines around this piece"),
+      mc("Multibuffer: more lines above this piece", "More lines above"),
+      mc("Multibuffer: more lines below this piece", "More lines below"),
+      mc("Multibuffer: remove this piece", "Remove this piece"), msep(),
+      mc("Multibuffer: next piece", "Next piece"), mc("Multibuffer: previous piece", "Previous piece"),
+      mc("Multibuffer: refresh (each piece as its file has it now)", "Refresh")])
+  elif b.path.len > 0:
+    result.add mc("Multibuffer: add the selection", (if hasSel: "Add the selection to a multibuffer"
+                                                       else: "Add this line to a multibuffer"))
   let ln = b.primary.head.line
   if ln < b.git.len and b.git[ln] != 0:
     result.add msep()

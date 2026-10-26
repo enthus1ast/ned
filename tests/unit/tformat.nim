@@ -728,9 +728,17 @@ suite "NimScript: .nimble and .nims (6.19)":
           "  exec \"nim r t.nim\"\nbefore install:\n  echo \"x\"\n--opt:speed\n--path:\"../src\"\n" &
           "when defined(linux):\n  --passL:\"-lm\"\nif existsEnv(\"X\"): echo \"x\"\nlet y = 1\n"
 
-  test "fields written `name = value` each (nph's way) stay so; a requires over several lines stays as written (6.22)":
+  test "fields written `name = value` each lined up (6.31) — left so with alignNimbleFields off (nph's way); a requires over several lines stays as written (6.22)":
     let plain = "version = \"0.14.7\"\nauthor = \"Araq\"\nlicense = \"MIT\"\n"
+    check scriptFmt(plain) == "version = \"0.14.7\"\nauthor  = \"Araq\"\nlicense = \"MIT\"\n"
+    FmtScriptAlign = false
     check scriptFmt(plain) == plain
+    FmtScriptAlign = true
+    let nt = "mode = ScriptMode.Verbose\n\npackageName = \"nimtortoise\"\nversion = \"0.3.0\"\nauthor = \"David\"\n" &
+             "description = \"Fork\"\nlicense = \"MIT\"\nsrcDir = \"src\"\nbin = @[\"nimtortoise\"]\n"
+    check scriptFmt(nt) == "mode = ScriptMode.Verbose\n\npackageName = \"nimtortoise\"\nversion     = \"0.3.0\"\n" &
+          "author      = \"David\"\ndescription = \"Fork\"\nlicense     = \"MIT\"\nsrcDir      = \"src\"\n" &
+          "bin         = @[\"nimtortoise\"]\n"
     let req = "requires \"nim >= 1.6.16\",\n         \"results\",\n         \"stew >= 0.5.0\",\n" &
               "         \"bearssl >= 0.2.8\",\n         \"httputils\",\n         \"unittest2\"\n"
     check scriptFmt(req) == req

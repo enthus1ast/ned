@@ -82,14 +82,25 @@ proc cmdCompareWithFile() =
   openActions("Compare " & b.name & " with…", items)
 
 proc cmdMarkdownPreview() =
-  ## the Markdown file rendered, beside it; it follows your edits
+  ## the Markdown file rendered, beside it; it follows your edits — again (or in the preview): the preview closed
   let b = buf()
+  if b.mdSrc != 0 and not b.mdNimDocs:
+    # (in the preview: it closes, its file in front)
+    let src = bufById(b.mdSrc)
+    closeBufferAt(curBuf)
+    if src != nil:
+      let k = bufs.find(src)
+      if k >= 0: curBuf = k
+    info("Preview closed")
+    return
   if b.lang.mode != lmMarkdown:
     info("Open a Markdown file first")
     return
-  for pb in bufs:
-    if pb.mdSrc == b.id:
-      info("The preview is already open")
+  for i in countdown(bufs.high, 0):
+    if bufs[i].mdSrc == b.id and not bufs[i].mdNimDocs:
+      closeBufferAt(i)
+      if i < curBuf: dec curBuf
+      info("Preview closed")
       return
   let pv = openScratch("Preview: " & b.name, "", b.lang)
   pv.mdSrc = b.id
@@ -97,12 +108,5 @@ proc cmdMarkdownPreview() =
   let ci = bufs.find(b)
   if ci < 0: return
   curBuf = ci
-  let wasSplit = splitOn
-  splitEditor(false)
-  if not wasSplit:
-    # the file on the left (keeps the focus), its preview on the right
-    panes[1] = Pane(bufId: pv.id, snap: snapView(pv))
-    activePane = 0
-  else: panes[1 - activePane] = Pane(bufId: pv.id, snap: snapView(pv))
-  needRender = true
+  showBeside(b, pv)          # (the file on the left keeps the focus, its preview on the right)
   info("Preview on the right — it follows your edits")

@@ -161,20 +161,8 @@ proc nifOpenBeside(src: Buffer, nifPath: string) =
   if v == nil: return
   v.readOnly = true
   nifv = (src.id, v.id, -1, false)
-  let vi = curBuf
   curBuf = srcIdx
-  if not splitOn:
-    splitEditor(false)
-    panes[0].bufId = src.id
-    panes[0].snap = snapView(src)
-    curBuf = vi
-    panes[1].bufId = v.id
-    panes[1].snap = snapView(v)
-    focusPane(0)
-  else:
-    let other = 1 - activePane
-    panes[other].bufId = v.id
-    panes[other].snap = snapView(v)
+  showBeside(src, v)
   info("The NIF of " & extractFilename(src.path) & " beside it — each follows the cursor in the other; F12 in it " &
        "goes to the source")
   needRender = true
@@ -207,12 +195,13 @@ proc nifReveal(id, line: int) =
   if b == nil or line < 0 or line >= b.lines.len: return
   if b == buf():
     if line < b.topLine or line >= b.topLine + max(3, textH) - 1: b.topLine = max(0, line - max(3, textH) div 3)
-  elif splitOn and panes[1 - activePane].bufId == id:
-    let h = max(3, panes[1 - activePane].textH)
-    let s = addr panes[1 - activePane].snap
-    if line < s.topLine or line >= s.topLine + h - 1:
-      s.topLine = max(0, line - h div 3)
-      s.topSub = 0
+  else:
+    for o in panesShowing(id):
+      let h = max(3, panes[o].textH)
+      let s = addr panes[o].snap
+      if line < s.topLine or line >= s.topLine + h - 1:
+        s.topLine = max(0, line - h div 3)
+        s.topSub = 0
   needRender = true
 
 proc nifPump() =

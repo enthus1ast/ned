@@ -465,6 +465,7 @@ proc lspExtras(b: Buffer) =
 
 proc cmdDefinition() =
   if ceIsView(buf()) and ceDefinition(buf()): return     # (Compiler Explorer: a label, a function of the file)
+  if mbDefinition(): return                              # (a multibuffer: looked up in the file of the piece)
   let b = buf()
   if pnakDefinition(b, b.primary.head): return   # pnak.nif: the package's checkout (not its URL in the browser)
   if openLinkAt(b, b.primary.head): return       # a link: #include "x.h", @import, a URL in a comment

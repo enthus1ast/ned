@@ -166,7 +166,7 @@ proc mdOpenLink(target, baseDir: string, pv: Buffer) =
         src.setSingle(Pos(line: i, col: 0))
         src.centerOn(Pos(line: i, col: 0))
         # (the file in the other pane: that pane's own view of it moved, else drawing it puts the old one back)
-        for j in 0 .. 1:
+        for j in 0 ..< panes.len:
           if splitOn and j != activePane and panes[j].bufId == src.id:
             panes[j].snap.cursors = src.cursors
             panes[j].snap.prim = src.prim

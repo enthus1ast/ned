@@ -85,17 +85,51 @@ also does more with a first character:
 *Switch buffer…* lists the open files only. Go to definition, F12, opens files too — the files of the Nim toolchain
 and installed packages it lands in open read-only (`files.protectLibraries`).
 
-## Tabs and splits
+## Tabs and panes
 
 - Each open file has a tab: Alt+← and Alt+→ (or Ctrl+PgUp, Ctrl+PgDn) go to the one before and after, Alt+1 … Alt+9
   to the first nine. Ctrl+W closes a tab (asking about unsaved changes), *Close other tabs* the rest, Alt+Shift+T
   opens the last one you closed again. *Toggle tab bar* hides the bar.
-- **Splits**: Alt+\ (*View: split editor right*) and *View: split editor down* show two files — or two places in one —
-  side by side; each pane has its own header bar. Alt+| closes the split, *View: show file in other pane* shows the
-  current file in the other one, and dragging the bar between them changes their sizes (*View: reset split and dock
-  sizes*).
+- **Panes**: Alt+\ (*View: split editor right*) and *View: split editor down* cut the editor in two — and each pane
+  again, as many times as there is room: two files side by side, three columns, one large file with two stacked
+  beside it, or two places in one file. Each pane has its own header bar with its file; a click on a pane (or its
+  header) gives it the focus. See [Panes](#panes-tiling) below.
+- **Markdown**: *Markdown: open preview to the side* — or **M↓** in the status bar of a Markdown file — shows it
+  rendered beside it, following your edits; again (or M↓ in the preview) closes it.
 - **Comparing**: *File: compare with saved* shows your unsaved changes as a diff, *File: compare with another file…*
   two files side by side.
+
+## Panes (tiling)
+
+The editor area can be cut into as many panes as fit — each side by side with its neighbour or one above it, each
+showing a file of the open tabs with its own place in it. The pane with the focus has a bright mark at the left of
+its header; the others keep where they were.
+
+| to | keys | or |
+|---|---|---|
+| cut the pane in two, the new one at the right · below | Alt+\ (with one pane) | *View: split editor right* · *View: split editor down*, the header's menu |
+| go to the next pane · the one before | Alt+\ | *View: focus next pane* · *View: focus previous pane* |
+| go to the pane at the left, right, above, below | Ctrl+Alt+Shift+arrows | *View: focus the pane to the left …*, a click |
+| make the pane wider, narrower, taller, shorter | Ctrl+Alt+arrows | drag the line between two panes |
+| close the pane (its file stays open in its tab) | Alt+\| | the × in its header |
+| close every other pane | | *View: close the other panes* |
+| swap the file with the pane beside it | | *View: swap with the pane to the right …* |
+| the pane alone, full size — again: every pane | | *View: this pane alone (zoom)*, the header's menu |
+| side by side ↔ one above the other | | *View: turn the split*, the header's menu |
+| every pane the same size | | *View: equal pane sizes* |
+| show the current file in the other pane | | *View: show file in other pane* |
+
+Ready-made layouts lay out the open files at once: *View: panes: two columns*, *three columns*, *grid of four* and
+*one large and three* (the current file large at the left, the next three stacked at the right). A tab dragged off
+the tab bar onto a pane shows it there; onto the right or bottom quarter of a pane, it cuts that pane in two.
+
+In vim mode, Ctrl+W works as in vim: h, j, k, l to the pane that way, w to the next, s and v split, q closes the pane,
+o keeps only this one, = makes them the same size, x swaps with the next, H J K L move the file that way; `:sp`, `:vs`,
+`:only`, and `:q` or `:close` close the pane when there are several.
+
+On a narrow screen (a phone held upright) two side-by-side panes are shown one above the other. The panes and their
+files come back the next time the folder opens (`ui.restoreLayout`). Plugins can split, focus and fill panes too —
+see [the plugin API](../plugins/README.md).
 
 ## Files on disk
 

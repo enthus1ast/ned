@@ -25,8 +25,9 @@ clipboard, **oil** changes files — that is what it is for —, **commit-helper
 **sqlite** runs sqlite3, **web-preview** opens your browser and starts a web server, **mermaid** runs mmdc,
 **license-header** runs git and writes headers into files, **dotenv** writes an `.env.example`, **transform** puts a
 sum on the clipboard, **yank-ring** reads the clipboard, **import-graph** reads a project's import lines with find
-and awk, **release-helper** runs git, **db-client** runs psql or mysql, **code-snap** writes a picture beside your
-file when you set it to, and **todo** writes `TODO.md` when it is not open in a tab. The others only edit; harpoon,
+and awk, **release-helper** runs git, **db-client** runs psql or mysql, **code-snap** runs the program that draws its PNG
+(and writes a picture beside your file when you set it to), the language plugins that start a language server or a
+formatter, or give F5 a command, run those programs, and **todo** writes `TODO.md` when it is not open in a tab. The others only edit; harpoon,
 pomodoro, time-tracker, yank-ring and char-picker keep their data in their own folder, which needs no permission.
 
 The plugins you have turned on are listed in the setting `plugins.bundled`. A project cannot set it until you
@@ -83,7 +84,7 @@ it. In short:
 | **import-graph** | how a Nim project's modules import one another: a Mermaid flowchart and a tree in a Markdown tab, and the modules that import the file you are in |
 | **release-helper** | a Nim package's release: the version bumped in the `.nimble` file (and a `version.nim`), a CHANGELOG entry from git's log since the last tag, the tag made and pushed when you choose |
 | **db-client** | SQL run on PostgreSQL or MySQL/MariaDB with psql or mysql: the statement at the cursor (Ctrl+Enter) or the file, the rows as a table in a tab, an error at its line. Connections in `plugins.db-client.connections`; passwords stay in the programs' own files, never in ned's settings |
-| **code-snap** | the selected code as a picture — an SVG or an HTML page of a window with its lines, coloured, numbered — to put in a README or a post |
+| **code-snap** | the selected code as a picture — a PNG, an SVG or an HTML page of a window with its lines, coloured, numbered — to put in a README or a post. The PNG is drawn by rsvg-convert (librsvg), resvg, ImageMagick, Inkscape or Chromium; with none of them, it asks which to install and runs the command (pkg in Termux, apt, dnf, pacman, Homebrew …) in the terminal |
 
 ## Languages
 

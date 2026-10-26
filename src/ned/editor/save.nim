@@ -192,9 +192,7 @@ proc closeBufferAt(i: int) =
   embClose(b)
   removeSwap(b)
   let wasCur = i == curBuf
-  if splitOn and panes[1 - activePane].bufId == b.id:
-    splitOn = false          # the other pane showed it: back to one editor
-    activePane = 0
+  dropBufFromPanes(b.id)     # (the other panes that showed it close)
   bufs.delete(i)
   if bufs.len == 0:
     bufs.add newBuffer()

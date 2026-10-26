@@ -246,6 +246,18 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Menu bar | F10 |
 | Move line down | Alt+↓ |
 | Move line up | Alt+↑ |
+| Multibuffer: add the selection |  |
+| Multibuffer: every TODO of the project |  |
+| Multibuffer: more lines above this piece |  |
+| Multibuffer: more lines around this piece |  |
+| Multibuffer: more lines below this piece |  |
+| Multibuffer: next piece |  |
+| Multibuffer: open the file here |  |
+| Multibuffer: previous piece |  |
+| Multibuffer: refresh (each piece as its file has it now) |  |
+| Multibuffer: remove this piece |  |
+| Multibuffer: show the one in use |  |
+| Multibuffer: the open files, whole |  |
 | New file | Ctrl+N |
 | New file at path… |  |
 | New folder… |  |
@@ -541,19 +553,36 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Unfold all |  |
 | Unindent lines (outdent, dedent) | Shift+Tab |
 | Upper case |  |
-| View: close split | Alt+\| |
-| View: focus other pane | Alt+\ |
+| View: close the other panes |  |
+| View: close this pane | Alt+\| |
+| View: equal pane sizes |  |
+| View: focus next pane | Alt+\ |
+| View: focus previous pane |  |
+| View: focus the pane above | Ctrl+Alt+Shift+↑ |
+| View: focus the pane below | Ctrl+Alt+Shift+↓ |
+| View: focus the pane to the left | Ctrl+Alt+Shift+← |
+| View: focus the pane to the right | Ctrl+Alt+Shift+→ |
 | View: ligatures (off › font › symbols) |  |
 | View: make pane/dock narrower | Ctrl+Alt+← |
 | View: make pane/dock wider | Ctrl+Alt+→ |
 | View: make panel/pane shorter | Ctrl+Alt+↓ |
 | View: make panel/pane taller | Ctrl+Alt+↑ |
+| View: panes: grid of four |  |
+| View: panes: one large and three |  |
+| View: panes: three columns |  |
+| View: panes: two columns |  |
 | View: reset split and dock sizes |  |
 | View: set ruler columns… |  |
 | View: show file in other pane |  |
 | View: split editor down |  |
 | View: split editor right | Alt+\ |
+| View: swap with the pane above |  |
+| View: swap with the pane below |  |
+| View: swap with the pane to the left |  |
+| View: swap with the pane to the right |  |
+| View: this pane alone (zoom) |  |
 | View: toggle rulers |  |
+| View: turn the split (side by side ↔ one above the other) |  |
 | Welcome page |  |
 | Workspace: add a folder… |  |
 | Workspace: open a workspace file… |  |

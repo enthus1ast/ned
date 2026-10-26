@@ -2,9 +2,14 @@
 
 const MenuNames = ["File", "Edit", "View", "Go", "Run", "Git", "Nim", "AI", "Plugins", "Help"]
 
+const CmdRenamed = {"View: focus other pane": "View: focus next pane",       # (6.31: tiled panes)
+                    "View: close split": "View: close this pane"}
+
 proc cmdByName(name: string): int =
   for i, c in commands:
     if c.name == name: return i
+  for (o, n) in CmdRenamed:
+    if o == name: return cmdByName(n)
   -1
 
 proc runCmd(name: string) =
@@ -71,6 +76,15 @@ proc menuItems(i: int): seq[MenuItem] =
     @[mc("Undo"), mc("Redo"), mc("Undo history…"), msep(), mc("Cut"), mc("Copy"), mc("Paste"), msep(), mc("Find"), mc("Replace"),
       mc("Search in project…", "Find in files…"), mc("Search: replace in files…", "Replace in files…"),
       mc("Open results in a multibuffer (edit many files at once)", "Edit search results together (multibuffer)"),
+      msub("Multibuffer", @[mc("Open results in a multibuffer (edit many files at once)", "From the search results"),
+        mc("Problems: all of them with their code (multibuffer)", "From the problems"),
+        mc("Multibuffer: every TODO of the project", "From the TODOs"),
+        mc("Multibuffer: the open files, whole", "From the open files"), msep(),
+        mc("Multibuffer: add the selection", "Add the selection"), mc("Multibuffer: show the one in use", "Show it"),
+        msep(), mc("Multibuffer: next piece", "Next piece"), mc("Multibuffer: previous piece", "Previous piece"),
+        mc("Multibuffer: more lines around this piece", "More lines around the piece"),
+        mc("Multibuffer: remove this piece", "Remove the piece"), mc("Multibuffer: open the file here", "Open the file here"),
+        mc("Multibuffer: refresh (each piece as its file has it now)", "Refresh")]),
       msep(), mc("Quick fix / code actions…", "Quick fix…"), mc("Toggle comment"),
       mc("TODO: insert a tag comment…", "Insert TODO comment…"), mc("Format document"), mc("Format selection (ned's own for Nim and C, or the language server)", "Format selection"),
       mc("Duplicate line/selection"), mc("Move line up"), mc("Move line down"),
@@ -119,10 +133,18 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("Toggle exception hints", "Exception hints", chk(cfgRaisesHints)), mc("Toggle auto hover", "Auto hover", chk(cfgAutoHover)),
         mc("Toggle auto-completion", "Auto completion", chk(cfgAutoComplete)), mc("Toggle code lens", "Run buttons (code lens)", chk(cfgCodeLens))]),
       msub("Folding", @[mc("Fold"), mc("Unfold"), mc("Fold all"), mc("Unfold all"), mc("Fold level 2")]),
-      msub("Split", @[mc("View: split editor right", "Split right", chk(splitOn and not splitDown)),
-        mc("View: split editor down", "Split down", chk(splitOn and splitDown)),
-        mc("View: focus other pane", "Focus other pane"), mc("View: show file in other pane", "Show file in other pane"),
-        mc("View: close split", "Close split")]),
+      msub("Panes", @[mc("View: split editor right", "Split right"), mc("View: split editor down", "Split down"),
+        mc("View: close this pane", "Close this pane"), mc("View: close the other panes", "Close the other panes"),
+        msep(), mc("View: focus next pane", "Next pane"), mc("View: focus the pane to the left", "Pane to the left"),
+        mc("View: focus the pane to the right", "Pane to the right"), mc("View: focus the pane above", "Pane above"),
+        mc("View: focus the pane below", "Pane below"), msep(),
+        mc("View: swap with the pane to the right", "Swap with the pane to the right"),
+        mc("View: swap with the pane below", "Swap with the pane below"),
+        mc("View: show file in other pane", "Show this file in the other pane"),
+        mc("View: this pane alone (zoom)", "This pane alone", chk(paneZoom)),
+        mc("View: equal pane sizes", "Equal sizes"), msep(),
+        mc("View: panes: two columns", "Two columns"), mc("View: panes: three columns", "Three columns"),
+        mc("View: panes: grid of four", "Grid of four"), mc("View: panes: one large and three", "One large and three")]),
       msep(), mc("Toggle zen mode", "Zen mode", chk(zenMode)),
       mc("Toggle vim mode", "Vim mode", chk(cfgVim)), mc("Toggle mouse", "Mouse", chk(cfgMouse)),
       mc("Accessibility mode: on/off (ASCII, letters beside colours, a high-contrast theme)", "Accessibility mode",

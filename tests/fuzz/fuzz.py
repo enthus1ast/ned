@@ -4,7 +4,7 @@ palette commands and resizes at it. Reports crashes (non-zero exit), hangs and l
 
   NEDBIN=./ned_debug python3 tests/fuzz/fuzz.py [SEED [SECONDS [MODE]]]
   MODE: mixed · vim · helix · emacs · palette · refactor · ai · git · fixes · c · emit · strings · ws · term · a11y · hex ·
-        kitty …
+        kitty · panes (tiled panes and multibuffers) …
 
 It works in a scratch home of its own (NED_FUZZ_HOME, default /tmp/ned-fuzz-UID): ned's settings, state and
 a copy of the test project live there. Random palette commands can run tasks, git and shell commands in that
@@ -374,6 +374,34 @@ def token():
                                        '\x10>Reload from disk\r', '\x1bm'])
         if r < 0.9: return '\x1a'
         return rnd.choice(['\x101\r', '\x10src/demo/m', '\x1b1', '\x1b2', '\x1b3'])
+    if MODE == 'panes' and rnd.random() < 0.45:
+        # tiled panes (6.31): splits, closes, focus moves, dividers dragged, zoom, layouts; multibuffers: made,
+        # edited, grown, pieces taken out, saved
+        r = rnd.random()
+        if r < 0.3: return rnd.choice(['\x1b\\', '\x1b|', '\x1b[1;8A', '\x1b[1;8B', '\x1b[1;8C', '\x1b[1;8D',
+                                       '\x1b[1;7A', '\x1b[1;7B', '\x1b[1;7C', '\x1b[1;7D'])
+        if r < 0.55: return '\x10>' + rnd.choice([
+            'View: split editor right', 'View: split editor down', 'View: close this pane', 'View: close the other panes',
+            'View: focus next pane', 'View: focus previous pane', 'View: swap with the pane to the right',
+            'View: swap with the pane below', 'View: this pane alone (zoom)', 'View: equal pane sizes',
+            'View: turn the split (side by side ↔ one above the other)', 'View: panes: two columns',
+            'View: panes: three columns', 'View: panes: grid of four', 'View: panes: one large and three',
+            'View: show file in other pane', 'Multibuffer: the open files, whole', 'Multibuffer: add the selection',
+            'Multibuffer: show the one in use', 'Multibuffer: next piece', 'Multibuffer: previous piece',
+            'Multibuffer: more lines around this piece', 'Multibuffer: more lines above this piece',
+            'Multibuffer: remove this piece', 'Multibuffer: open the file here',
+            'Multibuffer: refresh (each piece as its file has it now)', 'Multibuffer: every TODO of the project',
+            'Problems: all of them with their code (multibuffer)', 'Close tab']) + '\r'
+        if r < 0.75:
+            # a press on a divider-ish column and a drag along the row
+            x, y = rnd.randint(20, 150), rnd.randint(3, 40)
+            s = ESC + '[<0;%d;%dM' % (x, y)
+            for _ in range(rnd.randint(1, 4)):
+                x = max(1, min(170, x + rnd.randint(-12, 12)))
+                s += ESC + '[<32;%d;%dM' % (x, y + rnd.randint(-3, 3))
+            return s + ESC + '[<0;%d;%dm' % (x, y)
+        if r < 0.85: return rnd.choice(['\x13', '\x1a', '\x19', '\x1b[12~', '\r'])
+        return rnd.choice(['\x1b1', '\x1b2', '\x1b3', '\x10demo.nim\r', '\x10words.nim\r'])
     if MODE == 'fixes' and rnd.random() < 0.3:
         # a line with a problem, its quick fixes, one of them; a save now and then for nim check
         r = rnd.random()
@@ -382,7 +410,7 @@ def token():
         seq = '\x07' + str(rnd.randint(1, 42)) + '\r' + ESC + '\r'
         seq += ESC + '[B' * rnd.randint(0, 6)
         return seq + rnd.choice(['\r', '\r', '\r', ESC, 'Fix all\r', 'Convert\r', 'AI\r'])
-    if MODE in ('palette', 'vim', 'nimsuggest', 'nls', 'helix', 'emacs', 'a11y', 'emit', 'strings', 'fixes', 'c', 'ws', 'term', 'refactor', 'ai', 'git') and rnd.random() < 0.06:
+    if MODE in ('palette', 'vim', 'nimsuggest', 'nls', 'helix', 'emacs', 'a11y', 'emit', 'strings', 'fixes', 'c', 'ws', 'term', 'refactor', 'ai', 'git', 'panes') and rnd.random() < 0.06:
         c = rnd.choice(CMDS)
         return '\x10' + '>' + c + '\r'
     r = rnd.random()

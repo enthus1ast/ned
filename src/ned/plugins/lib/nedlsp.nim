@@ -17,6 +17,14 @@
 ##
 ## The library keeps the open documents' text (`docText(uri)`), answers initialize, shutdown and exit, and
 ## converts the client's columns (UTF-16 or UTF-8, as agreed) to byte offsets in the line (`byteCol`).
+##
+## A server is a script of its own: it runs in its own process, with its folder as the current folder, and it
+## cannot use `nedplugin` (it talks to the editor, not to ned's plugin host). It handles one message at a time,
+## in the order they come. Its standard output is the protocol's: a line it writes that is not a message (an
+## `echo` while you debug it) goes to the bridge's standard error, whose last lines ned shows when the server
+## stops; `showMessage` puts an error or a warning in ned's status line. Try it on its own with
+## `ned --lsp-bridge server.nims` and a few messages typed in, or from another editor (Helix, Neovim …): its
+## language client runs `ned` with the arguments `--lsp-bridge /path/to/server.nims`.
 
 import std/[json, tables, strutils]
 export json, strutils, tables
@@ -24,13 +32,19 @@ export json, strutils, tables
 var
   requests: Table[string, proc(params: JsonNode): JsonNode]
   notes: Table[string, proc(params: JsonNode)]
-  docs*: Table[string, string]           ## uri → the document's text, as the client has it
-  docVersion*: Table[string, int]
-  utf8* = false                          ## the client counts columns in bytes (else UTF-16 code units)
+  docs*: Table[string, string]           ## The open documents' text by their URI ("file:///home/you/a.md"),
+    ## as the client has it now, unsaved edits too. The library keeps it from didOpen, didChange (whole or in
+    ## parts) and didClose; read it with `docText`.
+  docVersion*: Table[string, int]        ## The open documents' versions by their URI: the number the client
+    ## gave with its last didOpen or didChange.
+  utf8* = false                          ## True when the client counts columns in bytes (it offered UTF-8
+    ## positions at initialize); else it counts UTF-16 code units, the protocol's default. `byteCol`,
+    ## `clientCol`, `lspRange` and `wordAt` count as it says.
   shuttingDown = false
 
 proc send*(j: JsonNode) =
-  ## a message to the client
+  ## Writes a message to the client, as one line of JSON (`ned --lsp-bridge` gives it the protocol's framing).
+  ## The answers to requests and `notify` use it; a server seldom needs it itself.
   when defined(nimscript):
     echo $j
   else:
@@ -38,30 +52,55 @@ proc send*(j: JsonNode) =
     stdout.flushFile()
 
 proc onRequest*(meth: string, cb: proc(params: JsonNode): JsonNode) =
-  ## answer a request ("textDocument/hover", "textDocument/completion" …): the result (newJNull() for none);
-  ## raise ValueError to answer with an error
+  ## Answers the client's requests of the method `meth` ("textDocument/hover", "textDocument/completion",
+  ## "textDocument/definition" …): `cb` gets the request's params and returns its result (`newJNull()` for none).
+  ## Raise an exception to answer with an error: its message goes to the client. One callback for each method —
+  ## a second takes the first's place. A request with no callback is answered "not supported". The library
+  ## answers initialize and shutdown itself (an `onRequest("initialize")` callback is called too, for the
+  ## client's params). Say what the server answers in `serve`'s capabilities.
+  ##
+  ##     onRequest("textDocument/definition") do (params: JsonNode) -> JsonNode:
+  ##       let uri = params["textDocument"]["uri"].getStr
+  ##       %*{"uri": uri, "range": lspRange(0, 0, 0, "")}     # (the start of the same file)
   requests[meth] = cb
 proc onNotification*(meth: string, cb: proc(params: JsonNode)) =
-  ## a notification (didOpen, didChange, didSave and didClose are kept by the library first)
+  ## Takes the client's notifications of the method `meth` ("textDocument/didOpen", "textDocument/didSave",
+  ## "workspace/didChangeConfiguration" …): `cb` gets their params. For didOpen, didChange and didClose the
+  ## library has updated `docs` before `cb` runs. An exception in `cb` goes to the client's log (`logMessage`).
+  ##
+  ##     onNotification("textDocument/didSave") do (params: JsonNode):
+  ##       check(params["textDocument"]["uri"].getStr)
   notes[meth] = cb
 
 proc notify*(meth: string, params: JsonNode) = send(%*{"jsonrpc": "2.0", "method": meth, "params": params})
-  ## a notification to the client (the editor): `notify("window/logMessage", %*{"type": 3, "message": "hi"})`
+  ## Sends the client a notification of the method `meth` with its params:
+  ## `notify("window/logMessage", %*{"type": 3, "message": "hi"})`.
 proc logMessage*(s: string, kind = 3) = notify("window/logMessage", %*{"type": kind, "message": s})
-  ## a line in the client's log of this server (kind: 1 error, 2 warning, 3 information, 4 log)
+  ## Writes `s` as a line of the client's log of this server (`kind`: 1 error, 2 warning, 3 information, 4 log):
+  ## other editors keep one (Neovim's :LspLog); ned does not show it — use `showMessage` for what you must see.
 proc showMessage*(s: string, kind = 3) = notify("window/showMessage", %*{"type": kind, "message": s})
-  ## a message the client shows (kind: 1 error, 2 warning, 3 information)
+  ## A message the client shows to the person using it (`kind`: 1 error, 2 warning, 3 information). ned shows an
+  ## error in its status line and as a note in the corner, a warning in its status line, and information not at
+  ## all.
 proc publishDiagnostics*(uri: string, diagnostics: JsonNode) =
-  ## diagnostics: [{"range": …, "severity": 1, "message": "…"}]
+  ## Sets the document's diagnostics — the problems the editor underlines and lists — in place of the ones sent
+  ## for it before; an empty array clears them. `diagnostics` is a JSON array of
+  ## {"range": …, "severity": 1 error · 2 warning · 3 information · 4 hint, "message": "…", "source": "…"}.
+  ##
+  ##     publishDiagnostics(uri, %*[{"range": lspRange(0, 0, 5, line), "severity": 2, "message": "too short"}])
   notify("textDocument/publishDiagnostics", %*{"uri": uri, "diagnostics": diagnostics})
 
 proc docText*(uri: string): string = docs.getOrDefault(uri)
-  ## the document's text as the client has it now (its unsaved edits too); "" for one not open
+  ## The document's text as the client has it now, its unsaved edits too; "" for one that is not open.
 proc docLines*(uri: string): seq[string] = docText(uri).split('\n')
-  ## the document's lines (docText split at its line ends)
+  ## The document's lines: `docText` split at its line ends ("\n"). Line i is the protocol's line i.
 
 proc byteCol*(line: string, character: int): int =
-  ## the client's column → a byte offset in the line
+  ## Turns the client's column in `line` (a position's "character": UTF-16 code units, or bytes when `utf8`)
+  ## into a byte offset in the line, as Nim's strings count; past the end gives the line's length.
+  ##
+  ##     let l = docLines(uri)[p["line"].getInt]
+  ##     let c = byteCol(l, p["character"].getInt)     # l[c] is the character at the position
   if utf8: return min(character, line.len)
   var u = 0
   var i = 0
@@ -73,7 +112,7 @@ proc byteCol*(line: string, character: int): int =
   min(i, line.len)
 
 proc clientCol*(line: string, b: int): int =
-  ## a byte offset in the line → the client's column
+  ## Turns a byte offset `b` in `line` into the client's column: for the positions a server sends.
   if utf8: return b
   var i = 0
   while i < min(b, line.len):
@@ -83,11 +122,16 @@ proc clientCol*(line: string, b: int): int =
     i += n
 
 proc lspRange*(line, a, e: int, text: string): JsonNode =
-  ## a range on one line given in bytes, as the client counts
+  ## A range on line `line` (from 0) from byte `a` to byte `e` of `text`, the line's text, as the client counts
+  ## columns: what diagnostics, hover ranges, locations and edits need.
+  ##
+  ##     let k = l.find("TODO")
+  ##     if k >= 0: diags.add %*{"range": lspRange(i, k, k + 4, l), "severity": 3, "message": "a TODO"}
   %*{"start": {"line": line, "character": clientCol(text, a)}, "end": {"line": line, "character": clientCol(text, e)}}
 
 proc wordAt*(params: JsonNode): string =
-  ## the word at a request's position (textDocument + position)
+  ## The word (letters, digits, _) at a request's position — params with "textDocument" and "position", as
+  ## hover, completion and definition have — or "" when there is none.
   let uri = params{"textDocument"}{"uri"}.getStr
   let ls = docLines(uri)
   let ln = params{"position"}{"line"}.getInt
@@ -174,7 +218,13 @@ proc handle(j: JsonNode, caps: JsonNode) =
     except CatchableError as e: logMessage(meth & ": " & e.msg, 1)
 
 proc serve*(capabilities: JsonNode = nil) =
-  ## the server's loop: the capabilities it has ({"hoverProvider": true, "completionProvider": {}} …)
+  ## The server's loop: reads the client's messages and calls the callbacks, one message at a time, until the
+  ## client says exit. Call it last, at the end of the file. `capabilities` say what the server does, as the
+  ## protocol's ServerCapabilities — {"hoverProvider": true, "completionProvider": {"triggerCharacters": ["."]},
+  ## "definitionProvider": true, "documentSymbolProvider": true} …; the library adds "textDocumentSync" (open and
+  ## close, changes in parts, saves) when they do not say, and the position encoding the client offered.
+  ##
+  ##     serve(%*{"hoverProvider": true, "completionProvider": {}})
   while true:
     var line = ""
     try:

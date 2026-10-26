@@ -50,6 +50,8 @@ var
   FmtDocCode* = false      # the Nim code in ## comments (```nim, .. code-block:: nim) formatted too
   FmtReflow* = false   # long ## doc comments re-wrapped at the line length
   FmtReflowPlain* = false   # … and long # comments of prose (not commented-out code, banners or directives)
+  FmtScriptAlign* = true  # (with FmtScript) a run of package fields lined up even when each is written `name =
+                          # value` (nph's way) — as nimble's template writes them (nim.format.alignNimbleFields)
   FmtScript* = false   # a NimScript file (.nims, .nimble): its package fields lined up, switches, task headers,
                        # short `if x: y` and lines with a comment at the end kept as written
 

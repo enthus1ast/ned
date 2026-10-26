@@ -16,7 +16,7 @@ import nedplugin
 import std/[strutils, algorithm, base64, uri, json]
 
 requiresNed(">= 6.25")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("clipboard", "Transform: add up the numbers puts the sum on the clipboard")
 
 # ── what is worked on: the selected lines, the selection, the file ──

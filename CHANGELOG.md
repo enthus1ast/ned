@@ -1,6 +1,26 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-630). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-631). Older releases:
+
+## What's new in 6.30
+
+6.30 is about themes: **Shades of Purple** (and its Super Dark), Foxoman's **ClassicBlue** for the whole editor and
+his **Nebula** themes — Pulse, Nova, Nord, Serenity, Glow and Dawn —, **true black for any dark theme** on an OLED
+screen, and five themes left out that were another one under another name.
+
+**New themes.** `shades-of-purple`, `shades-of-purple-super-dark`, `classic-blue` (its blue editor and dark bars),
+`nebula-pulse`, `nebula-nova`, `nebula-nord`, `nebula-serenity`, `nebula-glow` and `nebula-dawn` — each with its
+title bar, docks and status bar in its own colours. A colour that read below 4.5:1 on its background (3:1 for
+comments) was lifted to it, its hue kept, so they read on a phone in daylight too. Nebula Void is ned's own `slate`.
+[Themes](docs/guide/themes.md#the-built-in-themes).
+
+**True black** (`theme.trueBlack`): any dark theme on true black — the editor, its bars and docks black, so an OLED
+screen's pixels are off where nothing is written; popups, menus and the current line a little lifted above it; the
+text, the syntax and the selection in the theme's own colours.
+
+**Fewer, different themes.** Left out: `molokai` (it is `monokai`), `catppuccin-frappe` and `catppuccin-macchiato`
+(`catppuccin-mocha`, a shade apart), `github-dark-dimmed` (`github-dark`) and `slate-night` (`slate`). A setting that
+names one of them gets the one it was — nothing to change in yours.
 
 ## What's new in 6.29
 

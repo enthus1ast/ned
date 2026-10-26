@@ -457,6 +457,101 @@ proc tsBookmarks() =
     return
   tsOpen("Bookmarks", es, tsBookmarks)
 
+# ── what a finder of places can do besides Enter: a pane beside, a multibuffer of them all ──
+
+proc pickTargetAt(k: int): (string, int) =
+  ## the file and the line (-1: the file) of the k-th item shown — ("", -1) when it is no place in a file
+  if k < 0 or k >= pickShown.len: return ("", -1)
+  let keep = pickSel
+  pickSel = k
+  let (p, l, _) = pickPreviewTarget()
+  pickSel = keep
+  (p, l)
+
+proc pickOpenBeside(down: bool) =
+  ## Alt+V (Alt+X) in a finder: what is chosen, in a new pane at the right (below)
+  let (path, line) = pickTargetAt(pickSel)
+  if path.len == 0:
+    info("Not a place in a file — Enter does what it says")
+    return
+  closePicker()
+  if not buf().isWelcome():
+    if splitOn: discard splitPaneOf(activePane, down) else: splitEditor(down)
+  pushJump()
+  let b = openFile(path)
+  if b != nil and line >= 0: b.centerOn(b.clampPos(Pos(line: line, col: 0)))
+
+proc pickToMultibuffer() =
+  ## Alt+Q in a finder: every place it lists (as filtered) in one multibuffer — a line around each, or the files
+  ## (their first 300 lines) — to read and edit together (as telescope.nvim sends them to the quickfix list)
+  var hits: seq[(string, int)]
+  var files: seq[string]
+  for k in 0 ..< min(pickShown.len, 2000):
+    let (p, l) = pickTargetAt(k)
+    if p.len == 0 or not fileExists(p): continue
+    if l >= 0: hits.add (p, l)
+    elif p notin files: files.add p
+  if hits.len == 0 and files.len == 0:
+    info("Nothing listed is a place in a file")
+    return
+  let title = pickTitle.split(" — ")[0]
+  closePicker()
+  if hits.len > 0: openMultibuffer(title, hits)
+  else:
+    var rs: seq[tuple[path: string, first, last: int, note: string]]
+    for f in files[0 ..< min(files.len, 200)]: rs.add (f, 0, 299, "")
+    discard openMultibufferOf(title, rs)
+
+# ── more finders (6.31): the lines of this file, the panes, the places you jumped from ──
+
+proc tsLines() =
+  ## the file's lines: type to find one (fuzzy), the place beside
+  let b = buf()
+  if b.path.len == 0 and b.title.len == 0:
+    info("Open a file first")
+    return
+  var es: seq[TsEntry]
+  for i, l in b.lines:
+    if i >= 20_000: break
+    let t = l.strip
+    if t.len == 0: continue
+    es.add TsEntry(label: truncTo(t, 200), detail: $(i + 1), search: t.toLowerAscii,
+                   act: tsGoTo(b.path, i, l.len - l.strip(trailing = false).len),
+                   pv: (if b.path.len > 0: tsFile(b.path, i) else: tsText("")))
+  tsOpen("Lines of " & b.name & " — Enter goes there", es, tsLines)
+
+proc tsPaneAct(i: int): Action = (proc() = (if splitOn: focusPane(i)))
+
+proc tsPanes() =
+  ## the panes: Enter gives one the focus
+  var es: seq[TsEntry]
+  if not splitOn:
+    info("One pane only — Alt+\\ splits the editor")
+    return
+  for i in paneOrder():
+    let pb = if i == activePane: buf() else: bufById(panes[i].bufId)
+    if pb == nil: continue
+    let top = if i == activePane: pb.primary.head.line else: panes[i].snap.topLine
+    es.add TsEntry(label: (if i == activePane: "● " else: "  ") & pb.name, detail: relPath(parentDir(pb.path)),
+                   act: tsPaneAct(i), pv: (if pb.path.len > 0: tsFile(pb.path, top) else: tsText(pb.title)))
+  tsOpen("Panes — Enter goes to one", es, tsPanes)
+
+proc tsJumps() =
+  ## the places you jumped from (F12, a search, Ctrl+O's list), the latest first
+  var es: seq[TsEntry]
+  for k in countdown(jumpStack.high, 0):
+    let (path, p) = jumpStack[k]
+    if path.len == 0 or not fileExists(path): continue
+    var t = ""
+    let bi = bufIndexByPath(path)
+    if bi >= 0 and p.line < bufs[bi].lines.len: t = bufs[bi].lines[p.line].strip
+    es.add TsEntry(label: relPath(path) & ":" & $(p.line + 1), detail: truncTo(t, 60), search: t.toLowerAscii,
+                   act: tsGoTo(path, p.line, p.col), pv: tsFile(path, p.line))
+  if es.len == 0:
+    info("No jumps yet — F12, a search or a reference leaves one")
+    return
+  tsOpen("Jumps — the places you jumped from", es, tsJumps)
+
 proc tsResume() =
   ## the last finder again, with what you had typed in it
   if tsLast == nil:
@@ -475,7 +570,8 @@ proc telescope() =
   proc add(label, detail: string, act: Action, help: string) =
     es.add TsEntry(label: label, detail: detail, act: act, pv: tsText(label & "\n\n" & help))
   add("Files", "Ctrl+P", proc() = cmdFindFile(), "The project's files, the open and recent ones first. :line, @symbol, " &
-      "#project symbol and >command work in it too.")
+      "#project symbol and >command work in it too.\n\nIn every finder of places — files, lines, symbols, problems: " &
+      "Alt+V opens the one chosen in a pane at the right, Alt+X in a pane below, Alt+Q puts them all in a multibuffer.")
   add("Live grep", "", proc() = tsLiveGrep(), "Every line of the project with what you type, found as you type " &
       "(ripgrep, git grep or grep), the file at the line beside it.")
   add("Grep the word under the cursor", "", proc() = tsLiveGrep(tsWordAtCursor()), "Live grep, with the word under " &
@@ -483,6 +579,8 @@ proc telescope() =
   add("Open tabs", "", proc() = cmdBuffers(), "The files open in tabs.")
   add("Recent files", "", proc() = tsRecent(), "The files you opened lately, in this folder and elsewhere.")
   add("Symbols in this file", "Ctrl+T", proc() = cmdSymbols(), "The routines, types and constants of the file in front.")
+  add("Lines of this file", "", proc() = tsLines(), "Every line of the file in front — type a few letters of one " &
+      "(fuzzy), the place beside it; Enter goes there.")
   add("Symbols in the project", "", proc() = cmdProjectSymbols(), "Every declaration of the project: Nim's from ned's " &
       "engine, the other languages' as ned reads them.")
   add("Commands", "Alt+X", proc() = cmdPalette(), "Every command of ned and of your plugins.")
@@ -502,6 +600,9 @@ proc telescope() =
   add("Nim: nimble packages installed", "", proc() = tsNimble(), "The packages in ~/.nimble.")
   add("TODOs", "", proc() = tsTodos(), "The TODO, FIXME, BUG, HACK and NOTE comments of the project.")
   add("Bookmarks", "", proc() = tsBookmarks(), "The lines you marked (Alt+').")
+  add("Jumps", "", proc() = tsJumps(), "The places you jumped from — with F12, a search, a reference — the latest " &
+      "first.")
+  add("Panes", "", proc() = tsPanes(), "The panes of the editor with their files; Enter gives one the focus.")
   add("Terminal: commands run", "", proc() = tsTermCmds(), "What you ran in ned's terminals, with its output; Enter " &
       "runs it again.")
   add("Themes", "Alt+T", proc() = cmdThemes(), "The colour themes, previewed as you move.")

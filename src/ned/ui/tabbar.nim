@@ -74,8 +74,8 @@ proc drawTabBar() =
     let tx0 = x
     fillRect(x, y, min(tw, avail - x), 1, fg, bg)
     if active: discard putStr(x, y, "▎", theme.accent, bg)
-    elif splitOn and b.id == panes[1 - activePane].bufId:
-      discard putStr(x, y, "▎", blend(theme.accent, bg, 0.55), bg)     # shown in the other pane
+    elif splitOn and panesShowing(b.id).len > 0:
+      discard putStr(x, y, "▎", blend(theme.accent, bg, 0.55), bg)     # shown in another pane
     var xx = x + 1
     if b.path.len > 0:
       xx = putStr(xx, y, fileIcon(b.path), langColor(b.path), bg, {}, avail)

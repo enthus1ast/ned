@@ -42,6 +42,7 @@ Its layout is yours to choose (settings, Nim section):
 | `nim.format.collections` | `fit` | array, seq, table, set and tuple literals: the same four |
 | `nim.format.imports` | `keep` | `sort` — std/, pkg/, others, ./relative · `merge` — sorted, and `std/a` + `std/b` → `std/[a, b]` (module initialisation follows import order: keep it if that matters) |
 | `nim.format.align` | off | line up object field types and the `=` of const / let / var members |
+| `nim.format.alignNimbleFields` | on | a .nimble's (or .nims's) package fields that follow each other lined up at their `=`, as nimble's own template writes them (`version       = "0.1.0"`); off: fields written `name = value` each stay so, as nph writes them |
 | `nim.format.alignComments` | off | the comments at the end of lines that follow each other at one column (the one they share when there is room, else two after the longest line) |
 | `nim.format.magicTrailingComma` | off | a list ending in a comma before its bracket, written one element a line or on one line, stays one element per line (black, ruff) |
 | `nim.format.normalizeNumbers` | off | `0x`, `0b`, `0o` in lower case, hex digits in upper case, `e` for an exponent (ruff) |

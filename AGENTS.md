@@ -2,7 +2,8 @@
 
 ned is a terminal code editor and Nim IDE written in Nim, standard library only. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/guide/building.md](docs/guide/building.md) for the long version; this
-page is what an agent needs to change ned safely.
+page is what an agent needs to change ned safely. How each part works, recipes and pitfalls:
+[docs/dev](docs/dev/README.md).
 
 ## Build
 

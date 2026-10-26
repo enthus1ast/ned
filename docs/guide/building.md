@@ -68,7 +68,7 @@ whose `packages.json` has no `ned` yet). The entry to add there, in a pull reque
   "method": "git",
   "tags": ["editor", "ide", "terminal", "tui", "termux", "lsp", "formatter", "nim"],
   "description": "Terminal code editor and Nim IDE for Termux, Linux, macOS and Windows: a built-in Nim engine, an nph-style formatter, an AI assistant, plugins in NimScript",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "web": "https://github.com/foxoman/ned"
 }
 ```

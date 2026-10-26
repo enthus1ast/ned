@@ -7611,6 +7611,313 @@ def t_630_themes():
     check('630 themes: … molokai is not in it', 'molokai' not in s.replace('› molokai', ''), s)
     keys('Escape')
 
+def t_631_tiling():
+    # 6.31: tiled panes — three side by side, one cut in two, a divider dragged, the pane to the right by keys and by a
+    # click on its header, one pane alone (zoom) and back, a pane closed; the layout back the next time; vim's Ctrl+W;
+    # on a phone held upright two panes one above the other
+    setup({"nim.nimsuggest": False})
+    start('src/demo/utils.nim', 'src/demo/types.nim', 'src/demo.nim', w=150, h=40)
+    def div_cols():
+        # (a divider: the same column holds │ on every row of the editor)
+        body = screen().split('\n')[6:30]
+        n = min(len(r) for r in body)
+        return [c for c in range(n) if all(r[c] == '│' for r in body)]
+    def header_row():
+        for i, r in enumerate(screen().split('\n')[2:8]):
+            if r.count('.nim') >= 2: return i + 2, r
+        return -1, ''
+    palette('View: panes: three columns'); time.sleep(0.6)
+    hy, hdr = header_row()
+    check('631 tiling: three panes side by side, each with its file',
+          'demo.nim' in hdr and 'utils.nim' in hdr and 'types.nim' in hdr and len(div_cols()) == 2, screen())
+    # the pane to the right (Ctrl+Alt+Shift+→): typing goes to utils.nim
+    keys('C-M-S-Right'); time.sleep(0.3)
+    keys('C-Home'); text('# tiled'); keys('Enter'); keys('C-s'); time.sleep(0.5)
+    check('631 tiling: Ctrl+Alt+Shift+→ — the pane to the right takes the typing',
+          ftext('src/demo/utils.nim').startswith('# tiled') and not ftext('src/demo.nim').startswith('# tiled'),
+          ftext('src/demo/utils.nim')[:80])
+    # a click on the third pane's header: typing goes to types.nim
+    hy, hdr = header_row()
+    x = hdr.find('types.nim')
+    click(x + 3, hy + 1); time.sleep(0.3)
+    keys('C-Home'); text('# third'); keys('Enter'); keys('C-s'); time.sleep(0.5)
+    check('631 tiling: a click on a pane\'s header gives it the focus', ftext('src/demo/types.nim').startswith('# third'),
+          ftext('src/demo/types.nim')[:80])
+    # split down: a divider across that pane only
+    palette('View: split editor down'); time.sleep(0.5)
+    cols = div_cols()
+    rows = screen().split('\n')
+    across = [i for i, r in enumerate(rows[4:36]) if len(cols) == 2 and len(r) > cols[1] + 4 and
+              set(r[cols[1] + 2:cols[1] + 12]) == {'─'}]
+    check('631 tiling: split down — one pane cut in two, the others as they were', len(cols) == 2 and across, screen())
+    keys('M-|'); time.sleep(0.4)
+    rows = screen().split('\n')
+    across = [i for i, r in enumerate(rows[4:36]) if len(r) > cols[1] + 4 and set(r[cols[1] + 2:cols[1] + 12]) == {'─'}]
+    check('631 tiling: Alt+| closes the pane, its place goes back', not across and len(div_cols()) == 2, screen())
+    # the first divider dragged to the left
+    before = div_cols()
+    c = before[0] + 1
+    press(c, 15); drag(c - 5, 15); drag(c - 10, 15); release(c - 10, 15); time.sleep(0.3)
+    after = div_cols()
+    check('631 tiling: a divider dragged moves it, the other stays',
+          len(after) == 2 and after[0] <= before[0] - 8 and after[1] == before[1], str((before, after)))
+    # one pane alone and back
+    palette('View: this pane alone (zoom)'); time.sleep(0.4)
+    z = div_cols()
+    palette('View: this pane alone (zoom)'); time.sleep(0.4)
+    check('631 tiling: zoom shows the pane alone, again every pane', z == [] and len(div_cols()) == 2, str((z, div_cols())))
+    # the layout the next time
+    keys('C-q'); time.sleep(1.0)
+    tm('kill-server'); time.sleep(0.3)
+    if os.path.exists(W + '/exit'): os.remove(W + '/exit')
+    start(w=150, h=40); time.sleep(0.8)
+    hy, hdr = header_row()
+    check('631 tiling: the three panes back when the folder opens again',
+          len(div_cols()) == 2 and 'demo.nim' in hdr and 'types.nim' in hdr, screen())
+    # vim: Ctrl+W v splits, Ctrl+W l / h move, Ctrl+W q closes
+    setup({"nim.nimsuggest": False, "editor.vimMode": True})
+    start('src/demo.nim', w=150, h=40)
+    keys('C-w'); keys('v'); time.sleep(0.4)
+    two = len(div_cols())
+    keys('C-w'); keys('q'); time.sleep(0.4)
+    check('631 tiling: vim — Ctrl+W v splits, Ctrl+W q closes the pane', two == 1 and div_cols() == [], str(two) + screen())
+    # a phone held upright: two panes one above the other
+    setup({"nim.nimsuggest": False})
+    start('src/demo.nim', w=56, h=40)
+    keys('M-\\'); time.sleep(0.5)
+    rows = screen().split('\n')
+    check('631 tiling: a narrow screen puts two panes one above the other',
+          any(r.count('─') > 40 for r in rows[4:36]) and div_cols() == [], screen())
+
+def t_631_multibuffer():
+    # 6.31: a multibuffer numbers its lines as their files do; follows its files while it has no edits of its own;
+    # a piece grows with more lines, goes out; an edit saved lands where the piece is now; the selection of a file
+    # added to it; F12 in it goes to the definition through the file
+    setup({"nim.nimsuggest": False})
+    start('src/demo/utils.nim', 'src/demo.nim', w=150, h=40)
+    keys('M-s'); time.sleep(0.3)
+    for _ in range(20): keys('BSpace')
+    text('shout'); keys('Enter'); time.sleep(1.5)
+    palette('Open results in a multibuffer'); time.sleep(0.6)
+    s = screen()
+    check('631 multibuffer: the lines numbered as in their files', re.search(r'\b3 .{0,4}proc shout\*', s), s)
+    # the file changed in its own tab: the multibuffer follows (it has no edits of its own)
+    keys('M-1'); time.sleep(0.3)
+    keys('C-Home'); text('# top'); keys('Enter'); keys('C-s'); time.sleep(0.4)
+    palette('Multibuffer: show the one in use'); time.sleep(1.2)
+    s = screen()
+    check('631 multibuffer: a line added above a piece in its file moves the piece', re.search(r'\b4 .{0,4}proc shout\*', s) and
+          'utils.nim  line 3' in s, s)
+    # more lines below the piece
+    keys('C-f'); time.sleep(0.2)
+    for _ in range(20): keys('BSpace')
+    text('proc shout'); keys('Enter'); keys('Escape'); time.sleep(0.3)
+    palette('Multibuffer: more lines below this piece'); time.sleep(0.5)
+    check('631 multibuffer: more lines below a piece', 'proc twice' in screen(), screen())
+    # an edit in the multibuffer, saved: it lands in the file, where the piece is now
+    keys('Escape', 'Left', 'C-f'); time.sleep(0.2)
+    for _ in range(20): keys('BSpace')
+    text('a bang'); keys('Enter'); keys('Escape'); time.sleep(0.2)
+    text('a mark'); keys('C-s'); time.sleep(0.8)
+    t = ftext('src/demo/utils.nim')
+    check('631 multibuffer: the edit saved in its file, the line added there kept', t.startswith('# top\n') and
+          '## upper-case and add a mark' in t and 'a bang' not in t, t)
+    # the piece out
+    keys('Escape', 'Left', 'C-f'); time.sleep(0.2)
+    for _ in range(20): keys('BSpace')
+    text('proc twice'); keys('Enter'); keys('Escape'); time.sleep(0.3)
+    palette('Multibuffer: remove this piece'); time.sleep(0.5)
+    s = screen()
+    check('631 multibuffer: a piece removed', 'proc twice' not in s and 'shout("done")' in s, s)
+    # F12 in it: the definition, through its file
+    keys('C-End', 'Home', 'Right', 'Right', 'Right', 'Right', 'Right'); time.sleep(0.2)     # (on shout("done"))
+    keys('F12'); time.sleep(1.5)
+    s = screen()
+    check('631 multibuffer: F12 goes to the definition in its file', re.search(r'Ln 4, Col \d', s) and
+          '› utils.nim › shout' in s, s)
+    # the selection of a file added to the multibuffer in use
+    keys('M-2'); time.sleep(0.4)                  # (demo.nim's tab)
+    keys('C-g'); text('4'); keys('Enter'); time.sleep(0.2)
+    palette('Multibuffer: add the selection'); time.sleep(0.4)
+    palette('Multibuffer: show the one in use'); time.sleep(0.5)
+    s = screen()
+    check('631 multibuffer: the line of a file added to it', 'proc greet*' in s and 'shout("done")' in s, s)
+
+def t_631_plugin_panes():
+    # 6.31: the plugin API's panes and multibuffers, through the cookbook's word-places: a multibuffer of every line
+    # with the word, the file behind its cursor, a module's test in a pane beside it
+    setup({"nim.nimsuggest": False, "editor.hoverDelay": 10000})
+    d = CFG + '/ned/plugins/word-places'
+    os.makedirs(d, exist_ok=True)
+    shutil.copy(os.path.join(HERE, '..', 'plugins', 'cookbook', 'panes_pieces.nims'), d + '/plugin.nims')
+    start('src/demo/utils.nim', 'src/demo.nim', w=150, h=40)
+    palette('Plugins panel')
+    ok = wait_for('running', 30)
+    keys('Escape'); time.sleep(0.3)
+    keys('C-g'); text('10:9'); keys('Enter'); time.sleep(0.2)
+    palette('Word places: every line with this word, together')
+    ok = wait_for('in the open files', 10)
+    s = screen()
+    check('631 plugin API: a multibuffer of the plugin\'s pieces', ok and 'proc shout*' in s and 'echo shout(' in s, s)
+    keys('C-Home', 'Down', 'Down'); time.sleep(0.2)
+    palette('Word places: the file behind the cursor')
+    ok = wait_until(lambda: re.search(r'Ln \d+, Col', screen()) and '› utils.nim' in screen(), 10)
+    check('631 plugin API: placeInFile — the file behind the multibuffer\'s cursor', ok, screen())
+    keys('M-2'); time.sleep(0.4)                   # (demo.nim)
+    palette("Word places: the module's test beside it")
+    ok = wait_until(lambda: 'test_demo.nim' in screen() and screen().count('│') > 30, 10)
+    s = screen()
+    hdr = [r for r in s.split('\n')[2:5] if 'test_demo.nim' in r]
+    check('631 plugin API: splitPane — the test in a pane beside the module', ok and hdr and 'demo.nim' in hdr[0].replace('test_demo.nim', ''), s)
+    # numbers a plugin should not give — negative, huge, a pane that is not there — are clamped or refused: ned goes on
+    d2 = CFG + '/ned/plugins/mb-edge'
+    os.makedirs(d2, exist_ok=True)
+    open(d2 + '/plugin.nims', 'w').write('import nedplugin\n'
+        'command "Edge: odd numbers":\n'
+        '  discard openMultibuffer("edge", [piece("src/demo.nim", -5, 1_000_000_000_000), piece("", 3), piece("nope.nim", 1)])\n'
+        '  discard addPiece(piece("src/demo.nim", 1_000_000_000_000, -7))\n'
+        '  focusPane(99); closePane(-3); showInPane(42, current())\n'
+        '  try: paneLayout("spiral") except ValueError: discard\n'
+        '  current().removePiece(77)\n'
+        '  message("edge done")\n')
+    palette('Plugins: reload'); time.sleep(3)
+    palette('Edge: odd numbers')
+    ok = wait_for('edge done', 15)
+    s = screen()
+    check('631 plugin API: odd numbers from a plugin — ned goes on, the multibuffer made of what there is',
+          ok and 'Multibuffer: edge' in s, s)
+
+def t_631_eof_problem():
+    # a problem the compiler puts after the last line ("expected: ')', but got: '[EOF]'" at line 9 of an 8-line
+    # file) is shown on the last line: its text after the line, and F8 goes there — not only in Problems
+    setup()
+    open(W + '/src/eof.nim', 'w').write('## eof\n\nproc greet*(who: string): string =\n  ## hi\n  "Hello, " & who\n\n'
+                                       'when isMainModule:\n  echo greet("Nim"\n')
+    start('src/eof.nim', w=140, h=34)
+    keys('C-s')
+    ok = wait_until(lambda: re.search(r'echo greet\("Nim"\s+● ', screen()), 30)
+    check("631 a problem past the last line: shown at the end of the last line", ok, screen())
+    keys('C-Home'); keys('S-F8'); time.sleep(0.5)        # (the one before the top: the last — a hint may come first)
+    check("631 … Shift+F8 from the top goes to it (the last line)", re.search(r'Ln 8, Col 19', screen()), screen()[-300:])
+
+def t_631_zen_tail():
+    # zen: what follows a line's end (here a problem's text) goes on into the margin at the right of the column, not
+    # cut at the column's edge (a C signature after a line was cut on a tablet)
+    setup({"zen.width": 40})
+    open(W + '/src/zt.nim', 'w').write('let total = 1\necho totall + 1 + 2 + 3 + 4 + 5 + 6 + 7\n')
+    start('src/zt.nim', w=150, h=30)
+    keys('C-s'); wait_for('undeclared identifier', 30)
+    keys('M-z'); time.sleep(1.0)
+    row = next((r for r in screen().split('\n') if 'echo totall' in r), '')
+    check("631 zen: the text after a line goes on past the column", "undeclared identifier: 'totall'" in row, screen())
+
+def t_631_nimble_fields():
+    # a .nimble's package fields written `name = value` each are lined up, as nimble's template writes them — on
+    # save (format on save) and by ned --format; nim.format.alignNimbleFields off keeps them as written
+    setup({"editor.formatOnSave": True})
+    src = 'mode = ScriptMode.Verbose\n\npackageName = "nt"\nversion = "0.3.0"\nauthor = "D"\ndescription = "x"\n\nrequires "nim >= 2.0.8"\n'
+    want = 'mode = ScriptMode.Verbose\n\npackageName = "nt"\nversion     = "0.3.0"\nauthor      = "D"\ndescription = "x"\n\nrequires "nim >= 2.0.8"\n'
+    open(W + '/nt.nimble', 'w').write(src)
+    r = subprocess.run([BIN, '--format', W + '/nt.nimble'], capture_output=True, text=True)
+    check("631 nimble: ned --format lines up the package's fields", open(W + '/nt.nimble').read() == want,
+          r.stdout + r.stderr + open(W + '/nt.nimble').read())
+    open(W + '/nt.nimble', 'w').write(src)
+    start('nt.nimble', w=120, h=30)
+    keys('End'); text(' '); keys('BSpace'); keys('C-s'); time.sleep(1.5)
+    check("631 nimble: … and saving it with format on save", open(W + '/nt.nimble').read() == want,
+          open(W + '/nt.nimble').read())
+
+def t_631_multibuffer_safety():
+    # multibuffers keep a file's text whole: a piece that ends with an empty line keeps it (and the file its last
+    # line end); a piece emptied takes its lines out, typed into again puts them back; a multibuffer with edits not
+    # saved is not replaced by a new one of the same name
+    setup({"nim.nimsuggest": False, "editor.hoverDelay": 10000})
+    open(W + '/src/mb.nim', 'w').write('x = 1\n# NOTE one\n\n')
+    open(W + '/src/mc.nim', 'w').write('a = 1\nb = 2\nc = 3\n')
+    start('src/mb.nim', w=140, h=34)
+    keys('M-s'); time.sleep(0.3)
+    for _ in range(20): keys('BSpace')
+    text('NOTE one'); keys('Enter'); time.sleep(1.5)
+    palette('Open results in a multibuffer'); time.sleep(0.6)
+    keys('C-f'); time.sleep(0.2)
+    for _ in range(20): keys('BSpace')
+    text('x = 1'); keys('Enter'); keys('Escape'); time.sleep(0.2)
+    text('x = 2'); keys('C-s'); time.sleep(0.8)
+    t = ftext('src/mb.nim')
+    check("631 multibuffer safety: a piece ending with an empty line keeps it, the file its last line end",
+          t == 'x = 2\n# NOTE one\n\n', repr(t))
+    # a piece emptied, then typed into
+    keys('C-w'); time.sleep(0.3)
+    keys('C-p'); text('src/mc.nim'); time.sleep(0.4); keys('Enter'); time.sleep(0.4)
+    keys('C-g'); text('2'); keys('Enter')
+    palette('Multibuffer: add the selection'); time.sleep(0.4)
+    palette('Multibuffer: show the one in use'); time.sleep(0.5)
+    keys('C-End'); keys('C-k'); time.sleep(0.2)                 # (the piece's one line deleted: the piece empty)
+    s1 = screen()
+    keys('C-s'); time.sleep(0.8)
+    t1 = ftext('src/mc.nim')
+    keys('C-End', 'End', 'Enter'); text('b = 9'); keys('C-s'); time.sleep(0.8)
+    t2 = ftext('src/mc.nim')
+    check("631 multibuffer safety: a piece emptied takes its line out; typed into again, it is put back",
+          t1 == 'a = 1\nc = 3\n' and t2 == 'a = 1\nb = 9\nc = 3\n', repr((t1, t2)) + s1)
+    # its edits not saved: adding to it makes another one, it keeps its edits
+    keys('C-End'); text('XX'); time.sleep(0.2)
+    keys('M-1'); time.sleep(0.3)
+    palette('Multibuffer: add the selection'); time.sleep(0.5)
+    s = screen()
+    check("631 multibuffer safety: one with edits not saved is not replaced", 'collected (2)' in s or
+          'collected (2)' in s.replace('\n', ' '), s)
+
+def t_631_telescope_more():
+    # 6.31: Telescope — the lines of this file, Alt+V opens the chosen place in a pane at the right, Alt+Q puts what a
+    # finder lists in a multibuffer; its ⊙ in the status bar; M↓ beside it in a Markdown file opens and closes the
+    # preview
+    setup({"nim.nimsuggest": False, "editor.hoverDelay": 10000})
+    open(W + '/notes.md', 'w').write('# Notes\n\nSome *text*.\n')
+    start('src/demo/utils.nim', 'src/demo.nim', w=150, h=40)
+    keys('M-F'); wait_for('Telescope — what to find', 4)
+    text('lines of this'); time.sleep(0.4); keys('Enter')
+    ok = wait_for('Lines of demo.nim', 4)
+    text('echo greet'); time.sleep(0.5)
+    keys('M-v'); time.sleep(0.8)
+    s = screen()
+    body = s.split('\n')[6:30]
+    n = min(len(r) for r in body)
+    divs = [c for c in range(n) if all(r[c] == '│' for r in body)]
+    check('631 telescope: lines of this file — Alt+V opens the place in a pane at the right',
+          ok and len(divs) >= 1 and re.search(r'Ln 9\b', s), s)
+    keys('M-|'); time.sleep(0.3)
+    keys('M-F'); wait_for('Telescope — what to find', 4)
+    text('live grep'); time.sleep(0.4); keys('Enter')
+    wait_for('Live grep — type', 4)
+    text('shout'); time.sleep(0.2)
+    wait_for('lines with “shout”', 6)
+    keys('M-q'); time.sleep(0.8)
+    s = screen()
+    check('631 telescope: Alt+Q — what the finder lists, in a multibuffer', 'Multibuffer: Live grep' in s and
+          'proc shout*' in s and 'echo shout(' in s, s)
+    # the status bar: ⊙ opens Telescope
+    last = screen().split('\n')[-2] if screen().split('\n')[-1].strip() == '' else screen().split('\n')[-1]
+    rows = screen().split('\n')
+    sb = max(i for i, r in enumerate(rows) if 'Ln ' in r)
+    x = rows[sb].find('⊙')
+    click(x + 1, sb + 1); time.sleep(0.5)
+    check('631 telescope: ⊙ in the status bar opens it', x >= 0 and 'Telescope — what to find' in screen(), rows[sb])
+    keys('Escape'); time.sleep(0.2)
+    keys('C-p'); text('notes.md'); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    rows = screen().split('\n')
+    sb = max(i for i, r in enumerate(rows) if 'Ln ' in r)
+    x = rows[sb].find('M↓')
+    click(x + 1, sb + 1); time.sleep(0.8)
+    s = screen()
+    opened = 'Preview: notes.md' in s
+    rows = s.split('\n')
+    sb = max(i for i, r in enumerate(rows) if 'Ln ' in r)
+    x2 = rows[sb].find('M↓')
+    click(x2 + 1, sb + 1); time.sleep(0.6)
+    check('631 markdown: M↓ in the status bar opens the preview, again closes it', x >= 0 and opened and
+          'Preview: notes.md' not in screen(), s)
+
 def t_619_hot_exit():
     # files.hotExit: quitting with unsaved edits asks nothing; they come back, unsaved, in their tabs (a file and an
     # untitled one) the next time ned opens the folder — the file on disk untouched meanwhile
@@ -8459,7 +8766,7 @@ def t_622_plugin_api():
     check("622 plugin: hover on message — the plugin API's doc", wait_for('the status line', 8), screen())
     keys('Escape')
     keys('C-g'); text('4:18'); keys('Enter'); keys('M-h')
-    check("622 plugin: hover on b.lineComment", wait_for("the language's line comment", 8), screen())
+    check("622 plugin: hover on b.lineComment", wait_for("language's line comment", 8), screen())
     keys('Escape')
     keys('C-g'); text('6:5'); keys('Enter'); keys('End'); text('lineCo'); keys('C-space'); time.sleep(1.0)
     s = screen()
@@ -9899,4 +10206,4 @@ tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_te
          t_629_move_boxes, t_629_kept_terminals, t_629_remote_servers, t_629_ai_pictures,
          t_629_jinja, t_629_ai_git, t_629_code_from_comments, t_629_plugin_updates, t_629_git_watch,
          t_629_update, t_629_telescope, t_629_cursor_glide, t_629_engine_highlights,
-         t_629_click_over_minimap, t_629_indent_plugins, t_630_themes]
+         t_629_click_over_minimap, t_629_indent_plugins, t_630_themes, t_631_tiling, t_631_multibuffer, t_631_plugin_panes, t_631_eof_problem, t_631_zen_tail, t_631_nimble_fields, t_631_multibuffer_safety, t_631_telescope_more]
