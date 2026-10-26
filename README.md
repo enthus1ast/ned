@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.29](#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [6.26](CHANGELOG.md#whats-new-in-626) · [6.25](CHANGELOG.md#whats-new-in-625) · [older releases](CHANGELOG.md)
+- [What's new in 6.30](#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [6.26](CHANGELOG.md#whats-new-in-626) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,97 +30,27 @@ library, and builds to one binary of about 12 MB.
 
 ---
 
-## What's new in 6.29
+## What's new in 6.30
 
-6.29 brings **Telescope** — one finder for everything —, a **cursor that glides**, **terminals that keep running
-after ned quits**, **language servers on the server** for a folder over SSH, **pictures in the AI chat**, **code from
-comments** (as in Zed and Aider), the assistant **with git**, **git status when something changes** instead of every
-few seconds, **plugin versions and updates**, **faster plugins**, **twenty-four more of ned's own plugins** (a todo
-list, dots and colours for the indentation among them), **C and C++ features clangd has** in ned's own engine, Nimja
-and Jinja templates, a quicker Nim engine, and easier ways to install and update ned.
+6.30 is about themes: **Shades of Purple** (and its Super Dark), Foxoman's **ClassicBlue** for the whole editor and
+his **Nebula** themes — Pulse, Nova, Nord, Serenity, Glow and Dawn —, **true black for any dark theme** on an OLED
+screen, and five themes left out that were another one under another name.
 
-**Telescope** (Alt+Shift+F): every finder in one list — files, live grep, symbols, commands, keys, settings,
-problems, TODOs, bookmarks, git's changed files, commits, branches and stashes, Nim's library and its names, nimble
-packages, the terminal's commands, themes, plugins — each with a preview beside it (under it on a narrower screen):
-the file at the line, the commit's change, the setting's description. *Telescope: resume* opens the last one again,
-with what you had typed. [Search](docs/guide/search.md#telescope-one-finder-for-everything-altshiftf).
+**New themes.** `shades-of-purple`, `shades-of-purple-super-dark`, `classic-blue` (its blue editor and dark bars),
+`nebula-pulse`, `nebula-nova`, `nebula-nord`, `nebula-serenity`, `nebula-glow` and `nebula-dawn` — each with its
+title bar, docks and status bar in its own colours. A colour that read below 4.5:1 on its background (3:1 for
+comments) was lifted to it, its hue kept, so they read on a phone in daylight too. Nebula Void is ned's own `slate`.
+[Themes](docs/guide/themes.md#the-built-in-themes).
 
-**The cursor glides** (`ui.cursorAnimation`): a jump — a line down, to a word, to a definition — leaves a short trail
-that fades behind it, up to 120 frames a second; only the trail's cells are sent, so a glide costs the terminal a few
-kilobytes. [Themes and appearance](docs/guide/themes.md#the-rest-of-the-look).
+**True black** (`theme.trueBlack`): any dark theme on true black — the editor, its bars and docks black, so an OLED
+screen's pixels are off where nothing is written; popups, menus and the current line a little lifted above it; the
+text, the syntax and the selection in the theme's own colours.
 
-**Terminals that outlive ned.** Quit ned — or close its window, or let Termux end its session — and its terminals go
-on: a build, a server, a long test. The next ned in the same folder takes them back, with what they showed.
-*Terminal: kill* ends one for good; *Terminal: kept terminals…* lists them all. `terminal.keepRunning`. Not on
-Windows. [Terminal](docs/guide/terminal.md#terminals-that-outlive-ned).
+**Fewer, different themes.** Left out: `molokai` (it is `monokai`), `catppuccin-frappe` and `catppuccin-macchiato`
+(`catppuccin-mocha`, a shade apart), `github-dark-dimmed` (`github-dark`) and `slate-night` (`slate`). A setting that
+names one of them gets the one it was — nothing to change in yours.
 
-**Remote folders: language servers on the server.** A folder over SSH has its language servers run on the server when
-it has them — with its packages and toolchain — and ned turns the server's paths into the local copy's and back; a
-definition in the server's library opens, fetched, to read. With no Nim on this device, ned's own engine reads the
-server's Nim library (fetched once). `remote.languageServers`. [Remote
-folders](docs/guide/terminal.md#remote-folders-over-ssh).
-
-**The assistant.** **Pictures**: `@shot.png`, a pasted path, or *AI: attach a picture…* (the newest screenshots and
-photos too) — sent to a model that reads them, shown small in the chat. **Code from a comment**: Alt+Shift+C on a
-comment, or its ✦, writes the code it describes; a comment ending in `AI!` asks for a change, made when you save; one
-ending in `AI?` is answered in the chat — each checked by the compiler and shown side by side before it is used.
-**With git**: *Git: why did this line change? (AI)*; *Git: resolve the conflicts with AI*, checked by `nim check`
-(its errors sent back once); *Review the changes with AI* in the Git dock. [AI](docs/guide/ai.md).
-
-**Git status when something changes.** ned watches the repository (Linux, Android) and runs git status a moment after
-a commit, a stage, a checkout or a save — from ned or anywhere — not every 5 seconds: on Nim's repository with the
-Git dock open and nothing changing, once a minute instead of twelve times. [Git](docs/guide/git.md#the-git-dock).
-
-**Plugins.** `pluginInfo(version, author, homepage, license)` — the dock shows a plugin's version; *Plugins: check
-for updates* (and once a day by itself) sees newer versions in their repositories (*↑ 1.3.0*); update one or all,
-*Roll back*, *Pin*. Faster: a set of plugins is compiled as soon as it starts; a plugin reading a file line by line
-asks ned once — 5000 lines: 2.6 s → 0.19 s under `nim e`, 95 → 2 ms compiled. A plugin can say how indentation looks
-(`indentStyle`), drawn by ned with each line. **Twenty-four more of ned's own plugins**: Swift, Scala, R, Nix,
-Terraform, Protocol Buffers, GraphQL, Svelte, CMake, LaTeX, Perl, Erlang; **indent-dots** (a dot in each space of the
-indentation, up to the first letter — not between words, as Xcode shows it) and **rainbow-indent** (each level its
-own colour, as bands, guides or dots; a red band where the indentation is not whole levels); **todo** (a task list in
-`TODO.md`: add one from anywhere — on a TODO comment, with its place —, due dates written as `due:fri`, the list by
-the day due, ticked off with the day, in the status bar and the dock); **nim-html** (Karax and htmlgen: completion,
-hover, Emmet and HTML turned into Karax), doc-gen, import-graph, release-helper, yank-ring, color-picker, db-client
-(PostgreSQL, MySQL), code-snap, char-picker. [Plugins](docs/plugins/README.md#versions-and-updates) · [ned's
-own](docs/plugins/available.md).
-
-**C and C++: what clangd does, in ned's own engine.** References and rename go by the symbol, not the name: a field
-of another struct, a `static` function of another file, a local of another function with the same name are left
-alone. A function completed writes its arguments to fill in (Tab to the next); a name from a header the file does not
-include is offered too, and its `#include` added with it — and Alt+Enter on an unknown name adds the header that
-declares it, without the compiler. Signature help and parameter hints follow a call written over several lines. The
-other uses of the name at the cursor are marked; parameters, globals, macros, fields, enum constants and types each
-have their colour. Alt+Enter also adds a `switch`'s missing cases, extracts the selection into a variable and inverts
-an `if`. Go to type definition; Ctrl+T and project symbols from the engine (fields and enum constants too); Alt+F on
-a selection with ned's C formatter; in C++, the type hierarchy and go to implementation (a virtual method's
-overrides). nedls gives other editors all of it. [C and C++](docs/guide/c.md).
-
-**Nim.** Nimja and Jinja templates (`.nimja`, `.jinja`, `.j2`) coloured: HTML, with the code in `{{ }}` and `{% %}`
-as Nim. The other uses of the name under the cursor are marked by what it is, not by its spelling: a local of another
-proc, a field of another object with the same name are left alone. The engine reads a project without its cache about
-a tenth faster (Nim's compiler, `nim.nim` and the 132 files it reaches: 127 → 114 ms; a fifth fewer instructions),
-and the compiler's check while you type is left out when only a comment or spacing changed.
-
-**Installing and updating.** `curl -fsSL …/install.sh | sh` (Termux: the release's package; elsewhere: nimble),
-`nimble install https://github.com/foxoman/ned` (ned, nedfmt and nedls into `~/.nimble/bin`), and `ned --update` —
-the newest release, installed the way this ned was. [Installing](#installing).
-
-**Moving boxes.** A dialog, a form or a picker moves with its title bar dragged, and opens there again.
-
-**Windows** (still experimental): the programs ned builds (tests, the debugger's, examples, a plugin host) get their
-`.exe`; a page opens in the browser; the Nims of choosenim are found; *Check setup* and a message at start say when
-Git for Windows' sh is missing.
-
-**Looks.** The welcome screen says how its RECENT column fills, and its line under the logo fits a phone; a dock cuts
-a long line with … ; the TODOs dock's message wraps; the completion list's counter no longer covers the last item's
-type; the ✦ of *code from a comment* is not offered on a doc comment; *Git: commit…* with nothing changed says so
-instead of opening the message box.
-
-**Fixed:** a button over the minimap — the find and replace bar's ×, a note's — took no click: the minimap under it
-jumped instead.
-
-Today's scoreboard:
+Today's scoreboard (the engines are 6.29's):
 
 <!-- scoreboard -->
 | | score | at least |
@@ -165,19 +95,20 @@ against nph: 463 files formatted in 1.53 s by ned, 2.31 s by nph; nph refused 0,
 ## Features
 
 **Desktop-style UI in the terminal** — title bar with menus (F10), command palette (Ctrl+E, over 500 commands,
-most-used first), Telescope (Alt+Shift+F: every finder with a preview), a cursor that glides, left dock (files, search & replace, git, Nim, tests), right dock (AI assistant, outline,
-timeline), bottom panel (problems, output, terminal), tabs, breadcrumbs, minimap, sticky scroll, indent
-guides, rainbow brackets, tooltips, toasts, modal dialogs, context menus (right click), drop shadows,
-hover effects, 56 themes (VS Code dark/light, One Dark, Tokyo Night, Catppuccin, Gruvbox, Dracula, Nord,
-Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Slate, Monochrome, Everforest, Night Owl, from
-vim Molokai, Jellybeans, Iceberg, Sonokai and PaperColor, and ned's own: Nim Crown, Frankincense, Desert Dusk,
-Lagoon, Sea Glass, Paper Ink, Rose Quartz, Amber CRT, Green Phosphor, and six easy on the eyes for OLED and LCD
-screens …)
-— or `auto`, following the terminal's background or the time of day, your own colours (a theme editor that
-checks contrast), VS Code or base16 themes imported, and Termux's own colours set to match —
-three icon sets (unicode, Nerd Font, ASCII), phone layout below 70 columns, an accessibility mode (ASCII, letters
-beside colours, high contrast), multi-root workspaces (git for each folder), remote folders over SSH (git, Run
-and the assistant's commands on the server; its changes come back by themselves), settings sync. → [Themes and appearance](docs/guide/themes.md) · [Key bindings](docs/guide/keys.md) · [Settings](docs/guide/settings.md)
+most-used first), Telescope (Alt+Shift+F: every finder with a preview), a cursor that glides, left dock (files,
+search & replace, git, Nim, tests), right dock (AI assistant, outline, timeline), bottom panel (problems, output,
+terminal), tabs, breadcrumbs, minimap, sticky scroll, indent guides, rainbow brackets, tooltips, toasts, modal
+dialogs, context menus (right click), drop shadows, hover effects, 60 themes (VS Code dark/light, One Dark, Tokyo
+Night, Catppuccin, Gruvbox, Dracula, Nord, Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Shades of
+Purple, Slate, Monochrome, Everforest, Night Owl, from vim Jellybeans, Iceberg, Sonokai and PaperColor, Foxoman's
+ClassicBlue and Nebula themes, and ned's own: Nim Crown, Frankincense, Desert Dusk, Lagoon, Sea Glass, Paper Ink,
+Rose Quartz, Amber CRT, Green Phosphor, and six easy on the eyes for OLED and LCD screens …) — or `auto`, following
+the terminal's background or the time of day, your own colours (a theme editor that checks contrast), VS Code or
+base16 themes imported, and Termux's own colours set to match — three icon sets (unicode, Nerd Font, ASCII), phone
+layout below 70 columns, an accessibility mode (ASCII, letters beside colours, high contrast), multi-root workspaces
+(git for each folder), remote folders over SSH (git, Run and the assistant's commands on the server; its changes come
+back by themselves), settings sync. → [Themes and appearance](docs/guide/themes.md) · [Key
+bindings](docs/guide/keys.md) · [Settings](docs/guide/settings.md)
 
 **Editing** — multi-cursor (Ctrl+D, Alt+A, Alt+J/K), selection that grows by the code's structure (a name, the
 call, the statement, the block, the routine), surround (brackets, quotes, a tag, a block — and vim-surround), an
@@ -315,7 +246,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.29.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.30.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -370,7 +301,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.29.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.30.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

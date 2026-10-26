@@ -551,6 +551,8 @@ proc initCommands() =
   add("Theme: make my own copy of this theme", "", cmdEditThemeColours())
   add("Theme: edit colours (contrast checked)…", "", cmdThemeEditor())
   add("Theme: reload theme files", "", reloadThemes())
+  add("Theme: true black (OLED) on/off", "a dark theme on true black: pixels off where nothing is written",
+      toggleSetting("theme.trueBlack", "True black"))
   add("Theme: use these colours in all of Termux", "", cmdTermuxColors())
   add("Theme: put Termux's own colours back", "", cmdTermuxRestore())
   add("Theme: light by day, dark at night", "", (block:

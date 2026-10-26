@@ -60,6 +60,9 @@ proc initSettingDefs() =
        "is (terminal), or light by day and dark at night (clock: theme.dayStarts, theme.nightStarts)", @["terminal", "clock"])
   defS("Appearance", "theme.dayStarts", %"07:00", "With theme.autoBy \"clock\": when the light theme starts (HH:MM)")
   defS("Appearance", "theme.nightStarts", %"19:00", "With theme.autoBy \"clock\": when the dark theme starts (HH:MM)")
+  defS("Appearance", "theme.trueBlack", %false, "A dark theme on true black — for an OLED screen, whose black pixels " &
+       "are off: the editor and its bars black, popups and the current line a little lifted; the text and the syntax " &
+       "keep the theme's colours")
   defS("Appearance", "theme.termuxColors", %false, "Termux: keep ~/.termux/colors.properties matching ned's theme, so the " &
        "whole terminal (the shell after ned too) has its colours. Palette › Theme: put Termux's own colours back")
   defS("Appearance", "theme.colors", newJObject(),
@@ -829,6 +832,8 @@ proc sectionFor(section: string): JsonNode =
 
 proc validSetting(d: SetDef, v: JsonNode): bool =
   if d.key == "plugins.native" and v.kind == JBool: return true       # (6.19's true/false: on/off)
+  if d.key in ["theme", "theme.dark", "theme.light"] and v.kind == JString and themeAlias(v.getStr).len > 0:
+    return true                                                       # (a theme 6.30 folded into another)
   case d.kind
   of skBool: v.kind == JBool
   of skInt: v.kind in {JInt, JFloat}

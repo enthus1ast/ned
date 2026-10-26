@@ -490,6 +490,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Theme: make my own copy of this theme |  |
 | Theme: put Termux's own colours back |  |
 | Theme: reload theme files |  |
+| Theme: true black (OLED) on/off | a dark theme on true black: pixels off where nothing is written |
 | Theme: use these colours in all of Termux |  |
 | Timeline |  |
 | Tips |  |

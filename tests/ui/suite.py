@@ -7581,6 +7581,36 @@ def t_629_indent_plugins():
     check('629 rainbow indent: off — no bands (the dots stay)',
           bg_at_col(row, k) == bg_at_col(row, k + 4) and '········print' in plain, plain)
 
+def t_630_themes():
+    # 6.30: Shades of Purple, ClassicBlue and the Nebula themes; a theme left out (molokai) gives the one it was, with
+    # no warning; theme.trueBlack puts a dark theme on true black, its syntax colours kept
+    def bg_of_code():
+        row = ansi_row('import demo')
+        plain = re.sub(r'\x1b\[[0-9;:]*m', '', row)
+        return bg_at_col(row, plain.find('import') + 2), fg_at(row, 'import')
+    for th, bg in (("shades-of-purple", ('45', '43', '85')), ("classic-blue", ('62', '48', '139')),
+                   ("nebula-pulse", ('30', '35', '64')), ("molokai", ('39', '40', '34'))):
+        setup({"theme": th, "nim.nimsuggest": False})
+        start('src/demo.nim', w=120, h=30); time.sleep(0.6)
+        got, _ = bg_of_code()
+        s = screen()
+        check('630 themes: %s — its background%s' % (th, ' (monokai\'s: molokai was the same theme)' if th == 'molokai'
+                                                      else ''), got == bg and 'not one of' not in s, (got, s[-400:]))
+    setup({"theme": "nebula-pulse", "theme.trueBlack": True, "nim.nimsuggest": False})
+    start('src/demo.nim', w=120, h=30); time.sleep(0.6)
+    got, kw = bg_of_code()
+    check('630 themes: theme.trueBlack — the editor on true black, the keywords in the theme\'s colour',
+          got in (None, ('0', '0', '0')) and kw == ('198', '120', '221'), (got, kw))
+    keys('M-t'); time.sleep(0.5); text('nebula'); time.sleep(0.4)
+    s = screen()
+    check('630 themes: the theme list has the Nebula themes, not the ones left out',
+          'nebula-nova' in s and 'nebula-dawn' in s, s)
+    keys('Escape'); time.sleep(0.2)
+    keys('M-t'); time.sleep(0.5); text('molokai'); time.sleep(0.4)
+    s = screen()
+    check('630 themes: … molokai is not in it', 'molokai' not in s.replace('› molokai', ''), s)
+    keys('Escape')
+
 def t_619_hot_exit():
     # files.hotExit: quitting with unsaved edits asks nothing; they come back, unsaved, in their tabs (a file and an
     # untitled one) the next time ned opens the folder — the file on disk untouched meanwhile
@@ -9749,7 +9779,7 @@ def t_626_settings_sync():
 def t_627_256_colours():
     # 6.27: a terminal of 256 colours (ui.trueColor off, as ned took Windows Terminal before): a theme's dark
     # blue-grey background is the nearest grey, not the palette's strong blue (dracula, solarized-dark were #00005F)
-    for th, want in [("dracula", 236), ("solarized-dark", 234), ("nord", 237), ("catppuccin-macchiato", 236)]:
+    for th, want in [("dracula", 236), ("solarized-dark", 234), ("nord", 237), ("catppuccin-mocha", 235)]:
         setup({"ui.trueColor": "off", "theme": th, "nim.nimsuggest": False})
         start('src/demo.nim', w=120, h=30); time.sleep(0.8)
         a = screen_ansi()
@@ -9869,4 +9899,4 @@ tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_te
          t_629_move_boxes, t_629_kept_terminals, t_629_remote_servers, t_629_ai_pictures,
          t_629_jinja, t_629_ai_git, t_629_code_from_comments, t_629_plugin_updates, t_629_git_watch,
          t_629_update, t_629_telescope, t_629_cursor_glide, t_629_engine_highlights,
-         t_629_click_over_minimap, t_629_indent_plugins]
+         t_629_click_over_minimap, t_629_indent_plugins, t_630_themes]

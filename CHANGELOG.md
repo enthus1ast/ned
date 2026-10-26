@@ -1,6 +1,135 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-629). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-630). Older releases:
+
+## What's new in 6.29
+
+6.29 brings **Telescope** — one finder for everything —, a **cursor that glides**, **terminals that keep running
+after ned quits**, **language servers on the server** for a folder over SSH, **pictures in the AI chat**, **code from
+comments** (as in Zed and Aider), the assistant **with git**, **git status when something changes** instead of every
+few seconds, **plugin versions and updates**, **faster plugins**, **twenty-four more of ned's own plugins** (a todo
+list, dots and colours for the indentation among them), **C and C++ features clangd has** in ned's own engine, Nimja
+and Jinja templates, a quicker Nim engine, and easier ways to install and update ned.
+
+**Telescope** (Alt+Shift+F): every finder in one list — files, live grep, symbols, commands, keys, settings,
+problems, TODOs, bookmarks, git's changed files, commits, branches and stashes, Nim's library and its names, nimble
+packages, the terminal's commands, themes, plugins — each with a preview beside it (under it on a narrower screen):
+the file at the line, the commit's change, the setting's description. *Telescope: resume* opens the last one again,
+with what you had typed. [Search](docs/guide/search.md#telescope-one-finder-for-everything-altshiftf).
+
+**The cursor glides** (`ui.cursorAnimation`): a jump — a line down, to a word, to a definition — leaves a short trail
+that fades behind it, up to 120 frames a second; only the trail's cells are sent, so a glide costs the terminal a few
+kilobytes. [Themes and appearance](docs/guide/themes.md#the-rest-of-the-look).
+
+**Terminals that outlive ned.** Quit ned — or close its window, or let Termux end its session — and its terminals go
+on: a build, a server, a long test. The next ned in the same folder takes them back, with what they showed.
+*Terminal: kill* ends one for good; *Terminal: kept terminals…* lists them all. `terminal.keepRunning`. Not on
+Windows. [Terminal](docs/guide/terminal.md#terminals-that-outlive-ned).
+
+**Remote folders: language servers on the server.** A folder over SSH has its language servers run on the server when
+it has them — with its packages and toolchain — and ned turns the server's paths into the local copy's and back; a
+definition in the server's library opens, fetched, to read. With no Nim on this device, ned's own engine reads the
+server's Nim library (fetched once). `remote.languageServers`. [Remote
+folders](docs/guide/terminal.md#remote-folders-over-ssh).
+
+**The assistant.** **Pictures**: `@shot.png`, a pasted path, or *AI: attach a picture…* (the newest screenshots and
+photos too) — sent to a model that reads them, shown small in the chat. **Code from a comment**: Alt+Shift+C on a
+comment, or its ✦, writes the code it describes; a comment ending in `AI!` asks for a change, made when you save; one
+ending in `AI?` is answered in the chat — each checked by the compiler and shown side by side before it is used.
+**With git**: *Git: why did this line change? (AI)*; *Git: resolve the conflicts with AI*, checked by `nim check`
+(its errors sent back once); *Review the changes with AI* in the Git dock. [AI](docs/guide/ai.md).
+
+**Git status when something changes.** ned watches the repository (Linux, Android) and runs git status a moment after
+a commit, a stage, a checkout or a save — from ned or anywhere — not every 5 seconds: on Nim's repository with the
+Git dock open and nothing changing, once a minute instead of twelve times. [Git](docs/guide/git.md#the-git-dock).
+
+**Plugins.** `pluginInfo(version, author, homepage, license)` — the dock shows a plugin's version; *Plugins: check
+for updates* (and once a day by itself) sees newer versions in their repositories (*↑ 1.3.0*); update one or all,
+*Roll back*, *Pin*. Faster: a set of plugins is compiled as soon as it starts; a plugin reading a file line by line
+asks ned once — 5000 lines: 2.6 s → 0.19 s under `nim e`, 95 → 2 ms compiled. A plugin can say how indentation looks
+(`indentStyle`), drawn by ned with each line. **Twenty-four more of ned's own plugins**: Swift, Scala, R, Nix,
+Terraform, Protocol Buffers, GraphQL, Svelte, CMake, LaTeX, Perl, Erlang; **indent-dots** (a dot in each space of the
+indentation, up to the first letter — not between words, as Xcode shows it) and **rainbow-indent** (each level its
+own colour, as bands, guides or dots; a red band where the indentation is not whole levels); **todo** (a task list in
+`TODO.md`: add one from anywhere — on a TODO comment, with its place —, due dates written as `due:fri`, the list by
+the day due, ticked off with the day, in the status bar and the dock); **nim-html** (Karax and htmlgen: completion,
+hover, Emmet and HTML turned into Karax), doc-gen, import-graph, release-helper, yank-ring, color-picker, db-client
+(PostgreSQL, MySQL), code-snap, char-picker. [Plugins](docs/plugins/README.md#versions-and-updates) · [ned's
+own](docs/plugins/available.md).
+
+**C and C++: what clangd does, in ned's own engine.** References and rename go by the symbol, not the name: a field
+of another struct, a `static` function of another file, a local of another function with the same name are left
+alone. A function completed writes its arguments to fill in (Tab to the next); a name from a header the file does not
+include is offered too, and its `#include` added with it — and Alt+Enter on an unknown name adds the header that
+declares it, without the compiler. Signature help and parameter hints follow a call written over several lines. The
+other uses of the name at the cursor are marked; parameters, globals, macros, fields, enum constants and types each
+have their colour. Alt+Enter also adds a `switch`'s missing cases, extracts the selection into a variable and inverts
+an `if`. Go to type definition; Ctrl+T and project symbols from the engine (fields and enum constants too); Alt+F on
+a selection with ned's C formatter; in C++, the type hierarchy and go to implementation (a virtual method's
+overrides). nedls gives other editors all of it. [C and C++](docs/guide/c.md).
+
+**Nim.** Nimja and Jinja templates (`.nimja`, `.jinja`, `.j2`) coloured: HTML, with the code in `{{ }}` and `{% %}`
+as Nim. The other uses of the name under the cursor are marked by what it is, not by its spelling: a local of another
+proc, a field of another object with the same name are left alone. The engine reads a project without its cache about
+a tenth faster (Nim's compiler, `nim.nim` and the 132 files it reaches: 127 → 114 ms; a fifth fewer instructions),
+and the compiler's check while you type is left out when only a comment or spacing changed.
+
+**Installing and updating.** `curl -fsSL …/install.sh | sh` (Termux: the release's package; elsewhere: nimble),
+`nimble install https://github.com/foxoman/ned` (ned, nedfmt and nedls into `~/.nimble/bin`), and `ned --update` —
+the newest release, installed the way this ned was. [Installing](README.md#installing).
+
+**Moving boxes.** A dialog, a form or a picker moves with its title bar dragged, and opens there again.
+
+**Windows** (still experimental): the programs ned builds (tests, the debugger's, examples, a plugin host) get their
+`.exe`; a page opens in the browser; the Nims of choosenim are found; *Check setup* and a message at start say when
+Git for Windows' sh is missing.
+
+**Looks.** The welcome screen says how its RECENT column fills, and its line under the logo fits a phone; a dock cuts
+a long line with … ; the TODOs dock's message wraps; the completion list's counter no longer covers the last item's
+type; the ✦ of *code from a comment* is not offered on a doc comment; *Git: commit…* with nothing changed says so
+instead of opening the message box.
+
+**Fixed:** a button over the minimap — the find and replace bar's ×, a note's — took no click: the minimap under it
+jumped instead.
+
+The scoreboard of 6.29:
+
+| | score | at least |
+|---|---|---|
+| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
+| nim: go to definition, the same place | 100.0% ✓ | 98% |
+| nim: a variable's type, the same | 98.7% ✓ | 97% |
+| nim: member completion, ned | 98.4% ✓ | 96% |
+| nim: member completion, nimsuggest (not checked) | 70.9% |  |
+| nim: references in the file, the same as nimsuggest's | 95.6% ✓ | 92% |
+| nim: as you type, the compiler's errors found | 100.0% ✓ | 95% |
+| nim: as you type, clean files with no wrong error | 100.0% ✓ | 95% |
+| nedls: completion: the name offered | 100.0% ✓ | 98% |
+| nedls: hover: its doc comment | 100.0% ✓ | 97% |
+| nedls: hover: the same declaration | 98.9% ✓ | 97% |
+| nedls: hover: there | 100.0% ✓ | 98% |
+| nedls: signature help: the routine | 100.0% ✓ | 97% |
+| c: go to definition, the same as clangd's | 97.5% ✓ | 95% |
+| c: member completion, ned | 100.0% ✓ | 96% |
+| c: member completion, clangd (not checked) | 96.9% |  |
+| c: hover, the same parameters | 100.0% ✓ | 96% |
+| c++: go to definition, the same as clangd's | 100.0% ✓ | 95% |
+| c++: member completion, ned | 100.0% ✓ | 95% |
+| c++: member completion, clangd (not checked) | 96.2% |  |
+| c++: hover, the same parameters | 100.0% ✓ | 96% |
+| versus nimlangserver: hover, nedls | 98.3% ✓ | 90% |
+| versus nimlangserver: hover, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: definition, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: definition, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: member offered, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: member offered, nimlangserver (not checked) | 63.3% |  |
+| versus nimlangserver: the same definition where both answer | 97.0% ✓ | 90% |
+| format: lines the same as nph's | 99.6% ✓ | 99% |
+| format: files formatted, of those nph formats | 100.0% ✓ | 99% |
+
+against nimlangserver: nedls answers in 1.6 ms (the median), ready after 78 ms; nimlangserver in 253.6 ms, ready after 2120 ms
+
+against nph: 463 files formatted in 1.53 s by ned, 2.31 s by nph; nph refused 0, ned left 0 alone
 
 ## What's new in 6.28
 

@@ -251,22 +251,30 @@ proc allThemesRaw(): seq[Theme] =
     mkTheme("vscode-dark",       true,  0x1F1F1F, 0xCCCCCC, 0x0078D4, 0x264F78, 0x6A9955, 0x569CD6, 0x4EC9B0, 0xCE9178, 0xB5CEA8, 0xDCDCAA, 0xD4D4D4, 0xC586C0, 0x9CDCFE, 0xF14C4C, 0xCCA700, 0x89D185).chrome(0x181818, 0x181818, 0x181818),
     mkTheme("vscode-light",      false, 0xFFFFFF, 0x3B3B3B, 0x005FB8, 0xADD6FF, 0x008000, 0x0000FF, 0x267F99, 0xA31515, 0x098658, 0x795E26, 0x000000, 0xAF00DB, 0x001080, 0xE51400, 0xBF8803, 0x388A34).chrome(0xF8F8F8, 0xF8F8F8, 0xF8F8F8),
     mkTheme("github-light",      false, 0xFFFFFF, 0x24292F, 0x0969DA, 0xCDE3F8, 0x6E7781, 0xCF222E, 0x953800, 0x0A3069, 0x0550AE, 0x8250DF, 0xCF222E, 0x953800, 0x0550AE, 0xCF222E, 0x9A6700, 0x1A7F37).chrome(0xF6F8FA, 0xF6F8FA, 0xF6F8FA),
-    mkTheme("catppuccin-frappe", true,  0x303446, 0xC6D0F5, 0x8CAAEE, 0x51576D, 0x737994, 0xCA9EE6, 0xE5C890, 0xA6D189, 0xEF9F76, 0x8CAAEE, 0x99D1DB, 0xE78284, 0xBABBF1, 0xE78284, 0xE5C890, 0xA6D189),
-    mkTheme("catppuccin-macchiato", true, 0x24273A, 0xCAD3F5, 0x8AADF4, 0x494D64, 0x6E738D, 0xC6A0F6, 0xEED49F, 0xA6DA95, 0xF5A97F, 0x8AADF4, 0x91D7E3, 0xED8796, 0xB7BDF8, 0xED8796, 0xEED49F, 0xA6DA95),
     mkTheme("tokyo-night-day",   false, 0xE1E2E7, 0x3760BF, 0x2E7DE9, 0xB7C1E3, 0x848CB5, 0x9854F1, 0x007197, 0x587539, 0xB15C00, 0x2E7DE9, 0x006A83, 0x8C6C3E, 0x007197, 0xF52A65, 0x8C6C3E, 0x587539),
     mkTheme("rose-pine-dawn",    false, 0xFAF4ED, 0x575279, 0x907AA9, 0xDFDAD9, 0x9893A5, 0x286983, 0x56949F, 0xEA9D34, 0xD7827E, 0x907AA9, 0x797593, 0xB4637A, 0xD7827E, 0xB4637A, 0xEA9D34, 0x56949F),
     mkTheme("kanagawa-lotus",    false, 0xF2ECBC, 0x545464, 0x4D699B, 0xC9CBD1, 0x8A8980, 0x624C83, 0x597B75, 0x6F894E, 0xB35B79, 0x4D699B, 0x836F4A, 0xC84053, 0x77713F, 0xE82424, 0xE98A00, 0x6F894E),
     mkTheme("ayu-light",         false, 0xFCFCFC, 0x5C6166, 0xFFAA33, 0xD1E4F4, 0xADAEB1, 0xFA8D3E, 0x399EE6, 0x86B300, 0xA37ACC, 0xF2AE49, 0xED9366, 0xE6BA7E, 0x55B4D4, 0xE65050, 0xFFAA33, 0x86B300),
-    mkTheme("github-dark-dimmed", true, 0x22272E, 0xADBAC7, 0x539BF5, 0x264466, 0x768390, 0xF47067, 0xF69D50, 0x96D0FF, 0x6CB6FF, 0xDCBDFB, 0xF47067, 0xF69D50, 0x6CB6FF, 0xE5534B, 0xC69026, 0x57AB5A),
     mkTheme("modus-vivendi",     true,  0x000000, 0xFFFFFF, 0x2FAFFF, 0x5A5A5A, 0x989898, 0xB6A0FF, 0x6AE4B9, 0x79A8FF, 0x00BCFF, 0xFEACD0, 0xFFFFFF, 0xFF7F9F, 0x00D3D0, 0xFF5F59, 0xFEC43F, 0x44BC44),
     mkTheme("modus-operandi",    false, 0xFFFFFF, 0x000000, 0x0031A9, 0xBDBDBD, 0x595959, 0x531AB6, 0x005F5F, 0x3548CF, 0x0000B0, 0x721045, 0x000000, 0xA0132F, 0x005E8B, 0xA60000, 0x884900, 0x006800),
     mkTheme("ayu-mirage",        true,  0x1F2430, 0xCCCAC2, 0xFFCC66, 0x33415E, 0x5C6773, 0xFFA759, 0x73D0FF, 0xD5FF80, 0xDFBFFF, 0xFFD173, 0xF29E74, 0xF28779, 0x5CCFE6, 0xFF6666, 0xFFCC66, 0x87D96C),
-    # from vim: molokai (tomasr), jellybeans (nanotech), iceberg (cocopon), sonokai (sainnhe), PaperColor (NLKNguyen)
-    mkTheme("molokai",           true,  0x1B1D1E, 0xF8F8F2, 0x66D9EF, 0x403D3D, 0x7E8E91, 0xF92672, 0x66D9EF, 0xE6DB74, 0xAE81FF, 0xA6E22E, 0xF92672, 0xA6E22E, 0xFD971F, 0xF92672, 0xFD971F, 0xA6E22E),
+    # from vim: jellybeans (nanotech), iceberg (cocopon), sonokai (sainnhe), PaperColor (NLKNguyen)
     mkTheme("jellybeans",        true,  0x151515, 0xE8E8D3, 0x8197BF, 0x404040, 0x888888, 0x8197BF, 0xFFB964, 0x99AD6A, 0xCF6A4C, 0xFAD07A, 0x799D6A, 0x8FBFDC, 0xC6B6EE, 0xD54E53, 0xFFB964, 0x99AD6A),
     mkTheme("iceberg",           true,  0x161821, 0xC6C8D1, 0x84A0C6, 0x272C42, 0x6B7089, 0x84A0C6, 0xB4BE82, 0x89B8C2, 0xA093C7, 0xE2A478, 0x84A0C6, 0xB4BE82, 0x89B8C2, 0xE27878, 0xE2A478, 0xB4BE82),
     mkTheme("sonokai",           true,  0x2C2E34, 0xE2E2E3, 0x76CCE0, 0x414550, 0x7F8490, 0xFC5D7C, 0x76CCE0, 0xE7C664, 0xB39DF3, 0x9ED072, 0xFC5D7C, 0xB39DF3, 0xF39660, 0xFC5D7C, 0xE7C664, 0x9ED072),
     mkTheme("papercolor-light",  false, 0xEEEEEE, 0x444444, 0x0087AF, 0xD0D0D0, 0x878787, 0xD70087, 0x005F87, 0x5F8700, 0xD75F00, 0x0087AF, 0x0087AF, 0x8700AF, 0x005FAF, 0xAF0000, 0xD75F00, 0x008700),
+    # 6.30: Shades of Purple (Ahmad Awais, VS Code) and its Super Dark; Foxoman's ClassicBlue (VS Code) and his Nebula
+    # themes (Zed) — Nebula Void is ned's own Slate, kept under that name. Colours that read below 4.5:1 on their
+    # background (3:1 for comments) were lifted to it, their hue kept (tests/themes/contrast.py)
+    mkTheme("shades-of-purple",  true,  0x2D2B55, 0xFFFFFF, 0xFAD000, 0x6A4BB0, 0xB362FF, 0xFF9D00, 0x9EFFFF, 0xA5FF90, 0xFF628C, 0xFAD000, 0xFF9D00, 0xFB94FF, 0xFFEE80, 0xF1706E, 0xFAD000, 0x3AD900).chrome(0x1E1E3F, 0x222244, 0x1E1E3F),
+    mkTheme("shades-of-purple-super-dark", true, 0x191830, 0xFFFFFF, 0xFAD000, 0x3A1270, 0xB362FF, 0xFF9D00, 0x9EFFFF, 0xA5FF90, 0xFF628C, 0xFAD000, 0xFF9D00, 0xFB94FF, 0xFFEE80, 0xED4441, 0xFAD000, 0x3AD900).chrome(0x15152B, 0x131327, 0x15152B),
+    mkTheme("classic-blue",      true,  0x3E308B, 0xE6E6E6, 0x3FA9E0, 0x264F78, 0x9B9B9B, 0x78B0DE, 0x4EC9B0, 0xD49F89, 0xB5CEA8, 0xDCDCAA, 0xD4D4D4, 0xCF9BCB, 0x9CDCFE, 0xF88C8C, 0xCD9731, 0x89D185).chrome(0x222222, 0x252526, 0x222222),
+    mkTheme("nebula-pulse",      true,  0x1E2340, 0xD1D5E8, 0x68A6E6, 0x2E4466, 0x6A7199, 0xC678DD, 0xE5C07B, 0x98C379, 0xE5C07B, 0x61AFEF, 0xFF9D00, 0xC678DD, 0x68A6E6, 0xE06C75, 0xE5C07B, 0x98C379).chrome(0x1A1E38, 0x252A47, 0x1A1E38),
+    mkTheme("nebula-nova",       true,  0x1A1A22, 0xE1E1EF, 0x82C7FF, 0x2A3E55, 0x72A966, 0x5D95E8, 0x4FD6BA, 0xE69E83, 0xB5CEA8, 0xE8CC8D, 0xD4D4D4, 0x56BEFF, 0x9CDCFE, 0xF14C4C, 0xE5E510, 0x23D18B).chrome(0x15151D, 0x1E1E26, 0x15151D),
+    mkTheme("nebula-nord",       true,  0x181B28, 0x50B1DC, 0x6DC2F2, 0x22394E, 0x666A73, 0x00A8FF, 0x6DBCD1, 0xDFFC00, 0xC850D1, 0x18A5DE, 0x48ACC7, 0x45AEE4, 0x6DC2F2, 0xFF5D5D, 0xFF6A00, 0x18A5DE).chrome(0x0C0E14, 0x161925, 0x0C0E14),
+    mkTheme("nebula-serenity",   true,  0x0F0F18, 0xE6E6EE, 0xA2CFFF, 0x212B44, 0x626271, 0xACA8FF, 0xF9B98C, 0x4EBE96, 0xF9B98C, 0xE6E7A3, 0x859BB3, 0xC8E1FF, 0xA2CFFF, 0xF05A74, 0xE6E7A3, 0x4DCFB0).chrome(0x0A0A12, 0x14141D, 0x0A0A12),
+    mkTheme("nebula-glow",       false, 0xE1E5F5, 0x2E3761, 0x3369A1, 0xBACCEA, 0x7781B0, 0x875295, 0x78622D, 0x496F35, 0x78622D, 0x3266A3, 0xCF6300, 0x875295, 0x3369A1, 0xA34A50, 0x7D621E, 0x496F35).chrome(0xD9DEF2, 0xDAE0F5, 0xD9DEF2),
+    mkTheme("nebula-dawn",       false, 0xFFFFFF, 0x000000, 0x0000FF, 0xC4C4FF, 0x005500, 0x191970, 0x6D16BD, 0x8B4500, 0xBD00BD, 0x191970, 0x191970, 0xBD00BD, 0x0000FF, 0xCD0000, 0x8B4500, 0x005500).chrome(0xF0F0F0, 0xEEEEEE, 0xF0F0F0),
     # ned's own (6.3): frankincense resin and Omani silver, a desert evening, a lagoon at noon, sea glass, ink on
     # paper, rose quartz — and two old terminals (every colour checked for contrast: tests/themes/contrast.py)
     mkTheme("frankincense",      true,  0x1C1712, 0xE8DCC8, 0xE0A84E, 0x3D3224, 0x8F806C, 0xE6A94F, 0x9FC7B5, 0xC9D18A, 0xE8916C, 0xF2C77E, 0xC2A68A, 0xDC8FA4, 0xB8C8E0, 0xF07060, 0xF0B860, 0xA8C88A).chrome(0x15110D, 0x18140F, 0x15110D),
@@ -289,7 +297,6 @@ proc allThemesRaw(): seq[Theme] =
     phosphorTheme("green-phosphor", 0x041208, 0x6CF08A, 0xB8FFC8, 0x49B861, 0x43935A, 0xFF6F5E, 0xE8F06A),
     #          name            bg        title     dock      cur line  popup
     slateTheme("slate",        0x242430, 0x1B1B24, 0x1F1F29, 0x262633, 0x3E4452),
-    slateTheme("slate-night",  0x18181F, 0x101015, 0x141419, 0x1E1E27, 0x343A46),
     monoTheme("monochrome", true),
     monoTheme("monochrome-light", false),
   ]
@@ -480,9 +487,42 @@ proc themeOverrides(name: string): JsonNode =
       for k, v in all[key]: result[k] = v
   if result.len == 0: result = nil
 
+const ThemeAliases = [("molokai", "monokai"), ("catppuccin-macchiato", "catppuccin-mocha"),
+                      ("catppuccin-frappe", "catppuccin-mocha"), ("github-dark-dimmed", "github-dark"),
+                      ("slate-night", "slate"), ("nebula-void", "slate")]
+  ## (6.30: themes that were another one under another name — or nearly: a setting naming one gets that one)
+
+proc themeAlias(name: string): string =
+  for (a, b) in ThemeAliases:
+    if a == name: return b
+
+proc trueBlackOn(): bool
+
+proc onBlack(c, bg: Rgb): Rgb =
+  ## a surface's colour moved onto true black: what lifted it above the theme's background stays (a little more,
+  ## so it still shows), what was darker becomes black
+  for sh in [16'u32, 8, 0]:
+    let v = int((c shr sh) and 0xFF) - int((bg shr sh) and 0xFF)
+    result = result or (Rgb(clamp(int(float(v) * 1.6), 0, 255)) shl sh)
+
+proc trueBlackOf(t0: Theme): Theme =
+  ## theme.trueBlack: a dark theme on an OLED screen — the editor and its bars on true black (the pixels off), the
+  ## popups, the current line and the hover a lift above it; the text, the syntax and the selection keep their colours
+  result = t0
+  let bg = t0.bg
+  result.bg = 0
+  result.tabActiveBg = 0
+  for f in [addr result.curLine, addr result.statusBg, addr result.tabBg, addr result.popupBg, addr result.panelBg,
+            addr result.stickyBg, addr result.titleBg, addr result.dockBg, addr result.dockHeadBg, addr result.tabBarBg,
+            addr result.hoverBg, addr result.inputBg, addr result.menuBg, addr result.toastBg, addr result.codeBg,
+            addr result.crumbBg, addr result.splitBar, addr result.shadow, addr result.btnBg, addr result.userBg]:
+    f[] = onBlack(f[], bg)
+  makeReadable(result)
+
 proc themeNamed(name: string): (bool, Theme) =
+  let n = if themeAlias(name).len > 0: themeAlias(name) else: name
   for t in allThemes():
-    if t.name == name: return (true, t)
+    if t.name == n: return (true, t)
 
 proc clockMinutes(s: string, def: int): int =
   ## "07:30", "7", "19:05" → minutes after midnight (`def` when it is not a time)
@@ -526,6 +566,7 @@ proc applyTheme(name: string) =
   if ok:
     let ov = themeOverrides(t.name)
     theme = if ov != nil: rebuildTheme(t, ov) else: t
+    if theme.dark and trueBlackOn(): theme = trueBlackOf(theme)
     cfgThemeName = name
     return
   for t in allThemes():          # an unknown name: the default theme
@@ -535,3 +576,7 @@ proc applyTheme(name: string) =
       return
   theme = allThemes()[0]
   cfgThemeName = theme.name
+
+proc trueBlackOn(): bool =
+  let n = settingNode("theme.trueBlack")
+  n != nil and n.kind == JBool and n.getBool

@@ -14,6 +14,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `theme.autoBy` | `"terminal"` | With "theme": "auto": light or dark as the terminal's background is (terminal), or light by day and dark at night (clock: theme.dayStarts, theme.nightStarts) — one of: terminal, clock |
 | `theme.dayStarts` | `"07:00"` | With theme.autoBy "clock": when the light theme starts (HH:MM) |
 | `theme.nightStarts` | `"19:00"` | With theme.autoBy "clock": when the dark theme starts (HH:MM) |
+| `theme.trueBlack` | `false` | A dark theme on true black — for an OLED screen, whose black pixels are off: the editor and its bars black, popups and the current line a little lifted; the text and the syntax keep the theme's colours |
 | `theme.termuxColors` | `false` | Termux: keep ~/.termux/colors.properties matching ned's theme, so the whole terminal (the shell after ned too) has its colours. Palette › Theme: put Termux's own colours back |
 | `theme.colors` | `{}` | Change colours of any theme: {"comment": "#8a8a8a", "bg": "#101010"} for all, {"nim-crown": {…}} for one. Names: bg, fg, accent, selection, comment, keyword, type, string, number, function, operator, macro, property, error, warning, ok, titleBar, dock, statusBar, ruler |
 | `ui.themeBeforeAccessible` | `""` | (the theme to go back to when accessibility mode is turned off) |
