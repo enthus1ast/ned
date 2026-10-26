@@ -405,6 +405,9 @@ proc initSettingDefs() =
        @["keep", "sort", "merge"])
   defS("Nim", "nim.format.align", %false, "Built-in formatter: line up the types of an object's fields and the `=` of " &
        "const / let / var section members")
+  defS("Nim", "nim.format.alignNimbleFields", %true, "Built-in formatter: the `=` of a .nimble's (or a .nims's) " &
+       "package fields that follow each other lined up, as nimble's own template writes them (`version       = " &
+       "\"0.1.0\"`); off: fields written `name = value` each stay so, as nph writes them")
   defS("Nim", "nim.format.alignComments", %false, "Built-in formatter: the comments at the end of lines that follow " &
        "each other (`x: int  ## the x`) lined up at one column — the one they share already when there is room, else " &
        "two after the longest line; a line the column would take past nim.format.lineLength keeps its comment " &
@@ -1140,6 +1143,7 @@ proc applySettings() =
                of "merge": 2
                else: 0
   FmtAlign = sBool("nim.format.align")
+  FmtScriptAlign = sBool("nim.format.alignNimbleFields")
   FmtAlignComments = sBool("nim.format.alignComments")
   FmtMagicComma = sBool("nim.format.magicTrailingComma")
   FmtNumbers = sBool("nim.format.normalizeNumbers")

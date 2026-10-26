@@ -3,6 +3,7 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 proc openPrompt(kind: PromptKind, label: string, initial = "") =
+  fieldSelClear()                    # (a selection of the prompt before — the find box's — is not this one's)
   closeComp()
   hoverOpen = false
   promptKind = kind
@@ -14,9 +15,12 @@ proc openPrompt(kind: PromptKind, label: string, initial = "") =
     findOrigin = buf().cursors
     findQuery = initial
     countMatches()
+    # (what it opens with is selected, as in any find box: typing replaces it, an arrow keeps it)
+    if initial.len > 0: fieldSelect(promptText, 0, initial.len)
   needRender = true
 
 proc closePrompt() =
+  if fieldOwns(promptText): fieldSelClear()
   promptKind = pNone
   needRender = true
 

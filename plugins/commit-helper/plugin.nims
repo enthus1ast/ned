@@ -12,7 +12,7 @@ import nedplugin
 import std/[strutils, algorithm]
 
 requiresNed(">= 6.26")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "reads the staged changes (git diff --cached) and commits them (git commit -F)")
 
 settingDef("style", "conventional", "Git: draft a commit message — conventional (type(scope): summary) or plain")

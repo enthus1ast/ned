@@ -21,7 +21,7 @@ import std/tables
 from std/unicode import nil
 
 requiresNed(">= 6.26")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("clipboard", "a link takes the address on the clipboard")
 
 settingDef("tocOnSave", true, "Markdown: update the table of contents (between <!-- toc --> and <!-- tocstop -->) " &

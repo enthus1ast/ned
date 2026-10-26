@@ -2,9 +2,9 @@
   "name": "nedls",
   "displayName": "nedls — ned's Nim engine",
   "description": "Nim (and C, C++, JavaScript, HTML, CSS, SQL, JSON) with ned's own engine: completion, hover, definition, references, rename, call and type hierarchy, formatting, quick fixes and problems as you type — no nimsuggest needed.",
-  "version": "6.30.0",
+  "version": "6.31.0",
   "publisher": "foxoman",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "repository": { "type": "git", "url": "https://github.com/foxoman/ned" },
   "engines": { "vscode": "^1.82.0" },
   "categories": ["Programming Languages", "Linters", "Formatters"],
@@ -46,7 +46,5 @@
       { "command": "nedls.showOutput", "title": "nedls: Show its log" }
     ]
   },
-  "dependencies": { "vscode-languageclient": "^9.0.1" },
-  "scripts": { "package": "vsce package --out vscode-nedls.vsix" },
-  "devDependencies": { "@vscode/vsce": "^3.2.1" }
+  "scripts": { "package": "bash ../../tests/build/vscode.sh ." }
 }

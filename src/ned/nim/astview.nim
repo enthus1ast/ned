@@ -60,8 +60,9 @@ proc astBuffer(): Buffer =
   result.indent = "  "
   bufs.add result
 
-proc astShow() =
-  ## the view's text, in the pane beside the code (the code's pane keeps the focus)
+proc astShow(open = false) =
+  ## the view's text, in the pane beside the code (the code's pane keeps the focus) — put there when `open`; after
+  ## that only its text changes (a pane you closed is not opened again)
   let src = bufById(astSrc)
   if src == nil: return
   let ab = astBuffer()
@@ -69,13 +70,7 @@ proc astShow() =
   ab.setContent(astTree & (if astExpand.len > 0: "\n" & astExpand else: ""))
   ab.topLine = clamp(top, 0, ab.lines.high)
   ab.savedSeq = ab.topSeq()
-  if buf() == src:
-    if not splitOn:
-      splitOn = true
-      splitDown = false
-      activePane = 0
-      panes[0] = Pane(bufId: src.id, snap: snapView(src))
-    panes[1 - activePane] = Pane(bufId: ab.id, snap: snapView(ab))
+  if open and buf() == src and panesShowing(ab.id).len == 0: showBeside(src, ab)
   needRender = true
 
 proc astRefresh(force = false) =
@@ -142,7 +137,7 @@ proc cmdAstView() =
     astOn = false
     for i, x in bufs:
       if x.title == AstTitle:
-        if splitOn and panes[1 - activePane].bufId == x.id: closeSplit()
+        dropBufFromPanes(x.id)
         if i != curBuf: closeBufferAt(i)
         break
     info("AST view off")
@@ -156,7 +151,7 @@ proc cmdAstView() =
   astTree = "# AST: Nim's parser is reading the code…\n"
   astExpand = ""
   astRefresh(true)
-  astShow()
+  astShow(open = true)
   info("AST view: the tree of the statement at the cursor (or the selection), again after each pause — run it again to close")
 
 proc astPump() =
@@ -207,7 +202,7 @@ proc cmdDocPreview() =
   if docPvSrc >= 0 and (b.id == docPvSrc or (b.mdNimDocs and b.mdSrc == docPvSrc)):
     for i in countdown(bufs.high, 0):
       if bufs[i].mdNimDocs:
-        if splitOn and panes[1 - activePane].bufId == bufs[i].id: closeSplit()
+        dropBufFromPanes(bufs[i].id)
         if i != curBuf: closeBufferAt(i)
     docPvSrc = -1
     info("Docs preview off")
@@ -225,13 +220,7 @@ proc cmdDocPreview() =
   docPvSrc = b.id
   let ci = bufs.find(b)
   if ci >= 0: curBuf = ci
-  if not splitOn:
-    splitOn = true
-    splitDown = false
-    activePane = 0
-    panes[0] = Pane(bufId: b.id, snap: snapView(b))
-  panes[1 - activePane] = Pane(bufId: pv.id, snap: snapView(pv))
-  needRender = true
+  showBeside(b, pv)
   info("Docs preview beside the code — as nim doc shows them; it follows your edits (run it again to close)")
 
 var docPvSeen = -1

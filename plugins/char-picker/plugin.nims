@@ -18,7 +18,7 @@
 import nedplugin
 
 requiresNed(">= 6.29")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("recent", 8, "Insert a character…: how many of the characters you used last are listed first (0: none)")
 

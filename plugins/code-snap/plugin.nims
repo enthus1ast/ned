@@ -1,13 +1,19 @@
-## code-snap — the selected code as a picture: an SVG (or an HTML page) of a window with its lines, coloured
+## code-snap — the selected code as a picture: a PNG, an SVG or an HTML page of a window with its lines, coloured
 ##
-##   Code snap: selection as SVG     the selected lines (none selected: the whole file) in a window with a title bar
-##   Code snap: selection as HTML    (the file's name), line numbers beside them, in a monospace font, coloured by
-##                                   their syntax — written to a file, its path in the status line
+##   Code snap: selection as PNG     the selected lines (none selected: the whole file) in a window with a title bar
+##   Code snap: selection as SVG     (the file's name), line numbers beside them, in a monospace font, coloured by
+##   Code snap: selection as HTML    their syntax — written to a file, its path in the status line
 ##   settings   plugins.code-snap.folder       data (the default: the plugin's data folder, snaps/), beside (next to
 ##                                             the file), or a folder of your own (~/Pictures/snaps)
 ##              plugins.code-snap.lineNumbers  true · .theme dark or light · .fontSize 14 · .font (the font families,
 ##                                             a monospace one last) · .background (around the window: a colour, or
-##                                             none for no margin)
+##                                             none for no margin) · .pngScale 2 (the PNG's pixels per point) ·
+##                                             .pngProgram auto (or rsvg-convert, resvg, magick, inkscape, convert,
+##                                             chromium, google-chrome)
+##
+## The PNG is the SVG drawn by a program that draws SVG: rsvg-convert (librsvg), resvg, ImageMagick, Inkscape, or
+## Chromium or Chrome without a window — the first one installed. With none of them, code-snap asks which to install and runs the command that installs
+## it (pkg in Termux, apt, dnf, pacman, zypper, apk, Homebrew, winget) in ned's terminal.
 ##
 ## The colours: ned does not give plugins the colours or tokens of a line, so code-snap colours the code itself —
 ## keywords, types, strings, numbers, comments, function names, constants, pragmas and decorators of Nim, Python,
@@ -15,13 +21,17 @@
 ## from the top, so a selection that starts inside a block comment or a string of several lines is coloured as one.
 ## The common indentation of the lines is taken off and tabs become spaces. The file is named after the code's file
 ## and its lines: plugin.nims-L12-30.svg. Writing it beside your file (or in a folder of yours) is why the plugin asks
-## to change files; in its own data folder it needs nothing.
+## to change files; in its own data folder it needs nothing. Running the program that makes the PNG is why it asks
+## to run programs.
 import nedplugin
 
 requiresNed(">= 6.29")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.1.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("files", "writes the picture beside your file, or in a folder you name, when plugins.code-snap.folder " &
            "says so (in its own data folder it needs no permission)")
+
+permission("shell", "runs the program that turns the picture into a PNG (rsvg-convert, resvg, ImageMagick or " &
+           "Inkscape) — and, when you ask, the command that installs one, in the terminal")
 
 settingDef("folder", "data", "Code snap: where the picture goes — data (the plugin's data folder), beside (next to " &
            "the file), or a folder of your own")
@@ -31,6 +41,10 @@ settingDef("fontSize", 14, "Code snap: the size of the code's font, in pixels")
 settingDef("font", "JetBrains Mono, Fira Code, Cascadia Code, Menlo, Consolas, DejaVu Sans Mono, monospace",
            "Code snap: the font families of the code, the first one installed is used (a monospace one last)")
 settingDef("background", "#d8dee9", "Code snap: the colour around the window (none: no margin, transparent)")
+settingDef("pngProgram", "auto", "Code snap: the program that draws the PNG — auto (the first installed of " &
+           "rsvg-convert, resvg, magick, inkscape, convert, chromium, google-chrome) or one of them")
+settingDef("pngScale", 2, "Code snap: a PNG's pixels for each point of the picture (2: sharp on a phone's or a " &
+           "laptop's screen; 1 to 4)")
 
 # ── colouring: a small lexer for each family of languages ──
 
@@ -529,6 +543,31 @@ proc snapOf(b: Buf): (bool, Snap) =
   sn.title = if p.len > 0: extractFilename(p) else: b.title
   (true, sn)
 
+proc snapFile(b: Buf, sn: Snap, ext: string): string =
+  ## where the picture goes: the plugin's data folder (""), beside the file, or a folder of yours — nil: no folder
+  let last = sn.first + sn.lines.len - 1
+  var base = sn.title
+  for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']: base = base.replace($ch, "_")
+  let name = base & "-L" & $sn.first & (if last > sn.first: "-" & $last else: "") & "." & ext
+  let where = setting("folder", "data").strip
+  let p = b.path
+  if where == "beside" and p.len > 0: return p.parentDir / name
+  if where notin ["", "data", "beside"]:
+    let d = expandTilde(where)
+    if not dirExists(d):
+      warn("Code snap: there is no folder " & d & " (plugins.code-snap.folder)")
+      return "\0"
+    return d / name
+  "data:" & name
+
+proc writeSnap(path, text: string): string =
+  ## the text written there (data:NAME: in the plugin's data folder, snaps/); its full path
+  if path.startsWith("data:"):
+    writeData("snaps/" & path[5 .. ^1], text)
+    return dataDir() / "snaps" / path[5 .. ^1]
+  writeFile(path, text)
+  path
+
 proc snap(ext: string) =
   let b = current()
   if not b.valid:
@@ -539,26 +578,135 @@ proc snap(ext: string) =
     message("Code snap: nothing to draw — the lines are empty")
     return
   let text = if ext == "svg": svgOf(sn) else: htmlOf(sn)
-  let last = sn.first + sn.lines.len - 1
-  var base = sn.title
-  for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']: base = base.replace($ch, "_")
-  let name = base & "-L" & $sn.first & (if last > sn.first: "-" & $last else: "") & "." & ext
-  let where = setting("folder", "data").strip
-  let p = b.path
-  var path = ""
-  if where == "beside" and p.len > 0: path = p.parentDir / name
-  elif where notin ["", "data", "beside"]:
-    let d = expandTilde(where)
-    if not dirExists(d):
-      warn("Code snap: there is no folder " & d & " (plugins.code-snap.folder)")
-      return
-    path = d / name
-  if path.len > 0:
-    writeFile(path, text)
-  else:
-    writeData("snaps/" & name, text)
-    path = dataDir() / "snaps" / name
-  message("Code snap: " & path)
+  let path = snapFile(b, sn, ext)
+  if path == "\0": return
+  message("Code snap: " & writeSnap(path, text))
 
+# ── PNG: the SVG drawn by a program that draws SVG ──
+
+const Drawers = [
+  # (the program, its command: $in the SVG, $out the PNG, $zoom the scale, $dpi 96 × it)
+  ("rsvg-convert", "rsvg-convert -z $zoom -o $out $in"),
+  ("resvg", "resvg --zoom $zoom $in $out"),
+  ("magick", "magick -density $dpi -background none $in $out"),
+  ("inkscape", "inkscape --export-type=png --export-dpi=$dpi --export-filename=$out $in"),
+  ("convert", "convert -density $dpi -background none $in $out"),      # (ImageMagick 6)
+  # (a browser draws it too: Chromium or Chrome, without a window)
+  ("chromium", "chromium --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=$zoom " &
+               "--window-size=$w,$h --default-background-color=00000000 --screenshot=$out file://$in"),
+  ("chromium-browser", "chromium-browser --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=$zoom " &
+                       "--window-size=$w,$h --default-background-color=00000000 --screenshot=$out file://$in"),
+  ("google-chrome", "google-chrome --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=$zoom " &
+                    "--window-size=$w,$h --default-background-color=00000000 --screenshot=$out file://$in")]
+
+proc drawer(): (string, string) =
+  ## the program that draws SVG (plugins.code-snap.pngProgram, else the first installed), and its command
+  let want = setting("pngProgram", "auto").strip
+  for (exe, cmd) in Drawers:
+    let full = if want in ["", "auto"] or want == exe: findExe(exe) else: ""
+    if full.len > 0: return (exe, quoteShell(full) & cmd[exe.len .. ^1])     # (the one found, wherever ned runs it)
+  ("", "")
+
+proc osKind(): string =
+  ## the system, by how it installs programs: termux apt dnf pacman zypper apk brew winget ("" not known)
+  if getEnv("TERMUX_VERSION").len > 0 or "com.termux" in getEnv("PREFIX"): return "termux"
+  when defined(windows):
+    return (if findExe("winget").len > 0: "winget" elif findExe("scoop").len > 0: "scoop" else: "")
+  else:
+    if findExe("brew").len > 0 and defined(macosx): return "brew"
+    for m in ["apt-get", "dnf", "pacman", "zypper", "apk", "brew"]:
+      if findExe(m).len > 0: return (if m == "apt-get": "apt" else: m)
+    ""
+
+proc installChoices(sys: string): seq[(string, string)] =
+  ## (what to install, the command that installs it) on this system
+  let sudo = when defined(windows): "" else: (if getEnv("USER") == "root" or sys == "termux": "" else: "sudo ")
+  case sys
+  of "termux": @[("librsvg — rsvg-convert", "pkg install -y librsvg"), ("ImageMagick", "pkg install -y imagemagick")]
+  of "apt": @[("librsvg — rsvg-convert", sudo & "apt-get install -y librsvg2-bin"),
+              ("ImageMagick", sudo & "apt-get install -y imagemagick")]
+  of "dnf": @[("librsvg — rsvg-convert", sudo & "dnf install -y librsvg2-tools"),
+              ("ImageMagick", sudo & "dnf install -y ImageMagick")]
+  of "pacman": @[("librsvg — rsvg-convert", sudo & "pacman -S --noconfirm librsvg"),
+                 ("ImageMagick", sudo & "pacman -S --noconfirm imagemagick")]
+  of "zypper": @[("librsvg — rsvg-convert", sudo & "zypper install -y rsvg-convert"),
+                 ("ImageMagick", sudo & "zypper install -y ImageMagick")]
+  of "apk": @[("librsvg — rsvg-convert", sudo & "apk add rsvg-convert"), ("ImageMagick", sudo & "apk add imagemagick")]
+  of "brew": @[("librsvg — rsvg-convert", "brew install librsvg"), ("ImageMagick", "brew install imagemagick")]
+  of "winget": @[("ImageMagick", "winget install --id ImageMagick.ImageMagick -e")]
+  of "scoop": @[("ImageMagick", "scoop install imagemagick")]
+  else: @[]
+
+proc offerInstall(why: string) =
+  ## no program here draws SVG (or the one there could not): which to install — its command run in the terminal
+  let ch = installChoices(osKind())
+  var items, details: seq[string]
+  for (what, cmd) in ch:
+    items.add "Install " & what
+    details.add cmd
+  items.add "Make an SVG instead"
+  details.add "a picture any browser shows; Code snap: selection as SVG"
+  let i = pick("Code snap: " & why & " Install one?", items, details)
+  if i < 0: return
+  if i == ch.len:
+    snap("svg")
+    return
+  runInTerminal(ch[i][1])
+  toast("Code snap: installing " & ch[i][0] & " in the terminal — then Code snap: selection as PNG again")
+
+func svgSize(svg: string): (int, int) =
+  ## the picture's width and height, from its <svg width="…" height="…">
+  proc attr(name: string): int =
+    let k = svg.find(name & "=\"")
+    if k < 0: return 800
+    var e = k + name.len + 2
+    var n = ""
+    while e < svg.len and svg[e] in {'0'..'9', '.'}:
+      n.add svg[e]
+      inc e
+    try: int(parseFloat(n) + 0.999) except ValueError: 800
+  (attr("width"), attr("height"))
+
+proc snapPng() =
+  let b = current()
+  if not b.valid:
+    message("Code snap: open a file first")
+    return
+  let (ok, sn) = snapOf(b)
+  if not ok:
+    message("Code snap: nothing to draw — the lines are empty")
+    return
+  let (exe, cmd) = drawer()
+  if exe.len == 0:
+    let want = setting("pngProgram", "auto").strip
+    let why = if want in ["", "auto"]: "a PNG needs a program that draws SVG — rsvg-convert, resvg, ImageMagick, " &
+                                       "Inkscape or Chromium — and none is installed."
+              else: want & " (plugins.code-snap.pngProgram) is not installed."
+    if installChoices(osKind()).len == 0:
+      warn("Code snap: " & why & " Install one (librsvg's rsvg-convert draws it best), or use Code snap: selection " &
+           "as SVG")
+    else: offerInstall(why)
+    return
+  let path = snapFile(b, sn, "png")
+  if path == "\0": return
+  # (the SVG it is drawn from: in the plugin's data folder, written again for each PNG)
+  let svg = svgOf(sn)
+  writeData("snaps/.snap.svg", svg)
+  let src = dataDir() / "snaps" / ".snap.svg"
+  let dest = if path.startsWith("data:"): dataDir() / "snaps" / path[5 .. ^1] else: path
+  let zoom = clamp(setting("pngScale", 2), 1, 4)
+  let (w, h) = svgSize(svg)
+  let run = cmd.multiReplace(("$zoom", $zoom), ("$dpi", $(96 * zoom)), ("$in", quoteShell(src)),
+                             ("$out", quoteShell(dest)), ("$w", $w), ("$h", $h))
+  message("Code snap: drawing the PNG with " & exe & "…")
+  shellAsync(run) do (output: string, code: int):
+    if code == 0 and fileExists(dest): message("Code snap: " & dest)
+    elif exe in ["convert", "magick"] and "delegate" in output:
+      # (an ImageMagick that draws SVG with librsvg, which is not there)
+      offerInstall("this ImageMagick draws SVG with librsvg's rsvg-convert, which is not installed.")
+    else:
+      warn("Code snap: " & exe & " could not draw it" & (if output.len > 0: ": " & output.splitLines()[0] else: ""))
+
+command "Code snap: selection as PNG": snapPng()
 command "Code snap: selection as SVG": snap("svg")
 command "Code snap: selection as HTML": snap("html")

@@ -68,9 +68,13 @@ proc dndZoneAt(x, y: int): (DndZone, int) =
     let (ok, _) = editorPosAt(x, y)
     return (if ok: (dzText, -1) else: (dzNone, -1))
   if splitOn:
+    # (a pane: its right or bottom quarter splits it — when there is room for two — else it shows the file)
     let pi = paneAt(x, y)
-    if pi >= 0: return (dzPane, pi)
-    return (dzNone, -1)
+    if pi < 0: return (dzNone, -1)
+    let r = panes[pi].rect
+    if r.w >= 2 * MinPaneW + 1 and x >= r.x + r.w * 3 div 4: return (dzSplitRight, pi)
+    if r.h >= 12 and y >= r.y + r.h * 3 div 4: return (dzSplitDown, pi)
+    return (dzPane, pi)
   if buf().isWelcome(): return (dzOpen, -1)
   if x >= ex + ew * 3 div 4: return (dzSplitRight, -1)
   if eh >= 12 and y >= ey + eh * 3 div 4: return (dzSplitDown, -1)
@@ -102,9 +106,9 @@ proc dndShow(bufId: int) =
     curBuf = bi
     focus = fEditor
 
-proc dndSplit(down: bool, show: proc(), moving = -1) =
-  ## a split with `show` in its new pane — the other keeps what was shown before the press (or, when that is the
-  ## tab being moved, the tab next to it)
+proc dndSplit(down: bool, show: proc(), moving = -1, pane = -1) =
+  ## a split — of `pane`, else the active one — with `show` in its new pane; the pane the press was in keeps what it
+  ## showed before the press (or, when that is the tab being moved, the tab next to it)
   var prev = dndPrevBufId
   if prev < 0 or prev == moving:
     prev = -1
@@ -113,14 +117,16 @@ proc dndSplit(down: bool, show: proc(), moving = -1) =
       if j >= 0 and j < bufs.len and not bufs[j].isWelcome():
         prev = bufs[j].id
         break
+  let pressPane = activePane
   if not splitOn:
     splitEditor(down)
     if not splitOn: return
-    if prev >= 0 and prev != moving:
-      panes[0].bufId = prev
-      let ob = bufById(prev)
-      if ob != nil: panes[0].snap = snapView(ob)
-  else: splitDown = down
+  elif not splitPaneOf(if pane >= 0: pane else: activePane, down): return
+  if prev >= 0 and prev != moving and pressPane != activePane and pressPane < panes.len:
+    let ob = bufById(prev)
+    if ob != nil:
+      panes[pressPane].bufId = prev
+      panes[pressPane].snap = snapView(ob)
   show()
   needRender = true
 
@@ -142,8 +148,8 @@ proc dndDrop(x, y: int, mods: set[Mod]) =
     of dzPane:
       if idx != activePane: focusPane(idx)
       dndShow(id)
-    of dzSplitRight: dndSplit(false, proc() = dndShow(id), id)
-    of dzSplitDown: dndSplit(true, proc() = dndShow(id), id)
+    of dzSplitRight: dndSplit(false, proc() = dndShow(id), id, idx)
+    of dzSplitDown: dndSplit(true, proc() = dndShow(id), id, idx)
     else: discard
   of dtFile:
     let p = dndPath
@@ -157,7 +163,7 @@ proc dndDrop(x, y: int, mods: set[Mod]) =
       if idx != activePane: focusPane(idx)
       if fileExists(p): discard openFile(p)
     of dzSplitRight, dzSplitDown:
-      if fileExists(p): dndSplit(z == dzSplitDown, proc() = discard openFile(p))
+      if fileExists(p): dndSplit(z == dzSplitDown, proc() = discard openFile(p), -1, idx)
     of dzFolder:
       if idx >= 0 and idx < treeRows.len:
         let n = treeRows[idx]
@@ -232,15 +238,17 @@ proc drawDnd() =
     tint(ex, ey, ew, eh)
     what = "open"
   of dzPane:
-    if idx in 0 .. 1:
+    if idx in 0 ..< panes.len:
       let r = panes[idx].rect
       tint(r.x, r.y, r.w, r.h)
       what = if dragTarget == dtTabOut: "show here" else: "open here"
   of dzSplitRight:
-    tint(ex + ew div 2, ey, ew - ew div 2, eh)
+    let r = if idx in 0 ..< panes.len: panes[idx].rect else: (x: ex, y: ey, w: ew, h: eh)
+    tint(r.x + r.w div 2, r.y, r.w - r.w div 2, r.h)
     what = "split right"
   of dzSplitDown:
-    tint(ex, ey + eh div 2, ew, eh - eh div 2)
+    let r = if idx in 0 ..< panes.len: panes[idx].rect else: (x: ex, y: ey, w: ew, h: eh)
+    tint(r.x, r.y + r.h div 2, r.w, r.h - r.h div 2)
     what = "split down"
   of dzFolder:
     let y = lay.bodyTop + 2 + idx - treeScroll

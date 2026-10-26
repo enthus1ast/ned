@@ -54,9 +54,33 @@ made.
 ## Editing the results: multibuffers
 
 *Open results in a multibuffer (edit many files at once)* puts every result, with a few lines around it, in one
-tab: an excerpt per match, each headed by its file. Edit them as one file — with several cursors, a replace, a
-macro — and **Ctrl+S** writes each change back to its own file. *Problems: all of them with their code* makes the
-same kind of view of every problem, and *Git › Changes* (Alt+Shift+G) of every change you have not committed.
+tab: a piece per match, each headed by its file and line. Edit them as one file — with several cursors, a replace, a
+macro — and **Ctrl+S** writes each change back to its own file. The line numbers at the left are the files' own.
+
+Other ways to make one (*Edit › Multibuffer*): *Problems: all of them with their code* (every problem),
+*Multibuffer: every TODO of the project*, *Multibuffer: the open files, whole*, and *Git › Changes* (Alt+Shift+G,
+every change you have not committed). *Multibuffer: add the selection* — also in a file's right-click menu — adds the
+selected lines (or the cursor's line; with several cursors, each one's) to the multibuffer in use, or makes one
+(“collected”) when there is none; *Multibuffer: show the one in use* goes back to it.
+
+In a multibuffer:
+
+- **Enter** or a click on a piece's header opens the file there; *Multibuffer: open the file here* opens it at the
+  cursor's line. **F12** on a name goes to its definition, looked up in its file.
+- The header's **⇡** and **⇣** show five more lines of the file above or below the piece (*Multibuffer: more lines
+  around this piece* three each way); a piece that reaches the next one of the same file joins it. **✕** takes the
+  piece out (its file stays as it is). *Multibuffer: next piece* and *previous piece* move between them.
+- While it has no unsaved edits of its own, it follows its files: an edit in a file's own tab, a formatter, git or
+  another program — a piece moves with the lines added or removed above it, and shows its lines as they are now.
+  *Multibuffer: refresh* does it at once.
+- Saving writes only the pieces you edited, where their lines are now in their files. When a piece you edited had its
+  own lines changed in its file too, nothing is written and ned says which: copy your edit, refresh, and make it
+  again. A piece of a library's file (`files.protectLibraries`) or of a read-only tab is not written either. A piece
+  whose lines you all deleted takes them out of its file; Enter at the end of its header gives it a line again.
+- Problems of the files show on their lines.
+
+Plugins can make multibuffers of their own, read their pieces and map a place in one to the file — see
+[the plugin API](../plugins/README.md).
 
 ## Telescope: one finder for everything (Alt+Shift+F)
 
@@ -76,6 +100,13 @@ follows the selection; Enter acts on what is selected, Esc closes it.
 | Nim: the standard library's modules · names of the standard library · nimble packages installed | each module · every exported name, its declaration beside it · goes there |
 | Terminal: commands run | what you ran in ned's terminals, with its output · runs it again |
 | Themes · Languages · Plugins | as their own pickers; ned's plugins with their source |
+| Lines of this file | every line of the file in front, found by a few of its letters (fuzzy) · goes there |
+| Panes · Jumps | the panes with their files · the places you jumped from (F12, a search, a reference), the latest first · goes there |
+
+In a finder of places — files, lines, symbols, problems, TODOs, Telescope's — **Alt+V** opens the one chosen in a
+new pane at the right, **Alt+X** in a pane below, and **Alt+Q** puts everything it lists (as you filtered it) in a
+[multibuffer](#editing-the-results-multibuffers), as telescope.nvim sends them to the quickfix list. **⊙** in the
+status bar opens Telescope too.
 
 *Telescope: resume* opens the last finder again with what you had typed in it; *Telescope: live grep*, *…settings*,
 *…git commits* and *…git changed files* open one directly — give any of them a key in the `keys` setting.

@@ -295,6 +295,7 @@ proc mainLoop() =
       if dcView.bufId > 0: dcPump()
       if ce.viewBufId > 0: timedWork("Compiler Explorer"): cePump()
       if nifv.viewBufId > 0: timedWork("NIF view"): nifPump()
+      if multiBufs.len > 0: timedWork("multibuffers"): mbPump()
       if astOn: astPump()
       if docPvSrc >= 0: docPvPump()
       if mcpWaitReq and not mcpStarting():
@@ -337,8 +338,10 @@ proc mainLoop() =
         let gb = buf()
         if gb.gitHasBase and gb.gitAt != gb.changeId and msSince(gb.lspChangeAt) > 200: timedWork("git marks"): updateGitMarks(gb)
         if splitOn:
-          let ob = bufById(panes[1 - activePane].bufId)
-          if ob != nil and ob.gitHasBase and ob.gitAt != ob.changeId and msSince(ob.lspChangeAt) > 200: updateGitMarks(ob)
+          for pi in 0 ..< panes.len:
+            let ob = if pi == activePane: nil else: bufById(panes[pi].bufId)
+            if ob != nil and ob.gitHasBase and ob.gitAt != ob.changeId and msSince(ob.lspChangeAt) > 200:
+              updateGitMarks(ob)
         if cfgBlame: timedWork("blame"): requestBlame(gb)
       var liveNs: seq[NimSug]
       for s in nimSugs:

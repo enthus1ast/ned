@@ -92,5 +92,7 @@ apart.
   `python3 tests/docs/links.py` checks every link — CI runs all of these.
 
 An AI agent working on ned: [AGENTS.md](AGENTS.md) has the build, the tests and the rules of the source in short.
+How each part of ned works, with recipes for common changes and the pitfalls: [docs/dev](docs/dev/README.md).
 
-By contributing you agree that your work is released under ned's [MIT licence](LICENSE).
+By contributing you agree that your work is released under ned's licence, the [GNU General Public License](LICENSE),
+version 3 or (at your option) any later version.

@@ -221,6 +221,8 @@ proc drawDnd()                                       # ui/dragdrop.nim
 proc dndShow(bufId: int)                              # ui/dragdrop.nim
 proc dndSplitWith(id: int, down: bool)
 proc moveToOtherPane()                               # ui/split.nim
+proc dropBufFromPanes(id: int)                       # ui/split.nim
+proc cmdDefinition()                                 # editor/navigation.nim
 proc plugLibDir(): string                            # plugins/host.nim
 proc toSidePane()                                    # ui/split.nim
 proc openToSide(path: string, line = -1, col = -1): Buffer   # ui/split.nim
@@ -247,6 +249,9 @@ proc aiCodeFromComment()
 proc aiCommentsSaved(b: Buffer)
 proc tsPreviewText(idx: int): Buffer                    # ui/telescope.nim
 proc tsDeclLine(path, name: string): int
+proc cmdMarkdownPreview()                            # ui/compare.nim
+proc pickOpenBeside(down: bool)                      # ui/telescope.nim
+proc pickToMultibuffer()                             # ui/telescope.nim
 proc telescope()
 proc tsLivePump()
 proc nimEngHighlights(b: Buffer, p: Pos, first = 0, last = int.high): seq[(Pos, Pos)]   # nim/highlights.nim

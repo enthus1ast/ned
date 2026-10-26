@@ -40,6 +40,19 @@ proc diagsFor(path: string): seq[Diag] =
   result = lspAndBuildDiags(path)
   for d in diagsAi.getOrDefault(path): result.add d
   if path.endsWith(".nim") or path.endsWith(".nims"): dropNimFollowOns(result)
+  # a problem past the last line — "expected ')', but got '[EOF]'" is at the line after the file's last line end —
+  # is shown at the end of the last line: in the editor, the gutter and F8 too, not only in Problems
+  let bi = bufIndexByPath(path)
+  if bi >= 0 and result.len > 0:
+    let ls = addr bufs[bi].lines
+    let hi = ls[].high
+    for d in result.mitems:
+      if d.line > hi:
+        d.line = hi
+        d.col = ls[][hi].len
+        d.eline = hi
+        d.ecol = -1
+      elif d.line == hi and d.col > ls[][hi].len: d.col = ls[][hi].len
 
 proc sevColor(sev: int): Rgb =
   case sev

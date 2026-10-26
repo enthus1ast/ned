@@ -1,12 +1,12 @@
 # Package
 
-version       = "6.30.0"
+version       = "6.31.0"
 author        = "Foxoman"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
                 "AI agent, split editor, " &
                 "integrated terminal, vim mode"
-license       = "MIT"
+license       = "GPL-3.0-or-later"
 srcDir        = "src"
 bin           = @["ned", "nedfmt", "nedls"]   # nedfmt: the formatters as a command · nedls: the engine as a language server
 installExt    = @["nim"]          # the sources too: `import ned/nim/index` from other programs

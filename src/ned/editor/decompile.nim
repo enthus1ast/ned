@@ -125,20 +125,8 @@ proc dcShow(title, text: string, t: DcTool) =
     dcView.bufId = v.id
     if src != nil:
       # (beside it: the split's other pane; the source goes on being edited)
-      let vi = curBuf
       curBuf = srcIdx
-      if not splitOn:
-        splitEditor(false)
-        panes[0].bufId = src.id
-        panes[0].snap = snapView(src)
-        curBuf = vi
-        panes[1].bufId = v.id
-        focusPane(0)
-      else:
-        let other = 1 - activePane
-        panes[other].bufId = v.id
-        panes[other].snap = snapView(v)
-        needRender = true
+      showBeside(src, v)
   else:
     v.setContent(text)
     v.title = title
@@ -147,7 +135,7 @@ proc dcShow(title, text: string, t: DcTool) =
     v.topSub = 0
     v.setSingle(Pos(line: 0, col: 0))
     if splitOn:
-      for i in 0 .. 1:
+      for i in 0 ..< panes.len:
         if panes[i].bufId == v.id:
           panes[i].snap.topLine = 0
           panes[i].snap.cursors = @[Cursor(anchor: Pos(), head: Pos(), goalX: -1)]

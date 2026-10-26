@@ -2,6 +2,7 @@
 line numbers, a monospace font, coloured by code-snap's own lexer (Nim, Python, JS, C; comments, strings and numbers
 of others), the indentation they share taken off, tabs as spaces; written to the data folder, beside the file or a
 folder of yours, its path said"""
+import json
 import os
 import re
 from tplugins import check
@@ -33,6 +34,7 @@ def run(factory, tag):
     if not ok:
         return
     svg_c, html_c = h.reg("command", title="Code snap: selection as SVG"), h.reg("command", title="Code snap: selection as HTML")
+    png_c = h.reg("command", title="Code snap: selection as PNG")
     sets = {k: (h.reg("setting", key=k) or {}).get("default") for k in
             ["folder", "lineNumbers", "theme", "fontSize", "font", "background"]}
     check(tag + "its two commands and settings", svg_c and html_c and sets["folder"] == "data" and
@@ -40,6 +42,9 @@ def run(factory, tag):
           sets["font"].endswith("monospace") and sets["background"] == "#d8dee9", sets)
     src = open(os.path.join(os.path.dirname(__file__), "..", "..", "..", "plugins", "code-snap", "plugin.nims")).read()
     check(tag + "it asks to change files (beside the file), saying why", 'permission("files", "' in src, "")
+    check(tag + "PNG (6.31): its command and settings; it asks to run programs (the program that draws it), saying why",
+          png_c and (h.reg("setting", key="pngScale") or {}).get("default") == 2 and
+          (h.reg("setting", key="pngProgram") or {}).get("default") == "auto" and 'permission("shell", "' in src, "")
     os.makedirs(os.path.join(h.tmp, "data", "code-snap"), exist_ok=True)
 
     def snap(lines, lang, sel=None, html=False, path="a.nim", comment="#", indent="  "):
@@ -156,3 +161,61 @@ def run(factory, tag):
     f, t = snap(["", "  "], "nim")
     check(tag + "nothing but blank lines: said", h.messages[-1] == "Code snap: nothing to draw — the lines are empty",
           h.messages[-1:])
+    # PNG (6.31): the SVG drawn by a program that draws SVG. A stand-in rsvg-convert (first on PATH) writes its
+    # arguments and a PNG's first bytes: the command ned runs, where the picture goes, the path said
+    import shutil
+    from tbundled import run_jobs
+    fake = os.path.join(h.tmp, "fakebin")
+    os.makedirs(fake, exist_ok=True)
+    with open(os.path.join(fake, "rsvg-convert"), "w") as fh:
+        fh.write('#!/bin/sh\necho "$@" > "%s/args"\nwhile [ $# -gt 1 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
+                 'printf "\\211PNG\\r\\n\\032\\n" > "$out"\n' % fake)
+    os.chmod(os.path.join(fake, "rsvg-convert"), 0o755)
+    old_path = os.environ["PATH"]
+    os.environ["PATH"] = fake + os.pathsep + old_path
+    try:
+        h3 = factory()
+    finally:
+        os.environ["PATH"] = old_path
+    if h3.pump(lambda j: j.get("t") == "ready", 60):
+        p3 = h3.reg("command", title="Code snap: selection as PNG")
+        h3.lines, h3.lang, h3.path_, h3.sel = ["proc a() = discard"], "nim", os.path.join(h3.tmp, "a.nim"), None
+        h3.call(p3["cb"])
+        said = h3.messages[-1:]
+        run_jobs(h3, 60)
+        f = h3.messages[-1][len("Code snap: "):]
+        args = open(os.path.join(fake, "args")).read() if os.path.exists(os.path.join(fake, "args")) else ""
+        check(tag + "PNG: drawn by rsvg-convert (zoom 2) from the SVG, in the data folder, its path said",
+              said and "drawing the PNG with rsvg-convert" in said[0] and f.endswith("snaps/a.nim-L1.png") and
+              os.path.exists(f) and open(f, "rb").read(4) == b"\x89PNG" and args.startswith("-z 2 -o ") and
+              args.strip().endswith("snaps/.snap.svg"), (said, h3.messages[-1:], args))
+        h3.close()
+    # an ImageMagick that draws SVG with librsvg, without it (Debian's, here): which to install is asked
+    if shutil.which("convert") and not shutil.which("rsvg-convert") and not shutil.which("magick"):
+        h.settings = {"pngProgram": "convert"}
+        h.lines, h.lang, h.path_, h.sel = ["x = 1"], "nim", os.path.join(h.tmp, "a.nim"), None
+        h.answers["pick"] = -1
+        n0 = len(h.asked)
+        h.call(png_c["cb"])
+        run_jobs(h, 60)
+        asked = h.asked[n0:]
+        check(tag + "PNG: ImageMagick without librsvg — asked to install it",
+              asked and asked[-1][0] == "pick" and "librsvg" in json.dumps(asked[-1][1]), asked)
+        h.settings = {}
+    # none installed (one not there asked for): which to install, its command in the terminal — Termux's here
+    missing = [x for x in ("resvg", "inkscape", "google-chrome") if not shutil.which(x)]
+    if missing:
+        os.environ["TERMUX_VERSION"] = "0.118"
+        try:
+            h2 = factory()
+        finally:
+            del os.environ["TERMUX_VERSION"]
+        if h2.pump(lambda j: j.get("t") == "ready", 60):
+            h2.settings = {"pngProgram": missing[0]}
+            h2.lines, h2.lang, h2.path_, h2.sel = ["x = 1"], "nim", os.path.join(h2.tmp, "a.nim"), None
+            h2.answers["pick"] = 0
+            p2 = h2.reg("command", title="Code snap: selection as PNG")
+            h2.call(p2["cb"])
+            check(tag + "PNG with no program to draw it: asked which to install (Termux: pkg), then run in the terminal",
+                  h2.terminal and h2.terminal[-1].get("cmd") == "pkg install -y librsvg", (h2.asked[-1:], h2.terminal))
+            h2.close()

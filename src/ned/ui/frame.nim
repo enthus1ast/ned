@@ -54,7 +54,7 @@ proc render() =
   cursorY = -1
   edCaretX = -1
   edCaretY = -1
-  splitDiv = (-1, -1, 0, true)
+  splitDivs.setLen(0)
   sbCol = -1
   mmRect = (-1, 0, 0, 0)
   if grid.len != scrW * scrH: gridResize()

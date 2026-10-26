@@ -376,6 +376,8 @@ proc applySettingsFile(p: string) =
                  else: 0
   n = settingOf(j, "nim.format.align")
   if n != nil and n.kind == JBool: FmtAlign = n.getBool
+  n = settingOf(j, "nim.format.alignNimbleFields")
+  if n != nil and n.kind == JBool: FmtScriptAlign = n.getBool
   n = settingOf(j, "nim.format.alignComments")
   if n != nil and n.kind == JBool: FmtAlignComments = n.getBool
   n = settingOf(j, "nim.format.magicTrailingComma")

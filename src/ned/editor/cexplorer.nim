@@ -410,7 +410,7 @@ proc ceShowView() =
   let kl = clamp(keepCur.line, 0, v.lines.high)
   v.setSingle(Pos(line: kl, col: min(keepCur.col, v.lines[kl].len)))
   if splitOn:
-    for i in 0 .. 1:
+    for i in 0 ..< panes.len:
       if panes[i].bufId == v.id and i != activePane:
         panes[i].snap.topLine = clamp(panes[i].snap.topLine, 0, v.lines.high)
         for c in panes[i].snap.cursors.mitems:
@@ -516,20 +516,8 @@ proc ceOpenView(src: Buffer) =
     v = openScratch(title, "; " & ceDescribe() & "\n; compiling…", langByName("Assembly"))
     v.readOnly = true
     ce.viewBufId = v.id
-    let vi = curBuf
     curBuf = srcIdx
-    if not splitOn:
-      splitEditor(false)
-      panes[0].bufId = src.id
-      panes[0].snap = snapView(src)
-      curBuf = vi
-      panes[1].bufId = v.id
-      panes[1].snap = snapView(v)
-      focusPane(0)
-    else:
-      let other = 1 - activePane
-      panes[other].bufId = v.id
-      panes[other].snap = snapView(v)
+    showBeside(src, v)
   else:
     v.title = title
   needRender = true
@@ -692,12 +680,13 @@ proc ceReveal(id, line: int) =
   if b == nil or line < 0 or line >= b.lines.len: return
   if b == buf():
     if line < b.topLine or line >= b.topLine + max(3, textH) - 1: b.topLine = max(0, line - max(3, textH) div 3)
-  elif splitOn and panes[1 - activePane].bufId == id:
-    let h = max(3, panes[1 - activePane].textH)
-    let s = addr panes[1 - activePane].snap
-    if line < s.topLine or line >= s.topLine + h - 1:
-      s.topLine = max(0, line - h div 3)
-      s.topSub = 0
+  else:
+    for o in panesShowing(id):
+      let h = max(3, panes[o].textH)
+      let s = addr panes[o].snap
+      if line < s.topLine or line >= s.topLine + h - 1:
+        s.topLine = max(0, line - h div 3)
+        s.topSub = 0
   needRender = true
 
 proc cePump() =
@@ -819,9 +808,7 @@ proc ceDrawHeader(b: Buffer, i, x, y, w: int) =
        "Run the program after each compile (its output in the Output panel)")
   item(" ⇄ ", proc() = cmdCeCompare(), "Compare with other options (the diff view)")
   if ce.running and xx + 2 < lim: discard putStr(xx, y, "…", theme.accent, bg)
-  discard button(x + w - 2, y, ic("close"), proc() =
-    if pi == activePane: focusPane(1 - pi)
-    closeSplit(), "Close this pane (Alt+|)", theme.dim, bg)
+  discard button(x + w - 2, y, ic("close"), proc() = closePane(pi), "Close this pane (Alt+|)", theme.dim, bg)
 
 proc ceEnter(): bool =
   ## Enter in the view: on its first lines, the options; on a call or a jump, its target (F12)
@@ -851,14 +838,16 @@ proc ceDefinition(b: Buffer): bool =
       for kw in ["proc ", "func ", "method ", "iterator ", "converter ", "template ", "macro "]:
         if t.startsWith(kw) and t[kw.len .. ^1].startsWith(w) and
            (t.len == kw.len + w.len or t[kw.len + w.len] notin IdentChars):
-          if splitOn and panes[1 - activePane].bufId == src.id: focusPane(1 - activePane)
+          let ps = panesShowing(src.id)
+          if ps.len > 0: focusPane(ps[0])
           let s = buf()
           if s.id == src.id:
             s.setSingle(Pos(line: i, col: t.find(w) + (l.len - t.len)))
             s.centerOn(s.primary.head)
           return
       if ce.lang != "nim" and (t.contains(" " & w & "(") or t.startsWith(w & "(")) and not t.endsWith(";"):
-        if splitOn and panes[1 - activePane].bufId == src.id: focusPane(1 - activePane)
+        let ps = panesShowing(src.id)
+        if ps.len > 0: focusPane(ps[0])
         let s = buf()
         if s.id == src.id:
           s.setSingle(Pos(line: i, col: max(0, l.find(w))))

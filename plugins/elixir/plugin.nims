@@ -30,7 +30,7 @@
 import nedplugin
 
 requiresNed(">= 6.25")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("server", "", "The language server's command: empty for the first installed of expert, nextls, " &
            "lexical and elixir-ls, \"off\" for none. Plugins: reload after a change")

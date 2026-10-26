@@ -91,7 +91,9 @@ proc globalKey(k: Key): bool =
       of 'p', 'o': cmdFindFile()
       of 'b': toggleTree()
       of 'n': newFile()
-      of 'w': closeBuffer(curBuf)
+      of 'w':
+        if cfgVim and focus == fEditor and vimMode != vmInsert: return false   # (vim: Ctrl+W, then a pane command)
+        closeBuffer(curBuf)
       of 't':
         if cfgVim and focus == fEditor and vimMode == vmInsert: return false   # (vim's insert mode: one level in)
         focus = fEditor
@@ -175,7 +177,7 @@ proc globalKey(k: Key): bool =
       of '`': toggleTerminal()
       of 'z', 'Z': toggleZen()
       of '\\': toggleSplitFocus()
-      of '|': closeSplit()
+      of '|': closeActivePane()
       of '\'': toggleBookmark()
       of ';': gotoBookmark(1)
       of ':': gotoBookmark(-1)
@@ -656,8 +658,12 @@ proc handleKey(k: Key) =
     if l < hs.len and not hs[l].startsWith("0000000"): commitMenu(hs[l], "")
     return
   if focus == fEditor and k.kind == kEnter and k.mods == {} and buf().id in multiBufs:
-    let (ok, path, fl) = mbHeaderAt(buf(), buf().primary.head.line)
-    if ok:
+    let mb = buf()
+    let hl = mb.primary.head.line
+    let (ok, path, fl) = mbHeaderAt(mb, hl)
+    # (at the end of the header of a piece left empty — its lines deleted —: a new line in it, to type them again)
+    let emptyPiece = hl + 1 >= mb.lines.len or mbHeaderAt(mb, hl + 1)[0]
+    if ok and not (emptyPiece and mb.primary.head.col >= mb.lines[hl].len):
       mbOpen(path, fl)                     # Enter on a § header: that place in its file
       return
   if k.kind in {kLeft, kRight, kUp, kDown} and k.mods == {mCtrl, mAlt}:
@@ -666,6 +672,13 @@ proc handleKey(k: Key) =
     of kRight: resizeBy(true, 1)
     of kUp: resizeBy(false, 1)
     else: resizeBy(false, -1)
+    return
+  if k.kind in {kLeft, kRight, kUp, kDown} and k.mods == {mCtrl, mAlt, mShift} and splitOn:
+    case k.kind                          # (the pane that way)
+    of kLeft: focusDir(-1, 0)
+    of kRight: focusDir(1, 0)
+    of kUp: focusDir(0, -1)
+    else: focusDir(0, 1)
     return
   if focus == fPanel and panelOpen and panelKind == pkTerminal and not terminalPassKey(k):
     terminalKey(k)

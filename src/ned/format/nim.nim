@@ -4843,7 +4843,7 @@ proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int],
   ## NimScript: the `=` of a run of package fields lined up, as nimble's own template writes them
   ## (`version       = "0.1.0"`): at the column they share already when there is room, else one after the
   ## longest name. A value continued on the lines below moves with its `=`. A run written `name = value` each
-  ## (nph's way) is left as it is
+  ## (nph's way) is lined up too — unless nim.format.alignNimbleFields is off (FmtScriptAlign): then left as it is
   var i = 0
   while i < entries.len:
     if not fScriptField(entries[i]):
@@ -4870,7 +4870,7 @@ proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int],
       if cols[n] != name.len + 1 or line[name.len] != ' ' or cols[n] + 2 >= line.len or line[cols[n] + 1] != ' ' or
          line[cols[n] + 2] == ' ':
         plain = false
-    if plain: continue
+    if plain and not FmtScriptAlign: continue
     var shared = true
     for c in cols:
       if c != cols[0]: shared = false

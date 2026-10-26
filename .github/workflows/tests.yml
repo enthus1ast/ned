@@ -1,6 +1,7 @@
 # ned's tests, on every push and pull request:
 #   unit  — the Nim index, the C index, the formatters and the regular expressions, on Linux and macOS
-#   nedls — the language server driven by a test client; the formatter checked by Nim's own parser
+#   nedls — the language server driven by a test client, and by the VS Code extension's client; the formatter
+#           checked by Nim's own parser
 #   plugins — the plugins' host with the example plugins, the API, a NimScript language server (ned --lsp-bridge);
 #           and the documentation: the references are what the sources make, every link goes somewhere (tests/docs)
 #   windows — on Windows itself: the unit tests of ned's own logic; ned.exe in a console (ConPTY), nedls, nedfmt
@@ -81,6 +82,8 @@ jobs:
         run: |
           nim c -d:release --hints:off -o:nedls src/nedls.nim
           python3 tests/lsp/tnedls.py ./nedls
+      - name: The VS Code extension's language client against nedls (VS Code played by a stand-in)
+        run: node tests/vscode/test_extension.js ./nedls
       - name: The formatter and Nim's parser (463 files of Nim's own source)
         run: |
           root=$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")

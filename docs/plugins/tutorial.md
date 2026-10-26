@@ -643,11 +643,13 @@ exCommand("Notes") do (args: string):
 
 ## 9. Timers and the assistant
 
-There is no event for a switch of tabs, so the status bar would count the notes of the last file `mark` saw. A
-timer fixes that:
+`mark` runs when a file opens or changes, so after a switch of tabs the status bar would still count the notes of
+the last file it saw. A timer does it here, to show one (`onEnter("*") do (ev: Event): …` — a tab came to the
+front — would too, without asking each second):
 
 ```nim
-# the status bar follows the file you look at: ned has no event for a change of tabs, so a timer asks
+# the status bar follows the file you look at: a timer asks each second (onEnter would be called at each change of
+# tab; the timer is here to show one)
 var shownBuf = -1
 discard every(1000) do ():
   let b = current()

@@ -13,7 +13,7 @@ import nedplugin
 import std/strutils
 
 requiresNed(">= 6.26")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "runs the code you select with nim r (or nim e)")
 
 settingDef("flags", "--hints:off", "Nim: evaluate the selection — the compiler's options")

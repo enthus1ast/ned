@@ -1,7 +1,7 @@
 # ned
 
 **A fast, safe code editor and Nim IDE for Termux and Linux.**
-It runs in any terminal but looks and behaves like a desktop editor: menus, docks, tabs, split panes,
+It runs in any terminal but looks and behaves like a desktop editor: menus, docks, tabs, tiled panes,
 mouse and touch support, dialogs, toasts and tooltips. It is written in Nim, uses only the standard
 library, and builds to one binary of about 12 MB.
 
@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.30](#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [6.26](CHANGELOG.md#whats-new-in-626) · [older releases](CHANGELOG.md)
+- [What's new in 6.31](#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [6.26](CHANGELOG.md#whats-new-in-626) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,25 +30,61 @@ library, and builds to one binary of about 12 MB.
 
 ---
 
-## What's new in 6.30
+## What's new in 6.31
 
-6.30 is about themes: **Shades of Purple** (and its Super Dark), Foxoman's **ClassicBlue** for the whole editor and
-his **Nebula** themes — Pulse, Nova, Nord, Serenity, Glow and Dawn —, **true black for any dark theme** on an OLED
-screen, and five themes left out that were another one under another name.
+6.31 is the release for everyone: ned is now under the **GNU GPL (version 3 or later)**, and comes with
+**documentation for those who want to work on it** and a **plugin API documented end to end**. The editor is cut
+into **as many panes as you like**, **multibuffers** edit pieces of many files as one and follow their files, and
+plugins can use both. Code snaps are PNG pictures too, the VS Code extension needs nothing from npm, and the
+release went through a hardening pass.
 
-**New themes.** `shades-of-purple`, `shades-of-purple-super-dark`, `classic-blue` (its blue editor and dark bars),
-`nebula-pulse`, `nebula-nova`, `nebula-nord`, `nebula-serenity`, `nebula-glow` and `nebula-dawn` — each with its
-title bar, docks and status bar in its own colours. A colour that read below 4.5:1 on its background (3:1 for
-comments) was lifted to it, its hue kept, so they read on a phone in daylight too. Nebula Void is ned's own `slate`.
-[Themes](docs/guide/themes.md#the-built-in-themes).
+**Panes, tiled.** Split the editor right or down as often as there is room — three columns, a grid of four, one large
+file with three stacked beside it (*View › Panes*, or ready-made: *View: panes: two columns*, *three columns*, *grid
+of four*, *one large and three*). Ctrl+Alt+Shift+arrows go to the pane that way, Alt+\ to the next, Alt+| closes the
+pane; drag the line between two panes (the other lines stay where they are), Ctrl+Alt+arrows resize from the
+keyboard; swap two panes' files, show one pane alone (zoom) and back, make them equal, turn a split. A tab dropped
+on a pane shows there — on its right or bottom quarter, it cuts that pane in two. Vim's Ctrl+W works (h j k l, w, s,
+v, q, o, =, x, H J K L), and `:q` closes a pane. The panes and their files come back the next time.
+[Panes](docs/guide/projects.md#panes-tiling).
 
-**True black** (`theme.trueBlack`): any dark theme on true black — the editor, its bars and docks black, so an OLED
-screen's pixels are off where nothing is written; popups, menus and the current line a little lifted above it; the
-text, the syntax and the selection in the theme's own colours.
+**Multibuffers.** A multibuffer — search results, problems, TODOs, the open files, the selection you add from a file
+(*Multibuffer: add the selection*) — numbers its lines as their files do; while you have not edited it, it follows its
+files (an edit in another tab, a formatter, git); saving writes only the pieces you edited, where their lines are now.
+Each piece's header has ⇡ ⇣ (more lines above, below) and ✕ (out); F12 goes to a definition through the file;
+*next piece*, *previous piece*, *refresh*. And safer: a piece ending with an empty line keeps it (and its file its last
+line end), a piece of a library's file or a read-only tab is not written, a multibuffer with edits not saved is not
+replaced by a new one of the same name. [Multibuffers](docs/guide/search.md#editing-the-results-multibuffers).
 
-**Fewer, different themes.** Left out: `molokai` (it is `monokai`), `catppuccin-frappe` and `catppuccin-macchiato`
-(`catppuccin-mocha`, a shade apart), `github-dark-dimmed` (`github-dark`) and `slate-night` (`slate`). A setting that
-names one of them gets the one it was — nothing to change in yours.
+**Telescope.** Alt+V opens the place chosen in a pane at the right, Alt+X in a pane below, and Alt+Q puts
+everything a finder lists in a multibuffer (as telescope.nvim's quickfix); new finders: *Lines of this file*,
+*Panes*, *Jumps*. Its **⊙** is in the status bar, beside the assistant's ✦ — and in a Markdown file **M↓** opens
+its preview beside it, and closes it. [Telescope](docs/guide/search.md#telescope-one-finder-for-everything-altshiftf).
+
+**Plugins.** The whole API is documented — every proc with what it does, what it returns, when ned waits for it,
+its limits and an example —, a new [cookbook](docs/plugins/cookbook.md) has 21 whole plugins checked by the tests,
+and plugins can split, fill and focus panes and make, read and grow multibuffers (`panes`, `splitPane`,
+`showInPane`, `paneLayout`, `openMultibuffer`, `pieces`, `addPiece`, `placeInFile` …). A plugin that gives ned a
+program to run — a language server, a formatter, a language's run or build command — now asks for the
+permission to run programs, as one that runs it itself does (ned's own plugins that you had on keep working); a
+plugin's `:` command starts with a capital letter, so `:w` and `:q` stay ned's.
+[Plugins](docs/plugins/README.md) · [API](docs/plugins/api.md) · [Cookbook](docs/plugins/cookbook.md).
+
+**For contributors.** [docs/dev](docs/dev/README.md): how ned is put together, how a frame is drawn, the text and
+editing machinery, the engines and nedls, the integrations, the plugin host, every test suite, recipes (a command,
+a setting, a dock, a language, a theme …) and the pitfalls that cost time before.
+
+**Code snap as PNG.** *Code snap: selection as PNG* draws the picture with rsvg-convert, resvg, ImageMagick, Inkscape
+or Chromium, the first one installed; with none of them it asks which to install and runs the command — `pkg install
+librsvg` in Termux, apt, dnf, pacman, Homebrew … — in the terminal.
+
+**VS Code.** The nedls extension is plain JavaScript with its own client — no npm packages — built by a script into
+a `.vsix` with nothing but Python.
+
+**Fixed:** a problem the compiler puts after the last line ("expected: ')', but got: '[EOF]'") was in Problems but
+not in the editor — it is at the end of the last line, and F8 goes there; in zen mode what follows a line (a C
+signature, a problem) was cut at the column — it goes on into the margin; a .nimble's fields written `name = value`
+each are lined up again as nimble's template writes them (`nim.format.alignNimbleFields`); the find box selects the
+text it opens with, so typing replaces it.
 
 Today's scoreboard (the engines are 6.29's):
 
@@ -114,7 +150,7 @@ bindings](docs/guide/keys.md) · [Settings](docs/guide/settings.md)
 call, the statement, the block, the routine), surround (brackets, quotes, a tag, a block — and vim-surround), an
 undo tree (Undo history… with the text at each state), next-edit suggestions (a rename's next place: Tab, Tab),
 move/duplicate lines, toggle comment, folding, snippets for Nim, Python, C, C++, JS/TS, Rust, Go, HTML and shell (plus your own),
-completion, auto-pairs, smart indentation, soft wrap, split editor, bookmarks, regex find/replace, sort/join/
+completion, auto-pairs, smart indentation, soft wrap, tiled panes, multibuffers, bookmarks, regex find/replace, sort/join/
 case transforms, line-ending and indentation conversion, format on save (built in for Nim, JSON, Markdown, CSS,
 HTML, SQL, YAML and TOML; a whole project at once; or only the lines you changed, and a preview first), jump labels
 (Alt+Shift+J), a preview beside the file and symbol pickers,
@@ -246,7 +282,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.30.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.31.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -301,7 +337,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.30.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.31.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell
@@ -412,4 +448,10 @@ laid out and tested. Security problems: please report them privately ([SECURITY.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Copyright © 2026 Foxoman.
+
+ned is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as
+published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details: the full
+text is in [LICENSE](LICENSE) (SPDX: `GPL-3.0-or-later`).
