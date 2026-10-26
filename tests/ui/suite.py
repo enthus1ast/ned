@@ -536,15 +536,15 @@ def t_522_nim_codegen():
     open(W + '/src/run.nim', 'w').write('echo 40 + 2\nlet s = "a" & "b"\n')
     start('src/cs.nim')
     keys('C-g'); text('7'); keys('Enter'); time.sleep(0.2)
-    palette('Nim: add the missing case branches'); time.sleep(0.4)
-    keys('C-s'); time.sleep(0.4)
+    palette('Nim: add the missing case branches'); wait_for('of blue:', 8)
+    keys('C-s'); wait_until(lambda: 'of blue:' in ftext('src/cs.nim'), 8)
     t = ftext('src/cs.nim')
     check('missing case branches added', 'of green:' in t and 'of blue:' in t and t.count('of red') == 1, repr(t))
     tm('kill-server'); time.sleep(0.3)
     start('src/gen.nim')
     keys('C-g'); text('2'); keys('Enter'); time.sleep(0.2)
-    palette('Nim: generate $'); time.sleep(0.5)
-    keys('C-s'); time.sleep(0.4)
+    palette('Nim: generate $'); wait_for(r'proc `\$`', 8)
+    keys('C-s'); wait_until(lambda: 'proc hash*' in ftext('src/gen.nim'), 8)
     t = ftext('src/gen.nim')
     check('generate $ == hash constructor', 'proc `$`*(x: Pt): string' in t and 'proc `==`*(a, b: Pt): bool' in t and
           'proc hash*(x: Pt): Hash' in t and 'initPt*(' in t and 'hashes' in t, t)
@@ -555,8 +555,8 @@ def t_522_nim_codegen():
     keys('C-l', 'C-p'); text('>Nim: run the selection'); time.sleep(0.4); keys('Enter')
     check('run the selection shows its output', wait_for(r'\b42\b', 40), screen()[:1200])
     keys('Escape')
-    keys('C-g'); text('2:9'); keys('Enter', 'S-End', 'M-h'); time.sleep(0.6)
-    check('type of the selection', re.search(r'"a" & "b": string', screen()) is not None, screen()[:1200])
+    keys('C-g'); text('2:9'); keys('Enter', 'S-End', 'M-h')
+    check('type of the selection', wait_for(r'"a" & "b": string', 8), screen()[:1200])
 
 def t_522_nim_tools():
     setup()
@@ -2273,25 +2273,25 @@ def t_510_workspace():
     open(other + '/lib/helper.nim', 'w').write('proc helperProc*(): int = 42\n')
     setup()
     start('src/demo.nim', w=130, h=36); time.sleep(0.5)
-    palette('Workspace: add a folder'); time.sleep(0.3); keys('C-u'); text(other); keys('Enter'); time.sleep(0.6)
+    palette('Workspace: add a folder'); time.sleep(0.3); keys('C-u'); text(other); keys('Enter'); wait_for('work2', 8)
     s = screen()
     check('510 workspace: the tree shows both folders', 'work2' in s and 'work ' in s.split('\n')[2] or ('work2' in s and 'src' in s), s)
     keys('C-p'); time.sleep(0.3); text('helper'); wait_for('helper.nim work2/lib', 15)
     s = screen()
     check('510 workspace: quick open finds the other folder\'s files', 'helper.nim work2/lib' in s, s)
-    keys('Enter'); time.sleep(0.5)
+    keys('Enter'); wait_for('helperProc', 8)
     check('510 workspace: and opens them', 'helper.nim' in screen().split('\n')[1] and 'helperProc' in screen(), screen())
-    keys('M-s'); time.sleep(0.3); keys('C-u'); text('helperProc'); keys('Enter'); time.sleep(1.5)
+    keys('M-s'); time.sleep(0.3); keys('C-u'); text('helperProc'); keys('Enter'); wait_for(r'1 result|helperProc\*', 10)
     check('510 workspace: project search covers every folder', 'helper.nim' in screen() and '1 result' in screen() or 'helperProc*' in screen(), screen())
     keys('Escape')
-    palette('Workspace: save as'); time.sleep(0.3); keys('Enter'); time.sleep(0.5)
+    palette('Workspace: save as'); time.sleep(0.3); keys('Enter')
     wf = W + '/work.ned-workspace'
-    ok = os.path.exists(wf) and len(json.load(open(wf))['folders']) == 2
+    ok = wait_until(lambda: len(json.load(open(wf))['folders']) == 2, 8)
     check('510 workspace: saved as a .ned-workspace file', ok, open(wf).read() if os.path.exists(wf) else 'none')
     tm('kill-server'); time.sleep(0.3)
-    start('work.ned-workspace', w=130, h=36); time.sleep(0.8)
+    start('work.ned-workspace', w=130, h=36); wait_for('work2', 10)
     keys('C-p'); time.sleep(0.3); text('helper')
-    check('510 workspace: opening the file brings both folders back', wait_for('helper.nim work2/lib', 6), screen())
+    check('510 workspace: opening the file brings both folders back', wait_for('helper.nim work2/lib', 12), screen())
     keys('Escape')
 
 def t_510_remote():
@@ -2834,11 +2834,16 @@ def t_521_git():
     steps = 0
     while steps < 6 and 'first bad commit' not in screen():
         bad = 'broken' in open(W + '/bug.txt').read()
-        palette('Git: bisect — ' + ('bad' if bad else 'good')); time.sleep(1.2)
+        was = sh(G + 'rev-parse HEAD').stdout.strip()
+        palette('Git: bisect — ' + ('bad' if bad else 'good'))
+        # (the next commit checked out, or the answer: under load git takes a while)
+        wait_until(lambda: sh(G + 'rev-parse HEAD').stdout.strip() != was or 'first bad commit' in screen(), 20)
+        time.sleep(0.3)
         steps += 1
     s = screen()
     check('521 bisect by hand: it finds the commit', 'first bad commit' in s and ' c4' in s, s)
-    keys('y'); time.sleep(1.5)
+    keys('y')
+    wait_until(lambda: sh(G + 'rev-parse --abbrev-ref HEAD').stdout.strip() == 'master', 15); time.sleep(0.5)
     head = sh(G + 'rev-parse --abbrev-ref HEAD').stdout.strip()
     check('521 bisect: stopped, back on the branch', head == 'master' and 'BISECTING' not in screen(), head + screen())
     # bisect with a command
@@ -2847,7 +2852,8 @@ def t_521_git():
     keys('C-u'); text('! grep -q broken bug.txt'); keys('Enter')
     ok = wait_for('first bad commit is', 60)
     check('521 bisect with a command: it finds the commit', ok and ' c4' in screen(), screen())
-    keys('y'); time.sleep(1.5)
+    keys('y')
+    wait_until(lambda: sh(G + 'rev-parse --abbrev-ref HEAD').stdout.strip() == 'master', 15)
     head = sh(G + 'rev-parse --abbrev-ref HEAD').stdout.strip()
     check('521 bisect with a command: back on the branch', head == 'master', head)
     # worktrees: a new one on a new branch, listed, then removed
@@ -6890,14 +6896,14 @@ def t_619_plugins():
     s = screen()
     keys('Escape'); time.sleep(0.2)
     check("619 plugins: the dock — the host runs, the plugin and its commands listed; a broken one left out", ok, s)
-    palette('Show problems'); time.sleep(0.6)
+    palette('Show problems'); wait_for("undeclared identifier: 'undefinedThing'", 8)
     s = screen()
     check("619 plugins: the broken plugin's error in Problems", "undeclared identifier: 'undefinedThing'" in s, s)
     keys('Escape'); time.sleep(0.2)
     palette('Hello: upper-case the line')
     ok = wait_for('ABC DEF!', 10)
     check("619 plugins: a plugin's command from the palette edits the text", ok, screen())
-    keys('C-z'); time.sleep(0.4)
+    keys('C-z'); wait_for('abc def', 6)
     s = screen()
     check("619 plugins: its edits are one undo step", 'abc def' in s and 'ABC' not in s, s)
     keys('C-M-u'); time.sleep(0.2)
@@ -6975,6 +6981,77 @@ def t_619_plugins_lsp_lang():
     t = ftext('m.zig')
     check("619 plugins: zig-lite — formatted by its NimScript formatter",
           t == 'const x = 1;\n\n    const y = 2;\n' or (shutil.which('zig') is not None), repr(t))
+
+def t_628_plugin_server_after_save():
+    # a plugin's language server that starts when a file of its language is first saved (Julia's: slow to start) —
+    # opening the file starts nothing; the save starts it, and its diagnostics come
+    setup()
+    d = CFG + '/ned/plugins/later-lsp'
+    shutil.copytree(REPO + '/examples/plugins/wordinfo-lsp', d)
+    open(d + '/plugin.nims', 'w').write('## later-lsp — wordinfo-lsp, started after the first save\nimport nedplugin\n'
+                                        'languageServerScript("plaintext", "server.nims", afterSave = true)\n')
+    open(W + '/fruit.txt', 'w').write('apple banana apple\nTODO: more apples\n')
+    start('fruit.txt', w=140, h=40); time.sleep(0.5)
+    check("628 plugin server after save: ready", plugins_ready(), screen())
+    keys('C-g'); text('2:1'); keys('Enter')
+    time.sleep(4)
+    check("628 plugin server after save: opening the file starts no server", 'a TODO' not in screen(), screen())
+    keys('End'); text(' x'); keys('C-s')
+    ok = wait_for("Starting Plain Text's language server|a TODO: something left to do", 10)
+    check("628 plugin server after save: the save starts it", ok, screen())
+    ok = wait_for('a TODO: something left to do', 25)
+    check("628 plugin server after save: … and its diagnostics come", ok, screen())
+
+def t_628_hastur_tests():
+    # a Nim 3 project's tests, as Nimony's hastur runs them: a test file with what it should print beside it
+    # (t1.output) is listed in the test explorer and run with hastur — ✓ and ✗ from what hastur says
+    need('nimony')
+    setup({"nim.compiler": "nimony", "nim.nimsuggest": None})
+    os.makedirs(W + '/tests', exist_ok=True)
+    open(W + '/tests/thello.nim', 'w').write('import std/syncio\necho "hello"\n')
+    open(W + '/tests/thello.output', 'w').write('hello\n')
+    open(W + '/tests/tbad.nim', 'w').write('import std/syncio\necho "bye"\n')
+    open(W + '/tests/tbad.output', 'w').write('hello\n')
+    start('tests/thello.nim', w=140, h=40); time.sleep(1)
+    palette('Test explorer'); time.sleep(1.0)
+    s = screen()
+    check("628 hastur: a test with its .output listed in the test explorer", 'hastur' in s and 'thello.nim' in s and
+          'tbad.nim' in s, s)
+    palette('Run all tests')
+    ok = wait_for(r'1 hastur test\(s\) failed', 180)
+    s = screen()
+    check("628 hastur: Run all tests runs them with hastur, and says which failed", ok and 'FAILURE' in s, s)
+    check("628 hastur: its build files are not left in the project (no nimcache/)", not os.path.exists(W + '/nimcache'),
+          str(os.listdir(W)))
+
+def t_628_parser_check_fails():
+    # nim.format.verify: a parser check that cannot be built says why — once, with where the whole output is — and is
+    # not built again (and the message not shown again) at every format; the file is formatted all the same
+    setup({"nim.format.verify": True})
+    fake = W + '/fakenim'
+    os.makedirs(fake + '/bin'); os.makedirs(fake + '/compiler')
+    open(fake + '/compiler/parser.nim', 'w').write('# (a compiler source tree, as far as ned can tell)\n')
+    open(fake + '/bin/nim', 'w').write('#!/bin/sh\necho "fake.nim(1, 1) Error: this nim cannot build it"\nexit 1\n')
+    os.chmod(fake + '/bin/nim', 0o755)
+    open(W + '/v3.nim', 'w').write('proc  g(a:int,b:int):int=\n  a+b\n')
+    start('v3.nim', path=fake + '/bin:/usr/bin:/bin', env_extra='XDG_CACHE_HOME=' + W + '/cache')
+    keys('M-f')
+    ok = wait_for(r'Nim parser check not built: Error: this nim cannot build it', 20)
+    s = screen()
+    check("628 parser check: a build that fails says why (the compiler's error) and where its whole output is",
+          ok and 'nedastcheck-build.log' in s, s)
+    keys('C-s'); time.sleep(0.4)
+    check("628 parser check: … the file is formatted all the same", ftext('v3.nim').startswith('proc g(a: int'),
+          ftext('v3.nim'))
+    # (its message closed; another format does not build it again)
+    for _ in range(4):
+        p = place_of('Nim parser check not built')
+        if not p: break
+        click(*p); time.sleep(0.3)
+    keys('C-End'); text('\nproc  h()=discard\n'); keys('M-f'); time.sleep(4)
+    s = screen()
+    check("628 parser check: not built again (nor said again) at the next format", 'not built' not in s and
+          'building the Nim parser check' not in s, s)
 
 def t_619_hot_exit():
     # files.hotExit: quitting with unsaved edits asks nothing; they come back, unsaved, in their tabs (a file and an
@@ -8334,18 +8411,25 @@ def t_625_plugins_menu():
     s = screen()
     check('625 the dock lists ned\'s own plugins under AVAILABLE, each with what it does',
           ok and 'dial' in s and 'which-key' in s, s)
-    d = None
-    for r, l in enumerate(s.splitlines()):
-        m = re.search(r'\+ dial\b', l)
-        if m: d = (m.start() + 3, r + 1)
-    if d:
-        click(*d); time.sleep(0.5)
-        check('625 a tap on one: Turn on, View its source, Copy to my plugins',
+    def avail_at(name):
+        for r, l in enumerate(screen().splitlines()):
+            m = re.search(r'\+ ' + name + r'\b', l)
+            if m: return (m.start() + 3, r + 1)
+        return None
+    # (6.28: a right-click on one gives its menu — Turn on, View its source, Copy …; a tap turns it on at once)
+    o = avail_at('dotenv')
+    if o:
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<2;%d;%dM' % o); time.sleep(0.05)
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<2;%d;%dm' % o); time.sleep(0.5)
+        check('628 a right-click on one: Turn on, View its source, Copy to my plugins',
               'Turn on' in screen() and 'View its source' in screen(), screen())
-        q = place_of('Turn on')
-        if q: click(*q); time.sleep(0.5)
+        keys('Escape'); time.sleep(0.3)
+    d = avail_at('dial')
+    if d: click(*d); time.sleep(0.5)
     ok = wait_for(r'INSTALLED(?s:.*)dial', 10)
-    check('625 turned on: dial is INSTALLED (ned\'s)', ok, screen())
+    check('625 turned on: dial is INSTALLED (ned\'s) — 6.28: with one tap', ok, screen())
+    ok = wait_for(r'dial is on: .*(vim keys|command|setting)', 40)
+    check('628 … and the status bar says what it adds, listed under it in the dock', ok, screen())
     cfg = json.load(open(CFG + '/ned/config.json'))
     check('625 … and plugins.bundled says so', 'dial' in cfg.get('plugins.bundled', []), repr(cfg.get('plugins.bundled')))
     keys('Escape'); time.sleep(0.2)
@@ -9252,4 +9336,5 @@ tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_te
          t_625_cpp_overloads, t_624_compiler_explorer_c,
          t_626_c_header_macros, t_626_plugin_permissions, t_626_memory_checks, t_626_notebook, t_626_proc_tests,
          t_626_flame, t_626_pictures, t_626_markdown_preview, t_626_settings_sync,
-         t_627_256_colours, t_627_json, t_627_web_more, t_627_pnak, t_627_nim3_contracts]
+         t_627_256_colours, t_627_json, t_627_web_more, t_627_pnak, t_627_nim3_contracts,
+         t_628_plugin_server_after_save, t_628_hastur_tests, t_628_parser_check_fails]

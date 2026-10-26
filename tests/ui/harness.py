@@ -75,6 +75,16 @@ def wait_for(pat, t=8.0):
         if re.search(pat, s): return True
         time.sleep(0.2)
     return False
+def wait_until(pred, t=8.0):
+    """poll pred() until it is true (True) or t seconds pass (False) — for state outside the screen: a file, git"""
+    end = time.time() + t
+    while time.time() < end:
+        try:
+            if pred(): return True
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.2)
+    return False
 def screen_ansi():
     """the screen with its colours (SGR escapes)"""
     return tm('capture-pane', '-t', 'f', '-p', '-e').stdout
@@ -176,7 +186,11 @@ def start(*files, w=140, h=40, path=None, env_extra=''):
         path or TOOLS + ':$PATH', CFG, STATE, env_extra)
     tm('-f', HERE + '/tmux.conf', 'new-session', '-d', '-s', 'f', '-x', str(w), '-y', str(h),
        'cd %s && env %s %s %s; echo EXITED $? > %s/exit; sleep 600' % (W, env, BIN, ' '.join(files), W))
-    time.sleep(1.5)
+    # (drawn — its menu bar or its status bar — before the first keys: under load ned takes longer to start, and
+    # keys sent before it reads them land elsewhere)
+    time.sleep(0.8)
+    wait_for(r'≡ +File|Ln \d+, Col|EXITED', 10)
+    time.sleep(0.5)
     keys('Escape')
 
 def check(name, cond, info=''):

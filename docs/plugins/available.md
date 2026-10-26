@@ -2,10 +2,12 @@
 
 ned comes with thirty-four plugins of its own. They are all off until you turn one on. Turn one on in the
 **Plugins dock** (View › Plugins panel, or the menu bar's **Plugins** › Plugins panel): its **AVAILABLE ·
-ned's own plugins** section lists the ones that are off, each with a line saying what it does. Tap one, then
-*Turn on*, *View its source* (read-only) or *Copy to my plugins*. Copying makes the plugin yours to change: your
-copy, in `~/.config/ned/plugins/<name>/`, takes the place of ned's. *Plugins › Available plugins (ned's own)…*
-in the menu bar, or the same command in the palette, lists them as well.
+ned's own plugins** section lists the ones that are off, each with a line saying what it does. A tap turns one
+on: the dock goes to it under **INSTALLED**, and once it runs the status bar says what it added — the languages,
+commands, snippets, a formatter … — which the dock lists under it. A right-click gives its menu instead: *Turn
+on*, *View its source* (read-only, to read it first) or *Copy to my plugins*. Copying makes the plugin yours to
+change: your copy, in `~/.config/ned/plugins/<name>/`, takes the place of ned's. *Plugins › Available plugins
+(ned's own)…* in the menu bar, or the same command in the palette, lists them as well.
 
 Once a plugin is on, it is under **INSTALLED** in the dock, marked *ned's*. Tap it for its menu:
 
@@ -78,7 +80,7 @@ it. In short:
 | **elixir** | Elixir: colours, comments, indentation, F5 (mix), snippets, an outline; Expert, Next LS, Lexical or ElixirLS, and `mix format` |
 | **haskell** | Haskell: colours, comments, indentation, F5 (stack, cabal, runghc), snippets, an outline; HLS, and ormolu or fourmolu |
 | **zig** | Zig: colours, comments, indentation, F5 (`zig build run`, `zig run`, `zig test`), snippets, an outline; zls and `zig fmt` |
-| **julia** | Julia: colours, comments, indentation, F5 (`julia --project`), snippets, an outline; LanguageServer.jl and JuliaFormatter when you set them (they start slowly) |
+| **julia** | Julia: colours, comments, indentation, F5 (`julia --project`), snippets, an outline; LanguageServer.jl when it is installed, started the first time you save a Julia file (it starts slowly); JuliaFormatter when you set it |
 | **ocaml** | OCaml: colours, `(* *)` comments, indentation, F5 (dune or ocaml), snippets, an outline; ocamllsp and ocamlformat |
 | **crystal** | Crystal: colours, comments, indentation, F5 (`crystal run`, `crystal spec`), snippets, an outline; crystalline and `crystal tool format` |
 | **dart** | Dart and Flutter: colours, comments, indentation, F5 (`dart run`, `dart test`, `flutter run`), snippets (widgets too), an outline; Dart's language server and `dart format` |

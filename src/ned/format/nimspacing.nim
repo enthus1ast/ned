@@ -35,6 +35,10 @@ proc fSpaceBefore*(toks: openArray[FTok], k: int, importLine: bool): bool {.inli
   if importLine and (t.kind in {fkOp, fkDot} or p.kind in {fkOp, fkDot}):
     space = p.kind in {fkKw, fkComma}                   # module paths: std/[a, b], ./x, ../y, "$nim"/z
   elif fExportMark(toks, k): space = false
+  elif t.kind == fkOp and t.text == "*" and k >= 2 and toks[k - 2].kind == fkKw and toks[k - 2].text in FRoutineKw and
+       p.kind == fkIdent:
+    space = false                                  # proc `$` *(x: T) → proc `$`*(x: T): after a routine's name, `*`
+                                                   # exports it
   elif k >= 1 and fExportMark(toks, k - 1): space = t.kind notin {fkOpen, fkColon, fkComma}
   elif t.kind == fkComment: space = true
   elif p.kind == fkComment and p.text.startsWith("#["): space = tsp       # (after `#[ … ]#`: as written — first
@@ -49,6 +53,9 @@ proc fSpaceBefore*(toks: openArray[FTok], k: int, importLine: bool): bool {.inli
   elif p.kind in {fkComma, fkSemi, fkColon}: space = true
   elif t.kind == fkDot or p.kind == fkDot: space = false
   elif t.kind == fkPragOpen: space = true
+  elif t.kind == fkOpen and t.text == "[" and p.kind == fkKw and p.text in ["tuple", "ptr", "ref"] and
+       not (k >= 2 and toks[k - 2].kind == fkDot):
+    space = p.text != "tuple"                      # tuple[x, y: int] · ptr [T], ref [T] (like nph)
   elif t.kind == fkOpen:
     if p.kind == fkKw and p.text notin ["addr", "cast", "static", "tuple", "proc", "func", "iterator", "ptr", "ref",
                                          "distinct", "enum", "object", "concept", "type", "var", "out", "nil", "do"] and
@@ -65,7 +72,8 @@ proc fSpaceBefore*(toks: openArray[FTok], k: int, importLine: bool): bool {.inli
                                                            psp == tsp)) and not (psp and not tsp)
       if not opBinary: space = false      # %(x), %*{…}, ?(a, b): a prefix operator (not distinct|(…): a typeclass)
       if p.kind == fkOp and p.text == "=" : space = true
-    elif p.kind == fkKw and p.text in ["proc", "func", "iterator", "do"]: space = false   # proc(x: int), do(x):
+    elif p.kind == fkKw and p.text in ["proc", "func", "do"]: space = false   # proc(x: int), do(x):
+    elif p.kind == fkKw and p.text == "iterator": space = t.text == "("     # iterator (x: int): T (like nph)
     elif t.text == "(" and toks[0].kind == fkKw and toks[0].text in FRoutineKw and
          (k == 2 or k == 3 and toks[2].kind == fkOp and toks[2].text == "*"):
       space = false                               # proc `&` (a, b) → proc `&`(a, b): the parameters

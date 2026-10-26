@@ -191,7 +191,24 @@ proc astCheckerPath*(): string =
   var stamp = ""
   try: stamp = $getLastModificationTime(root / "compiler" / "parser.nim").toUnix
   except CatchableError: discard
-  fmtCacheDir() / ("nedastcheck-" & AstCheckKey & "-" & $(hash(root & stamp) and 0xffffff))
+  # (with .exe on Windows: the linker adds it to a name without one — looked for without it, the checker was built
+  # again at every format, and said it could not be)
+  addFileExt(fmtCacheDir() / ("nedastcheck-" & AstCheckKey & "-" & $(hash(root & stamp) and 0xffffff)), ExeExt)
+
+proc astCheckerCacheDir*(): string =
+  ## the build's scratch folder (removed after the build — by the caller: no `rm` in the command, Windows has none)
+  fmtCacheDir() / "nedastcheck-src" / "cache"
+
+proc astCheckerFailure*(output: string, code: int): string =
+  ## why the checker's build failed, in one line: the compiler's error, else the last line it wrote, else the exit
+  ## status
+  var last = ""
+  for raw in output.splitLines:
+    let l = raw.strip
+    if l.len == 0: continue
+    if "Error:" in l: return l[l.find("Error:") .. ^1]
+    last = l
+  if last.len > 0: last else: "nim stopped with exit status " & $code & " and wrote nothing"
 
 proc astCheckerBuildCmd*(): string =
   ## the shell command that builds it (the source written out first); "" when there are no compiler sources
@@ -205,8 +222,8 @@ proc astCheckerBuildCmd*(): string =
   except CatchableError: return ""
   let nim = if fileExists(root / "bin" / "nim"): root / "bin" / "nim" else: "nim"
   quoteShell(nim) & " c -d:release --hints:off --warnings:off --verbosity:0 --path:" & quoteShell(root) &
-    " --nimcache:" & quoteShell(dir / "cache") & " -o:" & quoteShell(exe) & " " & quoteShell(dir / "nedastcheck.nim") &
-    " && rm -rf " & quoteShell(dir / "cache")
+    " --nimcache:" & quoteShell(astCheckerCacheDir()) & " -o:" & quoteShell(exe) & " " &
+    quoteShell(dir / "nedastcheck.nim")
 
 type CSigHandler = proc (a: cint) {.noconv.}
 proc cSignal(sig: cint, handler: CSigHandler): CSigHandler {.importc: "signal", header: "<signal.h>".}
@@ -803,8 +820,11 @@ proc ensureChecker(prog: string, quiet: bool): string =
   if not quiet: stderr.writeLine prog & ": building the Nim parser check (once for this compiler)…"
   try:
     let (o, code) = execCmdEx(cmd)
+    try: removeDir(astCheckerCacheDir())
+    except CatchableError: discard
     if code == 0 and fileExists(exe): return exe
-    stderr.writeLine prog & ": could not build the Nim parser check:\n" & o.strip
+    stderr.writeLine prog & ": could not build the Nim parser check: " & astCheckerFailure(o, code) &
+                     (if o.strip.len > 0: "\n" & o.strip else: "")
   except CatchableError as e:
     stderr.writeLine prog & ": could not build the Nim parser check: " & e.msg
   ""

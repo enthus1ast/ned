@@ -315,6 +315,10 @@ Also, from 6.27: the call hierarchy (who calls a routine, what it calls), the ty
 and the types built on it), implementations (a base method's overrides), selection ranges (Expand selection),
 code lenses (▶ run a test, a suite, a `when isMainModule`, a nimble task — the result as a message), document links
 (an import to its module, `staticRead` to its file) and the imports fixed when a file is renamed or moved.
+From 6.28: an editor that asks for a document's problems (LSP 3.17's pull diagnostics) gets them when it asks,
+and is told when they change; Enter formats the statement just written (on-type formatting, where the editor has
+it turned on — not a statement that goes on to the next line); an HTML tag's name and its closing tag's are
+renamed together (linked editing); and workspace symbols find the project's C, C++, JavaScript and JSON names too.
 It starts at about 6 MB, holds a big file with its imports in about 16 MB, and answers a hover in a few
 milliseconds and a completion in about 20.
 
@@ -446,15 +450,23 @@ A project is Nim 3 when you say so (*Nim › Nim 3 (Nimony) › This project is 
 `.ned/settings.json` as `"nim.compiler": "nimony"`) and `nimony` is on PATH. Then:
 
 - nimony checks the file on save and as you type, and runs it (F5); F12 and *Find references* ask nimony
-  (`--def`, `--usages`) where ned's engine cannot tell which symbol a name is. ned's engine reads Nimony's own
-  library, not Nim 2's.
+  (`--def`, `--usages`) where ned's engine cannot tell which symbol a name is — when nimony stops on an error of
+  its own there, the status bar says so rather than "no definition". ned's engine reads Nimony's own library, not
+  Nim 2's.
+- **Tests**: a file in `tests/` with what it should print beside it (`t1.output`) or the messages the compiler
+  should give (`t1.msgs`) — the way Nimony's tests are written — is listed in the test explorer and run with
+  Nimony's `hastur test` (*Run all tests* runs them all; ✓ or ✗ from what hastur says). hastur's build files go to
+  ned's own folder, not into the project.
 - **What Nim 3 needs** (also for a Nim 2 file, when you ask: *Nim 3: what this file needs*): each change the
   porting rules call for is a problem in the Problems dock — `except X as e`, `newException`, an unlabeled
   `break` in a block, a template called without `()`, a name written in another case than it is declared (names
   are case-sensitive in Nim 3) … Ctrl+. makes the ones that are mechanical.
 - **Contracts**: a call whose arguments break the routine's `{.requires: …}` is an error as you type, the one
-  nimony gives when it compiles: `needsPositive(0)` → *contract violated: requires x > 0 (x = 0)*. Only what can
-  be worked out from the arguments as written (numbers, true and false) is judged; the rest is left to nimony.
+  nimony gives when it compiles: `needsPositive(0)` → *contract violated: requires x > 0 (x = 0)*. An argument
+  counts when its value is known where the call is: a number, true or false, a `const`, a `let` given one of those
+  — and a loop's variable over `a .. b` or `a ..< b` with known ends, held to its first and last value
+  (`for i in 0 ..< 3: needsPositive(i)` breaks it when i = 0). A `return` or `result =` of a known value that
+  breaks the routine's own `{.ensures: …}` is one too. The rest is left to nimony.
 - **Passive procs**: `delay(handle(c))` of a `.passive` proc that takes a `var`, `out` or `lent` parameter is an
   error before you compile — its continuation can outlive the caller; take the parameter as `sink`.
 - **NIF**: `.nif` files have their colours (tags, symbols, line information), their routines and types in the

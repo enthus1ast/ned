@@ -136,6 +136,9 @@ proc lsInitialize(params: JsonNode): JsonNode =
   lsInlayRefresh = caps{"workspace"}{"inlayHint"}{"refreshSupport"}.getBool(false)
   lsWatchFiles = caps{"workspace"}{"didChangeWatchedFiles"}{"dynamicRegistration"}.getBool(false)
   lsPullConfig = caps{"workspace"}{"configuration"}.getBool(false)
+  # problems the client asks for (LSP 3.17's pull diagnostics) instead of being sent them: open documents' then
+  lsPullDiags = td{"diagnostic"} != nil and td{"diagnostic"}.kind == JObject
+  lsDiagRefresh = caps{"workspace"}{"diagnostics"}{"refreshSupport"}.getBool(false)
   # code actions: an edit filled in when chosen; edits and progress nedls sends (Fix with AI); buttons
   lsActionResolve = false
   for p in jitems(td{"codeAction"}{"resolveSupport"}{"properties"}):
@@ -201,11 +204,16 @@ proc lsInitialize(params: JsonNode): JsonNode =
       "selectionRangeProvider": true,
       "codeLensProvider": {"resolveProvider": false},
       "documentLinkProvider": {"resolveProvider": false},
+      "linkedEditingRangeProvider": true,
+      "documentOnTypeFormattingProvider": {"firstTriggerCharacter": "\n"},
       "workspace": {"workspaceFolders": {"supported": true, "changeNotifications": true},
                     "fileOperations": {"willRename": {"filters": [{"scheme": "file", "pattern": {"glob": "**/*.nim"}}]}}}
     },
     "serverInfo": {"name": "nedls", "version": NedVersion}
   }
+  if lsPullDiags:
+    result["capabilities"]["diagnosticProvider"] = %*{"identifier": "nedls", "interFileDependencies": true,
+                                                      "workspaceDiagnostics": false}
   lsLog("ned " & NedVersion & " · project " & rootDir & " · positions " & (if lsUtf8: "UTF-8" else: "UTF-16") &
         " · Nim library " & (if nxLibFound.len > 0: nxLibFound else: "not found (is nim on PATH?)"))
 
@@ -288,6 +296,9 @@ proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
   of "textDocument/selectionRange": lsReply(id, lsSelectionRanges(p))
   of "textDocument/codeLens": lsReply(id, lsCodeLens(p))
   of "textDocument/documentLink": lsReply(id, lsDocumentLinks(p))
+  of "textDocument/diagnostic": lsReply(id, lsPullDiagnostics(p))
+  of "textDocument/linkedEditingRange": lsReply(id, newJNull())        # (Nim: none; HTML's in langs.nim)
+  of "textDocument/onTypeFormatting": lsReply(id, lsOnTypeFormatting(p))
   of "workspace/willRenameFiles": lsReply(id, lsWillRenameFiles(p))
   of "textDocument/typeDefinition": lsReply(id, lsTypeDefinition(p))
   of "textDocument/references": lsReply(id, lsReferences(p))
@@ -363,6 +374,8 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
         if lsCheckQueue[k][0] == path: lsCheckQueue.delete(k) else: inc k
       for j in jobs:
         if j.kind == jkCheck and not j.done and quoteShell(path) in j.cmd: killProc(j.pr, SIGKILL)
+      lsPulled.del path                # (closed: its problems are sent again, as for any file not open)
+      lsAnnounced.del path
     lsCloseDoc(p{"textDocument"}{"uri"}.getStr)
     lsDiagsDirty = true
   of "workspace/didChangeConfiguration":

@@ -40,7 +40,9 @@ proc compilerAnswerNim3(b: Buffer, p: Pos): bool =
     let x = bufById(bid)
     if x == nil or x.changeId != changeAt or x != buf() or x.primary.head.line != p.line: return
     if ls.len == 0:
-      info("nimony knows no definition here either")
+      # (nimony stopped on an error of its own — its --def fails on some names: said, so it is not taken for "none")
+      if nimonyAskError.len > 0: info("nimony could not answer here: " & nimonyAskError)
+      else: info("nimony knows no definition here either")
       return
     nsHandle(nil, r, ls)
     needRender = true)

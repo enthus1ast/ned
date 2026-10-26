@@ -436,10 +436,10 @@ proc cEngInlays(b: Buffer, lo, hi: int) =
         hs.add (c, pn & ": ")
     if hs.len > 0: b.inlays[l] = hs
 
-proc cEngOutline(b: Buffer): seq[SideItem] =
-  if not cEngineOn(b): return
+proc cEngOutlineOf(f: CxFile, path: string): seq[SideItem] =
+  ## a C file's declarations as the outline lists them: its functions, types, macros and globals, a struct's or
+  ## class's members under it
   try:
-    let f = cxFileOf(b)
     for s in cxOutline(f):
       let icon = case s.kind
         of cxFunc, cxMethod: "ƒ"
@@ -449,17 +449,26 @@ proc cEngOutline(b: Buffer): seq[SideItem] =
       let fn = s.kind in {cxFunc, cxMethod}
       # (C++: a method defined outside its class, as Class::name)
       let name = if s.kind == cxMethod and s.owner.len > 0: cxxNoArgs(cxxSplit(s.owner)[^1]) & "::" & s.name else: s.name
-      result.add SideItem(text: name, detail: (if fn or s.kind == cxClass: s.text else: s.typ), path: b.path,
+      result.add SideItem(text: name, detail: (if fn or s.kind == cxClass: s.text else: s.typ), path: path,
                           line: s.line, col: s.col, depth: 0, icon: icon,
                           role: (if fn: 7 elif s.kind in {cxStruct, cxUnion, cxEnum, cxTypedef, cxClass}: 8 else: 0))
       if s.kind in {cxStruct, cxUnion, cxClass}:
         let key = if f.cpp: cxxKey(s) else: s.name
         for x in f.syms:
           if x.kind in {cxField, cxMethod} and x.owner == key and (x.kind == cxField or x.scope == x.owner):
-            result.add SideItem(text: x.name, detail: (if x.kind == cxMethod: x.text else: x.typ), path: b.path,
+            result.add SideItem(text: x.name, detail: (if x.kind == cxMethod: x.text else: x.typ), path: path,
                                 line: x.line, col: x.col, depth: 1, icon: (if x.kind == cxMethod: "ƒ" else: "v"),
                                 role: (if x.kind == cxMethod: 7 else: 0))
   except CatchableError as e: internalError("C engine", e)
+
+proc cEngOutline(b: Buffer): seq[SideItem] =
+  if not cEngineOn(b): return
+  var f: CxFile
+  try: f = cxFileOf(b)
+  except CatchableError as e:
+    internalError("C engine", e)
+    return
+  cEngOutlineOf(f, b.path)
 
 # ── errors while you type: the C compiler on the unsaved text (a private copy, removed after) ──
 

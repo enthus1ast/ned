@@ -612,16 +612,18 @@ template formatter*(lang: string, f: proc(text: string): string) =
   ## a formatter written in NimScript: the text in, the formatted text out (raise ValueError to say why not)
   regFormatter(instantiationInfo(-1, true).filename, lang, f)
 
-proc regLsp*(file, lang: string, cmd: seq[string], script: string) =
+proc regLsp*(file, lang: string, cmd: seq[string], script: string, afterSave = false) =
   ## (what languageServer and languageServerScript use: call those)
-  discard register(file, "lsp", %*{"lang": lang, "cmd": cmd, "script": script})
-template languageServer*(lang: string, cmd: seq[string]) =
-  ## a language server for the language's files (["zls"], ["pyright-langserver", "--stdio"])
-  regLsp(instantiationInfo(-1, true).filename, lang, cmd, "")
-template languageServerScript*(lang, script: string) =
+  discard register(file, "lsp", %*{"lang": lang, "cmd": cmd, "script": script, "afterSave": afterSave})
+template languageServer*(lang: string, cmd: seq[string], afterSave = false) =
+  ## a language server for the language's files (["zls"], ["pyright-langserver", "--stdio"]). afterSave: it starts
+  ## when one of those files is first saved, not when one is opened — for a server that takes long to start
+  ## (Julia's): reading files then costs nothing (needs ned 6.28)
+  regLsp(instantiationInfo(-1, true).filename, lang, cmd, "", afterSave)
+template languageServerScript*(lang, script: string, afterSave = false) =
   ## a language server written in NimScript (import nedlsp), a file of the plugin's folder; ned runs it through
-  ## `ned --lsp-bridge <file>` — the same command works in other editors
-  regLsp(instantiationInfo(-1, true).filename, lang, @[], script)
+  ## `ned --lsp-bridge <file>` — the same command works in other editors. afterSave: as for languageServer
+  regLsp(instantiationInfo(-1, true).filename, lang, @[], script, afterSave)
 
 # ── vim (editor.vimMode) ──
 

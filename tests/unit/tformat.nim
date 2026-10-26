@@ -870,8 +870,65 @@ suite "Nim: 6.23":
     # (code that is not Nim on its own: as written)
     check nimFmt("## ```nim\n## foo(\n## ```\nlet a = 1\n") == "## ```nim\n## foo(\n## ```\nlet a = 1\n"
 
+suite "Nim: 6.28 — closer to nph":
+  test "a condition's `:` on a line of its own: the condition laid out as nph does, the `:` at its end":
+    let src = "proc f() =\n  if n[0].kind in kinds and\n      not (n[0][0].kind == nkSym and n[0][0].sym.kind == " &
+              "skForVar and\n        n[0][0].typ.skipTypes(abstractVar).kind == tyTuple\n      ) and not (isAddr " &
+              "and n.typ.kind == tyVar and n[0][0].typ.kind == tyRef)\n      : # why\n    result = n[0][0]\n"
+    let r = nimFmt(src)
+    check r == "proc f() =\n  if n[0].kind in kinds and\n      not (\n        n[0][0].kind == nkSym and " &
+               "n[0][0].sym.kind == skForVar and\n        n[0][0].typ.skipTypes(abstractVar).kind == tyTuple\n" &
+               "      ) and not (isAddr and n.typ.kind == tyVar and n[0][0].typ.kind == tyRef): # why\n" &
+               "    result = n[0][0]\n"
+    check nimFmt(r) == r
+
+  test "what cannot be wrapped keeps its line breaks when joining them would make a line too long":
+    let src = "proc f() =\n  if a.kind == tyRange and\n    # same signedness\n    (f.kind in {tyInt..tyInt64} " &
+              "and a[0].kind in {tyInt..tyInt64} or\n     f.kind in {tyUInt8..tyUInt32} and a[0].kind in " &
+              "{tyUInt8..tyUInt32}) and\n    a.n[0].intVal >= firstOrd(nil, f):\n    discard\n"
+    let r = nimFmt(src)
+    for l in r.splitLines: check l.len <= 88
+    check "  if a.kind == tyRange and\n    # same signedness\n    (f.kind in {tyInt .. tyInt64} and " in r
+    check nimFmt(r) == r
+
+  test "a name with its pragmas: the type on the next line before the pragmas wrap; `let (a, b) =` as nph":
+    check nimFmt("var NETIF_CHECKSUM_GEN_IP* {.importc: \"NETIF_CHECKSUM_GEN_IP\", header: \"<netif.h>\".}: " &
+                 "cint\n") ==
+          "var NETIF_CHECKSUM_GEN_IP* {.importc: \"NETIF_CHECKSUM_GEN_IP\", header: \"<netif.h>\".}:\n  cint\n"
+    check nimFmt("type X = object\n  ss_padding {.importc: \"__ss_padding_with_a_longer_name_here\".}: " &
+                 "array[128 - sizeof(cshort) - sizeof(culong), char]\n") ==
+          "type X = object\n  ss_padding {.importc: \"__ss_padding_with_a_longer_name_here\".}:\n" &
+          "    array[128 - sizeof(cshort) - sizeof(culong), char]\n"
+    check nimFmt("proc f() =\n  let (x, y) = genOpenArraySlice(p, e, e.typ, e.typ.elementType,\n" &
+                 "    prepareForMutation = e[1].kind == nkHiddenDeref and\n" &
+                 "      e[1].typ.skipTypes(abstractInst).kind == tyString and\n" &
+                 "      p.config.selectedGC in {gcArc, gcAtomicArc, gcOrc})\n") ==
+          "proc f() =\n  let (x, y) = genOpenArraySlice(\n    p,\n    e,\n    e.typ,\n    e.typ.elementType,\n" &
+          "    prepareForMutation =\n      e[1].kind == nkHiddenDeref and e[1].typ.skipTypes(abstractInst).kind == " &
+          "tyString and\n      p.config.selectedGC in {gcArc, gcAtomicArc, gcOrc},\n  )\n"
+
+  test "an if-expression argument too long: its condition wrapped, 4 deeper, the branches after it":
+    let r = nimFmt("proc f() =\n  internalError(conf, n.info, \"genMagicExpr: \" & $op,\n    if msg == hintLinking " &
+                   "and not(optListCmd in conf.globalOptions or conf.verbosity > 1): \"\" else: cmd, foo)\n")
+    check "    if msg == hintLinking and\n        not (optListCmd in conf.globalOptions or conf.verbosity > 1): " &
+          "\"\" else: cmd,\n    foo,\n" in r
+    check nimFmt(r) == r
+
+  test "no empty lines between an enum's values (nph writes them as one list)":
+    check nimFmt("type\n  A = enum\n    a1\n    a2\n\n    a3\n  B = enum\n    b1 # one\n\n    b2 # two\n") ==
+          "type\n  A = enum\n    a1\n    a2\n    a3\n\n  B = enum\n    b1 # one\n    b2 # two\n"
+
+  test "spacing: tuple[…], ptr [T], iterator (…), an export mark after a routine's quoted name":
+    check nimFmt("type C = tuple [x, y: int]\n") == "type C = tuple[x, y: int]\n"
+    check nimFmt("proc h*[T](x: ptr[T], y: ref[T]): Hash = discard\n") ==
+          "proc h*[T](x: ptr [T], y: ref [T]): Hash =\n  discard\n"
+    check nimFmt("type A = iterator(x: int): int\nvar it: iterator(): int\n") ==
+          "type A = iterator (x: int): int\nvar it: iterator (): int\n"
+    check nimFmt("func `$` *(r: Peg): string = discard\nproc `==` *(a, b: int): bool = discard\n") ==
+          "func `$`*(r: Peg): string =\n  discard\nproc `==`*(a, b: int): bool =\n  discard\n"
+
 suite "C: clang-format's styles in ned's own formatter (6.23)":
-  const sample = "int main( void )\n{\n  int x=1; int *p=&x;\n  if(x) return 1;\n  switch(x){case 1: x++; break;}\n" &
+  const sample ="int main( void )\n{\n  int x=1; int *p=&x;\n  if(x) return 1;\n  switch(x){case 1: x++; break;}\n" &
                  "  call_something_long(first_argument_value, second_argument_value, third_argument_value);\n" &
                  "  return 0; // done\n}\n#define F(a,b) {a; b;}\n// clang-format off\nint   keep_this   =   1 ;\n" &
                  "// clang-format on\n"

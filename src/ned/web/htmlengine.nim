@@ -338,6 +338,41 @@ proc htmlHover*(lines: openArray[string], line, col: int): string =
              (if vals.len > 0: "\n\nValues: " & vals.join(", ") else: "")
   else: discard
 
+proc htmlWholePage*(lines: openArray[string]): bool =
+  ## a whole page (a doctype, <html> or <body>), not a piece of one that a tool or a template puts in a page
+  for l in lines:
+    let t = l.toLowerAscii
+    if "<!doctype" in t or "<html" in t or "<body" in t: return true
+  false
+
+proc htmlScriptMakesIds*(lines: openArray[string]): bool =
+  ## does a script of the page make elements, or give them ids (.id =, setAttribute("id", …), innerHTML …)?
+  var inScript = false
+  for l in lines:
+    let t = l.toLowerAscii
+    var k = 0
+    while k < t.len:
+      if not inScript:
+        let a = t.find("<script", k)
+        if a < 0: break
+        let e = t.find('>', a)
+        if e < 0: break
+        let head = t[a .. e]
+        # (data in a script tag is no code: JSON, a template)
+        inScript = not ("application/ld+json" in head or "application/json" in head or "text/template" in head or
+                        "importmap" in head)
+        k = e + 1
+      else:
+        let c = t.find("</script", k)
+        let part = if c < 0: t[k .. ^1] else: t[k ..< c]
+        for pat in [".id =", ".id=", "setattribute(\"id\"", "setattribute('id'", "innerhtml", "outerhtml",
+                    "insertadjacenthtml", "document.write", "createelement", ".dataset"]:
+          if pat in part: return true
+        if c < 0: break
+        inScript = false
+        k = c + 8
+  false
+
 proc htmlChecks*(lines: openArray[string], fragment = false): seq[WebDiag] =
   ## a closing tag that closes the wrong element or nothing, an element never closed, an id used twice, an
   ## element HTML does not have (fragment: HTML cut into the pieces of a template or of Nim strings — only the
@@ -413,6 +448,9 @@ proc htmlChecks*(lines: openArray[string], fragment = false): seq[WebDiag] =
         if n == "name" and v.len > 0: names.incl v
     var idList: seq[string]
     for k in ids.keys: idList.add k
+    # (not where the page's ids are not all in its text: a piece of a page a tool puts together — no <html>,
+    # <body> or doctype —, or a page whose own script makes elements and ids)
+    let anchorsKnown = htmlWholePage(lines) and not htmlScriptMakesIds(lines)
     inForeign = 0
     for t in tags:
       if t.closing:
@@ -420,7 +458,7 @@ proc htmlChecks*(lines: openArray[string], fragment = false): seq[WebDiag] =
         continue
       if t.name in ["svg", "math"] and not t.selfClosing: inc inForeign
       for (n, v, al, ac) in t.attrs:
-        if n == "href" and v.len > 1 and v[0] == '#' and v != "#top" and
+        if anchorsKnown and n == "href" and v.len > 1 and v[0] == '#' and v != "#top" and
            v[1 .. ^1].allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '-', '_', ':', '.'}) and
            v[1 .. ^1] notin ids and v[1 .. ^1] notin names:
           let vc = max(ac, lines[al].find(v, ac))

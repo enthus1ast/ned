@@ -173,7 +173,12 @@ var
   plugOps: seq[(string, string)]          # keys, registration key
   plugTextObjs: Table[string, string]     # keys ("ie") → registration key
   plugExCmds: Table[string, string]       # name → registration key
-  plugLspCmds: seq[(string, seq[string])] # language id, the command
+  plugLspCmds: seq[(string, seq[string], bool)] # language id, the command, started after the first save
+  plugLspLater: Table[string, seq[string]]  # language id → a server that starts when one of its files is saved
+  plugLspSaved: HashSet[string]             # … the languages a file was saved in since ned started
+  plugJustOn = ""                           # one of ned's own just turned on: what it adds is said when it runs
+  plugJustOnAt: MonoTime
+  plugFocusId = ""                          # the Plugins dock goes to this plugin's row (just turned on)
   plugProviders: seq[(string, string, string)]   # what (completion hover codeActions symbols), language id, key
   plugViews: seq[PlugView]
   plugBootAt = MonoTime()                 # when the plugins are looked at (after the first frame)
@@ -558,6 +563,48 @@ proc plugAiSchema(params: JsonNode): JsonNode =
       if not v{"optional"}.getBool(false): req.add %k
   %*{"type": "object", "properties": props, "required": req}
 
+proc plugAddsSummary(pid: string): string =
+  ## what a plugin added, in a few words: "the Zig language, a formatter, 6 snippets, 2 commands" ("" when it has
+  ## told ned nothing yet)
+  var langs, parts: seq[string]
+  var commands, snippets, settings, tools, vim = 0
+  var fmt, lsp, outline, comp, hover, actions = false
+  for r in plugRegs:
+    if r.plugin != pid: continue
+    case r.kind
+    of "command": inc commands
+    of "language":
+      let sp = r.data{"spec"}
+      langs.add (if sp != nil and sp{"name"}.getStr.len > 0: sp{"name"}.getStr else: r.data{"id"}.getStr)
+    of "formatter": fmt = true
+    of "lsp": lsp = true
+    of "symbols": outline = true
+    of "completion": comp = true
+    of "hover": hover = true
+    of "codeActions": actions = true
+    of "snippet": inc snippets
+    of "setting": inc settings
+    of "aiTool": inc tools
+    of "vimMap", "operator", "textObject", "ex": inc vim
+    of "view": parts.add "a view (" & r.data{"title"}.getStr & ")"
+    else: discard
+  proc n(k: int, one, many: string): string = (if k == 1: "a " & one else: $k & " " & many)
+  var res: seq[string]
+  for l in langs: res.add "the " & l & " language"
+  if lsp: res.add "a language server"
+  if fmt: res.add "a formatter"
+  if outline: res.add "an outline"
+  if comp: res.add "completion"
+  if hover: res.add "hover"
+  if actions: res.add "quick fixes"
+  if snippets > 0: res.add n(snippets, "snippet", "snippets")
+  if commands > 0: res.add n(commands, "command", "commands")
+  res.add parts
+  if tools > 0: res.add n(tools, "tool for the assistant", "tools for the assistant")
+  if vim > 0: res.add "vim keys"
+  if settings > 0: res.add n(settings, "setting", "settings")
+  res.join(", ")
+
 proc plugApplyRegs() =
   ## the registrations → the palette, keys, languages, formatters, servers, providers, vim's tables, events, timers
   var keep: seq[Command]
@@ -613,7 +660,7 @@ proc plugApplyRegs() =
         for p in plugs:
           if p.id == r.plugin: dir = p.dir
         cmd = @[getAppFilename(), "--lsp-bridge", (if script.isAbsolute: script else: dir / script)]
-      if cmd.len > 0: plugLspCmds.add (d{"lang"}.getStr.toLowerAscii, cmd)
+      if cmd.len > 0: plugLspCmds.add (d{"lang"}.getStr.toLowerAscii, cmd, d{"afterSave"}.getBool)
     of "completion", "hover", "codeActions", "symbols":
       plugProviders.add (r.kind, d{"lang"}.getStr("*").toLowerAscii, key)
     of "snippet":
@@ -660,11 +707,17 @@ proc plugApplyRegs() =
   plugTimers = timers
   applyUserLanguages()
   # (a plugin's language server for its language: unless your "lsp" setting has one)
-  for (lang, cmd) in plugLspCmds:
+  plugLspLater.clear()
+  for (lang, cmd, afterSave) in plugLspCmds:
     let l = langByName(lang)
     if l == nil: continue
     let own = sval("lsp")
     if own != nil and own.kind == JObject and own.hasKey(lang): continue
+    # (a server that is slow to start, Julia's: not until a file of its language is saved — reading files costs
+    # nothing)
+    if afterSave and lang notin plugLspSaved:
+      plugLspLater[lang] = cmd
+      continue
     if l.lsp.len == 0 or l.lsp[0] != cmd:
       l.lsp = @[cmd]
       lspFailed.excl lang                  # (a file opened before the plugins ran found no server for it)
@@ -672,6 +725,13 @@ proc plugApplyRegs() =
         if b.lang == l and b.path.len > 0: lspAttach(b)
   plugOutlines.clear()
   plugOutlineAsked.clear()
+  # (one of ned's own just turned on, now running: what it adds, said once)
+  if plugJustOn.len > 0:
+    let s = plugAddsSummary(plugJustOn)
+    if s.len > 0:
+      info(plugJustOn & " is on: " & s & " — listed under it in the Plugins dock")
+      plugJustOn = ""
+    elif msSince(plugJustOnAt) > 60_000: plugJustOn = ""
   needRender = true
 
 proc plugRebuildRegs() =
@@ -1698,7 +1758,23 @@ proc plugBeforeSave(b: Buffer) =
       let (ok, _, err) = plugCallSync(key, plugEventArgs(b))
       if not ok and err == "the plugins are starting": info("Plugins are starting — saved without their changes")
 
-proc plugSaved(b: Buffer) = plugFire("save", b)
+proc plugSaved(b: Buffer) =
+  # (a plugin's server that waits for a save of its language's files: started now)
+  if b != nil and b.lang != nil and plugLspLater.len > 0:
+    var key = ""
+    for k in plugLspLater.keys:
+      if langByName(k) == b.lang: key = k
+    if key.len > 0:
+      let cmd = plugLspLater[key]
+      plugLspLater.del key
+      plugLspSaved.incl key
+      if b.lang.lsp.len == 0 or b.lang.lsp[0] != cmd:
+        b.lang.lsp = @[cmd]
+        lspFailed.excl b.lang.id
+        info("Starting " & b.lang.name & "'s language server (" & extractFilename(cmd[0]) & ")…")
+        for x in bufs:
+          if x.lang == b.lang and x.path.len > 0: lspAttach(x)
+  plugFire("save", b)
 
 proc plugClosed(b: Buffer) =
   plugFire("close", b)
@@ -2545,8 +2621,13 @@ proc plugSetBundled(n: string, on: bool) =
       if x != n: off.add x
     changes.add ("plugins.disabled", %off)
   setSettings(changes)
+  if on:
+    # (what it adds is said when it has started and told ned — below, in plugApplyRegs; the dock goes to it)
+    plugJustOn = n
+    plugJustOnAt = getMonoTime()
+    plugFocusId = n
   plugReload()
-  if on: info(n & " is on — " & plugBundledWhat(n) & " (Plugins dock: what it added)")
+  if on: info(n & " is on — starting…")
   else: info(n & " is removed — Plugins dock › AVAILABLE turns it on again")
 
 proc plugBundledAct(n: string, on: bool): Action =
@@ -2863,13 +2944,13 @@ proc plugMenuAction(pid, file: string, on, alone, full, bundled: bool): Action =
     items.add mi("Reload all the plugins", "", proc() = plugReload())
     openMenu(items, mouseX, mouseY + 1)
 
-proc plugAvailableAction(n: string): Action =
-  ## an AVAILABLE plugin's menu: turn it on, see its source first, or copy it into yours
-  proc() =
-    let src = plugBundledRoot() / n / "plugin.nims"
-    openMenu(@[mi("Turn on", "", proc() = plugSetBundled(n, true)),
-               mi("View its source", "", proc() = plugOpenSource(src, true)),
-               mi("Copy to my plugins (to change it)", "", proc() = plugCopyBundled(n))], mouseX, mouseY + 1)
+proc plugAvailableMenu(n: string) =
+  ## an AVAILABLE plugin's menu (a right-click; a tap turns it on): turn it on, see its source first, or copy it
+  ## into yours
+  let src = plugBundledRoot() / n / "plugin.nims"
+  openMenu(@[mi("Turn on", "", proc() = plugSetBundled(n, true)),
+             mi("View its source", "", proc() = plugOpenSource(src, true)),
+             mi("Copy to my plugins (to change it)", "", proc() = plugCopyBundled(n))], mouseX, mouseY + 1)
 
 proc plugHostMenu(name: string): Action =
   proc() =
@@ -2955,6 +3036,13 @@ proc buildPluginItems(): seq[SideItem] =
     let det = if p.err.len > 0 and p.err != "off": p.err elif not on: "off" elif p.project: "project"
               elif p.bundled: "ned's" elif p.full: "Nim, compiled" elif p.alone: "own process" else: ""
     if p.project and p.err == "the folder is not trusted": inc untrusted
+    if pid == plugFocusId:
+      # (just turned on: the dock goes to its row — kept there until what it adds is listed under it)
+      rightList.sel = result.len
+      var listed = false
+      for r in plugRegs:
+        if r.plugin == pid and r.kind notin ["viewClick", "requires"]: listed = true
+      if listed or not on or msSince(plugJustOnAt) > 60_000: plugFocusId = ""
     result.add sideItem(pid, role, (if on: "●" else: "○"), det,
                         plugMenuAction(pid, p.file, on, p.alone, p.full, p.bundled), path = p.file)
     if on:
@@ -3002,7 +3090,8 @@ proc buildPluginItems(): seq[SideItem] =
   if avail.len > 0:
     result.add sideItem("AVAILABLE · ned's own plugins", 6)
     for (n, what) in avail:
-      result.add sideItem(n, 1, "+", what, plugAvailableAction(n))
+      # (a tap turns it on; its menu — view its source first, copy it — on a right-click)
+      result.add sideItem(n, 1, "+", what, plugBundledAct(n, true), data = "avail:" & n)
 
 proc cmdPlugins() =
   showSide(svPlugins)

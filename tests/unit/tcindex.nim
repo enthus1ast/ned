@@ -850,3 +850,75 @@ void run(const Node *cn, Node *nn) {
     check cxxSpecMatch("T, T", @["T"], @["int", "long"])[0] == false
     check cxxSpecMatch("std::vector<T>", @["T"], @["std::vector<Box<int>>"]) == (true, @["Box<int>"])
   cxDirs = @[]
+
+suite "C: Lua's ways (6.28)":
+  let d = getTempDir() / "ned_tcindex_628"
+  createDir(d)
+  proc lineIn(src, t: string): int = lineOf(src.splitLines, t)
+  writeFile(d / "api.h", "#ifndef API_H\n#define API_H\n#define MYAPI extern\n" &
+            "/* Concatenates n values. */\nMYAPI void  (my_concat) (int *L, int n);\n" &
+            "#if defined(USE_CHECKS)\n#define my_check(e) assert(e)\n#else\n#define my_check(e) ((void)0)\n#endif\n" &
+            "#define cast(t, exp) ((t)(exp))\n#define check_exp(c, e) (my_check(c), (e))\n" &
+            "#define CommonHeader struct GCObject *next; unsigned char tt; unsigned char marked\n" &
+            "typedef struct GCObject { CommonHeader; } GCObject;\n" &
+            "typedef struct Udata { CommonHeader; int len; struct Udata *meta; } Udata;\n" &
+            "typedef union Value { struct GCObject *gc; int i; } Value;\n" &
+            "typedef struct TValue { Value value_; int tt_; } TValue;\n" &
+            "#define val_(o) ((o)->value_)\n#define gco2(T, o) check_exp((o)->tt == 7, cast(T*, o))\n" &
+            "#define uvalue(o) check_exp((o)->tt_ == 7, gco2(Udata, val_(o).gc))\n" &
+            "#define vmcase(l) case l:\n#endif\n")
+  writeFile(d / "jump.h", "#undef vmcase\n#define vmcase(l) L_##l:\n")
+  let src = "#include \"api.h\"\n\nMYAPI void my_concat (int *L, int n) {\n  my_check(n > 0);\n}\n\n" &
+            "int len_of(TValue *obj) {\n  Udata *u = uvalue(obj);\n  return uvalue(obj)->len + u->tt;\n}\n\n" &
+            "#include \"jump.h\"\nint run(int op) {\n  switch (op) {\n  vmcase(1) return 0;\n  }\n  return 1;\n}\n"
+  let m = cxLoad(d / "lua.c", src, "628")
+
+  test "a prototype whose name is in parentheses — (my_concat) (…) —: F12 from the body goes to it":
+    let l = lineIn(src, "MYAPI void my_concat")
+    let ts = cxTargets(m, l, src.splitLines[l].find("my_concat"), jump = true)
+    check ts.len >= 2 and ts[0][0].path == d / "api.h" and ts[0][1].kind == cxFunc and not ts[0][1].isDef
+    check "Concatenates n values." in cxHover(m, l, src.splitLines[l].find("my_concat"))
+
+  test "members a macro stands for (CommonHeader;), and a value through a chain of macros":
+    var l = lineIn(src, "return uvalue(obj)->len")
+    let ls = src.splitLines
+    let (items, member, typ) = cxComplete(m, l, ls[l].find("len"))
+    var labels: seq[string]
+    for it in items: labels.add it.label
+    check member and typ.replace(" ", "") == "Udata*" and "len" in labels and "meta" in labels and "tt" in labels and
+          "next" in labels
+    let ts = cxTargets(m, l, ls[l].find("tt"))
+    check ts.len == 1 and ts[0][1].kind == cxField and ts[0][1].name == "tt"
+
+  test "a macro with a definition in each branch of an #if, or redefined: the one in effect there":
+    var l = lineIn(src, "  my_check(n > 0);")
+    var ts = cxTargets(m, l, src.splitLines[l].find("my_check"))
+    check ts.len >= 2 and "((void)0)" in ts[0][1].text
+    l = lineIn(src, "  vmcase(1) return 0;")
+    ts = cxTargets(m, l, src.splitLines[l].find("vmcase"))
+    check ts.len >= 2 and ts[0][0].path == d / "jump.h"
+
+suite "C++: a class's own name in its methods, a comparison given to an overload (6.28)":
+  let d = getTempDir() / "ned_tcindex_628cpp"
+  createDir(d)
+  let src = "class Node {\npublic:\n  Node();\n  Node(int v);\n  const Node* next() const;\n  int v;\n};\n" &
+            "Node::Node() {}\nNode::Node(int v) : v(v) {}\nconst Node* Node::next() const {\n" &
+            "  const Node* n = this;\n  return n;\n}\n" &
+            "template<class T> bool same(const char* what, T a, T b) { return a == b; }\n" &
+            "bool same(const char* what, bool a, bool b) { return a == b; }\n" &
+            "int main() {\n  Node x;\n  same(\"t\", true, x.v == 0);\n  return 0;\n}\n"
+  let m = cxLoad(d / "n.cpp", src, "628c", cpp = true)
+  let ls = src.splitLines
+
+  test "Node:: and const Node* in a method of Node: the class, not its constructors":
+    var l = lineOf(ls, "const Node* Node::next() const {")
+    var ts = cxTargets(m, l, ls[l].find("Node::"))
+    check ts.len > 0 and ts[0][1].kind in {cxClass, cxStruct}
+    l = lineOf(ls, "  const Node* n = this;")
+    ts = cxTargets(m, l, ls[l].find("Node"))
+    check ts.len > 0 and ts[0][1].kind in {cxClass, cxStruct}
+
+  test "a comparison is a bool: the function before the template":
+    let l = lineOf(ls, "  same(\"t\", true, x.v == 0);")
+    let ts = cxTargets(m, l, ls[l].find("same"))
+    check ts.len >= 2 and ts[0][1].tparams.len == 0 and ts[0][1].params[1].typ == "bool"

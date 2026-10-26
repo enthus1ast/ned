@@ -186,11 +186,75 @@ proc runTestamentFiles(files: seq[string]) =
   panelSel = 0
   ttNext(TtRun(queue: files, root: root))
 
+# ── hastur (Nimony's test runner), in a Nim 3 project: a test file in tests/ with what it should print beside it
+#    (`t1.output`) or the compiler's messages it should give (`t1.msgs`) ──
+
+const HasturName = "hastur"
+
+proc hasturExe(): string =
+  ## Nimony's hastur: beside the nimony in use, else on PATH ("" when there is none)
+  let n = nimonyExe()
+  if n.len > 0:
+    let h = parentDir(n) / addFileExt("hastur", ExeExt)
+    if fileExists(h): return h
+  findExe("hastur")
+
+proc hasturTestFile(path: string): bool =
+  nim3On() and path.endsWith(".nim") and ("tests" & DirSep) in path and
+    (fileExists(path.changeFileExt("output")) or fileExists(path.changeFileExt("msgs")))
+
+proc isHasturTest(path: string): bool =
+  for e in testEntries:
+    if e.path == path and e.name == HasturName: return true
+  false
+
+proc runHasturFiles(files: seq[string]) =
+  ## each file with `hastur test` (from the folder that holds tests/): ✓ or ✗ by what hastur says of it
+  if files.len == 0: return
+  let h = hasturExe()
+  if h.len == 0:
+    error("hastur not found (it is built with Nimony: hastur build all)")
+    return
+  discard saveAll()
+  let root = testamentRoot(files[0])
+  var parts: seq[string]
+  for f in files:
+    testStatus[testKey(f, HasturName)] = 3
+    let rel = relativePath(f, root)
+    # (each one's exit status marked in the output: one run holds them all)
+    # (its build files in ned's own folder, not a nimcache/ in the project)
+    parts.add quoteShell(h) & " --cachedir:" & quoteShell(privDir() / "nimony" / ("hastur-" & nimonyKey(root))) &
+              " test " & quoteShell(rel) & " 2>&1; echo \"[hastur] $? " & rel & "\""
+  runCommand(parts.join("; "), root)
+  let j = runningJob()
+  if j == nil: return
+  let prev = j.onDone
+  j.onDone = proc(jj: Job) =
+    if prev != nil: prev(jj)
+    var ok, bad = 0
+    for raw in jj.output.splitLines:
+      let l = stripAnsi(raw).strip
+      if not l.startsWith("[hastur] "): continue
+      let rest = l["[hastur] ".len .. ^1]
+      let sp = rest.find(' ')
+      if sp <= 0: continue
+      let f = normalizedPath(root / rest[sp + 1 .. ^1])
+      let pass = rest[0 ..< sp] == "0"
+      testStatus[testKey(f, HasturName)] = (if pass: 1 else: 2)
+      if pass: inc ok else: inc bad
+    for f in files:
+      if testStatus.getOrDefault(testKey(f, HasturName)) == 3: testStatus.del testKey(f, HasturName)
+    if bad > 0: toast($bad & " hastur test(s) failed", 1, "Show", proc() = setPanel(pkOutput))
+    elif ok > 0: toast($ok & " hastur test(s) passed", 4)
+    needRender = true
+
 proc scanTestFile(path: string, lines: seq[string]): seq[TestEntry] =
   if not path.endsWith(".nim"): return scanOtherTests(path, lines)
   let sl = testamentSpecLine(lines)
   if sl >= 0 and ("tests" & DirSep) in path:
     result.add TestEntry(path: path, name: TestamentName, line: sl)
+  elif hasturTestFile(path):
+    result.add TestEntry(path: path, name: HasturName, line: 0)
   var suite = ""
   var suiteInd = -1
   for i, l in lines:
@@ -261,6 +325,9 @@ proc runTests(path: string, filter = "") =
     return
   if isTestamentTest(path) and (filter.len == 0 or filter == TestamentName):
     runTestamentFiles(@[path])
+    return
+  if isHasturTest(path) and (filter.len == 0 or filter == HasturName):
+    runHasturFiles(@[path])
     return
   if not haveExe("nim"):
     error("nim not found")

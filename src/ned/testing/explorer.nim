@@ -1,5 +1,14 @@
 proc runAllTests() =
   loadNimbleInfo()
+  if nim3On():
+    # a Nim 3 project: its hastur tests (not `nimble test`, which is Nim 2's)
+    if not testScanned: rescanTests()
+    var hast: seq[string]
+    for e in testEntries:
+      if e.name == HasturName and e.path notin hast: hast.add e.path
+    if hast.len > 0:
+      runHasturFiles(hast)
+      return
   if nimble.file.len == 0:
     # a Rust, Go or Python project: its own runner, and every file's results from its output
     if not testScanned: rescanTests()
@@ -62,13 +71,18 @@ proc runAllTests() =
         needRender = true
     return
   if not testScanned: rescanTests()
-  var files, specs: seq[string]
+  var files, specs, hast: seq[string]
   for e in testEntries:
     if e.name == TestamentName:
       if e.path notin specs: specs.add e.path
+    elif e.name == HasturName:
+      if e.path notin hast: hast.add e.path
     elif e.path notin files: files.add e.path
-  if specs.len > 0 and files.len == 0:
+  if specs.len > 0 and files.len == 0 and hast.len == 0:
     runTestamentFiles(specs)
+    return
+  if hast.len > 0 and files.len == 0 and specs.len == 0:
+    runHasturFiles(hast)          # (a Nim 3 project's tests: each with what it should print beside it)
     return
   if files.len == 0:
     info("No tests found (std/unittest `test \"name\":` blocks in tests/)")

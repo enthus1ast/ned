@@ -166,6 +166,18 @@ suite "Nim's parser as a second check":
     check r == "let  x=1\n"
     check "Nim's parser reads the result differently (line 2)" in err
 
+  test "the checker's build: its program named as the system names it, no `rm` (Windows has none), why it failed":
+    let exe = astCheckerPath()
+    if exe.len > 0:
+      check exe.endsWith(ExeExt)
+      let cmd = astCheckerBuildCmd()
+      check "rm " notin cmd and "&&" notin cmd
+      check astCheckerCacheDir() in cmd
+    check astCheckerFailure("Hint: x\n/tmp/a.nim(3, 1) Error: cannot open file: compiler/parser\n", 1) ==
+          "Error: cannot open file: compiler/parser"
+    check astCheckerFailure("something\nthe last line\n\n", 1) == "the last line"
+    check astCheckerFailure("", 3) == "nim stopped with exit status 3 and wrote nothing"
+
   test "the real checker (when this machine has the compiler sources and it is built)":
     let exe = astCheckerPath()
     if exe.len > 0 and fileExists(exe):

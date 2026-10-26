@@ -168,7 +168,7 @@ How it compares with nph, on Nim's compiler and standard library:
 
 | | built-in | nph |
 |---|---|---|
-| lines identical to nph's output | 99.8% of 198 000 | — |
+| lines identical to nph's output (nph 0.7) | 99.6% of 248 000 | — |
 | same code for Nim's parser (463 files) | all | all |
 | semexprs.nim, 3 598 lines | 14 ms | 24 ms |
 | strutils.nim, 3 069 lines | 7.5 ms | 10.5 ms |
@@ -176,9 +176,11 @@ How it compares with nph, on Nim's compiler and standard library:
 | json.nim, already formatted | 4 ms | 6.5 ms |
 
 Both measured on the same (slow) machine; nph's times include starting the program, which ned also has to do when
-it runs nph. Where the two still differ — about two lines in a thousand — it is mostly a token nph rewrites (a
-`tuple` with comments, `s.fromHex[:int16]`), a long call's arguments, or a comment inside a parenthesized
-condition.
+it runs nph. Where the two still differ — about four lines in a thousand — it is mostly where nph puts a
+comment, the empty lines nph adds around a type written over several lines, a token nph rewrites (a `tuple`
+with comments, `{.push, header: …}`), or a long call's arguments. One difference is on purpose: an emit stays
+`{.emit: """` on one line (nph puts `emit:` on a line of its own), so that ned still shows and formats its C.
+What ned cannot lay out as nph would keeps the line breaks you wrote, rather than becoming one long line.
 
 To use nph or nimpretty instead, set `"nim.formatter": "nph"` (or `"nimpretty"`), or pick *Nim: format with nph*
 in the palette. Your own `formatters` entry for `nim` always wins.

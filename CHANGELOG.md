@@ -1,6 +1,119 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-627). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-628). Older releases:
+
+## What's new in 6.27
+
+6.27 puts **ned's engines head to head with nimsuggest, nimlangserver and nph** and makes `nedls` a language
+server for **every language ned knows** (with a VS Code extension), adds a **JSON engine**, **JavaScript across
+modules**, more checks for HTML, CSS and SQL, **NIF and more of Nim 3** (contracts, passive procs, pnak), **Nim
+for a C header** made by ned itself, **fifteen new plugins of its own** — six languages among them — and **six
+themes easy on the eyes** for OLED and LCD screens. Windows Terminal now gets its colours right.
+
+**Windows Terminal**: some themes showed on a blue, teal or grey background. ned now takes Windows Terminal (and
+the Windows console, also through WSL) for the 24-bit terminal it is, and where a terminal has only 256 colours
+it picks the nearest of them for each colour, not one channel at a time. *Check setup* says which it uses and why.
+
+**The Nim engine against nimsuggest** — references now tell an overloaded name's uses apart (`len`, `addInt`),
+and a type in a long proc header with pragmas is read (57% → 96% the same as nimsuggest's). **nedls against
+nimlangserver**, file by file: hover, definition and member completion the same as the compiler's far more often,
+answers in about 2 ms instead of 260, ready in under a tenth of a second instead of seconds. **The formatter
+against nph**: 99.6% of the lines of Nim's own library formatted the same, in less than half the time. The
+scoreboard below has them all, and CI keeps them from going down.
+
+**nedls**, more of LSP: the call and type hierarchies, implementations, selection ranges, code lenses (▶ run a
+test, a suite, a nimble task), document links, the imports fixed when a file is renamed. And **every language
+ned's own engines know**: C and C++ (completion, hover, definition through the `#include`s, references and rename
+across the project, the compiler's errors as you type with its fix-its), JavaScript (definition, references and
+rename across the modules that import a name), HTML, CSS, SQL and JSON — and formatting for each. **VS Code**:
+the extension in `editors/vscode` (each release has it as a `.vsix`). [nedls](docs/guide/nim.md#nedls-neds-engine-in-other-editors).
+
+**JSON**, ned's own engine: a comma missing or one too many, a string not closed, a key twice, comments where
+JSON takes none (JSONC files take them) — as you type; for `package.json`, `tsconfig.json`, `atlas.config`,
+`atlas.lock`, `nimble.lock`, ned's own settings and `.ned/lint.json`, the keys and values each takes, completed,
+explained on hover and checked (`"nmae" is not a key of package.json — "name"?`); the keys in the Outline and the
+key path at the cursor in the breadcrumbs.
+
+**JavaScript across modules**: F12 on an imported name opens the module it comes from; *Find references* and
+rename reach the files that import it; the Outline lists functions, classes with their members, constants.
+**HTML**: a link to `#id` no element has, a link or `src` to a file that is not beside the page, an attribute a
+letter from one the element takes (`clas`). **CSS**: `var(--primay)` where the sheet sets `--primary`. **SQL**:
+an `INSERT` with more or fewer values than columns, a column the table does not have in its column list or in
+`UPDATE … SET`.
+
+**.nimble**: a `requires` package name completed from nimble's package list, explained on hover (F12: its own
+.nimble, where it is installed), and one the list does not have flagged with the one meant.
+
+**Nim 3 (Nimony)**: `.nif` files have their colours, an Outline and a hover that says what each tag is and where
+the node comes from in the Nim source (F12 goes there); *Nim 3: the NIF of this file beside it*, each side
+following the cursor in the other. As you type: a call whose arguments break the routine's `{.requires: …}`
+(*contract violated*), `delay()` of a passive proc that takes a `var`, a name written in another case than it is
+declared (names are case-sensitive in Nim 3). **pnak**, Nim 3's package tool: *pnak fetch* and *pnak pin*;
+`pnak.nif`, its lockfile, with its packages in the Outline, hover and F12 to each one's checkout, and its problems
+(no commit, a branch's name, listed twice, not fetched, at another commit). [Nim 3](docs/guide/nim.md#nim-3-nimony).
+
+**Nim for a C header** — *Nim: wrap a C header…* — by ned's own C engine, nothing to install: the functions as
+`importc` procs, structs and unions as objects (bit fields too), enums, function-pointer types, `#define`
+constants, globals. (c2nim or futhark: *… with c2nim*.)
+
+**Fifteen new plugins of ned's own** (Plugins dock › AVAILABLE): **regex-lab** (a pattern's matches lit up in the
+file, a replace checked first, a pattern explained), **transform** (sort, unique, number, encode and decode, JSON
+pretty, add up), **sqlite** (a database's tables in the dock and in completion, the query at the cursor run),
+**web-preview** (the page in your browser, served from the project), **commit-helper** (a commit message drafted
+from what is staged), **nim-eval** (the selection run, its output beside it), **license-header**, **dotenv**
+(`.env` files checked), **mermaid** (diagrams drawn), and the languages **Zig, Julia, OCaml, Crystal, Dart** and
+**Clojure** — colours, indentation, F5, snippets, an outline, and their language servers and formatters when they
+are installed. Plugins can use ned's regular expressions (`regexMatches`, `regexReplace`).
+[ned's own plugins](docs/plugins/available.md).
+
+**Six themes easy on the eyes**: `oled-black` (true black, those pixels off, soft grey text), `oled-warm` (no
+blue, for the evening), `oled-dim` (for a dark room), and for LCD screens `lcd-soft`, `lcd-warm` and the light
+`lcd-paper`. [Themes](docs/guide/themes.md).
+
+**Fixed:** in a picture's bytes Tab goes between the hex and the text columns (Shift+Tab: the picture again);
+Settings sync offers a plugin of your other device once, not at every sync (*install the other device's plugins*
+offers it again); a NIF file with a word after `@` that is no number no longer stops its view; the Plugins dock
+shows the plugins' log above the (now long) list of ned's own; a misspelled field is one problem, with the field
+meant, not two.
+
+The scoreboard at 6.27:
+
+| | score | at least |
+|---|---|---|
+| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
+| nim: go to definition, the same place | 100.0% ✓ | 98% |
+| nim: a variable's type, the same | 98.7% ✓ | 97% |
+| nim: member completion, ned | 98.4% ✓ | 96% |
+| nim: member completion, nimsuggest (not checked) | 70.9% |  |
+| nim: references in the file, the same as nimsuggest's | 95.6% ✓ | 92% |
+| nim: as you type, the compiler's errors found | 90.9% ✓ | 85% |
+| nim: as you type, clean files with no wrong error | 100.0% ✓ | 95% |
+| nedls: completion: the name offered | 100.0% ✓ | 98% |
+| nedls: hover: its doc comment | 100.0% ✓ | 97% |
+| nedls: hover: the same declaration | 98.9% ✓ | 97% |
+| nedls: hover: there | 100.0% ✓ | 98% |
+| nedls: signature help: the routine | 100.0% ✓ | 97% |
+| c: go to definition, the same as clangd's | 93.5% ✓ | 90% |
+| c: member completion, ned | 96.9% ✓ | 95% |
+| c: member completion, clangd (not checked) | 96.9% |  |
+| c: hover, the same parameters | 94.4% ✓ | 92% |
+| c++: go to definition, the same as clangd's | 94.7% ✓ | 90% |
+| c++: member completion, ned | 100.0% ✓ | 95% |
+| c++: member completion, clangd (not checked) | 96.2% |  |
+| c++: hover, the same parameters | 96.2% ✓ | 92% |
+| versus nimlangserver: hover, nedls | 98.3% ✓ | 90% |
+| versus nimlangserver: hover, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: definition, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: definition, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: member offered, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: member offered, nimlangserver (not checked) | 63.3% |  |
+| versus nimlangserver: the same definition where both answer | 97.0% ✓ | 90% |
+| format: lines the same as nph's | 99.6% ✓ | 99% |
+| format: files formatted, of those nph formats | 100.0% ✓ | 99% |
+
+against nimlangserver: nedls answers in 1.8 ms (the median), ready after 79 ms; nimlangserver in 260.6 ms, ready after 2720 ms
+
+against nph: 463 files formatted in 1.59 s by ned, 3.43 s by nph; nph refused 0, ned left 0 alone
 
 ## What's new in 6.26
 

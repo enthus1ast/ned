@@ -136,9 +136,15 @@ suite "HTML":
     check htmlChecks(@["<script>if (a < b) { x = '</p>' }</script>"]).len == 0
 
   test "links in the page, attributes":
-    let a = htmlChecks(@["<a href=\"#intro\">x</a> <a href=\"#intr\">y</a> <a href=\"#top\">t</a> <a href=\"#\">z</a>",
+    let a = htmlChecks(@["<!doctype html><a href=\"#intro\">x</a> <a href=\"#intr\">y</a> <a href=\"#top\">t</a> <a href=\"#\">z</a>",
                          "<h2 id=\"intro\">I</h2> <a name=\"old\"></a> <a href=\"#old\">o</a>"])
-    check a.len == 1 and a[0].rule == "html-anchor" and "'#intro'?" in a[0].msg and a[0].col == "<a href=\"#intro\">x</a> <a href=\"".len
+    check a.len == 1 and a[0].rule == "html-anchor" and "'#intro'?" in a[0].msg and a[0].col == "<!doctype html><a href=\"#intro\">x</a> <a href=\"".len
+    # (a piece of a page — no doctype, <html> or <body> —, a page whose script makes ids: its links are not judged)
+    check htmlChecks(@["<h2 id=\"a\">A</h2> <a href=\"#MethodName\">m</a>"]).allIt(it.rule != "html-anchor")
+    check htmlChecks(@["<!doctype html><body><a href=\"#made\">m</a>",
+                       "<script>const h = document.createElement('h2'); h.id = 'made';</script></body>"]).len == 0
+    check htmlChecks(@["<!doctype html><body><a href=\"#gone\">m</a>",
+                       "<script type=\"application/ld+json\">{\"innerHTML\": 1}</script></body>"]).anyIt(it.rule == "html-anchor")
     let t = htmlChecks(@["<div clas=\"a\" class=\"b\" data-x=1 hx-get=\"/a\" v-if=\"ok\"></div>",
                          "<img src=a.png alt=\"\" widht=3>", "<my-el foo=1></my-el>"])
     check t.len == 2 and t.allIt(it.rule == "html-attribute")

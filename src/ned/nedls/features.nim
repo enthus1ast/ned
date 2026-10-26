@@ -504,6 +504,8 @@ proc lsDocumentSymbol(params: JsonNode): JsonNode =
     if s.kind == nxType: typeAt[s.name] = result.len - 1
   for t in tasks: result.add t
 
+proc lxWorkspaceHits(q: string, t0: MonoTime): seq[(int, JsonNode)]
+
 proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
   ## the project's declarations whose names fit the query (as ned's Go to symbol in project matches them)
   result = newJArray()
@@ -548,12 +550,17 @@ proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
           if score == low(int): continue
         hits.add (score, path, NxSym(name: "task " & t.name, kind: nxProc, line: t.line, col: t.col))
   hits.sort(proc(a, b: (int, string, NxSym)): int = cmp(b[0], a[0]))
+  var all: seq[(int, JsonNode)]
   for k in 0 ..< min(hits.len, 500):
-    let (_, path, s) = hits[k]
+    let (score, path, s) = hits[k]
     var j = %*{"name": s.name, "kind": lsSymbolKind(s), "location": lsLocation(path, s.line, s.col)}
     if s.owner.len > 0 and s.kind in {nxField, nxEnumVal}: j["containerName"] = %s.owner
     else: j["containerName"] = %nxModuleName(path)
-    result.add j
+    all.add (score, j)
+  # (and the project's C, C++, JavaScript and JSON files: their outlines, as ned's Go to symbol has them)
+  all.add lxWorkspaceHits(q, t0)
+  all.sort(proc(a, b: (int, JsonNode)): int = cmp(b[0], a[0]))
+  for k in 0 ..< min(all.len, 500): result.add all[k][1]
 
 # ── semantic tokens: ned's colours ──
 
@@ -818,6 +825,61 @@ proc lsRangeFormatting(params: JsonNode): JsonNode =
       return "Ethe built-in formatter left these lines alone (it is not sure of them)"
     "R" & $lsLineEdits(before, b.lines, lsEol(b)))
   result = lsFormatAnswer(d, ok, outp, "format selection")
+
+proc lsOnTypeFormatting(params: JsonNode): JsonNode =
+  ## Enter after a Nim statement on a line of its own: that line formatted (`let x=f( 1,2)` → `let x = f(1, 2)`)
+  ## — only when the statement is complete there (its brackets closed, not going on after an operator or a
+  ## comma) and starts there, not in a long string; the new line is never touched. Nothing said when the
+  ## formatter is not sure: the line stays as typed
+  let d = lsDocOf(params)
+  result = newJArray()
+  if d == nil or d.b.lang == nil or d.b.lang.mode != lmNim or d.b.largeOn: return
+  if params{"ch"}.getStr != "\n": return
+  let b = d.b
+  let p = lsToPos(b, params{"position"})
+  let l = p.line - 1
+  if l < 0 or l >= b.lines.len or l > 20_000 or b.lines[l].strip.len == 0: return
+  var ok = true
+  proc codeToks(s: string, ok: var bool): seq[FTok] =
+    for t in fLex(s & "\n", ok):
+      if t.kind != fkComment: result.add t
+  proc goesOn(ts: seq[FTok]): bool =
+    ## a line the statement goes on after: brackets left open, or ending in an operator, a comma, `and` …
+    var dd = 0
+    for t in ts:
+      if t.kind in {fkOpen, fkPragOpen}: inc dd
+      elif t.kind in {fkClose, fkPragClose}: dec dd
+    if dd > 0 or ts.len == 0: return dd > 0
+    let t = ts[^1]
+    t.kind in {fkComma, fkDot} or (t.kind == fkOp and t.text != "=") or fWordOp(t)
+  let ts = codeToks(b.lines[l], ok)
+  if not ok or ts.len == 0 or goesOn(ts): return
+  var dd = 0
+  for t in ts:
+    if t.kind in {fkOpen, fkPragOpen}: inc dd
+    elif t.kind in {fkClose, fkPragClose}: dec dd
+  if dd != 0: return                                     # (`  b)`: the end of a statement begun above)
+  var q = l - 1
+  while q >= 0 and (b.lines[q].strip.len == 0 or b.lines[q].strip.startsWith("#")): dec q
+  if q >= 0:
+    let before = codeToks(b.lines[q], ok)
+    if not ok or goesOn(before): return
+  # (in a long string or a block comment: the text above does not lex to its end)
+  var above = newStringOfCap(l * 40)
+  for k in 0 ..< l:
+    above.add b.lines[k]
+    above.add '\n'
+  ok = true
+  discard fLex(above, ok)
+  if not ok: return
+  lsFocus(d, Pos(line: l, col: 0))
+  let (cok, outp) = lsInChild(proc(): string =
+    let before = lsCopy(b.lines)
+    if not b.formatLineRange(l, l, quiet = true): return "R[]"
+    "R" & $lsLineEdits(before, b.lines, lsEol(b)))
+  if cok and outp.len > 1 and outp[0] == 'R':
+    try: result = parseJson(outp[1 .. ^1])
+    except CatchableError: result = newJArray()
 
 # ── folding ──
 

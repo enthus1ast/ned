@@ -73,6 +73,7 @@ proc nxTypos*(f: NxFile, lines: seq[string], lo, hi: int, cur: (int, int)): seq[
     # the lines inside a block a template call or `when` opens (and the template calls' own lines): not looked at
     var skipInd = -1
     var whenInd = -1                         # (the `when` whose `elif` / `else` branches are skipped too)
+    var whenDecided: Table[int, bool]        # (indentation → every condition of its when chain decided here)
     var st: NxLexState
     for l in r.line + 1 .. min(r.endLine, lines.high):
       let raw = lines[l]
@@ -95,7 +96,26 @@ proc nxTypos*(f: NxFile, lines: seq[string], lo, hi: int, cur: (int, int)): seq[
         for rr in nxLookup(sc, w0):
           if rr.sym.kind in {nxTemplate, nxMacro}: skipLine = true
       if skipLine:
-        if t.endsWith(":") or t.endsWith("=") or t.endsWith(" do") or w0 in ["type", "using", "runnableExamples"]:
+        # (a `when` branch: its body is looked at when it is the one compiled here — `else:` of `when
+        # defined(windows)` on Linux —, not when ned left it out or cannot tell: `when declared(x)`, `compiles(…)`)
+        let whenBranch = w0 in ["when", "elif"] or (w0 == "else" and ind == whenInd)
+        var live = false
+        if whenBranch:
+          # (every condition of the chain so far decided here: else a branch is read, but not judged)
+          if w0 in ["when", "elif"]:
+            var cond = t[w0.len .. ^1].strip
+            if cond.endsWith(":"): cond.setLen(cond.len - 1)
+            var v = if "declared(" in cond or "compiles(" in cond: -1 else: nxWhen(cond)
+            if v < 0 and "declared(" notin cond and "compiles(" notin cond: v = nxConstWhen(f, cond)
+            whenDecided[ind] = (if w0 == "when": v >= 0 else: whenDecided.getOrDefault(ind, false) and v >= 0)
+          if whenDecided.getOrDefault(ind, false) and l + 1 <= lines.high:
+            var bl = l + 1
+            while bl < lines.high and lines[bl].strip.len == 0: inc bl
+            live = true
+            for (a, b) in f.inactive:
+              if bl >= int(a) and bl <= int(b): live = false
+        if not live and (t.endsWith(":") or t.endsWith("=") or t.endsWith(" do") or
+                         w0 in ["type", "using", "runnableExamples"]):
           skipInd = ind
         continue
       if l < lo or l > hi: continue

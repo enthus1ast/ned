@@ -1,8 +1,9 @@
-"""julia: the language (colours, comments, indentation, F5), its snippets, the outline, a language server and a
-formatter only when set (Julia's start slowly)"""
-import os, sys
+"""julia: the language (colours, comments, indentation, F5), its snippets, the outline, its language server
+(LanguageServer.jl, when installed, from the first save) and a formatter only when set (Julia's start slowly)"""
+import os, shutil, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from langcheck import check_language
+from langcheck import check_language, done, fake_tools, start
+from tplugins import check
 
 SAMPLE = '''#= a block comment: function nope() end =#
 module Shapes
@@ -70,3 +71,36 @@ def run(factory, tag):
               ("test/runtests.jl", "using Test\n", {"Project.toml": "name = \"App\"\n"},
                "julia --project test/runtests.jl")],
         server=None, formatter=None)
+
+    # 6.28: LanguageServer.jl installed — its server, started when a Julia file is first saved; a command with
+    # quotes in plugins.julia.server split as a shell splits it
+    tmp = tempfile.mkdtemp(prefix="ned-julia-")
+    old = os.environ.get("JULIA_DEPOT_PATH")
+    try:
+        fake = os.path.join(tmp, "bin")
+        fake_tools(fake, ["julia"])
+        depot = os.path.join(tmp, "depot")
+        os.makedirs(os.path.join(depot, "packages", "LanguageServer"))
+        os.environ["JULIA_DEPOT_PATH"] = depot
+        h, ok, err = start(factory, [fake], only_path=True)
+        ls = h.reg("lsp", lang="julia") if ok else None
+        check(tag + "LanguageServer.jl installed: its server, started after the first save (the outline the scan's)",
+              ok and ls and ls["cmd"] == ["julia", "--startup-file=no", "--history-file=no", "-e",
+                                          "using LanguageServer; runserver()"] and ls.get("afterSave") is True and
+              h.reg("symbols", lang="julia") is not None, (err, ls))
+        done(h)
+        h, ok, err = start(factory, [fake], {"server": 'julia -e "using LanguageServer; runserver()"'}, only_path=True)
+        ls = h.reg("lsp", lang="julia") if ok else None
+        check(tag + "a server command with quotes: its words as a shell splits them",
+              ok and ls and ls["cmd"] == ["julia", "-e", "using LanguageServer; runserver()"], (err, ls))
+        done(h)
+        os.environ["JULIA_DEPOT_PATH"] = os.path.join(tmp, "empty")
+        h, ok, err = start(factory, [fake], only_path=True)
+        check(tag + "julia without LanguageServer.jl: no server", ok and h.reg("lsp", lang="julia") is None, err)
+        done(h)
+    finally:
+        if old is None:
+            os.environ.pop("JULIA_DEPOT_PATH", None)
+        else:
+            os.environ["JULIA_DEPOT_PATH"] = old
+        shutil.rmtree(tmp, ignore_errors=True)

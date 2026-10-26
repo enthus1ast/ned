@@ -120,6 +120,17 @@ proc nimonyAnswerLines(output, cwd: string): seq[(string, int, int)] =
         result.add (p, parseInt(f[6]) - 1, parseInt(f[7]))
       except ValueError: discard
 
+var nimonyAskError = ""                 # why the last --def / --usages gave no answer ("" when it ran through)
+
+func nimonyFailure(output: string): string =
+  ## the line that says why nimony stopped (an assertion of its own, a FAILURE), "" when it did not
+  for l in output.splitLines:
+    let t = l.strip
+    if t.startsWith("Error: unhandled exception:"): return t["Error: unhandled exception:".len .. ^1].strip
+  for l in output.splitLines:
+    let t = l.strip
+    if t.startsWith("Error:"): return t
+
 proc nimonyAsk(b: Buffer, what: string, pos: Pos, done: proc(found: seq[(string, int, int)])) =
   ## nimony check --def / --usages at a place of the buffer: its text as a copy in ned's folder (imports made
   ## absolute, the file's folder on the search path); what is in the copy is the file's own
@@ -138,6 +149,7 @@ proc nimonyAsk(b: Buffer, what: string, pos: Pos, done: proc(found: seq[(string,
     var found = nimonyAnswerLines(j.output, j.cwd)
     for x in found.mitems:
       if x[0] == copy: x[0] = path
+    nimonyAskError = if found.len == 0 and j.code != 0: nimonyFailure(j.output) else: ""
     done(found))
 
 # ── Nimony's guides for the assistant: Nim 3 is not what the models learned ──
