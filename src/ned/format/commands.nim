@@ -71,6 +71,7 @@ proc formatEmitBlocks(text, path: string): (string, int, string) =
 var
   fmtCheckerBuilding = false
   fmtCheckerNoted = false
+  fmtCheckerFailed = false       # (its build failed once: not tried again at every format until ned starts again)
   fmtVerifyFromCli = false       # (ned --format: fmtCliMain chose the checker)
 
 proc fmtCheckerExe(): string =
@@ -85,17 +86,27 @@ proc fmtCheckerExe(): string =
            "install compiler) — the formatter's own check is used")
     return ""
   if fileExists(exe): return exe
-  if not fmtCheckerBuilding:
+  if not fmtCheckerBuilding and not fmtCheckerFailed:
     let cmd = astCheckerBuildCmd()
     if cmd.len == 0: return ""
     fmtCheckerBuilding = true
     info("nim.format.verify: building the Nim parser check (once, in the background)…")
     discard startJob(jkTool, cmd, getHomeDir(), proc(j: Job) =
       fmtCheckerBuilding = false
+      try: removeDir(astCheckerCacheDir())
+      except CatchableError: discard
       if j.code == 0 and fileExists(exe): info("The Nim parser check is ready: formatting is checked with it too")
       else:
-        let l = j.output.strip.splitLines
-        error("Could not build the Nim parser check" & (if l.len > 0: ": " & truncTo(l[^1], 80) else: "")))
+        # (said once, with why — the compiler's error, or no program where nim was to write it — and the whole
+        # output in a file: not tried again at each format)
+        fmtCheckerFailed = true
+        let log = parentDir(exe) / "nedastcheck-build.log"
+        try: writeFile(log, "$ " & j.cmd & "\n" & j.output)
+        except CatchableError: discard
+        let why = if j.code == 0: "nim made no " & extractFilename(exe)
+                  else: truncTo(astCheckerFailure(j.output, j.code), 120)
+        error("Nim parser check not built: " & why & " — the formatter's own check is used (nim.format.verify; " &
+              "the whole output: " & log & ")"))
   ""
 
 proc nimFormatAll(text, path: string, ownWidth = true): (string, string) =

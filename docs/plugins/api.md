@@ -987,18 +987,18 @@ a formatter written in NimScript: the text in, the formatted text out (raise Val
 #### `languageServer`
 
 ```nim
-template languageServer(lang: string, cmd: seq[string])
+template languageServer(lang: string, cmd: seq[string], afterSave = false)
 ```
 
-a language server for the language's files (["zls"], ["pyright-langserver", "--stdio"])
+a language server for the language's files (["zls"], ["pyright-langserver", "--stdio"]). afterSave: it starts when one of those files is first saved, not when one is opened — for a server that takes long to start (Julia's): reading files then costs nothing (needs ned 6.28)
 
 #### `languageServerScript`
 
 ```nim
-template languageServerScript(lang, script: string)
+template languageServerScript(lang, script: string, afterSave = false)
 ```
 
-a language server written in NimScript (import nedlsp), a file of the plugin's folder; ned runs it through `ned --lsp-bridge <file>` — the same command works in other editors
+a language server written in NimScript (import nedlsp), a file of the plugin's folder; ned runs it through `ned --lsp-bridge <file>` — the same command works in other editors. afterSave: as for languageServer
 
 ### vim (editor.vimMode)
 

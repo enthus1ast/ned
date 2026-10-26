@@ -104,8 +104,10 @@ def param_type(p):
     p = re.sub(r'\b(__restrict__|__restrict|restrict)\b', '', p).strip()
     if p in ('', 'void'): return ''
     m = re.match(r'^(.*[\s*&])([A-Za-z_]\w*)((?:\[[^\]]*\])*)$', p)
-    if m and m.group(1).strip() and m.group(1).strip() not in ('struct', 'union', 'enum', 'const', 'unsigned', 'signed'):
+    if m and m.group(1).strip() and m.group(1).strip() not in ('struct', 'union', 'enum', 'const'):
         p = m.group(1) + ('*' * m.group(3).count('['))
+    # (`unsigned` alone is `unsigned int`, as clangd writes it)
+    p = re.sub(r'\b(unsigned|signed)(?!\s+(int|char|short|long)\b)', r'\1 int', p.strip())
     return re.sub(r'\s+', '', p).replace('constchar', 'const char')
 
 def clangd_signature(h):

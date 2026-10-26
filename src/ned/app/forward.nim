@@ -171,6 +171,7 @@ proc plugWrites(b: Buffer): bool
 proc drawKeyHints(bottom: int)
 proc plugFixActions(b: Buffer, l0, l1: int): seq[(string, string, Action)]
 proc buildPluginItems(): seq[SideItem]
+proc plugAvailableMenu(n: string)
 proc plugAskDone(text: string)
 proc nbVersionComplete(b: Buffer, p: Pos, manual: bool, force = false): bool
 proc nbHover(b: Buffer, p: Pos): string

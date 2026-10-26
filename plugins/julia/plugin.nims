@@ -1,4 +1,4 @@
-## julia — Julia: colours, comments, indentation, F5, snippets, an outline; a language server and a formatter when set
+## julia — Julia: colours, comments, indentation, F5, snippets, an outline; its language server, a formatter when set
 ##
 ## Turn it on in the Plugins dock (AVAILABLE). It teaches ned Julia's `.jl` files: their colours (ned's generic
 ## lexer with Julia's words: Capitalised names as types, @macros, """strings""" over several lines, 'c'
@@ -11,18 +11,20 @@
 ## The outline lists the file's functions (`function f(…)` and `f(x) = …`), structs, abstract types, macros,
 ## modules and constants, from a simple scan.
 ##
-## Julia's language server and formatter are Julia packages that start slowly, so they are not run unless you say:
-## - plugins.julia.server — e.g. `julia --startup-file=no --history-file=no -e "using LanguageServer; runserver()"`
-##   (after `] add LanguageServer`)
+## Julia's language server (completion, hover, definitions, its problems) is a Julia package, LanguageServer.jl
+## (`] add LanguageServer`): when it is installed, it starts the first time you save a Julia file — it takes a
+## while to start, so only reading files costs nothing. plugins.julia.server gives another command ("off": none).
+## The formatter, JuliaFormatter, starts slowly too: it runs only when set —
 ## - plugins.julia.formatter — e.g. `julia -e "using JuliaFormatter; print(format_text(read(stdin, String)))"`
 ## Julia itself: Termux `pkg install julia` is not there (use proot-distro); elsewhere https://julialang.org
 import nedplugin
 import std/strutils
 
-requiresNed(">= 6.25")
+requiresNed(">= 6.28")
 
-settingDef("server", "", "The language server's command (e.g. julia -e \"using LanguageServer; runserver()\"): " &
-           "empty or \"off\" for none. Plugins: reload after a change")
+settingDef("server", "", "The language server's command, started when you first save a Julia file: empty = " &
+           "LanguageServer.jl when it is installed (] add LanguageServer), \"off\" for none. Plugins: reload after " &
+           "a change")
 settingDef("formatter", "", "The formatter's command, which reads the text on its stdin (JuliaFormatter's): empty " &
            "or \"off\" for none. Plugins: reload after a change")
 
@@ -198,25 +200,66 @@ func jlSymbols*(lines: seq[string]): seq[Symbol] =
     for k in 0 ..< w.count(" end") + (if first == "end": 1 else: 0) - (if oneLine: 1 else: 0):
       if stack.len > 0: discard stack.pop()
 
-# ── the tools (only when set) ──
+# ── the tools: the language server (LanguageServer.jl, when installed), the formatter when set ──
+
+proc jlWords*(cmd: string): seq[string] =
+  ## a command line's words, as a shell splits it: `julia -e "using X; f()"` is three (quotes and \ as sh has them)
+  var cur = ""
+  var inWord = false
+  var q = '\0'
+  var i = 0
+  while i < cmd.len:
+    let c = cmd[i]
+    if q != '\0':
+      if c == q: q = '\0'
+      elif c == '\\' and q == '"' and i + 1 < cmd.len and cmd[i + 1] in {'"', '\\', '$', '`'}:
+        inc i
+        cur.add cmd[i]
+      else: cur.add c
+    elif c in {'"', '\''}:
+      q = c
+      inWord = true
+    elif c == '\\' and i + 1 < cmd.len:
+      inc i
+      cur.add cmd[i]
+      inWord = true
+    elif c in {' ', '\t'}:
+      if inWord: result.add cur
+      cur = ""
+      inWord = false
+    else:
+      cur.add c
+      inWord = true
+    inc i
+  if inWord: result.add cur
 
 proc jlHave(cmd: string): bool =
-  let w = cmd.splitWhitespace()
+  let w = jlWords(cmd)
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 
+proc jlDepots(): seq[string] =
+  ## where Julia keeps its packages: JULIA_DEPOT_PATH's folders, else ~/.julia
+  for d in getEnv("JULIA_DEPOT_PATH").split({':', ';'}):
+    if d.strip.len > 0: result.add expandTilde(d.strip)
+  if result.len == 0: result.add expandTilde("~/.julia")
+
+proc jlHasPackage(name: string): bool =
+  for d in jlDepots():
+    if dirExists(d & "/packages/" & name): return true
+
 let jlServerSet = setting("server", "").strip
-var jlServed = false
 if jlServerSet.len > 0 and jlServerSet != "off":
   if jlHave(jlServerSet):
-    var cmd = jlServerSet.splitWhitespace()
+    var cmd = jlWords(jlServerSet)
     cmd[0] = expandTilde(cmd[0])
-    languageServer("julia", cmd)
-    jlServed = true
+    languageServer("julia", cmd, afterSave = true)
   else: echo "julia: the server " & jlServerSet & " is not installed (plugins.julia.server)"
-if not jlServed:
-  # (a plugin's symbols take the place of the server's outline: only without one)
-  symbols("julia") do (b: Buf) -> seq[Symbol]:
-    jlSymbols(b.lines)
+elif jlServerSet.len == 0 and findExe("julia").len > 0 and jlHasPackage("LanguageServer"):
+  languageServer("julia", @["julia", "--startup-file=no", "--history-file=no", "-e",
+                            "using LanguageServer; runserver()"], afterSave = true)
+# (the outline from the scan, server or not: the same before the server has started as after)
+symbols("julia") do (b: Buf) -> seq[Symbol]:
+  jlSymbols(b.lines)
 
 let jlFmtSet = setting("formatter", "").strip
 if jlFmtSet.len > 0 and jlFmtSet != "off":

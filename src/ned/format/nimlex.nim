@@ -501,6 +501,9 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
         elif t.col > cur.indent and (t.kind == fkDot or (t.kind == fkKw and t.text in ["else", "elif"] and
              not (last.kind in {fkColon} or (last.kind == fkOp and last.text == "=")))):
           cont = true          # let z = if a: 1   ⏎   else: 2
+        elif t.col > cur.indent and t.kind == fkColon and last.kind notin {fkColon, fkComment} and
+             cur.toks[0].kind == fkKw and cur.toks[0].text in ["if", "elif", "while", "when", "of", "for", "except"]:
+          cont = true          # if a and   ⏎   b   ⏎   :   (a condition's `:` on a line of its own ends it)
         elif t.col > cur.indent and last.kind == fkColon and cur.toks[0].kind == fkKw and
              cur.toks[0].text in FRoutineKw:
           cont = true          # proc f(a: int):   ⏎   tuple[x, y: int] =
@@ -573,6 +576,8 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
       if t.nl and stmtAt >= 0 and
          not (stmtIf and d == stmtAt and t.kind == fkKw and t.text in ["elif", "else"] and prev != nil and
               prev.kind != fkColon) and
+         # (an if-expression's condition going on after an operator, `if a and` ⏎ `b: x else: y`: a long line's)
+         not (stmtIf and prev != nil and ((prev.kind == fkOp and prev.text != "=") or fWordOp(prev))) and
          not (stmtIf and d == stmtAt and t.kind == fkClose and t.text in [")", "]"] and prev != nil and
               prev.kind != fkColon):
         l.verbatim = true

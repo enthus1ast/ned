@@ -483,6 +483,9 @@ func cxTypeEnd(toks: seq[CxTok], a, b: int): int =
   if j < b and toks[j].text == "(" and j + 1 < b and toks[j + 1].text == "(" and lastWord == j - 1 and
      lastWord - 1 > a and toks[lastWord - 1].kind == ctWord:
     return lastWord - 1                         # void name _((int a)): a prototype through a portability macro
+  if j + 3 < b and toks[j].text == "(" and toks[j + 1].kind == ctWord and toks[j + 2].text == ")" and
+     toks[j + 3].text == "(" and lastWord >= a:
+    return j                                    # int (name)(…): a function's name in parentheses (Lua's API)
   if lastWord > a:
     # struct list; — a tag, no declarator
     if words == 2 and toks[a].text in ["struct", "union", "enum"] and (j >= b or toks[j].text == ";"): return b
@@ -527,6 +530,11 @@ func cxDeclarators(toks: seq[CxTok], a, b: int): seq[(int, string, int)] =
     elif k < b and toks[k].kind == ctWord and not cxNoise(toks[k].text):
       nameAt = k
       inc k
+    elif k + 2 < b and toks[k].text == "(" and toks[k + 1].kind == ctWord and toks[k + 2].text == ")" and
+         k + 3 < b and toks[k + 3].text == "(":
+      # (name)(…): a function's name in parentheses, so that a macro of that name does not expand (Lua's headers)
+      nameAt = k + 1
+      k += 3
     while k < b and toks[k].text == "[":
       stars.add "*"
       k = cxSkipGroup(toks, k)
@@ -2281,6 +2289,32 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
     var s = s0
     if s.doc.len == 0: s.doc = cxDocFor(comments, s.line, s.endLine)
     f.syms.add s
+  proc macroMembers(use: CxTok, owner: string): bool =
+    ## a member that is a macro of this file standing for members — Lua's `CommonHeader;` (struct GCObject *next;
+    ## lu_byte tt; lu_byte marked): those members, where the macro is used
+    var body = ""
+    for x in f.syms:
+      if x.kind == cxMacro and x.name == use.text and x.text.startsWith("#define " & x.name):
+        let rest = x.text["#define ".len + x.name.len .. ^1]
+        if rest.len > 0 and rest[0] == '(': return false                   # (one with arguments: not this)
+        body = rest.strip
+    if body.len == 0 or ';' notin body and ' ' notin body: return false
+    var any = false
+    for part in body.split(';'):
+      if part.strip.len == 0: continue
+      var ts: seq[CxTok]
+      var cs: seq[CxComment]
+      var pps: seq[(int, string)]
+      cxLex(part, ts, cs, pps)
+      if ts.len < 2: continue
+      let te = cxTypeEnd(ts, 0, ts.len)
+      let base = cxTypeText(ts, 0, te)
+      for (ni, stars, _) in cxDeclarators(ts, te, ts.len):
+        let typ = (base & (if stars.len > 0: " " & stars else: "")).strip
+        addSym(CxSym(name: ts[ni].text, kind: cxField, line: use.line, col: use.col, endLine: use.line,
+                     owner: owner, typ: typ, text: typ & " " & ts[ni].text & "  (" & use.text & ")"))
+        any = true
+    any
   proc parseMembers(a, b: int, owner: string, kind: CxKind) =
     ## a struct's (or union's) members, toks[a ..< b] inside the braces; an enum's constants
     if kind == cxEnum:
@@ -2345,6 +2379,7 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
                 addSym(CxSym(name: toks[ni].text, kind: cxField, line: toks[ni].line, col: toks[ni].col,
                              endLine: toks[ni].line, owner: owner, typ: toks[st].text & " " & nm & (if stars.len > 0: " " & stars else: ""),
                              text: toks[st].text & " " & nm & " " & stars & toks[ni].text))
+          elif k - st == 1 and toks[st].kind == ctWord and macroMembers(toks[st], owner): discard
           else:
             let typeEnd = cxTypeEnd(toks, st, k)
             let base = cxTypeText(toks, st, typeEnd)
@@ -2442,6 +2477,7 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
       let nm = toks[ni].text
       # a function: name( params ) — or name _(( params )), through a portability macro (zsh's _, __P, PROTO, OF)
       var p = ni + 1
+      if p < after and toks[p].text == ")" and ni > 0 and toks[ni - 1].text == "(": inc p      # ((name)(…))
       var viaMacro = false
       if p + 2 < after and toks[p].kind == ctWord and toks[p + 1].text == "(" and toks[p + 2].text == "(":
         inc p
@@ -3488,13 +3524,22 @@ proc cxTypeOfExpr*(files: seq[CxFile], f: CxFile, expr: string, line: int, depth
     if e >= s.len: return ""
     let inner = s[1 ..< e].strip
     let rest = s[e + 1 .. ^1].strip
-    let words = inner.replace("*", " ").splitWhitespace
+    # (a type a macro put in parentheses of its own — `cast((Udata)*, o)` —: the type without them)
+    let bare = if '(' in inner and "(*" notin inner: inner.multiReplace(("(", ""), (")", "")).strip else: inner
+    let words = bare.replace("*", " ").splitWhitespace
     if words.len > 0 and (words[0] in CxTypeWords or cxFindSym(files, words[0], {cxTypedef})[0] != nil) and
        rest.len > 0 and rest[0] notin {'.', '-', '['}:
-      typ = inner                            # (struct q *)v
+      typ = bare                             # (struct q *)v
       i = s.len
     else:
-      typ = cxTypeOfExpr(files, f, inner, line, depth + 1)
+      # (a comma expression — `(lua_assert(c), (e))`, a macro's check then its value —: the last one's type)
+      var last = inner
+      var dd = 0
+      for q in 0 ..< inner.len:
+        if inner[q] in {'(', '[', '{'}: inc dd
+        elif inner[q] in {')', ']', '}'}: dec dd
+        elif inner[q] == ',' and dd == 0: last = inner[q + 1 .. ^1]
+      typ = cxTypeOfExpr(files, f, last.strip, line, depth + 1)
       i = e + 1
   else:
     var e = 0
@@ -3503,7 +3548,7 @@ proc cxTypeOfExpr*(files: seq[CxFile], f: CxFile, expr: string, line: int, depth
     let name = s[0 ..< e]
     typ = cxTypeOfName(files, f, name, line)
     i = e
-    if typ.len == 0 and depth < 4:
+    if typ.len == 0 and depth < 10:
       # a macro: its expansion's type — `#define atime tv[0]`, `#define P_OPERAND(p) ((Upat)(p) + 1)` with the
       # arguments put in
       let (g, k) = cxFindSym(files, name, {cxMacro})
@@ -3545,7 +3590,9 @@ proc cxTypeOfExpr*(files: seq[CxFile], f: CxFile, expr: string, line: int, depth
                   var hit = -1
                   for pi, prm in m.params:
                     if prm.name == w: hit = pi
-                  ex.add(if hit >= 0: "(" & args[hit] & ")" else: w)
+                  # (in parentheses already — `((t)(exp))` —: as it is, or `(t)` would be no cast any more)
+                  let wrapped = r > 0 and body[r - 1] == '(' and t < body.len and body[t] == ')'
+                  ex.add(if hit >= 0: (if wrapped: args[hit] else: "(" & args[hit] & ")") else: w)
                   r = t
                 else:
                   ex.add body[r]
@@ -4609,6 +4656,27 @@ proc cxxArgType(files: seq[CxFile], f: CxFile, line: int, ctx: CxxCtx, a: string
   if result.len > 0 or a.strip.len == 0: return
   # uint64_t(14), unsigned(x): a number's type made
   let t = a.strip
+  # (a comparison or a logical operator at the top level — `pre == 0`, `!ok`, `a && b` —: a bool)
+  block:
+    var d = 0
+    var q = 0
+    while q < t.len:
+      let c = t[q]
+      if c in {'"', '\''}:
+        var j = q + 1
+        while j < t.len and t[j] != c:
+          if t[j] == '\\': inc j
+          inc j
+        q = j + 1
+        continue
+      if c in {'(', '[', '{'}: inc d
+      elif c in {')', ']', '}'}: dec d
+      elif d == 0 and q + 1 < t.len and t[q .. q + 1] in ["==", "!=", "<=", ">=", "&&", "||"] and
+           not (q > 0 and t[q - 1] in {'<', '>', '='}) and not (t[q .. q + 1] in ["<=", ">="] and
+           q + 2 < t.len and t[q + 2] == '='):
+        return "bool"
+      inc q
+    if t.startsWith("!") and not t.startsWith("!="): return "bool"
   let p = t.find('(')
   if p > 0 and t.endsWith(")") and cxxGroupEnd(t, p) == t.high:
     let n = t[0 ..< p].strip
@@ -4815,8 +4883,9 @@ proc cxxTargets0(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
     for i in countdown(ls.high, 0):
       if ls[i].name == w and (ls[i].kind == cxLabel) == afterGoto: return @[(f, ls[i])]
   if afterGoto: return
-  # in a method: its class's members
-  if ctx.cls.len > 0 and not tagged:
+  # in a method: its class's members (not the class's own name — `XMLElement::Int64Attribute`, `const XMLNode* n`
+  # in one of its methods: the class, as below, not its constructors)
+  if ctx.cls.len > 0 and not tagged and w != cxxNoArgs(cxxSplit(ctx.cls)[^1]):
     let r = cxxMemberTargets(files, ctx.cls, w, ctx, all = true)
     if r.len > 0: return r
   # what the file and its headers declare (seen from here first)
@@ -4935,6 +5004,46 @@ proc cxComplete*(f: CxFile, line, col: int, systemDirs: seq[string] = @[]): (seq
   for kw in CxKeywords:
     if kw notin seen: result[0].add CxItem(label: kw, detail: "keyword", kind: cxMacro, rank: 4)
 
+func cxLineInactive(g: CxFile, l: int): bool =
+  ## is line l of g in a branch the preprocessor leaves out?
+  for (a, b) in g.inactive:
+    if l >= a and l <= b: return true
+    if a > l: break
+  false
+
+proc cxMacrosInEffect(f: CxFile, macros: seq[(CxFile, CxSym)], line: int): seq[(CxFile, CxSym)] =
+  ## a macro's definitions in the order that matters at f's line: first the one in effect there — not in a
+  ## branch the preprocessor leaves out (`#if defined(LUA_USE_APICHECK)` … `#else`), and of those the last one
+  ## read before the line (a header included after the file's own `#define` redefines it: ljumptab.h's vmcase) —
+  ## then the others
+  var live, dead: seq[(CxFile, CxSym)]
+  for m in macros:
+    if cxLineInactive(m[0], m[1].line): dead.add m else: live.add m
+  if live.len == 0: return macros
+  # (where each one is read, as lines of f: its own line, or the line of f's #include that brings its header)
+  proc at(m: (CxFile, CxSym)): int =
+    if m[0] == f: return m[1].line
+    for ic in f.incAt:
+      if ic.file == nil: continue
+      if ic.file == m[0]: return ic.line
+      for g in cxClosure(ic.file, 60):
+        if g == m[0]: return ic.line
+    -1
+  var best = -1
+  var bestAt = -1
+  for i, m in live:
+    let p = at(m)
+    if p >= 0 and p <= line and (p > bestAt or (best >= 0 and p == bestAt and m[0] == live[best][0] and
+                                                m[1].line > live[best][1].line)):
+      best = i
+      bestAt = p
+  if best > 0:
+    result.add live[best]
+    for i, m in live:
+      if i != best: result.add m
+  else: result = live
+  result.add dead
+
 proc cxTargets*(f: CxFile, line, col: int, jump = false): seq[(CxFile, CxSym)] =
   ## what the word at line:col names: a member, a local, parameter or label, or declarations in the file and its
   ## headers (a function's definition before its prototype; a typedef before the struct it names). jump: on a
@@ -4988,6 +5097,7 @@ proc cxTargets*(f: CxFile, line, col: int, jump = false): seq[(CxFile, CxSym)] =
         elif s.kind == cxTypedef and not tagged: types.add (g, s)
         elif s.isDef or s.kind notin {cxFunc, cxStruct, cxUnion, cxEnum, cxVar}: defs.add (g, s)
         else: decls.add (g, s)
+  if macros.len > 1: macros = cxMacrosInEffect(f, macros, line)
   result = types & defs & decls & macros
 
 proc cxBodyIn*(paths: openArray[string], name: string, kind = cxFunc, owner = ""): (CxFile, int) =

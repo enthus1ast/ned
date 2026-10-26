@@ -335,6 +335,96 @@ proc lxDocumentSymbol(d: LsDoc): JsonNode =
       parent["children"].add j
     stack.add (dep, j)
 
+proc lxWorkspaceHits(q: string, t0: MonoTime): seq[(int, JsonNode)] =
+  ## workspace/symbol in the project's C, C++, JavaScript and JSON files (open ones as they are now): the names
+  ## their outlines have — a JSON file's keys two levels deep, not a lock file's
+  const exts = [".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".js", ".mjs", ".cjs", ".json"]
+  var paths: seq[string]
+  var seen: HashSet[string]
+  for _, d in lsDocs:
+    if d.b.path.len > 0 and lxLangOf(d) in {lxC, lxWeb} and d.b.path notin seen:
+      seen.incl d.b.path
+      paths.add d.b.path
+  for rel in projectFiles():
+    let p = if rel.isAbsolute: rel else: rootDir / rel
+    if p in seen: continue
+    var want = false
+    for e in exts:
+      if p.endsWith(e): want = true
+    let name = extractFilename(p)
+    if not want or name.endsWith("-lock.json") or name.endsWith(".lock.json") or name == "package-lock.json": continue
+    seen.incl p
+    paths.add p
+  var hl: seq[int]
+  for path in paths:
+    if msSince(t0) > 3500: break
+    var d = lsDocByPath(path)
+    let ext = path.splitFile.ext.toLowerAscii
+    if d == nil and ext in [".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"]:
+      # (a C file not open: its index from disk, as the C engine keeps it — no buffer of its own)
+      if not (cfgCEngine in ["builtin", "both"] or (cfgCEngine == "auto" and not haveExe("clangd"))): continue
+      var items: seq[SideItem]
+      try: items = cEngOutlineOf(cxLoad(path), path)
+      except Exception: continue
+      let lang = if cxIsCppPath(path): "cpp" else: "c"
+      var owner = ""
+      for it in items:
+        if it.depth == 0: owner = it.text
+        if it.text.len == 0: continue
+        var score = 0
+        if q.len > 0:
+          score = fuzzyMatch(q, it.text, hl)
+          if score == low(int): continue
+        result.add (score, %*{"name": it.text, "kind": lxSymKind(it, lang),
+                              "containerName": (if it.depth > 0: owner else: extractFilename(path)),
+                              "location": lsLocation(path, max(0, it.line), max(0, it.col))})
+      continue
+    if d == nil:
+      let lines = lsLinesOf(path)
+      if lines.len == 0 or lines.len > 20_000: continue
+      let b = newBuffer()
+      b.path = path
+      b.lines = lines
+      b.lang = detectLang(path, lines[0])
+      if b.lang == nil: continue
+      d = LsDoc(uri: lsUriOf(path), b: b)
+    let lang = if d.b.lang != nil: d.b.lang.id else: ""
+    if lxLangOf(d) notin {lxC, lxWeb} or lang notin ["c", "cpp", "javascript", "json"]: continue
+    var items: seq[SideItem]
+    try: items = lxOutline(d)
+    except Exception: continue
+    var parents: seq[string]               # (the item each depth is in)
+    for it in items:
+      if parents.len > it.depth: parents.setLen(it.depth)
+      while parents.len < it.depth: parents.add ""
+      let container = if it.depth > 0 and parents.len > 0: parents[^1] else: extractFilename(path)
+      parents.add it.text
+      if it.text.len == 0 or (lang == "json" and it.depth > 1): continue
+      var score = 0
+      if q.len > 0:
+        score = fuzzyMatch(q, it.text, hl)
+        if score == low(int): continue
+      let l = clamp(it.line, 0, max(0, d.b.lines.high))
+      result.add (score, %*{"name": it.text, "kind": lxSymKind(it, lang), "containerName": container,
+                            "location": lsLocation(path, l, max(0, it.col))})
+
+# ── linked editing: an HTML tag's name and its partner's ──
+
+proc lxLinkedEditing(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/linkedEditingRange: on an HTML tag's name, it and its closing (opening) tag's name — renamed
+  ## together as you type, as ned's editor.linkedEditing does
+  result = newJNull()
+  let b = d.b
+  if b.lang == nil or b.lang.id notin ["html", "xml", "svg", "vue", "svelte", "php"]: return
+  let p = lsToPos(b, params{"position"})
+  if p.line < 0 or p.line >= b.lines.len: return
+  let (a, e, cl) = htmlTagNameAt(b.lines[p.line], p.col)
+  if a < 0 or e <= a: return
+  let (pl, pa, pe) = b.htmlPartner(p.line, a, e, cl)
+  if pl < 0: return
+  result = %*{"ranges": [lsRangeIn(b.lines, p.line, a, p.line, e), lsRangeIn(b.lines, pl, pa, pl, pe)],
+              "wordPattern": "[A-Za-z0-9_:.-]+"}
+
 # ── parameter names, quick fixes, links ──
 
 proc lxInlayHints(d: LsDoc, params: JsonNode): JsonNode =
@@ -505,6 +595,8 @@ proc lxHandle(meth: string, params: JsonNode, id: JsonNode): bool =
   of "textDocument/inlayHint": lsReply(id, lxInlayHints(d, params))
   of "textDocument/codeAction": lsReply(id, lxCodeActions(d, params))
   of "textDocument/documentLink": lsReply(id, lxDocumentLinks(d))
+  of "textDocument/linkedEditingRange": lsReply(id, lxLinkedEditing(d, params))
+  of "textDocument/onTypeFormatting": lsReply(id, newJArray())
   of "textDocument/semanticTokens/full", "textDocument/semanticTokens/range": lsReplyRaw(id, "{\"data\":[]}")
   of "textDocument/foldingRange", "textDocument/selectionRange": return false      # (the same for every language)
   of "textDocument/prepareCallHierarchy", "textDocument/prepareTypeHierarchy", "textDocument/typeDefinition",

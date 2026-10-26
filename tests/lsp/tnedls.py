@@ -1067,6 +1067,8 @@ def run_langs(nedls, log):
     for name, text in files.items():
         with open(os.path.join(root, name), "w") as f:
             f.write(text)
+    with open(os.path.join(root, "extra.c"), "w") as f:            # (a C file never opened: 6.28's symbols)
+        f.write("static int extraHelper(int n) { return n + 1; }\n")
     # (pnak fetched jsony, at another commit; zippy not yet)
     os.makedirs(os.path.join(root, "deps", "jsony", ".git"))
     with open(os.path.join(root, "deps", "jsony", ".git", "HEAD"), "w") as f:
@@ -1180,6 +1182,93 @@ def run_langs(nedls, log):
         r = req("textDocument/definition", "pnak.nif", 2, 12) or []
         check("6.27 pnak.nif: definition — the package's .nimble in deps/",
               len(r) == 1 and r[0]["uri"].endswith("deps/jsony/jsony.nimble"), r)
+        # ── 6.28: workspace symbols in C, JavaScript and JSON; linked editing of an HTML tag ──
+        caps = init["result"]["capabilities"]
+        check("6.28 langs: linked editing offered", caps.get("linkedEditingRangeProvider") is True, caps.keys())
+        def ws(q):
+            return (c.request("workspace/symbol", {"query": q}) or {}).get("result") or []
+        r = ws("dist2")
+        where = sorted(set(os.path.basename(x["location"]["uri"]) for x in r if x["name"] == "dist2"))
+        check("6.28 workspace symbols: a C function, in its header and its file", "shapes.c" in where and
+              "shapes.h" in where, [(x["name"], x["location"]["uri"]) for x in r][:8])
+        r = ws("extraHelper")
+        check("6.28 workspace symbols: a C file not open", any(x["name"] == "extraHelper" and
+              x["location"]["uri"].endswith("extra.c") for x in r), [(x["name"], x["location"]["uri"]) for x in r][:8])
+        r = ws("Store")
+        check("6.28 workspace symbols: a JavaScript class", any(x["name"] == "Store" and
+              x["location"]["uri"].endswith("util.js") for x in r), [(x["name"], x["location"]["uri"]) for x in r][:8])
+        r = ws("nmae")
+        check("6.28 workspace symbols: a JSON key", any(x["name"] == "nmae" and
+              x["location"]["uri"].endswith("package.json") for x in r), [(x["name"], x["location"]["uri"]) for x in r][:8])
+        with open(P("tags.html"), "w") as f:
+            f.write("<div>\n  <span>x</span>\n</div>\n")
+        c.notify("textDocument/didOpen", {"textDocument": {"uri": uri(P("tags.html")), "languageId": "html",
+                                                           "version": 1, "text": "<div>\n  <span>x</span>\n</div>\n"}})
+        r = req("textDocument/linkedEditingRange", "tags.html", 0, 2) or {}
+        rs = [(x["start"]["line"], x["start"]["character"], x["end"]["character"]) for x in r.get("ranges", [])]
+        check("6.28 HTML: linked editing — an opening tag's name and its closing tag's", rs == [(0, 1, 4), (2, 2, 5)], r)
+        r = req("textDocument/linkedEditingRange", "tags.html", 1, 14) or {}
+        rs = [(x["start"]["line"], x["start"]["character"], x["end"]["character"]) for x in r.get("ranges", [])]
+        check("6.28 HTML: … and from the closing tag", rs == [(1, 11, 15), (1, 3, 7)], r)
+    finally:
+        c.request("shutdown", None)
+        c.notify("exit", {})
+        c.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def run_628(nedls, log):
+    """6.28: problems the client asks for (pull diagnostics), Enter formatting the statement before it"""
+    root = tempfile.mkdtemp(prefix="tnedls-628-")
+    with open(os.path.join(root, "p.nimble"), "w") as f:
+        f.write('version = "0.1.0"\nauthor = "t"\ndescription = "t"\nlicense = "MIT"\n')
+    a_p = os.path.join(root, "a.nim")
+    text = 'proc greet(name: string): string = name\necho gret("x")\n'
+    with open(a_p, "w") as f:
+        f.write(text)
+    c, init = new_client(nedls, root, log=log, more_caps={"textDocument": {"diagnostic": {}},
+                                                          "workspace": {"diagnostics": {"refreshSupport": True}}})
+    try:
+        caps = init["result"]["capabilities"]
+        check("6.28 pull diagnostics: offered to a client that asks", isinstance(caps.get("diagnosticProvider"), dict),
+              caps.get("diagnosticProvider"))
+        check("6.28 on-type formatting: offered, on Enter", (caps.get("documentOnTypeFormattingProvider") or {})
+              .get("firstTriggerCharacter") == "\n", caps.get("documentOnTypeFormattingProvider"))
+        open_doc(c, a_p, text)
+        items, res = [], {}
+        end = time.time() + 20
+        while time.time() < end:
+            res = (c.request("textDocument/diagnostic", {"textDocument": {"uri": uri(a_p)}}) or {}).get("result") or {}
+            items = res.get("items") or []
+            if any("gret" in d["message"] for d in items):
+                break
+            time.sleep(0.4)
+        check("6.28 pull diagnostics: the misspelled name, when asked", res.get("kind") == "full" and
+              any("gret" in d["message"] for d in items), res)
+        again = (c.request("textDocument/diagnostic", {"textDocument": {"uri": uri(a_p)},
+                                                       "previousResultId": res.get("resultId")}) or {}).get("result")
+        check("6.28 pull diagnostics: unchanged since the last answer", (again or {}).get("kind") == "unchanged", again)
+        pushed = c.diagnostics(uri(a_p))
+        check("6.28 pull diagnostics: not also sent for the open document", not pushed, pushed)
+        # Enter after a statement: it is formatted; the new line, and a statement going on, are not touched
+        f_p = os.path.join(root, "f.nim")
+        ftext = "proc f() =\n  let x=f( 1,2)\n  \n"
+        with open(f_p, "w") as f:
+            f.write(ftext)
+        open_doc(c, f_p, ftext)
+        r = (c.request("textDocument/onTypeFormatting", {"textDocument": {"uri": uri(f_p)},
+             "position": {"line": 2, "character": 2}, "ch": "\n",
+             "options": {"tabSize": 2, "insertSpaces": True}}) or {}).get("result") or []
+        after = apply_edits(ftext, r)
+        check("6.28 on-type formatting: Enter formats the statement before it", after == "proc f() =\n  let x = f(1, 2)\n  \n",
+              (r, after))
+        gtext = "proc g() =\n  let y = g(1,\n    \n"
+        c.notify("textDocument/didChange", {"textDocument": {"uri": uri(f_p), "version": 2},
+                                            "contentChanges": [{"text": gtext}]})
+        r = (c.request("textDocument/onTypeFormatting", {"textDocument": {"uri": uri(f_p)},
+             "position": {"line": 2, "character": 4}, "ch": "\n",
+             "options": {"tabSize": 2, "insertSpaces": True}}) or {}).get("result")
+        check("6.28 on-type formatting: not a statement that goes on", r == [], r)
     finally:
         c.request("shutdown", None)
         c.notify("exit", {})
@@ -1213,6 +1302,20 @@ var n = 2
 needsPositive(n)
 discard delay(handle(c))
 discard delay(take(c))
+
+const Zero = 0
+let one = 1
+needsPositive(Zero)
+needsPositive(one)
+for i in 0 ..< 3:
+  needsPositive(i)
+for j in 1 .. 3:
+  needsPositive(j)
+
+proc half(x: int): int {.ensures: result >= 0.} =
+  if x < 0:
+    return -1
+  result = x div 2
 """
 
 
@@ -1234,7 +1337,7 @@ def run_nim3(nedls, log):
                       env=dict(os.environ, XDG_CONFIG_HOME=cfg))
     try:
         open_doc(c, path, N3_APP)
-        ds = c.wait_diagnostics(uri(path), lambda ds: sum("contract" in d["message"] for d in ds) >= 3 and
+        ds = c.wait_diagnostics(uri(path), lambda ds: sum("contract" in d["message"] for d in ds) >= 6 and
                                 any("delay" in d["message"] for d in ds), timeout=60) or []
         mine = sorted((d["range"]["start"]["line"], d["message"]) for d in ds
                       if "contract" in d["message"] or "delay" in d["message"])
@@ -1242,8 +1345,13 @@ def run_nim3(nedls, log):
         want = {lines.index("needsPositive(0)"), lines.index("between(b = 1, a = 3)"), lines.index("between(1, 200)"),
                 lines.index("discard delay(handle(c))")}
         check("6.27 Nim 3: contract violated (literal arguments, named ones), delay of a passive proc with a var",
-              {l for l, _ in mine} == want and any("requires x > 0 (x = 0)" in m for _, m in mine) and
+              want <= {l for l, _ in mine} and any("requires x > 0 (x = 0)" in m for _, m in mine) and
               any("`c: var int`" in m and "sink" in m for _, m in mine), mine)
+        more = {lines.index("needsPositive(Zero)"), lines.index("  needsPositive(i)"), lines.index("    return -1")}
+        check("6.28 Nim 3: contracts — a constant's value, a loop's first value, an ensures a return breaks",
+              {l for l, _ in mine} == want | more and any("Zero = 0" in m for _, m in mine) and
+              any("when i = 0 (the loop's first value)" in m for _, m in mine) and
+              any("half ensures result >= 0 (result = -1)" in m for _, m in mine), mine)
     finally:
         c.request("shutdown", None)
         c.notify("exit", {})
@@ -1791,6 +1899,7 @@ def main():
         run_checks(nedls, root, have_nim, log)
         run_actions(nedls, have_nim, log)
         run_langs(nedls, log)
+        run_628(nedls, log)
         run_nim3(nedls, log)
         if edits > 0:
             run_stress(nedls, root, edits, log)

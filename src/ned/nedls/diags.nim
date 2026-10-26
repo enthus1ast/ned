@@ -14,6 +14,10 @@ var
   lsPublished: Table[string, string]   # path → the diagnostics last sent (JSON text)
   lsDiagsDirty = true                  # something may have changed: compare and publish
   lsPublishedAt: MonoTime
+  lsPullDiags = false                  # the client asks for an open document's problems (textDocument/diagnostic)
+  lsDiagRefresh = false                # … and can be told to ask again (workspace/diagnostic/refresh)
+  lsPulled: Table[string, string]      # path → the problems last given when asked (JSON text)
+  lsAnnounced: Table[string, string]   # path → the problems the client was last told to ask for
 
 proc lsDiagRange(lines: seq[string], d: Diag): (int, int, int) =
   ## where a problem's underline goes: (start column, end line, end column) — its own end, else the name it
@@ -89,6 +93,7 @@ proc lsPublishAll(force = false) =
   for p in diagsEmit.keys: want(p)
   for p in diagsWeb.keys: want(p)
   for p in lsPublished.keys: want(p)
+  var refresh = false
   for p in paths:
     var ds: JsonNode
     try: ds = lsDiagnosticsOf(p)
@@ -96,6 +101,16 @@ proc lsPublishAll(force = false) =
       lsLog("diagnostics of " & p & ": " & e.msg)
       continue
     let key = $ds
+    # (an open document's, when the client asks for them: not sent — the client is told to ask again when they
+    # changed since it last asked; what was sent before it opened is taken back)
+    if lsPullDiags and lsDocByPath(p) != nil:
+      if lsPulled.getOrDefault(p, "[]") != key and lsAnnounced.getOrDefault(p, "") != key:
+        lsAnnounced[p] = key
+        refresh = true
+      if p in lsPublished:
+        lsPublished.del p
+        lsNotify("textDocument/publishDiagnostics", %*{"uri": lsUriOf(p), "diagnostics": []})
+      continue
     if lsPublished.getOrDefault(p, "[]") == key and (p in lsPublished or ds.len == 0): continue
     lsPublished[p] = key
     var params = %*{"uri": lsUriOf(p), "diagnostics": ds}
@@ -103,6 +118,22 @@ proc lsPublishAll(force = false) =
     if d != nil: params["version"] = %d.version
     lsNotify("textDocument/publishDiagnostics", params)
     if ds.len == 0: lsPublished.del p
+  if refresh and lsDiagRefresh: discard lsRequestOut("workspace/diagnostic/refresh", newJNull())
+
+proc lsPullDiagnostics(params: JsonNode): JsonNode =
+  ## textDocument/diagnostic: an open document's problems now (the same as would be sent), or "unchanged" when
+  ## they are what the client was given last time
+  let d = lsDocOf(params, required = false)
+  let path = if d != nil: d.b.path else: lsPathOf(params{"textDocument"}{"uri"}.getStr)
+  var ds = newJArray()
+  if path.len > 0:
+    try: ds = lsDiagnosticsOf(path)
+    except Exception as e: lsLog("diagnostics of " & path & ": " & e.msg)
+  let key = $ds
+  let rid = $hash(key)
+  if path.len > 0: lsPulled[path] = key
+  if params{"previousResultId"}.getStr == rid: return %*{"kind": "unchanged", "resultId": rid}
+  %*{"kind": "full", "resultId": rid, "items": ds}
 
 proc lsKillStaleCheck(d: LsDoc) =
   ## the text changed while the compiler checks it: that check is stopped (its answer would be thrown away)

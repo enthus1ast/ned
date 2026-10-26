@@ -247,6 +247,8 @@ proc drawDockList(dl: var DockList, v: SideView, x0, y0, w, h: int, focused: boo
         "", (if vv == svGit and item.path.len > 0: Action(proc() = openMenu(gitItemMenu(item), mouseX, y + 1))
              elif vv == svSearch: Action(proc() = openMenu(searchItemMenu(item), mouseX, y + 1))
              elif vv == svTodos and item.path.len > 0: Action(proc() = openMenu(todoItemMenu(item), mouseX, y + 1))
+             elif vv == svPlugins and item.data.startsWith("avail:"):
+               Action(proc() = plugAvailableMenu(item.data["avail:".len .. ^1]))
              elif vv == svPlugins: nil
              else: Action(proc() =
                if rightSide: rightList.sel = idx else: leftList.sel = idx

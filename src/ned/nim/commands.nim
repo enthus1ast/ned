@@ -546,7 +546,8 @@ proc cmdReferences() =
       let bid = b.id
       b.nimonyAsk("usages", b.wordRangeAt(b.primary.head)[0], proc(found: seq[(string, int, int)]) =
         if bufById(bid) == nil: return
-        showReferences("REFERENCES " & w & " (nimony)", found)
+        if found.len == 0 and nimonyAskError.len > 0: info("nimony could not answer here: " & nimonyAskError)
+        else: showReferences("REFERENCES " & w & " (nimony)", found)
         needRender = true)
       return
   let s = lspReady(b)

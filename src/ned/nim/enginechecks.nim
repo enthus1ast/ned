@@ -847,6 +847,70 @@ func ecIdentWords(t: string): seq[string] =
       i = e
     else: inc i
 
+proc ecBlockValueUsed(f: NxFile, sc: NxScope, code: seq[string], l, ind: int, gives: string, depth = 0): bool =
+  ## the last statement of a block (line l, indented ind), of type `gives`: may it be the block's value? — yes in
+  ## an expression (`let x = case …`, `result = if …`, `block:` as a value), when it is the last of a routine that
+  ## gives a type it may be (not void, not another named type), and wherever ned cannot tell; no in a loop's body,
+  ## an iterator's, or a branch of a case, if or try that is a statement and not the last of its own block
+  if depth > 8: return true
+  var o = l - 1
+  while o >= 0 and (code[o].strip.len == 0 or ecIndent(code[o]) >= ind): dec o
+  if o < 0: return false                                 # (the module's top level: no value)
+  let ot = code[o].strip
+  var w = 0
+  while w < ot.len and nxIsIdent(ot[w]): inc w
+  let first = ot[0 ..< w]
+  # the routine whose body this is
+  let ri = nxEnclosing(f, l)
+  if ri >= 0 and f.syms[ri].line == o or (ri >= 0 and o >= f.syms[ri].line and o < f.syms[ri].line + 6 and
+                                          ot.endsWith("=") and first notin ["of", "if", "elif", "else", "case",
+                                                                            "for", "while", "block", "try"]):
+    let s = f.syms[ri]
+    if s.kind == nxIterator: return false
+    let r = s.ret.strip
+    if r.len == 0 or r == "void": return false
+    if r in ["auto", "untyped", "typed"] or s.generics.len > 0: return true
+    # (the routine's value when what it gives goes into its type: an int for an int, a Natural for an int too)
+    return nxCompat(sc, r, "", gives) > 0
+  if first in ["for", "while"]: return false             # (a loop's body has no value)
+  if first notin ["of", "else", "elif", "if", "case", "except", "finally", "try", "when", "block"]:
+    return true                                          # (a template's block, `x = (…`: not judged)
+  # the head of the chain (case/if/try/when … at the opener's indentation, or above it for an `of` under a case)
+  var h = o
+  let oi = ecIndent(code[o])
+  if first in ["of", "else", "elif", "except", "finally"]:
+    var k = o - 1
+    while k >= 0:
+      let kt = code[k].strip
+      if kt.len > 0 and ecIndent(code[k]) <= oi:
+        var kw = 0
+        while kw < kt.len and nxIsIdent(kt[kw]): inc kw
+        let kf = kt[0 ..< kw]
+        if kf in ["case", "if", "try", "when"]:
+          h = k
+          break
+        if kf notin ["of", "else", "elif", "except", "finally"] or ecIndent(code[k]) < oi:
+          return true                                    # (not found: not judged)
+      dec k
+    if k < 0: return true
+  let ht = code[h].strip
+  let hi = ecIndent(code[h])
+  var hw = 0
+  while hw < ht.len and nxIsIdent(ht[hw]): inc hw
+  # (an expression: `let x = case …` puts the keyword after something — that line is no head)
+  if ht[0 ..< hw] notin ["case", "if", "try", "when", "block"]: return true
+  # the chain's end: the first line after it at its indentation or less that does not go on with it
+  var e = l + 1
+  while e < code.len:
+    let et = code[e].strip
+    if et.len > 0 and ecIndent(code[e]) <= hi:
+      var ew = 0
+      while ew < et.len and nxIsIdent(et[ew]): inc ew
+      if not (ecIndent(code[e]) == hi and et[0 ..< ew] in ["of", "else", "elif", "except", "finally"]): break
+    inc e
+  if e < code.len and ecIndent(code[e]) == hi: return false     # (more statements after it: its value is unused)
+  ecBlockValueUsed(f, sc, code, h, hi, gives, depth + 1)   # (the last of its block: as that block's value)
+
 proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
   ## a statement that is a call `f(a, b)` of a routine that gives a value — every routine of that name taking that
   ## many arguments does, none is {.discardable.}: Nim wants the value used or discarded. Not the last statement of
@@ -923,19 +987,35 @@ proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
       if pt.endsWith(":") and (pt.endsWith("=:") or "= " in pt and (" if " in pt or " case " in pt or "try:" in pt or
                                                                      "block:" in pt)):
         continue
-    # (the last statement of its block may be the block's value: not judged)
+    # (the last statement of its block may be the block's value: judged below, once what it gives is known)
     let ind = ecIndent(code[l])
     var nl = l + 1
     while nl < code.len and code[nl].strip.len == 0: inc nl
-    if nl >= code.len or ecIndent(code[nl]) != ind: continue
-    let nt = code[nl].strip
-    var nk = 0
-    while nk < nt.len and nxIsIdent(nt[nk]): inc nk
-    if nt[0 ..< nk] in ["else", "elif", "of", "except", "finally"]: continue
+    var lastInBlock = nl >= code.len or ecIndent(code[nl]) != ind
+    if not lastInBlock:
+      let nt = code[nl].strip
+      var nk = 0
+      while nk < nt.len and nxIsIdent(nt[nk]): inc nk
+      if nt[0 ..< nk] in ["else", "elif", "of", "except", "finally"]: lastInBlock = true
+    if lastInBlock and nl < code.len and ecIndent(code[nl]) > ind: continue
     inc n
     if n > 3000: return
+    # (posix.nanosleep(a, b): a routine of that module, not a method of a receiver)
+    var modPath = ""
+    if recv.len > 0 and '.' notin recv and sc.modules.hasKey(recv) and not ecLocalDecl(code, recv):
+      var shadowed = false                       # (a local of that name: a receiver after all)
+      for x in nxLocals(f, b.lines, l, ind):
+        if x.name == recv: shadowed = true
+      if not shadowed:
+        modPath = sc.modules[recv]
+        recv = ""
     let nargs = (if any: commas + 1 else: 0) + ord(recv.len > 0)
-    let found = nxLookup(sc, name)
+    var found = nxLookup(sc, name)
+    if modPath.len > 0:
+      var mine: seq[NxRef]
+      for r in found:
+        if r.file != nil and r.file.path == modPath: mine.add r
+      found = mine
     if found.len == 0: continue
     # (the receiver's type, for a method call: needed — a field of a proc type may be what is called)
     var recvT = ""
@@ -1002,6 +1082,7 @@ proc ecDiscarded(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
         unsure = true
       else: gives = r
     if unsure or fitting == 0 or gives.len == 0 or ecLocalDecl(code, name): continue
+    if lastInBlock and ecBlockValueUsed(f, sc, code, l, ind, gives): continue
     let line = b.lines[l]
     let call = line[ind ..< min(line.len, ind + t.len)]
     res.add Diag(line: l, col: ind, eline: l, ecol: ind + t.len, sev: 2, src: "ned", rule: "discarded",
@@ -2360,7 +2441,7 @@ const NedRules* = [  # (rule, what it finds, its severity unless .ned/lint.json 
   ("html-id", "an id used twice", 2),
   ("html-element", "an element HTML does not have", 2),
   ("html-alt", "an <img> without alt text", 4),
-  ("html-anchor", "a link to #id no element of the page has", 2),
+  ("html-anchor", "a link to #id no element of the page has (a whole page, whose scripts make no elements)", 2),
   ("html-attribute", "an attribute a letter away from one the element takes (a typo)", 2),
   ("html-link", "a link or src to a file that is not beside the page", 2),
   ("css-var", "var(--name) where the sheet sets custom properties but not this one: a typo of one", 2),

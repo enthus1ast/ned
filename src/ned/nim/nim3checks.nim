@@ -217,9 +217,12 @@ proc cmdNim3Problems() =
 
 type N3Val = tuple[known: bool, v: BiggestInt]
 
-proc n3Eval(e: string, vals: Table[string, BiggestInt]): N3Val =
+type N3Names = proc (name: string): N3Val {.closure.}
+
+proc n3Eval(e: string, vals: Table[string, BiggestInt], names: N3Names = nil): N3Val =
   ## the value of a `requires` condition with the parameters given (booleans as 1 and 0) — known: false when it
-  ## names something else (s.len, a call, a constant ned does not know)
+  ## names something else (s.len, a call, a constant ned does not know); `names`: the value of a name that is not
+  ## a parameter (a constant), when it can tell
   var toks: seq[string]
   var i = 0
   while i < e.len:
@@ -267,6 +270,7 @@ proc n3Eval(e: string, vals: Table[string, BiggestInt]): N3Val =
       try: result = (true, BiggestInt(if s.startsWith("0x") or s.startsWith("0X"): parseHexInt(s) else: parseBiggestInt(s)))
       except ValueError: result = (false, 0)
     elif t.len > 0 and t in vals and peek() notin ["(", "."]: result = (true, vals[t])
+    elif names != nil and t.len > 0 and t[0] in IdentStartChars and peek() notin ["(", ".", "["]: result = names(t)
     else: result = (false, 0)
   proc term(): N3Val =
     result = primary()
@@ -352,6 +356,73 @@ func n3Args(s: string, open: int): (seq[string], int) =
     else: discard
   result[1] = -1
 
+proc n3NameValue(sc: NxScope, locals: seq[NxSym], name: string, depth = 0): N3Val =
+  ## a name whose value is known where it is used: a let or const of the routine (the last one declared), else a
+  ## constant of the module or its imports — not a var (it may have changed), not a parameter
+  if depth > 4: return (false, 0)
+  let again: N3Names = proc (n: string): N3Val = n3NameValue(sc, locals, n, depth + 1)
+  for k in countdown(locals.high, 0):
+    let x = locals[k]
+    if x.name != name: continue
+    if x.kind in {nxLet, nxConst} and x.value.len > 0: return n3Eval(x.value, initTable[string, BiggestInt](), again)
+    return (false, 0)
+  for r in nxLookup(sc, name):
+    if r.sym.kind == nxConst and r.sym.value.len > 0:
+      return n3Eval(r.sym.value, initTable[string, BiggestInt](), again)
+    return (false, 0)
+  (false, 0)
+
+proc n3LoopRange(sc: NxScope, locals: seq[NxSym], name: string): (bool, BiggestInt, BiggestInt) =
+  ## a loop variable over `a .. b` or `a ..< b` (countup(a, b) too) whose ends are known: (yes, its first, its last)
+  for k in countdown(locals.high, 0):
+    let x = locals[k]
+    if x.name != name: continue
+    if x.kind != nxForVar: return
+    var v = x.value.strip
+    var lo, hi: string
+    var open = false
+    if v.startsWith("countup(") and v.endsWith(")"):
+      let parts = v[8 ..< ^1].split(',')
+      if parts.len != 2: return
+      (lo, hi) = (parts[0].strip, parts[1].strip)
+    else:
+      let d = v.find("..")
+      if d <= 0: return
+      lo = v[0 ..< d].strip
+      hi = v[d + 2 .. ^1].strip
+      if hi.startsWith("<"):
+        open = true
+        hi = hi[1 .. ^1].strip
+    let names: N3Names = proc (n: string): N3Val = n3NameValue(sc, locals, n)
+    let a = n3Eval(lo, initTable[string, BiggestInt](), names)
+    let e = n3Eval(hi, initTable[string, BiggestInt](), names)
+    if not (a.known and e.known): return
+    let last = if open: e.v - 1 else: e.v
+    if last < a.v: return                                # (it does not run)
+    return (true, a.v, last)
+
+proc n3Ensures(f: NxFile, sc: NxScope, code: seq[string], res: var seq[Diag]) =
+  ## a routine whose `{.ensures: …}` a `return` or `result =` of a value known where it is written breaks
+  for s in f.syms:
+    if s.kind notin {nxProc, nxFunc, nxMethod, nxConverter} or "ensures" notin s.pragmas: continue
+    let cond = n3PragmaValue(s.pragmas, "ensures")
+    if cond.len == 0 or s.endLine <= s.line: continue
+    for l in s.line + 1 .. min(s.endLine, code.high):
+      let t = code[l].strip
+      var e = ""
+      if t.startsWith("return "): e = t[7 .. ^1].strip
+      elif t.startsWith("result =") or t.startsWith("result="): e = t[t.find('=') + 1 .. ^1].strip
+      if e.len == 0: continue
+      let locals = try: nxLocals(f, code, l, 0) except CatchableError: @[]
+      let names: N3Names = proc (n: string): N3Val = n3NameValue(sc, locals, n)
+      let v = n3Eval(e, initTable[string, BiggestInt](), names)
+      if not v.known: continue
+      let r = n3Eval(cond, {"result": v.v}.toTable, names)
+      if r.known and r.v == 0:
+        let a = code[l].len - code[l].strip(trailing = false).len
+        res.add Diag(line: l, col: a, eline: l, ecol: a + t.len, sev: 1, src: "ned", rule: "contract",
+                     msg: "Nim 3: contract violated: " & s.name & " ensures " & cond & " (result = " & e & ")")
+
 proc nim3CodeChecks(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
   ## a call whose literal arguments break the routine's {.requires: …} (`contract`); delay(f(…)) of a passive proc
   ## with a var, out or lent parameter (`passive`) — nimony's own errors, before it compiles
@@ -398,6 +469,9 @@ proc nim3CodeChecks(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag])
             var vals: Table[string, BiggestInt]
             var shown: seq[string]
             var ok = true
+            var loop: (string, string, BiggestInt, BiggestInt)    # (a loop variable given: the parameter, it, its ends)
+            let locals = try: nxLocals(f, b.lines, l, k) except CatchableError: @[]
+            let names: N3Names = proc (n: string): N3Val = n3NameValue(sc, locals, n)
             for i, a in args:
               var pname = s.params[i].name
               var av = a
@@ -405,15 +479,34 @@ proc nim3CodeChecks(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag])
               if eq > 0 and a[0 ..< eq].strip.allCharsInSet(IdentChars) and (eq + 1 >= a.len or a[eq + 1] != '='):
                 pname = a[0 ..< eq].strip                  # (a named argument)
                 av = a[eq + 1 .. ^1].strip
-              let v = n3Eval(av, initTable[string, BiggestInt]())
+              # (a number, true or false, a let or const whose value is known here)
+              let v = n3Eval(av, initTable[string, BiggestInt](), names)
               if v.known:
                 vals[pname] = v.v
-                shown.add pname & " = " & av
+                shown.add pname & " = " & (if av.allCharsInSet(IdentChars) and av[0] in IdentStartChars and
+                                             av notin ["true", "false"]: av & " = " & $v.v else: av)
+              elif av.len > 0 and av.allCharsInSet(IdentChars) and loop[0].len == 0:
+                let (isLoop, lo, hi) = n3LoopRange(sc, locals, av)
+                if isLoop: loop = (pname, av, lo, hi)
               elif av.len == 0: ok = false
-            if ok and vals.len > 0:
-              let r = n3Eval(cond, vals)
+            if ok and loop[0].len > 0:
+              # (the loop's first and its last value: the condition is held to both)
+              for (v, which) in [(loop[2], "its first"), (loop[3], "its last")]:
+                var vs = vals
+                vs[loop[0]] = v
+                let r = n3Eval(cond, vs, names)
+                if r.known and r.v == 0:
+                  res.add Diag(line: l, col: ma, eline: l, ecol: close + 1, sev: 1, src: "ned", rule: "contract",
+                               msg: "Nim 3: contract violated: requires " & cond & " — when " & loop[1] & " = " & $v &
+                                    " (the loop's " & which[4 .. ^1] & " value)" &
+                                    (if shown.len > 0: ", " & shown.join(", ") else: ""))
+                  inc said
+                  break
+            elif ok and vals.len > 0:
+              let r = n3Eval(cond, vals, names)
               if r.known and r.v == 0:
                 res.add Diag(line: l, col: ma, eline: l, ecol: close + 1, sev: 1, src: "ned", rule: "contract",
                              msg: "Nim 3: contract violated: requires " & cond & " (" & shown.join(", ") & ")")
                 inc said
       k = c.find('(', k + 1)
+  n3Ensures(f, sc, code, res)
