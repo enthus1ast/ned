@@ -79,7 +79,7 @@ proc runExamples(b: Buffer, line: int) =
   except CatchableError as ex:
     error("Cannot write the examples: " & ex.msg)
     return
-  let exe = privDir() / ("ned_examples_" & $getCurrentProcessId())
+  let exe = privDir() / ("ned_examples_" & $getCurrentProcessId()) & ExeDot
   var keys: seq[string]
   for (a, _) in blocks: keys.add b.path & ":" & $a
   for k in keys: exampleStatus[k] = 3                       # running

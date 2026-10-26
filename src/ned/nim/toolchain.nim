@@ -90,7 +90,7 @@ proc tcInstalled(): seq[(seq[int], string)] =
     if root.len == 0 or not dirExists(root): continue
     try:
       for k, d in walkDir(root):
-        if k in {pcDir, pcLinkToDir} and fileExists(d / "bin" / "nim"): dirs.add d
+        if k in {pcDir, pcLinkToDir} and fileExists(d / "bin" / addFileExt("nim", ExeExt)): dirs.add d
     except OSError: discard
   for d in dirs:
     let v = tcVersionOf(d)
@@ -154,9 +154,9 @@ proc applyNimToolchain() =
           break
   else:
     if dirExists(want):
-      if fileExists(want / "bin" / "nim"): top = normalizedPath(want)
-      elif fileExists(want / "nim"): top = normalizedPath(parentDir(want))
-    elif fileExists(want) and extractFilename(want) == "nim":
+      if fileExists(want / "bin" / addFileExt("nim", ExeExt)): top = normalizedPath(want)
+      elif fileExists(want / addFileExt("nim", ExeExt)): top = normalizedPath(parentDir(want))
+    elif fileExists(want) and splitFile(want).name == "nim":
       top = normalizedPath(parentDir(parentDir(want)))
     else:
       let v = ecVersion(want.strip(chars = {'v', ' '}).replace("nim-", "").replace("#", ""))

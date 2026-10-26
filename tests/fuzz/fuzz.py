@@ -188,6 +188,8 @@ proc total(xs: seq[int]): int =
     if MODE == 'edit': cfg.update({"c.engine": "builtin", "editor.nextEdit": True, "web.engine": rnd.choice(["auto", "on"]),
                                    "editor.vimMode": rnd.random() < 0.3})
     if MODE == 'term': cfg["terminal.shell"] = "/bin/bash"
+    # (terminals kept running after ned: only where the terminal is what is tried — its hosts end with the run)
+    cfg["terminal.keepRunning"] = MODE == 'term'
     if MODE == 'ai': cfg["ai.autoApprove"] = rnd.choice(["edits", "reads", "all"])
     if MODE == 'nimsuggest': cfg["nim.ide"] = "nimsuggest"
     if MODE == 'nls': cfg["nim.ide"] = "nimlangserver"
@@ -416,7 +418,8 @@ def ned_alive():
     return [l.split()[0] for l in out.splitlines() if 'ned_dbg' in l and not l.split()[1].startswith('Z')]
 
 def nedpid():
-    r = sh("pgrep -f '^%s'" % BIN).stdout.split()
+    # (not a kept terminal's host — ned --term-host — which is the same program)
+    r = [l.split()[0] for l in sh("pgrep -af '^%s'" % BIN).stdout.splitlines() if ' --term-host ' not in l]
     return int(r[0]) if r else None
 
 def cputime(pid):
@@ -496,6 +499,7 @@ def main():
             out.write(sh('ps -o pid,ppid,stat,wchan:30,etime,args -p %s --ppid %s' % (pid, pid)).stdout)
             out.write(sh('gdb -p %s -batch -ex "thread apply all bt 40" 2>&1 | grep -v "^\\[New\\|^Using\\|warning"' % pid).stdout[-6000:])
         sh('pkill -9 -f ' + BIN)
+    sh("pkill -9 -f '%s --term-host'" % BIN)      # (the terminals kept running: not past the run)
     out.write('done: seed %d, %d bursts, %d restarts, errors.log %d bytes\n' % (SEED, n, restarts, len(errs)))
     out.close()
     print(open(LOG).read()[-4000:])

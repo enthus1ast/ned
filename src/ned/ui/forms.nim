@@ -418,8 +418,8 @@ proc drawForm() =
   let chrome = 2 + topRows + helpRows + 2                       # frame, top, help, buttons + a gap
   var h = if f.tall: scrH - 2 else: min(scrH - 2, chrome + max(1, contentRows))
   h = max(h, min(scrH - 2, chrome + 1))
-  let x = (scrW - w) div 2
-  let y = max(0, (scrH - h) div 2 - (if f.tall: 0 else: 1))
+  let (x, y) = boxPlace("form:" & f.title, (scrW - w) div 2, max(0, (scrH - h) div 2 - (if f.tall: 0 else: 1)),
+                        w, h)
   modalStart = regions.len
   region(0, 0, scrW, scrH, proc() = discard)                  # (outside: nothing — Esc or Cancel close it)
   drawFrame(x, y, w, h, theme.menuBg, border, f.title, border)
@@ -434,7 +434,8 @@ proc drawForm() =
   if f.groups.len > 0:
     discard putStr(x + 2, cy, ic("search"), (if f.zone == 2: theme.accent else: theme.dim), bg)
     let fx = drawField(x + 4, cy, w - 7, f.filter, f.filterCur, f.zone == 2, theme.fg, theme.inputBg,
-                       "Search every setting (words of its name or description)",
+                       (if w >= 68: "Search every setting (words of its name or description)"
+                        else: "Search every setting"),
                        onFocus = proc() = (f.zone = 2), hintFocused = true)
     if f.zone == 2:
       cursorX = fx

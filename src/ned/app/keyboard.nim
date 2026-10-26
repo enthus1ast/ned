@@ -116,6 +116,7 @@ proc globalKey(k: Key): bool =
     elif alt and not ctrl:
       case char(min(k.ch, 127))
       of 'x': cmdPalette()
+      of 'F': telescope()                    # (Alt+Shift+F: every finder — not Alt+Shift+P: ESC P starts a terminal's DCS)
       of 'v': todoJump(1)
       of 'V': todoJump(-1)
       of 'o': togglePanel()
@@ -169,7 +170,7 @@ proc globalKey(k: Key): bool =
       of 'g': (if treeOpen and sideView == svGit and focus == fTree: toggleTree() else: showSide(svGit))
       of 'i': (if rightOpen and rightView == svOutline and focus == fRight: toggleDock(dsRight) else: showSide(svOutline))
       of 'c', 'C':
-        if k.ch == ord('C'): openPrompt(pAiEdit, "Edit with AI — describe the change", "")
+        if k.ch == ord('C'): runCmd("AI: edit selection…")   # (on a comment: the code it describes)
         else: toggleAssistant()
       of '`': toggleTerminal()
       of 'z', 'Z': toggleZen()

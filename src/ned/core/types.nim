@@ -20,6 +20,7 @@ type
     lmPlain, lmGeneric, lmNim, lmC, lmJs, lmRust, lmShell, lmPython, lmMarkdown,
     lmJson, lmYaml, lmToml, lmHtml, lmCss, lmMake, lmDiff,
     lmNimf,                     # Nim source-code-filter templates (#? stdtmpl): # lines are Nim, the rest HTML
+    lmJinja,                    # Jinja-style templates (Nimja's .nimja, .jinja, .j2): HTML with {{ }}, {% %}, {# #}
     lmRegex,                    # (inside strings) regular expressions and PEGs
     lmNimFmt,                   # (inside strings) strformat: {expressions} are Nim
     lmCsv,                      # CSV, TSV: each column in its own colour
@@ -84,7 +85,8 @@ type
     dtTabOut,       # a tab dragged off the tab bar: dropped on a pane (moved there) or an edge (split)
     dtFile,         # a file dragged from the file tree: dropped on the editor (opened) or a folder (moved)
     dtText,         # the selection dragged in the editor: dropped elsewhere (moved; with Ctrl: copied)
-    dtFormScroll    # a form's scroll bar
+    dtFormScroll,   # a form's scroll bar
+    dtMove          # a dialog, form or picker taken by its title bar
   Cell = object
     ch: uint32
     fg, bg: Rgb
@@ -357,6 +359,8 @@ type
     secondary: bool           # a second server for the language (a linter): problems and fixes only
     docVer: Table[int, int]   # a second server: buffer id → the version it has
     pullIds: Table[string, string]   # pull diagnostics: file → the result id of its last answer
+    remoteMap: seq[string]    # a remote folder's server, run there: the local copy, the folder there (as paths
+                              # and as URIs), where its other files are fetched to (path, URI) — see lspMapJson
 
   Action = proc() {.closure.}
   Command = object

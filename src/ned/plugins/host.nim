@@ -24,9 +24,14 @@ const
   PlugExDir = currentSourcePath().plugSrcUp(4) & "/" & "examples" & "/" & "plugins"
   PlugBundledDir = currentSourcePath().plugSrcUp(4) & "/" & "plugins"
   # ned's own plugins: in ned, off until you turn one on (Plugins dock › AVAILABLE, Plugins › Available plugins…)
-  PlugBundledNames = ["align", "case-change", "clojure", "commit-helper", "crystal", "dart", "dial", "dotenv", "elixir", "exchange", "gleam", "harpoon", "haskell",
-                      "json-to-nim", "julia", "license-header", "markdown-tools", "mermaid", "nim-eval", "ocaml", "odin", "oil", "path-complete", "pomodoro", "regex-lab",
-                      "rest-client", "split-join", "sqlite", "text-objects", "time-tracker", "transform", "web-preview", "which-key", "zig"]
+  PlugBundledNames = ["align", "case-change", "char-picker", "clojure", "cmake", "code-snap", "color-picker",
+                      "commit-helper", "crystal", "dart", "db-client", "dial", "doc-gen", "dotenv", "elixir",
+                      "erlang", "exchange", "gleam", "graphql", "harpoon", "haskell", "import-graph", "indent-dots",
+                      "json-to-nim", "julia", "latex", "license-header", "markdown-tools", "mermaid", "nim-eval",
+                      "nim-html", "nix", "ocaml", "odin", "oil", "path-complete", "perl", "pomodoro", "protobuf", "r",
+                      "rainbow-indent", "regex-lab", "release-helper", "rest-client", "scala", "split-join", "sqlite",
+                      "svelte", "swift", "terraform", "text-objects", "time-tracker", "todo", "transform",
+                      "web-preview", "which-key", "yank-ring", "zig"]
   PlugBundled = block:
     var r: seq[(string, string, string)]           # name, what it does (its first ## line), its source
     for n in PlugBundledNames:
@@ -105,6 +110,7 @@ type
     desc: string                          # what it does (ned's own: the first line of its ## comment)
     scan: PlugScan                        # what its source uses beyond editing, and what it says it needs it for
     waiting: bool                         # it is on, but asks for more than you allowed: not run until you say
+    version, author, homepage, license: string   # pluginInfo(…), read from the source
   PlugReg = object
     plugin, kind: string
     cb: int
@@ -315,6 +321,67 @@ proc plugNeedsOf(file: string): string =
   except CatchableError: discard
   ""
 
+proc plugInfoIn(text: string): (string, string, string, string) =
+  ## pluginInfo(version, author, homepage, license) in a plugin's source: (version, author, homepage, licence) —
+  ## read without running it, so for a plugin that is off too (plain string literals, by name or in order)
+  var k = -1
+  var at = 0
+  while true:                                         # (a call at a line's start: not one in a comment)
+    let f = text.find("pluginInfo(", at)
+    if f < 0: return
+    var ls = f
+    while ls > 0 and text[ls - 1] in {' ', '\t'}: dec ls
+    if ls == 0 or text[ls - 1] == '\n':
+      k = f
+      break
+    at = f + 1
+  var e = k + 11
+  var depth = 1
+  var inStr = false
+  while e < text.len and depth > 0:
+    let c = text[e]
+    if inStr:
+      if c == '\\': inc e
+      elif c == '"': inStr = false
+    elif c == '"': inStr = true
+    elif c == '(': inc depth
+    elif c == ')': dec depth
+    inc e
+  let call = text[k + 11 ..< max(k + 11, e - 1)]
+  var vals: array[4, string]
+  const names = ["version", "author", "homepage", "license"]
+  var pos = 0
+  var i = 0
+  while i < call.len:
+    # name = "value", or "value" in its place
+    while i < call.len and call[i] in {' ', '\n', '\r', '\t', ','}: inc i
+    if i >= call.len: break
+    var name = ""
+    if call[i] in IdentStartChars:
+      let s0 = i
+      while i < call.len and call[i] in IdentChars: inc i
+      name = call[s0 ..< i]
+      while i < call.len and call[i] in {' ', '\t'}: inc i
+      if i < call.len and call[i] == '=': inc i
+      else: break                                   # (not a plain value: left as it is)
+      while i < call.len and call[i] in {' ', '\t'}: inc i
+    if i >= call.len or call[i] != '"': break
+    inc i
+    var v = ""
+    while i < call.len and call[i] != '"':
+      if call[i] == '\\' and i + 1 < call.len: inc i
+      v.add call[i]
+      inc i
+    inc i
+    let slot = if name.len > 0: names.find(name) else: pos
+    if slot in 0 .. 3: vals[slot] = v
+    inc pos
+  (vals[0], vals[1], vals[2], vals[3])
+
+proc plugReadInfo(p: var PlugInfo) =
+  try: (p.version, p.author, p.homepage, p.license) = plugInfoIn(readFile(p.file))
+  except CatchableError: discard
+
 proc plugPermKey(p: PlugInfo): string =
   ## what you allowed a plugin is kept by its name (a project's: with the project's folder)
   if p.project: "project:" & rootDir & ":" & p.id else: p.id
@@ -381,6 +448,7 @@ proc plugDiscover() =
       var p = PlugInfo(id: id, dir: d, file: d / (if full: "plugin.nim" else: "plugin.nims"), project: project,
                        enabled: id notin off, full: full, alone: full or id in alone)
       p.needs = plugNeedsOf(p.file)
+      p.plugReadInfo()
       if not p.enabled: p.err = "off"
       elif project and not codeTrusted(rootDir):
         p.enabled = false
@@ -405,6 +473,7 @@ proc plugDiscover() =
       var p = PlugInfo(id: n, dir: root / n, file: root / n / "plugin.nims", enabled: n notin off, bundled: true,
                        alone: n in alone, desc: what)
       p.needs = plugNeedsOf(p.file)
+      p.plugReadInfo()
       if not p.enabled: p.err = "off"
       elif p.needs.len > 0 and not plugNeedsOk(p.needs, Version):
         p.enabled = false
@@ -846,7 +915,7 @@ proc plugHostSource(h: PlugHost): string =
     if k >= 0: result.add "import " & escape(plugs[k].file) & " as nedPlug" & $i & "\n"
   result.add "nedRun()\n"
 
-proc plugBin(h: PlugHost): string = plugCacheRoot() / "native" / ("host-" & h.sig)
+proc plugBin(h: PlugHost): string = plugCacheRoot() / "native" / ("host-" & h.sig) & ExeDot
 
 proc plugOwnerOf(path: string): string =
   for p in plugs:
@@ -931,6 +1000,16 @@ proc plugBuild(h: PlugHost, startAfter: bool) =
     h.building = false
     if startAfter: h.state = "failed: could not run nim c"
 
+proc plugBeingWritten(h: PlugHost): bool =
+  ## one of the host's plugins (of yours) changed in the last 10 minutes: being written — not compiled at every save
+  for id in h.ids:
+    let k = plugInfoOf(id)
+    if k >= 0 and not plugs[k].bundled:
+      try:
+        if (getTime() - getLastModificationTime(plugs[k].file)).inMinutes < 10: return true
+      except CatchableError: discard
+  false
+
 proc plugStart(h: PlugHost) =
   ## the process (nothing when its plugins are off; a full-Nim plugin is built first)
   if h.pr.pid > 0 or h.building: return
@@ -960,10 +1039,12 @@ proc plugStart(h: PlugHost) =
       h.state = "failed: " & e.msg
       return
     argv = @["nim", "e", "--hints:off", "--warnings:off", "--path:" & plugLibDir(), hostFile]
-    # (compiled for the next start: always with plugins.native on; with auto, a set of plugins run before as they are)
+    # (compiled at once, in the background, for the next start — and for this one once it has been idle and stopped:
+    # always with plugins.native on; with auto, unless a plugin of the set is being written and the set is new)
     let mode = plugNativeMode()
     let seen = plugManifest()["hosts"]{h.name}{"sig"}.getStr == h.sig
-    if mode == "on" or (mode == "auto" and seen and not fileExists(bin & ".failed")): plugBuild(h, false)
+    if mode == "on" or (mode == "auto" and (seen or not plugBeingWritten(h)) and not fileExists(bin & ".failed")):
+      plugBuild(h, false)
   var dirs: seq[string]
   for id in h.ids:
     let k = plugInfoOf(id)
@@ -1079,12 +1160,23 @@ proc plugReadErr(h: PlugHost) =
 
 # ── calling the plugins ──
 
+proc plugBufVer(b: Buffer): string = $b.changeId & ":" & $b.lines.len
+  ## a buffer's version for a plugin's copy of its lines (any edit changes it)
+
 proc plugSendCall(h: PlugHost, cb: int, plugin: string, args: JsonNode,
                   onDone: proc(v: JsonNode, err: string) {.closure.}): int =
   inc h.nextRid
   result = h.nextRid
   h.calls[result] = PlugCall(plugin: plugin, sentAt: getMonoTime(), onDone: onDone)
-  plugSendRaw(h, %*{"t": "call", "cb": cb, "rid": result, "args": args})
+  # the versions of the buffers the call is about (the current one, the event's): the plugin's copy of their lines
+  # is used while they are the same
+  let vers = newJObject()
+  if bufs.len > 0 and curBuf in 0 .. bufs.high: vers[$bufs[curBuf].id] = %plugBufVer(bufs[curBuf])
+  if args != nil and args.kind == JObject and args{"buf"} != nil:
+    let eb = bufById(args{"buf"}.getInt(-1))
+    if eb != nil: vers[$eb.id] = %plugBufVer(eb)
+  let cur = if bufs.len > 0 and curBuf in 0 .. bufs.high: bufs[curBuf].id else: -1
+  plugSendRaw(h, %*{"t": "call", "cb": cb, "rid": result, "args": args, "vers": vers, "cur": cur})
   plugFlush(h)
   h.lastUse = getMonoTime()
 
@@ -1462,6 +1554,12 @@ proc plugApi(h: PlugHost, j: JsonNode) =
       for i in f .. l: arr.add %b.lines[i]
       answer(arr)
     of "text": needBuf(); answer(%b.allText)
+    of "snapshot":
+      # (the plugin library keeps a copy of the lines while the version it is of stays the buffer's)
+      needBuf()
+      var arr = newJArray()
+      for l in b.lines: arr.add %l
+      answer(%*{"v": plugBufVer(b), "lines": arr})
     of "textIn":
       needBuf()
       let (x, y) = rng(a{"range"})
@@ -1615,6 +1713,23 @@ proc plugApi(h: PlugHost, j: JsonNode) =
       for d in plugDecor.getOrDefault(k):
         if d.plugin != plugin: keepD.add d
       if keepD.len > 0: plugDecor[k] = keepD else: plugDecor.del k
+      needRender = true
+      answer(newJNull())
+    of "indentStyle":
+      var keep: seq[PlugIndent]
+      for st in plugIndents:
+        if st.plugin != plugin: keep.add st
+      var st = PlugIndent(plugin: plugin, dot: a{"dot"}.getStr, dotColor: a{"dotColor"}.getStr, tab: a{"tab"}.getStr,
+                          lineEnd: a{"lineEnd"}.getStr, levelStyle: a{"levelStyle"}.getStr("background"),
+                          wrongColor: a{"wrongColor"}.getStr, blank: a{"blankLines"}.getBool)
+      # (one character each: a mark is drawn in one cell)
+      for m in [addr st.dot, addr st.tab, addr st.lineEnd]:
+        if m[].len > 0: m[] = m[][0 ..< min(m[].len, runeLen(m[][0]))]
+      for c in jitems(a{"levels"}): st.levels.add c.getStr
+      for l in jitems(a{"langs"}): st.langs.add l.getStr
+      if st.dot.len > 0 or st.tab.len > 0 or st.lineEnd.len > 0 or st.levels.len > 0 or st.wrongColor.len > 0:
+        keep.add st
+      plugIndents = keep
       needRender = true
       answer(newJNull())
     of "status":
@@ -2373,11 +2488,14 @@ proc plugHostPump(h: PlugHost, ready: HashSet[cint]) =
     plugStop(h, "stopped (idle — it starts again when needed)")
     plugLogAdd(plugLabel(h), "stopped after " & $idleMin & " idle minutes")
 
+proc plugCheckDaily()
+
 proc plugPump(ready: HashSet[cint]) =
   if not plugBooted:
     if plugBootAt == MonoTime(): plugBootAt = getMonoTime()
     if msSince(plugBootAt) < 400 or not plugsOn(): return
     plugBoot()
+    plugCheckDaily()                           # (plugins.checkForUpdates: at most once a day, in the background)
   let hosts = plugHosts                        # (a process that ends can change the list: a copy)
   for h in hosts: plugHostPump(h, ready)
   if plugOpenQ.len > 0 and plugSettled():
@@ -2450,6 +2568,10 @@ proc plugForget(ids: seq[string]) =
   for x in plugProgress:
     if x[0] notin ids: pg.add x
   plugProgress = pg
+  var pi: seq[PlugIndent]
+  for x in plugIndents:
+    if x.plugin notin ids: pi.add x
+  plugIndents = pi
   var dk: seq[string]
   for k in plugDecor.keys: dk.add k
   for k in dk:
@@ -2794,18 +2916,29 @@ proc plugInstall(url0: string, name0 = "") =
       else:
         toast("Installed the plugin " & name & " — read its code: it runs with your rights (Plugins dock)", 3))
 
+proc plugUpdOf(id: string): JsonNode
+proc plugUpdSave()
+proc plugPinned(id: string): string
+proc plugPin(id: string, on: bool)
+
 proc plugUpdate() =
-  ## your plugins that came from git: pulled (fast-forward only), then reloaded
+  ## your plugins that came from git: pulled (fast-forward only), then reloaded — not the pinned ones
+  ## (plugins.pinned); the version each had is kept (Roll back)
   var parts: seq[string]
   var n = 0
+  var pinned: seq[string]
   if dirExists(plugUserRoot()):
     for kind, d in walkDir(plugUserRoot()):
       if kind in {pcDir, pcLinkToDir} and dirExists(d / ".git"):
+        if plugPinned(extractFilename(d)).len > 0:
+          pinned.add extractFilename(d)
+          continue
         inc n
-        parts.add "echo " & quoteShell("== " & extractFilename(d)) & "; git -C " & quoteShell(d) &
-                  " pull --ff-only 2>&1"
+        parts.add "echo " & quoteShell("== " & extractFilename(d)) & "; git -C " & quoteShell(d) & " rev-parse HEAD; " &
+                  "git -C " & quoteShell(d) & " pull --ff-only 2>&1"
   if n == 0:
-    info("None of your plugins came from git (Plugins: install from git…)")
+    info(if pinned.len > 0: "Your plugins from git are pinned (" & pinned.join(", ") & ") — nothing to update"
+         else: "None of your plugins came from git (Plugins: install from git…)")
     return
   info("Updating " & $n & " plugin" & (if n == 1: "" else: "s") & "…")
   discard startJob(jkTool, parts.join("; "), plugUserRoot(), proc(j: Job) =
@@ -2814,6 +2947,14 @@ proc plugUpdate() =
     var curOut: seq[string]
     proc close() =
       if cur.len == 0: return
+      if curOut.len > 0 and curOut[0].len == 40 and curOut[0].allCharsInSet(HexDigits):
+        let u = plugUpdOf(cur)
+        let i = plugInfoOf(cur)
+        if "Already up to date" notin curOut.join("\n") and "Already up-to-date" notin curOut.join("\n"):
+          u["prev"] = %curOut[0]
+          u["prevVersion"] = %(if i >= 0: plugs[i].version else: "")
+          u["remoteHead"] = %""
+        curOut.delete(0)
       let o = curOut.join("\n")
       if "Already up to date" in o or "Already up-to-date" in o: same.add cur
       elif "fatal:" in o or "error:" in o or "Not possible to fast-forward" in o or "diverging" in o:
@@ -2827,10 +2968,166 @@ proc plugUpdate() =
         curOut.setLen(0)
       else: curOut.add l
     close()
+    plugUpdSave()
     if updated.len > 0: plugReload()
     var msg = if updated.len > 0: "Updated: " & updated.join(", ") else: "Your plugins are up to date"
+    if pinned.len > 0: msg.add " · pinned, left alone: " & pinned.join(", ")
     if failed.len > 0: msg.add " · not updated (local changes?): " & failed.join(", ")
     if failed.len > 0: warn(msg) else: info(msg))
+
+# ── updates: your plugins from git — what their repositories have now, one or all brought in, one pinned at its
+#    version, one taken back to the version before its last update ──
+
+var plugUpd: JsonNode                   # (plugCacheRoot/updates.json) id → {head, remoteHead, latest, prev, prevVersion}
+
+proc plugUpdFile(): string = plugCacheRoot() / "updates.json"
+
+proc plugUpdState(): JsonNode =
+  if plugUpd == nil:
+    plugUpd = try: parseFile(plugUpdFile()) except CatchableError: newJObject()
+    if plugUpd.kind != JObject: plugUpd = newJObject()
+  plugUpd
+
+proc plugUpdSave() =
+  try:
+    createDir(plugCacheRoot())
+    writeFile(plugUpdFile(), $plugUpdState())
+  except CatchableError: discard
+
+proc plugUpdOf(id: string): JsonNode =
+  let st = plugUpdState()
+  if st{id} == nil or st[id].kind != JObject: st[id] = newJObject()
+  st[id]
+
+proc plugPinned(id: string): string = sval("plugins.pinned"){id}.getStr
+
+proc plugFromGit(p: PlugInfo): bool = not p.bundled and not p.project and dirExists(p.dir / ".git")
+
+proc plugUpdateText(p: PlugInfo): string =
+  ## an update waiting for the plugin: its version ("1.3.0"), "newer" (the same version, newer commits), or ""
+  let u = plugUpdState(){p.id}
+  if u == nil or u.kind != JObject: return ""
+  let rh = u{"remoteHead"}.getStr
+  if rh.len == 0 or rh == u{"head"}.getStr: return ""
+  let lv = u{"latest"}.getStr
+  if lv.len > 0 and p.version.len > 0 and plugVerCmp(plugVerParts(lv), plugVerParts(p.version)) < 0: return ""
+  if lv.len > 0 and lv != p.version: lv else: "newer"
+
+proc plugCheckUpdates(quiet = false) =
+  ## Plugins: check for updates — each of your plugins from git: its repository asked (git fetch) what it has now
+  var parts, ids: seq[string]
+  for p in plugs:
+    if not plugFromGit(p): continue
+    let d = quoteShell(p.dir)
+    ids.add p.id
+    parts.add "echo " & quoteShell("== " & p.id) & "; git -C " & d & " fetch -q origin HEAD 2>&1 && git -C " & d &
+              " rev-parse HEAD FETCH_HEAD && echo -- && git -C " & d & " show FETCH_HEAD:" &
+              quoteShell(extractFilename(p.file)) & " 2>/dev/null"
+  let st = plugUpdState()
+  st["_checked"] = %epochTime()
+  plugUpdSave()
+  if ids.len == 0:
+    if not quiet: info("None of your plugins came from git — there is nothing to check (Plugins: install from git…)")
+    return
+  if not quiet: info("Checking " & $ids.len & " plugin" & (if ids.len == 1: "" else: "s") & " for updates…")
+  discard startJob(jkTool, parts.join("; "), plugUserRoot(), proc(j: Job) =
+    var cur = ""
+    var lines: seq[string]
+    proc close() =
+      if cur.len == 0: return
+      let sep = lines.find("--")
+      let u = plugUpdOf(cur)
+      if sep >= 2:
+        u["head"] = %lines[sep - 2].strip
+        u["remoteHead"] = %lines[sep - 1].strip
+        u["latest"] = %plugInfoIn(lines[sep + 1 .. ^1].join("\n"))[0]
+      else: plugLogAdd(cur, "check for updates: " & lines.join(" ").strip)
+    for l in j.output.splitLines:
+      if l.startsWith("== "):
+        close()
+        cur = l[3 .. ^1]
+        lines.setLen(0)
+      else: lines.add l
+    close()
+    plugUpdSave()
+    var found: seq[string]
+    for p in plugs:
+      let t = plugUpdateText(p)
+      if t.len > 0 and plugPinned(p.id).len == 0:
+        found.add p.id & (if t == "newer": " (newer)" elif p.version.len > 0: " " & p.version & " → " & t else: " " & t)
+    if found.len > 0:
+      toast((if found.len == 1: "A plugin update: " else: $found.len & " plugin updates: ") & found.join(", "), 3,
+            "Update", proc() = plugUpdate(), 15000)
+    elif not quiet: info("Your plugins are up to date")
+    needRender = true)
+
+proc plugCheckDaily() =
+  ## (at start) plugins.checkForUpdates: at most once a day
+  if not sBool("plugins.checkForUpdates"): return
+  if epochTime() - plugUpdState(){"_checked"}.getFloat(0) < 24 * 3600: return
+  var any = false
+  for p in plugs:
+    if plugFromGit(p): any = true
+  if any: plugCheckUpdates(quiet = true)
+
+proc plugUpdateOne(id: string) =
+  ## one plugin brought up to what its repository has (the version before is kept: Roll back)
+  let i = plugInfoOf(id)
+  if i < 0 or not plugFromGit(plugs[i]): return
+  if plugPinned(id).len > 0:
+    info(id & " is pinned at " & plugPinned(id) & " — unpin it first (its menu in the Plugins dock)")
+    return
+  let p = plugs[i]
+  let d = quoteShell(p.dir)
+  info("Updating " & id & "…")
+  discard startJob(jkTool, "git -C " & d & " rev-parse HEAD && git -C " & d & " pull -q --ff-only 2>&1", p.dir,
+    proc(j: Job) =
+      let ls = j.output.strip.splitLines
+      if j.code != 0 or ls.len == 0:
+        warn("Could not update " & id & ": " & (if ls.len > 0: ls[^1] else: "git failed") & " (local changes?)")
+        return
+      let u = plugUpdOf(id)
+      u["prev"] = %ls[0].strip
+      u["prevVersion"] = %p.version
+      u["remoteHead"] = %""
+      plugUpdSave()
+      plugReload()
+      let k = plugInfoOf(id)
+      let nv = if k >= 0: plugs[k].version else: ""
+      info("Updated " & id & (if p.version.len > 0 and nv.len > 0 and nv != p.version: ": " & p.version & " → " & nv
+                              else: "") & " — its menu in the Plugins dock: Roll back"))
+
+proc plugRollBack(id: string) =
+  ## back to the version the plugin had before its last update
+  let i = plugInfoOf(id)
+  if i < 0: return
+  let u = plugUpdOf(id)
+  let prev = u{"prev"}.getStr
+  if prev.len == 0:
+    info("No earlier version of " & id & " is kept (one is, from its next update on)")
+    return
+  let pv = u{"prevVersion"}.getStr
+  discard startJob(jkTool, "git -C " & quoteShell(plugs[i].dir) & " reset -q --keep " & quoteShell(prev) & " 2>&1",
+                   plugs[i].dir, proc(j: Job) =
+    if j.code != 0:
+      warn("Could not roll " & id & " back: " & j.output.strip.splitLines.join(" "))
+      return
+    u["prev"] = %""
+    u["remoteHead"] = %"?"                 # (what it had is newer again: shown as an update)
+    plugUpdSave()
+    plugReload()
+    toast("Rolled " & id & " back" & (if pv.len > 0: " to " & pv else: "") & " — pin it to stay there", 3, "Pin",
+          proc() = plugPin(id, true), 12000))
+
+proc plugPin(id: string, on: bool) =
+  ## keep a plugin at the version it is at (updates leave it alone), or let it be updated again
+  var pins = sval("plugins.pinned")
+  pins = if pins.kind == JObject: pins.copy else: newJObject()
+  let i = plugInfoOf(id)
+  if on: pins[id] = %(if i >= 0 and plugs[i].version.len > 0: plugs[i].version else: "this version")
+  elif pins.hasKey(id): pins.delete(id)
+  setSetting("plugins.pinned", pins)
+  info(if on: id & " is pinned at " & pins[id].getStr & ": updates leave it alone" else: id & " is updated again")
 
 proc plugBrowseShow(j: JsonNode) =
   let arr = if j.kind == JArray: j elif j{"plugins"} != nil and j["plugins"].kind == JArray: j["plugins"] else: newJArray()
@@ -2929,6 +3226,33 @@ proc plugMenuAction(pid, file: string, on, alone, full, bundled: bool): Action =
     elif i >= 0 and plugs[i].scan.uses != {}:
       items.add mi("Permissions: " & plugPermsList(plugs[i].scan.uses) & " — take them back", "",
                    proc() = plugTakeBack(pid))
+    if i >= 0 and (plugs[i].version.len > 0 or plugs[i].author.len > 0):
+      let p = plugs[i]
+      var about: seq[string]
+      if p.version.len > 0: about.add p.version
+      if p.author.len > 0: about.add p.author
+      if p.license.len > 0: about.add p.license
+      items.add mi(about.join(" · "), "", nil, disabled = true)
+      if p.homepage.len > 0:
+        let hp = p.homepage
+        items.add mi("Its home page", truncTo(hp, 30), proc() = openInBrowser(hp))
+    if i >= 0 and plugFromGit(plugs[i]):
+      let p = plugs[i]
+      let upd = plugUpdateText(p)
+      let pin = plugPinned(pid)
+      if pin.len > 0: items.add mi("Unpin (it is kept at " & pin & ")", "", proc() = plugPin(pid, false))
+      else:
+        if upd.len > 0:
+          items.add mi("Update" & (if upd != "newer": " to " & upd else: " (newer commits)"), "",
+                       proc() = plugUpdateOne(pid))
+        items.add mi("Pin" & (if p.version.len > 0: " at " & p.version else: " here") & " (no updates)", "",
+                     proc() = plugPin(pid, true))
+      let pv = plugUpdState(){pid}{"prevVersion"}.getStr
+      if plugUpdState(){pid}{"prev"}.getStr.len > 0:
+        items.add mi("Roll back" & (if pv.len > 0: " to " & pv else: " to before the last update"), "",
+                     proc() = plugRollBack(pid))
+      items.add mi("Check for updates", "", proc() = plugCheckUpdates())
+      items.add msep()
     items.add mi((if bundled: "View its source" else: "Open " & extractFilename(file)), "",
                  proc() = plugOpenSource(file, bundled))
     items.add mi((if on or waiting: "Turn off" else: "Turn on"), "", proc() = plugSetEnabled(pid, not (on or waiting)))
@@ -2973,7 +3297,7 @@ proc buildPluginItems(): seq[SideItem] =
     return
   if not plugBooted: plugDiscover()
   if plugHosts.len == 0:
-    result.add sideItem("○ " & (if plugs.len == 0: "off" else: "no plugin is on"), 2, "◆")
+    result.add sideItem("○ none running", 2, "◆")
   for h in plugHosts:
     let n = h.ids.len
     let what = if h.name == PlugShared: ""
@@ -3022,7 +3346,7 @@ proc buildPluginItems(): seq[SideItem] =
                           depth = 1 + clamp(it{"depth"}.getInt, 0, 6))
   result.add sideItem("INSTALLED", 6)
   if plugs.len == 0:
-    result.add sideItem("None yet — turn one on in AVAILABLE below", 2, "·")
+    result.add sideItem("None yet — tap one below", 2, "·")
     result.add sideItem("New plugin…", 7, "+", "from a template", proc() = runCmd("Plugins: new plugin…"))
     result.add sideItem("Add an example…", 7, "+", "notes, zig-lite, ini-tools, commentary …", proc() =
       plugAddExample())
@@ -3033,15 +3357,20 @@ proc buildPluginItems(): seq[SideItem] =
     let pid = p.id
     let on = p.enabled
     let role = if on: (if p.err.len > 0: 3 else: 1) else: 2
-    let det = if p.err.len > 0 and p.err != "off": p.err elif not on: "off" elif p.project: "project"
+    var det = if p.err.len > 0 and p.err != "off": p.err elif not on: "off" elif p.project: "project"
               elif p.bundled: "ned's" elif p.full: "Nim, compiled" elif p.alone: "own process" else: ""
+    # its version (pluginInfo), an update waiting (↑), pinned (📌)
+    if p.version.len > 0: det = p.version & (if det.len > 0: " · " & det else: "")
+    let upd = plugUpdateText(p)
+    if plugPinned(pid).len > 0: det = "📌 " & det
+    elif upd.len > 0: det = "↑ " & (if upd == "newer": "newer" else: upd) & " · " & det
     if p.project and p.err == "the folder is not trusted": inc untrusted
     if pid == plugFocusId:
       # (just turned on: the dock goes to its row — kept there until what it adds is listed under it)
       rightList.sel = result.len
       var listed = false
       for r in plugRegs:
-        if r.plugin == pid and r.kind notin ["viewClick", "requires"]: listed = true
+        if r.plugin == pid and r.kind notin ["viewClick", "requires", "info"]: listed = true
       if listed or not on or msSince(plugJustOnAt) > 60_000: plugFocusId = ""
     result.add sideItem(pid, role, (if on: "●" else: "○"), det,
                         plugMenuAction(pid, p.file, on, p.alone, p.full, p.bundled), path = p.file)
@@ -3061,7 +3390,7 @@ proc buildPluginItems(): seq[SideItem] =
           of "snippet": "snippet " & r.data{"trigger"}.getStr & " (" & r.data{"lang"}.getStr & ")"
           of "aiTool": "assistant's tool " & r.data{"name"}.getStr & (if r.data{"readOnly"}.getBool: " (reads)" else: "")
           of "view": "view " & r.data{"title"}.getStr
-          of "viewClick", "requires": ""
+          of "viewClick", "requires", "info": ""
           of "setting": "setting plugins." & pid & "." & r.data{"key"}.getStr
           of "vimMap": "vim " & r.data{"mode"}.getStr & "map " & r.data{"keys"}.getStr
           of "operator": "vim operator " & r.data{"keys"}.getStr

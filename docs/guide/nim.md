@@ -323,10 +323,13 @@ It starts at about 6 MB, holds a big file with its imports in about 16 MB, and a
 milliseconds and a completion in about 20.
 
 **The other languages.** nedls answers for the languages ned's own engines know, as the editor does: **C and C++**
-(completion — a struct's members after `.` and `->`, an `#include`'s files —, hover with the comment over a
-declaration, signature help, definition through the `#include`s to a function's body, references and rename across
-the project's files, symbols, parameter names before arguments, ned's checks and the C compiler's errors as you
-type, with its fix-its as quick fixes), **JavaScript** (completion, hover, definition and references across the
+(completion — a struct's members after `.` and `->`, an `#include`'s files, a function's call with its parameters
+to fill in, a name from a header the file does not include with the `#include` added —, hover with the comment over
+a declaration, signature help, definition through the `#include`s to a function's body, type definition,
+references, highlights and rename by what a name names across the project's files, symbols, semantic tokens,
+parameter names before arguments, ned's checks and the C compiler's errors as you type, with its fix-its, a missing
+`#include` and ned's refactors as code actions, formatting a range; C++'s type hierarchy and a method's
+implementations), **JavaScript** (completion, hover, definition and references across the
 modules that import a name, rename, symbols, its checks), **HTML, CSS and SQL** (completion, hover, checks) and
 **JSON** (its mistakes as you type; for `package.json`, `tsconfig.json`, `atlas.config`, `atlas.lock`,
 `nimble.lock`, ned's settings and `.ned/lint.json`, the keys and values each one takes, with what they mean), and
@@ -556,6 +559,12 @@ Your own `nim.projectMapping` always wins.
   proc's hover gives its C name.
 - HTML, CSS, SQL and JSON in strings go to their language servers: errors on the Nim line, completion, hover,
   fixes.
+- **Web pages written in Nim**: templates in Jinja's style — Nimja's `.nimja` (and `.jinja`, `.j2`, `.twig`, `.njk`)
+  — are HTML with `{{ expression }}`, `{% statement %}` and `{# comment #}` in their own colours: the code inside as
+  Nim, the statement's word (`for`, `endfor`, `extends`, `block` …) as a keyword. Source-code-filter templates
+  (`.nimf`, `#? stdtmpl`) have their `#` lines as Nim and the rest as HTML. The **nim-html** plugin (ned's own, in
+  the Plugins dock) adds Karax's DSL: completion and hover of tags and attributes in `buildHtml`, Emmet to Karax,
+  HTML to Karax and to `std/htmlgen`, and snippets — see [ned's own plugins](../plugins/available.md).
 - *Nim: extract selection into a proc*, *change signature…*, *inline this proc*, *move to another module…* (see the
   5.19 notes), *Nim: sort imports*, *Nim: toggle proc ⇄ func*.
 - Rewrites on Alt+Enter (and in nedls' code actions): *Write the type* of a let/var/const, *Write as `x.f(y)`* ⇄

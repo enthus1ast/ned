@@ -6,6 +6,37 @@
 var
   typingChecks: Table[string, (int, MonoTime, string)]   # path → (the text's changeId, started, the copy)
   typingCheckMs: Table[string, int]                      # path → how long its last check took (ms)
+  typingSig: Table[string, Hash]                         # path → the code the last check was of (see typingCodeSig)
+  typingRuns, typingSkips = 0                            # (the performance report: checks run, and not needed)
+
+proc typingCodeSig(b: Buffer): Hash =
+  ## what the compiler sees of the text: its lines without their comments and trailing spaces — a change to a
+  ## comment, or to spaces at a line's end, needs no new check (the line count is in it: problems keep their lines)
+  var h: Hash = 0
+  h = h !& b.lines.len
+  for l in b.lines:
+    var e = l.len
+    if "\"\"\"" notin l and "#[" notin l and "]#" notin l:     # (a long string or a block comment: the whole line)
+      var i = 0
+      var inStr = false
+      while i < l.len:
+        let c = l[i]
+        if inStr:
+          if c == '\\': inc i
+          elif c == '"': inStr = false
+        elif c == '"': inStr = true
+        elif c == '\'' and i + 2 < l.len:
+          # a character literal ('#', '\'') — not the start of a comment
+          let close = l.find('\'', i + 1)
+          if close > i and close - i <= 4: i = close
+        elif c == '#':
+          e = i
+          break
+        inc i
+    var k = e
+    while k > 0 and l[k - 1] in {' ', '\t'}: dec k
+    h = h !& hash(l.toOpenArray(0, k - 1))
+  !$h
 
 
 proc typingCheckUsable(b: Buffer): bool =
@@ -96,6 +127,8 @@ proc typingCheckNimony(b: Buffer) =
   let path = b.path
   let bid = b.id
   typingChecks[path] = (id, getMonoTime(), copy)
+  typingSig[path] = b.typingCodeSig()
+  inc typingRuns
   discard startJob(jkCheck, quoteShell(nimonyExe()) & " check " & nimonyArgs() & " --path:" &
                             quoteShell(parentDir(path)) & " " & quoteShell(copy) & " 2>&1", dir, proc(j: Job) =
     let st = typingChecks.getOrDefault(path)

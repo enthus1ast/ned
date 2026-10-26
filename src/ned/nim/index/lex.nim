@@ -111,10 +111,30 @@ proc addRange*(dst: var string, src: string, a, e: int) {.inline.} =
   dst.setLen(o + e - a)
   copyMem(addr dst[o], unsafeAddr src[a], e - a)
 
+proc stripInto*(dst: var string, src: string) {.inline.} =
+  ## dst = src.strip, in dst's own room (no new string for each line)
+  var a = 0
+  var e = src.len
+  while a < e and src[a] in {' ', '\t', '\v', '\r', '\n', '\f'}: inc a
+  while e > a and src[e - 1] in {' ', '\t', '\v', '\r', '\n', '\f'}: dec e
+  dst.setLen(0)
+  dst.addRange(src, a, e)
+
+func blankOrStarts*(s, pre: string): (bool, bool) {.inline.} =
+  ## (s is only white space, s.strip starts with pre) — without the copy strip makes
+  var a = 0
+  while a < s.len and s[a] in {' ', '\t', '\v', '\r', '\n', '\f'}: inc a
+  if a == s.len: return (true, pre.len == 0)
+  if s.len - a < pre.len: return (false, false)
+  for k in 0 ..< pre.len:
+    if s[a + k] != pre[k]: return (false, false)
+  (false, true)
+
 func leadWs*(s: string): int {.inline.} =
   ## how much whitespace the line starts with (s.len - s.strip(trailing = false).len, without the copy)
   while result < s.len and s[result] in Whitespace: inc result
 
+{.push boundChecks: off.}   # (every index below is checked against the line's length first: the hottest loop of a read)
 proc nxSplitLine*(line: string, st: var NxLexState, code, doc: var string, depth: var int) =
   ## code: the line without comments (strings kept); doc: text of a ## comment or ##[ … ]## part;
   ## depth: () [] {} balance change, ignoring strings and comments
@@ -220,3 +240,5 @@ proc nxSplitLine*(line: string, st: var NxLexState, code, doc: var string, depth
       while j < n and line[j] notin {'#', '"', '\'', '(', ')', '[', ']', '{', '}', '`'}: inc j
       code.addRange(line, i, j)
       i = j
+{.pop.}
+

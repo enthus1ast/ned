@@ -15,6 +15,7 @@ import nedplugin
 import std/[strutils, json]
 
 requiresNed(">= 6.27")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 permission("shell", "runs sqlite3 on the database you open")
 
 settingDef("rows", 200, "SQLite: show a table — how many of its rows")

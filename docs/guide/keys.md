@@ -19,7 +19,7 @@ can add your own (see [Settings](settings.md#settings)).
 | Alt+Z | zen mode (Esc Esc leaves) |
 | Alt+T | themes (live preview) · Alt+W soft wrap · Alt+L line numbers · Alt+U mouse on/off |
 | right click | context menus everywhere: the editor, its gutter, tabs, files, every dock's items, the status bar's items, the title bar, breadcrumbs, the minimap, the panel, messages, text fields, a picker's rows — on touch: press and hold |
-| drag | split divider, dock edges, the bottom panel's header, the scrollbar, the minimap, a tab (reorder — or out of the tab bar: onto a pane, or to the editor's right or bottom edge to split with it) · a file from the tree: into the editor (opened, or split at the edges), onto a folder (moved, after asking), into the terminal (its path) · selected text: moved (Ctrl or Alt held: copied) — `ui.dragAndDrop` |
+| drag | split divider, dock edges, the bottom panel's header, the scrollbar, the minimap, a tab (reorder — or out of the tab bar: onto a pane, or to the editor's right or bottom edge to split with it) · a file from the tree: into the editor (opened, or split at the edges), onto a folder (moved, after asking), into the terminal (its path) · selected text: moved (Ctrl or Alt held: copied) — `ui.dragAndDrop` · a dialog's, a form's or a picker's title bar: the box moves out of the way, and opens there again next time (each kind of box keeps its place until ned quits) |
 | text fields | click places the cursor, drag or Shift+arrows select, double-click a word, triple-click all, Ctrl+A/C/X/V, right-click for Cut/Copy/Paste |
 | wheel | scroll · Shift+wheel or tilt wheel: sideways · over the tabs: switch tabs |
 
@@ -28,6 +28,7 @@ can add your own (see [Settings](settings.md#settings)).
 | keys | action |
 |---|---|
 | Ctrl+P / Ctrl+O | find file (`:` line · `@` symbol · `#` project symbol · `>` command) |
+| Alt+Shift+F | Telescope: every finder — files, live grep, settings, keys, git, Nim's library … — with a preview ([Search](search.md#telescope-one-finder-for-everything-altshiftf)) |
 | Ctrl+N · Ctrl+W | new file · close tab |
 | Ctrl+S · Ctrl+Q | save · quit (asks about unsaved files) |
 | Alt+← Alt+→ · Ctrl+PgUp/PgDn · Alt+1..9 | switch tabs |
@@ -97,7 +98,7 @@ can add your own (see [Settings](settings.md#settings)).
 | keys | action |
 |---|---|
 | Alt+C | chat (Enter sends, Alt+Enter new line, ↑ history, Ctrl+L new chat, Esc stops) |
-| Alt+Shift+C | edit the selection — or the enclosing block — with an instruction |
+| Alt+Shift+C | edit the selection — or the enclosing block — with an instruction; on a comment with nothing selected: write the code the comment describes |
 | y · a · n | allow · always allow · deny an agent action |
 | Tab (in the chat box) | complete a `/command` or `@mention` |
 | Tab (in the editor) | accept an inline suggestion (when enabled) · Esc dismisses it |

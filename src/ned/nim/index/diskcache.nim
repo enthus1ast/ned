@@ -240,10 +240,24 @@ proc nxPrefetch*(path: string) =
         discard posix_fadvise(fd, 0, 0, POSIX_FADV_WILLNEED)
         discard posix.close(fd)
 
+proc nxLinesOf*(text: string): seq[string] =
+  ## text.splitLines, faster: each line found with memchr (a lone \r — no source file has one — by splitLines)
+  if text.find('\r') >= 0 and text.find("\r\n") < 0: return text.splitLines
+  result = newSeqOfCap[string](text.len div 32 + 1)
+  var a = 0
+  while true:
+    let nl = text.find('\n', a)
+    let e = if nl < 0: text.len else: nl
+    var z = e
+    if z > a and text[z - 1] == '\r': dec z
+    result.add text.substr(a, z - 1)
+    if nl < 0: break
+    a = nl + 1
+
 proc nxParseDisk*(path: string): NxFile =
   ## a file on disk parsed (from the cache when it has this text)
   let text = readFile(path)
   result = nxCacheRead(path, text)
   if result != nil: return
-  result = nxParse(text.splitLines, path)
+  result = nxParse(nxLinesOf(text), path)
   nxCacheWrite(path, text, result)

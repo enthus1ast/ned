@@ -170,7 +170,7 @@ proc runTestOnSave(path: string, after: TestRunDone = nil) =
     except CatchableError: discard
   for e in testEntries:
     if e.path == path and not e.isSuite: testStatus[testKey(path, e.name)] = 3
-  let bin = privTmp("test")
+  let bin = privTmp("test") & ExeDot
   let cache = privTmp("testc")
   let flags = (if cfgNimTestFlags.len > 0: " " & cfgNimTestFlags else: "") & (if cfgNimFlags.len > 0: " " & cfgNimFlags else: "")
   let cmd = "nim c -r --hints:off --colors:off" & flags & " --nimcache:" & quoteShell(cache) & " -o:" & quoteShell(bin) &

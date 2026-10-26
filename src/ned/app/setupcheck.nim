@@ -133,6 +133,13 @@ proc setupRows(inEditor: bool): seq[SetupRow] =
   tool("Nim", "nph", "optional formatter (the built-in one is used without it)", false, "nimble install nph", false)
   tool("Nim", "inim", "Nim REPL", false, "nimble install inim", false)
   tool("Nim", "gdb", "debugger", false, installHint("gdb", "gdb"))
+  when defined(windows):
+    # (ned's commands — builds, checks, tasks, git's helpers — are written for a POSIX sh: Git for Windows' one)
+    let sh = winShell()[0]
+    if isCmdExe(sh):
+      rows.add ("Tools", "sh", 2, "", "Git for Windows' sh not found: builds, checks and tasks run through cmd.exe, " &
+                "where some of them fail", "winget install Git.Git")
+    else: rows.add ("Tools", "sh", 0, "", "runs ned's commands: " & sh, "")
   tool("Tools", "git", "source control", true, installHint("git", "git"))
   tool("Tools", "gh", "pull requests (Git › Pull request)", false, installHint("gh", "gh"))
   tool("Tools", "rg", "fast project search (grep is used without it)", false, installHint("ripgrep", "ripgrep"))

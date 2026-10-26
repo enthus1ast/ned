@@ -14,6 +14,7 @@ import nedplugin
 import std/algorithm
 
 requiresNed(">= 6.25")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 
 settingDef("maxEntries", 100, "Path completion: how many names of a folder it offers at most")
 

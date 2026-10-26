@@ -362,7 +362,6 @@ func mapSpans(sp: seq[ChatSpan], add: set[Attr]): seq[ChatSpan] =
     y.at = y.at + add
     result.add y
 
-proc mdPicRows(path: string, cols: int): int
 proc mdLineCode(code: seq[string], lang: string, width: int, src: int): seq[ChatLine] =
   let l0 = if lang.len > 0: langByName(lang) else: nil
   let l = if l0 != nil and l0.name != "Text": l0 elif lang.len > 0: detectLang("x." & lang, "") else: langByName("Text")

@@ -28,6 +28,7 @@ when not defined(nimscript):
   import std/osproc
 
 requiresNed(">= 6.26")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 permission("shell", "sends your requests with curl")
 permission("clipboard", "REST: copy as curl puts the command there")
 

@@ -76,6 +76,16 @@ proc gitStaged(): int =
   for l in gitStatusLines:
     if l.len > 3 and not l.startsWith("## ") and l[0] notin {' ', '?'}: inc result
 
+proc gitCommitPrompt() =
+  ## the commit message box — or, with nothing changed, why there is nothing to commit
+  var changed = 0
+  for l in gitStatusLines:
+    if l.len > 3 and not l.startsWith("## "): inc changed
+  if gitHome().len > 0 and gitStatusLines.len > 0 and changed == 0:
+    info("Nothing to commit — the working tree is clean")
+    return
+  openPrompt(pGitCommit, "Commit message", "")
+
 # branches
 
 proc gitSwitch(name: string) =

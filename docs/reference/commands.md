@@ -11,6 +11,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | AI assistant | Alt+C |
 | AI: add doc comments |  |
 | AI: ask about selection |  |
+| AI: attach a picture… | a screenshot or a photo, for a model that reads pictures |
 | AI: chat history… |  |
 | AI: choose model… |  |
 | AI: choose provider… |  |
@@ -36,6 +37,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | AI: toggle inline suggestions |  |
 | AI: undo the assistant's changes… |  |
 | AI: write tests | kept when they pass |
+| AI: write the code this comment describes | Alt+Shift+C on a comment; also its ✦ |
 | Atlas: a Nim for this project (env)… |  |
 | Atlas: add a dependency… |  |
 | Atlas: build (atlas-run) |  |
@@ -127,7 +129,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Fold all |  |
 | Fold level 2 |  |
 | Format document | Alt+F |
-| Format selection (Nim built in, or the language server) | Alt+F with lines selected |
+| Format selection (ned's own for Nim and C, or the language server) | Alt+F with lines selected |
 | Format: every file in the project… |  |
 | Format: only the lines I changed | since git last saw the file |
 | Format: preview the change | side by side, then apply it or not |
@@ -178,6 +180,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Git: pull (rebase) |  |
 | Git: push |  |
 | Git: push tags |  |
+| Git: resolve the conflicts with AI | checked by the compiler, shown side by side first |
 | Git: revert this change |  |
 | Git: show this change |  |
 | Git: sign in to GitHub | GitHub CLI or an SSH key |
@@ -193,6 +196,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Git: undo… | the last commits, pulls, merges, rebases — back to before one |
 | Git: unstage this change |  |
 | Git: unstage this file |  |
+| Git: why did this line change? (AI) | its commit, explained by the assistant |
 | Git: worktrees… |  |
 | Go forward | Alt+Shift+, (Alt+<) |
 | Go to definition | Alt+. / F12 |
@@ -203,6 +207,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Go to symbol in workspace (language server)… |  |
 | Go to symbol… | Ctrl+T |
 | Go to type definition |  |
+| Help: update ned… | the newest release, in the terminal: ned --update (it asks first) |
 | Hex: copy as a C array |  |
 | Hex: copy as a Nim array |  |
 | Hex: copy as a Nim string |  |
@@ -372,6 +377,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Plugins: add an example… |  |
 | Plugins: available plugins (ned's own)… | turn one on: increment, case changes, align, harpoon … |
 | Plugins: browse the plugin list… |  |
+| Plugins: check for updates | what your plugins' repositories have now |
 | Plugins: install from git… |  |
 | Plugins: new plugin in full Nim (compiled)… |  |
 | Plugins: new plugin… |  |
@@ -382,7 +388,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Plugins: the API (nedplugin.nim) |  |
 | Plugins: turn one on or off… |  |
 | Plugins: uninstall / remove one… |  |
-| Plugins: update (git pull) |  |
+| Plugins: update (git pull) | every plugin from git, not the pinned ones |
 | Previous problem | Alt+P |
 | Problems: all of them with their code (multibuffer) |  |
 | Quick fix / code actions… | Alt+Enter · Ctrl+. |
@@ -455,9 +461,18 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Switch buffer… |  |
 | Tasks: run a task… | Shift+F4 |
 | Tasks: run the last task again | F4 |
+| Telescope: git changed files |  |
+| Telescope: git commits |  |
+| Telescope: grep the word under the cursor |  |
+| Telescope: live grep |  |
+| Telescope: resume | the last finder, with what you had typed |
+| Telescope: settings |  |
+| Telescope… | Alt+Shift+F |
 | Terminal: commands… |  |
 | Terminal: copy the last command's output |  |
 | Terminal: focus the other split | Ctrl+PgUp/PgDn |
+| Terminal: kept terminals… | terminal.keepRunning: every folder's, each to end |
+| Terminal: kill |  |
 | Terminal: new |  |
 | Terminal: next command | Ctrl+↓ |
 | Terminal: previous command | Ctrl+↑ |

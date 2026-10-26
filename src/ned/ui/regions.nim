@@ -9,6 +9,8 @@ type Region = object
 var
   regions: seq[Region]
   modalStart = -1          # regions[modalStart..] belong to the open modal (menu/dialog)
+  overlayStart = -1        # regions[overlayStart..] were drawn over the editor (the find bar, notes, hovers …): a
+                           # click there is theirs, not the minimap's or the scroll bar's under them
   mouseX = -1
   mouseY = -1
   mouseMovedAt: MonoTime

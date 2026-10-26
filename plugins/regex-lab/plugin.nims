@@ -15,6 +15,7 @@ import nedplugin
 import std/strutils
 
 requiresNed(">= 6.27")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 
 settingDef("ignoreCase", false, "Regex: try a pattern — upper and lower case the same")
 

@@ -41,6 +41,8 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `ui.tooltips` | `true` | Tooltips when the pointer rests on a button |
 | `ui.mouse` | `true` | Mouse and touch support (Alt+U toggles it so Termux text selection works) |
 | `ui.cursorStyle` | `"bar"` | Text cursor shape — one of: bar, block, underline |
+| `ui.cursorAnimation` | `"glide"` | When the cursor jumps — a line up or down, to the next word, to a definition — it glides there with a short trail that fades behind it (up to 120 frames a second; only the trail's cells are sent). 'off': it jumps at once. Never on a slow terminal — one of: glide, off |
+| `ui.cursorAnimationMs` | `100` | How long the cursor's glide lasts, in milliseconds (40 to 300) |
 | `ui.trueColor` | `"auto"` | 24-bit colour ('off' uses the 256-colour palette; 'auto' also asks the terminal, so it is right over SSH and in tmux, where COLORTERM is often lost) — one of: auto, on, off |
 | `ui.kittyKeyboard` | `"auto"` | The kitty keyboard protocol, where the terminal has it (kitty, WezTerm, Ghostty, foot, Alacritty, iTerm2 …): Ctrl+Shift+letters can be bound, Ctrl+I is not Tab, Ctrl+Enter and Shift+Enter work, Alt+key has no delay — one of: auto, off |
 | `ui.graphemes` | `"auto"` | Emoji sequences — 👨‍👩‍👧, 👍🏽, flags, 1️⃣ — as one character two columns wide. 'auto': when the terminal says it joins them (mode 2027: WezTerm, Ghostty, Contour, foot …); 'on' for one that joins them without saying so; 'off': each emoji apart, as most terminals show them — one of: auto, on, off |
@@ -120,7 +122,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `nim.typeHints` | `"builtin"` | Where the types shown after lets and vars come from: ned's own engine (builtin: at once, no nimsuggest needed) or nimsuggest — one of: builtin, nimsuggest |
 | `nim.referenceCounts` | `true` | "3 references" after each top-level proc and type (built-in engine); a click lists them; "no references" in yellow for an export nothing uses |
 | `nim.ide` | `"builtin"` | Code intelligence: builtin = ned's own Nim index (instant, no compiler needed) plus nimsuggest for what only the compiler knows · nimlangserver = the language server · off — one of: builtin, nimlangserver, off |
-| `nim.semanticColors` | `true` | Colour names by what they are (procs, types, constants, fields), as the built-in engine knows them — not by whether they start with a capital letter. Other languages get them from their language server |
+| `nim.semanticColors` | `true` | Colour names by what they are (procs, types, constants, fields), as the built-in engine knows them — not by whether they start with a capital letter. C and C++ get them from ned's C engine (parameters, globals, macros, fields, enum constants, types), other languages from their language server |
 | `nim.richColors` | `true` | With semantic colours: a `var` tinted (a `let` stays plain), the module's own variables in bold, deprecated names faded and struck through, cast/addr/unsafeAddr/ptr in the warning colour |
 | `nim.completeCallArguments` | `false` | Completion of a routine writes its call with the parameters to fill in — area(width, height), Tab to the next (as clangd and rust-analyzer do); off: the name only, for command syntax (echo x) and method calls |
 | `nim.autoImport` | `true` | Completion also offers standard-library names whose module is not imported yet; choosing one adds the import |
@@ -260,6 +262,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `terminal.scrollback` | `3000` | Lines of scrollback in the integrated terminal |
 | `terminal.editorEnv` | `true` | In ned's terminal, ned is git's editor — GIT_EDITOR, EDITOR and VISUAL, each where you have not set it: `git commit` opens its message in a tab of this ned and waits until you close it (`ned FILE` in ned's terminal opens the file here either way; ned --new starts another ned) |
 | `terminal.cwd` | `"project"` | Where new terminals start — one of: project, file |
+| `terminal.keepRunning` | `true` | Terminals keep running when ned quits or its window closes: the next ned in the same folder takes them back, with what they showed. Kill terminal ends one; Terminal: kept terminals… lists them all. Not on Windows, nor REPLs or a remote folder's terminal |
 | `terminal.shellIntegration` | `true` | bash, zsh and fish mark each command (OSC 133): Ctrl+↑/↓ jumps between them, failed ones are marked, and a command's output can be copied or the command run again |
 
 ## Git
@@ -339,6 +342,8 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `ai.price` | `{}` | Dollars per million tokens, to show what a chat costs: {"input": 3, "output": 15, "cacheRead": 0.3} — empty shows tokens only |
 | `ai.warnTokens` | `60000` | Ask before sending a request bigger than this many tokens (0 = never ask) |
 | `ai.nimContext` | `true` | Nim files: send the definitions of the procs and types your code uses, found by the built-in engine, so answers know them |
+| `ai.commentCommands` | `true` | Comments ending in AI! or AI? (# make this a func AI!): when the file is saved, the assistant makes the change an AI! comment asks for — shown side by side, checked by the compiler first, to take or leave — and answers an AI? comment in the chat |
+| `ai.commentButton` | `true` | ✦ write it after the comment the cursor is on: the assistant writes the code the comment describes (as Alt+Shift+C on a comment does), shown before it is used |
 
 ## Languages
 
@@ -360,9 +365,11 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `plugins.enabled` | `true` | Run your plugins (~/.config/ned/plugins/<name>/plugin.nims) and, in a folder you trust, the project's (.ned/plugins/<name>) — NimScript, all in one `nim e` process; a folder with a plugin.nim is a plugin in full Nim, compiled into a program of its own (Plugins dock) |
 | `plugins.disabled` | `[]` | Plugins that are off (by name): ["zig-lite"] |
 | `plugins.bundled` | `[]` | ned's own plugins you turned on (Plugins dock › AVAILABLE, or Plugins › Available plugins…), by name: ["dial", "harpoon"] — they come with ned and update with it |
-| `plugins.native` | `"auto"` | Compile the NimScript plugins (nim c, in the background) instead of running them with nim e: a faster start, faster calls, less memory. auto: a set of plugins started before as it is now is compiled for the next start · on: always · off: never (a plugin that uses what only NimScript has stays with nim e) — one of: auto, on, off |
+| `plugins.native` | `"auto"` | Compile the NimScript plugins (nim c, in the background) instead of running them with nim e: a faster start, faster calls, less memory. auto: a set of plugins is compiled as it starts, for the next start (a plugin you are writing — changed in the last 10 minutes — once it has started unchanged) · on: always · off: never (a plugin that uses what only NimScript has stays with nim e) — one of: auto, on, off |
 | `plugins.alone` | `[]` | NimScript plugins that run in a process of their own (by name): a slow or crashing one never holds up the others — ["big-linter"] (plugins in full Nim always do) |
 | `plugins.indexUrl` | `""` | A list of plugins to install from (Plugins: browse the plugin list…): a URL or a file of JSON — [{"name": …, "url": "https://… (git)", "description": …}] |
+| `plugins.checkForUpdates` | `true` | Once a day, ask the repositories of your plugins that came from git whether they have a newer version (git fetch, in the background): the Plugins dock shows ↑ 1.3.0, and Plugins: update… brings it. Plugins: check for updates asks now |
+| `plugins.pinned` | `{}` | Plugins kept at the version they are at — updates leave them alone: {"notes": "1.2.0"} (a plugin's menu in the Plugins dock: Pin at …) |
 | `plugins.timeoutMs` | `1500` | How long ned waits for a plugin that must answer before it goes on (an event before saving, a NimScript formatter, a vim text object) |
 | `plugins` | `{}` | Each plugin's own settings: {"zig-lite": {"width": 80}} — or "plugins.zig-lite.width": 80 (a plugin reads them with setting("width", 80)) |
 | `plugins.idleStopMinutes` | `10` | Stop the plugins' process after this many minutes without a call (0: never); it starts again when a plugin is needed. Plugins with timers or events keep it running |
@@ -380,6 +387,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | Setting | Default | What it does |
 |---|---|---|
 | `remote.exclude` | `[".git","node_modules",".venv","venv","target","nimcache"…` | Folders left on the server when a remote folder is copied over (Remote: open a folder over SSH) |
+| `remote.languageServers` | `"auto"` | Where a remote folder's language servers run: auto = on the server when it has the server's program (with the packages and toolchain there), else here on the local copy · server = only there · here = only on the local copy. Files of the server's that they point to — a definition in its library — are fetched to read. With no Nim here, ned's own Nim engine reads the server's library (fetched once), except with here — one of: auto, server, here |
 | `remote.autoSync` | `10` | Every this many seconds, files changed on the server (by a build, git, another editor) are copied into the local copy; open tabs without unsaved changes reload (0 = only after Run, tasks and the assistant's commands) |
 
 ## Run

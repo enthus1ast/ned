@@ -60,6 +60,59 @@ proc lexNimf(s: string, st: LexSt, toks: var seq[TokKind]): LexSt =
         continue
     inc i
 
+const JinjaWords = ["endfor", "endif", "endwhile", "endblock", "endmacro", "endproc", "endfunc", "endcase", "block",
+                    "extends", "importnim", "importnimja", "include", "macro", "set", "endset", "raw", "endraw",
+                    "with", "endwith", "filter", "endfilter", "call", "endcall", "autoescape", "endautoescape",
+                    "trans", "endtrans", "pluralize", "scriptPrefix", "super", "elif", "else", "for", "if", "while",
+                    "case", "of", "proc", "func", "let", "var", "in", "not", "and", "or", "is"]
+
+proc lexJinja(s: string, st: LexSt, toks: var seq[TokKind]): LexSt =
+  ## a Jinja-style template — Nimja's (.nimja), Jinja's (.jinja, .j2), Twig's: HTML with {{ expression }},
+  ## {% statement %} and {# comment #}; the code inside is coloured as Nim (Nimja's is Nim), the statement's
+  ## first word (endfor, block, extends …) as a keyword. A tag left open goes to the line's end
+  let h = htmlLang()
+  result = if h != nil: lexInto(h, s, st, toks) else: st
+  let n = s.len
+  var i = 0
+  while i + 1 < n:
+    if s[i] != '{' or s[i+1] notin {'{', '%', '#'}:
+      inc i
+      continue
+    let kind = s[i+1]
+    let closeS = case kind
+                 of '{': "}}"
+                 of '%': "%}"
+                 else: "#}"
+    let r = s.find(closeS, i + 2)
+    let e = if r < 0: n else: r
+    if kind == '#':
+      for q in i ..< min(n, e + 2): toks[q] = tkComment
+    else:
+      toks[i] = tkPreproc
+      toks[i+1] = tkPreproc
+      var a = i + 2
+      var z = e
+      if a < z and s[a] == '-':                 # ({%- … -%}: the white space next to it trimmed)
+        toks[a] = tkPreproc
+        inc a
+      if z > a and s[z-1] == '-':
+        toks[z-1] = tkPreproc
+        dec z
+      for q in a ..< z: toks[q] = tkText
+      let nl = nimLang()
+      if nl != nil and z > a: lexSub(nl, s, a, z, toks, false)
+      if kind == '%':
+        var w = a
+        while w < z and s[w] == ' ': inc w
+        var we = w
+        while we < z and s[we] in IdentChars: inc we
+        if we > w and s[w ..< we] in JinjaWords:
+          for q in w ..< we: toks[q] = tkKeyword
+      if r >= 0:
+        toks[e] = tkPreproc
+        toks[e+1] = tkPreproc
+    i = if r < 0: n else: e + 2
+
 const CsvColours = [tkKeyword, tkType, tkNumber, tkFunc, tkVariable, tkProperty, tkConst, tkTag, tkAttr, tkPreproc]
 
 func csvSepOf(lang: Lang, s: string): char =
@@ -173,6 +226,7 @@ proc lexHost(lang: Lang, s: string, st: uint8, toks: var seq[TokKind], at = 0): 
   of lmMarkdown: lexMarkdown(s, st, toks)
   of lmHtml: lexHtml(s, st, toks)
   of lmNimf: lexNimf(s, LexSt(st), toks)
+  of lmJinja: lexJinja(s, LexSt(st), toks)
   of lmRegex:
     lexRegex(lang.id == "peg", s, toks)
     0'u32
@@ -228,6 +282,7 @@ proc lexInto(lang: Lang, s: string, st: LexSt, toks: var seq[TokKind], start = 0
   ## colours s[start ..] as `lang` in state `st`; inside an embedded block, its own language colours the text
   ## up to where the block ends, and `lang` the rest of the line
   if lang.mode == lmNimf and start == 0: return lexNimf(s, st, toks)    # its text lines carry HTML's state
+  if lang.mode == lmJinja and start == 0: return lexJinja(s, st, toks)
   let id = stTop(st)
   if id == 0 or id >= embeds.len: return lexHost(lang, s, uint8(st and 0xFF), toks, start)
   let d = embeds[id]

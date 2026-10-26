@@ -288,8 +288,8 @@ proc cmdProfile() =
     return
   let cmd = "nim c --hints:off -d:release --profiler:on --stackTrace:on --lineTrace:on --excessiveStackTrace:on " &
             (if cfgNimFlags.len > 0: cfgNimFlags & " " else: "") &
-            "--import:" & quoteShell(dir / "ned_lineprof.nim") & " -o:" & quoteShell(dir / "prog") & " " & quoteShell(main) &
-            " && NED_LINEPROF=" & quoteShell(res) & " " & quoteShell(dir / "prog") & " < /dev/null"
+            "--import:" & quoteShell(dir / "ned_lineprof.nim") & " -o:" & quoteShell(dir / "prog" & ExeDot) & " " &
+            quoteShell(main) & " && NED_LINEPROF=" & quoteShell(res) & " " & quoteShell(dir / "prog" & ExeDot) & " < /dev/null"
   info("Profiling " & extractFilename(main) & "…")
   discard startJob(jkTool, cmd, parentDir(main), proc(j: Job) =
     if not fileExists(res) or not profLoad(res):

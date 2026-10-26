@@ -359,6 +359,8 @@ proc termScroll(o: var string) =
   o.add "\e[r"
   inc frameScrolls
 
+proc caCursorMoved(): bool
+
 proc flushScreen() =
   ## cell-level diff against what the terminal shows: unchanged rows cost one memcmp, changed rows send only the
   ## cells that differ (a run of unchanged ones is stepped over), each colour change only what changed — and a
@@ -486,7 +488,8 @@ proc flushScreen() =
     o.add gfxShown.del
     gfxShown = GfxReq()
   gfxDirty = false
-  if cursorX >= 0 and cursorY >= 0 and cursorX < scrW and cursorY < scrH:
+  # (a jump of the cursor glides there: the glide shows it when it arrives — caPump)
+  if not caCursorMoved() and cursorX >= 0 and cursorY >= 0 and cursorX < scrW and cursorY < scrH:
     o.add "\e[" & $(cursorY + 1) & ";" & $(cursorX + 1) & "H\e[?25h"
   o.add "\e[?2026l"
   frameBytes = o.len
@@ -516,3 +519,143 @@ proc slowTerminal(): bool =
   ## to "auto" is left out — the light frames keep scrolling smooth
   let (kbs, n) = termSpeed()
   n >= 8 and kbs >= 0 and kbs < 1500
+
+# ── the cursor's glide (ui.cursorAnimation): when the cursor jumps — a line down, a word on, a search, a definition —
+#    a short trail goes from where it was to where it is, fading behind it. Each glide frame sends only the trail's
+#    cells (and puts back those it left), up to 120 a second, for ui.cursorAnimationMs; the screen is not drawn
+#    again for it. Off on a slow terminal and in accessibility mode ──
+
+const CaFrameMs = 8                # (120 frames a second at most)
+
+var
+  cfgCursorAnim = "glide"          # ui.cursorAnimation: glide · off
+  cfgCursorAnimMs = 100            # ui.cursorAnimationMs: how long a glide lasts
+  caShownX, caShownY = -1          # where the last frame put the cursor
+  caOn = false                     # a glide going on
+  caFrom, caTo: (float, float)     # (column, row)
+  caT0, caNextAt: MonoTime
+  caCells: seq[int]                # the cells the last glide frame drew (indices of grid)
+  caGlides*, caFrames*, caBytes*: int   # (Help › Performance)
+
+func caEase(t: float): float =
+  let u = 1.0 - clamp(t, 0.0, 1.0)
+  1.0 - u * u * u                  # (fast away, slow to arrive)
+
+proc caAt(t: float): (float, float) =
+  let e = caEase(t)
+  (caFrom[0] + (caTo[0] - caFrom[0]) * e, caFrom[1] + (caTo[1] - caFrom[1]) * e)
+
+proc caT(): float = float((getMonoTime() - caT0).inMicroseconds) / (max(20, cfgCursorAnimMs).float * 1000.0)
+
+proc caCursorMoved(): bool =
+  ## (flushScreen, the frame written but for the cursor) a jump starts a glide — true: the cursor stays hidden until
+  ## the glide brings it. The frame has just repainted the cells the glide had drawn (they were marked unknown)
+  let (nx, ny) = (cursorX, cursorY)
+  caCells.setLen(0)
+  if cfgCursorAnim == "off" or nx < 0 or ny < 0 or cfgAccessible or slowTerminal():
+    caOn = false
+  elif nx != caShownX or ny != caShownY:
+    let (dx, dy) = (abs(nx - caShownX), abs(ny - caShownY))
+    if caShownX >= 0 and caShownY >= 0 and (dy >= 1 or dx >= 3):
+      caFrom = if caOn: caAt(caT()) else: (caShownX.float, caShownY.float)
+      caTo = (nx.float, ny.float)
+      caT0 = getMonoTime()
+      caNextAt = caT0
+      caOn = true
+      inc caGlides
+    else:
+      caOn = false                 # (a step of a column or two — typing: no glide)
+  caShownX = nx
+  caShownY = ny
+  caOn
+
+proc caEmit(o: var string, i: int, c0: Cell) =
+  ## one cell sent on its own (the attributes and colours from nothing)
+  var c = c0
+  if cfgTransparentBg and c.bg == theme.bg: c.bg = NoColor
+  o.add "\e["
+  o.add $(i div scrW + 1)
+  o.add ';'
+  o.add $(i mod scrW + 1)
+  o.add "H\e[0"
+  let at = if cfgItalics: c.at else: c.at - {aItalic}
+  if aBold in at: o.add ";1"
+  if aDim in at: o.add ";2"
+  if aItalic in at: o.add ";3"
+  if aUnder in at: o.add ";4"
+  if aRev in at: o.add ";7"
+  if aStrike in at: o.add ";9"
+  sgrUnderline(o, at, at)
+  sgrColorFast(o, c.fg, true)
+  sgrColorFast(o, c.bg, false)
+  o.add 'm'
+  var ch = c.ch.int
+  if ch == 0: ch = 32
+  if cfgAccessible and ch >= 128 and ch < 0x3000: ch = asciiGlyph(ch)
+  if ch < 128: o.add char(ch)
+  elif ch >= PoolBase.int: o.add cellPool[ch - PoolBase.int]
+  else: o.addUtf8(ch)
+
+proc caDueMs(): int =
+  ## (the main loop's wait) until the next glide frame; -1: no glide
+  if not caOn: return -1
+  max(0, int((caNextAt - getMonoTime()).inMilliseconds))
+
+proc caPump() =
+  ## the next glide frame, when it is due: the trail from its tail to its head, brightest at the head
+  if not caOn or getMonoTime() < caNextAt: return
+  caNextAt = getMonoTime() + initDuration(milliseconds = CaFrameMs)
+  if grid.len != scrW * scrH or prevGrid.len != grid.len:
+    caOn = false
+    caCells.setLen(0)
+    return
+  let t = caT()
+  var cells: seq[(int, float)]
+  if t < 1.0:
+    let head = caAt(t)
+    let tail = caAt(t - 0.3)       # (the tail follows a little behind: a smear, not a jump)
+    let (x0, y0) = (int(round(tail[0])), int(round(tail[1])))
+    let (x1, y1) = (int(round(head[0])), int(round(head[1])))
+    let steps = max(abs(x1 - x0), abs(y1 - y0))
+    for k in countdown(steps, 0):  # (from the head: when the trail is long, its far end is left out)
+      let f = if steps == 0: 1.0 else: k / steps
+      let x = int(round(x0.float + (x1 - x0).float * f))
+      let y = int(round(y0.float + (y1 - y0).float * f))
+      if x < 0 or y < 0 or x >= scrW or y >= scrH: continue
+      let i = y * scrW + x
+      let ch = grid[i].ch
+      if ch == 0 or ch >= PoolBase or (ch >= 0x1100 and cellWidth(ch) == 2): continue   # (a wide character)
+      if gfxShown.key.len > 0 and y >= gfxShown.y and y < gfxShown.y + gfxShown.h: continue  # (a picture's cells)
+      var seen = false
+      for (j, _) in cells:
+        if j == i: seen = true
+      if seen: continue
+      cells.add (i, 0.3 + 0.6 * f)
+      if cells.len >= 80: break
+  var o = newStringOfCap(1024)
+  o.add "\e[?2026h\e[?25l"
+  for i in caCells:                # (the cells the trail left: what the frame has there)
+    var still = false
+    for (j, _) in cells:
+      if j == i: still = true
+    if not still and i < grid.len:
+      caEmit(o, i, grid[i])
+      prevGrid[i] = grid[i]
+  caCells.setLen(0)
+  let glyph = case cfgCursorStyle
+              of "block": 0x2588'u32
+              of "underline": 0x2581'u32
+              else: 0x258E'u32
+  for (i, k) in cells:
+    let bg = if grid[i].bg == NoColor: theme.bg else: grid[i].bg
+    caEmit(o, i, Cell(ch: glyph, fg: blend(bg, theme.fg, k), bg: grid[i].bg))
+    prevGrid[i] = UnknownCell      # (a frame drawn meanwhile repaints it)
+    caCells.add i
+  if t >= 1.0:
+    caOn = false
+    if cursorX >= 0 and cursorY >= 0 and cursorX < scrW and cursorY < scrH:
+      o.add "\e[" & $(cursorY + 1) & ";" & $(cursorX + 1) & "H\e[?25h"
+  o.add "\e[0m\e[?2026l"
+  writeAll(o)
+  inc caFrames
+  caBytes += o.len

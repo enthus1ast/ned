@@ -196,7 +196,9 @@ commas and keywords, around assignments and comparisons, none inside brackets), 
 written. On Lua's sources 96.4% of the lines come out as clang-format 18 writes them in LLVM's style (the other
 styles: 86–96%; `tests/format/cfmtcompare.py`). Like the Nim one, it checks that the code is the same token for
 token, or changes nothing. `c.formatter`: `auto` (clang-format while clangd is the C engine, else ned's own),
-`clang-format`, `builtin`.
+`clang-format`, `builtin`. With several lines selected, Alt+F (or *Format selection*) changes only those: the file
+is laid out as a whole, and what that changes on the other lines is left as it was (a line joined to or split from
+a selected one goes with it).
 
 The styles it knows, and what each changes:
 

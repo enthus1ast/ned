@@ -12,6 +12,7 @@
 import nedplugin
 
 requiresNed(">= 6.25")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 
 type Marked = object
   buf: int                       ## the file (-1: nothing is marked)

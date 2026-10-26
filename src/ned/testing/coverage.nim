@@ -246,7 +246,7 @@ proc ncCompileC(r: NimCovRun, test, dir, name: string) =
     return
   let cwd = recipe{"currentDir"}.getStr(parentDir(test))
   let linkCmd0 = recipe{"linkcmd"}.getStr
-  let exe = dir / name
+  let exe = dir / name & ExeDot
   for d in jitems(recipe{"depfiles"}):             # (every module it is built from)
     if d.kind == JArray and d.len > 0:
       let p = nimCovPath(r, d[0].getStr)
@@ -369,7 +369,7 @@ proc ncBuild(r: NimCovRun, test: string) =
               (if cfgNimFlags.len > 0: " " & cfgNimFlags else: "") & (if isTestamentTest(test): " -d:testing" else: "")
   let cmd = "nim c --compileOnly -d:nimBetterRun --colors:off" & flags & " --debugger:off --lineDir:on --opt:none " &
             "--stackTrace:on --lineTrace:on --passC:-O0 --passC:--coverage --passL:--coverage " &
-            "--nimcache:" & quoteShell(dir) & " -o:" & quoteShell(dir / name) & " " & quoteShell(test)
+            "--nimcache:" & quoteShell(dir) & " -o:" & quoteShell(dir / name & ExeDot) & " " & quoteShell(test)
   let nth = if r.tests.len > 1: "  (" & $(r.tests.len - r.queue.len) & " of " & $r.tests.len & ")" else: ""
   addPanelLine(PanelLine(text: "▶ " & relPath(test) & nth, sev: 5, line: -1))
   info("Coverage: building " & extractFilename(test) & "…")

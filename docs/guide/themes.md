@@ -240,6 +240,7 @@ Most of these are also in View › Editor and the palette (*Toggle sticky scroll
 | setting | default | what it does |
 |---|---|---|
 | `ui.cursorStyle` | `"bar"` | `bar`, `block` or `underline` |
+| `ui.cursorAnimation` · `ui.cursorAnimationMs` | `"glide"` · `100` | when the cursor jumps — a line up or down, to a word, to a definition — it glides there with a short trail that fades behind it, up to 120 frames a second; `off`: it jumps. Only the trail's cells are sent, so it costs the terminal little; on a slow terminal it is left out |
 | `ui.italics` | `false` | italic comments and hints — only for a terminal font that has an italic face |
 | `ui.shadows` | `true` | shadows under menus, popups and dialogs |
 | `ui.hoverEffects` | `true` | highlight buttons and rows under the mouse |

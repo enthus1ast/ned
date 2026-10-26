@@ -215,9 +215,100 @@ proc formatLineRange(b: Buffer, l0, l1: int, quiet: bool): bool =
   if not quiet: info("Formatted " & $(l1 - l0 + 1) & " line(s)")
   true
 
+proc fmtKeepRange(old, nw: seq[string], l0, l1: int): seq[string] =
+  ## the lines `old` with only the formatter's changes to lines l0..l1 taken from `nw`. Where it changed only
+  ## spaces and line breaks, each line goes with the new lines that hold the same code (`return c+d;}` with
+  ## `return c + d;` and `}`): a change to lines outside the range is left out, one that joins or splits lines across
+  ## its edge is taken whole
+  func squeezed(t: string): int =
+    for ch in t:
+      if ch notin Whitespace: inc result
+  func code(ls: seq[string], a, b: int): string =
+    for i in a ..< b:
+      for ch in ls[i]:
+        if ch notin Whitespace: result.add ch
+  let ops = lineDiff(old, nw)
+  var ai = 0
+  var bi = 0
+  var k = 0
+  while k < ops.len:
+    if ops[k].kind == ' ':
+      result.add old[ai]
+      inc ai
+      inc bi
+      inc k
+      continue
+    let (a0, b0) = (ai, bi)
+    while k < ops.len and ops[k].kind != ' ':
+      if ops[k].kind == '-': inc ai else: inc bi
+      inc k
+    let (a1, b1) = (ai, bi)
+    # (the hunk in groups: old lines and new lines that hold the same code)
+    var groups: seq[(int, int, int, int)]
+    if code(old, a0, a1) == code(nw, b0, b1):
+      var i = a0
+      var j = b0
+      while i < a1 or j < b1:
+        let (gi, gj) = (i, j)
+        var po, pn = 0
+        if i < a1:
+          po += squeezed(old[i])
+          inc i
+        else:
+          pn += squeezed(nw[j])
+          inc j
+        while po != pn:
+          if po < pn and i < a1:
+            po += squeezed(old[i])
+            inc i
+          elif pn < po and j < b1:
+            pn += squeezed(nw[j])
+            inc j
+          else: break
+        groups.add (gi, i, gj, j)
+    elif a1 - a0 == b1 - b0:
+      for x in 0 ..< a1 - a0: groups.add (a0 + x, a0 + x + 1, b0 + x, b0 + x + 1)
+    else: groups.add (a0, a1, b0, b1)
+    for (ga, gb, na, nb) in groups:
+      let inRange = if gb > ga: gb > l0 and ga <= l1 else: ga >= l0 and ga <= l1 + 1
+      if inRange:
+        for x in na ..< nb: result.add nw[x]
+      else:
+        for x in ga ..< gb: result.add old[x]
+
+proc cFormatLines(b: Buffer, l0, l1: int): (seq[string], string) =
+  ## ned's own C formatter on lines l0..l1 of a C or C++ file: the whole file formatted (a line is laid out by what
+  ## is around it), only the changes to those lines kept — (the file's lines then; why not, when it could not)
+  let text = b.allText & "\n"
+  let (res, err) = builtinFormatText(builtinFmtKind(b.path, b.lang.id), text, b.indentW(), b.path)
+  if err.len > 0: return (b.lines, err)
+  var nl = res.split('\n')
+  if nl.len > 1 and nl[^1].len == 0: nl.setLen(nl.len - 1)
+  (fmtKeepRange(b.lines, nl, l0, l1), "")
+
+proc cFormatsOwn(b: Buffer): bool =
+  ## does ned's own C formatter format this file (no formatter of yours or of a plugin's, not clang-format)?
+  b.lang != nil and b.lang.id in ["c", "cpp"] and b.lang.id notin cfgUserFmt and b.lang.id notin plugFmtCmd and
+    b.lang.id notin plugFmtCb and not cWantsClangFormat()
+
 proc formatSelection(b: Buffer) =
-  ## the selected lines only, with the built-in Nim formatter: formatted as a block at their own indentation
+  ## the selected lines only, with the built-in Nim formatter (formatted as a block at their own indentation) or
+  ## ned's own C formatter (the changes it makes to those lines)
   if not b.canEdit(): return
+  if cFormatsOwn(b):
+    let (a, e) = b.primary.range
+    var l1 = e.line
+    if e.col == 0 and l1 > a.line: dec l1
+    let (outp, err) = b.cFormatLines(a.line, l1)
+    if err.len > 0:
+      error("Format selection: " & err)
+      return
+    if outp == b.lines:
+      info("Already formatted")
+      return
+    b.setTextMinimal(outp.join("\n") & "\n")
+    info("Formatted " & $(l1 - a.line + 1) & " line(s) (built-in C formatter)")
+    return
   if b.lang.mode != lmNim:
     let s = lspReady(b)
     if s != nil and s.caps != nil and s.caps{"documentRangeFormattingProvider"} != nil and
@@ -240,6 +331,9 @@ proc formatSelection(b: Buffer) =
 proc formatBuffer(b: Buffer) =
   if not b.canEdit(): return
   var cmds: seq[string]
+  if b.primary.hasSel and b.primary.range[0].line != b.primary.range[1].line and cFormatsOwn(b):
+    formatSelection(b)                     # (C, lines selected: just those, with ned's own formatter)
+    return
   if b.lang.mode != lmNim and b.primary.hasSel and b.primary.range[0].line != b.primary.range[1].line:
     # lines selected, a language server that formats ranges: just those (Alt+F)
     let s = lspReady(b)

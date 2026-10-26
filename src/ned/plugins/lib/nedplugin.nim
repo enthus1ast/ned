@@ -91,6 +91,12 @@ var
   queued: seq[JsonNode]          # ned's calls that came while waiting for an answer
   curPlugin* = ""                ## the plugin whose code runs now
   curRid = 0                     # the call of ned's it runs for (edits in it are one undo step)
+  # a copy of a buffer's lines, kept while ned says its version has not changed: reading a file line by line asks
+  # ned once, not once a line (ned sends the versions of the buffers a call is about with the call)
+  bufVer: Table[int, string]     # buffer id → its version as ned last said
+  bufCopy: Table[int, (string, seq[string])]   # buffer id → (the version it is a copy of, its lines)
+  bufMiss: Table[int, (string, int)]           # buffer id → (version, reads asked of ned at it)
+  knownCur = -2                  # the current buffer, as the call ned is running says (-2: not known: ask)
   dirs: seq[(string, string)]    # plugin id, its folder
 
 proc send(j: JsonNode) =
@@ -132,8 +138,16 @@ proc pluginOf*(file: string): string =
 
 proc handle(j: JsonNode)
 
+const ReadOnlyApi = ["buffers", "path", "lang", "lineCount", "line", "lines", "text", "textIn", "dirty", "indent",
+                     "lineComment", "wordAt", "cursor", "selection", "selections", "vimMode", "snapshot", "setting",
+                     "dataDir", "pluginDir", "log", "message", "status", "progress", "clipboard", "sign", "vtext",
+                     "highlight", "clearDecorations", "toast", "output", "problems", "setCursor", "select"]
+
 proc api*(fn: string, args: JsonNode = newJObject()): JsonNode =
   ## ask ned something (or have it do something) and wait for the answer; what the API procs below use
+  if fn notin ReadOnlyApi:
+    bufVer.clear()                               # (an edit, or something that may lead to one: copies not trusted)
+    knownCur = -2
   inc nextApi
   let id = nextApi
   send(%*{"t": "api", "id": id, "fn": fn, "args": args, "plugin": curPlugin, "rid": curRid})
@@ -173,12 +187,18 @@ proc handle(j: JsonNode) =
   of "call":
     let cb = j{"cb"}.getInt(-1)
     let rid = j{"rid"}.getInt
+    let vs = j{"vers"}
+    if vs != nil and vs.kind == JObject:
+      for k, v in vs:
+        try: bufVer[parseInt(k)] = v.getStr
+        except ValueError: discard
     if cb < 0 or cb >= callbacks.len:
       send(%*{"t": "ret", "rid": rid, "err": "no such callback"})
       return
-    let (p0, r0) = (curPlugin, curRid)
+    let (p0, r0, c0) = (curPlugin, curRid, knownCur)
     curPlugin = cbOwner[cb]
     curRid = rid
+    knownCur = j{"cur"}.getInt(-2)
     try:
       let v = callbacks[cb](j{"args"})
       send(%*{"t": "ret", "rid": rid, "value": (if v == nil: newJNull() else: v)})
@@ -186,6 +206,7 @@ proc handle(j: JsonNode) =
       send(%*{"t": "ret", "rid": rid, "err": e.msg})
     curPlugin = p0
     curRid = r0
+    knownCur = c0
   of "quit": quit(0)
   else: discard
 
@@ -236,7 +257,7 @@ func noRange*(): Range = Range(start: Pos(line: -1), stop: Pos(line: -1))
 
 # ── buffers: the text ──
 
-proc current*(): Buf = Buf(id: api("current").getInt(-1))
+proc current*(): Buf = Buf(id: (if knownCur >= -1: knownCur else: api("current").getInt(-1)))
   ## the file being edited
 proc openFile*(path: string, line = -1, col = -1): Buf =
   ## open a file (or go to it), at a line when given
@@ -259,15 +280,41 @@ proc path*(b: Buf): string = api("path", %*{"buf": b.id}).getStr
   ## the file's path ("" for an unsaved one)
 proc lang*(b: Buf): string = api("lang", %*{"buf": b.id}).getStr
   ## its language id ("nim", "python", "zig" …)
-proc lineCount*(b: Buf): int = api("lineCount", %*{"buf": b.id}).getInt
+proc copied(b: Buf): bool =
+  ## a copy of the buffer's lines that is still its text — made at the second read of the same version
+  if b.id notin bufVer: return false
+  let v = bufVer[b.id]
+  if b.id in bufCopy and bufCopy[b.id][0] == v: return true
+  let m = if b.id in bufMiss and bufMiss[b.id][0] == v: bufMiss[b.id][1] + 1 else: 1
+  bufMiss[b.id] = (v, m)
+  if m < 2: return false
+  let r = api("snapshot", %*{"buf": b.id})
+  if r{"v"}.getStr != v: return false                 # (it changed meanwhile)
+  var ls: seq[string]
+  for x in r{"lines"}: ls.add x.getStr
+  bufCopy[b.id] = (v, ls)
+  true
+
+proc lineCount*(b: Buf): int =
   ## how many lines it has (an empty file: 1)
-proc line*(b: Buf, i: int): string = api("line", %*{"buf": b.id, "line": i}).getStr
+  if copied(b): bufCopy[b.id][1].len else: api("lineCount", %*{"buf": b.id}).getInt
+proc line*(b: Buf, i: int): string =
   ## line i, without its line end ("" past the end)
+  if copied(b):
+    if i >= 0 and i < bufCopy[b.id][1].len: bufCopy[b.id][1][i] else: ""
+  else: api("line", %*{"buf": b.id, "line": i}).getStr
 proc lines*(b: Buf, first = 0, last = -1): seq[string] =
   ## lines first .. last (-1: to the end)
-  for x in api("lines", %*{"buf": b.id, "first": first, "last": last}): result.add x.getStr
-proc text*(b: Buf): string = api("text", %*{"buf": b.id}).getStr
+  if copied(b):
+    let n = bufCopy[b.id][1].len
+    let f = clamp(first, 0, max(0, n - 1))
+    let l = if last < 0 or last > n - 1: n - 1 else: last
+    for i in f .. l: result.add bufCopy[b.id][1][i]
+  else:
+    for x in api("lines", %*{"buf": b.id, "first": first, "last": last}): result.add x.getStr
+proc text*(b: Buf): string =
   ## the whole text (lines joined with \n)
+  if copied(b): bufCopy[b.id][1].join("\n") else: api("text", %*{"buf": b.id}).getStr
 proc textIn*(b: Buf, r: Range): string = api("textIn", %*{"buf": b.id, "range": %r}).getStr
   ## the text in the range (lines joined with \n)
 proc setText*(b: Buf, s: string) = discard api("setText", %*{"buf": b.id, "text": s})
@@ -437,6 +484,32 @@ proc clearDecorations*(b: Buf) = discard api("clearDecorations", %*{"buf": b.id}
   ## this plugin's signs, texts and highlights in the file
 proc status*(text: string) = discard api("status", %*{"text": text})
   ## this plugin's item in the status bar ("" removes it)
+
+type IndentStyle* = object
+  ## how the indentation of a line looks — ned draws it as it draws the line, so nothing is sent for each line
+  ## (6.29). See indentStyle
+  dot*: string                   ## a mark in each space of the indentation, up to the first letter ("·"; "": none)
+  dotColor*: string              ## its colour: guide (the default), hint, accent, info, warn, add, del, error or "#rrggbb"
+  tab*: string                   ## a mark at the first column of a tab in the indentation ("→"; "": none)
+  blankLines*: bool              ## a blank line's indentation too: as deep as the code around it
+  lineEnd*: string               ## a mark after the end of each line ("¬"; "": none)
+  levels*: seq[string]           ## a colour for each level of indentation, round again after the last (as dotColor)
+  levelStyle*: string            ## how the levels show: "background" (bands: the default), "guides" (the │ of each
+                                 ## level in its colour) or "dots" (the dots in it)
+  wrongColor*: string            ## indentation that is not whole levels (3 spaces where a level is 2): its band
+                                 ## ("": not marked)
+  langs*: seq[string]            ## only in these languages ("nim", "python" …; empty: every file)
+
+proc indentStyle*(s: IndentStyle) =
+  ## this plugin's look for indentation — one for each plugin: a new one takes the place of the last, and
+  ## `indentStyle(IndentStyle())` takes it away. Selections, search matches and highlights keep their own colours
+  var lv = newJArray()
+  for c in s.levels: lv.add %c
+  var ls = newJArray()
+  for l in s.langs: ls.add %l
+  discard api("indentStyle", %*{"dot": s.dot, "dotColor": s.dotColor, "tab": s.tab, "blankLines": s.blankLines,
+                                "lineEnd": s.lineEnd, "levels": lv, "levelStyle": s.levelStyle,
+                                "wrongColor": s.wrongColor, "langs": ls})
 
 # ── settings, its folder ──
 
@@ -887,6 +960,15 @@ proc regRequires*(file, spec: string) = discard register(file, "requires", %*{"s
 template requiresNed*(spec: string) =
   ## the ned it needs (">= 6.20"): an older ned leaves the plugin out and says why
   regRequires(instantiationInfo(-1, true).filename, spec)
+
+proc regInfo*(file: string, info: JsonNode) = discard register(file, "info", info)
+  ## (what pluginInfo uses: call pluginInfo)
+template pluginInfo*(version: string, author = "", homepage = "", license = "") =
+  ## the plugin's version ("1.2.0": major.minor.patch), who wrote it, where it lives and its licence — shown in
+  ## the Plugins dock. ned reads them from the source, not by running it, so give them as plain strings. Check for
+  ## updates compares the version with the one in the plugin's repository
+  regInfo(instantiationInfo(-1, true).filename, %*{"version": version, "author": author, "homepage": homepage,
+                                                   "license": license})
 
 proc regSettingDef*(file, key: string, default: JsonNode, description: string) =
   ## (what settingDef uses: call settingDef)

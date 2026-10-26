@@ -419,6 +419,19 @@ proc buildChat(width: int): seq[ChatLine] =
       result.add head
       for l in (if m.shown.len > 0: m.shown else: m.text).splitLines:
         result.add wrapSpans(@[span(l, theme.fg, ub)], width, ub, 2)
+      # its pictures: drawn small (a tap opens one), each with its name and size
+      for p in m.pics:
+        let cols = max(8, min(width - 4, 36))
+        let n = if fileExists(p): min(mdPicRows(p, cols), 12) else: 0
+        for k in 0 ..< n: result.add ChatLine(bg: ub, pic: p, picRow: k, picRows: n)
+        let (pw, ph) = picSize(p)
+        let kb = try: $(getFileSize(p) div 1024) & " KB" except CatchableError: "gone"
+        var l = ChatLine(bg: ub, spans: @[span("  ▣ " & extractFilename(p), theme.accent, ub),
+                                          span("  " & (if pw > 0: $pw & "×" & $ph & ", " else: "") & kb, theme.dim, ub)])
+        let pp = p
+        l.act = proc() = discard openFile(pp)
+        l.tip = ""
+        result.add l
     of 1:
       if m.text.len > 0 or mi == 0 or aiMsgs[mi - 1].role notin {1, 2}: result.add ChatLine(bg: bg)
       if m.text.len > 0 or (m.calls.len == 0 and aiBusy and mi == aiMsgs.high):
@@ -633,6 +646,16 @@ proc drawAssistant(x0, y0, w, h: int) =
     let y = chatTop + r
     let rb = if cl.act != nil and hov(x0, y, w): blend(cl.bg, theme.fg, 0.08) else: cl.bg
     fillRect(x0, y, w, 1, theme.fg, rb)
+    if cl.pic.len > 0:
+      # a picture sent with a message: half blocks, two pixels' rows to a cell
+      let cols = max(8, min(w - 5, 36))
+      let cells = mdPicRow(cl.pic, cols, cl.picRows, cl.picRow)
+      for k, (top, bot) in cells:
+        if k >= w - 3: break
+        setCell(x0 + 2 + k, y, Cell(ch: 0x2580, fg: top, bg: bot))
+      let pp = cl.pic
+      region(x0 + 2, y, min(w - 3, cells.len), 1, proc() = discard openFile(pp), "Open the picture")
+      continue
     var xx = x0
     for sp in cl.spans:
       xx = putStr(xx, y, sp.t, sp.fg, (if sp.bg == NoColor or sp.bg == cl.bg: rb else: sp.bg), sp.at, x0 + w)
@@ -711,12 +734,75 @@ proc drawAssistant(x0, y0, w, h: int) =
       var ms: seq[string]
       for m in mentionNames():
         if m.startsWith(lastW[^1]): ms.add m
-      hint = (if ms.len > 0: ms.join(" ") & "  (Tab) · " else: "") & "@path attaches a file"
+      hint = (if ms.len > 0: ms.join(" ") & "  (Tab) · " else: "") & "@path attaches a file (a picture as one)"
+    elif "@" in aiInput:
+      let n = aiMentionedPics(aiInput, quiet = true).len
+      if n > 0: hint = "▣ " & (if n == 1: "a picture goes" else: $n & " pictures go") & " with it · " & hint
   var hx = x0 + w - 1
   if aiUsageShownBelow.len > 0 and strWidth(aiUsageShownBelow) + 14 < w:     # tokens and cost win over the hint
     hx = x0 + w - strWidth(aiUsageShownBelow) - 1
     discard putStr(hx, y0 + h - 1, aiUsageShownBelow, theme.dim, bg)
   discard putStr(x0 + 2, y0 + h - 1, truncTo(hint, hx - x0 - 3), blend(theme.dim, bg, 0.3), bg, {}, hx)
+
+proc aiAttachPicture() =
+  ## AI: attach a picture… — the project's pictures, and the newest screenshots and photos (on a phone or tablet
+  ## too: ~/storage/shared/… once termux-setup-storage has run), newest first
+  var found: seq[(int64, string)]
+  var seen: HashSet[string]
+  proc add(p: string) =
+    if p in seen or aiPicMime(p).len == 0: return
+    seen.incl p
+    let t = try: getLastModificationTime(p).toUnix except CatchableError: 0'i64
+    found.add (t, p)
+  for p in projectFiles():
+    if isPicturePath(p): add(rootDir / p)
+  # (a screenshot in the project is often new — not one git knows, so not in the file list): three levels down
+  var level = @[rootDir]
+  var seenFiles = 0
+  for depth in 0 .. 2:
+    var next: seq[string]
+    for d in level:
+      try:
+        for k, p in walkDir(d):
+          let n = extractFilename(p)
+          if n.startsWith(".") or n in ["node_modules", "nimcache", "target", "build", "dist", "__pycache__"]: continue
+          if k == pcDir: next.add p
+          elif k in {pcFile, pcLinkToFile} and isPicturePath(p): add(p)
+          inc seenFiles
+          if seenFiles > 5000: break
+      except OSError: discard
+    level = next
+  let h = getHomeDir()
+  for d in [h / "storage" / "shared" / "Pictures" / "Screenshots", h / "storage" / "shared" / "DCIM" / "Screenshots",
+            h / "storage" / "dcim" / "Camera", h / "storage" / "downloads", h / "Pictures" / "Screenshots",
+            h / "Pictures", h / "Desktop", h / "Downloads"]:
+    if not dirExists(d): continue
+    var n = 0
+    try:
+      for k, p in walkDir(d):
+        if k in {pcFile, pcLinkToFile}:
+          add(p)
+          inc n
+          if n > 400: break
+    except OSError: discard
+  found.sort(proc(a, b: (int64, string)): int = cmp(b[0], a[0]))
+  if found.len == 0:
+    info("No pictures in the project, nor in the usual screenshot folders — type @ and a picture's path")
+    return
+  proc pick(p: string): Action = (proc() =
+    let m = "@" & (if p.startsWith(rootDir & "/"): relPath(p) else: tildePath(p)) & " "
+    aiInput.insert(m, min(aiInputCur, aiInput.len))
+    aiInputCur = min(aiInputCur, aiInput.len - m.len) + m.len
+    showSide(svAssistant)
+    focus = fRight)
+  var items: seq[(string, string, Action)]
+  for (t, p) in found:
+    if items.len >= 300: break
+    let why = aiPicWhy(p)
+    let (w, h) = picSize(p)
+    items.add act(extractFilename(p), (if why.len > 0: why else: (if w > 0: $w & "×" & $h & " · " else: "") &
+                  tildePath(parentDir(p))), pick(p))
+  openActions("Attach a picture to the message", items)
 
 func mentionInsertAct(m: string): Action =
   proc() =
@@ -802,6 +888,8 @@ proc assistantKey(k: Key) =
       const MentionHelp = ["the current file", "the selection", "uncommitted changes (git diff)", "staged changes",
                            "errors and warnings", "the terminal's last output", "the project's file list"]
       for i, m in AiMentions: items.add act(m, MentionHelp[min(i, MentionHelp.high)], mentionInsertAct(m))
+      items.add act("▣ a picture…", "a screenshot or a photo, for a model that reads pictures", proc() =
+        aiAttachPicture())
       for srv in mcpServers:
         if srv.dead: continue
         for r in srv.resources:
@@ -820,6 +908,16 @@ proc assistantKey(k: Key) =
       return
     discard editLine(aiInput, aiInputCur, k)
   of kPaste:
+    # a picture's path (a terminal pastes a dropped file's path, quoted or as file://): it goes with the message
+    var t = k.text.strip.strip(chars = {'\'', '"'})
+    if t.startsWith("file://"): t = pathFromUri(t)
+    if '\n' notin t and isPicturePath(t) and fileExists(expandTilde(t)):
+      let m = "@" & (let a = absolutePath(expandTilde(t)); if a.startsWith(rootDir & "/"): relPath(a) else: a) & " "
+      aiInput.insert(m, aiInputCur)
+      aiInputCur += m.len
+      let why = aiPicWhy(absolutePath(expandTilde(t)))
+      info(if why.len > 0: extractFilename(t) & ": " & why else: "The picture goes with the message")
+      return
     aiInput.insert(k.text, aiInputCur)
     aiInputCur += k.text.len
   else: discard editLine(aiInput, aiInputCur, k)

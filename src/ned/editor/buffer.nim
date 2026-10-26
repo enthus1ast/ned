@@ -519,7 +519,8 @@ proc langAt(b: Buffer, p: Pos): Lang =
   ## the language of the code at p: the file's own, or the one embedded there — C in a Nim emit, HTML or SQL
   ## in a string, JavaScript in a <script>, a Markdown code block's
   result = b.lang
-  if b.lang == nil or b.lang.mode notin {lmNim, lmMarkdown, lmHtml, lmNimf} or p.line < 0 or p.line >= b.lines.len:
+  if b.lang == nil or b.lang.mode notin {lmNim, lmMarkdown, lmHtml, lmNimf, lmJinja} or p.line < 0 or
+     p.line >= b.lines.len:
     return
   let s = b.lines[p.line]
   if s.len > 2000: return

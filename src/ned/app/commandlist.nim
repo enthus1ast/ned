@@ -35,7 +35,7 @@ proc initCommands() =
   add("Show hover info", "Alt+H", cmdHover())
   add("Rename symbol", "F2", cmdRename())
   add("Format document", "Alt+F", buf().formatBuffer())
-  add("Format selection (Nim built in, or the language server)", "Alt+F with lines selected", buf().formatSelection())
+  add("Format selection (ned's own for Nim and C, or the language server)", "Alt+F with lines selected", buf().formatSelection())
   add("Format: the code in this string", "JSON, CSS, C in an emit …", cmdFormatEmbedded())
   add("Format: preview the change", "side by side, then apply it or not", cmdFormatPreview())
   add("Format: only the lines I changed", "since git last saw the file", (block:
@@ -461,7 +461,8 @@ proc initCommands() =
   add("Plugins: new plugin in full Nim (compiled)…", "", (plugNewFull = true;
       openPrompt(pPluginNew, "Name of the new plugin (full Nim: compiled, a process of its own)", "")))
   add("Plugins: browse the plugin list…", "", plugBrowse())
-  add("Plugins: update (git pull)", "", plugUpdate())
+  add("Plugins: update (git pull)", "every plugin from git, not the pinned ones", plugUpdate())
+  add("Plugins: check for updates", "what your plugins' repositories have now", plugCheckUpdates())
   add("Plugins: reload one…", "", cmdPluginReloadOne())
   add("Plugins: add an example…", "", plugAddExample())
   add("Plugins: install from git…", "", openPrompt(pPluginInstall, "Plugin repository (https://…)", ""))
@@ -481,7 +482,7 @@ proc initCommands() =
   add("TODO: rescan the project", "", todoScanProject())
   add("Outline panel", "Alt+I", (if rightOpen and rightView == svOutline and focus == fRight: toggleDock(dsRight) else: showSide(svOutline)))
   add("Git panel", "Alt+G", showSide(svGit))
-  add("Git: commit…", "", openPrompt(pGitCommit, "Commit message", ""))
+  add("Git: commit…", "", gitCommitPrompt())
   add("Git: stage all", "", gitRun(@["add", "-A"], "Staged all changes"))
   add("Git: pull", "", gitNet("pull", "Pulled"))
   add("Git: pull (rebase)", "", gitNet("pull --rebase", "Pulled"))
@@ -495,6 +496,8 @@ proc initCommands() =
   add("Git: undo…", "the last commits, pulls, merges, rebases — back to before one", gitUndoMenu())
   add("Git: undo the last step", "a commit, an amend, a pull, a merge …", gitUndoLast())
   add("Git: undo the last commit", "its changes stay, staged", gitUndoLast())
+  add("Git: why did this line change? (AI)", "its commit, explained by the assistant", gitWhyLine())
+  add("Git: resolve the conflicts with AI", "checked by the compiler, shown side by side first", aiResolveConflicts())
   add("Git: stage selected lines", "", stageSelectedLines())
   add("Git: history…", "", gitLogView())
   add("Git: stash…", "", gitStashMenu())
@@ -633,6 +636,12 @@ proc initCommands() =
         let o = t.termCmdOutput(i)
         clipSet(o)
         info("Copied the output of " & truncTo(t.cmds[i].text, 40) & " (" & $(if o.len == 0: 0 else: o.count('\n') + 1) & " lines)")))
+  add("Terminal: kill", "", (block:
+    let t = curTermObj()
+    if t != nil and not t.dead and t.pid > 0:
+      if t.hosted: t.hostSend('k', "")
+      else: discard kill(t.pid, SIGHUP)))
+  add("Terminal: kept terminals…", "terminal.keepRunning: every folder's, each to end", termKeptMenu())
   add("Toggle left dock", "Ctrl+B", toggleDock(dsLeft))
   add("Toggle right dock", "", toggleDock(dsRight))
   add("Focus next area", "F6", cycleFocus(1))
@@ -733,14 +742,28 @@ proc initCommands() =
       if e.name == TestamentName and e.path notin specs: specs.add e.path
     if specs.len == 0: info("No testament tests: files in tests/ that start with a discard \"\"\" … \"\"\" spec")
     else: runTestamentFiles(specs)))
+  add("Telescope…", "Alt+Shift+F", telescope())
+  add("Telescope: live grep", "", tsLiveGrep())
+  add("Telescope: grep the word under the cursor", "", tsLiveGrep(tsWordAtCursor()))
+  add("Telescope: settings", "", tsSettings())
+  add("Telescope: git commits", "", tsGitLog())
+  add("Telescope: git changed files", "", tsGitStatus())
+  add("Telescope: resume", "the last finder, with what you had typed", tsResume())
+  add("Help: update ned…", "the newest release, in the terminal: ned --update (it asks first)",
+      runInTerm(quoteShell(getAppFilename()) & " --update"))
   add("AI: new chat", "", aiNewChat())
+  add("AI: attach a picture…", "a screenshot or a photo, for a model that reads pictures", aiAttachPicture())
   add("AI: stop", "", aiStop())
   add("AI: ask about selection", "", (block:
     showSide(svAssistant)
     if aiInput.len == 0:
       aiInput = (if buf().primary.hasSel: "Explain the selected code." else: "Explain this file.")
       aiInputCur = aiInput.len))
-  add("AI: edit selection…", "Alt+Shift+C", openPrompt(pAiEdit, "Edit with AI — describe the change", ""))
+  add("AI: edit selection…", "Alt+Shift+C", (block:
+    # (nothing selected, the cursor on a comment: the code it describes — else the edit the prompt describes)
+    if not buf().primary.hasSel and buf().aiCommentHere()[0] >= 0: aiCodeFromComment()
+    else: openPrompt(pAiEdit, "Edit with AI — describe the change", "")))
+  add("AI: write the code this comment describes", "Alt+Shift+C on a comment; also its ✦", aiCodeFromComment())
   add("AI: explain code", "", aiQuick("Explain this code step by step, briefly."))
   add("AI: fix problems in file", "", (block:
     let b = buf()

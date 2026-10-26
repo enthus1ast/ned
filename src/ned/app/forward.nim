@@ -94,6 +94,15 @@ proc cEngSignature(b: Buffer, p: Pos): bool
 proc cEngOutline(b: Buffer): seq[SideItem]
 proc cEngCallHierarchy(b: Buffer): bool
 proc cEngInlays(b: Buffer, lo, hi: int)
+proc cEngHighlights(b: Buffer, p: Pos): seq[(Pos, Pos)]
+proc cAddInclude(b: Buffer, incl: string)
+proc cEngSemMap(b: Buffer, make: bool): CxSemMap
+proc cEngTypeDefinition(b: Buffer): bool
+proc cEngSymbols(b: Buffer): seq[PickItem]
+proc cEngProjectSymbols(path, rel: string): seq[PickItem]
+proc cEngTypeHierarchy(b: Buffer): bool
+proc cEngImplementations(b: Buffer): bool
+proc cEngSemApply(s: string, toks: var seq[TokKind], m: CxSemMap, line: int)
 proc cmdSwitchHeaderSource()
 proc ceIsView(b: Buffer): bool
 proc ceDrawHeader(b: Buffer, i, x, y, w: int)
@@ -222,6 +231,22 @@ proc rebuildProblems()                                # ui/panel.nim
 proc nbCanRun(b: Buffer): bool                        # editor/notebook.nim
 proc isPicturePath(path: string): bool                # editor/pictures.nim
 proc picOpen(b: Buffer)
+proc picSize(path: string): (int, int)                # editor/pictures.nim
+proc mdPicRows(path: string, cols: int): int
+proc mdPicRow(path: string, cols, rows, k: int): seq[(Rgb, Rgb)]
 proc drawPicture(b: Buffer, x0, y0, w, h: int)
 proc drawFlame(b: Buffer, x0, y0, w, h: int)          # nim/flame.nim
 proc nbRunAt(b: Buffer, line: int, advance = false)   # editor/notebook.nim
+proc termKeptMenu()                                   # term/termhost.nim
+proc remoteFetch(local: string): bool                 # project/remotesync.nim
+proc aiReviewStaged()                                 # ai/oneshot.nim
+proc aiResolveConflicts()                             # git/aigit.nim
+proc aiIsComment(b: Buffer, l: int): bool               # ai/comments.nim
+proc aiIsDocComment(b: Buffer, l: int): bool            # ai/comments.nim
+proc aiCodeFromComment()
+proc aiCommentsSaved(b: Buffer)
+proc tsPreviewText(idx: int): Buffer                    # ui/telescope.nim
+proc tsDeclLine(path, name: string): int
+proc telescope()
+proc tsLivePump()
+proc nimEngHighlights(b: Buffer, p: Pos, first = 0, last = int.high): seq[(Pos, Pos)]   # nim/highlights.nim

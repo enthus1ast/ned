@@ -230,7 +230,7 @@ proc memCheckCmd(b: Buffer, tmp: string): string =
   ## run under valgrind), then the run — one shell command
   let f = quoteShell(b.path)
   let t = quoteShell(tmp)
-  let prog = quoteShell(tmp / "prog")
+  let prog = quoteShell(tmp / "prog" & ExeDot)
   var builds: seq[string]
   if b.lang.mode == lmNim:
     let base = "nim " & (if cfgNimTarget == "cpp": "cpp" else: "c") & " --hints:off --debugger:native -d:useMalloc" &

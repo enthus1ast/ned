@@ -82,6 +82,62 @@ func ligatureSymbol(op, langId: string): array[2, uint32] =
     if op == k: return v
   if op == "<-" and langId == "go": return [0x2190'u32, 0x2500]       # (a channel; in C, a<-b is a < -b)
 
+proc lineIndentW(b: Buffer, line: int): int =
+  ## the width of a line's indentation — a blank line's: the shallower of the code above and below it
+  let s = b.lines[line]
+  if not isBlank(s): return visColOf(s, leadingWs(s).len)
+  var up, down = 0
+  for l2 in countdown(line - 1, max(0, line - 60)):
+    if not isBlank(b.lines[l2]):
+      up = visColOf(b.lines[l2], leadingWs(b.lines[l2]).len)
+      break
+  for l2 in line + 1 .. min(b.lines.high, line + 60):
+    if not isBlank(b.lines[l2]):
+      down = visColOf(b.lines[l2], leadingWs(b.lines[l2]).len)
+      break
+  min(up, down)
+
+proc drawPlugIndent(b: Buffer, st: PlugIndent, line, y, tx0, baseVc, limX, unit: int, rowBg: Rgb) =
+  ## a plugin's look for this line's indentation (indentStyle): its dots, a colour for each level — over what the
+  ## line drew, on the cells that are still plain (a selection, a match, a highlight keep theirs)
+  let s = b.lines[line]
+  let blank = isBlank(s)
+  if blank and not st.blank: return
+  let w = lineIndentW(b, line)
+  if w <= 0: return
+  let u = if unit > 0: unit else: 2
+  # (the columns where a tab of the indentation starts)
+  var tabAt: seq[bool]
+  if st.tab.len > 0 and not blank:
+    tabAt = newSeq[bool](w + 1)
+    var vc = 0
+    for ch in s:
+      if ch == '\t':
+        if vc < tabAt.len: tabAt[vc] = true
+        vc += tabW - vc mod tabW
+      elif ch == ' ': inc vc
+      else: break
+  let dotCp = if st.dot.len > 0: runeAt(st.dot, 0)[0].uint32 elif st.levelStyle == "dots" and st.levels.len > 0: 0x00B7'u32
+              else: 0'u32
+  let tabCp = if st.tab.len > 0: runeAt(st.tab, 0)[0].uint32 else: 0'u32
+  let dotFg = if st.dotColor.len > 0: plugColor(st.dotColor) else: theme.guide
+  let wrong = st.wrongColor.len > 0 and not blank and w mod u != 0
+  for g in 0 ..< w:
+    let gx = tx0 + g - baseVc
+    if gx < tx0 or gx >= limX or gx >= scrW: continue
+    let i = y * scrW + gx
+    var c = grid[i]
+    if c.bg != rowBg: continue
+    let lc = if st.levels.len > 0: plugColor(st.levels[(g div u) mod st.levels.len]) else: NoColor
+    if wrong and g >= (w div u) * u: c.bg = blend(rowBg, plugColor(st.wrongColor), 0.35)
+    elif st.levels.len > 0 and st.levelStyle notin ["guides", "dots"]: c.bg = blend(rowBg, lc, 0.13)
+    if c.ch == 0x2502'u32:
+      if st.levels.len > 0 and st.levelStyle == "guides": c.fg = lc
+    elif c.ch in [32'u32, 0x00B7'u32, 0x2192'u32]:
+      if tabCp != 0 and g < tabAt.len and tabAt[g]: (c.ch, c.fg) = (tabCp, dotFg)
+      elif dotCp != 0: (c.ch, c.fg) = (dotCp, (if st.levels.len > 0 and st.levelStyle == "dots": lc else: dotFg))
+    grid[i] = c
+
 proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   if b.id in mergeViews and not mergeInner and h >= 14 and w >= 40:
     drawMergeView(b, x0, y0, w, h, active)
@@ -118,6 +174,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     return
   let sem = semMapFor(b)
   let lsem = lspSemFor(b)
+  let csem = if lsem.len == 0: cEngSemMap(b, make = false) else: nil     # (C: ned's engine, without a server's)
   let isMb = b.id in multiBufs
   var mbRows: seq[(int, int)]          # a multibuffer: (line, screen row) of the lines drawn
   # names the compiler says are unused: faded, like desktop editors do
@@ -202,7 +259,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   var useDocHl = false
   if findQ.len == 0 and not isFind and not primSel and cfgHighlightOcc and docHl.bufId == b.id and docHl.pos == ph and
      docHl.change == b.changeId and docHl.ranges.len > 0:
-    useDocHl = true                     # the language server knows which names are the same symbol
+    useDocHl = true                     # the language server (C: ned's engine) knows which names are the same symbol
   elif cfgHighlightOcc and not isFind and not primSel and not b.largeOn:
     let wd = b.wordAt(ph)
     if wd.len >= 2 and not wd[0].isDigit:
@@ -212,6 +269,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   let vimVis = cfgVim and vimMode in {vmVisual, vmVLine}
   # (no indentation guides in assembly: its instructions are indented, not nested)
   let unit = if b.lang != nil and b.lang.name == "Assembly": 0 else: b.indentW()
+  var (piOn, piSt) = b.plugIndentFor()     # (a plugin's look for indentation: indent-dots, rainbow-indent)
+  if b.largeOn: piOn = false
   # the active indent guide: the one of the block the cursor is in, a little brighter (like VS Code)
   var agCol, agA, agB = -1
   if cfgGuides and unit > 0 and b.lines.len < 200_000 and ph.line < b.lines.len:
@@ -308,6 +367,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         for (c, n, k) in lsem[line]:
           for q in c ..< min(c + n, toks.len):
             if toks[q] in {tkText, tkType, tkVariable}: toks[q] = k
+      elif csem != nil and s.len < 4000: cEngSemApply(s, toks, csem, line)
       if unusedAt.len > 0 and line in unusedAt:
         toksUnfaded = toks                 # (a type hint after a faded name is still drawn)
         for (c, n) in unusedAt[line]:
@@ -645,6 +705,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         vc += cw
         i += n
       if rulersOn: rulerRow(y)
+      if piOn and si == 0: drawPlugIndent(b, piSt, line, y, tx0, baseVc, limX, unit, rowBg)
       for (oc, ot) in overlays:
         # a type hint over the spaces before a lined-up `=` (its column: where the spaces start)
         if oc < segStart or oc > segEnd: continue
@@ -663,6 +724,9 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           shift += strWidth(hints[hk][1])
           inc hk
         let ex = tx0 + vc - baseVc + rowOff + shift
+        if piOn and piSt.lineEnd.len > 0 and ex >= tx0 and ex < limX and grid[y * scrW + ex].ch == 32 and
+           grid[y * scrW + ex].bg == rowBg:
+          setCell(ex, y, Cell(ch: runeAt(piSt.lineEnd, 0)[0].uint32, fg: theme.guide, bg: rowBg))
         if b.folds.len > 0:
           let fi = b.foldAt(line)
           if fi >= 0 and ex + 2 < limX:
@@ -703,6 +767,13 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
             of 2: theme.err
             else: theme.inlay
           discard putStr(ex + 3, y, tnote, tc, rowBg, {aItalic}, limX)
+        elif active and line == ph.line and ex + 16 < limX and not b.readOnly and b.aiIsComment(line) and
+             not b.aiIsComment(line + 1) and not b.aiIsDocComment(line) and sBool("ai.commentButton") and
+             (cfgAiProvider in ["ollama", "custom"] or aiKey().len > 0):
+          # the comment the cursor is on: ✦ writes the code it describes (as Alt+Shift+C does)
+          let nx = putStr(ex + 3, y, "✦ write it", theme.inlay, rowBg, {aItalic}, limX)
+          region(ex + 3, y, nx - ex - 3, 1, proc() = aiCodeFromComment(),
+                 "The assistant writes the code this comment describes (Alt+Shift+C) — shown before it is used")
         elif cfgBlame and active and line == ph.line and blameText.len > 0 and ex + 8 < limX and
              blameFor.startsWith(b.path & ":" & $line & ":"):
           discard putStr(ex + 3, y, blameText, theme.inlay, rowBg, {aItalic}, limX)

@@ -1,4 +1,5 @@
-# ── project-wide symbols (heuristic, works offline for every language) ──
+# ── project-wide symbols (works offline for every language: Nim's and C's from ned's engines, the others' by
+#    their shape) ──
 
 proc cmdProjectSymbols() =
   let t0 = getMonoTime()
@@ -28,6 +29,16 @@ proc cmdProjectSymbols() =
       except Exception as e: internalError("Nim index", e)
       if msSince(t0) > 2500 or items.len > 200_000: break
       continue
+    if lang.id in ["c", "cpp"]:
+      # C and C++ files: from ned's C engine (its declarations, a struct's fields, an enum's constants)
+      var cs: seq[PickItem]
+      try:
+        if getFileSize(path) <= 2_000_000: cs = cEngProjectSymbols(path, rel)
+      except CatchableError: discard
+      if cs.len > 0:
+        items.add cs
+        if msSince(t0) > 2500 or items.len > 200_000: break
+        continue
     try:
       if getFileSize(path) > 600_000: continue
       let tb = newBuffer()

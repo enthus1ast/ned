@@ -54,6 +54,13 @@ proc perfReport(): string =
   for _, sc in nxScopes: scopeRefs += sc.refs.len
   result.add "  index: " & $(nxFilesBytes div 1048576) & " MB of " & $nxFiles.len & " parsed files (nim.indexMemory: " &
              $(nxIndexBudget div 1048576) & " MB), " & $nxScopes.len & " scopes (" & $(scopeRefs div 1000) & "k names)\n\n"
+  if caGlides > 0:
+    result.add "Cursor glides: " & $caGlides & " (" & $caFrames & " frames of their own, " & $(caBytes div 1024) &
+               " KB sent for them)\n"
+  result.add "Compiler checks while typing: " & $typingRuns & " run, " & $typingSkips &
+             " not needed (only a comment or spacing had changed)\n"
+  result.add "Git: git status ran " & $gitStatusRuns & " times since ned started (" & $gitWatchRuns &
+             " after a change it saw" & (if gitWatchOn(): "; the repository is watched" else: "") & ")\n\n"
   result.add "Memory: ned " & $procRssMB(getpid().int) & " MB (its heap: " & $(getOccupiedMem() div 1048576) &
              " MB in use of " & $(getTotalMem() div 1048576) & " MB)\n\n"
   result.add "Running in the background\n"

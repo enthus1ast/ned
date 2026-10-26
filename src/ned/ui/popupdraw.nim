@@ -53,8 +53,7 @@ proc drawDialog() =
   var btnW = 0
   for (l, _) in d.buttons: btnW += strWidth(l) + 4 + 1
   let h = lines.len + 6
-  let x = (scrW - w) div 2
-  let y = max(1, (scrH - h) div 2 - 2)
+  let (x, y) = boxPlace("dialog", (scrW - w) div 2, max(1, (scrH - h) div 2 - 2), w, h)
   modalStart = regions.len
   region(0, 0, scrW, scrH, proc() = discard)          # swallow clicks outside
   drawFrame(x, y, w, h, theme.menuBg, (if d.danger: theme.warn else: theme.accent), d.title,

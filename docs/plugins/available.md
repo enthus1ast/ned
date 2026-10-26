@@ -1,6 +1,6 @@
 # ned's own plugins
 
-ned comes with thirty-four plugins of its own. They are all off until you turn one on. Turn one on in the
+ned comes with fifty-eight plugins of its own. They are all off until you turn one on. Turn one on in the
 **Plugins dock** (View › Plugins panel, or the menu bar's **Plugins** › Plugins panel): its **AVAILABLE ·
 ned's own plugins** section lists the ones that are off, each with a line saying what it does. A tap turns one
 on: the dock goes to it under **INSTALLED**, and once it runs the status bar says what it added — the languages,
@@ -23,9 +23,11 @@ Some of them do more than edit, and ask first when you turn them on (what you al
 project's `.json` files and reads JSON from the clipboard, **markdown-tools** reads a link's address from the
 clipboard, **oil** changes files — that is what it is for —, **commit-helper** runs git, **nim-eval** runs nim,
 **sqlite** runs sqlite3, **web-preview** opens your browser and starts a web server, **mermaid** runs mmdc,
-**license-header** runs git and writes headers into files, **dotenv** writes an `.env.example`, and **transform**
-puts a sum on the clipboard. The others only edit; harpoon, pomodoro and time-tracker keep their data in their own
-folder, which needs no permission.
+**license-header** runs git and writes headers into files, **dotenv** writes an `.env.example`, **transform** puts a
+sum on the clipboard, **yank-ring** reads the clipboard, **import-graph** reads a project's import lines with find
+and awk, **release-helper** runs git, **db-client** runs psql or mysql, **code-snap** writes a picture beside your
+file when you set it to, and **todo** writes `TODO.md` when it is not open in a tab. The others only edit; harpoon,
+pomodoro, time-tracker, yank-ring and char-picker keep their data in their own folder, which needs no permission.
 
 The plugins you have turned on are listed in the setting `plugins.bundled`. A project cannot set it until you
 trust the folder.
@@ -45,6 +47,12 @@ it. In short:
 | **align** | line up the `=`, `:`, `,`, `|` (or any text) of several lines in one column; Markdown tables too. In vim: `ga{motion}` |
 | **transform** | the selected lines (or the whole file) sorted, made unique, reversed, shuffled, numbered, joined; the selection encoded and decoded (base64, URL, hex, HTML, a string literal), JSON made pretty or one line, numbers added up |
 | **license-header** | the copyright and licence line at the top of a file, in the file's own comments: the licence of the project's LICENSE file, your name from git, this year — on one file or on every file of the project |
+| **yank-ring** | a history of what you copied and cut: *Yank ring: paste from history…* (Ctrl+Alt+V) lists the last ones to paste; right after a paste, Alt+Shift+Y swaps it for the copy before. Kept in memory only, unless `plugins.yank-ring.keepOnDisk` says otherwise (a copy can be a password) |
+| **doc-gen** | *Doc: write a doc comment* for the routine at the cursor: a line for what it does, one for each parameter and one for its result — `##` in Nim, a docstring in Python, JSDoc, Doxygen in C and C++, Go's and Rust's own. Alt+Enter on a signature without one offers it |
+| **color-picker** | the colour at the cursor written another way (#rrggbb → rgb() → hsl(), Nim's 0xRRGGBB and std/colors' names), made lighter or darker, or picked from CSS's 148 named colours |
+| **char-picker** | *Insert a character…* (Ctrl+Alt+U): about 850 characters by name — arrows, maths, Greek, box drawing, currency, emoji, Nerd Font symbols; the name and code point of the character under the cursor (vim: `g8`) |
+| **indent-dots** | a dot in each space of a line's indentation, up to its first letter — not between words, as Xcode shows it; → where a tab starts, a blank line's dots as deep as the code around it, `¬` at line ends if you want. *Indent dots: on/off* (vim `<leader>id`) |
+| **rainbow-indent** | each level of indentation in its own colour — soft bands, the guides, or the dots of indent-dots — and a red band where a line's indentation is not whole levels. The theme's colours by default, or yours. *Rainbow indent: on/off*, *…next style* |
 
 ## Moving around and seeing what keys do
 
@@ -62,6 +70,7 @@ it. In short:
 | **rest-client** | HTTP requests written in `.http` files (variables, `# @name` to use one response in the next, `{{$guid}}` …), sent with curl in the background. The response opens in a tab of its own. Ctrl+Alt+R, or vim `<leader>r` |
 | **path-complete** | the names of files and folders, completed in a path you type: in quotes, on an `import` line, in a Markdown link |
 | **markdown-tools** | a table of contents kept up to date (on save too), lists renumbered, checkboxes, bold, italic and links, completion of `#anchors` |
+| **todo** | a task list for the project in `TODO.md`, as Markdown checkboxes: *Todo: add a task…* (Alt+Shift+A) from anywhere — on a `TODO` comment, the comment and its place; `due:fri`, `due:+3` written as dates, `(A)` for priority —, *Todo: the list…* (Alt+Shift+L) by the day due, done with the day, archived under `## Done`. The open ones in the status bar (☐ 3 ⚠ 1) and in the Plugins dock; a note at start when some are due |
 | **pomodoro** | a focus timer: 25 minutes, then a break, with the time left in the status bar |
 | **time-tracker** | how long you work on each project and file (only while you do something), in the status bar and in a report. It stays on your device |
 | **regex-lab** | try a regular expression on the file: its matches lit up, their groups beside them; a replace with $1 … (how many it changes asked first); a pattern explained a piece at a time |
@@ -70,6 +79,11 @@ it. In short:
 | **commit-helper** | a commit message drafted from what is staged — the kind of change, where, what — to read, fix and commit |
 | **nim-eval** | the selected Nim (or the line) compiled and run where you write it, what it prints shown beside it |
 | **mermaid** | Mermaid diagrams: their colours, snippets, an outline, and the picture made by mermaid-cli (mmdc) and shown in ned — of a `.mmd` file or a Markdown ```` ```mermaid ```` block |
+| **nim-html** | web pages written in Nim with Karax: completion and hover of its tags and attributes in a `buildHtml` block; Emmet (`div.card>h2+p*2`), HTML and std/htmlgen calls turned into Karax's DSL; snippets |
+| **import-graph** | how a Nim project's modules import one another: a Mermaid flowchart and a tree in a Markdown tab, and the modules that import the file you are in |
+| **release-helper** | a Nim package's release: the version bumped in the `.nimble` file (and a `version.nim`), a CHANGELOG entry from git's log since the last tag, the tag made and pushed when you choose |
+| **db-client** | SQL run on PostgreSQL or MySQL/MariaDB with psql or mysql: the statement at the cursor (Ctrl+Enter) or the file, the rows as a table in a tab, an error at its line. Connections in `plugins.db-client.connections`; passwords stay in the programs' own files, never in ned's settings |
+| **code-snap** | the selected code as a picture — an SVG or an HTML page of a window with its lines, coloured, numbered — to put in a README or a post |
 
 ## Languages
 
@@ -85,6 +99,18 @@ it. In short:
 | **crystal** | Crystal: colours, comments, indentation, F5 (`crystal run`, `crystal spec`), snippets, an outline; crystalline and `crystal tool format` |
 | **dart** | Dart and Flutter: colours, comments, indentation, F5 (`dart run`, `dart test`, `flutter run`), snippets (widgets too), an outline; Dart's language server and `dart format` |
 | **clojure** | Clojure, ClojureScript, EDN and Babashka: colours, comments, indentation, F5 (clojure, lein, bb), snippets, an outline; clojure-lsp, and zprint or cljfmt |
+| **swift** | Swift: colours, comments, indentation, F5 (`swift run`, `swift test`, or the file alone), snippets, an outline; sourcekit-lsp and swift-format |
+| **scala** | Scala 2 and 3, sbt files too: colours, comments, indentation, F5 (sbt, scala-cli or scala), snippets, an outline; Metals and scalafmt |
+| **r** | R: colours, comments, indentation, F5 (`Rscript`, testthat for a test file), snippets, an outline; R's languageserver (started at the first save, when the package is installed) and styler |
+| **nix** | Nix: colours, comments, indentation, F5 (`nix flake check`, else `nix-instantiate --eval`), snippets, an outline; nixd or nil, and nixfmt or alejandra |
+| **terraform** | Terraform, its `.tfvars` and HCL: colours, comments, indentation, F5 (`terraform plan`), snippets, an outline; terraform-ls and `terraform fmt` |
+| **protobuf** | Protocol Buffers: colours, comments, indentation, F5 (`buf generate`, `buf build` or protoc), snippets, an outline; protols or bufls, and `buf format` |
+| **graphql** | GraphQL: colours, comments, indentation, snippets, an outline; graphql-lsp and prettier |
+| **svelte** | Svelte components: colours, comments, indentation, F5 (`npm run dev`, or pnpm, yarn, bun), snippets, an outline; svelteserver and prettier |
+| **cmake** | CMake (`CMakeLists.txt`, `.cmake`): colours, comments, indentation, F5 (configure and build; `cmake -P` for a script), snippets, an outline; neocmakelsp or cmake-language-server, and gersemi or cmake-format |
+| **latex** | LaTeX and BibTeX: colours, comments, indentation, F5 (`latexmk -pdf`, following a `% !TEX root` line), snippets, an outline; texlab and latexindent |
+| **perl** | Perl: colours, comments, indentation, F5 (`perl -Ilib`, `prove` for a `.t` file), snippets, an outline; Perl Navigator or Perl::LanguageServer, and perltidy |
+| **erlang** | Erlang: colours, comments, indentation, F5 (rebar3's eunit or ct, else erlc and erl), snippets, an outline; ELP or erlang_ls, and erlfmt |
 | **dotenv** | `.env` files: colours, their keys in the outline, their mistakes as you type, a `${KEY}`'s value on hover, an `.env.example` made from them |
 
 A language plugin works without its tools; the language server, formatter or compiler is used once it is on

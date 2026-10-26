@@ -49,7 +49,7 @@ proc aiTestsVerify(srcPath, testPath, spec, focus, code: string, attempt: int, c
     error("Cannot write " & relPath(testPath) & ": " & e.msg)
     return
   let cache = privTmp("aitests")
-  let exe = cache / "aitest"
+  let exe = cache / "aitest" & ExeDot
   let tmo = if haveExe("timeout"): "timeout 60 " else: ""
   let cmd = "nim c --hints:off --colors:off --nimcache:" & quoteShell(cache) & " -o:" & quoteShell(exe) & " " &
             quoteShell(testPath) & " && echo NED_TESTS_RUN && " & tmo & quoteShell(exe)

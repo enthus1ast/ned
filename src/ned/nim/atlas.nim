@@ -130,7 +130,7 @@ proc atlasDeps(root = rootDir, force = false): seq[AtlasDep] =
   try:
     for k, p in walkDir(dd):
       let nm = extractFilename(p)
-      if nm.startsWith(".") or nm.startsWith("_") or nm.startsWith("nim-") and fileExists(p / "bin" / "nim"): continue
+      if nm.startsWith(".") or nm.startsWith("_") or nm.startsWith("nim-") and fileExists(p / "bin" / addFileExt("nim", ExeExt)): continue
       if k in {pcDir, pcLinkToDir} and normalizedPath(p) notin seen:
         var d = AtlasDep(name: nm, key: nm, dir: normalizedPath(p))
         for kk, f in walkDir(p):
@@ -176,7 +176,7 @@ proc atlasEnvs(root = rootDir): seq[(string, string)] =
   try:
     for k, p in walkDir(atlasDepsDir(root)):
       let nm = extractFilename(p)
-      if k in {pcDir, pcLinkToDir} and nm.startsWith("nim-") and fileExists(p / "bin" / "nim"):
+      if k in {pcDir, pcLinkToDir} and nm.startsWith("nim-") and fileExists(p / "bin" / addFileExt("nim", ExeExt)):
         result.add (nm[4 .. ^1], p)
   except CatchableError: discard
   result.sort(proc(a, b: (string, string)): int = verCmp(b[0], a[0]))
@@ -410,7 +410,7 @@ proc cmdAtlasEnv() =
     atlasRun("env " & (if mode == "binary": "--binary " elif mode == "source": "--source " else: "") & quoteShell(v),
       proc(code: int) =
         let d = atlasDepsDir(rootDir) / ("nim-" & v)
-        if code == 0 and use and fileExists(d / "bin" / "nim"):
+        if code == 0 and use and fileExists(d / "bin" / addFileExt("nim", ExeExt)):
           setProjectSetting("nim.toolchain", %d)
           info("This project uses Nim " & v & " (" & tildePath(d) & ")"))
     true

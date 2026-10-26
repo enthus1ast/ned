@@ -115,6 +115,7 @@ proc mainLoop() =
       if not privSwept:
         privSwept = true
         timedWork("old temporary files"): privSweep()   # (after the first frame: nothing in the way of the start)
+    caPump()                                # (the cursor's glide, a frame of its own: only the trail's cells)
     if startTrace and startRss.len == 1:
       # settled: the file list made, git and the other background jobs done (10 s at most)
       var busyJobs = false
@@ -151,6 +152,7 @@ proc mainLoop() =
     plugFds(fds)
     nbFds(fds)
     for fd in termFds(): fds.add TPollfd(fd: fd, events: POLLIN)
+    gitWatchFds(fds)
     wkFds(fds)
     if dbgOn and dbgProc.outFd >= 0: fds.add TPollfd(fd: dbgProc.outFd, events: POLLIN)
     if dbgOn and dbgDap and dapSock >= 0: fds.add TPollfd(fd: dapSock, events: POLLIN)
@@ -220,6 +222,8 @@ proc mainLoop() =
       if b.changeId != b.swapAt and b.dirty: anySwap = true
     if anySwap: timeout = min(timeout, 1000)
     if away and not busy and inBuf.len == 0 and not inputBacklog and landBuf < 0: timeout = max(timeout, 1000)
+    let caMs = caDueMs()
+    if caMs >= 0: timeout = min(timeout, caMs)               # (the cursor's glide: its next frame)
     # (how long the round before took — a long one is a moment ned did not answer keys or the mouse)
     noteBusy(int((getMonoTime() - busyFrom).inMicroseconds))
     let r = poll(addr fds[0], fds.len.Tnfds, timeout.cint)
@@ -397,10 +401,17 @@ proc mainLoop() =
         if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb):
           timedWork("the compiler's check started"): typingCheck(cb)
         else: cb.chkAt = -1
-      elif cfgLiveCheck and (cb.dirty or cb.chkAt > 0) and cb.chkAt != cb.changeId and msSince(cb.lspChangeAt) > 1200 and
-         cb.path notin typingChecks and not cEngineOn(cb):           # (C: below)
+      elif cfgLiveCheck and (cb.dirty or cb.chkAt > 0) and cb.chkAt != cb.changeId and
+         msSince(cb.lspChangeAt) > max(1200, min(4000, typingCheckMs.getOrDefault(cb.path, 0))) and
+         cb.path notin typingChecks and not cEngineOn(cb) and not compOpen:   # (C: below)
+        # (a check that takes long waits for a longer pause; none while the completion list is open: a word
+        # half typed is an error the next key mends)
         if typingCheckUsable(cb):
-          timedWork("the compiler's check started"): typingCheck(cb)   # the compiler, on the unsaved text
+          if cb.path in typingSig and typingSig[cb.path] == cb.typingCodeSig():
+            cb.chkAt = cb.changeId                    # (only a comment or spacing changed: what it said stands)
+            inc typingSkips
+          else:
+            timedWork("the compiler's check started"): typingCheck(cb)   # the compiler, on the unsaved text
         elif nsUsable(cb):
           cb.chkAt = cb.changeId
           discard nsRequest(cb, nsChk, Pos())
@@ -426,8 +437,10 @@ proc mainLoop() =
       # (every 5 s while the Git or Files dock shows it — less often in a repository git takes long over, and not
       # while you are away)
       if cfgGitAutoRefresh and not away and (treeOpen and sideView in {svGit, svFiles}) and
-         msSince(gitStatusAt) > max(5000, 20 * gitStatusTook):
+         msSince(gitStatusAt) > max((if gitWatchOn(): 60_000 else: 5000), 20 * gitStatusTook):
         timedWork("git status"): refreshGitStatus()
+      timedWork("git status"): gitWatchPump(ready)      # (what changed in the repository: see git/watch)
+      tsLivePump()                                       # (a live Telescope finder: its search as you type)
       if wsRoots.len > 0 and cb.path.len > 0 and cb.path != gitFollowPath:
         # a workspace: the Git dock follows the open file to its folder's repository
         gitFollowPath = cb.path
@@ -535,6 +548,8 @@ proc usage() =
   echo "  -h, --help            show this help"
   echo "  -v, --version         show version"
   echo "  --check               check the setup: Nim, tools, clipboard, terminal (for bug reports too)"
+  echo "  --update              install the newest release, the way this ned was installed (it asks first;"
+  echo "                        --check only says whether there is one, --yes does not ask)"
   echo "  --default-settings    print the full settings file with every option and its default"
   echo "  --doc-settings, --doc-commands  every setting, every command of the palette, as Markdown (the docs)"
   echo "  --reset [--yes] [--keep-plugins]  remove ned's settings, sessions, history, caches and downloads: ned"
@@ -754,6 +769,10 @@ proc main() =
         echo AppName & " " & Version
         quit 0
       of "--engine-worker": workerMain()          # (the editor's engine worker: nim/worker.nim)
+      of "--update": quit updateMain(cl[ai .. ^1])
+      of "--term-host":                           # (a kept terminal's shell: term/termhost.nim)
+        when not defined(windows): termHostMain(cl[ai .. ^1])
+        else: quit 2
       of "--check": doCheck = true
       of "--reset": quit resetCli(cl[ai .. ^1])
       of "--startup-time": startTrace = true
@@ -926,6 +945,11 @@ proc main() =
     if fileExists(t[0]) or not dirExists(t[0]): opened = true
   if not opened: restoreSession()
   else: restoreBreakpoints()
+  termReattach()                       # (terminal.keepRunning: the terminals kept running since last time)
+  when defined(windows):
+    if isCmdExe(winShell()[0]):
+      toast("Git for Windows' sh was not found: builds, checks and tasks run through cmd.exe, where some of them " &
+            "fail — winget install Git.Git (Help › Check setup)", 2)
   restoreLayout()
   hotExitRestore()                     # (files.hotExit: the unsaved edits of last time, in their tabs)
   checkRecoveryAtStart()

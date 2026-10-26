@@ -115,6 +115,10 @@ proc initSettingDefs() =
   defS("Appearance", "ui.tooltips", %true, "Tooltips when the pointer rests on a button")
   defS("Appearance", "ui.mouse", %true, "Mouse and touch support (Alt+U toggles it so Termux text selection works)")
   defS("Appearance", "ui.cursorStyle", %"bar", "Text cursor shape", @["bar", "block", "underline"])
+  defS("Appearance", "ui.cursorAnimation", %"glide", "When the cursor jumps — a line up or down, to the next word, " &
+       "to a definition — it glides there with a short trail that fades behind it (up to 120 frames a second; only " &
+       "the trail's cells are sent). 'off': it jumps at once. Never on a slow terminal", @["glide", "off"])
+  defS("Appearance", "ui.cursorAnimationMs", %100, "How long the cursor's glide lasts, in milliseconds (40 to 300)")
   defS("Appearance", "ui.trueColor", %"auto", "24-bit colour ('off' uses the 256-colour palette; 'auto' also asks the " &
        "terminal, so it is right over SSH and in tmux, where COLORTERM is often lost)", @["auto", "on", "off"])
   defS("Appearance", "ui.kittyKeyboard", %"auto", "The kitty keyboard protocol, where the terminal has it (kitty, " &
@@ -322,6 +326,9 @@ proc initSettingDefs() =
        "and VISUAL, each where you have not set it: `git commit` opens its message in a tab of this ned and waits until you " &
        "close it (`ned FILE` in ned's terminal opens the file here either way; ned --new starts another ned)")
   defS("Terminal", "terminal.cwd", %"project", "Where new terminals start", @["project", "file"])
+  defS("Terminal", "terminal.keepRunning", %true, "Terminals keep running when ned quits or its window closes: " &
+       "the next ned in the same folder takes them back, with what they showed. Kill terminal ends one; Terminal: " &
+       "kept terminals… lists them all. Not on Windows, nor REPLs or a remote folder's terminal")
   defS("Terminal", "terminal.shellIntegration", %true, "bash, zsh and fish mark each command (OSC 133): Ctrl+↑/↓ " &
        "jumps between them, failed ones are marked, and a command's output can be copied or the command run again")
   # ── Git ──
@@ -337,7 +344,8 @@ proc initSettingDefs() =
        "the compiler knows · nimlangserver = the language server · off", @["builtin", "nimlangserver", "off"])
   defS("Nim", "nim.semanticColors", %true,
        "Colour names by what they are (procs, types, constants, fields), as the built-in engine knows them — not by " &
-       "whether they start with a capital letter. Other languages get them from their language server")
+       "whether they start with a capital letter. C and C++ get them from ned's C engine (parameters, globals, " &
+       "macros, fields, enum constants, types), other languages from their language server")
   defS("Nim", "nim.richColors", %true,
        "With semantic colours: a `var` tinted (a `let` stays plain), the module's own variables in bold, deprecated " &
        "names faded and struck through, cast/addr/unsafeAddr/ptr in the warning colour")
@@ -615,13 +623,23 @@ proc initSettingDefs() =
   defS("Plugins", "plugins.bundled", newJArray(), "ned's own plugins you turned on (Plugins dock › AVAILABLE, or " &
        "Plugins › Available plugins…), by name: [\"dial\", \"harpoon\"] — they come with ned and update with it")
   defS("Plugins", "plugins.native", %"auto", "Compile the NimScript plugins (nim c, in the background) instead of " &
-       "running them with nim e: a faster start, faster calls, less memory. auto: a set of plugins started before " &
-       "as it is now is compiled for the next start · on: always · off: never (a plugin that uses what only " &
-       "NimScript has stays with nim e)", @["auto", "on", "off"])
+       "running them with nim e: a faster start, faster calls, less memory. auto: a set of plugins is compiled as " &
+       "it starts, for the next start (a plugin you are writing — changed in the last 10 minutes — once it has " &
+       "started unchanged) · on: always · off: never (a plugin that uses what only NimScript has stays with nim e)", @["auto", "on", "off"])
   defS("Plugins", "plugins.alone", newJArray(), "NimScript plugins that run in a process of their own (by name): a " &
        "slow or crashing one never holds up the others — [\"big-linter\"] (plugins in full Nim always do)")
   defS("Plugins", "plugins.indexUrl", %"", "A list of plugins to install from (Plugins: browse the plugin list…): " &
        "a URL or a file of JSON — [{\"name\": …, \"url\": \"https://… (git)\", \"description\": …}]")
+  defS("AI", "ai.commentCommands", %true, "Comments ending in AI! or AI? (# make this a func AI!): when the file " &
+       "is saved, the assistant makes the change an AI! comment asks for — shown side by side, checked by the " &
+       "compiler first, to take or leave — and answers an AI? comment in the chat")
+  defS("AI", "ai.commentButton", %true, "✦ write it after the comment the cursor is on: the assistant writes the " &
+       "code the comment describes (as Alt+Shift+C on a comment does), shown before it is used")
+  defS("Plugins", "plugins.checkForUpdates", %true, "Once a day, ask the repositories of your plugins that came from " &
+       "git whether they have a newer version (git fetch, in the background): the Plugins dock shows ↑ 1.3.0, and " &
+       "Plugins: update… brings it. Plugins: check for updates asks now")
+  defS("Plugins", "plugins.pinned", newJObject(), "Plugins kept at the version they are at — updates leave them " &
+       "alone: {\"notes\": \"1.2.0\"} (a plugin's menu in the Plugins dock: Pin at …)")
   defS("Plugins", "plugins.timeoutMs", %1500, "How long ned waits for a plugin that must answer before it goes on " &
        "(an event before saving, a NimScript formatter, a vim text object)")
   defS("Plugins", "plugins", newJObject(), "Each plugin's own settings: {\"zig-lite\": {\"width\": 80}} — or " &
@@ -650,6 +668,11 @@ proc initSettingDefs() =
        "[\"terminal.shell\", \"ui.mouse\"]")
   defS("Remote (SSH)", "remote.exclude", %*[".git", "node_modules", ".venv", "venv", "target", "nimcache", "__pycache__",
        ".mypy_cache", ".pytest_cache"], "Folders left on the server when a remote folder is copied over (Remote: open a folder over SSH)")
+  defS("Remote (SSH)", "remote.languageServers", %"auto", "Where a remote folder's language servers run: auto = on " &
+       "the server when it has the server's program (with the packages and toolchain there), else here on the local " &
+       "copy · server = only there · here = only on the local copy. Files of the server's that they point to — a " &
+       "definition in its library — are fetched to read. With no Nim here, ned's own Nim engine reads the server's " &
+       "library (fetched once), except with here", @["auto", "server", "here"])
   defS("Remote (SSH)", "remote.autoSync", %10, "Every this many seconds, files changed on the server (by a build, " &
        "git, another editor) are copied into the local copy; open tabs without unsaved changes reload (0 = only " &
        "after Run, tasks and the assistant's commands)")
@@ -917,6 +940,8 @@ proc applySettings() =
   cfgTooltips = sBool("ui.tooltips")
   cfgMouse = sBool("ui.mouse")
   cfgCursorStyle = sStr("ui.cursorStyle")
+  cfgCursorAnim = sStr("ui.cursorAnimation")
+  cfgCursorAnimMs = clamp(sInt("ui.cursorAnimationMs"), 40, 300)
   cfgKittyKeys = sStr("ui.kittyKeyboard")
   if cfgKittyKeys == "off" and tcKittyOn:
     writeAll("\e[<u")
@@ -1031,6 +1056,7 @@ proc applySettings() =
   cfgTermScrollback = clamp(sInt("terminal.scrollback"), 100, 100000)
   cfgTermCwd = sStr("terminal.cwd")
   cfgTermIntegration = sBool("terminal.shellIntegration")
+  cfgTermKeep = sBool("terminal.keepRunning")
   cfgGitGutter = sBool("git.gutter")
   cfgGitAutoRefresh = sBool("git.autoRefresh")
   cfgGitUntrackedAll = sStr("git.untrackedFiles") == "all"

@@ -155,7 +155,11 @@ proc drawDockList(dl: var DockList, v: SideView, x0, y0, w, h: int, focused: boo
           for tg in todoTags: ws.add tg.word
           "No " & ws.join(", ") & " comments" & (if todoScopeFile: " in this file" else: ""))
       else: ""
-    discard putStr(x0 + 2, y0 + 1, msg, theme.dim, bg0, {aItalic}, x0 + w)
+    # (wrapped to the dock: a narrow one cut the list of tags in the middle)
+    var yy = y0 + 1
+    for l in wrapText(msg, max(8, w - 3)):
+      discard putStr(x0 + 2, yy, l, theme.dim, bg0, {aItalic}, x0 + w)
+      inc yy
     return
   var curIdx = -1
   if v == svOutline:
@@ -230,9 +234,10 @@ proc drawDockList(dl: var DockList, v: SideView, x0, y0, w, h: int, focused: boo
       x = putStr(x, y, (if ti >= 0 and ti < todoTags.len: todoTags[ti].word else: "?"), tcol, bg, {aBold}, maxT)
       if parts.len > 2 and parts[2].len > 0:
         x = putStr(x, y, "(" & parts[2] & ")", blend(tcol, theme.dim, 0.5), bg, {}, maxT)
-      x = putStr(x, y, " " & it.text, theme.fg, bg, {}, maxT)
+      x = putStr(x, y, " " & truncTo(it.text, max(1, maxT - x - 1)), theme.fg, bg, {}, maxT)
     else:
-      x = putStr(x, y, it.text, fg, bg, (if i == curIdx: {aBold} else: {}), maxT)
+      # (too long for the dock: cut with an ellipsis, not in the middle of a word with nothing to say so)
+      x = putStr(x, y, truncTo(it.text, max(1, maxT - x)), fg, bg, (if i == curIdx: {aBold} else: {}), maxT)
     if dw > 0:
       let d = truncTo(it.detail, dw)
       discard putStr(x0 + w - 1 - strWidth(d), y, d, theme.dim, bg, {}, x0 + w)

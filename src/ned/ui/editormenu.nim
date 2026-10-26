@@ -56,7 +56,7 @@ proc editorMenu(): seq[MenuItem] =
              mc("Rename symbol"), mc("Quick fix / code actions…", "Quick fix…"), msep(),
              mc("Cut", disabled = not hasSel), mc("Copy"), mc("Paste"), msep(),
              mc("Toggle comment"), mc("Format document")]
-  if hasSel: result.add mc("Format selection (Nim built in, or the language server)", "Format selection")
+  if hasSel: result.add mc("Format selection (ned's own for Nim and C, or the language server)", "Format selection")
   result.add mc("Surround with…")
   let ln = b.primary.head.line
   if ln < b.git.len and b.git[ln] != 0:

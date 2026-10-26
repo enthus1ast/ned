@@ -18,8 +18,60 @@ type
     calls: seq[AiCall]
     checked: bool         # its edits were checked (ai.checkEdits)
     shown: string         # what the chat shows for a user message (attachments hidden)
+    pics: seq[string]     # pictures sent with it (@shot.png): for models that read them
 
   AiPlanState = enum apNone, apPlanning, apReady, apDoing
+
+# ── pictures with a message (@shot.png): for models that read them ──
+
+const AiPicMax = 5_000_000              # (the most the providers take, per picture)
+var aiPicCache: Table[string, (int64, string)]   # picture → (when it changed, its base64): each turn sends them all
+
+proc aiPicMime(path: string): string =
+  case splitFile(path).ext.toLowerAscii
+  of ".png": "image/png"
+  of ".jpg", ".jpeg": "image/jpeg"
+  of ".gif": "image/gif"
+  of ".webp": "image/webp"
+  else: ""
+
+proc aiPicWhy(path: string): string =
+  ## why a picture cannot go with a message ("" when it can)
+  if not fileExists(path): return "not found"
+  if aiPicMime(path).len == 0: return "the assistant takes PNG, JPEG, GIF and WebP pictures"
+  try:
+    if getFileSize(path) > AiPicMax: return "over 5 MB, the most the assistants take"
+  except CatchableError: return "cannot be read"
+  ""
+
+proc aiPicData(path: string): string =
+  ## the picture in base64 ("" when it cannot be read any more)
+  try:
+    let t = getLastModificationTime(path).toUnix * 1000 + getFileSize(path) mod 1000
+    aiPicCache.withValue(path, e):
+      if e[][0] == t: return e[][1]
+    result = base64.encode(readFile(path))
+    aiPicCache[path] = (t, result)
+  except CatchableError: result = ""
+
+proc aiUserContent(m: AiMsg, text, style: string): JsonNode =
+  ## a user message's content, its pictures with it — style: "openai" (chat completions, Ollama, the compatible
+  ## ones), "responses" (OpenAI's Responses API), "anthropic"
+  if m.pics.len == 0: return %text
+  result = newJArray()
+  case style
+  of "responses": result.add %*{"type": "input_text", "text": text}
+  of "anthropic": discard                        # (Anthropic: the pictures first, then what is asked of them)
+  else: result.add %*{"type": "text", "text": text}
+  for p in m.pics:
+    let d = aiPicData(p)
+    if d.len == 0: continue
+    let mime = aiPicMime(p)
+    case style
+    of "anthropic": result.add %*{"type": "image", "source": {"type": "base64", "media_type": mime, "data": d}}
+    of "responses": result.add %*{"type": "input_image", "image_url": "data:" & mime & ";base64," & d}
+    else: result.add %*{"type": "image_url", "image_url": {"url": "data:" & mime & ";base64," & d}}
+  if style == "anthropic": result.add %*{"type": "text", "text": text}
 
 type ChatSpan = object
   t: string

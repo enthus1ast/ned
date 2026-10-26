@@ -1,10 +1,17 @@
-proc newTerm(w, h: int, cwd: string, cmd = ""): Term =
-  ## a terminal running the user's shell, or `cmd` (a REPL) through sh
-  let t = Term(w: max(10, w), h: max(2, h), fd: -1, autoWrap: true, cursorVisible: true, fg: NoColor, bg: NoColor,
-               navCmd: -1)
-  t.top = 0
-  t.bot = t.h - 1
-  for _ in 0 ..< t.h: t.scr.add t.blankRow
+proc blankTerm(w, h: int): Term =
+  ## a terminal with nothing in it yet (and no shell)
+  result = Term(w: max(10, w), h: max(2, h), fd: -1, autoWrap: true, cursorVisible: true, fg: NoColor, bg: NoColor,
+                navCmd: -1)
+  result.top = 0
+  result.bot = result.h - 1
+  for _ in 0 ..< result.h: result.scr.add result.blankRow
+
+proc hostStart(t: Term, cwd: string, env: seq[(string, string)], argv: seq[string]): bool
+
+proc newTerm(w, h: int, cwd: string, cmd = "", keep = false): Term =
+  ## a terminal running the user's shell, or `cmd` (a REPL) through sh; `keep`: a shell that may outlive this ned
+  ## (terminal.keepRunning — see termhost)
+  let t = blankTerm(w, h)
   let shell = if cmd.len > 0: (let sh = findExe("sh"); if sh.len > 0: sh else: "/bin/sh") else: termShell()
   t.name = extractFilename(shell)
   t.replCmd = cmd
@@ -23,20 +30,6 @@ proc newTerm(w, h: int, cwd: string, cmd = ""): Term =
     t.pid = r.pid
     t
   else:
-    let fd = posix_openpt(O_RDWR or O_NOCTTY)
-    if fd < 0:
-      t.dead = true
-      t.title = "cannot open a pseudo-terminal"
-      return t
-    let pn = if grantpt(fd) == 0 and unlockpt(fd) == 0: ptsname(fd) else: nil
-    if pn == nil:
-      discard posix.close(fd)
-      t.dead = true
-      t.title = "cannot open a pseudo-terminal"
-      return t
-    let slave = $pn
-    t.fd = fd
-    t.setWinSize()
     let (siArgs, siEnv) = if cmd.len == 0: shellIntegration(shell) else: (@[], @[])
     # terminal.editorEnv: this ned is git's editor here (and EDITOR, VISUAL where they are not set) — `git commit`
     # opens its message in a tab and waits for it (see control)
@@ -46,30 +39,18 @@ proc newTerm(w, h: int, cwd: string, cmd = ""): Term =
       if getEnv("GIT_EDITOR").len == 0: edEnv.add ("GIT_EDITOR", me)
       for v in ["EDITOR", "VISUAL"]:
         if getEnv(v).len == 0: edEnv.add (v, me)
+    let argv = if cmd.len > 0: @[shell, "-c", "exec " & cmd] else: @[shell] & siArgs
+    if keep and cmd.len == 0 and cfgTermKeep and t.hostStart(cwd, siEnv & edEnv, argv):
+      return t                            # (else a shell of this ned's own, as before)
+    let (fd, slave) = ptyOpen()
+    if fd < 0:
+      t.dead = true
+      t.title = "cannot open a pseudo-terminal"
+      return t
+    t.fd = fd
+    t.setWinSize()
     let pid = fork()
-    if pid == 0:
-      discard setsid()
-      let s = posix.open(cstring(slave), O_RDWR)
-      if s < 0: exitnow(127)
-      discard ioctl(s, TIOCSCTTY, 0)
-      discard dup2(s, 0)
-      discard dup2(s, 1)
-      discard dup2(s, 2)
-      if s > 2: discard posix.close(s)
-      discard posix.close(fd)
-      putEnv("TERM", "xterm-256color")
-      putEnv("COLORTERM", "truecolor")
-      putEnv("TERM_PROGRAM", "ned")
-      if getEnv("LANG").len == 0 and getEnv("LC_ALL").len == 0:
-        putEnv("LANG", (when defined(macosx): "en_US.UTF-8" else: "C.UTF-8"))
-      signal(SIGPIPE, SIG_DFL)          # ned ignores it; the shell and its pipes (`yes | head`) must not
-      signal(SIGQUIT, SIG_DFL)          # … and Ctrl+\ quits programs in the terminal again
-      if cwd.len > 0: discard chdir(cstring(cwd))
-      for (k, v) in siEnv: putEnv(k, v)
-      for (k, v) in edEnv: putEnv(k, v)
-      let args = if cmd.len > 0: allocCStringArray([shell, "-c", "exec " & cmd]) else: allocCStringArray(@[shell] & siArgs)
-      discard execvp(cstring(shell), args)
-      exitnow(127)
+    if pid == 0: ptyExec(fd, slave, cwd, siEnv & edEnv, argv)
     t.pid = pid
     let fl = fcntl(fd, F_GETFL)
     discard fcntl(fd, F_SETFL, fl or O_NONBLOCK)
@@ -562,6 +543,9 @@ proc feed(t: Term, data: string) =
 
 proc termWrite(t: Term, s: string) =
   if t.fd < 0 or t.dead or s.len == 0: return
+  if t.hosted:
+    t.hostSend('d', s)
+    return
   var off = 0
   var tries = 0
   while off < s.len and tries < 200:
@@ -573,7 +557,7 @@ proc termWrite(t: Term, s: string) =
     else: break
 
 proc termReap(t: Term) =
-  if t.pid <= 0: return
+  if t.pid <= 0 or t.hosted: return      # (a kept shell is its host's child: the host says how it ended)
   var status: cint
   let r = waitpid(t.pid, status, WNOHANG)
   if r == t.pid:

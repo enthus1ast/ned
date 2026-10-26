@@ -2,6 +2,8 @@
 #  Small utilities
 # ════════════════════════════════════════════════════════════════════════════
 
+const ExeDot = when defined(windows): ".exe" else: ""   # (a program ned builds: `nim c -o:` takes the name as it is)
+
 func `<`(a, b: Pos): bool {.inline.} = a.line < b.line or (a.line == b.line and a.col < b.col)
 func `<=`(a, b: Pos): bool {.inline.} = not (b < a)
 func minP(a, b: Pos): Pos {.inline.} = (if a < b: a else: b)

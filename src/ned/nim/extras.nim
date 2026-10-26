@@ -126,7 +126,7 @@ proc nimBenchmark() =
     src.add "nedBenchRun()"
     # (a private copy, built on stdin from the file's folder: its imports work there)
     let tmp = privTmp("bench") & ".nim"
-    let exe = privDir() / ("ned_bench_" & $getCurrentProcessId())
+    let exe = privDir() / ("ned_bench_" & $getCurrentProcessId()) & ExeDot
     try: writeFile(tmp, src.join("\n") & "\n")
     except CatchableError as ex:
       error("Cannot write the benchmark: " & ex.msg)

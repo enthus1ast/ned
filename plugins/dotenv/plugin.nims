@@ -14,6 +14,7 @@ import nedplugin
 import std/[strutils, os]
 
 requiresNed(">= 6.26")
+pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "MIT")
 permission("files", "Env: make .env.example writes that file next to the .env")
 
 language("dotenv", LangSpec(
