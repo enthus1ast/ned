@@ -7,6 +7,8 @@
                        pseudo-terminal, as a terminal sees it: what you wait for) — its median and the slowest one
                        in twenty (a key that came while ned was busy with something else waits for it)
   cursor down          the same for the Down arrow
+  typing in C, in Markdown, in JSON   a key typed in a 50 000-line file of each (made up here: C functions with
+                       #ifdef blocks, ned's docs over and over, an array of objects) — their medians and slowest in 20
 
 Each is the median of a few runs, checked against its limit (below, or --limit NAME=MS). ned runs with settings
 and state of its own (nothing of yours is read or changed) and without the remote-control socket.
@@ -23,6 +25,12 @@ LIMITS = {                                   # milliseconds
     'typing: frame, 1 in 20': 50,
     'cursor down: frame, median': 16,
     'cursor down: frame, 1 in 20': 50,
+    'typing in C: frame, median': 16,
+    'typing in C: frame, 1 in 20': 50,
+    'typing in Markdown: frame, median': 16,
+    'typing in Markdown: frame, 1 in 20': 50,
+    'typing in JSON: frame, median': 16,
+    'typing in JSON: frame, 1 in 20': 50,
 }
 W, H = 140, 45
 ARGS = sys.argv[1:]
@@ -128,6 +136,28 @@ def big_file(dirname):
     open(p, 'w').write('\n'.join(lines[:50000]) + '\n')
     return p
 
+def other_files(dirname):
+    """50 000-line files of C, Markdown and JSON (the C one with a warning every ten lines — printf's "%%d" with an
+    argument: 5 000 problems, which each frame once looked through for every line it drew)"""
+    c, i = [], 0
+    while len(c) < 50000:
+        c += ['#include <stdio.h>' if i == 0 else '', '/* function %d */' % i, 'static int f%d(int a, int b) {' % i,
+              '  int x = a * %d + b;' % i, '  if (x > 10) { printf("%%d\\n", x); }', '#ifdef DEBUG', '  x += 1;', '#endif',
+              '  return x;', '}']
+        i += 1
+    md = []
+    docs = sorted(os.path.join(r, f) for r, _, fs in os.walk(os.path.join(REPO, 'docs')) for f in fs if f.endswith('.md'))
+    for f in docs: md += open(f, encoding='utf-8').read().splitlines()
+    while len(md) < 50000: md += md
+    js = ['['] + ['  {"id": %d, "name": "item %d", "tags": ["a", "b"], "value": %d.5},' % (k, k, k) for k in range(49998)] + \
+         ['  {"id": -1}', ']']
+    out = {}
+    for name, lines in (('C', c), ('Markdown', md), ('JSON', js)):
+        p = os.path.join(dirname, 'big.' + {'C': 'c', 'Markdown': 'md', 'JSON': 'json'}[name])
+        open(p, 'w').write('\n'.join(lines[:50000]) + '\n')
+        out[name] = p
+    return out
+
 def keys(work, big):
     """typing and Down in the big file: each key's frame, in ms"""
     n = Ned(work, [big])
@@ -171,14 +201,19 @@ def main():
     got['typing: frame, 1 in 20'] = pct(t, 0.95)
     got['cursor down: frame, median'] = statistics.median(d) if d else float('nan')
     got['cursor down: frame, 1 in 20'] = pct(d, 0.95)
+    for name, path in other_files(work).items():
+        t = []
+        for _ in range(RUNS): t += keys(work, path)[0]
+        got['typing in %s: frame, median' % name] = statistics.median(t) if t else float('nan')
+        got['typing in %s: frame, 1 in 20' % name] = pct(t, 0.95)
     shutil.rmtree(work, ignore_errors=True)
     over = [k for k, v in got.items() if not v <= LIMITS[k]]
     if '--json' in ARGS:
         print(json.dumps({'ms': got, 'limits': LIMITS, 'over': over}, indent=1))
     else:
-        print('%-30s %10s %10s' % ('budget', 'measured', 'limit'))
+        print('%-36s %10s %10s' % ('budget', 'measured', 'limit'))
         for k, v in got.items():
-            print('%-30s %7.1f ms %7.0f ms%s' % (k, v, LIMITS[k], '   OVER' if k in over else ''))
+            print('%-36s %7.1f ms %7.0f ms%s' % (k, v, LIMITS[k], '   OVER' if k in over else ''))
         print('\nover budget: ' + ', '.join(over) if over else '\nall within budget')
     sys.exit(1 if over else 0)
 

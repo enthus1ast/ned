@@ -17,11 +17,20 @@ proc problemCounts(): (int, int) =
   for p in diagsEmit.keys: paths.incl p
   for p in diagsWeb.keys: paths.incl p
   for p in diagsExt.keys: paths.incl p
+  template has(t: Table[string, seq[Diag]], p: string): bool = p in t and t[p].len > 0
   for p in paths:
-    var ds = lspAndBuildDiags(p)
-    if p.endsWith(".nim") or p.endsWith(".nims"): dropNimFollowOns(ds)
-    for d in ds:
-      if d.sev == 1: inc result[0] elif d.sev == 2: inc result[1]
+    if p.endsWith(".nim") or p.endsWith(".nims") or (diagsLsp.has(p) and diagsBuild.has(p)) or diagsEmit.has(p):
+      var ds = lspAndBuildDiags(p)
+      if p.endsWith(".nim") or p.endsWith(".nims"): dropNimFollowOns(ds)
+      for d in ds:
+        if d.sev == 1: inc result[0] elif d.sev == 2: inc result[1]
+    else:
+      # (nothing to leave out: counted where they are, not copied — it is done for every frame, and a file can have
+      # thousands)
+      for t in [addr diagsLsp, addr diagsBuild, addr diagsFfi, addr diagsTest, addr diagsExt, addr diagsWeb]:
+        if p in t[]:
+          for d in t[][p]:
+            if d.sev == 1: inc result[0] elif d.sev == 2: inc result[1]
 
 proc rebuildProblems() =
   var lines: seq[PanelLine]

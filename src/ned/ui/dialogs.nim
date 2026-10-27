@@ -13,6 +13,7 @@ var toasts: seq[Toast]
 
 proc toast(text: string, sev = 3, actLabel = "", act: Action = nil, ttl = 0) =
   if not cfgToasts: return
+  let text = capMsg(text)
   for t in toasts.mitems:
     if t.text == text:
       t.at = getMonoTime()            # the same again: shown a little longer, not twice

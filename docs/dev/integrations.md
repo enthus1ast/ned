@@ -67,7 +67,7 @@ the main loop's `poll`.
 |---|---|
 | `term/pty.nim` | the pseudo-terminal (`posix_openpt`; ConPTY on Windows) and the `Term` type: the screen's rows, scrollback, modes, the commands run |
 | `term/vt.nim` | the terminal emulator: an xterm subset (`feed` parses the shell's output: CSI, OSC, SGR colours, the alternate screen, scroll regions), the shell started in it (`newTerm`) |
-| `term/shell.nim` | shell integration: bash, zsh and fish mark each prompt, command line, output and exit code (OSC 133) through start-up files ned writes; *Terminal: commands run* and jumping between commands come from them |
+| `term/shell.nim` | shell integration: bash, zsh and fish mark each prompt, command line, output and exit code (OSC 133) through start-up files ned writes; *Terminal: commands…* and jumping between commands come from them |
 | `term/panel.nim` | the terminal panel: each terminal's output read (`pumpTerms`), tabs of terminals, drawing, keys, selection |
 | [`term/termhost.nim`](../../src/ned/term/termhost.nim) | terminals that outlive ned (`terminal.keepRunning`): the shell belongs to a small process of its own (`ned --term-host`) that holds the pseudo-terminal and keeps the last MB of output; ned talks to it through a private socket (0600) with framed messages, and the next ned in the same folder attaches again and is played back what it missed |
 | `term/repl.nim`, `term/repltabs.nim` | Send to REPL: code typed into the language's REPL (inim or `nim secret`, python, node …) in its own terminal tab |

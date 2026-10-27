@@ -344,4 +344,5 @@ include ned/term/termhost
 include ned/app/update
 include ned/app/battery
 include ned/nim/warmindex
+include ned/editor/bufforget
 include ned/app/main

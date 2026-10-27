@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.32.1](#whats-new-in-6321) · [6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
+- [What's new in 6.32.2](#whats-new-in-6322) · [6.32.1](#whats-new-in-6321) · [6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -29,6 +29,35 @@ library, and builds to one binary of about 12 MB.
 - [Contributing](#contributing)
 
 ---
+
+## What's new in 6.32.2
+
+A release of checks, and of what they found. **Every command of the palette** (601 of them) and **every command of
+ned's own plugins** (155, with all 73 plugins on together) was run, each in a ned of its own: none crashed, made an
+internal error or stopped answering. A plugin calling **every request of the plugin API with arguments that make no
+sense**, the remote-control socket and nedls fed broken input, ned built with **AddressSanitizer** under the tests and
+the fuzzer, the fuzzer in **all its modes** for five minutes each, and an hour of editing at random. Fixed on the way:
+
+- **ned no longer grows as you open and close files.** Many parts of ned keep something per open file — the
+  semantic colours, the dimmed code, the engine's checks, inlay hints, the C engine's parse — and a closed file's
+  was never let go: opening and closing a big file grew ned by a megabyte or two each time, and 25 minutes of
+  editing at random took it to 229 MB. A closed tab now takes all of it with it, in ned and in its engine worker: the
+  same 25 minutes end at 76 MB.
+- **Typing in a big C file** was slow (14 ms a key, and one key in twenty 88 ms, in 50 000 lines with a warning every
+  ten): marking the uses of the name under the cursor read the whole file again at every key — it waits for a pause
+  in the typing now — and every frame looked through all the file's problems for each line it drew. Now about 3.5 ms a
+  key, one in twenty 7 ms.
+- **Opening a big Nim file** is faster — the first screen of a 50 000-line file shows in under 30 ms, not 70 to 90:
+  the code a `when` leaves out is dimmed just after it, not before it.
+- **Control characters** U+0080–U+009F in a file, a program's output or an AI's answer are drawn as �, as ESC and
+  BEL already were (␛ ␇): some terminals obey them as escape sequences.
+- A plugin request with arguments that are not an object made an internal error and left the plugin waiting; it is
+  read as having none now. A message of any length (a plugin's, a script's) is cut at 4 000 bytes: a 2 MB one slowed
+  ned down.
+- The Nim menu's *Nimble › add dependency…* was always greyed out: it named a command that does not exist. A new
+  check (`tests/docs/names.py`) finds every command and setting named anywhere — the menus, the key maps, ned's
+  plugins, the docs — that does not exist, or by an old name. Emacs's `C-x 1` closed the pane you were in rather
+  than the others.
 
 ## What's new in 6.32.1
 
@@ -315,7 +344,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.32.1_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.32.2_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -370,7 +399,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.32.1-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.32.2-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

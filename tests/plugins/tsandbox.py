@@ -148,6 +148,12 @@ def session(sandbox, runner=False, sockets=False):
     subprocess.run(['tmux', '-L', sock, 'send-keys', '-t', 's', 'C-q'])
     time.sleep(1)
     subprocess.run(['tmux', '-L', sock, 'kill-server'])
+    if sockets:
+        # (the kept terminal outlives ned, as it should: stopped here, or it would run on after the test)
+        for p in os.listdir('/proc'):
+            try: cmd = open('/proc/%s/cmdline' % p, 'rb').read().decode(errors='replace')
+            except (OSError, ValueError): continue
+            if p.isdigit() and '--term-host' in cmd and root in cmd: os.kill(int(p), 15)
     if runner: return started and proj_read and data_read, read, ran
     if sockets: return started and proj_read and data_read, read, got
     return started and proj_read and data_read, read

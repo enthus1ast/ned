@@ -297,7 +297,7 @@ proc menuItems(i: int): seq[MenuItem] =
       msub("Nimble", @[mc("Nimble: dependencies and updates…", "dependencies and updates…"),
         mc("Nimble: dependency tree", "dependency tree"),
         mc("Nimble: build", "build"), mc("Nimble: run", "run"), mc("Nimble: test", "test"),
-        mc("Nimble: install dependencies", "install dependencies"), mc("Nimble: add dependency…", "add dependency…"),
+        mc("Nimble: install dependencies", "install dependencies"), mc("Nimble: add a dependency…", "add dependency…"),
         mc("Nimble: search packages…", "search packages…"), mc("Nimble: custom command…", "custom command…"), msep(),
         mc("Nimble: release a new version…", "release a new version (version, commit, tag, push)…")]),
       mc("Atlas…"), msub("Nim 3 (Nimony)", @[mc("Nimony: check file", "check file"), mc("Nimony: run file", "run file"), msep(),

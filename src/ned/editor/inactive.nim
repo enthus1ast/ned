@@ -21,6 +21,11 @@ proc inactiveRanges(b: Buffer): seq[(int, int)] =
         let r = if a > at: (a + d, e + d) elif e >= at: (a, max(a, e + d)) else: (a, e)
         if r[0] >= 0 and r[0] < b.lines.len: result.add (r[0], min(r[1], b.lines.high))
       return
+  elif b.lines.len > 3000:
+    # (a big file just opened: shown at once, its left-out code dimmed a moment later — the main loop asks for it
+    # in the next quiet round; reading it first held up the first frame by half)
+    inactiveCache[b.id] = (-1, @[], b.lines.len)
+    return
   try:
     if b.lang.mode == lmNim:
       if nimEngineOn(b):

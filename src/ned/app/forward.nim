@@ -156,6 +156,7 @@ proc showSide(v: SideView)
 proc prepareNimMapping(b: Buffer)
 proc nimMapAdd(b: Buffer): bool
 proc runCmd(name: string)
+proc bufForget(id: int)
 proc writeFileSafe(path, content: string, newMode = 0o644)
 proc offerRecovery(b: Buffer)
 proc macroToggle()

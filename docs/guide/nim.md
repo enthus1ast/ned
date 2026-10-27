@@ -222,8 +222,8 @@ argument whose type is not one, says so on hover, with what the type lacks (*`Fo
 **Async, raises and gcsafe, before compiling.** The engine's checks say what the compiler would — or what only
 shows when the program runs: a discarded Future (`discard fetch()` loses its error: `asyncCheck` it, or `await`
 it), `await` outside an `{.async.}` proc, `waitFor` inside one, `os.sleep` in an async proc (it stops every task:
-`await sleepAsync`); a routine whose `{.raises: [...].}` leaves out an exception its body can raise (with
-`nim.engineMoreChecks`, the compiler refuses it); a `{.gcsafe.}` or `{.thread.}` routine that uses a global
+`await sleepAsync`); a routine whose `{.raises: [...].}` leaves out an exception its body can raise (the compiler
+refuses it; with `nim.engineHints` on); a `{.gcsafe.}` or `{.thread.}` routine that uses a global
 `seq`, `string`, `ref` or `Table` (rules `async`, `raises`, `gcsafe`).
 
 **The package versions your build uses.** The engine reads each nimble package in the version your project builds
@@ -649,7 +649,7 @@ Your own `nim.projectMapping` always wins.
   [What's new in 6.12](../../CHANGELOG.md#whats-new-in-612)).
 - Test explorer (Tests dock) for `std/unittest` suites, with ▶ buttons in the gutter; tests run on save, ✓ or ✗
   beside each (`nim.testOnSave`).
-- **Test coverage**: *Test coverage: run* builds the project's Nim tests with coverage, runs each one, and colours
+- **Test coverage**: *Test coverage: run and colour the lines that ran* builds the project's Nim tests with coverage, runs each one, and colours
   the line numbers — green ran, red never ran. It runs the test explorer's tests and nimble's `tests/t*.nim`; in the
   explorer, `c` on a test file covers just that one (*Nim: test coverage* covers the file you are in). The count is
   exact per Nim line: with gcc, ned rewrites the generated C so that a statement's extra C lines do not land on the

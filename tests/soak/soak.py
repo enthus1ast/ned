@@ -2,7 +2,7 @@
 """A long editing session, for the leaks and the faults that only show after hours. ned edits a copy of its own
 source (src/ and ned.nimble) in a private tmux server: it opens files, types code, asks for completions, undoes and
 redoes, finds, formats, saves, selects, copies and pastes, scrolls and closes tabs — picked at random, a few a
-second. Meanwhile this script watches:
+second (and now and then it closes all the tabs but one, as a person would). Meanwhile this script watches:
 
   memory    ned's resident memory and its engine worker's (Linux: /proc), sampled every --sample seconds
   errors    "Internal error" on the screen, and ned's errors.log (its state folder is the run's own)
@@ -135,6 +135,12 @@ def palette():
     time.sleep(0.4); keys('Enter'); time.sleep(0.5); esc()
 def close_tab():
     keys('C-s'); time.sleep(0.2); keys('C-w'); time.sleep(0.3); esc()
+def close_others():
+    # (a person keeps a handful of tabs open, not every file opened in an hour: tabs piling up make ned grow for a
+    # good reason, and that hid the growth that was a leak)
+    for cmd in ('Save all', 'Close other tabs'):
+        keys('C-e'); time.sleep(0.3); text(cmd); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    esc()
 def revert_all():
     # (now and then the project goes back to how it started: the files do not grow for hours)
     save(); subprocess.run(['git', '-C', proj, 'checkout', '-q', '--', '.'], capture_output=True); time.sleep(1)
@@ -166,6 +172,7 @@ while time.monotonic() < end:
     rnd.choice(POOL)()
     actions += 1
     if actions % 25 == 0: esc()
+    if actions % 60 == 0: close_others()
     if time.monotonic() - last_revert > 600:
         revert_all(); last_revert = time.monotonic()
     s = screen()
@@ -183,6 +190,13 @@ while time.monotonic() < end:
               flush=True)
         next_sample += SAMPLE
 
+# (what ned says it holds: its heap and its index, from the Performance report — the index grows up to its budget,
+# nim.indexMemory, as the session reaches more files: growth that stops there is not a leak)
+report = []
+if alive():
+    esc(); keys('C-e'); time.sleep(0.3); text('Performance report'); time.sleep(0.5); keys('Enter'); time.sleep(1.5)
+    report = [l.strip(' │') for l in screen().splitlines() if re.search(r'Memory:|index:|engine worker:|it holds', l)]
+    esc(); keys('C-w'); time.sleep(0.3)
 # (still answering? a key must change the screen)
 if alive():
     esc(); before = screen()
@@ -203,6 +217,7 @@ if len(samples) >= 4:
     last = statistics.median(s[1] + s[2] for s in warm[-q:])
     peak = max(s[1] + s[2] for s in samples)
     print('memory (ned and its worker): %.0f MB early on, %.0f MB at the end, %.0f MB at most' % (first, last, peak))
+    for l in report: print('  ' + re.sub(r'\s+', ' ', l).strip())
     if last - first > GROW_MB:
         problems.append('memory grew by %.0f MB (more than %.0f): a leak?' % (last - first, GROW_MB))
 else:

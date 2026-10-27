@@ -260,11 +260,33 @@ var
   cellPoolW: seq[int8]
   cellPoolIds: Table[string, uint32]
 
+func visibleCh*(ch: int): int {.inline.} =
+  ## a control character never goes to the terminal as it is — a file, a program's output or an AI's answer could
+  ## otherwise move the cursor, set the window's title or the clipboard: its picture instead (␀ … ␟, ␡), and for C1
+  ## (U+0080 … U+009F, which some terminals obey as escape sequences) �
+  if ch < 32: 0x2400 + ch
+  elif ch == 127: 0x2421
+  elif ch >= 0x80 and ch < 0xA0: 0xFFFD
+  else: ch
+
 proc cellOf*(s: string, i, n: int): uint32 =
   ## the cell for the character of `n` bytes at byte i: its code point — or its number in the pool
   let (cp, rn) = runeAt(s, i)
   if rn >= n: return cp.uint32
-  let t = s[i ..< i + n]
+  var t = s[i ..< i + n]
+  var ctl = false
+  for k, c in t:
+    if c < ' ' or c == '\x7f' or (c == '\xC2' and k + 1 < t.len and t[k + 1] in {'\x80' .. '\x9F'}): ctl = true
+  if ctl:
+    # (a control character inside a cluster: its picture too)
+    var u = ""
+    var k = 0
+    while k < t.len:
+      let (c2, l2) = runeAt(t, k)
+      let v = visibleCh(c2)
+      if v == c2: u.add t[k ..< k + l2] else: u.addUtf8(v)
+      k += l2
+    t = u
   result = cellPoolIds.getOrDefault(t, 0'u32)
   if result == 0:
     result = PoolBase + cellPool.len.uint32

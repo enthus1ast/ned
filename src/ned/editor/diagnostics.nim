@@ -9,14 +9,19 @@ proc lspAndBuildDiags(path: string): seq[Diag] =
   ## the language server's problems and those of the last build or check; one the two both report shows once
   result = diagsLsp.getOrDefault(path)
   let fromServer = result.len
-  for d in diagsBuild.getOrDefault(path):
-    var dup = false
-    for k in 0 ..< fromServer:
-      let e = result[k]
-      if e.line == d.line and e.sev == d.sev and e.msg.splitLines()[0].strip == d.msg.splitLines()[0].strip:
-        dup = true
-        break
-    if not dup: result.add d
+  if fromServer > 0 and path in diagsBuild and diagsBuild[path].len > 0:
+    # (the server's by line: with thousands of both, each of the check's looked at every one of the server's)
+    var byLine: Table[int, seq[int]]
+    for k in 0 ..< fromServer: byLine.mgetOrPut(result[k].line, @[]).add k
+    for d in diagsBuild[path]:
+      var dup = false
+      for k in byLine.getOrDefault(d.line):
+        if result[k].sev == d.sev and result[k].msg.splitLines()[0].strip == d.msg.splitLines()[0].strip:
+          dup = true
+          break
+      if not dup: result.add d
+  else:
+    for d in diagsBuild.getOrDefault(path): result.add d
   for d in diagsFfi.getOrDefault(path): result.add d
   for d in diagsTest.getOrDefault(path): result.add d
   for d in diagsExt.getOrDefault(path): result.add d
