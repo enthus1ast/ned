@@ -255,3 +255,6 @@ proc pickToMultibuffer()                             # ui/telescope.nim
 proc telescope()
 proc tsLivePump()
 proc nimEngHighlights(b: Buffer, p: Pos, first = 0, last = int.high): seq[(Pos, Pos)]   # nim/highlights.nim
+proc batteryToggle()                                   # app/battery.nim
+proc drawPaneView(b: Buffer, x0, y0, w, h: int, active: bool)   # ui/paneviews.nim
+proc paneTermEnd(id: int)                                       # ui/paneviews.nim

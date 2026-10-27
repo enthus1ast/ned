@@ -164,7 +164,7 @@ proc globalKey(k: Key): bool =
         info("Mouse " & (if cfgMouse: "on" else: "off — Termux text selection works now"))
       of 'm':
         focus = fEditor
-        cmdExpandMacro()
+        cmdMacroView()
       of 'q':
         focus = fEditor
         cmdReferences()
@@ -680,9 +680,10 @@ proc handleKey(k: Key) =
     of kUp: focusDir(0, -1)
     else: focusDir(0, 1)
     return
-  if focus == fPanel and panelOpen and panelKind == pkTerminal and not terminalPassKey(k):
+  if focus == fPanel and (panelOpen or buf().paneView == 3) and panelKind == pkTerminal and not terminalPassKey(k):
     terminalKey(k)
     return
+  if focus == fEditor and buf().paneView == 1 and not terminalPassKey(k) and paneTermKey(k): return
   if zenMode and k.kind == kEsc and focus == fEditor and not compOpen and not hoverOpen and not cfgVim:
     # Esc Esc leaves zen — but not in vim mode, where Esc is how you get back to NORMAL (often twice,
     # by habit): there Alt+Z, :zen or a click on the corner info leave it

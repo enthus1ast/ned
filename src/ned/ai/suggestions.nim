@@ -180,6 +180,7 @@ proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.cl
     let mct = (cfgAiProvider == "openai" and (gm & "|maxtokens") notin aiQuirks) or (gm & "|mct") in aiQuirks
     body[(if mct: "max_completion_tokens" else: "max_tokens")] = %(if reasoning: max(2000, maxTokens) else: maxTokens)
     if not reasoning and (gm & "|notemp") notin aiQuirks: body["temperature"] = %0
+  aiRedactBody(body)
   var hdr = "Content-Type: application/json\n"
   if anth: hdr.add "x-api-key: " & key & "\nanthropic-version: 2023-06-01\n"
   elif key.len > 0: hdr.add "Authorization: Bearer " & key & "\n"
@@ -241,10 +242,11 @@ proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.cl
         ls = ls[1 .. ^1]
         if ls.len > 0 and ls[^1].strip.startsWith("```"): ls.setLen(ls.len - 1)
         t = ls.join("\n")
-    onText(t))
+    onText(restoreSecrets(t, aiSecretTab)))       # (code to put in a file: a placeholder back to its secret)
 
 proc ghostRequest(b: Buffer) =
   ## ask for a short continuation at the cursor (one request in flight; stale answers are dropped)
+  if aiSecretFile(b.path): return                 # (a file of secrets is not sent: ai.redactSecrets)
   let p = b.primary.head
   if ghostJob != nil and not ghostJob.done: killProc(ghostJob.pr)
   ghostAskedChange = b.changeId
@@ -293,7 +295,7 @@ proc ghostRequest(b: Buffer) =
 proc ghostTick() =
   ## main loop: after a typing pause, request a suggestion at the cursor
   if not sBool("ai.inlineCompletion") or focus != fEditor or compOpen or promptKind != pNone or
-     pickKind != pickNone or aiInlineMode: return
+     pickKind != pickNone or aiInlineMode or batterySave: return    # (battery saver: none as you type)
   let b = buf()
   if b.readOnly or b.path.len == 0 or b.cursors.len != 1 or b.primary.hasSel or not b.dirty: return
   if b.changeId == ghostAskedChange and b.id == ghostAskedBuf: return

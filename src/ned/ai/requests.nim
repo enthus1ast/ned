@@ -17,6 +17,10 @@ proc aiSystemPrompt(): string =
                "Code is checked with `nimony check`." & nimonyGuide()
   else:
     result.add "For Nim, prefer idiomatic Nim 2 (ARC/ORC, std/ modules, nimble)."
+  if sBool("ai.redactSecrets"):
+    result.add " Secrets in what you are sent — API keys, tokens, passwords, private keys — are replaced with " &
+               "placeholders such as [REDACTED:api-key#1]: where a secret belongs in code you write, write its " &
+               "placeholder exactly as it is (ned puts the secret back in the file); never ask for the secret itself."
   if cfgAiSystem.len > 0: result.add "\n" & cfgAiSystem
   result.add projectInstructions()
 
@@ -136,6 +140,7 @@ proc fileContext(): string =
   let b = buf()
   if b.isWelcome() or b.lines.len == 0: return ""
   let name = if b.path.len > 0: relPath(b.path) else: b.name
+  if aiSecretFile(b.path): return "<file path=\"" & name & "\">" & AiSecretNote & "</file>"
   let (a, e) = b.primary.range
   if a != e:
     let t = b.getText(a, e)

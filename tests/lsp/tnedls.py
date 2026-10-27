@@ -4,6 +4,7 @@
     python3 tests/lsp/tnedls.py ./nedls                 # the checks, then the stress run
     python3 tests/lsp/tnedls.py ./nedls --edits 500      # a shorter stress run
     python3 tests/lsp/tnedls.py ./nedls --bench FILE     # timings and memory on a big file (no checks)
+    python3 tests/lsp/tnedls.py ./nedls --only 632 langs # some parts only (actions langs c 628 632 nim3)
 
 It builds nothing: give it a nedls binary. It writes a small Nim project to a temporary folder (two modules, an
 object type, procs, a misspelled name, a non-ASCII string in front of names for the UTF-16 columns), talks to
@@ -1151,7 +1152,7 @@ def run_langs(nedls, log):
         lab = [i["label"] for i in (r or {}).get("items", [])]
         check("6.27 SQL: completion of a table the project creates", "users" in lab, lab[:10])
         r = req("textDocument/semanticTokens/full", "app.js")
-        check("6.27 langs: no Nim colours for another language", r == {"data": []}, r)
+        check("6.27 langs: no Nim colours for another language", (r or {}).get("data") == [], r)
         # ── more of HTML, CSS and SQL ──
         ds = c.wait_diagnostics(uri(P("site.html")), lambda ds: len(ds) >= 2, timeout=20) or []
         msgs = sorted(d["message"] for d in ds)
@@ -1471,6 +1472,279 @@ def run_628(nedls, log):
         check("6.28 on-type formatting: not a statement that goes on", r == [], r)
     finally:
         c.request("shutdown", None)
+        c.notify("exit", {})
+        c.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# ── 6.32: the workspace's problems when asked (workspace/diagnostic), semantic token deltas, workspace symbols ──
+
+GEO632 = """import std/strutils
+
+type
+  Shape* = object
+    width*, height*: int
+  Kind* = enum
+    kRound, kSquare
+
+proc area*(s: Shape): int = s.width * s.height
+proc joinAll*(xs: seq[string]): string = xs.join(",")
+proc oldWay*() {.deprecated: "use area".} = discard
+proc newShapeValue*(w, h: int): Shape = Shape(width: w, height: h)
+"""
+
+LINTME632 = """import std/strutils
+import geo
+
+echo area(newShapeValue(1, 2))
+"""
+
+MAIN632 = """import geo
+
+let first = area(newShapeValue(2, 3))
+echo first
+"""
+
+
+def tokens_after(old, edits):
+    """semantic token data with a delta's edits applied (each edit's start is in the old data)"""
+    data = list(old)
+    for e in sorted(edits, key=lambda e: e["start"], reverse=True):
+        data[e["start"]:e["start"] + e["deleteCount"]] = e.get("data") or []
+    return data
+
+
+def run_632(nedls, log):
+    """6.32: pull diagnostics for the whole workspace, semantic token deltas, workspace symbols"""
+    root = tempfile.mkdtemp(prefix="tnedls-632-")
+    src = os.path.join(root, "src")
+    os.makedirs(src)
+    with open(os.path.join(root, "p632.nimble"), "w") as f:
+        f.write('version = "0.1.0"\nauthor = "t"\ndescription = "t"\nlicense = "MIT"\nsrcDir = "src"\n')
+    geo_p, lint_p, main_p = (os.path.join(src, n) for n in ("geo.nim", "lint_me.nim", "main.nim"))
+    for path, text in ((geo_p, GEO632), (lint_p, LINTME632), (main_p, MAIN632)):
+        with open(path, "w") as f:
+            f.write(text)
+    c, init = new_client(nedls, root, log=log, more_caps={
+        "textDocument": {"diagnostic": {}},
+        "workspace": {"diagnostics": {"refreshSupport": True}, "symbol": {"tagSupport": {"valueSet": [1]}}}})
+    try:
+        caps = init["result"]["capabilities"]
+        check("6.32 pull diagnostics: the workspace's too (workspaceDiagnostics)",
+              (caps.get("diagnosticProvider") or {}).get("workspaceDiagnostics") is True, caps.get("diagnosticProvider"))
+        check("6.32 semantic tokens: deltas offered", (caps.get("semanticTokensProvider") or {}).get("full") ==
+              {"delta": True}, caps.get("semanticTokensProvider"))
+        open_doc(c, main_p, MAIN632)
+
+        # ── workspace symbols ──
+        def ws(q):
+            return (c.request("workspace/symbol", {"query": q}) or {}).get("result") or []
+
+        def names(rs):
+            return [(x["name"], x.get("containerName"), os.path.basename(x["location"]["uri"])) for x in rs][:8]
+        r = ws("area")
+        check("6.32 workspace symbols: the name itself first", r and r[0]["name"] == "area" and
+              r[0]["location"]["uri"] == uri(geo_p), names(r))
+        r = ws("nsv")
+        check("6.32 workspace symbols: the starts of a name's words (nsv: newShapeValue)",
+              r and r[0]["name"] == "newShapeValue", names(r))
+        r = ws("Shape.wid")
+        check("6.32 workspace symbols: Type.field — a field of the type", r and r[0]["name"] == "width" and
+              r[0]["containerName"] == "Shape", names(r))
+        r = ws("Shape.ar")
+        check("6.32 workspace symbols: Type.name — a routine whose first parameter is the type", r and
+              r[0]["name"] == "area", names(r))
+        r = ws("Kind.kr")
+        check("6.32 workspace symbols: Type.value — an enum's value", r and r[0]["name"] == "kRound" and
+              r[0]["containerName"] == "Kind", names(r))
+        r = ws("join")
+        at_own = next((i for i, x in enumerate(r) if x["name"] == "joinAll"), None)
+        at_dep = next((i for i, x in enumerate(r) if x["name"] == "join" and x.get("containerName") == "strutils"),
+                      None)
+        check("6.32 workspace symbols: a dependency's exported names for a longer query, after the project's own",
+              at_own is not None and at_dep is not None and at_own < at_dep, names(r))
+        r = ws("jo")
+        check("6.32 workspace symbols: a short query — the project's names only",
+              any(x["name"] == "joinAll" for x in r) and not any(x.get("containerName") == "strutils" for x in r),
+              names(r))
+        r = ws("oldWay")
+        check("6.32 workspace symbols: a deprecated name tagged so", r and r[0]["name"] == "oldWay" and
+              r[0].get("tags") == [1], r[:1])
+        # kept up to date: an edit of an open document, a file created and deleted on disk
+        c.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_p), "version": 2}, "contentChanges": [
+            {"range": {"start": {"line": 4, "character": 0}, "end": {"line": 4, "character": 0}},
+             "text": "proc brandNewThing*() = discard\n"}]})
+        main_text = MAIN632 + "proc brandNewThing*() = discard\n"
+        r = ws("brandNew")
+        check("6.32 workspace symbols: a name just typed into an open document (on its last, empty line)",
+              r and r[0]["name"] == "brandNewThing" and r[0]["location"]["uri"] == uri(main_p) and
+              r[0]["location"]["range"]["start"]["line"] == 4, names(r))
+        # (the line taken out again, up to the end of the text: the text is the client's, line ends and all)
+        c.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_p), "version": 2}, "contentChanges": [
+            {"range": {"start": {"line": 4, "character": 0}, "end": {"line": 5, "character": 0}}, "text": ""}]})
+        r = (c.request("textDocument/formatting", {"textDocument": {"uri": uri(main_p)},
+                                                   "options": {"tabSize": 2, "insertSpaces": True}}) or {}).get("result")
+        check("6.32 sync: a line deleted up to the end of the text", r == [] and not any(
+            x["name"] == "brandNewThing" for x in ws("brandNew")), r)
+        c.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_p), "version": 2}, "contentChanges": [
+            {"range": {"start": {"line": 4, "character": 0}, "end": {"line": 4, "character": 0}},
+             "text": "proc brandNewThing*() = discard\n"}]})
+        fresh_p = os.path.join(src, "fresh.nim")
+        with open(fresh_p, "w") as f:
+            f.write("proc freshlyMade*() = discard\n")
+        c.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri(fresh_p), "type": 1}]})
+        r = ws("freshlyMade")
+        check("6.32 workspace symbols: a file created on disk", r and r[0]["location"]["uri"] == uri(fresh_p), names(r))
+        os.remove(fresh_p)
+        c.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri(fresh_p), "type": 3}]})
+        r = ws("freshlyMade")
+        check("6.32 workspace symbols: … and gone when it is deleted", not any(x["name"] == "freshlyMade" for x in r),
+              names(r))
+
+        # ── semantic tokens: deltas ──
+        def full():
+            return (c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri(main_p)}}) or {}).get(
+                "result") or {}
+
+        def delta(prev):
+            return (c.request("textDocument/semanticTokens/full/delta", {"textDocument": {"uri": uri(main_p)},
+                                                                         "previousResultId": prev}) or {}).get(
+                "result") or {}
+        t1 = full()
+        check("6.32 semantic tokens: a whole answer has a result id", t1.get("resultId") and len(t1.get("data", [])) > 0,
+              t1)
+        d0 = delta(t1.get("resultId"))
+        check("6.32 semantic tokens: nothing changed — a delta without edits", d0.get("edits") == [] and
+              d0.get("resultId") not in (None, t1.get("resultId")), d0)
+        c.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_p), "version": 3}, "contentChanges": [
+            {"range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 0}},
+             "text": "let extra = area(newShapeValue(3, 4))\n"}]})
+        main_text = main_text.replace("\n\n", "\nlet extra = area(newShapeValue(3, 4))\n\n", 1)
+        d1 = delta(d0.get("resultId"))
+        t2 = full()
+        edits = d1.get("edits")
+        ok = isinstance(edits, list) and len(edits) >= 1 and tokens_after(t1["data"], edits) == t2.get("data")
+        check("6.32 semantic tokens: an edit — the delta's edits make the new tokens", ok, (d1, t2.get("data")))
+        check("6.32 semantic tokens: … and the delta is smaller than the whole",
+              ok and sum(len(e.get("data") or []) for e in edits) < len(t2["data"]), d1)
+        d2 = delta("no-such-id")
+        check("6.32 semantic tokens: a delta from an answer nedls no longer has — the whole tokens",
+              d2.get("data") == t2.get("data") and d2.get("resultId"), d2)
+        r = (c.request("textDocument/semanticTokens/range", {"textDocument": {"uri": uri(main_p)}, "range": {
+            "start": {"line": 1, "character": 0}, "end": {"line": 2, "character": 0}}}) or {}).get("result") or {}
+        check("6.32 semantic tokens: a range still", len(r.get("data", [])) > 0 and len(r["data"]) % 5 == 0 and
+              r["data"][0] == 1, r)
+
+        # ── the workspace's problems ──
+        def ws_diag(prev, timeout=30):
+            ids = [{"uri": u, "value": v} for u, v in prev.items()]
+            return c.request("workspace/diagnostic", {"previousResultIds": ids}, timeout=timeout)
+
+        def remember(prev, res):
+            for it in (res or {}).get("result", {}).get("items", []):
+                prev[it["uri"]] = it["resultId"]
+        prev = {}
+        t0 = time.time()
+        a = ws_diag(prev, timeout=10)
+        check("6.32 workspace/diagnostic: the first is answered at once", a and "items" in a.get("result", {}) and
+              time.time() - t0 < 8, a)
+        remember(prev, a)
+        found = None
+        end = time.time() + 60
+        while time.time() < end and not found:
+            a = ws_diag(prev, timeout=max(1, end - time.time()))
+            remember(prev, a)
+            for it in (a or {}).get("result", {}).get("items", []):
+                if it["uri"] == uri(lint_p) and it["kind"] == "full" and any(
+                        d.get("code") == "unused-import" for d in it["items"]):
+                    found = it
+        check("6.32 workspace/diagnostic: a file not open — ned's checks of it (an unused import)", found, a)
+        check("6.32 workspace/diagnostic: … not also sent (publishDiagnostics)", not c.diagnostics(uri(lint_p)),
+              c.diagnostics(uri(lint_p)))
+        # held while nothing changes (once the checks of the edits above are in); answered when something does —
+        # the others "unchanged"
+        mid = None
+        for _ in range(12):
+            m = c.send_request("workspace/diagnostic", {"previousResultIds": [{"uri": u, "value": v}
+                                                                              for u, v in prev.items()]})
+            a = c.wait(m, timeout=4)
+            if a is None:
+                mid = m
+                break
+            remember(prev, a)
+        check("6.32 workspace/diagnostic: held while nothing changes", mid is not None, a)
+        c.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_p), "version": 4}, "contentChanges": [
+            {"range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 0}},
+             "text": "echo aera(newShapeValue(1, 1))\n"}]})
+        a = c.wait(mid, timeout=40)
+        items = {it["uri"]: it for it in (a or {}).get("result", {}).get("items", [])}
+        check("6.32 workspace/diagnostic: answered when an open document's problems change",
+              (items.get(uri(main_p)) or {}).get("kind") == "full", a)
+        check("6.32 workspace/diagnostic: … the others unchanged", (items.get(uri(lint_p)) or {}).get("kind") ==
+              "unchanged", items.get(uri(lint_p)))
+        remember(prev, a)
+        typo = None
+        end = time.time() + 40
+        while time.time() < end and not typo:
+            if any("aera" in d["message"] for d in (items.get(uri(main_p)) or {}).get("items", [])):
+                typo = items[uri(main_p)]
+                break
+            a = ws_diag(prev, timeout=max(1, end - time.time()))
+            remember(prev, a)
+            items = {it["uri"]: it for it in (a or {}).get("result", {}).get("items", [])}
+        check("6.32 workspace/diagnostic: … with the misspelled name typed", typo, a)
+        # the file fixed on disk: told so
+        with open(lint_p, "w") as f:
+            f.write(LINTME632.replace("import std/strutils\n", ""))
+        c.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri(lint_p), "type": 2}]})
+        fixed = None
+        end = time.time() + 40
+        while time.time() < end and not fixed:
+            a = ws_diag(prev, timeout=max(1, end - time.time()))
+            remember(prev, a)
+            for it in (a or {}).get("result", {}).get("items", []):
+                if it["uri"] == uri(lint_p) and it["kind"] == "full" and not any(
+                        d.get("code") == "unused-import" for d in it["items"]):
+                    fixed = it
+        check("6.32 workspace/diagnostic: a file mended on disk — its problem gone", fixed, a)
+        # a held one cancelled: answered as cancelled
+        mid = c.send_request("workspace/diagnostic", {"previousResultIds": [{"uri": u, "value": v}
+                                                                            for u, v in prev.items()]})
+        time.sleep(0.5)
+        c.notify("$/cancelRequest", {"id": mid})
+        a = c.wait(mid, timeout=10)
+        check("6.32 workspace/diagnostic: a held request cancelled → RequestCancelled",
+              a and a.get("error", {}).get("code") == -32800, a)
+        # and one held at shutdown: answered before it
+        mid = c.send_request("workspace/diagnostic", {"previousResultIds": [{"uri": u, "value": v}
+                                                                            for u, v in prev.items()]})
+        time.sleep(0.5)
+        s = c.request("shutdown", None)
+        a = c.wait(mid, timeout=5)
+        check("6.32 workspace/diagnostic: one held at shutdown is answered", a and "result" in a and s, (a, s))
+    finally:
+        c.request("shutdown", None, timeout=5)
+        c.notify("exit", {})
+        c.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+    # a client that does not pull: the problems of a file not open come as before, pushed — none of the workspace's
+    # checks run for it
+    root = tempfile.mkdtemp(prefix="tnedls-632p-")
+    try:
+        with open(os.path.join(root, "a.nim"), "w") as f:
+            f.write("proc greet(name: string): string = name\necho gret(\"x\")\n")
+        c, init = new_client(nedls, root, log=log)
+        caps = init["result"]["capabilities"]
+        check("6.32 a client that does not pull: no diagnosticProvider, deltas still offered",
+              "diagnosticProvider" not in caps and (caps.get("semanticTokensProvider") or {}).get("full") ==
+              {"delta": True}, caps.get("diagnosticProvider"))
+        a_p = os.path.join(root, "a.nim")
+        open_doc(c, a_p, "proc greet(name: string): string = name\necho gret(\"x\")\n")
+        ds = c.wait_diagnostics(uri(a_p), lambda ds: any("gret" in d["message"] for d in ds), timeout=20)
+        check("6.32 a client that does not pull: its problems pushed", ds and any("gret" in d["message"] for d in ds), ds)
+    finally:
+        c.request("shutdown", None, timeout=5)
         c.notify("exit", {})
         c.close()
         shutil.rmtree(root, ignore_errors=True)
@@ -1918,6 +2192,9 @@ def run_stress(nedls, root, n, log):
     errors = 0
     version = 1
     t0 = time.time()
+    tok = (c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri(p)}}, timeout=60) or {}).get(
+        "result") or {}
+    tok_id, tok_data, tok_bad = tok.get("resultId"), tok.get("data") or [], []
     reqs = ["textDocument/completion", "textDocument/hover", "textDocument/semanticTokens/full",
             "textDocument/documentSymbol", "textDocument/foldingRange", "textDocument/inlayHint",
             "textDocument/signatureHelp", "textDocument/documentHighlight", "textDocument/definition"]
@@ -1944,12 +2221,26 @@ def run_stress(nedls, root, n, log):
                 errors += 1
                 if errors < 5:
                     print("      ", m, "→", r)
+        if i % 20 == 10:
+            # (the colours as a delta of the last answer: the edits applied to it must give the whole tokens)
+            r = (c.request("textDocument/semanticTokens/full/delta", {"textDocument": {"uri": uri(p)},
+                                                                      "previousResultId": tok_id}, timeout=60) or {}).get(
+                "result") or {}
+            tok_data = tokens_after(tok_data, r["edits"]) if "edits" in r else r.get("data") or []
+            tok_id = r.get("resultId")
+            if i % 100 == 10:
+                full = (c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri(p)}},
+                                  timeout=60) or {}).get("result") or {}
+                if full.get("data") != tok_data:
+                    tok_bad.append(i)
+                tok_id, tok_data = full.get("resultId"), full.get("data") or []
         if c.p.poll() is not None:
             break
     alive = c.p.poll() is None
     check("stress: %d random incremental edits (UTF-16, multi-line, several per message) — no crash" % n, alive,
           c.p.returncode)
     check("stress: every request answered without an error", errors == 0, errors)
+    check("stress: semantic token deltas follow the edits (applied, they are the whole tokens)", not tok_bad, tok_bad)
     # the server's text is the client's: the same answers as for the text opened afresh
     p2 = os.path.join(src, "stress2.nim")
     open_doc(c, p2, text)
@@ -1962,6 +2253,9 @@ def run_stress(nedls, root, n, log):
         a = c.request(m, params, timeout=60)
         params["textDocument"]["uri"] = uri(p2)
         b = c.request(m, params, timeout=60)
+        for x in (a, b):              # (each whole answer has an id of its own, for the deltas after it)
+            if isinstance((x or {}).get("result"), dict):
+                x["result"].pop("resultId", None)
         ra = json.dumps((a or {}).get("result"), sort_keys=True).replace(uri(p), "U")
         rb = json.dumps((b or {}).get("result"), sort_keys=True).replace(uri(p2), "U")
         if ra != rb or a is None:
@@ -2086,6 +2380,20 @@ def main():
     if "--edits" in args:
         edits = int(args[args.index("--edits") + 1])
     have_nim = shutil.which("nim") is not None
+    if "--only" in args:
+        # (a part on its own while working on it: --only 632, --only checks langs …)
+        only = args[args.index("--only") + 1:]
+        suites = {"actions": lambda: run_actions(nedls, have_nim, log), "langs": lambda: run_langs(nedls, log),
+                  "c": lambda: run_c_engine(nedls, log), "628": lambda: run_628(nedls, log),
+                  "632": lambda: run_632(nedls, log), "nim3": lambda: run_nim3(nedls, log)}
+        for name in only:
+            if name not in suites:
+                print("unknown suite %s (%s)" % (name, ", ".join(suites)))
+                return 2
+            suites[name]()
+        failed = [n for n, ok in RESULTS if not ok]
+        print("\n%d checks, %d failed" % (len(RESULTS), len(failed)))
+        return 1 if failed else 0
     root = tempfile.mkdtemp(prefix="tnedls-")
     try:
         os.makedirs(os.path.join(root, "src"))
@@ -2101,6 +2409,7 @@ def main():
         run_langs(nedls, log)
         run_c_engine(nedls, log)
         run_628(nedls, log)
+        run_632(nedls, log)
         run_nim3(nedls, log)
         if edits > 0:
             run_stress(nedls, root, edits, log)

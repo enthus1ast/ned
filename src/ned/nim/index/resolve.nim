@@ -327,11 +327,32 @@ proc nxParamAt(lines: openArray[string], r: NxSym, name: string): NxSym =
     if nxNorm(nm) == nxNorm(name):
       return NxSym(name: nm, kind: nxParam, typ: p.typ, value: p.default, line: pl, col: pc)
 
+func nxInInitializer(lines: openArray[string], declLine, line: int): bool =
+  ## is `line` in the value of the let/var declared on `declLine` (`var value =⏎ if c: value …`), where the
+  ## name is not declared yet: the lines between are all indented further than the declaration's
+  if line <= declLine or line >= lines.len or line - declLine > 60: return false
+  let ind = lines[declLine].len - lines[declLine].strip(trailing = false).len
+  for l in declLine + 1 .. line:
+    let t = lines[l].strip(trailing = false)
+    if t.len == 0: continue
+    if lines[l].len - t.len <= ind: return false
+  true
+
 proc nxLocalRoutine(locals: seq[NxSym], w: string, line: int): seq[NxSym] =
   ## a routine declared inside the one around `line` by that name (it hides the module's)
   for i in countdown(locals.high, 0):
     template s: untyped = locals[i]
     if s.kind in NxRoutineKinds and nxNorm(s.name) == nxNorm(w) and s.line <= line: return @[s]
+
+func nxCmdStart(text: string, a: int): bool =
+  ## does a statement start at `a` — a command call can (add s, x): at the line's start, after `discard`, or after
+  ## the `:` of a one-line if/elif/else/of/while/for
+  let pre = text[0 ..< a].strip
+  if pre.len == 0 or pre == "discard": return true
+  if not pre.endsWith(":"): return false
+  var w = 0
+  while w < pre.len and nxIsIdent(pre[w]): inc w
+  pre[0 ..< w] in ["if", "elif", "else", "of", "while", "for", "when", "except", "finally", "try"]
 
 proc nxCallArgs(lines: seq[string], line, e: int): (bool, seq[string]) =
   ## the arguments of the call whose name ends at `e` (`name(…)`, `name[T](…)`, over a few lines too): (a call
@@ -343,11 +364,17 @@ proc nxCallArgs(lines: seq[string], line, e: int): (bool, seq[string]) =
     if ge < 0: return
     k = ge + 1
   let a0 = if e > 0: nxWordAt(text, e - 1)[0] else: 0
-  if k < text.len and text[k] == ' ' and k == e and k + 1 < text.len and nxDotBefore(text, a0):
+  if k < text.len and text[k] == ' ' and k == e and k + 1 < text.len and
+     (nxDotBefore(text, a0) or nxCmdStart(text, a0)):
     # a command call after a dot: s.addInt i, x.add "a" — its arguments, to the end of the line
     var j = k + 1
     while j < text.len and text[j] == ' ': inc j
-    if j < text.len and (nxIsIdent(text[j]) or text[j] in {'"', '\'', '@'}):
+    # (result.add $x, s.add (a mod 100).intToStr(2), n.expectKind {a, b}: a prefix operator with nothing between it
+    # and its operand, or a bracket, starts an argument too)
+    let prefixed = j + 1 < text.len and j == k + 1 and
+                   ((text[j] in {'$', '-', '~', '!'} and text[j + 1] notin {' ', '='} + NxOpChars) or
+                    text[j] in {'(', '[', '{'})
+    if j < text.len and (nxIsIdent(text[j]) or text[j] in {'"', '\'', '@'} or prefixed):
       var w = j
       while w < text.len and nxIsIdent(text[w]): inc w
       if text[j .. w - 1] notin ["and", "or", "in", "notin", "is", "isnot", "of", "div", "mod", "shl", "shr",
@@ -374,6 +401,14 @@ proc nxCallArgs(lines: seq[string], line, e: int): (bool, seq[string]) =
   if inner.len > 0:
     for a in nxSplitTop(inner, {','}): result[1].add a.strip
 
+func nxNamedAt(a: string): int =
+  ## a named argument (`trailingSep = false`): where its `=` is, else -1 — not the `=` of `>=`, `<=`, `!=`, `==`
+  let eq = nxFindTop(a, '=')
+  if eq > 0 and (eq + 1 >= a.len or a[eq + 1] != '=') and a[eq - 1] notin {'<', '>', '!', '=', '.', '+', '-', '*', '/'} and
+     a[0 ..< eq].strip.len > 0 and a[0 ..< eq].strip.allCharsInSet(IdentChars + {'`'}):
+    return eq
+  -1
+
 proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string], line, e: int,
                   cands: seq[NxRef], recv: string): seq[NxRef] =
   ## of several overloads, the ones that take the call's arguments best — their number (defaults and varargs
@@ -388,10 +423,16 @@ proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string]
   var known = newSeq[bool](args.len)
   var best: seq[NxRef]
   var bestScore = -1
+  var arity: seq[NxRef]                # (the routines that take this many arguments, whatever their types)
   for r in cands:
     let s = r.sym
     if s.kind notin NxRoutineKinds: continue
     if isCall and not nxArgsFit(s, args.len + off): continue
+    if isCall and recv.len == 0:
+      var named = false
+      for a in args:
+        if nxNamedAt(a) > 0: named = true
+      if not named: arity.add r
     var score = 1
     if recv.len > 0:
       if s.params.len == 0: continue
@@ -400,8 +441,8 @@ proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string]
       score += c
     var ok = true
     for j, a in args:
-      let eq = nxFindTop(a, '=')
-      if eq > 0 and (eq + 1 >= a.len or a[eq + 1] != '='):
+      let eq = nxNamedAt(a)
+      if eq > 0:
         # a named argument: the routine has a parameter by that name
         let nm = a[0 ..< eq].strip
         var has = false
@@ -428,10 +469,18 @@ proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string]
       if a == "nil": continue
       if not known[j]:
         known[j] = true
-        argT[j] = nxTypeOfExpr(f, sc, locals, a, line, 1).typ
+        let v = nxTypeOfExpr(f, sc, locals, a, line, 1)
+        argT[j] = v.typ
+        # (a type passed: high(int64) is the typedesc overload, not the one of an openArray)
+        if v.typ.len == 0 and v.typeName.len > 0: argT[j] = "typedesc[" & v.typeName & "]"
       let at = argT[j]
       if at.len == 0 or (at.len <= 2 and at[0] in {'A'..'Z'}): continue     # (unknown, or a generic T)
-      let c = nxCompatP(sc, s.params[pi], s.generics, at)
+      var prm = s.params[pi]
+      if prm.typ.len == 0 and prm.default.len > 0 and nxLiteralType(prm.default).len == 0:
+        # (sep = DirSep, val = Future[void].default: the type of the default, where the routine is declared)
+        prm.typ = nxTypeOfExpr(r.file, nxScope(r.file), @[], prm.default, s.line, 2).typ
+        if prm.typ.len == 0: continue
+      let c = nxCompatP(sc, prm, s.generics, at)
       if c == 0:
         ok = false
         break
@@ -442,6 +491,62 @@ proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string]
       bestScore = score
     elif score == bestScore: best.add r
   if best.len > 0: result = best
+  elif arity.len > 0 and arity.len < cands.len:
+    # (no overload takes these types as ned reads them — a range of an enum, a converter —: the ones that take
+    # this many arguments are still the only ones the call can be; the others (and types: a conversion takes one)
+    # cannot)
+    var conv = false
+    for r in cands:
+      if r.sym.kind notin NxRoutineKinds and args.len == 1: conv = true
+    let code = nxCodeOf(lines[line])
+    # (a block after the call — foo(x):⏎ body, foo(x) do: — is one more argument)
+    if not conv and not code.endsWith(":") and " do" notin code: result = arity
+
+const NxBuiltinPragmas = ["varargs", "error", "warning", "hint", "pop", "push", "size", "header", "line", "align",
+                          "emit", "compile", "link", "global", "base", "final", "pure", "union", "packed", "thread",
+                          "noinit", "borrow", "closure", "cursor", "used", "experimental", "inject", "gensym", "dirty",
+                          "magic", "raises", "tags", "importc", "exportc", "dynlib", "discardable", "deprecated",
+                          "inline", "noSideEffect", "gcsafe", "nimcall", "cdecl", "stdcall", "bycopy", "byref",
+                          "threadvar", "compileTime", "noreturn", "importcpp", "importjs", "nodecl", "incompleteStruct",
+                          "requiresInit", "acyclic", "inheritable", "shallow", "effectsOf", "rtl", "extern", "benign"]
+
+var nxReorders: Table[string, bool]      # file and stamp → it asks for {.experimental: "codeReordering".}
+
+proc nxDropLater(f: NxFile, lines: seq[string], line: int, rs: var seq[NxRef]) =
+  ## of several overloads, those this module declares below `line` are not seen there: Nim reads a module from the
+  ## top (convert(Weeks, Seconds, n) above `template convert(d: Duration, …)` is the proc). Not in a template's
+  ## or a generic routine's body (bound where it is used), nor a routine a forward declaration above announces,
+  ## nor in a module that reorders its code
+  if rs.len < 2: return
+  var later: seq[int]
+  for i, r in rs:
+    if r.file.path == f.path and r.sym.line > line and not r.sym.local and not r.sym.made and
+       r.sym.kind in NxRoutineKinds + {nxConst, nxLet, nxVar}:
+      later.add i
+  if later.len == 0 or later.len == rs.len: return
+  let ri = nxEnclosing(f, line)
+  if ri >= 0 and (f.syms[ri].kind in {nxTemplate, nxMacro} or nxIsGenericRoutine(f.syms[ri])): return
+  let rk = f.path & "\t" & f.stamp
+  if rk notin nxReorders:
+    if nxReorders.len > 200: nxReorders.clear()
+    var re = false
+    for l in lines:
+      if "codeReordering" in l: re = true
+    nxReorders[rk] = re
+  if nxReorders[rk]: return
+  # (runnableExamples are a module of their own that imports this one: all of it)
+  var ind = lines[line].len - lines[line].strip(trailing = false).len
+  var l = line - 1
+  while l >= 0 and ind > 0:
+    let t = lines[l].strip(trailing = false)
+    if t.len > 0 and t[0] != '#' and lines[l].len - t.len < ind:
+      if t.startsWith("runnableExamples"): return
+      ind = lines[l].len - t.len
+    dec l
+  for i in countdown(later.high, 0):
+    let fw = nxForwardOf(f, lines, rs[later[i]].sym)
+    if fw >= 0 and f.syms[fw].line < line: continue
+    rs.delete(later[i])
 
 proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq[NxSym], string) =
   ## the declarations the word at line:col refers to: (index symbols, locals, module path)
@@ -490,6 +595,29 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
           for r in got:
             if nxNorm(r.sym.name) == nxNorm(w): result[0].add r
           if result[0].len > 0: return
+  block pragma:
+    # {.importc, varargs.}: a pragma the compiler knows, not the type varargs (nor macros' error, seq's pop …)
+    if w notin NxBuiltinPragmas: break pragma
+    let open = text.rfind("{.", last = a)
+    var above = false
+    if open < 0:
+      # (a pragma list that starts on a line above: {.header: "<stdio.h>",⏎ importc: "snprintf", varargs.})
+      var l2 = line - 1
+      while l2 >= 0 and line - l2 <= 3 and not above:
+        let t2 = nxCodeOf(lines[l2])
+        let o2 = t2.rfind("{.")
+        if o2 >= 0 and t2.rfind(".}") < o2: above = true
+        elif not t2.endsWith(","): break
+        dec l2
+      if not above: break pragma
+    elif text.rfind(".}", last = a) > open: break pragma
+    var q = a - 1
+    while q >= 0 and text[q] == ' ': dec q
+    var r = e
+    while r < text.len and text[r] == ' ': inc r
+    if ((q >= 1 and (text[q] == ',' or (text[q] == '.' and text[q - 1] == '{'))) or (q < 0 and above)) and
+       (r >= text.len or text[r] in {',', ':', '.'}):
+      return
   let own = nxSymAt(f, line, a)
   if own >= 0 and nxNorm(f.syms[own].name) == nxNorm(w):
     if nxIsForward(lines, f.syms[own]):
@@ -544,6 +672,15 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
       if opener > 0 and text[opener] == '(' and nxIsIdent(text[opener - 1]) and not header and
          "proc (" notin text[0 ..< opener] and "proc(" notin text[0 ..< opener]:
         return (@[], @[], "")
+      if opener >= 0 and text[opener] == '(' and not header and
+         (opener == 0 or text[opener - 1] notin IdentChars + {']', ')', '`', '.', '\x80'..'\xFF'}):
+        # $(slice: s, len: n), return (a: 1, b: 2): a label of the tuple it makes, not the `len` in scope
+        var w0 = opener
+        while w0 > 0 and text[w0 - 1] == ' ': dec w0
+        var w1 = w0
+        while w1 > 0 and nxIsIdent(text[w1 - 1]): dec w1
+        if text[w1 ..< w0] notin ["proc", "func", "iterator", "method", "converter", "template", "macro"]:
+          return (@[], @[], "")
   block typeExpr:
     # a parameter of a proc type, a field of a tuple type: itself
     let m = nxTypeExprMember(lines, line, a, e)
@@ -565,8 +702,10 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
       if result[0].len > 0: return
     # a routine declared inside this one (shape.addQuadratic(…) calling a nested proc): it hides the module's
     # (nxLocalRoutine — not a closure here: one holding `locals` was never freed, a list of locals at every call)
-    if v.typ.len > 0:
-      let vt = nxConstrained(f, line, v.typ)
+    # (a type in front: int.high, Color.low — the routine takes the type, a typedesc)
+    let vTyp = if v.typ.len == 0 and v.typeName.len > 0: "typedesc[" & v.typeName & "]" else: v.typ
+    if vTyp.len > 0:
+      let vt = nxConstrained(f, line, vTyp)
       for fr in nxFields(sc, vt):
         if nxNorm(fr.sym.name) == nxNorm(w) and nxVisible(f, fr): return (@[fr], @[], "")
       if nxStripMods(vt).startsWith("tuple["):
@@ -576,8 +715,11 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
       if lr.len > 0: return (@[], lr, "")
       var best: seq[NxRef]
       var bestScore = 0
+      var cands: seq[NxRef]
       for r in nxLookup(sc, w):
-        if r.sym.kind notin NxRoutineKinds or r.sym.params.len == 0: continue
+        if r.sym.kind in NxRoutineKinds and r.sym.params.len > 0: cands.add r
+      nxDropLater(f, lines, line, cands)
+      for r in cands:
         let c = nxCompatP(sc, r.sym.params[0], r.sym.generics, vt)
         if c > bestScore:
           best = @[r]
@@ -590,6 +732,7 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
     if lr.len > 0: return (@[], lr, "")
     for r in nxLookup(sc, w):
       if r.sym.kind in NxRoutineKinds or r.sym.kind == nxField: result[0].add r
+    nxDropLater(f, lines, line, result[0])
     if result[0].len == 0:
       for r in nxLookup(sc, w):
         if r.sym.kind == nxType: result[0].add r          # x.float: a conversion
@@ -603,7 +746,11 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
     # `var node = node`: a local is only visible after its own declaration (its name counts as itself)
     if nxNorm(s.name) == nxNorm(w) and (s.line < line or (s.line == line and a <= s.col + s.name.len) or
                                         (s.kind in {nxParam, nxResult} and s.line == line) or
-                                        (s.kind == nxForVar and s.endLine > 0 and a > s.endLine)):
+                                        (s.kind == nxForVar and s.endLine > 0 and a > s.endLine) or
+                                        (s.kind in {nxLet, nxVar} and s.endLine > 0 and s.line == line and
+                                         a > s.endLine)) and
+       not (s.kind in {nxLet, nxVar, nxConst} and s.endLine <= 0 and s.line < line and
+            nxInInitializer(lines, s.line, line)):
       var s2 = locals[i]
       if s2.kind == nxParam and s2.ret.len > 0 and s2.line == line and s2.col == a and '|' notin s2.ret:
         # (a macro's parameter where it is declared: the type written there — a {.multisync.} one stays the
@@ -630,6 +777,17 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
   for r in result[0]:
     if r.sym.kind != nxField: nonField.add r
   if nonField.len > 0: result[0] = nonField
+  block own:
+    # (a type, const, var or let of this module hides an imported one of that name: times' own Time, not posix's)
+    var mine = false
+    for r in result[0]:
+      if r.file.path == f.path and r.sym.kind in {nxType, nxConst, nxLet, nxVar} and not r.sym.local: mine = true
+    if mine:
+      var keep: seq[NxRef]
+      for r in result[0]:
+        if r.file.path == f.path or r.sym.kind notin {nxType, nxConst, nxLet, nxVar}: keep.add r
+      result[0] = keep
+  nxDropLater(f, lines, line, result[0])
   if result[0].len == 0 and w in sc.modules: return (@[], @[], sc.modules[w])
   if result[0].len == 0:
     # in a template: a name its body does not declare is the one where it is called (not a named argument)
@@ -645,5 +803,7 @@ proc nxTargets*(f: NxFile, lines: seq[string], line, col: int): (seq[NxRef], seq
     while k < text.len and text[k] == ' ': inc k
     if k < text.len and text[k] in {'(', '['}:          # (hasKey[A, B](t, key): its explicit generics skipped)
       result[0] = nxNarrowCall(f, sc, locals, lines, line, k, result[0], "")
+    elif k > e and k < text.len and nxCmdStart(text, a):
+      result[0] = nxNarrowCall(f, sc, locals, lines, line, e, result[0], "")    # add result, x: a command call
   # own declarations first, then imports, then system
   result[0].sort(proc(x, y: NxRef): int = cmp(nxRank(f, x), nxRank(f, y)))

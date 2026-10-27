@@ -1,7 +1,7 @@
 ## The built-in formatters on their own: Nim (nph's style), JSON, CSS, Markdown tables — and the Nim formatter
 ## run twice over ned's own source changes nothing the second time. Run: nim r tests/unit/tformat.nim
 
-import std/[os, strutils, unittest]
+import std/[os, sets, strutils, tables, unittest]
 import ../../src/ned/format/formatters
 
 proc nimFmt(s: string): string =
@@ -34,6 +34,137 @@ suite "Nim":
       check twice == once
       inc files
     check files > 100
+
+suite "Nim: nph's layouts (6.32)":
+  test "a comment over a section's member: no empty line between them":
+    check nimFmt("type\n  A = int\n\n  # the next one\n\n  B = int\nconst\n  # c\n\n  C = 1\n") ==
+          "type\n  A = int\n\n  # the next one\n  B = int\n\nconst\n  # c\n  C = 1\n"
+  test "an enum's group heading keeps its empty line; after a line of several values it trails the last":
+    check nimFmt("type\n  K = enum\n    a\n    b\n\n    # group two\n    c\n") ==
+          "type K = enum\n  a\n  b\n\n  # group two\n  c\n"
+    check nimFmt("type\n  E = enum\n    x, y,\n\n    # more\n    z\n") ==
+          "type E = enum\n  x\n  y # more\n  z\n"
+  test "a while whose condition takes three lines: its colon on a line of its own":
+    let src = "proc f(tail: var int) =\n  while tail.kind in\n      {nkStmtList, nkStmtListExpr, nkBlockStmt, " &
+              "nkBlockExpr, nkPragmaBlock, nkStmtListExpr, nkBlockStmt} and\n      tail.len > 0 and tail.len < 1000000:\n" &
+              "    tail = tail.lastSon\n"
+    let want = "proc f(tail: var int) =\n  while tail.kind in {\n    nkStmtList, nkStmtListExpr, nkBlockStmt, " &
+               "nkBlockExpr, nkPragmaBlock, nkStmtListExpr,\n    nkBlockStmt,\n  } and tail.len > 0 and " &
+               "tail.len < 1000000\n  :\n    tail = tail.lastSon\n"
+    check nimFmt(src) == want
+    check nimFmt(want) == want
+  test "an enum's group heading after values with commas keeps its empty line too":
+    check nimFmt("type K = enum\n  a,\n  b,\n\n  # group two\n  c\n") ==
+          "type K = enum\n  a\n  b\n\n  # group two\n  c\n"
+  test "a type member whose `=` is on a later line than its name: an empty line before it":
+    let src = "type\n  Pid* {.importc: \"pid_t\".} = int32\n  Pthread_barrier* {.importc: \"pthread_barrier_t\",\n" &
+              "                    header: \"<sys/types.h>\".} = int\n  Key* = int\n"
+    let want = "type\n  Pid* {.importc: \"pid_t\".} = int32\n\n  Pthread_barrier* {.importc: \"pthread_barrier_t\", " &
+               "header: \"<sys/types.h>\".} = int\n  Key* = int\n"
+    check nimFmt(src) == want
+    check nimFmt(want) == want
+  test "a type's `=` ⏎ `object`: on one line, its doc comment under it":
+    check nimFmt("type\n  A* {.final.} =\n    object ## the doc\n      ## goes on\n  B = int\n") ==
+          "type\n  A* {.final.} = object\n    ## the doc\n    ## goes on\n\n  B = int\n"
+  test "`x =` ⏎ `block:`: `x = block:`, its body one less deep":
+    check nimFmt("let x =\n  block:\n    let y = 1\n    y + 1\n") == "let x = block:\n  let y = 1\n  y + 1\n"
+  test "a trailing comment may end one column past the line length, as nph counts it":
+    let line = "  SO_USELOOPBACK* {.importc, header: \"winsock2.h\".}: cint # bypass hardware when possible"
+    check line.len == 89
+    check nimFmt("var\n  x = 1\n" & line & "\n") == "var\n  x = 1\n" & line & "\n"
+  test "a routine's generic parameters: `;` after a typed one is a comma, as nph writes them":
+    check nimFmt("proc arrGet[I: Ordinal; T](a: T, i: I): T = discard\n") ==
+          "proc arrGet[I: Ordinal, T](a: T, i: I): T =\n  discard\n"
+    check nimFmt("proc `[]`*[T; U, V: Ordinal](s: T): U = discard\n") ==
+          "proc `[]`*[T; U, V: Ordinal](s: T): U =\n  discard\n"
+  test "`(if c: a else: b)` past the width as nph measures it: `else:` on the next line":
+    check nimFmt("proc f() =\n  let xa = (when x.a is BackwardsIndex: a.len - int(x.a) else: int(x.a))\n") ==
+          "proc f() =\n  let xa = (when x.a is BackwardsIndex: a.len - int(x.a)\n  else: int(x.a))\n"
+    check nimFmt("proc f() =\n  result = Peg(kind: pkBackRefIgnoreCase, index: (if reverse: -index else: index - 1))\n") ==
+          "proc f() =\n  result = Peg(kind: pkBackRefIgnoreCase, index: (if reverse: -index\n    else: index - 1))\n"
+    # (names and literals only, or short enough: one line)
+    check nimFmt("let k = (if reverse: aVeryLongNameForTheFirstValue else: anotherLongNameForTheSecondOne)\n") ==
+          "let k = (if reverse: aVeryLongNameForTheFirstValue else: anotherLongNameForTheSecondOne)\n"
+    check nimFmt("let n = (if a: f(1) else: 0)\n") == "let n = (if a: f(1) else: 0)\n"
+  test "a call given a loop: the loop as a block under it":
+    check nimFmt("type E = typeof(for ai in a: ai)\n") == "type E = typeof(\n  for ai in a:\n    ai\n)\n"
+    check nimFmt("var files = collect(for it in conf.link:\n    var it = it\n    it.addFileExt(\"o\"))\n") ==
+          "var files = collect(\n  for it in conf.link:\n    var it = it\n    it.addFileExt(\"o\")\n)\n"
+  test "a comment at the margin between two statements of a block: at their depth":
+    check nimFmt("proc f() =\n  a()\n#  b()\n  c()\n") == "proc f() =\n  a()\n  #  b()\n  c()\n"
+  test "a lone doc line under a declaration joins it, a comment further left after it too":
+    check nimFmt("proc require*(m: cstring): JsObject {.importc.}\n  ## JavaScript's require.\n\n# next\n") ==
+          "proc require*(m: cstring): JsObject {.importc.} ## JavaScript's require.\n\n# next\n"
+
+  test "a cast's type with pragmas: the cast stays on its line, the call in it opens":
+    check nimFmt("proc f() =\n  let theProc = cast[proc(a, b, c: pointer) {.cdecl.}](utilModule().symNullable(" &
+                 "\"CRYPTO_set_mem_functions\"))\n") ==
+          "proc f() =\n  let theProc = cast[proc(a, b, c: pointer) {.cdecl.}](utilModule().symNullable(\n" &
+          "    \"CRYPTO_set_mem_functions\"\n  ))\n"
+  test "comments before a statement are one block at its level":
+    check nimFmt("proc f() =\n  a = 1\n  # if x:\n    # y()\n  b = 2\n") == "proc f() =\n  a = 1\n  # if x:\n  # y()\n  b = 2\n"
+    # (deeper right after the statement: its own, as written)
+    check nimFmt("proc f() =\n  a = 1\n    # x\n    # y\n  b = 2\n") == "proc f() =\n  a = 1\n    # x\n    # y\n  b = 2\n"
+  test "an import's std/[…] that fits whole on a line of its own: std/ ⏎ the list":
+    check nimFmt("import std/[os, strutils, strtabs, algorithm, json, osproc, tables, intsets, xmltree, sequtils]\n") ==
+          "import\n  std/\n    [os, strutils, strtabs, algorithm, json, osproc, tables, intsets, xmltree, sequtils]\n"
+  test "packed elements: the trailing comma after the last one does not count in the width":
+    let src = "import std/[net, strutils, uri, parseutils, base64, os, mimetypes, math, random, httpcore, times, " &
+              "tables, streams, monotimes, asyncnet, asyncdispatch, asyncfile, nativesockets]\n"
+    check nimFmt(src) == "import\n  std/[\n    net, strutils, uri, parseutils, base64, os, mimetypes, math, random, " &
+          "httpcore,\n    times, tables, streams, monotimes, asyncnet, asyncdispatch, asyncfile, nativesockets,\n  ]\n"
+  test "a tuple type with comments among its fields: `X =` ⏎ `tuple` ⏎ the fields":
+    check nimFmt("type\n  A = int\n  T = tuple # for Markdown\n    first, last: int\n") ==
+          "type\n  A = int\n  T =\n    tuple\n      # for Markdown\n      first, last: int\n"
+  test "a lambda's `;` between typed parameters in a call kept as written: `,`":
+    let src = "discard opGorge(\n  x,\n  proc(conf: ConfigRef; info: TLineInfo) =\n    echo info\n)\n"
+    check nimFmt(src) == "discard opGorge(\n  x,\n  proc(conf: ConfigRef, info: TLineInfo) =\n    echo info\n  ,\n)\n"
+
+  test "an if given to a command over lines: its else at the command's line, as nph writes it":
+    let src = "proc f() =\n  result.add if n.typ.isEmptyType or willProduceStmt:\n               processScope(c, n)\n" &
+              "             else:\n               processScopeExpr(c, n)\n"
+    check nimFmt(src) == "proc f() =\n  result.add if n.typ.isEmptyType or willProduceStmt:\n    processScope(c, n)\n" &
+          "  else:\n    processScopeExpr(c, n)\n"
+
+suite "Nim: the code in triple-quoted strings (nim.format.embedded, 6.32)":
+  test "SQL: by its prefix, a #[sql]# marker, a database call or its first word; at the string's indentation":
+    let src = "proc f(db: DbConn) =\n  db.exec(sql\"\"\"\n    create table t (id integer primary key, name text)\n" &
+              "  \"\"\")\n  let q = \"\"\"\n      SELECT a, b FROM t WHERE x = 1\n    \"\"\"\n" &
+              "  let m = #[sql]# \"\"\"\n    update t set a = 1 where b = 2\n  \"\"\"\n"
+    let want = "proc f(db: DbConn) =\n  db.exec(sql\"\"\"\n    CREATE TABLE t (\n      id INTEGER PRIMARY KEY,\n" &
+               "      name TEXT\n    )\n  \"\"\")\n  let q = \"\"\"\n      SELECT a, b\n      FROM t\n      WHERE x = 1\n" &
+               "    \"\"\"\n  let m = #[sql]# \"\"\"\n    UPDATE t\n    SET a = 1\n    WHERE b = 2\n  \"\"\"\n"
+    check fFormatEmbedded(src)[0] == want
+    check fFormatEmbedded(want)[1] == 0
+  test "HTML and JSON: by the routine they are given to, or a name of yours (nim.embeddedLanguages)":
+    let src = "let page = render(\"\"\"\n  <ul><li>one</li><li>two</li></ul>\n\"\"\")\n" &
+              "let j = parseJson(\"\"\"\n  {\"a\": 1, \"c\": {\"d\": true}}\n\"\"\")\n"
+    let want = "let page = render(\"\"\"\n  <ul>\n    <li>one</li>\n    <li>two</li>\n  </ul>\n\"\"\")\n" &
+               "let j = parseJson(\"\"\"\n  {\n    \"a\": 1,\n    \"c\": {\n      \"d\": true\n    }\n  }\n\"\"\")\n"
+    var names = initTable[string, string]()
+    names["render"] = "html"
+    check fFormatEmbedded(src, names)[0] == want
+  test "left alone: prose, fmt strings, emits, a string on its first line, one that does not parse":
+    for s in ["let s = \"\"\"\n  select the file to open\n\"\"\"\n",
+              "let s = fmt\"\"\"\n  SELECT {a} FROM t\n\"\"\"\n",
+              "{.emit: \"\"\"\n  int x = 1;\n\"\"\".}\n",
+              "let s = sql\"\"\"SELECT a FROM t WHERE x = 1\"\"\"\n",
+              "let j = parseJson(\"\"\"\n  {\"a\": \n\"\"\")\n"]:
+      check fFormatEmbedded(s) == (s, 0)
+
+suite "Format on save, only the lines changed (editor.formatOnSaveScope: changed, 6.32)":
+  test "the changed lines as runs, from 1":
+    check fmtLineRuns(toHashSet([9, 2, 3, 4])) == @[(3, 5), (10, 10)]
+    check fmtLineRuns(initHashSet[int]()).len == 0
+  test "a formatter that takes ranges is given them; any other command stays as it is":
+    let runs = @[(3, 5), (10, 10)]
+    check fmtWithRanges("black -q -", runs) == "black --line-ranges=3-5 --line-ranges=10-10 -q -"
+    check fmtWithRanges("clang-format --assume-filename=\"x.c\"", runs) ==
+          "clang-format --lines=3:5 --lines=10:10 --assume-filename=\"x.c\""
+    check fmtWithRanges("ruff format -", @[(3, 5)]) == "ruff format --range=3-5 -"
+    check fmtWithRanges("ruff format -", runs) == "ruff format -"            # (one range only: the whole file)
+    check fmtWithRanges("prettier --stdin-filepath \"x.js\"", runs) == "prettier --stdin-filepath \"x.js\""
+    check fmtWithRanges("black -q -", @[]) == "black -q -"
 
 suite "Nim: nph's layouts (6.8)":
   test "a lambda among the arguments: one argument a line, its body under it":

@@ -350,6 +350,13 @@ function semanticTokens(t) {
   return new vscode.SemanticTokens(new Uint32Array(t.data || []), t.resultId);
 }
 
+// a delta's answer: edits of the tokens VS Code has (SemanticTokensDelta), or the whole tokens again
+function semanticTokensOrEdits(t) {
+  if (!Array.isArray(t.edits)) return semanticTokens(t);
+  return new vscode.SemanticTokensEdits(t.edits.map((e) => new vscode.SemanticTokensEdit(
+    e.start, e.deleteCount, Array.isArray(e.data) ? new Uint32Array(e.data) : undefined)), t.resultId);
+}
+
 function callHierarchyItem(i) {
   const x = new vscode.CallHierarchyItem(symbolKind(i.kind), i.name, i.detail || '', uri(i.uri), range(i.range),
                                          range(i.selectionRange || i.range));
@@ -443,6 +450,6 @@ module.exports = {
   original, position, range, ranges, uri, location, locations, definition, documentation, hover, command,
   diagnostic, textEdit, textEdits, workspaceEdit, completionItem, completionList, resolvedCompletion,
   signatureHelp, documentHighlights, symbolInformation, documentSymbols, codeAction, codeLens, foldingRange,
-  selectionRange, inlayHint, resolvedInlayHint, semanticTokens, callHierarchyItem, typeHierarchyItem, documentLink,
-  tooltip, c2p
+  selectionRange, inlayHint, resolvedInlayHint, semanticTokens, semanticTokensOrEdits, callHierarchyItem,
+  typeHierarchyItem, documentLink, tooltip, c2p
 };

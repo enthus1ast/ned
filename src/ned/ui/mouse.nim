@@ -294,7 +294,7 @@ proc handleMouse(k: Key) =
       # a row of the list: open it (here or beside), copy its path
       let (bx, _, bw, _) = pickBox
       if y >= pickListY and y < pickListY + pickListN and x > bx and x < bx + bw - 1:
-        let si = pickScroll + (y - pickListY)
+        let si = pickScroll + (y - pickListY) div max(1, pickRowH)
         if si < pickShown.len:
           pickSel = si
           var items = @[mi("Open", "Enter", proc() = acceptPicker())]
@@ -379,7 +379,7 @@ proc handleMouse(k: Key) =
         regions[i].act()                # the query field (the cursor, a selection), the buttons
         return
     if y >= pickListY and y < pickListY + pickListN and x > bx and x < bx + bw - 1:
-      let i = pickScroll + (y - pickListY)
+      let i = pickScroll + (y - pickListY) div max(1, pickRowH)
       if i < pickShown.len:
         pickSel = i
         acceptPicker()

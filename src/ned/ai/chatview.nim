@@ -76,7 +76,7 @@ proc applyCodeToFile(path, code: string) =
   ## a code block written for a whole file: show the diff, apply on confirmation (undoable)
   let b = openFile(path)
   if b == nil: return
-  var nl = textLines(code)
+  var nl = textLines(restoreSecrets(code, aiSecretTab))     # (a placeholder back to its secret, in the file)
   let d = unifiedDiff(b.lines, nl, "a/" & relPath(path), "b/" & relPath(path))
   if d.len == 0:
     info("The file already has this content")
@@ -112,7 +112,7 @@ proc insertCode(code: string) =
   ## undo step — then flash it so you see where it went
   let b = buf()
   if not b.canEdit(): return
-  var src = textLines(code.replace("\r\n", "\n").replace("\t", (if b.indent == "\t": "\t" else: spaces(b.indentW()))))
+  var src = textLines(restoreSecrets(code, aiSecretTab).replace("\r\n", "\n").replace("\t", (if b.indent == "\t": "\t" else: spaces(b.indentW()))))
   while src.len > 0 and src[0].strip.len == 0: src.delete(0)
   while src.len > 0 and src[^1].strip.len == 0: src.setLen(src.len - 1)
   if src.len == 0: return

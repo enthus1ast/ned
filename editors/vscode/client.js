@@ -1,6 +1,6 @@
 // One run of nedls: the process, the initialize handshake, the documents kept in step with it, what it asks of
-// VS Code (messages, edits, settings, progress), and the providers for what it can do (features.js). A restart is
-// a new Client.
+// VS Code (messages, edits, settings, progress), the problems it sends or is asked for, and the providers for what
+// it can do (features.js). A restart is a new Client.
 'use strict';
 
 const vscode = require('vscode');
@@ -23,6 +23,14 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`no answer in ${ms / 1000} s`)), ms);
   })]).finally(() => clearTimeout(timer));
+}
+
+// (a wait that does not keep Node running on its own)
+function sleep(ms) {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    if (t && t.unref) t.unref();
+  });
 }
 
 function folderOf(f) {
@@ -55,6 +63,7 @@ class Client {
     this.open = new Set();          // the documents nedls was told about (didOpen), by URI
     this.refresh = {};              // the providers' change events, for the server's */refresh requests
     this.progress = new Map();      // work done progress shown in the status bar, by token
+    this.pull = null;               // the problems VS Code asks for, when nedls offers that (startPulling)
     this.diagnostics = vscode.languages.createDiagnosticCollection('nedls');
     this.selector = [];
     for (const l of this.languages) {
@@ -140,6 +149,7 @@ class Client {
 
     features.register(this, this.caps, this.selector, this.subs);
     this.syncDocuments();
+    this.startPulling();
     this.watchFiles();
     const wf = this.caps.workspace && this.caps.workspace.workspaceFolders;
     if (wf && wf.changeNotifications) {
@@ -193,6 +203,10 @@ class Client {
     // (we register nothing at run time — every capability is static — but a server may still ask: yes, nothing)
     conn.onRequest('client/registerCapability', () => null);
     conn.onRequest('client/unregisterCapability', () => null);
+    conn.onRequest('workspace/diagnostic/refresh', () => {
+      this.refreshPull();
+      return null;
+    });
     for (const [method, name] of [['workspace/semanticTokens/refresh', 'semanticTokens'],
                                   ['workspace/inlayHint/refresh', 'inlayHints'],
                                   ['workspace/codeLens/refresh', 'codeLens']]) {
@@ -337,6 +351,7 @@ class Client {
     this.open.add(u);
     this.notify('textDocument/didOpen',
                 { textDocument: { uri: u, languageId: doc.languageId, version: doc.version, text: doc.getText() } });
+    if (this.pull) this.pullDocument(u, 0);
   }
 
   didChange(e) {
@@ -349,6 +364,7 @@ class Client {
       ? e.contentChanges.map((c) => ({ range: c2p.range(c.range), text: c.text }))
       : [{ text: doc.getText() }];
     this.notify('textDocument/didChange', { textDocument: { uri: u, version: doc.version }, contentChanges });
+    if (this.pull) this.pullDocument(u, 600);
   }
 
   didSave(doc, includeText) {
@@ -357,12 +373,116 @@ class Client {
     const params = { textDocument: { uri: u } };
     if (includeText) params.text = doc.getText();
     this.notify('textDocument/didSave', params);
+    if (this.pull) this.pullDocument(u, 200);
   }
 
   didClose(doc) {
     const u = doc.uri.toString();
     if (!this.open.delete(u)) return;
     this.notify('textDocument/didClose', { textDocument: { uri: u } });
+    if (this.pull) {
+      // (closed: its problems now as the workspace's report has them — or as nedls sends them — not as it was open)
+      const st = this.pull.docs.get(u);
+      if (st && st.timer) clearTimeout(st.timer);
+      this.pull.docs.delete(u);
+      this.pull.ws.delete(u);
+      if (this.diagnostics) this.diagnostics.delete(p2c.uri(u));
+    }
+  }
+
+  // ── problems VS Code asks for (pull diagnostics) ──
+  //
+  // When nedls offers it (diagnosticProvider), an open document's problems are asked for when it opens, a moment
+  // after an edit, when it is saved, and when nedls says they changed (workspace/diagnostic/refresh); and, when it
+  // offers the whole workspace's, those too: one request at a time, which nedls answers when something changed.
+  // Problems it sends on its own (publishDiagnostics) are taken as well.
+
+  startPulling() {
+    const dp = this.caps.diagnosticProvider;
+    if (!dp || typeof dp !== 'object') return;
+    this.pull = { identifier: dp.identifier, docs: new Map(), ws: new Map(), errors: 0 };
+    for (const u of this.open) this.pullDocument(u, 0);
+    if (dp.workspaceDiagnostics) this.pullWorkspace(this.pull);
+  }
+
+  // an open document's problems asked for after `delay` ms (asked again sooner: one request, the later one)
+  pullDocument(u, delay) {
+    const p = this.pull;
+    if (!p || !this.open.has(u)) return;
+    let st = p.docs.get(u);
+    if (!st) {
+      st = { resultId: undefined, seq: 0, timer: null };
+      p.docs.set(u, st);
+    }
+    if (st.timer) clearTimeout(st.timer);
+    st.timer = setTimeout(() => {
+      st.timer = null;
+      if (this.pull !== p || !this.ready || !this.open.has(u)) return;
+      const seq = ++st.seq;
+      const params = { textDocument: { uri: u } };
+      if (p.identifier) params.identifier = p.identifier;
+      if (st.resultId !== undefined) params.previousResultId = st.resultId;
+      this.conn.request('textDocument/diagnostic', params).then((r) => {
+        // (an answer overtaken by a later request, or for a document closed since: not used)
+        if (this.pull !== p || seq !== st.seq || !this.open.has(u) || !this.diagnostics || !r) return;
+        if (r.resultId !== undefined && r.resultId !== null) st.resultId = r.resultId;
+        if (r.kind === 'full') this.diagnostics.set(p2c.uri(u), (r.items || []).map(p2c.diagnostic));
+      }, (e) => {
+        if (this.pull !== p || (e && e.code === ErrorCodes.ConnectionClosed)) return;
+        if (e && e.code === ErrorCodes.ServerCancelled) {
+          if (!(e.data && e.data.retriggerRequest === false)) this.pullDocument(u, 500);
+        } else if (!isCancel(e)) {
+          this.log(`textDocument/diagnostic: ${e && e.message || e}`);
+        }
+      }).catch((e) => this.log(`textDocument/diagnostic: nedls's answer could not be used: ${e && e.stack || e}`));
+    }, delay);
+  }
+
+  // nedls says the problems changed: every open document's asked for again
+  refreshPull() {
+    if (!this.pull) return;
+    for (const u of this.open) this.pullDocument(u, 0);
+  }
+
+  // The workspace's problems, one request after another while this server runs. nedls holds a request until
+  // something differs from what VS Code has (previousResultIds); the pause between two is only there so that a
+  // server that answers at once is not asked without end.
+  async pullWorkspace(p) {
+    while (this.pull === p && this.ready && !this.stopping) {
+      const params = { previousResultIds: [] };
+      if (p.identifier) params.identifier = p.identifier;
+      for (const [uri, value] of p.ws) params.previousResultIds.push({ uri, value });
+      let r;
+      try {
+        r = await this.conn.request('workspace/diagnostic', params);
+        p.errors = 0;
+      } catch (e) {
+        if (this.pull !== p || (e && e.code === ErrorCodes.ConnectionClosed)) return;
+        if (!isCancel(e)) {
+          this.log(`workspace/diagnostic: ${e && e.message || e}`);
+          if (++p.errors > 5) return;        // (a server that keeps failing: the open documents' problems only)
+        }
+        await sleep(2000);
+        continue;
+      }
+      if (this.pull !== p) return;
+      try {
+        this.takeWorkspaceReport(p, r);
+      } catch (e) {
+        this.log(`workspace/diagnostic: nedls's answer could not be used: ${e && e.stack || e}`);
+      }
+      await sleep(1000);
+    }
+  }
+
+  takeWorkspaceReport(p, r) {
+    for (const it of (r && r.items) || []) {
+      if (!it || typeof it.uri !== 'string') continue;
+      if (it.resultId !== undefined && it.resultId !== null) p.ws.set(it.uri, it.resultId);
+      // (an open document's problems: its own request says them, for the text as it is now)
+      if (it.kind !== 'full' || this.open.has(it.uri) || !this.diagnostics) continue;
+      this.diagnostics.set(p2c.uri(it.uri), (it.items || []).map(p2c.diagnostic));
+    }
   }
 
   // Files changed on disk (by git, a build, another program), sent in batches: a checkout changes many at once.
@@ -405,6 +525,10 @@ class Client {
     }
     for (const entry of this.progress.values()) entry.finish();
     this.progress.clear();
+    if (this.pull) {
+      for (const st of this.pull.docs.values()) if (st.timer) clearTimeout(st.timer);
+      this.pull = null;
+    }
     this.open.clear();
     if (this.diagnostics) this.diagnostics.clear();
   }

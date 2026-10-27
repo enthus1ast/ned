@@ -92,7 +92,7 @@ proc cmdFormatPreview() =
     info("Formatted" & (if onlyChanged: " where you changed lines" else: ""))
   openActions("Format " & extractFilename(b.path) & ": +" & $adds & " −" & $dels & " lines (" & by & ")", @[
     act("Apply it", "the whole file", proc() = apply(false)),
-    act("Apply only where I changed lines", "since git last saw the file", proc() = apply(true)),
+    act("Apply only where I changed lines", "since git last saw the file, or since you opened it", proc() = apply(true)),
     act("Leave it", "nothing changes", proc() =
       back()
       info("Left as it is"))])

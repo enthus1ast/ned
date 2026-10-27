@@ -319,10 +319,15 @@ function register(client, caps, selector, subs) {
     if (o.full) {
       const changed = new vscode.EventEmitter();
       client.refresh.semanticTokens = changed;
+      // (with deltas: after an edit only what changed comes back, as edits of the tokens VS Code has)
+      const delta = typeof o.full === 'object' && !!o.full.delta;
       subs.push(changed, L.registerDocumentSemanticTokensProvider(selector, {
         onDidChangeSemanticTokens: changed.event,
         provideDocumentSemanticTokens: (doc, token) => ask('textDocument/semanticTokens/full',
-          { textDocument: td(doc) }, token, p2c.semanticTokens)
+          { textDocument: td(doc) }, token, p2c.semanticTokens),
+        provideDocumentSemanticTokensEdits: delta ? (doc, previousResultId, token) => ask(
+          'textDocument/semanticTokens/full/delta', { textDocument: td(doc), previousResultId }, token,
+          p2c.semanticTokensOrEdits) : undefined
       }, legend));
     }
     if (o.range) {
@@ -422,6 +427,7 @@ function clientCapabilities() {
       semanticTokens: { refreshSupport: true },
       inlayHint: { refreshSupport: true },
       codeLens: { refreshSupport: true },
+      diagnostics: { refreshSupport: true },
       fileOperations: { dynamicRegistration: false, willRename: true }
     },
     textDocument: {
@@ -476,6 +482,8 @@ function clientCapabilities() {
       rename: { dynamicRegistration: false, prepareSupport: true, prepareSupportDefaultBehavior: 1 },
       publishDiagnostics: { relatedInformation: true, tagSupport: { valueSet: [1, 2] }, versionSupport: false,
                             codeDescriptionSupport: true, dataSupport: true },
+      // (problems asked for: client.js's startPulling)
+      diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
       // (VS Code folds whole lines)
       foldingRange: { dynamicRegistration: false, rangeLimit: 5000, lineFoldingOnly: true,
                       foldingRangeKind: { valueSet: ['comment', 'imports', 'region'] } },
@@ -483,7 +491,7 @@ function clientCapabilities() {
       callHierarchy: { dynamicRegistration: false },
       semanticTokens: {
         dynamicRegistration: false,
-        requests: { range: true, full: { delta: false } },
+        requests: { range: true, full: { delta: true } },
         tokenTypes: ['namespace', 'type', 'class', 'enum', 'interface', 'struct', 'typeParameter', 'parameter',
                      'variable', 'property', 'enumMember', 'event', 'function', 'method', 'macro', 'keyword',
                      'modifier', 'comment', 'string', 'number', 'regexp', 'operator', 'decorator'],

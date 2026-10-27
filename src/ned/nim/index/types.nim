@@ -363,7 +363,16 @@ proc nxCompat0(sc: NxScope, paramType, generics, recv: string, depth: int): int 
   let pb = nxBaseName(p)
   let rb = nxBaseName(recv)
   if rb.len == 0: return 1
-  if nxNorm(pb) == nxNorm(rb) or (pb in ["float", "float64"] and rb in ["float", "float64"]): return 3
+  if nxNorm(pb) == nxNorm(rb):
+    # (Future[void] is not a Future[string]: the void one of two overloads)
+    let pa = nxTypeArgs(p)
+    let ra = nxTypeArgs(recv)
+    if pa.len == 1 and ra.len == 1 and (pa[0].strip == "void") != (ra[0].strip == "void") and
+       not (ra[0].strip.len <= 2 and ra[0].strip.len > 0 and ra[0].strip[0] in {'A'..'Z'}) and
+       not (pa[0].strip.len <= 2 and pa[0].strip.len > 0 and pa[0].strip[0] in {'A'..'Z'}):
+      return 0
+    return 3
+  if pb in ["float", "float64"] and rb in ["float", "float64"]: return 3
   if pb.len > 0 and pb notin ["openArray", "varargs", "auto", "typed", "untyped", "any"] and
      not (pb.len <= 2 and pb[0] in {'A'..'Z'}):
     # aliases (BiggestInt = int64) and numbers that convert without a cast (int → int64, float32 → float)
@@ -376,6 +385,17 @@ proc nxCompat0(sc: NxScope, paramType, generics, recv: string, depth: int): int 
       let ru = ra.startsWith("uint") or rb.startsWith("uint") or ra == "byte" or rb == "byte"
       return (if pu == ru: 2 else: 1)
     if (pa in NxFloats or pb in NxFloats) and (ra in NxFloats or rb in NxFloats): return 2
+    if pa == "range" and pb != "range":
+      # FixedTimeUnit = range[Nanoseconds..Weeks]: a TimeUnit goes in (checked when it runs)
+      for r in nxTypeSyms(sc, pb):
+        let d = nxStripMods(r.sym.typ)
+        let dd = d.find("..")
+        if d.startsWith("range[") and dd > 6:
+          let lo = d[6 ..< dd].strip
+          for x in nxLookup(sc, lo):
+            if x.sym.kind == nxEnumVal and (nxNorm(x.sym.owner) == nxNorm(rb) or nxNorm(x.sym.owner) == nxNorm(ra)):
+              return 2
+        break
   case pb
   of "openArray", "varargs":
     if rb in ["seq", "array", "openArray", "varargs"]: return 2
@@ -588,6 +608,27 @@ proc nxFlat*(s: string): string =
 proc nxIsGenericName*(t: string, generics: string): bool =
   let b = nxStripMods(t)
   b.len > 0 and b.find('[') < 0 and b in nxGenericNames(generics)
+
+proc nxIsGenericRoutine*(s: NxSym): bool =
+  ## a generic routine: generic parameters, or a parameter of a type class — SomeNumber, static, typedesc, auto,
+  ## `A | B`, `ref object`, a bare seq — which makes it one without brackets. The names in its body are bound
+  ## where it is used, for each type it is used with
+  if s.kind notin NxRoutineKinds: return false
+  if s.generics.len > 0: return true
+  for p in s.params:
+    var b = p.typ.strip
+    for pre in ["var ", "sink ", "lent "]:
+      if b.startsWith(pre): b = b[pre.len .. ^1].strip
+    if b.len == 0: continue
+    if '|' in b or b.startsWith("static") or b.startsWith("typedesc") or b.startsWith("type ") or b == "type" or
+       b.startsWith("not ") or b.startsWith("ref object") or b.startsWith("ptr object") or
+       b in ["auto", "any", "proc", "iterator", "object", "tuple", "enum", "seq", "array", "set", "ref", "ptr",
+             "distinct", "range", "openArray", "varargs"]:
+      return true
+    let bb = nxBaseName(b)
+    for (c, _) in NxTypeClasses:
+      if bb == c: return true
+  false
 
 func nxArgsFit*(s: NxSym, nargs: int): bool =
   ## can `s` be called with `nargs` arguments (defaults and varargs counted; -1: not known)
@@ -1592,7 +1633,8 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
       let pe = if ce + 1 < s.len and s[ce + 1] == '(': nxMatchClose(s, ce + 1) else: -1
       if pe < 0 or pe >= s.high or s[pe + 1] notin {'.', '['}: return NxVal(typ: s[5 ..< ce].strip)
       castEnd = pe + 1
-  if s.startsWith("case ") or s.startsWith("block"): return
+  # (a block: — not a name that starts with it, blockExpr)
+  if s.startsWith("case ") or (s.startsWith("block") and (s.len == 5 or s[5] in {':', ' '})): return
   if s.len > 1 and s[0] in {'-', '+', '~', '!', '?', '^', '%'} and s[1] notin {' ', '=', '"'} and
      (s[1] notin Digits):
     # -m, ~flags: a prefix operator — a number keeps its type; another type, what its operator returns
@@ -2043,6 +2085,7 @@ proc nxReceiver*(line: string, dot: int): string =
   var i = dot - 1
   while i >= 0:
     let c = line[i]
+    if c == '.' and i > 0 and line[i - 1] == '.': break     # 0..s.len: the receiver is s, not 0..s
     if nxIsIdent(c) or c == '.': dec i
     elif c in {')', ']', '}'}:
       let open = case c

@@ -42,6 +42,7 @@ answers out — and reads the editor's open buffers only through two hooks the e
 | `index/consteval.nim`, `index/layout.nim`, `index/raises.nim`, `index/effects.nim`, `index/concepts.nim` | compile-time values; a type's memory layout; what a routine can raise; whether it has side effects; which types satisfy a concept |
 | `index/hover.nim`, `index/expand.nim` | hover (`nxHover`), go to definition (`nxDefinition`), a template call written out |
 | `index/typos.nim` | names that are surely misspelled, told at once |
+| `index/reshape.nim` | the bigger refactorings as plans of edits (object ⇄ ref object, a module split, callback → async, a call's syntax) and `nxReferencesIn`, references without the editor; `nim/refactor/reshape.nim` previews and applies them |
 
 Work that may take long is done in steps: completion's list is made a slice at a time (`nxCompletionPrepare`,
 `nxCompletionPending`), and the imports of the file in front are read a few at a time while you are idle
@@ -141,11 +142,12 @@ files of [`src/ned/nedls/`](../../src/ned/nedls):
 | `nedls/rpc.nim` | JSON-RPC over stdio with `Content-Length` framing; stdout carries only the protocol, logs go to stderr |
 | `nedls/docs.nim` | each open document is a ned `Buffer` (`lsDocs`), so the engine reads the unsaved text exactly as in the editor; positions converted (UTF-16 code units, or UTF-8 when both sides speak it — ned's columns are bytes); edits as LSP `TextEdit`s |
 | `nedls/server.nim` | the lifecycle, the settings (`workspace/configuration`), the project and its toolchain, the dispatch of every message (`lsHandleRequest`), the main loop |
-| `nedls/features.nim` | completion, hover, signature help, definition, references, rename, symbols, semantic tokens, inlay hints, formatting — each the editor's own proc, put in LSP's shapes |
+| `nedls/features.nim` | completion, hover, signature help, definition, references, rename, document symbols, semantic tokens (whole, a range, or the edits since the last answer: `lsSemDelta`), inlay hints, formatting — each the editor's own proc, put in LSP's shapes |
 | `nedls/more.nim` | call and type hierarchies, selection ranges, code lenses, document links, imports changed when a file is renamed, implementations |
-| `nedls/diags.nim` | the problems: misspelled names at once, the compiler on the unsaved text after a pause, `nim check` on save — published when they change |
+| `nedls/diags.nim` | the problems: misspelled names at once, the compiler on the unsaved text after a pause, `nim check` on save — published when they change, or given when the client asks (`textDocument/diagnostic`; `workspace/diagnostic`, held until something changes, with `ned --lint`'s checks of the files not open made while idle: `lsLintPump`) |
 | `nedls/actions.nim` | code actions: what Alt+Enter offers, each found by running it on ned's buffer and undoing it (`lsDryRun`) |
 | `nedls/langs.nim` | the other languages (C, C++, JavaScript, HTML, CSS, SQL, JSON) with ned's engines for them (`lxHandle`) |
+| `nedls/symbols.nim` | workspace symbols: a table of every project file's names (and the exported names of the modules it imports), made while idle and read again for each file that changes; a query only ranks names (`lsWorkspaceSymbol`) |
 
 ### How a request flows
 

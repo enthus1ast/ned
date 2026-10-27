@@ -194,7 +194,7 @@ token (`syn[TokKind]`), sixteen ANSI colours for the terminal panel, three for r
   popup and bar text, the current line, the selection, the rulers) are moved in lightness only, until they reach
   a minimum contrast. A theme copied from elsewhere keeps its hues and becomes as readable as ned's own.
 - `allThemes()` caches the built-in themes and adds your theme files (`~/.config/ned/themes/*.json`;
-  `ui/themefiles.nim` also imports VS Code and base16 themes).
+  `ui/themefiles.nim` also imports VS Code and base16 themes; `core/themeimport.nim` Zed and Helix ones).
 - `applyTheme(name)` sets `theme`: `"auto"` picks `theme.light` or `theme.dark` by the terminal's background (it
   answers OSC 11, or tells mode 2031) or by the clock; `theme.colors` overrides some colours (`rebuildTheme` makes
   the theme again from its base colours); `theme.trueBlack` puts a dark theme on black.

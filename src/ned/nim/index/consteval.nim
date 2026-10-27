@@ -111,7 +111,21 @@ proc nxCtName(f: NxFile, name: string, depth: int): NxCt =
     case r.sym.kind
     of nxConst:
       if "magic" in r.sym.pragmas: return                 # (its value is the compiler's, not the one written)
-      if r.sym.value.len > 0: return nxCtEval(r.file, r.sym.value, depth + 1)
+      var v = r.sym.value
+      if v.len > 0:
+        # (a value that goes on over the lines below: `declared(posix_spawn) and⏎ not defined(useFork)`)
+        var c = nxCodeOf(v)
+        if c.endsWith(" and") or c.endsWith(" or") or c.endsWith(" not") or c.endsWith("(") or c.endsWith(",") or
+           c.count('(') > c.count(')'):
+          let ls = nxFileLines(r.file.path)
+          var l = r.sym.line
+          while l + 1 < ls.len and l - r.sym.line < 6 and
+                (c.endsWith(" and") or c.endsWith(" or") or c.endsWith(" not") or c.endsWith("(") or c.endsWith(",") or
+                 c.count('(') > c.count(')')):
+            inc l
+            c.add " " & nxCodeOf(ls[l])
+          v = c
+        return nxCtEval(r.file, v, depth + 1)
     of nxEnumVal:
       for t in nxLookup(nxScope(r.file), r.sym.owner):
         if t.sym.kind == nxType:
@@ -123,6 +137,33 @@ proc nxCtName(f: NxFile, name: string, depth: int): NxCt =
 proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
   ## e's value at compile time, ctNone when the index cannot tell
   if depth > 8 or e.len == 0 or e.len > 2000: return
+  block tuples:
+    # (NimMajor, NimMinor) >= (1, 4): two tuples of integers compared, element by element
+    let x = e.strip
+    if x.len < 7 or x[0] != '(' or x[^1] != ')': break tuples
+    let ce = nxMatchClose(x, 0)
+    if ce < 0 or ce == x.high: break tuples
+    let o = nxMatchClose(x, x.rfind('('))
+    if o != x.high: break tuples
+    let ro = x.rfind('(')
+    let op = x[ce + 1 ..< ro].strip
+    if op notin ["<", "<=", ">", ">=", "==", "!="]: break tuples
+    let la = nxSplitTop(x[1 ..< ce], {','})
+    let ra = nxSplitTop(x[ro + 1 ..< x.high], {','})
+    if la.len < 2 or la.len != ra.len: break tuples
+    var c = 0
+    for k in 0 ..< la.len:
+      let a = nxCtEval(f, la[k], depth + 1)
+      let b = nxCtEval(f, ra[k], depth + 1)
+      if a.kind != ctInt or b.kind != ctInt or a.big.len > 0 or b.big.len > 0: return
+      if c == 0: c = cmp(a.i, b.i)
+    return ctBool(case op
+                  of "<": c < 0
+                  of "<=": c <= 0
+                  of ">": c > 0
+                  of ">=": c >= 0
+                  of "==": c == 0
+                  else: c != 0)
   # tokens: numbers, strings, chars, names, operators, ( ) [ ] , .
   var toks: seq[string]
   var i = 0
@@ -310,7 +351,7 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
       return case nxWhen("defined(" & raw & ")")
              of 1: ctBool(true)
              of 0: ctBool(false)
-             else: bad()
+             else: NxCt()            # (not known: `… or defined(x)` can still be told — see binary)
     of "declared":
       if nxLookup(nxScope(f), raw).len > 0: return ctBool(true)
       return bad()
@@ -510,6 +551,11 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
     else: -1
 
   proc binary(op: string, a, b: NxCt): NxCt =
+    if op in ["and", "or"] and (a.kind == ctNone or b.kind == ctNone):
+      # (a defined(x) ned cannot tell: `defined(x) or true` is true, `defined(x) and false` false, else unknown)
+      let k = if a.kind == ctNone: b else: a
+      if k.kind == ctBool and (k.i != 0) == (op == "or"): return k
+      return bad()
     if a.kind == ctNone or b.kind == ctNone: return bad()
     case op
     of "&":
@@ -620,6 +666,18 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
   if failed: return NxCt(err: errMsg)
   if p < toks.len: return NxCt()
 
+func nxWhenHeaderEnd(lines: openArray[string], l: int): int =
+  ## the line a `when`/`elif` header on line l ends on: its condition may go on over the lines below
+  result = l
+  var t = lines[l].strip(trailing = false)
+  while result + 1 < lines.len and result - l < 6:
+    let c = nxCodeOf(t)
+    if c.endsWith(":"): break
+    if not (c.endsWith(" or") or c.endsWith(" and") or c.endsWith("(") or c.endsWith(",") or
+            c.endsWith(" not") or c.count('(') > c.count(')')): break
+    inc result
+    t.add " " & lines[result].strip
+
 proc nxInactiveWhen*(f: NxFile, lines: openArray[string]): seq[(int, int)] =
   ## the branches of `when` left out on this platform: (first line, last line) of each body. A chain is followed
   ## only as far as its conditions can be told: after one that cannot, nothing more of it is dimmed
@@ -630,10 +688,22 @@ proc nxInactiveWhen*(f: NxFile, lines: openArray[string]): seq[(int, int)] =
     c = c.strip
     if not c.endsWith(":"): return ""                    # (one line, or the condition goes on: not followed)
     c[0 ..< ^1].strip
+  # (the lines that start inside a """string""": part of the body they are in, whatever their indentation —
+  # a header for importc written out at the left margin)
+  var inStr: seq[bool]
+  for l in lines:
+    if "\"\"\"" in l:
+      inStr = newSeq[bool](lines.len)
+      var st: NxLexState
+      for k in 0 ..< lines.len:
+        inStr[k] = st.inTriple
+        discard nxLexRuns(lines[k], st, false)
+      break
+  template inString(k: int): bool = inStr.len > 0 and inStr[k]
   var i = 0
   while i < lines.len:
     let raw = lines[i]
-    if raw.len > 2000 or "when " notin raw:
+    if raw.len > 2000 or "when " notin raw or inString(i):
       inc i
       continue
     let t = raw.strip(trailing = false)
@@ -641,8 +711,14 @@ proc nxInactiveWhen*(f: NxFile, lines: openArray[string]): seq[(int, int)] =
     if not t.startsWith("when "):
       inc i
       continue
-    var cond = condOf(t, 5)
-    var kwLine = i
+    template header(l0, kw: int): (string, int) =
+      # the condition of the `when`/`elif` on line l0, and the line its header ends on — a condition may go on over
+      # the lines below (`when defined(macosx) or⏎ defined(freebsd):`)
+      let hl = nxWhenHeaderEnd(lines, l0)
+      var ht = lines[l0].strip(trailing = false)
+      for q in l0 + 1 .. hl: ht.add " " & lines[q].strip
+      (condOf(ht, kw), hl)
+    var (cond, hdrEnd) = header(i, 5)
     var isElse = false
     var anyTrue, unknown = false
     while true:
@@ -654,12 +730,13 @@ proc nxInactiveWhen*(f: NxFile, lines: openArray[string]): seq[(int, int)] =
                 let x = nxCtEval(f, cond)
                 if x.kind == ctBool: int(x.i != 0) else: -1
       # the body: the lines below indented further (blank ones inside it too)
-      var e = kwLine
-      var k = kwLine + 1
-      while k < lines.len and (lines[k].strip.len == 0 or lines[k].len - lines[k].strip(trailing = false).len > ind):
+      var e = hdrEnd
+      var k = hdrEnd + 1
+      while k < lines.len and (lines[k].strip.len == 0 or inString(k) or
+                               lines[k].len - lines[k].strip(trailing = false).len > ind):
         if lines[k].strip.len > 0: e = k
         inc k
-      if v == 0 and e > kwLine: result.add (kwLine + 1, e)
+      if v == 0 and e > hdrEnd: result.add (hdrEnd + 1, e)
       if v == 1: anyTrue = true
       if v < 0: unknown = true
       if e + 1 >= lines.len: break
@@ -669,12 +746,12 @@ proc nxInactiveWhen*(f: NxFile, lines: openArray[string]): seq[(int, int)] =
       let nt = lines[nx].strip(trailing = false)
       if lines[nx].len - nt.len != ind: break
       if nt.startsWith("elif "):
-        cond = condOf(nt, 5)
+        (cond, hdrEnd) = header(nx, 5)
         isElse = false
       elif nt.startsWith("else:") and nt.strip == "else:":
         isElse = true
+        hdrEnd = nx
       else: break
-      kwLine = nx
     inc i
 
 proc nxRangeText*(f: NxFile, t: string): string =

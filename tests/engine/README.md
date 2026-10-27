@@ -12,6 +12,15 @@ nimsuggest the same questions about one file and counts where they agree:
 2. **go to definition** at random identifiers, against nimsuggest's `def`;
 3. **the types of the variables** among them, against the type `def` reports;
 4. **member completion** at random `x.member` places: is the member written there offered right after the dot?
+5. **references** at a third of those places: the file's uses of what the name is, ned's against nimsuggest's
+   `use`. Compared where nimsuggest resolves every name — not in runnableExamples, a `when` branch not taken here,
+   a template's body, a generic routine's (one with a type class parameter — `SomeNumber`, `static[T]` — too) or
+   what `quote do:` makes; ned's answers there are counted apart. Left out as well: a place where nimsuggest answers
+   about another name (the `items` of a for loop, `defined` for the name in `defined(x)`), the fields named in an
+   object constructor (nimsuggest's `use` never lists them), a routine's name in an import or export statement
+   (nimsuggest gives it to one overload of its choosing), the name of a `{.borrow.}` routine and a use where another
+   name is written (a `fieldPairs` loop's variable) — nimsuggest counts those as uses, nothing there names it. A
+   qualified name (`Event.Read`) is taken where the name is, not at its dot.
 
 ```sh
 ./build.sh                                   # the engine driver, from this checkout's source → ./ned-engine

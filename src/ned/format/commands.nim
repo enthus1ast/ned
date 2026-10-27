@@ -7,6 +7,7 @@ func builtinFmtKind(path, langId: string): string =
   if ext in [".scss", ".less"]: return "scss"
   if ext == ".css" or langId == "css": return "css"
   if ext in [".c", ".h"] or langId == "c": return "c"
+  if ext in [".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx"] or langId == "cpp": return "cpp"
   if ext in [".yaml", ".yml"]: return "yaml"
   if ext == ".toml": return "toml"                  # (not .ini, .cfg …: TOML's colours, not its rules)
   if ext in [".html", ".htm", ".xhtml"]: return "html"
@@ -19,6 +20,8 @@ func looksCpp(text: string): bool =
     if w in text: return true
 
 var emitClangMemo: Table[string, string]   # (.clang-format and its time, the block) → clang-format's answer
+var fmtSaveRanges: seq[(int, int)]
+  ## (format on save, only the lines changed) those lines, from 1, as runs — given to a formatter that takes ranges
 
 proc clangStyleKey(dir: string): string =
   ## the .clang-format clang-format would use from dir, and when it changed ("" none)
@@ -54,8 +57,12 @@ proc formatEmitBlocks(text, path: string): (string, int, string) =
   ## the C in each {.emit: """…""".} of a Nim file formatted (nim.formatEmitC): with clang-format when clangd is
   ## the C engine (your .clang-format applies), else with ned's own C formatter at the Nim formatter's settings —
   ## (new text, blocks changed, what formatted them). A block clang-format answered for before, with the same style
-  ## file, is not sent again
-  if not cfgFormatEmitC or "emit" notin text: return (text, 0, "")
+  ## file, is not sent again. And the SQL, HTML and JSON in its triple-quoted strings (nim.format.embedded), with
+  ## ned's own formatters
+  var text = text
+  var strings = 0
+  if FmtEmbedded: (text, strings) = fFormatEmbedded(text, cfgEmbedded)
+  if not cfgFormatEmitC or "emit" notin text: return (text, strings, (if strings > 0: "ned's formatters" else: ""))
   let clang: ClangFn = if cWantsClangFormat():
       proc(c, fake, dir: string): string =
         let key = clangStyleKey(dir) & "\0" & fake & "\0" & c
@@ -365,9 +372,10 @@ proc formatBuffer(b: Buffer) =
     # (C: clang-format while clangd is in use — c.formatter — else ned's own, below)
     if b.lang.id notin ["c", "cpp"] or cWantsClangFormat():
       for c in b.lang.fmt: cmds.add c
-  for c in cmds:
-    let exe = c.firstWord
+  for c0 in cmds:
+    let exe = c0.firstWord
     if findExe(exe).len == 0: continue
+    let c = fmtWithRanges(c0, fmtSaveRanges)
     let text = b.allText & "\n"
     let cwd = if b.path.len > 0: parentDir(b.path) else: rootDir
     var ok: bool
@@ -419,7 +427,7 @@ proc formatBuffer(b: Buffer) =
       "options": {"tabSize": b.indentW(), "insertSpaces": b.indent != "\t"}},
       LspReq(kind: lrFormat, bufId: b.id))
     return
-  if bk in ["markdown", "css", "scss", "c", "yaml", "toml", "html", "sql"]:
+  if bk in ["markdown", "css", "scss", "c", "cpp", "yaml", "toml", "html", "sql"]:
     builtin(b)
     return
   let hint = if b.lang.fmt.len > 0: " (install " & b.lang.fmt[0].firstWord & ")" else: ""
@@ -535,12 +543,34 @@ proc cmdFormatEmbedded() =
   if not formatEmbedded(b):
     info("Put the cursor in a \"\"\"string\"\"\" that holds code (JSON, CSS, HTML, SQL, C in an emit …)")
 
+var fmtOpenBase: Table[int, (string, seq[string])]
+  ## buffer id → (its path, its lines as it was opened): what "the lines I changed" are measured against in a file
+  ## git does not have — taken from the file on disk the first time it is asked for, before the first save writes it
+
+proc openBaseOf(b: Buffer): (bool, seq[string]) =
+  ## the file as it was opened (its first save not written yet when this is first asked) — (false, @[]) for a file
+  ## that is not on disk (all of it is new)
+  if b.path.len == 0: return (false, @[])
+  if b.id in fmtOpenBase and fmtOpenBase[b.id][0] == b.path: return (true, fmtOpenBase[b.id][1])
+  if not fileExists(b.path): return (false, @[])
+  var ls: seq[string]
+  try: ls = readFile(b.path).replace("\r\n", "\n").split('\n')
+  except CatchableError: return (false, @[])
+  if ls.len > 1 and ls[^1].len == 0: ls.setLen(ls.len - 1)
+  fmtOpenBase[b.id] = (b.path, ls)
+  (true, ls)
+
 proc changedLineSet(b: Buffer): (bool, HashSet[int]) =
-  ## the lines changed since git last saw the file (its staged or committed version): (known, lines) — not known
-  ## for a file git does not have
-  if not b.gitHasBase: return (false, initHashSet[int]())
+  ## the lines changed since git last saw the file (its staged or committed version) — in a file git does not
+  ## have, since it was opened: (known, lines) — not known for a file that is new
+  var base: seq[string]
+  if b.gitHasBase: base = b.gitBase
+  else:
+    let (known, ls) = openBaseOf(b)
+    if not known: return (false, initHashSet[int]())
+    base = ls
   var s: HashSet[int]
-  let ops = lineDiff(b.gitBase, b.lines)
+  let ops = lineDiff(base, b.lines)
   for k, op in ops:
     if op.kind == '+': s.incl op.bLine
     elif op.kind == '-':
@@ -584,18 +614,22 @@ proc formatOnSave0(b: Buffer)
 
 proc formatOnSave(b: Buffer) =
   ## the formatter on save — on the whole file, or (editor.formatOnSaveScope: changed) only where the lines
-  ## changed since git last saw the file are. A Nim file the project's .nph.toml excludes is left as it is
+  ## changed since git last saw the file are (in a file git does not have: since it was opened). The formatter
+  ## formats the whole file — black, ruff and clang-format only those lines — and its changes are kept where they
+  ## touch a changed line. A Nim file the project's .nph.toml excludes is left as it is
   if b.lang != nil and b.lang.mode == lmNim and b.path.len > 0 and nphExcluded(b.path): return
   if cfgFormatScope != "changed":
     formatOnSave0(b)
     return
   let (known, changed) = changedLineSet(b)
   if not known:
-    formatOnSave0(b)                         # (a file git does not have: all of it is new)
+    formatOnSave0(b)                         # (a new file, not on disk yet: all of it is new)
     return
   if changed.len == 0: return
   let before = b.lines
-  formatOnSave0(b)
+  fmtSaveRanges = fmtLineRuns(changed)
+  try: formatOnSave0(b)
+  finally: fmtSaveRanges = @[]
   if b.lines == before: return
   var merged = keepFormatOf(before, b.lines, changed)
   if merged == b.lines: return
@@ -628,7 +662,7 @@ proc formatOnSave0(b: Buffer) =
       return
   # ned's own JSON, Markdown and CSS formatters (quietly: a file it is not sure about stays as it is)
   let bk = builtinFmtKind(b.path, b.lang.id)
-  if bk in ["json", "markdown", "css", "scss", "c", "yaml", "toml", "html", "sql"]:
+  if bk in ["json", "markdown", "css", "scss", "c", "cpp", "yaml", "toml", "html", "sql"]:
     let text = b.allText & "\n"
     let (res, err) = builtinFormatText(bk, text, b.indentW(), b.path)
     if err.len == 0 and res != text: b.setTextMinimal(res)

@@ -406,6 +406,27 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
               result.add NxSym(name: pn, kind: nxParam, typ: p.typ, value: p.default, line: pl, col: pc)
               scopes.add (if wasOpen: stmtInd else: ind) + 1
         k = t.find("do", k + 2)
+    if not wasOpen and ("(let " in t or "(var " in t):
+      # a let in a condition — if (let si = s.find(c); si >= 0): — seen after its `;` and in the statement's body
+      for kw in ["(let ", "(var "]:
+        var k = t.find(kw)
+        while k >= 0:
+          let (nm, ne) = nxName(t, k + kw.len)
+          var j = ne
+          while j < t.len and t[j] == ' ': inc j
+          let semi = nxFindTop(t, ';', k + 1)
+          if nm.len > 0 and j < t.len and t[j] in {'=', ':'} and semi > j:
+            flushScopes()
+            let rk = raw.find(kw)
+            let col = if rk >= 0: rk + kw.len + (raw[rk + kw.len .. ^1].len - raw[rk + kw.len .. ^1].strip(trailing = false).len)
+                      else: nxWordCol(raw, nm)
+            let eq = nxFindTop(t, '=', j)
+            result.add NxSym(name: nm, kind: (if kw == "(let ": nxLet else: nxVar), line: l, col: col,
+                             value: (if eq >= 0 and eq < semi: t[eq + 1 ..< semi].strip else: ""),
+                             typ: (if t[j] == ':': t[j + 1 ..< (if eq >= 0 and eq < semi: eq else: semi)].strip else: ""),
+                             endLine: ind + semi)  # (endLine: the column after which its own line sees it)
+            scopes.add ind + 1
+          k = t.find(kw, k + kw.len)
     if secInd >= 0:
       if memberInd < 0: memberInd = ind
       if ind == memberInd:
@@ -633,7 +654,7 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
   var keep: seq[NxSym]
   for k, s in result:
     if s.line != line or s.kind in {nxParam, nxResult} or (s.col <= col and col <= s.col + s.name.len) or
-       (s.kind == nxForVar and s.endLine > 0 and col > s.endLine):
+       (s.kind in {nxForVar, nxLet, nxVar} and s.endLine > 0 and col > s.endLine):
       # still inside its block?
       if scopes[k] >= 0 and s.line >= a and s.line < line and s.line - a + 1 <= indents.len and
          sufMin[s.line - a + 1] < scopes[k]: continue

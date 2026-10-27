@@ -1,15 +1,23 @@
 # Formatting
 
 Alt+F (*Format document*) formats the file; with lines selected, only those lines. `"editor.formatOnSave": true`
-formats on every save — only the lines you changed with `"editor.formatOnSaveScope": "changed"` — and
+formats on every save — only the lines you changed with `"editor.formatOnSaveScope": "changed"` (below) — and
 *Format: preview the change* shows the result side by side first. *Format: every file in the project…* does a
 whole project, with a review.
 
+**Only the lines you changed.** With `"editor.formatOnSaveScope": "changed"` (or *Format: only the lines I changed*
+in the palette), a save formats only where you changed lines: since git last saw the file (its staged or committed
+version), or — in a file git does not have — since you opened it. That works for every language ned formats: the
+file is formatted as a whole and the formatter's changes are kept where they touch a line you changed (a block it
+indents again is one change: all of it, or none). black, ruff (`ruff format`, one run of lines) and clang-format are
+given those lines themselves (`--line-ranges`, `--range`, `--lines`), so they touch nothing else. An old file you
+fix one line in does not turn into a big diff.
+
 Which formatter: ned's own for Nim, C and C++ (when clang-format is not chosen), JSON, Markdown tables, CSS, HTML,
-SQL, YAML and TOML; a language server's formatting when one offers it; your own command for any language in the
+SQL, YAML and TOML — and the SQL, HTML and JSON in a Nim file's strings ([below](#code-in-strings)); a language server's formatting when one offers it; your own command for any language in the
 `formatters` setting (`{"python": "ruff format -"}`), which always wins.
 
-- [Nim](#nim) — nph's style, your layout settings, `# fmt: off`
+- [Nim](#nim) — nph's style, your layout settings, `# fmt: off`, [code in strings](#code-in-strings)
 - [C and C++](#c-and-c) — clang-format's styles in ned's own formatter, or clang-format
 - [From the shell: nedfmt](#from-the-shell-nedfmt)
 - [Other languages](#other-languages)
@@ -51,6 +59,7 @@ Its layout is yours to choose (settings, Nim section):
 | `nim.format.reflowComments` | off | the same for `#` paragraphs of prose — what reads as commented-out code, lists, TODOs and `# ned:` directives stay; a banner's rule (`# ── Section ────`) is cut to fit |
 | `nim.format.maxBlankLines` | 1 | empty lines kept in a row (up to 3) |
 | `nim.formatEmitC` | on | the C in `{.emit: """…""".}` formatted too: clang-format while clangd is the C engine (your `.clang-format`), else ned's own C formatter in `c.format.style` at the Nim's indentation and line length |
+| `nim.format.embedded` | on | the SQL, HTML and JSON in triple-quoted strings formatted too, at the string's indentation ([Code in strings](#code-in-strings)) |
 | `editor.formatOnPaste` | `indent` | pasted lines take the indentation of where they go · `format` — and pasted Nim is formatted · `off` |
 
 ### Before and after
@@ -145,6 +154,43 @@ wrapped again (here at a line length of 60):
 **`nim.format.lineLength`** — where lines wrap. `proc render(view: View, width, height: int, theme: Theme): string`
 fits at 88; at 60 it is written `proc render(` ⏎ `view: View, width, height: int, theme: Theme` ⏎ `): string =`.
 
+### Code in strings
+
+When a Nim file is formatted, the SQL, HTML and JSON in its triple-quoted strings is formatted too, by ned's own
+formatter for that language (`nim.format.embedded`, on by default; the C in an emit is `nim.formatEmitC`'s). Which
+strings: the ones ned colours as that language —
+
+- by their prefix: `sql"""…"""`, `html"""…"""`, `css"""…"""`;
+- by a `#[sql]#` (`#[html]#`, `#[json]#`, `#[css]#`) just before the string;
+- by the routine they are given to: `parseJson("""…""")`, `parseHtml`, a database's `exec`, `getRow`, `getAllRows`,
+  `rows` … when the string reads as SQL, and your own names in `nim.embeddedLanguages` (`{"render": "html"}`);
+- by how they start: a statement in capitals (`SELECT`, `INSERT`, `UPDATE`, `CREATE` …) or an HTML tag.
+
+```nim
+db.exec(sql"""
+  create table if not exists users (id integer primary key, name text not null)
+""")
+```
+
+becomes
+
+```nim
+db.exec(sql"""
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+  )
+""")
+```
+
+The string's lines keep its indentation, and the closing quotes stay where they were. Only a string whose text
+starts on the line after its opening quotes is formatted; `fmt"""…"""` strings, prose (`select the file`), and a
+string the formatter cannot read (JSON that is not JSON, SQL whose brackets do not match) stay as they are. This
+changes what the string holds — its spaces and line breaks, SQL's keywords in capitals: to a database, a browser or
+`parseJson` it is the same, but code that compares such a string letter for letter would see the difference; turn
+`nim.format.embedded` off then. *Format: the code in this string* formats one string at the cursor, whatever the
+setting.
+
 ### How it stays safe
 
 It works on tokens and checks every result before writing it: the same tokens in the same order (doc comments
@@ -169,7 +215,8 @@ How it compares with nph, on Nim's compiler and standard library:
 
 | | built-in | nph |
 |---|---|---|
-| lines identical to nph's output (nph 0.7) | 99.6% of 248 000 | — |
+| lines identical to nph's output (nph 0.7) | 99.7% of 248 000 | — |
+| files identical to nph's output | 360 of 463 | — |
 | same code for Nim's parser (463 files) | all | all |
 | semexprs.nim, 3 598 lines | 14 ms | 24 ms |
 | strutils.nim, 3 069 lines | 7.5 ms | 10.5 ms |
@@ -177,10 +224,13 @@ How it compares with nph, on Nim's compiler and standard library:
 | json.nim, already formatted | 4 ms | 6.5 ms |
 
 Both measured on the same (slow) machine; nph's times include starting the program, which ned also has to do when
-it runs nph. Where the two still differ — about four lines in a thousand — it is mostly where nph puts a
-comment, the empty lines nph adds around a type written over several lines, a token nph rewrites (a `tuple`
-with comments, `{.push, header: …}`), or a long call's arguments. One difference is on purpose: an emit stays
-`{.emit: """` on one line (nph puts `emit:` on a line of its own), so that ned still shows and formats its C.
+it runs nph. Where the two still differ — about three lines in a thousand — it is mostly where nph puts a
+comment, a token nph rewrites (a `tuple` with comments, `{.push, header: …}`, `x.parseEnum[:T]`), or a long
+call's arguments. Some differences are on purpose: an emit stays `{.emit: """` on one line (nph puts `emit:` on a
+line of its own), so that ned still shows and formats its C; and the C of emits and the code in strings are
+formatted (nph leaves strings as they are). ned also writes nph's odder layouts — a type section's member whose `=`
+is on a later line than its name gets an empty line before it; `(if c: a else: b)` past the width, as nph measures
+it, has its `else:` on the next line — so that less of a project nph formats changes when ned formats it.
 What ned cannot lay out as nph would keeps the line breaks you wrote, rather than becoming one long line.
 
 To use nph or nimpretty instead, set `"nim.formatter": "nph"` (or `"nimpretty"`), or pick *Nim: format with nph*

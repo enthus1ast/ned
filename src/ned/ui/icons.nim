@@ -52,6 +52,7 @@ proc ic(name: string): string =
     of "bookmark": "\uF02E"
     of "comment": "\uF075"
     of "telescope": "\uF1E5"
+    of "battery": "\uF06C"
     of "markdown": "\uF48A"
     else: "•"
   of "ascii":
@@ -101,6 +102,7 @@ proc ic(name: string): string =
     of "bookmark": "#"
     of "comment": ">"
     of "telescope": "?"
+    of "battery": "eco"
     of "markdown": "MD"
     else: "-"
   else:
@@ -150,6 +152,7 @@ proc ic(name: string): string =
     of "bookmark": "◆"
     of "comment": "❝"
     of "telescope": "⊙"
+    of "battery": "❦"
     of "markdown": "M↓"
     else: "•"
 

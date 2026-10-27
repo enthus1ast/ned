@@ -474,7 +474,7 @@ the plugin's log says *refused*; `allowed("shell")` asks first. Its own data fol
 `writeData(name, text)`, `appendData`, `readData`. Code ned cannot read ahead — `{.importc.}`, `{.emit.}`, `asm`,
 macros that make code from text, a module from outside the plugin's folder — counts as asking for everything.
 
-This keeps a plugin to what it said; it is not a sandbox against code written to hide what it does. What a
+This keeps a plugin to what it said; on Linux the kernel also holds a plugin to it (a sandbox, `plugins.sandbox`: [Safety](../guide/safety.md)); elsewhere it is not a sandbox against code written to hide what it does. What a
 plugin *registers* for ned to run when you ask — a formatter command, a language server, a language's run,
 build and check commands — runs as ned runs your own settings' commands, when you format, open a file or press
 F5: read what a plugin registers before you install it, as you read the rest of it. Plugins run with your
@@ -510,7 +510,9 @@ settings are `plugins.<name>.<key>`, written flat or in one object for the plugi
 ## Versions and updates
 
 `pluginInfo(version = "1.2.0", author = "…", homepage = "https://…", license = "MIT")` in a plugin's source gives
-its version (major.minor.patch), who wrote it, where it lives and its licence. ned reads them from the source, not
+its version (major.minor.patch), who wrote it, where it lives and its licence — any licence you like: ned is GPL, but
+the plugin library a plugin imports comes with the [ned Plugin Exception](../../PLUGIN-EXCEPTION.md), which lets you
+convey a plugin under terms of your choice. ned reads them from the source, not
 by running it — plain strings, by name or in that order — so a plugin that is off shows them too. The Plugins dock
 shows the version next to the plugin; its menu shows the rest, with *Its home page*. `requiresNed(">= 6.31")`
 names the ned it needs: an older ned leaves it out and says why.

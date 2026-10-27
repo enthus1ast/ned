@@ -10,12 +10,14 @@ has the tables of tools the tests use.
 | [UI](#the-ui-suite) | the whole editor, driven through tmux like a person | `python3 tests/ui/run.py ./ned [t_name …]` | about an hour |
 | [plugins](#plugins) | the plugin host, the API, the examples, ned's own plugins | `python3 tests/plugins/tplugins.py ./ned --native` · `python3 tests/plugins/tbundled.py --native` | minutes |
 | [nedls](#nedls) | the language server: every feature, then random edits | `python3 tests/lsp/tnedls.py ./nedls` | a minute |
+| other editors | nedls's set-ups for Neovim, Helix and Zed in [editors/](../../editors) | `python3 tests/editors/check.py ./nedls` | a second |
 | [formatter](#the-formatter) | the Nim formatter never changes what code means | `sh tests/format/parsecheck.sh NIMROOT` | minutes |
 | [scoreboard](#the-engine-scoreboard) | the engines' accuracy against nimsuggest, clangd, nimlangserver, nph | `python3 tests/engine/scoreboard.py …` | ~20 minutes |
 | [fuzzer](#the-fuzzer) | no crash, hang or internal error under random input | `NEDBIN=./ned_debug bash tests/fuzz/batch.sh 120 mixed palette hex` | as long as you give it |
 | [performance](#performance) | start-up, memory, frames, the longest waits | `python3 .github/ci/bench.py ./ned` · `python3 tests/perf/rounds.py ./ned` | minutes |
 | [docs](#the-documentation) | references up to date, every link goes somewhere | `python3 tests/docs/apiref.py --check && python3 tests/docs/links.py` | a second |
 | [themes](#theme-contrast) | ned's own themes are readable | `python3 tests/themes/contrast.py` | a second |
+| tour | the Nim tour's lessons: every cell runs and prints what it says, every exercise's answer passes | `python3 tests/tour/check.py` | a minute or two |
 
 Which to run before sending a change: the unit tests, the UI tests near your change (`--list` shows the names; a
 test's name says its release and topic), and the suite of the part you touched — the plugin tests for the plugin
@@ -39,6 +41,9 @@ nim r -d:release --hints:off tests/unit/tregex.nim                              
 | `tweb.nim`, `twebdata.nim`, `tjs.nim`, `tjson.nim`, `twebfuzz.nim` | the CSS, HTML, SQL, JavaScript and JSON engines |
 | `tregex.nim`, `ttext.nim`, `tencodings.nim`, `timages.nim` | regular expressions, widths and graphemes, encodings, pictures |
 | `tbinfmt.nim`, `tasmview.nim`, `tnif.nim`, `tgcov.nim`, `tcopies.nim` | executables, disassembly, NIF, coverage data, ARC/ORC copies |
+| `twhy.nim`, `treshape.nim`, `tautoindent.nim` | where an exception or a side effect comes from; references, overloads and the bigger refactorings; Nim's indentation as you type |
+| `tsecrets.nim`, `tlandlock.nim`, `treleasecheck.nim`, `tsha256.nim` | secrets kept from the AI; the sandbox; a release checked before it is installed (SHA256SUMS, its signature) |
+| `tthemeimport.nim`, `ttour.nim` | Zed and Helix themes imported; the Nim tour's lessons as ned reads them |
 
 A case of the Nim index writes a small file to a temporary folder and asks about it (`fixture` and `labels` are
 helpers at the top of `tindex.nim`):

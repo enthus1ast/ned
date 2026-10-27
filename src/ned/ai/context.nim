@@ -115,11 +115,13 @@ proc expandMentions(t: string): string =
     let b = buf()
     case w
     of "@file":
-      if b.path.len > 0 or b.title.len > 0:
+      if aiSecretFile(b.path): extra.add "\n<file path=\"" & relPath(b.path) & "\">" & AiSecretNote & "</file>"
+      elif b.path.len > 0 or b.title.len > 0:
         extra.add "\n<file path=\"" & (if b.path.len > 0: relPath(b.path) else: b.name) & "\">\n" & b.allText & "\n</file>"
     of "@selection":
       let (a, e) = b.primary.range
-      if a != e: extra.add "\n<selection file=\"" & relPath(b.path) & "\">\n" & b.getText(a, e) & "\n</selection>"
+      if aiSecretFile(b.path): extra.add "\n<selection file=\"" & relPath(b.path) & "\">" & AiSecretNote & "</selection>"
+      elif a != e: extra.add "\n<selection file=\"" & relPath(b.path) & "\">\n" & b.getText(a, e) & "\n</selection>"
     of "@diff":
       let d = gitText("diff --no-color HEAD")
       extra.add "\n<git-diff>\n" & (if d.len > 0: d else: "(no changes)") & "\n</git-diff>"
@@ -143,7 +145,9 @@ proc expandMentions(t: string): string =
         continue
       let p = absProjectPath(w[1 .. ^1])
       if isPicturePath(p): continue            # (a picture goes as one: aiMentionedPics)
-      if fileExists(p) and getFileSize(p) < 400_000:
+      if aiSecretFile(p) and fileExists(p):
+        extra.add "\n<file path=\"" & relPath(p) & "\">" & AiSecretNote & "</file>"
+      elif fileExists(p) and getFileSize(p) < 400_000:
         try: extra.add "\n<file path=\"" & relPath(p) & "\">\n" & readFile(p) & "\n</file>"
         except CatchableError: discard
   if extra.len > 0: result = extra & "\n\n" & t

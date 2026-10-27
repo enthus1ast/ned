@@ -24,6 +24,7 @@ for p in ned nedfmt nedls; do
   echo "$p.exe $(( $(date +%s) - t0 ))s"
 done
 cp "$root/LICENSE" "$out/pkg/LICENSE.txt"
+cp "$root/PLUGIN-EXCEPTION.md" "$out/pkg/PLUGIN-EXCEPTION.txt"   # (plugins under any licence: the GPL's added permission)
 cat > "$out/pkg/README.txt" <<TXT
 ned $ver for Windows (x86-64) — experimental: WSL is the tried way (see the README's Installing › Windows).
 
@@ -37,14 +38,15 @@ source (docs/README.md), and F1 in ned for the keys.
 TXT
 rm -f "$out/ned-$ver-windows-x86_64.zip"
 if command -v zip > /dev/null; then
-  (cd "$out/pkg" && zip -q -9 "../ned-$ver-windows-x86_64.zip" ned.exe nedfmt.exe nedls.exe LICENSE.txt README.txt)
+  (cd "$out/pkg" && zip -q -9 "../ned-$ver-windows-x86_64.zip" ned.exe nedfmt.exe nedls.exe LICENSE.txt PLUGIN-EXCEPTION.txt README.txt)
 else
   python3 - "$out/pkg" "$out/ned-$ver-windows-x86_64.zip" <<'PY'
 import sys, zipfile, os
 src, dst = sys.argv[1], sys.argv[2]
 with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-    for n in ["ned.exe", "nedfmt.exe", "nedls.exe", "LICENSE.txt", "README.txt"]:
+    for n in ["ned.exe", "nedfmt.exe", "nedls.exe", "LICENSE.txt", "PLUGIN-EXCEPTION.txt", "README.txt"]:
         z.write(os.path.join(src, n), n)
 PY
 fi
 echo "$out/ned-$ver-windows-x86_64.zip"
+sh "$here/sums.sh" "$out" "$out/ned-$ver-windows-x86_64.zip"     # (SHA256SUMS; signed with NED_SIGNING_KEY)

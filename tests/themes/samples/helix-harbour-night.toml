@@ -1,0 +1,19 @@
+# Harbour Night: helix-harbour-base with a deeper background and keywords of its own
+# (ned's tests: tests/unit/tthemeimport.nim)
+inherits = "helix-harbour-base"
+
+"keyword.control" = { fg = "purple" }
+"function.macro" = { fg = "#e5a0c8" }
+"variable.other.member" = "light-red"                  # one of the terminal's colours, not in the palette
+"diagnostic.error".underline = { color = "red", style = "curl" }
+"ui.virtual.ruler" = { bg = "#2c313a" }
+'ui.bufferline' = { fg = "fg", bg = 'bar' }            # a literal string
+"markup.heading" = { fg = "blue", modifiers = [
+  "bold",
+  "underlined",   # an array over several lines, with a comment and a trailing comma
+] }
+
+[palette]
+bg = "#161a20"     # the parent's scopes take this palette: "ui.background" becomes this
+purple = "#d19af0"
+note = "a \"quoted\" word and é"

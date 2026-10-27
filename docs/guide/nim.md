@@ -145,6 +145,16 @@ call without naming it, not in `when` branches left out.
 - **A method call whose value is neither used nor discarded**, such as `s.pop()` on its own line. Before 6.25 only
   `f(x)` was checked. Alt+Enter, *Discard the result*, fixes it.
 
+6.32 adds more of the compiler's errors, in its words, before it runs:
+
+- **An assignment it refuses**: to a `let`, a `const`, a `for` loop's variable or a parameter that is not `var` —
+  *'n' cannot be assigned to* (rule `assign-let`).
+- **A literal of the wrong type** given to a variable declared with a type (`s = 5` where `s` is a string), to
+  `result`, or by `return` (*type mismatch: got 'int literal(5)' for '5' but expected 'string'*, rule
+  `literal-type`).
+- **A member an object of the project does not have**, when nothing of that name is in scope (*undeclared field:
+  'colour' for type Point*, rule `field-missing`); a near miss of a field's name is still the typo hint.
+
 The rules are `case-missing`, `arg-type` and `discarded`. On Nim's own compiler and standard library (463 files) and
 563 files of 19 nimble packages they report nothing the compiler would not — apart from a few mistakes in generic
 code nothing instantiates, which the compiler never looks at; the compiler's word wins on any line where both say
@@ -193,6 +203,14 @@ compiler's effects. Hovering a routine, or a call of it, shows the same list. Co
 raises, applied where an argument or an assignment needs it, is listed; where ned cannot tell whether one applies,
 there is no hint. For 1,422 routines compared with the compiler's `{.effects.}`, they agree.
 
+**Why?** Tap a routine's exception hint — or put the cursor in a routine and run *Nim: why?* (the Nim menu ›
+Inspect, the editor's right-click menu, the Nim dock) — and ned shows where an exception comes from: the call in
+the routine that raises it, the call in that routine that does, and so on down to the `raise` (or the routine that
+declares it in its `{.raises.}`). Each step is a row; Enter goes there. A routine that raises several asks which
+one first. For a routine with side effects — one that cannot be a func — it is the same down to the global it
+uses or the routine that says it has side effects (`echo`). On a compiler's *can raise an unlisted exception* or
+*can have side effects*, Alt+Enter offers *Why?* for it.
+
 **Concepts.** Hover a concept to see the project's types that satisfy it (*satisfied by: `Circle`, `Square`*),
 hover a type to see the concepts it satisfies; *Go to implementation* on a concept lists those types. The new
 syntax (routines on `Self`) is matched as the compiler matches it, the old one (`concept x, y`) in its common forms
@@ -214,7 +232,10 @@ nimble.lock pins, a local `nimbledeps/` or atlas `deps/`, then the newest instal
 `requires` of your .nimble and of those packages in turn. Only a package nothing asks for uses the newest
 installed. Each open project has its own versions, and the Nim dock shows each requirement's version and why, e.g.
 `jsony 1.1.5 (nimble.lock)` (also *Nim: language server status*); *Nimble: dependency tree* shows the same versions
-as a tree, each package under what requires it, with what that version requires in turn.
+as a tree, each package under what requires it, with what that version requires in turn. A package installed while ned
+runs — `nimble install` in its terminal or another, `nimble setup`, atlas — is seen within a few seconds: the engine
+reads the package folders again, nimsuggest and nimlangserver start again (they read them only when they start),
+and the open Nim files are checked again, so an `import` of it is no longer *cannot open file*.
 
 A folder counts as a package only when nimble or atlas made it: under your toolchain's package folders (NIMBLE_DIR,
 what `nim dump` reports, the open project's `nimbledeps/` and `deps/`), a nimble folder name with its checksum
@@ -258,8 +279,20 @@ it takes). An entry is used only for the very text it was made from, by the same
 defines; anything else is read afresh. The project's own files are kept too, as they are on disk
 (`nim.indexCacheProject`): reopening a project of hundreds of files reads them instead of parsing them.
 
-**Expansion.** Alt+M on a template call writes it out with the arguments in place (the engine, at once); on a
-macro call, the compiler expands it (`nim check --expandMacro`). Hover on a template call shows the same.
+**Expansion.** Alt+M on a template or macro call shows what it writes, right under the call, coloured as Nim — it
+is not part of the file: nothing is saved, and the line numbers do not move. A template is written out with the
+arguments in place by ned's engine, at once; a macro by the compiler (`nim check --expandMacro`), which takes a
+moment ("the compiler is expanding it…"). In what it writes:
+
+- a name that leads somewhere — `echo`, a proc of yours, a type — shows its documentation when the mouse rests on
+  it, and a click (a tap) goes to where it is declared;
+- an error or warning the compiler reports on the call is shown on the generated line it is about (the line with
+  the name it quotes), and under the heading when no line has it.
+
+The expansion follows its call when lines are added or removed above it, and is written again a moment after the
+call itself changes. Alt+M on the call again — or a tap on the heading — hides it; *Nim: hide every macro
+expansion* hides them all. *Nim: expand macro/template in a tab* opens the expansion in a tab of its own instead
+(*expand macro one level* too, when nimsuggest is on). Hover on a template call shows the expansion as well.
 
 **ned's engine and nimsuggest.** Since 5.28 nimsuggest is off by default; this is what each gives:
 
@@ -319,6 +352,15 @@ From 6.28: an editor that asks for a document's problems (LSP 3.17's pull diagno
 and is told when they change; Enter formats the statement just written (on-type formatting, where the editor has
 it turned on — not a statement that goes on to the next line); an HTML tag's name and its closing tag's are
 renamed together (linked editing); and workspace symbols find the project's C, C++, JavaScript and JSON names too.
+
+From 6.32: an editor that asks for the whole workspace's problems (`workspace/diagnostic`) gets those of the files
+that are not open too — ned's own checks, as `ned --lint` makes them, go over the project's files while nedls is
+idle (`workspaceDiagnostics`), and the editor's request is answered when something changes; an editor that asks
+only now and then is sent them again after a while. Colours come as the edits since the last answer (semantic
+token deltas), not the whole file again. Workspace symbols answer at once, from a table nedls makes while it is
+idle and keeps up to date as files are edited, saved, created and deleted: the project's names first, the names
+its imports export for a query of three letters or more, a name's word starts (`nsv` finds `newShapeValue`), and
+`Shape.wid` for the fields of `Shape` (`Shape.ar` also finds the routines that take a `Shape` first).
 It starts at about 6 MB, holds a big file with its imports in about 16 MB, and answers a hover in a few
 milliseconds and a completion in about 20.
 
@@ -340,29 +382,23 @@ Settings (in the editor's `initializationOptions`, or under `nedls` in its setti
 `parameterHints` (`literals`, `all`, `off`), `raisesHints` (false: what a routine can raise, after its header),
 `checkOnSave` (true), `liveDiagnostics` (true), `formatLineLength` (not given: `nim.format.lineLength`, else the
 file's `.editorconfig`), `nedSettings` (true: your ned settings apply too), `aiFix` (true: Fix with AI when ned's
-settings name a model). `nedls --lint` checks files from the
+settings name a model), `workspaceDiagnostics` (true: for an editor that asks for the whole workspace's problems, ned's
+checks go over the files that are not open too). `nedls --lint` checks files from the
 command line, as `ned --lint` does.
 
-```lua
--- Neovim 0.11+
-vim.lsp.config('nedls', { cmd = { 'nedls' }, filetypes = { 'nim', 'nims', 'nimble' },
-  root_markers = { 'nim.cfg', 'config.nims', '.git' } })
-vim.lsp.enable('nedls')
-```
+ned's source has set-ups for other editors in [editors/](../../editors), each with a README that says how to
+install it:
 
-```toml
-# Helix: languages.toml
-[language-server.nedls]
-command = "nedls"
-[[language]]
-name = "nim"
-language-servers = ["nedls"]
-```
-
+- **Neovim:** [editors/nvim](../../editors/nvim/README.md) — `lsp/nedls.lua` for Neovim 0.11's
+  `vim.lsp.enable('nedls')` (copy it to `~/.config/nvim/lsp/`), or the folder as a plugin with
+  `require('nedls').setup()` (Neovim 0.10 too).
+- **Helix:** [editors/helix](../../editors/helix/README.md) — the entries for your `languages.toml`.
+- **Zed:** [editors/zed](../../editors/zed/README.md) — an extension that starts nedls for Nim (install it with
+  *zed: install dev extension*), next to the Nim extension that gives Zed the language; then
+  `"languages": {"Nim": {"language_servers": ["nedls", "!nim", "..."]}}` in Zed's settings.
 - **Emacs (eglot):** `(add-to-list 'eglot-server-programs '(nim-mode . ("nedls")))`
 - **Kate** (LSP Client › User Server Settings): `{"servers": {"nim": {"command": ["nedls"], "highlightingModeRegex": "^Nim$"}}}`
 - **Sublime** (LSP settings): `"clients": {"nedls": {"enabled": true, "command": ["nedls"], "selector": "source.nim"}}`
-- **Zed** (with the Nim extension): `"lsp": {"nimlangserver": {"binary": {"path": "/path/to/nedls"}}}`
 - **VS Code:** the extension in [editors/vscode](../../editors/vscode/README.md) — each release has it as
   `vscode-nedls-<version>.vsix` (*Extensions › … › Install from VSIX…*). It knows Nim's files, colours them before
   the server does, and passes its settings (`nedls.path`, `nedls.languages`, `nedls.inlayHints` …) on. Turn off the
@@ -520,7 +556,7 @@ Your own `nim.projectMapping` always wins.
 
 ## Other Nim features
 
-- Alt+M expands the macro/template call under the cursor; *expand one level*; ARC/ORC view
+- Alt+M shows what the macro/template call under the cursor writes, under it; *in a tab*; *expand one level*; ARC/ORC view
   (`expandArc`); show generated C; check the project; generate docs.
 - *Nim: AST view*: the statement at the cursor (or the selection) as the tree a macro gets — `parseStmt(…).treeRepr`
   from Nim's own parser — beside the code, made again after each pause in the typing; on a macro or template call,
@@ -567,6 +603,22 @@ Your own `nim.projectMapping` always wins.
   HTML to Karax and to `std/htmlgen`, and snippets — see [ned's own plugins](../plugins/available.md).
 - *Nim: extract selection into a proc*, *change signature…*, *inline this proc*, *move to another module…* (see the
   5.19 notes), *Nim: sort imports*, *Nim: toggle proc ⇄ func*.
+- **Bigger refactorings**, each shown as a diff first (side by side for one file, one diff for several) — *Apply it*
+  or *Leave it*; Ctrl+Z undoes it file by file, and what it leaves to you is listed after.
+  *Refactor: object ⇄ ref object* on a type's name: `T(…)` constructors stay; a `var x: T` that relied on starting
+  as a value becomes `var x = T()`, a routine that fills in `result` before giving it one gets `result = T()`; the
+  other way `new(x)` becomes `x = T()`. Listed: `==` (it compares which object it is, or the fields, now), copies
+  that would share one object, fields that would start as nil, nil checks; a ref object that holds itself stays one.
+  *Refactor: split the selected declarations into a new module…*: the selected top-level declarations (or members
+  of a type/const/let/var section) go to the module you name; it imports what they use, the old module imports it
+  where it still uses them (those get a `*`) and exports again what it exported, so its importers go on as before —
+  code that uses what stays behind is not moved (the two would import each other).
+  *Refactor: callback → async* on a proc taking a callback `proc (r: T)`: `{.async.}` returning `Future[T]`, the
+  callback's call a `return`; in an async proc a call becomes `let r = await f(…)` with the callback's body after it
+  (`g(await f(…))` for a named callback); other calls, and a callback called in a loop or before the end, are
+  listed. *Refactor: switch call syntax*: the call at the cursor the next way that means the same — `f(x, y)` →
+  `x.f(y)` → `f x, y` (a statement only) → `f(x, y)`; with lines selected, every call there one way (asked); not
+  where `x.f` would reach a field of `x`.
 - Rewrites on Alt+Enter (and in nedls' code actions): *Write the type* of a let/var/const, *Write as `x.f(y)`* ⇄
   *`f(x, y)`*, *Name the arguments*, *Write as a case* ⇄ *Write as if/elif*, *Invert the if*, an integer literal in
   hex, binary, octal or decimal.

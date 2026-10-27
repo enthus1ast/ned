@@ -45,17 +45,19 @@ Options
   --help, -h       this text
 
 Settings (initializationOptions, or workspace/didChangeConfiguration under "nedls")
-  inlayHints        true      type hints after let/var/const and parameter names in calls
-  parameterHints    literals  parameter names before arguments: literals | all | off
-  checkOnSave       true      `nim check` the file when it is saved
-  liveDiagnostics   true      check the unsaved text while typing (misspelled names at once, the compiler
-                              after a pause)
-  formatLineLength  88        line length of the built-in formatter (40–240); not given: nim.format.lineLength,
-                              else the file's .editorconfig max_line_length
-  raisesHints       false     what a routine can raise, as a hint after its header ({.raises: [IOError].})
-  nedSettings       true      also read ned's settings files (~/.config/ned/config.json, .ned/settings.json)
-  aiFix             true      offer Fix with AI on a compiler error when ned's settings name a model (ai.provider
-                              and its key): the answer is checked with `nim check` before the editor applies it
+  inlayHints            true      type hints after let/var/const and parameter names in calls
+  parameterHints        literals  parameter names before arguments: literals | all | off
+  checkOnSave           true      `nim check` the file when it is saved
+  liveDiagnostics       true      check the unsaved text while typing (misspelled names at once, the compiler
+                                  after a pause)
+  formatLineLength      88        line length of the built-in formatter (40–240); not given: nim.format.lineLength,
+                                  else the file's .editorconfig max_line_length
+  raisesHints           false     what a routine can raise, as a hint after its header ({.raises: [IOError].})
+  nedSettings           true      also read ned's settings files (~/.config/ned/config.json, .ned/settings.json)
+  aiFix                 true      offer Fix with AI on a compiler error when ned's settings name a model (ai.provider
+                                  and its key): the answer is checked with `nim check` before the editor applies it
+  workspaceDiagnostics  true      for an editor that asks for the whole workspace's problems: ned's checks also go
+                                  over the project's files that are not open, while nedls is idle
 """
 
 proc onLsSignal(sig: cint) {.noconv.} = lsSignal = sig.int
@@ -106,6 +108,11 @@ proc lsApplySettings() =
     FmtMax = FmtWidth
     cfgFmtWidth = FmtWidth
     cfgFmtWidthSet = true                 # (the client said it: before any .editorconfig)
+  v = lsOpt("workspaceDiagnostics")
+  if v != nil and v.kind == JBool:
+    lsLintOn = v.getBool
+    if not lsLintOn: lsLintOff()
+  lsDiskChanged()                         # (other rules, other messages: the problems made again)
 
 # ── the project ──
 
@@ -139,6 +146,7 @@ proc lsInitialize(params: JsonNode): JsonNode =
   # problems the client asks for (LSP 3.17's pull diagnostics) instead of being sent them: open documents' then
   lsPullDiags = td{"diagnostic"} != nil and td{"diagnostic"}.kind == JObject
   lsDiagRefresh = caps{"workspace"}{"diagnostics"}{"refreshSupport"}.getBool(false)
+  lsWsTags = caps{"workspace"}{"symbol"}{"tagSupport"} != nil      # (a deprecated name: struck through)
   # code actions: an edit filled in when chosen; edits and progress nedls sends (Fix with AI); buttons
   lsActionResolve = false
   for p in jitems(td{"codeAction"}{"resolveSupport"}{"properties"}):
@@ -191,7 +199,7 @@ proc lsInitialize(params: JsonNode): JsonNode =
       "renameProvider": (if prep: %*{"prepareProvider": true} else: %true),
       "documentSymbolProvider": true,
       "workspaceSymbolProvider": true,
-      "semanticTokensProvider": {"legend": legend, "full": true, "range": true},
+      "semanticTokensProvider": {"legend": legend, "full": {"delta": true}, "range": true},
       "inlayHintProvider": true,
       "documentFormattingProvider": true,
       "documentRangeFormattingProvider": true,
@@ -213,7 +221,7 @@ proc lsInitialize(params: JsonNode): JsonNode =
   }
   if lsPullDiags:
     result["capabilities"]["diagnosticProvider"] = %*{"identifier": "nedls", "interFileDependencies": true,
-                                                      "workspaceDiagnostics": false}
+                                                      "workspaceDiagnostics": true}
   lsLog("ned " & NedVersion & " · project " & rootDir & " · positions " & (if lsUtf8: "UTF-8" else: "UTF-16") &
         " · Nim library " & (if nxLibFound.len > 0: nxLibFound else: "not found (is nim on PATH?)"))
 
@@ -236,12 +244,18 @@ proc lsFilesChanged(params: JsonNode) =
     let typ = ch{"type"}.getInt
     if p.len == 0: continue
     let name = extractFilename(p)
-    if typ in [1, 3]: fileCacheValid = false             # (the project's file list)
+    if typ in [1, 3]:
+      fileCacheValid = false                             # (the project's file list)
+      lsWsFilesComeAndGo()
+    lsWsChanged(p)
+    if typ == 3 and p in lsLintDiags: lsLintDiags.del p
+    else: lsLintAgain(p)
     if name in ["nim.cfg", "config.nims"] or name.endsWith(".nimble"):
       nxDumped.clear()                                   # (`nim dump` again: search paths, defines)
       nxModCache.clear()
       nxResolveMemo.clear()
     if p.endsWith(".ned/settings.json"): lsApplySettings()
+  lsDiskChanged()
   lsDiagsDirty = true
 
 proc lsWorkspaceFolders(params: JsonNode) =
@@ -254,6 +268,7 @@ proc lsWorkspaceFolders(params: JsonNode) =
     let p = lsPathOf(f{"uri"}.getStr)
     if p.len > 0 and p != rootDir and p notin wsRoots: wsRoots.add p
   fileCacheValid = false
+  lsWsFilesComeAndGo()
 
 # ── dispatch ──
 
@@ -279,6 +294,7 @@ proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
     lsReply(id, r)
   of "shutdown":
     lsShutdown = true
+    if lsWsPull != nil: lsWsPullTry(timedOut = true)   # (a workspace/diagnostic held: answered now)
     lsReply(id, newJNull())
   of "textDocument/completion": lsReply(id, lsCompletion(p))
   of "completionItem/resolve": lsReply(id, lsCompletionResolve(p))
@@ -297,6 +313,7 @@ proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
   of "textDocument/codeLens": lsReply(id, lsCodeLens(p))
   of "textDocument/documentLink": lsReply(id, lsDocumentLinks(p))
   of "textDocument/diagnostic": lsReply(id, lsPullDiagnostics(p))
+  of "workspace/diagnostic": lsWorkspaceDiagnostic(id, p)          # (answered now, or when something changes)
   of "textDocument/linkedEditingRange": lsReply(id, newJNull())        # (Nim: none; HTML's in langs.nim)
   of "textDocument/onTypeFormatting": lsReply(id, lsOnTypeFormatting(p))
   of "workspace/willRenameFiles": lsReply(id, lsWillRenameFiles(p))
@@ -307,13 +324,9 @@ proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
   of "textDocument/rename": lsReply(id, lsRename(p))
   of "textDocument/documentSymbol": lsReply(id, lsDocumentSymbol(p))
   of "workspace/symbol": lsReply(id, lsWorkspaceSymbol(p))
-  of "textDocument/semanticTokens/full":
-    let d = lsDocOf(p)
-    lsReplyRaw(id, lsSemanticTokens(d, 0, d.b.lines.high))
-  of "textDocument/semanticTokens/range":
-    let d = lsDocOf(p)
-    let r = p{"range"}
-    lsReplyRaw(id, lsSemanticTokens(d, lsToPos(d.b, r{"start"}).line, lsToPos(d.b, r{"end"}).line))
+  of "textDocument/semanticTokens/full": lsReplyRaw(id, lsSemFull(lsDocOf(p)))
+  of "textDocument/semanticTokens/full/delta": lsReplyRaw(id, lsSemDelta(lsDocOf(p), p))
+  of "textDocument/semanticTokens/range": lsReplyRaw(id, lsSemRange(lsDocOf(p), p))
   of "textDocument/inlayHint": lsReply(id, lsInlayHints(p))
   of "textDocument/formatting": lsReply(id, lsFormatting(p))
   of "textDocument/rangeFormatting": lsReply(id, lsRangeFormatting(p))
@@ -345,12 +358,15 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
       lsSetRoot(r)
       lsApplySettings()                        # (the project's own settings, now that there is one)
     discard lsOpenDoc(u, td{"text"}.getStr, td{"version"}.getInt, td{"languageId"}.getStr)
+    lsWsChanged(path)
+    lsDiskChanged()
     lsDiagsDirty = true
   of "textDocument/didChange":
     let d = lsDocOf(p)
     for ch in jitems(p{"contentChanges"}): lsApplyChange(d, ch)
     d.version = p{"textDocument"}{"version"}.getInt(d.version + 1)
     lsKillStaleCheck(d)
+    lsWsChanged(d.b.path)
     lsDiagsDirty = true
   of "textDocument/didSave":
     let d = lsDocOf(p)
@@ -363,6 +379,9 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
     if b.path.len > 0:
       if b.path == configFile() or b.path.endsWith("/.ned/settings.json"): lsApplySettings()
       lsSaved(b)
+      lsWsChanged(b.path)
+      lsLintAgain(b.path)                # (the files that import it: their problems may have changed)
+    lsDiskChanged()
     lsDiagsDirty = true
   of "textDocument/didClose":
     let cd = lsDocs.getOrDefault(p{"textDocument"}{"uri"}.getStr)
@@ -376,7 +395,13 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
         if j.kind == jkCheck and not j.done and quoteShell(path) in j.cmd: killProc(j.pr, SIGKILL)
       lsPulled.del path                # (closed: its problems are sent again, as for any file not open)
       lsAnnounced.del path
-    lsCloseDoc(p{"textDocument"}{"uri"}.getStr)
+    let cu = p{"textDocument"}{"uri"}.getStr
+    lsCloseDoc(cu)
+    lsSemForget(cu)
+    if cd != nil:
+      lsWsChanged(cd.b.path)           # (its names as the file on disk has them)
+      lsLintAgain(cd.b.path)           # (not open now: ned's checks of the file on disk, for the workspace's problems)
+    lsDiskChanged()
     lsDiagsDirty = true
   of "workspace/didChangeConfiguration":
     let s = p{"settings"}
@@ -387,11 +412,13 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
   of "workspace/didChangeWatchedFiles": lsFilesChanged(p)
   of "workspace/didChangeWorkspaceFolders": lsWorkspaceFolders(p)
   of "$/cancelRequest":
+    if lsWsPullDrop(p{"id"}): return                     # (the workspace/diagnostic held: answered as cancelled)
     if lsCancelled.len > 1000: lsCancelled.clear()       # (cancels of requests already answered pile up)
     lsCancelled.incl lsIdKey(p{"id"})
   else: discard                                # ($/setTrace, $/progress … and unknown ones: nothing to do)
 
 proc lsHandle(msg: JsonNode) =
+  lsHeardAt = getMonoTime()              # (the idle work — the workspace's checks, its symbols — waits for a pause)
   if msg == nil or msg.kind != JObject:
     lsReplyError(newJNull(), ErrInvalidRequest, "a message must be a JSON object")
     return
@@ -466,12 +493,21 @@ proc lsIdle() =
   if scanning:
     pumpScan(20)
     return
+  pkgWatchPump()                         # (a nimble package installed meanwhile: read, the documents checked again)
   if lsActive != nil and lsActive.b.id notin lsWarmed and msSince(lsActive.changedAt) > 50:
     lsWarmed.incl lsActive.b.id
     let b = lsActive.b
     if nimEngineOn(b):
       try: discard nxScope(nxFileFor(b))
       except Exception as e: lsLog("reading imports: " & e.msg)
+    return
+  # (the workspace: its names for workspace/symbol, ned's checks of its files for workspace/diagnostic)
+  try: lsWsIdle()
+  except Exception as e:
+    lsLog("workspace symbols: " & e.msg)
+    lsWsBusy = false
+  try: lsLintPump()
+  except Exception as e: lsLog("workspace checks: " & e.msg)
 
 proc lsParentGone(): bool =
   ## the client process ended without saying so
@@ -503,6 +539,7 @@ proc lsMainLoop() =
     if scanning or (lsActive != nil and lsActive.b.id notin lsWarmed): timeout = min(timeout, 60)
     if lsDiagsDirty: timeout = min(timeout, 50)
     if reapPids.len > 0: timeout = min(timeout, 500)
+    timeout = min(timeout, min(lsWsNextMs(), lsLintNext()))
     if lsEof and jobs.len == 0 and lsQueue.len == 0: break
     var ready: HashSet[cint]
     if fds.len > 0:
@@ -522,11 +559,15 @@ proc lsMainLoop() =
       let before = jobs.len
       try: pumpJobs(ready)
       except Exception as e: lsLog("checks: " & e.msg)
-      if jobs.len != before: lsDiagsDirty = true
+      if jobs.len != before:
+        lsDiagsDirty = true
+        lsDiskChanged()                  # (a check finished: another file's problems too, maybe)
     reapPending()
     if lsQueue.len == 0:
       lsPumpChecks()
       if lsDiagsDirty and msSince(lsPublishedAt) > 40: lsPublishAll()
+      if lsWsPull != nil and msSince(lsWsPullAt) > LsWsPullHoldMs: lsWsPullTry(timedOut = true)
+      lsWsPullMode()
       lsIdle()
     if nxGen != lastNx:
       # the toolchain changed (`nim dump` answered): colours and hints may be different now

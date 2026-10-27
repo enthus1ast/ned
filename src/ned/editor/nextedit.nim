@@ -75,6 +75,7 @@ proc nesShow(b: Buffer, at: Pos, t0, t1: string, ai = false) =
 
 proc nesAskAi(b: Buffer, line: int, before, now: string) =
   ## no repeat of the change in the file: the quick model is asked where it leads next
+  if aiSecretFile(b.path): return                 # (a file of secrets is not sent: ai.redactSecrets)
   if nesJob != nil and not nesJob.done: killProc(nesJob.pr)
   let a = max(0, line - 40)
   let e = min(b.lines.high, line + 40)

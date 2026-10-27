@@ -140,8 +140,15 @@ type
   VRow = object                        # a row drawn under a line of a file, not part of its text (a cell's output)
     spans: seq[(string, Rgb, set[Attr])]
     bg: Rgb
+    tag: int                           # whose row (0 a notebook's; 1, 2, 3 a macro's expansion: nim/macroview.nim)
+    text: string                       # (a macro's code row) its code, the column it starts at, and its names that
+    textX: int                         # lead somewhere: [a, e) in text, where (path, line, col), and their doc
+    links: seq[VLink]
+  VLink = tuple[a, e: int, path, tip: string, line, col: int]
   Buffer = ref object
     id: int
+    paneView: int                      # (6.32) not text: 1 a terminal (paneArg: its paneId), 2 the assistant
+    paneArg: int
     lines: seq[string]
     path: string
     cursors: seq[Cursor]

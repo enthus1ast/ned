@@ -27,6 +27,7 @@ every command is in the menus (F10) and the palette (Ctrl+E).
 | guide | what it covers |
 |---|---|
 | [The Nim IDE](guide/nim.md) | the built-in engine, nedls in other editors, lint rules, quick fixes and rewrites, one Nim per project, nimsuggest and nimlangserver, Nimony |
+| [The Nim tour](guide/tour.md) | sixteen lessons of Nim that run in the notebook, from the first echo to calling C, each with an exercise that checks your answer |
 | [C and C++](guide/c.md) | ned's own C engine, or clangd |
 | [Compiler Explorer](guide/compiler-explorer.md) | the machine code beside your Nim, C or C++, live |
 
@@ -35,7 +36,7 @@ every command is in the menus (F10) and the palette (Ctrl+E).
 | page | what it covers |
 |---|---|
 | [Plugins](plugins/README.md) | what a plugin can do, how they run, permissions, installing and managing them |
-| [ned's own plugins](plugins/available.md) | the fifty-eight that come with ned — dial, which-key, oil, harpoon, todo, indent-dots, rainbow-indent, rest-client, nim-html, Odin, Gleam, Swift … — and how to turn one on |
+| [ned's own plugins](plugins/available.md) | the seventy-three that come with ned — dial, which-key, oil, harpoon, todo, indent-dots, rainbow-indent, rest-client, nim-html, Odin, Gleam, Swift … — and how to turn one on |
 | [Tutorial](plugins/tutorial.md) | a plugin built step by step — its result is `examples/plugins/notes`, run by the plugin tests |
 | [API reference](plugins/api.md) | every type and proc of `nedplugin` and `nedlsp` (made from their doc comments) |
 
@@ -46,7 +47,7 @@ every command is in the menus (F10) and the palette (Ctrl+E).
 | [Settings](reference/settings.md) | every setting, its default and what it does (`ned --doc-settings`) |
 | [Commands](reference/commands.md) | every command of the palette, with its key (`ned --doc-commands`) |
 | [Files ned uses](guide/files.md) | settings, state, caches, recovery files |
-| [Safety](guide/safety.md) | atomic saves, recovery, local history, folder trust |
+| [Safety](guide/safety.md) | atomic saves, recovery, local history, folder trust, plugins in a sandbox, secrets kept from the AI, checked releases |
 | [Troubleshooting](guide/troubleshooting.md) | when something does not work |
 
 ## Working on ned

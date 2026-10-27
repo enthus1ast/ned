@@ -459,7 +459,10 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
       let last {.cursor.} = cur.toks[^1]
       var cont = depth > 0
       if not cont and not cur.comment:
-        if last.kind == fkComma and t.col < cur.indent:
+        if t.kind == fkColon and cur.toks[0].kind == fkKw and
+           cur.toks[0].text in ["while", "if", "elif", "when", "for"] and fTopColonAt(cur.toks) < 0:
+          cont = true          # (a long condition's `:` on a line of its own, as nph writes a while's)
+        elif last.kind == fkComma and t.col < cur.indent:
           cont = false         # `a,` ⏎ (less indented): a trailing comma ends an enum's values, not the next type
         elif last.kind == fkComma or last.kind == fkDot or
            (last.kind == fkOp and last.text != "=" and (last.text != "*" or last.sp)) or
@@ -644,3 +647,63 @@ proc fDepths*(lines: var seq[FLine]) =
     prevOpens = fOpensBlock(l)
     lastIndent = l.indent
     lastDepth = l.depth
+  # `result.add if a:` ⏎ its body ⏎ `else:` written under the `if` (further right than the line): the branches at the
+  # line's own depth, as nph writes them — an if-expression given to a command or `return` is laid out as a statement
+  for i in 0 ..< lines.len:
+    template l: untyped = lines[i]
+    if l.comment or l.toks.len < 4 or l.toks[^1].kind != fkColon: continue
+    var at = -1
+    var d = 0
+    for k, t in l.toks:
+      if t.kind in {fkOpen, fkPragOpen}: inc d
+      elif t.kind in {fkClose, fkPragClose}: dec d
+      elif d == 0 and k > 0 and t.kind == fkKw and t.text in ["if", "when"]:
+        at = k
+        break
+    if at < 0: continue
+    let p = l.toks[at - 1]
+    if not (p.kind == fkIdent or (at == 1 and p.kind == fkKw and p.text in ["return", "yield", "discard"])): continue
+    var j = i + 1
+    while j < lines.len and (lines[j].comment or lines[j].depth > l.depth + 1): inc j
+    if j >= lines.len or lines[j].depth != l.depth + 1: continue      # (its body)
+    inc j
+    while j < lines.len:
+      while j < lines.len and (lines[j].comment or lines[j].depth > l.depth + 1): inc j
+      if j >= lines.len or lines[j].depth != l.depth + 1 or lines[j].toks[0].kind != fkKw or
+         lines[j].toks[0].text notin ["elif", "else"]:
+        break
+      lines[j].depth -= 1
+      inc j
+      while j < lines.len and (lines[j].comment or lines[j].depth > l.depth + 1):
+        if lines[j].depth > l.depth + 1: lines[j].depth -= 1
+        inc j
+  # comments written left of the statement after them, in its block (`#  x.flags = n.flags` at the margin inside
+  # a routine): at that statement's depth — nph writes a comment with what follows it
+  var next = -1                    # (the next code line's index)
+  for i in countdown(lines.high, 0):
+    template l: untyped = lines[i]
+    if not l.comment:
+      next = i
+      continue
+    if next < 0 or lines[next].depth == 0 or l.indent >= lines[next].indent or l.depth >= lines[next].depth: continue
+    # (only between two statements: a code line before it, as deep as the next one or deeper)
+    var p = i - 1
+    while p >= 0 and lines[p].comment: dec p
+    if p >= 0 and lines[p].depth >= lines[next].depth and not fOpensBlock(lines[p]):
+      l.depth = lines[next].depth
+  # a comment written deeper after one at the next statement's own level (`# if a:` ⏎ `  # b()` ⏎ `c()`): at that
+  # level too — nph writes the comments before a statement as one block
+  var i = 0
+  while i < lines.len:
+    if not lines[i].comment:
+      inc i
+      continue
+    var j = i
+    while j < lines.len and lines[j].comment: inc j
+    if j < lines.len:
+      let d = lines[j].depth
+      var level = false               # (a comment of the run at the statement's level met)
+      for k in i ..< j:
+        if lines[k].depth == d: level = true
+        elif level and lines[k].depth > d and lines[k].indent > lines[j].indent: lines[k].depth = d
+    i = j

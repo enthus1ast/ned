@@ -281,6 +281,7 @@ proc aiRequest() =
   aiRespApi = resp
   let url = if anth: base & "/v1/messages" elif resp: base & "/responses" else: base & "/chat/completions"
   let body = if anth: anthropicBody() elif resp: responsesBody() else: openaiBody()
+  aiRedactBody(body)
   if not aiInlineMode and not aiWarnOk and aiSteps == 0 and cfgAiWarnTokens > 0:
     let est = ($body).len div 4
     if est > cfgAiWarnTokens:
@@ -337,6 +338,13 @@ proc aiRequest() =
     aiCleanup()
     if j != aiJob: return
     aiJob = nil
+    if aiSecretTab.items.len > 0:
+      # (a placeholder the model wrote where a secret belongs: the secret goes back into what becomes a file's text
+      #  — an inline edit or a one-shot answer, edit_file, write_file — never into a command, an MCP call or the chat)
+      if aiInlineMode: aiInlineText = restoreSecrets(aiInlineText, aiSecretTab)
+      elif aiMsgs.len > 0 and aiMsgs[^1].role == 1:
+        for c in aiMsgs[^1].calls.mitems:
+          if c.name in ["edit_file", "write_file"]: c.args = restoreSecretsJson(c.args, aiSecretTab)
     let code = try: parseInt(aiHttp) except ValueError: 0
     aiUsageIn += aiReqIn
     aiUsageOut += aiReqOut

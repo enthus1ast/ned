@@ -45,6 +45,7 @@ type ClangFn* = proc(c, fakeName, dir: string): string {.closure.}
   ## clang-format run on `c` as if it were the file `fakeName` (its .clang-format applies) — "" when it failed
 
 var
+  fmtEmbedNames*: Table[string, string]   ## nim.embeddedLanguages: a routine's name → the language its strings hold
   fmtEmitC* = true       ## nim.formatEmitC: the C in {.emit: """…""".} blocks formatted with the Nim around it
   fmtEmitCpp* = false    ## nim.backend is cpp: that C is C++
   fmtCStyleName* = "auto"                   ## c.format.style
@@ -286,6 +287,8 @@ proc fmtTextOf*(kind, text, path: string, nimFmt: FmtFn = nil): (string, string)
       if err.len > 0: return (text, err)
       let why = verifyNim(text, r)
       if why.len > 0: return (text, why)
+      # (the SQL, HTML and JSON in its strings — nim.format.embedded — after Nim's own check: the strings change)
+      if FmtEmbedded: r = fFormatEmbedded(r, fmtEmbedNames)[0]
       if not fmtEmitC: return (r, "")
       let clang: ClangFn = if fmtUseClangFormat(): clangFormatCli else: nil
       (formatEmitC(r, path, fmtEmitCpp, clang, "", cStyleFor(path, fmtCStyleName, fmtCStyleOpts))[0], "")
@@ -396,6 +399,12 @@ proc applySettingsFile(p: string) =
   if n != nil and n.kind == JBool: fmtVerifyWanted = n.getBool
   n = settingOf(j, "nim.formatEmitC")
   if n != nil and n.kind == JBool: fmtEmitC = n.getBool
+  n = settingOf(j, "nim.format.embedded")
+  if n != nil and n.kind == JBool: FmtEmbedded = n.getBool
+  n = settingOf(j, "nim.embeddedLanguages")
+  if n != nil and n.kind == JObject:
+    for k, v in n:
+      if v.kind == JString and k.len > 0: fmtEmbedNames[k] = v.getStr
   n = settingOf(j, "nim.backend")
   if n != nil and n.kind == JString: fmtEmitCpp = n.getStr == "cpp"
   n = settingOf(j, "c.format.style")
@@ -437,6 +446,8 @@ proc applySettingsFor*(path: string) =
   FmtReflowPlain = false
   FmtBlank = 1
   fmtEmitC = true
+  FmtEmbedded = true
+  fmtEmbedNames.clear()
   fmtEmitCpp = false
   fmtCStyleName = "auto"
   fmtCStyleOpts = @[]

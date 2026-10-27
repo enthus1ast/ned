@@ -81,8 +81,16 @@ proc pumpTerms(ready: HashSet[cint]) =
     elif t.replQ.len > 0: t.replFlush()          # a REPL that printed no prompt yet: typed in after 5 s
 
 proc curTermObj(): Term =
+  if termForPane >= 0 and termForPane < terms.len: return terms[termForPane]
   if terms.len == 0: return nil
   curTerm = clamp(curTerm, 0, terms.high)
+  if terms[curTerm].paneId != 0:
+    # (the panel's terminals only: one in a pane is its tab's)
+    for i, t in terms:
+      if t.paneId == 0:
+        curTerm = i
+        return t
+    return nil
   terms[curTerm]
 
 proc termCwd(): string =
@@ -98,11 +106,14 @@ proc remoteShellCmd(): string =
   sshCmd(r, false) & " -t " & quoteShell(remoteScript("cd " & quoteShell(cwd) & " && exec \"${SHELL:-sh}\" -l"))
 
 proc openTerminal() =
-  if terms.len == 0:
+  var panel = 0
+  for t in terms:
+    if t.paneId == 0: inc panel
+  if panel == 0:
     let rc = remoteShellCmd()
     terms.add newTerm(max(20, lay.edW), max(4, lay.panelH - 1), termCwd(), rc, keep = true)
     if rc.len > 0: terms[^1].name = remotes[remoteOf(rootDir)].host
-    curTerm = 0
+    curTerm = terms.high
 
 proc newTerminal() =
   let rc = remoteShellCmd()
@@ -252,7 +263,7 @@ proc drawTermPane(ti: int, x0, y0, w, h: int, focused: bool) =
   elif t.view > 0:
     let s = " scrollback " & $t.view & "/" & $t.sb.len & " · Shift+PgDn "
     discard putStr(x0 + max(0, w - strWidth(s) - 2), y0, s, theme.badgeFg, theme.accent, {}, x0 + w)
-  if focused and focus == fPanel and t.cursorVisible and t.view == 0 and not t.dead:
+  if focused and (focus == fPanel or termPaneCursor) and t.cursorVisible and t.view == 0 and not t.dead:
     cursorX = x0 + gut + min(t.cx, w - gut - 2)
     cursorY = y0 + t.cy
   let tix = ti
@@ -300,14 +311,20 @@ proc drawTerminal(x0, y0, w, h: int) =
   termPanes.setLen(0)
   let bgDef = theme.bg
   fillRect(x0, y0, w, h, theme.fg, bgDef)
-  if termSplit and (terms.len < 2 or termOther < 0 or termOther >= terms.len or termOther == curTerm):
+  discard curTermObj()                     # (curTerm: one of the panel's)
+  var panelTerms = 0
+  for tt in terms:
+    if tt.paneId == 0: inc panelTerms
+  if termSplit and (panelTerms < 2 or termOther < 0 or termOther >= terms.len or termOther == curTerm or
+                    terms[termOther].paneId != 0):
     termSplit = false
   # tabs for several terminals
   var hh = h
   var yy0 = y0
-  if terms.len > 1 and h > 4:
+  if panelTerms > 1 and h > 4:
     var x = x0 + 1
     for i, tt in terms:
+      if tt.paneId != 0: continue            # (a pane's terminal: its tab is in the editor)
       let active = i == curTerm
       let shown = termSplit and i == termOther
       let ii = i
@@ -455,7 +472,9 @@ proc termCycle(d: int) =
   if termSplit:
     swap(curTerm, termOther)
   else:
-    curTerm = (curTerm + d + terms.len) mod terms.len
+    for _ in 0 ..< terms.len:
+      curTerm = (curTerm + d + terms.len) mod terms.len
+      if terms[curTerm].paneId == 0: break
   needRender = true
 
 proc termCopySel() =

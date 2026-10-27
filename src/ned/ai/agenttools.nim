@@ -56,8 +56,38 @@ func posAt(text: string, off: int): Pos =
       ls = i + 1
   Pos(line: line, col: off - ls)
 
+# ── secrets kept from the AI (core/secrets.nim, ai.redactSecrets): keys, tokens and passwords in what is sent are
+#    replaced with placeholders, put back where the model writes them into a file; files of secrets are not sent ──
+
+var
+  aiSecretTab: SecretTable                 # this session's placeholders: the same secret, the same placeholder
+  aiSecretPats: (string, times.Time, seq[string])   # (the project, its .gitignore's time, the lines of it about secrets)
+
+const AiSecretNote = "(not sent: this file holds secrets — ned keeps such files from the assistant, ai.redactSecrets)"
+
+proc aiSecretFile(path: string): bool =
+  ## a file that holds secrets — .env, *.pem, id_ed25519 …, or one the project's .gitignore keeps out for its
+  ## secrets — is never sent to the AI while ai.redactSecrets is on
+  if path.len == 0 or not sBool("ai.redactSecrets"): return false
+  let gi = rootDir / ".gitignore"
+  var t: times.Time
+  try: t = getLastModificationTime(gi)
+  except CatchableError: discard
+  if aiSecretPats[0] != rootDir or aiSecretPats[1] != t:
+    var pats: seq[string]
+    try:
+      if rootDir.len > 0 and fileExists(gi): pats = secretIgnorePatterns(readFile(gi))
+    except CatchableError: discard
+    aiSecretPats = (rootDir, t, pats)
+  isSecretFile(path, aiSecretPats[2], rootDir)
+
+proc aiRedactBody(body: JsonNode) =
+  ## a request about to be sent: the secrets in every string of it replaced (ai.redactSecrets)
+  if sBool("ai.redactSecrets"): discard redactSecretsJson(body, aiSecretTab)
+
 proc toolReadFile(j: JsonNode): (string, bool) =
   let path = absProjectPath(j{"path"}.getStr)
+  if aiSecretFile(path): return (AiSecretNote, true)
   var lines: seq[string]
   let bi = bufIndexByPath(path)
   if bi >= 0: lines = bufs[bi].lines
@@ -95,6 +125,7 @@ proc toolSearch(j: JsonNode): (string, bool) =
   for rel in projectFiles():
     if sub.len > 0 and not rel.startsWith(sub.strip(chars = {'/', '.'})): continue
     let path = rootDir / rel
+    if aiSecretFile(path): continue
     try:
       if getFileSize(path) > 2_000_000: continue
       var l = 0

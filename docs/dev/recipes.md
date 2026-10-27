@@ -257,5 +257,7 @@ the whole of `src/ned.nim`, built with `-d:nedNoMain`).
    and the scoreboard (CI runs it).
 5. **The builds**: `bash tests/build/termux.sh OUT` (the `.deb`) and `bash tests/build/windows.sh OUT` (the zip), with
    zig as the C compiler; `tests/build/cross.sh` for every other target. Build one thing at a time on a small machine.
+   Gather the release's files in one folder and run `NED_SIGNING_KEY=~/.ssh/ned-release sh tests/build/sums.sh
+   FOLDER`; publish SHA256SUMS and SHA256SUMS.sig with them.
 6. **Tag and push** `vX.Y.Z`: `.github/workflows/build.yml` builds every platform and attaches the programs (and the
    VS Code extension) to the GitHub release.

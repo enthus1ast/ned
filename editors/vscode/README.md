@@ -3,14 +3,16 @@
 [ned](https://github.com/foxoman/ned)'s own Nim engine in VS Code, as a language server: completion with
 documentation and the import it adds, hover, signature help, definition, references, rename, call and type
 hierarchy, code lens (run a test, a suite, a task), inlay hints, semantic colours, formatting, quick fixes and
-refactorings, and problems as you type — the same code ned's editor runs, with no nimsuggest or nimlangserver.
+refactorings, workspace symbols (Ctrl+T, `Shape.wid` for a type's fields), and problems as you type — the open
+files' and, from ned's checks while it is idle, the rest of the project's, in the Problems panel — the same code
+ned's editor runs, with no nimsuggest or nimlangserver.
 It answers for C, C++, JavaScript, HTML, CSS, SQL and JSON too when you ask it to (`nedls.languages`).
 
 ## Install
 
 1. nedls itself: `nimble install ned` builds `ned`, `nedfmt` and `nedls`; or take `nedls` from a ned release.
 2. This extension: *Extensions › … › Install from VSIX…* and pick `vscode-nedls-<version>.vsix` (each ned
-   release has one, built by its CI).
+   release has one), or build it yourself (below).
 3. If the Nim extension (nimlangserver) is installed too, turn its language server off, or disable it for the
    workspace — two servers answer twice.
 
@@ -25,6 +27,7 @@ It answers for C, C++, JavaScript, HTML, CSS, SQL and JSON too when you ask it t
 | `nedls.raisesHints` | `false` | what a routine can raise, after its header |
 | `nedls.checkOnSave` | `true` | `nim check` the file when it is saved |
 | `nedls.liveDiagnostics` | `true` | check the unsaved text while typing |
+| `nedls.workspaceDiagnostics` | `true` | the problems of the project's files that are not open too (ned's checks, while nedls is idle) |
 | `nedls.formatLineLength` | — | the formatter's line length; not given: ned's `nim.format.lineLength`, else `.editorconfig` |
 | `nedls.nedSettings` | `true` | also read ned's own settings files |
 | `nedls.trace.server` | `off` | log the messages between VS Code and nedls (`messages`, or `verbose` with their contents) |

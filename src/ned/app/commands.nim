@@ -44,6 +44,7 @@ proc newFile() =
 
 proc switchTab(d: int) =
   if bufs.len == 0: return
+  if paneTabStep(d): return             # (panes: the active pane's own tabs)
   curBuf = (curBuf + d + bufs.len) mod bufs.len
   focus = fEditor
   closeComp()

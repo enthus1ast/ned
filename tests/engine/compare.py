@@ -290,25 +290,114 @@ report['sug_bad'] = mbad
 # 5. references: at a third of the places, the file's uses of what the name is — ned's against nimsuggest's `use`.
 # (Compared where nimsuggest resolves every name: not in runnableExamples, which it does not check, nor in a
 # `when` branch not taken here, nor in the body of a template or a generic routine, where a name is bound when it
-# is used. ned finds the uses there too — a rename changes them — and they are counted apart)
-rs = dict(same=0, n=0, ned_hidden=0)
+# is used. ned finds the uses there too — a rename changes them — and they are counted apart. So are the fields
+# named in an object constructor — JsonNode(kind: JInt) —, which nimsuggest's `use` never lists. A place where
+# nimsuggest answers about another name than the one written — the `items` a for loop calls, `defined` for the
+# symbol inside defined(…) — is not a question about that name, and is left out, as is the code `quote do:` makes.
+# The names in an export statement are left out on both sides (nimsuggest puts them where the statement starts),
+# and for a routine those in import and from … import too: nimsuggest gives such a name to one overload of its
+# choosing, ned to every overload of the name. And the name of a {.borrow.} routine, which nimsuggest lists as a use of the routine it
+# borrows from — an implicit use, as the `items` of a for loop — is counted apart, as are the uses nimsuggest lists
+# where another name is written)
+rs = dict(same=0, n=0, ned_hidden=0, ned_ctor=0, import_lines=0, ns_borrow=0, ns_implicit=0)
+def word_at(l1, bc):
+    """the identifier at line l1 (1-based), byte column bc"""
+    s = lines[l1 - 1] if l1 - 1 < len(lines) else ''
+    ci = len(s.encode()[:bc].decode('utf-8', 'replace'))
+    j = ci
+    while j < len(s) and (s[j].isalnum() or s[j] == '_'): j += 1
+    return s[ci:j]
+ROUTINES = ('skProc', 'skFunc', 'skMethod', 'skIterator', 'skConverter', 'skTemplate', 'skMacro')
+def stmt_word(l1):
+    """the first word of the statement line l1 (1-based) is in, a list going on over the lines below followed up"""
+    k = l1 - 1
+    while k > 0 and lines[k][:1] in (' ', '\t'):
+        prev = lines[k - 1].split('#')[0].rstrip()
+        if not (prev.endswith((',', '[', '(')) or prev.strip() in ('import', 'export') or prev.endswith(' import')): break
+        k -= 1
+    t = lines[k].strip()
+    return t.split(' ', 1)[0] if t else ''
+def borrow_decl(l1, bc):
+    """is the name at line l1, byte column bc, the name of a {.borrow.} routine where it is declared"""
+    s = lines[l1 - 1]
+    head = s[:len(s.encode()[:bc].decode('utf-8', 'replace'))].strip()
+    if head.split(' ')[-1] not in ('proc', 'func', 'method', 'iterator', 'converter', 'template'): return False
+    return any('borrow' in x for x in lines[l1 - 1:l1 + 3] if '{.' in x or '.}' in x)
 rbad = []
 hidden = eng('hidden', 0, 0).get('hidden', [])
 def visible(l1):
     return not any(a <= l1 - 1 <= e for a, e in hidden)
+def ctor_label(l1, bc):
+    """is the name at line l1 (1-based), byte column bc, a field given in an object constructor: `T(name: v`,
+    `T[A](⏎  name: v,` — the name followed by `:`, after `(` or `,`, inside an unclosed `(` written right after a
+    type's name"""
+    s = lines[l1 - 1]
+    ci = len(s.encode()[:bc].decode('utf-8', 'replace'))
+    j = ci
+    while j < len(s) and (s[j].isalnum() or s[j] == '_'): j += 1
+    while j < len(s) and s[j] == ' ': j += 1
+    if j >= len(s) or s[j] != ':' or s[j + 1:j + 2] in (':', '='): return False
+    li, k, depth, first = l1 - 1, ci - 1, 0, True
+    while li >= 0 and l1 - 1 - li <= 30:
+        t = lines[li]
+        k = min(k, len(t) - 1)
+        while k >= 0:
+            ch = t[k]
+            if first and ch != ' ':
+                if ch not in '(,': return False
+                first = False
+            if ch in ')]}': depth += 1
+            elif ch in '([{':
+                if depth == 0:
+                    if ch != '(' or k == 0: return False
+                    b = t[k - 1]
+                    return b.isalnum() or b in '_]'
+                depth -= 1
+            elif ch == '"':
+                k -= 1
+                while k >= 0 and t[k] != '"': k -= 1
+            k -= 1
+        li -= 1
+        if li >= 0:
+            k = len(lines[li]) - 1
+            if first and lines[li].strip() and lines[li].rstrip()[-1] not in '(,': return False
+    return False
+nnorm = lambda s: (s[0] + s[1:].replace('_', '').lower()) if s else s
 for (l, c, w, m) in sample[:max(1, len(sample) // 3)]:
+    if not visible(l): continue          # (a place in code nimsuggest does not resolve: no question to compare)
     rows = [x.split('\t') for x in ask('def %s:%d:%d' % (path, l, c)) if x.startswith('def\t')]
     if not rows or rows[0][1] in ('skUnknown', 'skModule', 'skParam', 'skResult', 'skForVar', 'skTemp') or \
-            '`gensym' in rows[0][2]:
+            '`gensym' in rows[0][2] or nnorm(rows[0][2].split('.')[-1].strip('`')) != nnorm(w) or \
+            stmt_word(l) == 'export' or (rows[0][1] in ROUTINES and stmt_word(l) in ('import', 'from')):
         continue
     uses = [x.split('\t') for x in ask('use %s:%d:%d' % (path, l, c)) if x.startswith('use\t') or x.startswith('def\t')]
     ns_set = set((int(u[5]), int(u[6])) for u in uses if len(u) > 6 and u[4] == path and visible(int(u[5])))
+    # (a qualified name — Event.Read —: nimsuggest puts it at its dot, ned at the name)
+    ns_set = set((x[0], x[1] + 1) if lines[x[0] - 1].encode()[x[1]:x[1] + 1] == b'.' else x for x in ns_set)
     if not ns_set: continue
     col_bytes = c
     er = eng('refs', l - 1, len(lines[l-1].encode()[:col_bytes].decode('utf-8', 'replace'))).get('refs', [])
     ned_all = set((r[0] + 1, len(lines[r[0]][:r[1]].encode())) if r[0] < len(lines) else (r[0] + 1, r[1]) for r in er)
     ned_set = set(x for x in ned_all if visible(x[0]))
     rs['ned_hidden'] += len(ned_all) - len(ned_set)
+    if rows[0][1] == 'skField':
+        ctor = set(x for x in ned_set - ns_set if ctor_label(x[0], x[1]))
+        rs['ned_ctor'] += len(ctor)
+        ned_set -= ctor
+    # (a use nimsuggest lists where another name is written — the variable of a fieldPairs loop, which stands for
+    # each field in turn —: nothing there names it)
+    implicit = set(x for x in ns_set - ned_set if nnorm(word_at(x[0], x[1])) != nnorm(w))
+    rs['ns_implicit'] += len(implicit)
+    ns_set -= implicit
+    imp = set(x for x in ns_set | ned_set
+              if stmt_word(x[0]) == 'export' or (rows[0][1] in ROUTINES and stmt_word(x[0]) in ('import', 'from')))
+    rs['import_lines'] += len(imp)
+    ns_set -= imp
+    ned_set -= imp
+    if rows[0][1] in ROUTINES:
+        bor = set(x for x in ns_set - ned_set if borrow_decl(x[0], x[1]))
+        rs['ns_borrow'] += len(bor)
+        ns_set -= bor
     rs['n'] += 1
     if ned_set == ns_set: rs['same'] += 1
     else: rbad.append((l, w, sorted(ns_set - ned_set)[:3], sorted(ned_set - ns_set)[:3]))
@@ -342,6 +431,9 @@ s = report['sug']
 print('  member completion: ned %d/%d · nimsuggest %d/%d' % (s['ned'], s['n'], s['nimsuggest'], s['n']))
 for b in report['sug_bad'][:a.show]: print('    ', b)
 r = report['refs']
-print('  references in the file: the same as nimsuggest\'s at %d of %d (and %d more in code nimsuggest does not read)' %
-      (r['same'], r['n'], r.get('ned_hidden', 0)))
+print('  references in the file: the same as nimsuggest\'s at %d of %d (and %d more in code nimsuggest does not read, '
+      '%d fields named in object constructors, which its `use` leaves out; %d names in import/export statements and '
+      '%d {.borrow.} routines and %d uses where another name is written left out)' %
+      (r['same'], r['n'], r.get('ned_hidden', 0), r.get('ned_ctor', 0), r.get('import_lines', 0), r.get('ns_borrow', 0),
+       r.get('ns_implicit', 0)))
 for b in report['refs_bad'][:a.show]: print('    ', b)

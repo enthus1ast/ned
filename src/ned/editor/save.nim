@@ -192,6 +192,7 @@ proc closeBufferAt(i: int) =
   embClose(b)
   removeSwap(b)
   let wasCur = i == curBuf
+  if b.paneView == 1: paneTermEnd(b.paneArg)      # (a terminal's tab: its shell ends)
   dropBufFromPanes(b.id)     # (the other panes that showed it close)
   bufs.delete(i)
   if bufs.len == 0:
@@ -200,6 +201,10 @@ proc closeBufferAt(i: int) =
   if wasCur: curBuf = min(i, bufs.high)
   elif i < curBuf: dec curBuf
   curBuf = clamp(curBuf, 0, bufs.high)
+  if wasCur and paneAfterClose >= 0:              # (panes: the pane's own tab before it)
+    let k = bufs.find(bufById(paneAfterClose))
+    if k >= 0: curBuf = k
+    paneAfterClose = -1
   closeComp()
   needRender = true
 

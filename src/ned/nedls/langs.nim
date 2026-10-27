@@ -418,78 +418,57 @@ proc lxDocumentSymbol(d: LsDoc): JsonNode =
       parent["children"].add j
     stack.add (dep, j)
 
-proc lxWorkspaceHits(q: string, t0: MonoTime): seq[(int, JsonNode)] =
-  ## workspace/symbol in the project's C, C++, JavaScript and JSON files (open ones as they are now): the names
-  ## their outlines have — a JSON file's keys two levels deep, not a lock file's
-  const exts = [".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".js", ".mjs", ".cjs", ".json"]
-  var paths: seq[string]
-  var seen: HashSet[string]
-  for _, d in lsDocs:
-    if d.b.path.len > 0 and lxLangOf(d) in {lxC, lxWeb} and d.b.path notin seen:
-      seen.incl d.b.path
-      paths.add d.b.path
-  for rel in projectFiles():
-    let p = if rel.isAbsolute: rel else: rootDir / rel
-    if p in seen: continue
-    var want = false
-    for e in exts:
-      if p.endsWith(e): want = true
-    let name = extractFilename(p)
-    if not want or name.endsWith("-lock.json") or name.endsWith(".lock.json") or name == "package-lock.json": continue
-    seen.incl p
-    paths.add p
-  var hl: seq[int]
-  for path in paths:
-    if msSince(t0) > 3500: break
-    var d = lsDocByPath(path)
-    let ext = path.splitFile.ext.toLowerAscii
-    if d == nil and ext in [".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"]:
-      # (a C file not open: its index from disk, as the C engine keeps it — no buffer of its own)
-      if not (cfgCEngine in ["builtin", "both"] or (cfgCEngine == "auto" and not haveExe("clangd"))): continue
-      var items: seq[SideItem]
-      try: items = cEngOutlineOf(cxLoad(path), path)
-      except Exception: continue
-      let lang = if cxIsCppPath(path): "cpp" else: "c"
-      var owner = ""
-      for it in items:
-        if it.depth == 0: owner = it.text
-        if it.text.len == 0: continue
-        var score = 0
-        if q.len > 0:
-          score = fuzzyMatch(q, it.text, hl)
-          if score == low(int): continue
-        result.add (score, %*{"name": it.text, "kind": lxSymKind(it, lang),
-                              "containerName": (if it.depth > 0: owner else: extractFilename(path)),
-                              "location": lsLocation(path, max(0, it.line), max(0, it.col))})
-      continue
-    if d == nil:
-      let lines = lsLinesOf(path)
-      if lines.len == 0 or lines.len > 20_000: continue
-      let b = newBuffer()
-      b.path = path
-      b.lines = lines
-      b.lang = detectLang(path, lines[0])
-      if b.lang == nil: continue
-      d = LsDoc(uri: lsUriOf(path), b: b)
-    let lang = if d.b.lang != nil: d.b.lang.id else: ""
-    if lxLangOf(d) notin {lxC, lxWeb} or lang notin ["c", "cpp", "javascript", "json"]: continue
+const LxWsExts = [".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".js", ".mjs", ".cjs", ".json"]
+
+proc lxWsWanted(path: string): bool =
+  ## a project file whose names workspace symbols list: C, C++, JavaScript and JSON — not a lock file's
+  var want = false
+  for e in LxWsExts:
+    if path.endsWith(e): want = true
+  let name = extractFilename(path)
+  want and not (name.endsWith("-lock.json") or name.endsWith(".lock.json") or name == "package-lock.json")
+
+proc lxWsSymbols(path: string): seq[tuple[name: string, kind, line, col: int, container: string]] =
+  ## workspace symbols of a C, C++, JavaScript or JSON file (an open one as it is now): the names its outline has —
+  ## a JSON file's keys two levels deep. Positions are ned's (bytes)
+  var d = lsDocByPath(path)
+  let ext = path.splitFile.ext.toLowerAscii
+  if d == nil and ext in [".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"]:
+    # (a C file not open: its index from disk, as the C engine keeps it — no buffer of its own)
+    if not (cfgCEngine in ["builtin", "both"] or (cfgCEngine == "auto" and not haveExe("clangd"))): return
     var items: seq[SideItem]
-    try: items = lxOutline(d)
-    except Exception: continue
-    var parents: seq[string]               # (the item each depth is in)
+    try: items = cEngOutlineOf(cxLoad(path), path)
+    except Exception: return
+    let lang = if cxIsCppPath(path): "cpp" else: "c"
+    var owner = ""
     for it in items:
-      if parents.len > it.depth: parents.setLen(it.depth)
-      while parents.len < it.depth: parents.add ""
-      let container = if it.depth > 0 and parents.len > 0: parents[^1] else: extractFilename(path)
-      parents.add it.text
-      if it.text.len == 0 or (lang == "json" and it.depth > 1): continue
-      var score = 0
-      if q.len > 0:
-        score = fuzzyMatch(q, it.text, hl)
-        if score == low(int): continue
-      let l = clamp(it.line, 0, max(0, d.b.lines.high))
-      result.add (score, %*{"name": it.text, "kind": lxSymKind(it, lang), "containerName": container,
-                            "location": lsLocation(path, l, max(0, it.col))})
+      if it.depth == 0: owner = it.text
+      if it.text.len == 0: continue
+      result.add (it.text, lxSymKind(it, lang), max(0, it.line), max(0, it.col),
+                  (if it.depth > 0: owner else: ""))
+    return
+  if d == nil:
+    let lines = lsLinesOf(path)
+    if lines.len == 0 or lines.len > 20_000: return
+    let b = newBuffer()
+    b.path = path
+    b.lines = lines
+    b.lang = detectLang(path, lines[0])
+    if b.lang == nil: return
+    d = LsDoc(uri: lsUriOf(path), b: b)
+  let lang = if d.b.lang != nil: d.b.lang.id else: ""
+  if lxLangOf(d) notin {lxC, lxWeb} or lang notin ["c", "cpp", "javascript", "json"]: return
+  var items: seq[SideItem]
+  try: items = lxOutline(d)
+  except Exception: return
+  var parents: seq[string]               # (the item each depth is in)
+  for it in items:
+    if parents.len > it.depth: parents.setLen(it.depth)
+    while parents.len < it.depth: parents.add ""
+    let container = if it.depth > 0 and parents.len > 0: parents[^1] else: ""
+    parents.add it.text
+    if it.text.len == 0 or (lang == "json" and it.depth > 1): continue
+    result.add (it.text, lxSymKind(it, lang), clamp(it.line, 0, max(0, d.b.lines.high)), max(0, it.col), container)
 
 # ── linked editing: an HTML tag's name and its partner's ──
 
@@ -701,12 +680,12 @@ proc lxNextCheckMs(d: LsDoc): int =
 
 # ── semantic tokens: C's names by what they are ──
 
-proc lxSemanticTokens(d: LsDoc, lo0, hi0: int): string =
+proc lxSemanticTokens(d: LsDoc, lo0, hi0: int): seq[int32] =
   ## C and C++: what the engine knows each name is, as semantic tokens (the legend nedls gives: a function, a macro,
   ## a type, an enum constant, a field, a parameter, a local or a global — static: the file's own —, a namespace;
   ## a declaration's own name marked so); none for the other languages
   let b = d.b
-  if lxLangOf(d) != lxC or not cEngineOn(b) or b.lines.len == 0: return "{\"data\":[]}"
+  if lxLangOf(d) != lxC or not cEngineOn(b) or b.lines.len == 0: return
   let lo = clamp(lo0, 0, b.lines.high)
   let hi = clamp(hi0, lo, b.lines.high)
   var toks: seq[CxSemTok]
@@ -717,10 +696,7 @@ proc lxSemanticTokens(d: LsDoc, lo0, hi0: int): string =
     for x in f.syms: decls.incl (x.line, x.col)
   except CatchableError as e:
     internalError("C engine", e)
-    return "{\"data\":[]}"
-  var o = newStringOfCap(4096)
-  o.add "{\"data\":["
-  var first = true
+    return
   var pl = 0
   var pc = 0
   for (l, c, n, k) in toks:
@@ -742,13 +718,15 @@ proc lxSemanticTokens(d: LsDoc, lo0, hi0: int): string =
     let ln = lsChar(s, c + n) - sc
     let dl = l - pl
     let dc = if dl == 0: sc - pc else: sc
-    if not first: o.add ','
-    first = false
-    o.add $dl & "," & $dc & "," & $ln & "," & $t & "," & $mods
+    result.add [dl.int32, dc.int32, ln.int32, t.int32, mods.int32]
     pl = l
     pc = sc
-  o.add "]}"
-  o
+
+proc lxSemData(d: LsDoc, lo, hi: int, data: var seq[int32]): bool =
+  ## a document in another language: its tokens (none but C's and C++'s) — true; a Nim one: false
+  if d == nil or lxLangOf(d) == lxNim: return false
+  data = lxSemanticTokens(d, lo, hi)
+  true
 
 # ── the dispatch: a request about a document in another language ──
 
@@ -778,11 +756,9 @@ proc lxHandle(meth: string, params: JsonNode, id: JsonNode): bool =
   of "textDocument/documentLink": lsReply(id, lxDocumentLinks(d))
   of "textDocument/linkedEditingRange": lsReply(id, lxLinkedEditing(d, params))
   of "textDocument/onTypeFormatting": lsReply(id, newJArray())
-  of "textDocument/semanticTokens/full": lsReplyRaw(id, lxSemanticTokens(d, 0, d.b.lines.high))
-  of "textDocument/semanticTokens/range":
-    let r = params{"range"}
-    lsReplyRaw(id, lxSemanticTokens(d, lsToPos(d.b, r{"start"}).line, lsToPos(d.b, r{"end"}).line))
   of "textDocument/foldingRange", "textDocument/selectionRange": return false      # (the same for every language)
+  of "textDocument/semanticTokens/full", "textDocument/semanticTokens/full/delta",
+     "textDocument/semanticTokens/range": return false     # (lsSemData picks the engine; the deltas are the same)
   of "textDocument/typeDefinition": lsReply(id, lxTypeDefinition(d, params))
   of "textDocument/rangeFormatting": lsReply(id, lxRangeFormatting(d, params))
   of "textDocument/prepareCallHierarchy", "textDocument/codeLens":

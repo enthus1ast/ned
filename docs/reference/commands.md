@@ -131,7 +131,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Format document | Alt+F |
 | Format selection (ned's own for Nim and C, or the language server) | Alt+F with lines selected |
 | Format: every file in the project… |  |
-| Format: only the lines I changed | since git last saw the file |
+| Format: only the lines I changed | since git last saw the file, or since you opened it |
 | Format: preview the change | side by side, then apply it or not |
 | Format: review the project's changes |  |
 | Format: the code in this string | JSON, CSS, C in an emit … |
@@ -295,6 +295,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Nim: evaluate at compile time |  |
 | Nim: expand macro one level |  |
 | Nim: expand macro/template at cursor | Alt+M |
+| Nim: expand macro/template in a tab |  |
 | Nim: exports nothing uses… |  |
 | Nim: extract selection into a proc |  |
 | Nim: flame graph of the profile | the call stacks, as wide as the time they took — tap a box to look inside |
@@ -306,6 +307,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Nim: go to the C declaration (importc) |  |
 | Nim: hide ARC/ORC copies |  |
 | Nim: hide coverage |  |
+| Nim: hide every macro expansion |  |
 | Nim: hide the profile |  |
 | Nim: inline this proc |  |
 | Nim: inline variable |  |
@@ -337,11 +339,17 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Nim: toggle export marker (*) |  |
 | Nim: toggle proc ⇄ func |  |
 | Nim: toggle reference counts |  |
+| Nim: tour (lessons in the notebook) | Help › Nim tour: Nim from echo to calling C, cell by cell |
+| Nim: tour — all the lessons… | a ✓ beside each one done |
+| Nim: tour — next lesson |  |
+| Nim: tour — previous lesson |  |
+| Nim: tour — reset this lesson | your copy as it was (Ctrl+Z brings yours back) |
 | Nim: use current file as main module |  |
 | Nim: use fmt for this string |  |
 | Nim: use ned's built-in engine |  |
 | Nim: use nimlangserver |  |
 | Nim: what can this proc raise? |  |
+| Nim: why? (where an exception or a side effect comes from) |  |
 | Nim: wrap a C header with c2nim… |  |
 | Nim: wrap a C header… | its functions, structs, enums and constants as Nim — by ned's own C engine |
 | Nim: write compile_commands.json for clangd |  |
@@ -407,7 +415,11 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Quit | Ctrl+Q |
 | Redo | Ctrl+Y |
 | Redraw the screen | everything sent to the terminal again (if it shows something out of place) |
+| Refactor: callback → async |  |
 | Refactor: extract into a variable |  |
+| Refactor: object ⇄ ref object |  |
+| Refactor: split the selected declarations into a new module… |  |
+| Refactor: switch call syntax — f(x, y) · x.f(y) · f x, y |  |
 | Refresh file tree |  |
 | Reload from disk |  |
 | Remote: open a folder over SSH… |  |
@@ -498,6 +510,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Test explorer |  |
 | Theme: edit colours (contrast checked)… |  |
 | Theme: import a VS Code or base16 theme… |  |
+| Theme: import a Zed or Helix theme… |  |
 | Theme: light by day, dark at night |  |
 | Theme: make my own copy of this theme |  |
 | Theme: put Termux's own colours back |  |
@@ -553,6 +566,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Unfold all |  |
 | Unindent lines (outdent, dedent) | Shift+Tab |
 | Upper case |  |
+| View: assistant in a pane | the AI assistant in a pane at the right, beside the code |
 | View: close the other panes |  |
 | View: close this pane | Alt+\| |
 | View: equal pane sizes |  |
@@ -562,16 +576,20 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | View: focus the pane below | Ctrl+Alt+Shift+↓ |
 | View: focus the pane to the left | Ctrl+Alt+Shift+← |
 | View: focus the pane to the right | Ctrl+Alt+Shift+→ |
+| View: forget a layout… |  |
+| View: layouts… | a layout kept for the project, put back |
 | View: ligatures (off › font › symbols) |  |
 | View: make pane/dock narrower | Ctrl+Alt+← |
 | View: make pane/dock wider | Ctrl+Alt+→ |
 | View: make panel/pane shorter | Ctrl+Alt+↓ |
 | View: make panel/pane taller | Ctrl+Alt+↑ |
+| View: panel in a pane | problems, output, the panel's terminals and the debugger in a pane at the right |
 | View: panes: grid of four |  |
 | View: panes: one large and three |  |
 | View: panes: three columns |  |
 | View: panes: two columns |  |
 | View: reset split and dock sizes |  |
+| View: save this layout as… | the panes, their files and tabs, the side views: kept for the project |
 | View: set ruler columns… |  |
 | View: show file in other pane |  |
 | View: split editor down |  |
@@ -580,6 +598,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | View: swap with the pane below |  |
 | View: swap with the pane to the left |  |
 | View: swap with the pane to the right |  |
+| View: terminal in a pane | a shell of its own in a pane at the right, a tab among the files |
 | View: this pane alone (zoom) |  |
 | View: toggle rulers |  |
 | View: turn the split (side by side ↔ one above the other) |  |

@@ -38,7 +38,7 @@ proc initCommands() =
   add("Format selection (ned's own for Nim and C, or the language server)", "Alt+F with lines selected", buf().formatSelection())
   add("Format: the code in this string", "JSON, CSS, C in an emit …", cmdFormatEmbedded())
   add("Format: preview the change", "side by side, then apply it or not", cmdFormatPreview())
-  add("Format: only the lines I changed", "since git last saw the file", (block:
+  add("Format: only the lines I changed", "since git last saw the file, or since you opened it", (block:
     let b = buf()
     if b.canEdit():
       let saved = cfgFormatScope
@@ -86,6 +86,10 @@ proc initCommands() =
   add("Nim: change signature…", "", cmdChangeSignature())
   add("Nim: inline this proc", "", cmdInlineProc())
   add("Nim: move to another module…", "", cmdMoveToModule())
+  add("Refactor: object ⇄ ref object", "", cmdRefObject())
+  add("Refactor: split the selected declarations into a new module…", "", cmdSplitModule())
+  add("Refactor: callback → async", "", cmdCallbackToAsync())
+  add("Refactor: switch call syntax — f(x, y) · x.f(y) · f x, y", "", cmdSwitchCallSyntax())
   add("Nim: toggle reference counts", "", toggleSetting("nim.referenceCounts", "Reference counts"))
   add("Macro: start or stop recording", "Alt+Shift+R", macroToggle())
   add("Macro: play the last one", "Alt+Shift+M", macroPlay(macroLast))
@@ -231,8 +235,11 @@ proc initCommands() =
     helpOpen = true
     helpScroll = 0))
   # ── Nim ───────────────────────────────────────────────────────────────
-  add("Nim: expand macro/template at cursor", "Alt+M", cmdExpandMacro())
+  add("Nim: expand macro/template at cursor", "Alt+M", cmdMacroView())
+  add("Nim: expand macro/template in a tab", "", cmdExpandMacro())
   add("Nim: expand macro one level", "", cmdExpandMacro("1"))
+  add("Nim: hide every macro expansion", "", mvHideAll())
+  add("Nim: why? (where an exception or a side effect comes from)", "", cmdWhy())
   add("Nim: ARC/ORC view of current proc (expandArc)", "", cmdExpandArc())
   add("Nim: show where ARC/ORC copies (⧉copy)", "", (block:
     if not cfgShowCopies:
@@ -548,6 +555,7 @@ proc initCommands() =
   add("Open folder…", "", cmdOpenFolder())
   add("Theme: import a VS Code or base16 theme…", "", askPath("Theme file (.json, .yaml)", getHomeDir() & "/",
                                                             proc(t: string) = importTheme(t)))
+  add("Theme: import a Zed or Helix theme…", "", cmdImportZedHelixTheme())
   add("Theme: make my own copy of this theme", "", cmdEditThemeColours())
   add("Theme: edit colours (contrast checked)…", "", cmdThemeEditor())
   add("Theme: reload theme files", "", reloadThemes())
@@ -782,6 +790,11 @@ proc initCommands() =
     var t = ""
     for x in Tips: t.add "• " & x & "\n"
     discard openScratch("tips", t, langByName("Markdown"))))
+  add("Nim: tour (lessons in the notebook)", "Help › Nim tour: Nim from echo to calling C, cell by cell", cmdNimTour())
+  add("Nim: tour — next lesson", "", cmdNimTourNext())
+  add("Nim: tour — previous lesson", "", cmdNimTourPrev())
+  add("Nim: tour — all the lessons…", "a ✓ beside each one done", cmdNimTourIndex())
+  add("Nim: tour — reset this lesson", "your copy as it was (Ctrl+Z brings yours back)", cmdNimTourReset())
   add("Check setup", "", cmdCheckSetup())
   add("Performance report", "frame time, what the terminal is sent, background work, memory", cmdPerfReport())
   add("Redraw the screen", "everything sent to the terminal again (if it shows something out of place)", (block:

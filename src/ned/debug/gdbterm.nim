@@ -32,7 +32,9 @@ proc cmdDebugGdb() =
     error("gdb is not installed (Termux: pkg install gdb)")
     return
   discard saveAll()
-  let dbg = if haveExe("gdb"): "gdb -q" else: "lldb"
+  # (gdb with Nim's pretty printers: strings, seqs and tables as their items)
+  let py = if haveExe("gdb"): nimGdbScript() else: ""
+  let dbg = if haveExe("gdb"): "gdb -q" & (if py.len > 0: " -ex " & quoteShell("source " & py) else: "") else: "lldb"
   let outp = privDir() / ("ned_debug_" & splitFile(b.path).name) & ExeDot
   let cmd = "nim c --debugger:native --opt:none --gcc.options.debug:-g3 --clang.options.debug:-g3 --hints:off " & (if cfgNimFlags.len > 0: cfgNimFlags & " " else: "") &
             "-o:" & quoteShell(outp) & " " & quoteShell(b.path) & " && " & dbg & " " & quoteShell(outp) & "\r"
@@ -41,7 +43,7 @@ proc cmdDebugGdb() =
   let t = shellTermObj()
   if t != nil:
     if t.gotOutput: t.termWrite(cmd) else: t.pending = cmd
-  info("Building with --debugger:native and starting " & dbg.firstWord & " in the terminal")
+  info("Building with --debugger:native and starting " & (if haveExe("gdb"): "gdb" else: "lldb") & " in the terminal")
 
 proc restoreBreakpoints() =
   ## the folder's breakpoints (and their conditions), kept with its session

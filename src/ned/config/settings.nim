@@ -88,6 +88,19 @@ proc initSettingDefs() =
        "The touch bar's keys, in order: esc tab indent unindent enter left right up down home end pgup pgdn undo redo save find " &
        "palette copy cut paste, a key like \"ctrl+p\" or \"alt+r\", or \"Label=command\" for any palette command " &
        "(e.g. \"Run=Run file\")")
+  defS("Appearance", "ui.batterySaver", %"auto",
+       "Save the battery: no cursor glide, the compiler's check on save rather than while you type, no AI " &
+       "completion as you type, and ned wakes up less often when you are not typing — auto = while the device " &
+       "runs on its battery (as the system says; a tap on the leaf in the status bar turns it on or off)",
+       @["auto", "on", "off"])
+  defS("Appearance", "ui.bigTargets", %"auto",
+       "Lists (Open file, the palette, Telescope …) with rows twice as tall, easier to tap: auto = while the touch " &
+       "bar is shown", @["auto", "on", "off"])
+  defS("Appearance", "ui.touchBarLanguageKeys",
+       %*{"nim": ["▶=Run current file", "✓=Nim: check project", "μ=Nim: expand macro/template at cursor",
+                  "?=Nim: why? (where an exception or a side effect comes from)", "⚡=Quick fix / code actions…"]},
+       "More touch bar keys while you edit a file of a language, after the others: by language id (nim, python, c …), " &
+       "each as in ui.touchBarKeys")
   defS("Appearance", "ui.terminalScroll", %true, "When the text moves up or down, let the terminal move the lines " &
        "it shows and send only the new ones (much less to draw: smoother on Termux and over SSH). Turn it off if a " &
        "terminal draws scrolled text in the wrong place")
@@ -203,6 +216,9 @@ proc initSettingDefs() =
   defS("Editor", "editor.continueComments", %true,
        "Enter in a doc comment starts the next line with it: ## (Nim), /// and //! (C, C++, Rust …), * in /** … */")
   defS("Editor", "editor.autoClosePairs", %true, "Type the closing bracket/quote automatically")
+  defS("Editor", "editor.autoDedent", %true, "Nim: a closing bracket typed alone on its line goes back to the " &
+       "indentation of the line that opened it; of, elif, else, except and finally typed at the start of a line go " &
+       "back to the column of their case, if/when or try")
   defS("Editor", "editor.autoComplete", %true, "Show completions while typing (Ctrl+Space always works)")
   defS("Editor", "editor.completionDocs", %true,
        "Documentation of the selected completion beside the list (Ctrl+Space toggles it while the list is open)")
@@ -225,7 +241,8 @@ proc initSettingDefs() =
        "changed) and keep the first row in view")
   defS("Editor", "editor.formatOnSaveScope", %"file",
        "With editor.formatOnSave: the whole file, or only the lines you changed since git last saw it (staged or " &
-       "committed) — an old file you touch does not turn into one big diff", @["file", "changed"])
+       "committed) — in a file git does not have, since you opened it; black, ruff and clang-format are given those " &
+       "lines — an old file you touch does not turn into one big diff", @["file", "changed"])
   defS("Editor", "editor.formatOnSaveLanguages", newJArray(), "With editor.formatOnSave: only these languages, " &
        "e.g. [\"nim\", \"json\"] (their ids: nim, json, markdown, css, python …); empty: every language that has a formatter")
   defS("Editor", "editor.persistentUndo", %true,
@@ -417,6 +434,10 @@ proc initSettingDefs() =
        "per line, as black and ruff keep it (off: joined when it fits, as nph does)")
   defS("Nim", "nim.format.normalizeNumbers", %false, "Built-in formatter: number literals written one way — " &
        "0x, 0b, 0o in lower case, hexadecimal digits in upper case (0xFF), e for an exponent (1e10), as ruff does")
+  defS("Nim", "nim.format.embedded", %true, "Built-in formatter: the SQL, HTML and JSON in triple-quoted strings " &
+       "formatted too (ned's own formatters, at the string's indentation) — the strings ned colours as that language: " &
+       "sql\"\"\"…\"\"\", #[sql]#, parseJson(\"\"\"…\"\"\"), a database's exec/getRow…, nim.embeddedLanguages, or " &
+       "text that starts with SELECT … or an HTML tag. Off: strings stay exactly as written")
   defS("Nim", "nim.format.docCode", %false, "Built-in formatter: the Nim code in doc comments formatted too — " &
        "```nim fences and .. code-block:: nim blocks in ## comments (ruff's docstring-code-format)")
   defS("Nim", "nim.format.reflowDocComments", %false, "Built-in formatter: a ## doc comment paragraph with a line " &
@@ -607,6 +628,10 @@ proc initSettingDefs() =
   defS("AI", "ai.price", newJObject(), "Dollars per million tokens, to show what a chat costs: " &
        "{\"input\": 3, \"output\": 15, \"cacheRead\": 0.3} — empty shows tokens only")
   defS("AI", "ai.warnTokens", %60000, "Ask before sending a request bigger than this many tokens (0 = never ask)")
+  defS("AI", "ai.redactSecrets", %true, "Keep secrets from the AI provider: API keys, tokens, private keys and " &
+       "passwords in what is sent (the file, the chat, the agent's reads, inline suggestions) are replaced with " &
+       "placeholders such as [REDACTED:api-key#1] — put back where the assistant writes one into a file — and files " &
+       "of secrets (.env, *.pem, id_ed25519, what the project's .gitignore keeps out for secrets) are not sent at all")
   defS("AI", "ai.nimContext", %true, "Nim files: send the definitions of the procs and types your code uses, " &
        "found by the built-in engine, so answers know them")
   # ── Languages ──
@@ -646,6 +671,10 @@ proc initSettingDefs() =
        "Plugins: update… brings it. Plugins: check for updates asks now")
   defS("Plugins", "plugins.pinned", newJObject(), "Plugins kept at the version they are at — updates leave them " &
        "alone: {\"notes\": \"1.2.0\"} (a plugin's menu in the Plugins dock: Pin at …)")
+  defS("Plugins", "plugins.sandbox", %true, "Linux: run plugins in a sandbox (Landlock) — they read the project " &
+       "and what they need to run, and change files only in their data folder and the project, with no network, " &
+       "unless you allowed them more; a plugin you allowed to run programs itself runs as before (needs Linux 5.13 or " &
+       "newer: elsewhere plugins run as before)")
   defS("Plugins", "plugins.timeoutMs", %1500, "How long ned waits for a plugin that must answer before it goes on " &
        "(an event before saving, a NimScript formatter, a vim text object)")
   defS("Plugins", "plugins", newJObject(), "Each plugin's own settings: {\"zig-lite\": {\"width\": 80}} — or " &
@@ -1019,6 +1048,7 @@ proc applySettings() =
   cfgHighlightOcc = sBool("editor.highlightOccurrences")
   cfgContinueComments = sBool("editor.continueComments")
   cfgAutoPairs = sBool("editor.autoClosePairs")
+  cfgAutoDedent = sBool("editor.autoDedent")
   cfgAutoComplete = sBool("editor.autoComplete")
   cfgSnippets = sBool("editor.snippets")
   cfgAutoHover = sBool("editor.autoHover")
@@ -1148,6 +1178,7 @@ proc applySettings() =
   FmtMagicComma = sBool("nim.format.magicTrailingComma")
   FmtNumbers = sBool("nim.format.normalizeNumbers")
   FmtDocCode = sBool("nim.format.docCode")
+  FmtEmbedded = sBool("nim.format.embedded")
   FmtReflow = sBool("nim.format.reflowDocComments")
   FmtReflowPlain = sBool("nim.format.reflowComments")
   FmtBlank = clamp(sInt("nim.format.maxBlankLines"), 1, 3)
@@ -1253,6 +1284,8 @@ proc codeTrusted(dir: string): bool =
   let d = trustKey(dir)
   let own = trustKey(configDir())                  # (your own settings folder: your plugins run from it)
   if d == own or d.startsWith(own & "/"): return true
+  let tour = trustKey(parentDir(stateFile()) / "tour")   # (the Nim tour's lessons: ned's own, your copies of them)
+  if d == tour or d.startsWith(tour & "/"): return true
   let lib = nimLibDir()
   if lib.len > 0:
     let k = trustKey(lib)

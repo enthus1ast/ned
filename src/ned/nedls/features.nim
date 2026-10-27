@@ -504,63 +504,7 @@ proc lsDocumentSymbol(params: JsonNode): JsonNode =
     if s.kind == nxType: typeAt[s.name] = result.len - 1
   for t in tasks: result.add t
 
-proc lxWorkspaceHits(q: string, t0: MonoTime): seq[(int, JsonNode)]
-
-proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
-  ## the project's declarations whose names fit the query (as ned's Go to symbol in project matches them)
-  result = newJArray()
-  lsEnsureFiles()
-  let q = params{"query"}.getStr.strip.toLowerAscii
-  var hits: seq[(int, string, NxSym)]
-  var hl: seq[int]
-  let t0 = getMonoTime()
-  var paths: seq[string]
-  var seen: HashSet[string]
-  for u, d in lsDocs:
-    if d.b.path.len > 0 and d.b.lang.mode == lmNim and d.b.path notin seen:
-      seen.incl d.b.path
-      paths.add d.b.path
-  for rel in projectFiles():
-    if not (rel.endsWith(".nim") or rel.endsWith(".nims") or rel.endsWith(".nimble")): continue
-    let p = if rel.isAbsolute: rel else: rootDir / rel
-    if p notin seen:
-      seen.incl p
-      paths.add p
-  for path in paths:
-    if msSince(t0) > 2500: break
-    var f: NxFile
-    try: f = nxLoad(path)
-    except Exception: continue
-    if f == nil: continue
-    for s in f.syms:
-      if s.kind == nxModule or s.local or s.name.len == 0: continue
-      var score = 0
-      if q.len > 0:
-        score = fuzzyMatch(q, s.name, hl)
-        if score == low(int): continue
-      hits.add (score, path, s)
-    if nxIsScript(path):
-      # (a NimScript file's tasks: `task build, "…":`)
-      let d = lsDocByPath(path)
-      let ls = if d != nil: d.b.lines else: (try: readFile(path).split('\n') except CatchableError: @[])
-      for t in nxScriptTasks(ls):
-        var score = 0
-        if q.len > 0:
-          score = fuzzyMatch(q, t.name, hl)
-          if score == low(int): continue
-        hits.add (score, path, NxSym(name: "task " & t.name, kind: nxProc, line: t.line, col: t.col))
-  hits.sort(proc(a, b: (int, string, NxSym)): int = cmp(b[0], a[0]))
-  var all: seq[(int, JsonNode)]
-  for k in 0 ..< min(hits.len, 500):
-    let (score, path, s) = hits[k]
-    var j = %*{"name": s.name, "kind": lsSymbolKind(s), "location": lsLocation(path, s.line, s.col)}
-    if s.owner.len > 0 and s.kind in {nxField, nxEnumVal}: j["containerName"] = %s.owner
-    else: j["containerName"] = %nxModuleName(path)
-    all.add (score, j)
-  # (and the project's C, C++, JavaScript and JSON files: their outlines, as ned's Go to symbol has them)
-  all.add lxWorkspaceHits(q, t0)
-  all.sort(proc(a, b: (int, JsonNode)): int = cmp(b[0], a[0]))
-  for k in 0 ..< min(all.len, 500): result.add all[k][1]
+# (workspace/symbol: nedls/symbols.nim)
 
 # ── semantic tokens: ned's colours ──
 
@@ -582,10 +526,10 @@ func lsTokOf(k: TokKind): (int, int) =
   of tkGlobal: (3, 2 or 4)
   else: (-1, 0)
 
-proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): string =
-  ## the data array of semanticTokens for lines lo..hi, as JSON text
+proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): seq[int32] =
+  ## the data array of semanticTokens for lines lo..hi (five numbers a token, each relative to the one before)
   let b = d.b
-  if not lsEngineOn(d) or b.lines.len == 0: return "{\"data\":[]}"
+  if not lsEngineOn(d) or b.lines.len == 0: return
   let lo = clamp(lo0, 0, b.lines.high)
   let hi = clamp(hi0, lo, b.lines.high)
   let t0 = getMonoTime()
@@ -604,9 +548,6 @@ proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): string =
   let t1 = getMonoTime()
   b.ensureHl(hi + 1)
   var lexT, semT: Duration
-  var o = newStringOfCap(4096)
-  o.add "{\"data\":["
-  var first = true
   var pl = 0
   var pc = 0
   var toks: seq[TokKind]
@@ -655,18 +596,81 @@ proc lsSemanticTokens(d: LsDoc, lo0, hi0: int): string =
           let ln = if ascii: j - i else: lsChar(s, j) - sc
           let dl = l - pl
           let dc = if dl == 0: sc - pc else: sc
-          if not first: o.add ','
-          first = false
-          o.add $dl & "," & $dc & "," & $ln & "," & $t & "," & $mods
+          result.add [dl.int32, dc.int32, ln.int32, t.int32, mods.int32]
           pl = l
           pc = sc
         i = j
       else: inc i
-  o.add "]}"
   if lsVerbose:
     lsLog("semanticTokens: map+scope " & $(t1 - t0).inMilliseconds & " ms, lexer " & $lexT.inMilliseconds &
           " ms, colours " & $semT.inMilliseconds & " ms, all " & $(getMonoTime() - t0).inMilliseconds & " ms")
-  o
+
+# ── semantic tokens as LSP sends them: the whole document with a result id, or the edits since the last one ──
+
+var
+  lsSemLast: Table[string, (string, seq[int32])]   # uri → (result id, data) of the last whole answer sent
+  lsSemGen = 0
+
+proc lxSemData(d: LsDoc, lo, hi: int, data: var seq[int32]): bool
+
+proc lsSemData(d: LsDoc, lo, hi: int): seq[int32] =
+  ## a document's tokens for lines lo..hi: ned's engine for its language
+  if not lxSemData(d, lo, hi, result): result = lsSemanticTokens(d, lo, hi)
+
+proc lsTokText(data: openArray[int32], resultId = ""): string =
+  ## SemanticTokens as JSON text (a big array is written without a JsonNode per number)
+  result = newStringOfCap(data.len * 3 + 40)
+  result.add '{'
+  if resultId.len > 0: result.add "\"resultId\":" & escapeJson(resultId) & ","
+  result.add "\"data\":["
+  for i, x in data:
+    if i > 0: result.add ','
+    result.addInt x.int
+  result.add "]}"
+
+proc lsSemFull(d: LsDoc): string =
+  ## textDocument/semanticTokens/full: the whole document, kept (with its id) for the next delta
+  let data = lsSemData(d, 0, d.b.lines.high)
+  inc lsSemGen
+  let rid = $lsSemGen
+  result = lsTokText(data, rid)
+  lsSemLast[d.uri] = (rid, data)
+
+proc lsSemDelta(d: LsDoc, params: JsonNode): string =
+  ## textDocument/semanticTokens/full/delta: what changed since the answer the client names (previousResultId) —
+  ## the run of numbers between the part at the start and the part at the end that stayed the same, as one edit;
+  ## the whole document again when that answer is not the last one sent
+  let data = lsSemData(d, 0, d.b.lines.high)
+  let (prevId, old) = lsSemLast.getOrDefault(d.uri)
+  inc lsSemGen
+  let rid = $lsSemGen
+  if prevId.len == 0 or prevId != params{"previousResultId"}.getStr:
+    result = lsTokText(data, rid)
+  else:
+    var a = 0
+    while a < old.len and a < data.len and old[a] == data[a]: inc a
+    a -= a mod 5                                   # (whole tokens: a client may apply the edit token by token)
+    var e = 0
+    while e < old.len - a and e < data.len - a and old[old.len - 1 - e] == data[data.len - 1 - e]: inc e
+    e -= e mod 5
+    result = "{\"resultId\":" & escapeJson(rid) & ",\"edits\":["
+    if a < old.len or a < data.len:
+      if old.len - a - e > 0 or data.len - a - e > 0:
+        result.add "{\"start\":" & $a & ",\"deleteCount\":" & $(old.len - a - e) & ","
+        if data.len - e > a: result.add lsTokText(data.toOpenArray(a, data.len - e - 1))[1 .. ^2]   # ("data":[…])
+        else: result.add "\"data\":[]"
+        result.add '}'
+    result.add "]}"
+  lsSemLast[d.uri] = (rid, data)
+
+proc lsSemRange(d: LsDoc, params: JsonNode): string =
+  ## textDocument/semanticTokens/range: the lines the client shows (no id: a range is never the base of a delta)
+  let r = params{"range"}
+  lsTokText(lsSemData(d, lsToPos(d.b, r{"start"}).line, lsToPos(d.b, r{"end"}).line))
+
+proc lsSemForget(uri: string) =
+  ## a document closed: the tokens kept for its next delta go
+  lsSemLast.del uri
 
 # ── inlay hints ──
 
