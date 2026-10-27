@@ -30,6 +30,11 @@ proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
   var todoLines: Table[int, Rgb]
   if cfgTodoHl and todoTags.len > 0:
     for it in todoForBuf(b): todoLines[it.line] = todoColor(min(it.tag, todoTags.high), bg)
+  # (6.32) what the find box finds, at the right edge; git's changes at the left
+  var findQ = ""
+  if promptKind in {pFind, pReplaceFind, pVimSearch} or replaceActive:
+    findQ = if replaceActive: replaceQuery else: promptText
+  let gitOn = cfgGitGutter and b.git.len > 0
   for row in 0 ..< h:
     let l0 = start + row * 4
     if l0 >= total: break
@@ -57,6 +62,25 @@ proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
             bits = bits or (if dx == 0: [0x01, 0x02, 0x04, 0x40][dy] else: [0x08, 0x10, 0x20, 0x80][dy])
       setCell(x0 + cx, y0 + row, Cell(ch: uint32(0x2800 + bits), fg: (if hasErr: theme.err elif tagCol != NoColor: tagCol
                                                                       else: theme.minimap), bg: rbg))
+    if gitOn:
+      var g = 0
+      for dy in 0 .. 3:
+        let l = l0 + dy
+        if l < b.git.len and b.git[l] > 0 and (g == 0 or b.git[l] == 3): g = int(b.git[l])
+      if g > 0:
+        setCell(x0, y0 + row, Cell(ch: (if g == 3: 0x2581'u32 else: 0x258E'u32),
+                                   fg: (case g
+                                        of 1: theme.gitAdd
+                                        of 2: theme.gitMod
+                                        else: theme.gitDel), bg: rbg))
+    if findQ.len > 0 and w >= 3:
+      var hit = false
+      for dy in 0 .. 3:
+        let l = l0 + dy
+        if l < total and findSpans(b.lines[l], findQ, findCase, findWord, findRegex).len > 0:
+          hit = true
+          break
+      if hit: setCell(x0 + w - 1, y0 + row, Cell(ch: 0x2590'u32, fg: theme.matchCur, bg: rbg))
   mmRect = (x0, y0, w, h)
   mmFirst = mmStart
   region(x0, y0, w, h, proc() =

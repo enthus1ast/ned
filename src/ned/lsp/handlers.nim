@@ -35,6 +35,7 @@ proc showHoverAuto(text: string, auto: bool) =
   hoverScroll = 0
   hoverOpen = true
   hoverIsAuto = auto
+  hoverForBuf = buf().id
   needRender = true
 
 proc showHover(text: string) = showHoverAuto(text, false)

@@ -202,10 +202,23 @@ proc lsApplyChange(d: LsDoc, ch: JsonNode) =
     b.lang = keepLang
     lsMarkChanged(d, Pos())
     return
+  # (a position past the last line is the end of the text, after its last line end — which ned keeps implied, not
+  # as an empty line: for the edit it is made one, and taken away again when the text still ends with a line end;
+  # else `X` typed there would join the last line instead of starting a new one)
+  let past = not b.noEol and (r{"start"}{"line"}.getInt(0) > b.lines.high or r{"end"}{"line"}.getInt(0) > b.lines.high)
+  if past:
+    let l = b.lines.high
+    discard b.rawReplace(Pos(line: l, col: b.lines[l].len), Pos(line: l, col: b.lines[l].len), "\n")
   var a = lsToPos(b, r{"start"})
   var c = lsToPos(b, r{"end"})
   if c < a: swap(a, c)
-  let e = b.rawReplace(a, c, text)
+  var e = b.rawReplace(a, c, text)
+  if past:
+    let l = b.lines.high
+    if l > 0 and b.lines[l].len == 0:
+      discard b.rawReplace(Pos(line: l - 1, col: b.lines[l - 1].len), Pos(line: l, col: 0), "")
+      if e.line > b.lines.high: e = Pos(line: b.lines.high, col: b.lines[^1].len)
+    else: b.noEol = true                 # (text after the last line end, and no line end after it)
   b.normalize()
   lsMarkChanged(d, e)
 

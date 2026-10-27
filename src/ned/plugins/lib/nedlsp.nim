@@ -26,6 +26,9 @@
 ## `ned --lsp-bridge server.nims` and a few messages typed in, or from another editor (Helix, Neovim …): its
 ## language client runs `ned` with the arguments `--lsp-bridge /path/to/server.nims`.
 
+# (Part of ned — GPL-3.0-or-later, with the ned Plugin Exception, PLUGIN-EXCEPTION.md: a plugin that imports
+# this may be conveyed under terms of your choice.)
+
 import std/[json, tables, strutils]
 export json, strutils, tables
 

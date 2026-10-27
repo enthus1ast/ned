@@ -557,6 +557,9 @@ proc wkHandle(line: string) =
   of "dump":
     nxDumpApply(j{"proj"}.getStr, j{"out"}.getStr)
     nxDumped.incl j{"proj"}.getStr
+  of "packages":
+    nxApplyToolchain()                   # (packages installed or removed: read again, what was resolved forgotten)
+    ecLast.clear()
   of "doc":
     var b = wkDoc(id)
     if b == nil:

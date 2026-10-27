@@ -2,6 +2,11 @@
 #  Editing commands (all multi-cursor aware)
 # ════════════════════════════════════════════════════════════════════════════
 
+import autoindent
+
+var cfgAutoDedent* = true   # editor.autoDedent: in Nim, a closer typed alone and `of`/`elif`/`else`/`except`/`finally`
+                            # typed at a line's start go back to the column of what they close or belong to
+
 func pairClose(pairs: string, ch: char): char =
   var i = 0
   while i + 1 < pairs.len:
@@ -90,9 +95,38 @@ proc typeChar(b: Buffer, ch: string) =
         discard b.replaceText(Pos(line: a.line, col: 0), a, newWs)
         a = Pos(line: a.line, col: newWs.len)
         e = a
+    # Nim: a closing bracket typed alone on its line goes back to the indentation of the line that opened it
+    # (editor.autoDedent)
+    elif cfgAutoDedent and lang.mode == lmNim and ch.len == 1 and c0 in {')', ']', '}'} and not cu.hasSel:
+      let before = b.lines[a.line][0 ..< a.col]
+      if before.len > 0 and isBlank(before):
+        let t = aiCloserLine(b.lines, a.line, c0)
+        if t >= 0:
+          let newWs = leadingWs(b.lines[t])
+          if newWs.len < before.len:
+            discard b.replaceText(Pos(line: a.line, col: 0), a, newWs)
+            a = Pos(line: a.line, col: newWs.len)
+            e = a
     let p0 = a
     discard b.replaceText(a, e, ins)
     b.cursors[i] = cur(Pos(line: p0.line, col: p0.col + caret))
+    # Nim: a branch word typed at the start of a line — `of ` `elif ` `else:` `except` `finally:` — goes back to the
+    # column of its `case`, `if`/`when` or `try` (editor.autoDedent)
+    if cfgAutoDedent and lang.mode == lmNim and ch.len == 1 and c0 in {' ', ':'} and not cu.hasSel:
+      let ln = p0.line
+      let s = b.lines[ln]
+      let cc = p0.col + caret
+      let before = s[0 ..< p0.col]
+      let w = before.strip
+      let ind = aiLeading(before)
+      if ind > 0 and ind + w.len == before.len and cc <= s.len and isBlank(s[cc .. ^1]) and
+         ((c0 == ' ' and w in ["of", "elif", "except"]) or (c0 == ':' and w in ["else", "except", "finally"])):
+        let t = aiBranchLine(b.lines, ln, w)
+        if t >= 0:
+          let newWs = leadingWs(b.lines[t])
+          if newWs.len < ind:
+            discard b.replaceText(Pos(line: ln, col: 0), Pos(line: ln, col: ind), newWs)
+            b.cursors[i] = cur(Pos(line: ln, col: cc - ind + newWs.len))
     # a line that has become one of the language's dedent words alone (`end`): one level out, when it is as far in
     # as the line above (typed again, it stays)
     if lang.dedentWords.len > 0 and ch.len == 1 and isWordByte(c0) and not cu.hasSel:

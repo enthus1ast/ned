@@ -12,7 +12,17 @@ proc drawTouchBar() =
   if y < 0: return
   fillRect(0, y, scrW, 1, theme.fg, theme.tabBarBg)
   var keys: seq[(string, Key, string)]        # label, key — or a palette command
-  for spec in cfgTouchKeys:
+  var specs = cfgTouchKeys
+  # (6.32) the language's own keys, while you edit one of its files: Nim's tools in a Nim file
+  let b = buf()
+  var langN = 0
+  if focus == fEditor and b.lang != nil and not b.isWelcome():
+    let lk = sval("ui.touchBarLanguageKeys")
+    if lk != nil and lk.kind == JObject:
+      for x in jitems(lk{b.lang.id}):
+        specs.add x.getStr
+        inc langN
+  for spec in specs:
     let n = spec.strip
     let ctl = proc(c: char): Key = Key(kind: kChar, ch: ord(c), mods: {mCtrl})
     case n.toLowerAscii
@@ -46,6 +56,15 @@ proc drawTouchBar() =
         keys.add (n, Key(kind: kChar, ch: ord(low[4]), mods: {mAlt}), "")
       elif n.len > 0: keys.add (n, Key(kind: kNone), n)            # a palette command by its name
   if keys.len == 0: return
+  # (too many for the row: the language's keys stay, with Esc, Tab and the arrows — the other usual ones go, the
+  # last first)
+  let langFrom = max(0, keys.len - langN)
+  proc rowW(ks: seq[(string, Key, string)]): int =
+    for (l, _, _) in ks: result += strWidth(l) + 3
+  var drop = langFrom - 1
+  while rowW(keys) > scrW and drop >= 0 and langN > 0:
+    if keys[drop][0] notin ["Esc", "Tab", "←", "→", "↑", "↓"]: keys.delete(drop)
+    dec drop
   var labW = 0
   for (l, _, _) in keys: labW += strWidth(l)
   # spread the keys over the whole row: wide targets for fingers
@@ -249,6 +268,9 @@ proc drawStatusBar() =
     if nm.len > 0: right.add (nm.join("·"), theme.accent, Action(proc() = openMenuBar(4)), "Build settings")
   # Telescope, the Markdown preview (a Markdown file, or its preview), the assistant: a tap each
   right.add (ic("telescope"), theme.dim, Action(proc() = telescope()), "Telescope: every finder (Alt+Shift+F)")
+  if batterySave:
+    right.add (ic("battery"), theme.gitAdd, Action(proc() = batteryToggle()),
+               "Battery saver: on — a tap turns it off (ui.batterySaver)")
   if (b.lang.mode == lmMarkdown and b.path.len > 0) or (b.mdSrc != 0 and not b.mdNimDocs):
     var shown = b.mdSrc != 0
     for pb in bufs:

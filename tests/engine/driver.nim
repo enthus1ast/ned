@@ -115,7 +115,8 @@ when isMainModule:
         if f != nil:
           for (a, e) in nxInactiveWhen(f, ls): arr.add %*[a, e]
           for s in f.syms:
-            if s.kind in NxRoutineKinds and s.endLine > s.line and (s.kind == nxTemplate or s.generics.len > 0):
+            # (generic: with brackets, or a parameter of a type class — SomeNumber, static[T], ref object)
+            if s.kind in NxRoutineKinds and s.endLine > s.line and (s.kind == nxTemplate or nxIsGenericRoutine(s)):
               arr.add %*[s.line + 1, s.endLine]
           var k = 0
           while k < ls.len:
@@ -125,6 +126,19 @@ when isMainModule:
               var e = k + 1
               while e < ls.len and (ls[e].strip.len == 0 or ls[e].len - ls[e].strip(trailing = false).len > ind): inc e
               arr.add %*[k, e - 1]
+              k = e
+            else: inc k
+          # (and the code `quote do:` makes, for where the macro is used: its names are not resolved here)
+          k = 0
+          while k < ls.len:
+            let t = ls[k].strip
+            let q = t.find("quote")
+            if q >= 0 and (q == 0 or not nxIsIdent(t[q - 1])) and t.endsWith(":") and
+               ("quote do:" in t or "quote:" in t or ") do:" in t[q .. ^1]):
+              let ind = ls[k].len - ls[k].strip(trailing = false).len
+              var e = k + 1
+              while e < ls.len and (ls[e].strip.len == 0 or ls[e].len - ls[e].strip(trailing = false).len > ind): inc e
+              arr.add %*[k + 1, e - 1]
               k = e
             else: inc k
         ans["hidden"] = arr

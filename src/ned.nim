@@ -37,7 +37,7 @@ from std/math import pow, round
 # the parts that stand on their own (modules: compiled separately, in parallel)
 import ned/core/images, ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
        ned/nim/arccopies, ned/c/cindex, ned/c/cnim, ned/nim/nifread, ned/version, ned/testing/gcovdata, ned/editor/binfmt, ned/web/web, ned/core/encodings,
-       ned/editor/asmview
+       ned/editor/asmview, ned/core/secrets, ned/sys/landlock, ned/app/releasecheck
 
 const
   Version = NedVersion
@@ -146,6 +146,7 @@ include ned/editor/navigation
 include ned/editor/search
 include ned/editor/projectreplace
 include ned/ui/actions
+include ned/nim/why
 include ned/editor/undotree
 include ned/format/folder
 include ned/nim/commands
@@ -158,11 +159,13 @@ include ned/ui/prompts
 include ned/nim/toolchain
 include ned/nim/projectchecks
 include ned/ui/themefiles
+include ned/core/themeimport
 include ned/config/sync
 include ned/ui/promptkeys
 include ned/ui/render
 include ned/ui/icons
 include ned/ui/regions
+include ned/nim/macroview
 include ned/ui/dialogs
 include ned/ui/menus
 include ned/ui/fields
@@ -219,6 +222,7 @@ include ned/ui/editorview
 include ned/ui/popups
 include ned/ui/zen
 include ned/ui/split
+include ned/ui/paneviews
 include ned/ui/contextmenus
 include ned/editor/decompile
 include ned/editor/cexplorer
@@ -279,6 +283,7 @@ include ned/nim/refactor/core
 include ned/nim/refactor/signature
 include ned/nim/refactor/inline
 include ned/nim/refactor/move
+include ned/nim/refactor/reshape
 include ned/nim/rewrites
 include ned/nim/quickfixes
 include ned/testing/coverage
@@ -291,6 +296,7 @@ include ned/nim/nimbletree
 include ned/editor/csv
 include ned/term/repl
 include ned/editor/notebook
+include ned/editor/tour
 include ned/git/conflicts
 include ned/ai/review
 include ned/ui/compare
@@ -328,6 +334,7 @@ include ned/app/usercommands
 include ned/app/lint
 include ned/web/webui
 include ned/nim/worker
+include ned/nim/pkgwatch
 include ned/plugins/perms
 include ned/plugins/host
 include ned/ui/telescope
@@ -335,4 +342,6 @@ include ned/app/commandlist
 include ned/app/control
 include ned/term/termhost
 include ned/app/update
+include ned/app/battery
+include ned/nim/warmindex
 include ned/app/main

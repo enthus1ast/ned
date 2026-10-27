@@ -106,6 +106,7 @@ type
     hosted: bool             # terminal.keepRunning: the shell is a term host's (see termhost), fd its socket
     hostId: string
     inBuf: string            # … what came from it, not yet a whole message
+    paneId: int              # (6.32) a terminal in a pane of the editor (its tab's), not the panel's: > 0
 
 var
   terms: seq[Term]
@@ -114,6 +115,8 @@ var
   termRect: tuple[x, y, w, h: int]
   termPanes: seq[tuple[idx: int, r: tuple[x, y, w, h: int], gut: int]]   # the terminals on screen (two when split)
   termSplit = false            # two terminals side by side
+  termForPane = -1             # (6.32) a pane's terminal, while keys go to it: curTermObj answers it
+  termPaneCursor = false       # (… while it is drawn, the active pane: its cursor shown)
   termOther = -1               # … the one that is not curTerm
 
 func blankCell(t: Term): TCell = TCell(ch: 32, fg: NoColor, bg: t.bg)

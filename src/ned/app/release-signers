@@ -1,0 +1,10 @@
+# The keys that sign ned's releases. `ned --update` and install.sh check a release's SHA256SUMS.sig against them
+# before they install anything; ned reads this file when it is built. The format is ssh-keygen's allowed_signers:
+#     <name> namespaces="ned-release" <key type> <public key> [comment]
+#
+# >>> PLACEHOLDER — the owner replaces the PLACEHOLDER line below with the release key's public half:
+#       ssh-keygen -t ed25519 -f ~/.ssh/ned-release -C "ned release key"      (once; keep the private key safe)
+#       echo "ned-release namespaces=\"ned-release\" $(cat ~/.ssh/ned-release.pub)"     (the line to put here)
+#     and builds releases with NED_SIGNING_KEY=~/.ssh/ned-release (tests/build/sums.sh then writes SHA256SUMS.sig).
+#     Until a key is here, ned and install.sh check only the SHA-256 of what they download, and say so.
+PLACEHOLDER-RELEASE-KEY

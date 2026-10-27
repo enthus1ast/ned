@@ -13,3 +13,4 @@ ned=$(sed -n 's/^const NedVersion\* = "\(.*\)"/\1/p' "$root/src/ned/version.nim"
 [ "$v" = "$ned" ] || { echo "editors/vscode/package.json's version $v is not ned's ($ned, src/ned/version.nim)"; exit 1; }
 python3 "$here/vsix.py" "$ext" "$out/vscode-nedls-$v.vsix"
 python3 "$root/tests/vscode/test_vsix.py" "$out/vscode-nedls-$v.vsix"
+sh "$here/sums.sh" "$out" "$out/vscode-nedls-$v.vsix"           # (SHA256SUMS; signed with NED_SIGNING_KEY)

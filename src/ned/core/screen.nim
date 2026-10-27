@@ -409,9 +409,10 @@ proc flushScreen() =
     var x = x0
     while x <= x1:
       var c = grid[base + x]
+      if inkScreen: inkCell(c)                                         # (e-ink: black and white, nothing between)
       if cfgTransparentBg and c.bg == theme.bg: c.bg = NoColor       # (the terminal's own background shows)
       # (a run of cells the terminal already shows: stepped over)
-      if not full and not hasWide and sameCell(c, prevGrid[base + x]):
+      if not full and not hasWide and sameCell(grid[base + x], prevGrid[base + x]):
         var e = x + 1
         while e <= x1 and sameCell(grid[base + e], prevGrid[base + e]): inc e
         if e - x >= 5:
@@ -530,6 +531,7 @@ const CaFrameMs = 8                # (120 frames a second at most)
 var
   cfgCursorAnim = "glide"          # ui.cursorAnimation: glide · off
   cfgCursorAnimMs = 100            # ui.cursorAnimationMs: how long a glide lasts
+  batterySave = false              # (6.32) saving the battery (ui.batterySaver): no glide, fewer wake-ups
   caShownX, caShownY = -1          # where the last frame put the cursor
   caOn = false                     # a glide going on
   caFrom, caTo: (float, float)     # (column, row)
@@ -552,7 +554,7 @@ proc caCursorMoved(): bool =
   ## the glide brings it. The frame has just repainted the cells the glide had drawn (they were marked unknown)
   let (nx, ny) = (cursorX, cursorY)
   caCells.setLen(0)
-  if cfgCursorAnim == "off" or nx < 0 or ny < 0 or cfgAccessible or slowTerminal():
+  if cfgCursorAnim == "off" or nx < 0 or ny < 0 or cfgAccessible or slowTerminal() or batterySave:
     caOn = false
   elif nx != caShownX or ny != caShownY:
     let (dx, dy) = (abs(nx - caShownX), abs(ny - caShownY))

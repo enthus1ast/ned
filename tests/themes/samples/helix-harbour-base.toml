@@ -1,0 +1,33 @@
+# A Helix theme that helix-harbour-night.toml inherits (ned's tests: tests/unit/tthemeimport.nim)
+
+"ui.background" = { bg = "bg" }
+"ui.text" = "fg"
+"ui.selection" = { bg = "sel" }
+"ui.statusline" = { fg = "fg", bg = "bar" }
+"ui.cursor.primary" = { fg = "bg", bg = "accent" }
+
+"comment" = { fg = "comment", modifiers = ["italic"] }
+"keyword" = { fg = "purple", modifiers = ["bold"] }
+"string" = "green"
+"type" = "yellow"
+"constant.numeric" = "orange"
+"function" = "blue"
+"operator" = "cyan"
+"error" = { fg = "red", modifiers = ["bold"] }
+"warning" = "yellow"
+"diff.plus" = "green"
+
+[palette]
+bg = "#20242c"
+fg = "#c8ccd4"
+sel = "#3a4250"
+bar = "#181b21"
+accent = "#61afef"
+comment = "#7f8794"
+purple = "#c678dd"
+green = "#98c379"
+yellow = "#e5c07b"
+orange = "#d19a66"
+blue = "#61afef"
+cyan = "#56b6c2"
+red = "#e06c75"

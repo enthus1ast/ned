@@ -34,4 +34,25 @@
 - **Secrets stay put**: API keys and MCP server tokens are never put on a command line; *Settings sync* leaves
   them out of what it exports; a remote folder's ssh password or passphrase is asked by ssh itself, in the
   terminal; a settings repository URL with a token in it is refused.
+- **Secrets kept from the AI**: what ned sends to an AI provider — the file, the chat, what the agent reads, inline
+  suggestions — has its API keys, tokens, private keys and passwords (in `.env` lines, settings, connection strings,
+  URLs) replaced with placeholders such as `[REDACTED:api-key#1]`; where the assistant writes a placeholder into a
+  file, ned puts the secret back. Files of secrets — `.env`, `*.pem`, `id_ed25519`, `credentials.json`, and what the
+  project's `.gitignore` keeps out for its secrets — are not sent at all. `ai.redactSecrets` (on) — see
+  [the AI assistant](ai.md#secrets).
+- **Plugins in a sandbox** (Linux 5.13 and newer): a plugin's process reads the project and what it needs to run,
+  changes files only in its data folder and the project, and has no network, unless you allowed it more — the
+  kernel holds it to that (Landlock), whatever its code does. It cannot read your other files (`~/.ssh`, your
+  settings) or signal ned, and it does not get the environment's secrets. A plugin you allowed to run programs
+  itself runs as before, since those programs could do anything you can; so do all plugins where the kernel has no
+  Landlock (an older Linux, Android, macOS). `plugins.sandbox` turns it off. `ned --sandbox CMD…` runs any command
+  this way: it may change only the current folder (`--write DIR` adds one, `--net` gives it the network;
+  `ned --sandbox --help`).
+- **Checked updates**: `ned --update` and `install.sh` check a release's package before installing it — its SHA-256
+  against the release's `SHA256SUMS`, and `SHA256SUMS` against its signature (`SHA256SUMS.sig`, made with the
+  release key whose public half is in ned's source, `src/ned/app/release-signers`). A package that does not match,
+  or a release without `SHA256SUMS`, is refused and nothing is installed; while releases are not signed yet, only
+  the SHA-256 is checked, and that is said. Checking a signature needs `ssh-keygen` (Termux: `pkg install openssh`).
+  A release you download yourself: `ned --update --verify DIR` checks the files in DIR the same way. (nimble and a
+  checkout built in place get ned from git, over https.)
 - *File › Compare with saved* shows your unsaved changes as a diff.

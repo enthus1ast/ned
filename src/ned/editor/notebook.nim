@@ -81,9 +81,25 @@ proc nbCellCode(b: Buffer, c: (int, int)): string =
 
 # ── the rows under each cell ──
 
+proc nbDropRows(b: Buffer) =
+  ## the cells' rows gone — a macro's expansion shown in the file keeps its own (nim/macroview.nim)
+  var ls: seq[int]
+  for l in b.vrows.keys: ls.add l
+  for l in ls:
+    var keep: seq[VRow]
+    for r in b.vrows[l]:
+      if r.tag != 0: keep.add r
+    if keep.len > 0: b.vrows[l] = keep else: b.vrows.del l
+
+proc nbHasCode(code: string): bool =
+  ## a line that is not blank and not a comment (a cell of only words says nothing when it runs: no output row)
+  for l in code.splitLines:
+    let s = l.strip
+    if s.len > 0 and not s.startsWith("#"): return true
+
 proc nbLayout(b: Buffer) =
   ## each cell's output as rows under its last line of code (a long output: its first lines, and how many more)
-  b.vrows.clear()
+  nbDropRows(b)
   let outs = nbOuts.getOrDefault(b.id)
   if outs.len == 0: return
   let cells = nbCells(b)
@@ -92,6 +108,7 @@ proc nbLayout(b: Buffer) =
     if ci >= outs.len: break
     let o = outs[ci]
     if o.code.len == 0 and not o.running: continue
+    if o.lines.len == 0 and not o.err and not nbHasCode(nbCellCode(b, c)): continue
     var last = c[1]
     while last > c[0] and b.lines[last].strip.len == 0: dec last
     let old = not o.running and o.code != nbCellCode(b, c)
@@ -115,7 +132,7 @@ proc nbLayout(b: Buffer) =
     if o.lines.len > shown:
       rows.add VRow(spans: @[("… " & $(o.lines.len - shown) & " more lines — Notebook: the cell's whole output",
                               theme.dim, {aItalic})], bg: NoColor)
-    b.vrows[last] = rows
+    b.vrows[last] = rows & b.vrows.getOrDefault(last)   # (a macro's expansion under the same line: after it)
 
 proc nbRefresh() =
   ## the rows under the cells laid out again when the text, an output or the width changed
@@ -450,13 +467,24 @@ proc nbRunCompiled(b: Buffer, upto: int) =
 
 # ── the commands ──
 
+proc nbMode(b: Buffer): string =
+  ## how a Nim notebook runs: a line `# notebook: compiled` (or `vm`) above its first cell says it for that file
+  ## (the Nim tour's lessons have it), else the setting notebook.nim
+  for i in 0 .. min(b.lines.high, 40):
+    if replMarker(b.lines[i]): break
+    let s = b.lines[i].strip
+    if s.startsWith("# notebook:"):
+      let m = s["# notebook:".len .. ^1].strip
+      if m in ["compiled", "vm"]: return m
+  sStr("notebook.nim")
+
 proc nbRunCells(b: Buffer, which: seq[int]) =
   if not nbCanRun(b):
     info("Notebook: a Nim or Python file with # %% cells (each starts after a line # %%)")
     return
   let cells = nbCells(b)
   if which.len == 0 or cells.len == 0: return
-  if b.lang.mode == lmNim and sStr("notebook.nim") == "compiled":
+  if b.lang.mode == lmNim and nbMode(b) == "compiled":
     nbRunCompiled(b, which.max)
     return
   var s = nbSessionOf(b)
@@ -508,7 +536,7 @@ proc cmdNbRunAbove() =
 proc cmdNbClear() =
   let b = buf()
   nbOuts.del b.id
-  b.vrows.clear()
+  nbDropRows(b)
   var keep: seq[Diag]
   for d in diagsBuild.getOrDefault(b.path):
     if d.src != "notebook": keep.add d

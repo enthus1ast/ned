@@ -193,6 +193,19 @@ const FMT = `proc  f( a:int ):int=a+1
 echo   f(2)
 `;
 
+// (not opened: its problem comes in the workspace's report)
+const LINTME = `import std/strutils
+import shapes
+
+echo area(newShape("a", 1, 2))
+`;
+
+const TOK = `import shapes
+
+let first = area(newShape("a", 1, 2))
+echo first
+`;
+
 function settings(serverPath, trace) {
   return {
     'nedls.path': serverPath,
@@ -202,6 +215,7 @@ function settings(serverPath, trace) {
     'nedls.raisesHints': false,
     'nedls.checkOnSave': true,
     'nedls.liveDiagnostics': true,
+    'nedls.workspaceDiagnostics': true,
     'nedls.formatLineLength': null,
     'nedls.nedSettings': false,
     'nedls.trace.server': trace,
@@ -215,7 +229,8 @@ function settings(serverPath, trace) {
 
 async function withNedls(root) {
   const src = path.join(root, 'src');
-  const files = { 'shapes.nim': SHAPES, 'app.nim': APP, 'animals.nim': ANIMALS, 'bad.nim': BAD, 'fmt.nim': FMT };
+  const files = { 'shapes.nim': SHAPES, 'app.nim': APP, 'animals.nim': ANIMALS, 'bad.nim': BAD, 'fmt.nim': FMT,
+                  'lintme.nim': LINTME, 'tok.nim': TOK };
   for (const [n, t] of Object.entries(files)) fs.writeFileSync(path.join(src, n), t);
   fs.writeFileSync(path.join(root, 'proj.nimble'), 'version = "0.1.0"\nauthor = "t"\ndescription = "t"\n' +
                    'license = "MIT"\nsrcDir = "src"\n');
@@ -233,6 +248,9 @@ async function withNedls(root) {
         /Sending request 'initialize - \(1\)'/.test(output()) && /"nedSettings": false/.test(output()) &&
         /"parameterHints": "literals"/.test(output()), output().slice(0, 600));
   check('initialize: the client offers UTF-16 positions only', /"positionEncodings": \[\s*"utf-16"\s*\]/.test(output()));
+  check('initialize: the client asks for problems (pull diagnostics) and takes semantic token deltas',
+        /"diagnostic": \{\s*"dynamicRegistration": false/.test(output()) &&
+        /"full": \{\s*"delta": true\s*\}/.test(output()), output().slice(0, 300));
   const kinds = ['completion', 'hover', 'signatureHelp', 'definition', 'declaration', 'typeDefinition',
                  'implementation', 'reference', 'documentHighlight', 'documentSymbol', 'workspaceSymbol',
                  'codeActions', 'codeLens', 'documentFormatting', 'documentRangeFormatting', 'onTypeFormatting', 'rename',
@@ -366,6 +384,27 @@ async function withNedls(root) {
     new vscode.Range(5, 0, 7, 0), token()));
   check('semantic tokens (range)', str instanceof vscode.SemanticTokens && str.data.length % 5 === 0 &&
         str.data.length > 0 && str.data[0] === 5, str);
+  // deltas: after an edit, only what changed (edits of the tokens VS Code has)
+  const stp = T.provider('documentSemanticTokens');
+  check('semantic tokens: deltas (provideDocumentSemanticTokensEdits)',
+        typeof stp.provideDocumentSemanticTokensEdits === 'function');
+  const tokDoc = T.openDocument(p('tok.nim'), 'nim', TOK);
+  const tk1 = await call(() => stp.provideDocumentSemanticTokens(tokDoc, token()));
+  const tk2 = tk1 && tk1.resultId !== undefined
+    ? await call(() => stp.provideDocumentSemanticTokensEdits(tokDoc, tk1.resultId, token())) : undefined;
+  check('semantic tokens: nothing changed — a delta without edits', tk2 instanceof vscode.SemanticTokensEdits &&
+        tk2.edits.length === 0 && tk2.resultId, tk2);
+  T.editDocument(tokDoc, [{ range: new vscode.Range(1, 0, 1, 0), text: 'let extra = area(newShape("b", 3, 4))\n' }]);
+  const tk3 = tk2 ? await call(() => stp.provideDocumentSemanticTokensEdits(tokDoc, tk2.resultId, token())) : undefined;
+  const tk4 = await call(() => stp.provideDocumentSemanticTokens(tokDoc, token()));
+  let applied = tk1 && Array.from(tk1.data);
+  for (const e of (tk3 && tk3.edits || []).slice().sort((a, b) => b.start - a.start)) {
+    applied.splice(e.start, e.deleteCount, ...Array.from(e.data || []));
+  }
+  check('semantic tokens: an edit — the delta\'s edits make the new tokens', tk3 instanceof vscode.SemanticTokensEdits &&
+        tk3.edits.length > 0 && tk4 instanceof vscode.SemanticTokens && applied &&
+        applied.join(',') === Array.from(tk4.data).join(','), { tk3, tk4 });
+  T.closeDocument(tokDoc);
 
   // inlay hints
   const all = new vscode.Range(0, 0, APP.split('\n').length, 0);
@@ -451,6 +490,20 @@ async function withNedls(root) {
         (lenses || []).some((l) => l instanceof vscode.CodeLens && l.command && /Run the file/.test(l.command.title) &&
                              T.state.commands.has(l.command.command)), lenses);
 
+  // problems asked for (pull diagnostics): an open document's, and the workspace's — a file not open, from ned's
+  // own checks of it
+  check('pull diagnostics: nedls offers them to this client, the workspace\'s too',
+        /"diagnosticProvider": \{[^}]*"workspaceDiagnostics": true/.test(output()), output().slice(0, 300));
+  const lintUri = vscode.Uri.file(p('lintme.nim'));
+  const wsds = await waitFor(() => {
+    const x = diagnostics(lintUri);
+    return x && x.some((d) => /strutils/.test(d.message)) ? x : undefined;
+  }, 60000);
+  check('pull diagnostics: a file not open — its unused import, from the workspace\'s report',
+        wsds && /Sending request 'workspace\/diagnostic/.test(output()) &&
+        wsds.some((d) => d instanceof vscode.Diagnostic && /strutils/.test(d.message) &&
+                         d.range.start.line === 0), wsds || diagnostics(lintUri));
+
   // diagnostics for a file with a mistake; a quick fix for it; the mistake fixed by an incremental edit
   const badDoc = T.openDocument(p('bad.nim'), 'nim', BAD);
   // (the problems come from nim check: none without nim)
@@ -463,6 +516,11 @@ async function withNedls(root) {
     check('diagnostics: the undeclared name, an error, on the name', err instanceof vscode.Diagnostic &&
           err.severity === vscode.DiagnosticSeverity.Error && rangeText(BAD, err.range) === 'echoo',
           ds || diagnostics(badDoc.uri));
+    // (each publishDiagnostics in the log: the first uri after it is the one it is for)
+    const pushed = output().split("Received notification 'textDocument/publishDiagnostics'").slice(1)
+      .map((x) => (/"uri": "([^"]*)"/.exec(x) || [])[1] || '');
+    check('diagnostics: asked for (textDocument/diagnostic), not sent', /Sending request 'textDocument\/diagnostic/
+      .test(output()) && !pushed.some((u) => u.endsWith('/bad.nim')), pushed);
   } else {
     skip('diagnostics, and their quick fix', 'nim is not on PATH: no compiler to check with');
   }

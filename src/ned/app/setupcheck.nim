@@ -253,6 +253,15 @@ proc initCommandsV4() =
   add("View: panes: three columns", "", paneLayoutPreset("columns 3"))
   add("View: panes: grid of four", "", paneLayoutPreset("grid"))
   add("View: panes: one large and three", "", paneLayoutPreset("main"))
+  add("View: terminal in a pane", "a shell of its own in a pane at the right, a tab among the files",
+      cmdTerminalInPane())
+  add("View: assistant in a pane", "the AI assistant in a pane at the right, beside the code", cmdAssistantInPane())
+  add("View: panel in a pane", "problems, output, the panel's terminals and the debugger in a pane at the right",
+      cmdPanelInPane())
+  add("View: save this layout as…", "the panes, their files and tabs, the side views: kept for the project",
+      cmdSaveLayout())
+  add("View: layouts…", "a layout kept for the project, put back", cmdLayouts())
+  add("View: forget a layout…", "", cmdLayouts(forget = true))
   add("View: show file in other pane", "", moveToOtherPane())
   add("View: make pane/dock wider", "Ctrl+Alt+→", resizeBy(true, 1))
   add("View: make pane/dock narrower", "Ctrl+Alt+←", resizeBy(true, -1))

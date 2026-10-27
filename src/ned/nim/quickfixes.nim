@@ -24,6 +24,12 @@ proc nimProblemFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
         of "nim3": "every change for Nim 3 that ned can make"
         of "unnamedBreak": "every break that leaves a block names it"
         else: "the new name everywhere it is used"), a)
+  when not defined(nedNoMain):
+    for d in ds:
+      if "unlisted exception" in d.msg or "can have side effects" in d.msg:
+        result.add act("Why? — where it comes from", "the calls on the way, each one to go to",
+                       whyHintAct(b.id, d.line))
+        break
   for d in ds:
     let m = d.msg
     let name = quotedName(m)

@@ -144,7 +144,10 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("View: this pane alone (zoom)", "This pane alone", chk(paneZoom)),
         mc("View: equal pane sizes", "Equal sizes"), msep(),
         mc("View: panes: two columns", "Two columns"), mc("View: panes: three columns", "Three columns"),
-        mc("View: panes: grid of four", "Grid of four"), mc("View: panes: one large and three", "One large and three")]),
+        mc("View: panes: grid of four", "Grid of four"), mc("View: panes: one large and three", "One large and three"),
+        msep(), mc("View: terminal in a pane", "Terminal in a pane"), mc("View: assistant in a pane", "Assistant in a pane"),
+        mc("View: panel in a pane", "Panel in a pane"),
+        msep(), mc("View: save this layout as…", "Save this layout as…"), mc("View: layouts…", "Layouts…")]),
       msep(), mc("Toggle zen mode", "Zen mode", chk(zenMode)),
       mc("Toggle vim mode", "Vim mode", chk(cfgVim)), mc("Toggle mouse", "Mouse", chk(cfgMouse)),
       mc("Accessibility mode: on/off (ASCII, letters beside colours, a high-contrast theme)", "Accessibility mode",
@@ -259,7 +262,9 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("Nim: write tests for this proc (from running it)", "Write tests for this proc (from running it)"),
         mc("Notebook: run the cell", "Notebook: run the cell (Ctrl+Enter)"),
         mc("Run with memory checks", "Run with memory checks")]),
-      msub("Inspect", @[mc("Nim: ARC/ORC view of current proc (expandArc)", "ARC/ORC view"),
+      msub("Inspect", @[mc("Nim: why? (where an exception or a side effect comes from)", "Why? (exceptions, side effects)"),
+        mc("Nim: expand macro/template in a tab", "Macro expansion in a tab"),
+        mc("Nim: ARC/ORC view of current proc (expandArc)", "ARC/ORC view"),
         mc("Nim: show where ARC/ORC copies (⧉copy)", "Where ARC/ORC copies (⧉copy)"),
         mc("Nim: show generated C", "Show generated C"),
         mc("Compiler Explorer", "Compiler Explorer (assembly, live)"),
@@ -270,6 +275,10 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("Type hierarchy (supertypes and subtypes)", "Type hierarchy")]),
       msub("Refactor", @[mc("Nim: extract selection into a proc", "Extract selection into a proc"),
         mc("Refactor: extract into a variable", "Extract into a variable"), mc("Nim: inline variable", "Inline variable"),
+        mc("Refactor: object ⇄ ref object", "object ⇄ ref object"),
+        mc("Refactor: split the selected declarations into a new module…", "Split into a new module…"),
+        mc("Refactor: callback → async", "Callback → async"),
+        mc("Refactor: switch call syntax — f(x, y) · x.f(y) · f x, y", "f(x, y) · x.f(y) · f x, y"),
         mc("Nim: use fmt for this string", "\"a\" & x → fmt\"a{x}\""),
         mc("Nim: evaluate at compile time", "Evaluate at compile time"),
         mc("Nim: sort imports", "Sort imports"), mc("Nim: organize imports (remove unused, sort)", "Organize imports"), mc("Nim: toggle proc ⇄ func", "proc ⇄ func"),
@@ -336,7 +345,11 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("Plugins: the API (nedplugin.nim)", "The API (nedplugin.nim)")]
   else:
     @[mc("Key bindings"), mc("Keyboard shortcuts…", "Change keyboard shortcuts…"), mc("Show recent messages", "Recent messages"),
-      mc("Welcome page"), mc("Tips"), msep(), mc("Check setup", "Check setup…"),
+      mc("Welcome page"), mc("Tips"),
+      msub("Nim tour", @[mc("Nim: tour (lessons in the notebook)", "Start or go on"),
+        mc("Nim: tour — next lesson", "Next lesson"), mc("Nim: tour — previous lesson", "Previous lesson"),
+        mc("Nim: tour — all the lessons…", "All the lessons…"), msep(),
+        mc("Nim: tour — reset this lesson", "Reset this lesson…")]), msep(), mc("Check setup", "Check setup…"),
       mc("Performance report", "Performance…"), mc("Copy info for bug report"), msep(), mc("About ned")]
 
 proc openMenuBar(i: int) =

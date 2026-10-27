@@ -225,6 +225,78 @@ proc phosphorTheme(name: string, bg, fg, bright, dim, comment, err, warn: Rgb): 
   result.menuSel = result.popupSel
   result.crumbBg = blend(bg, fg, 0.06)
 
+proc sunlit(t0: Theme): Theme =
+  ## a light theme for a screen in sunlight: keywords bold, and what other light themes keep faint — line numbers,
+  ## the current line, guides, borders, dim text, hints — strong enough to see through the glare
+  result = t0
+  let bg = t0.bg
+  let fg = t0.fg
+  result.boldKw = true
+  result.dim = blend(bg, fg, 0.72)
+  result.gutter = blend(bg, fg, 0.55)
+  result.curLine = blend(bg, t0.accent, 0.10)
+  result.guide = blend(bg, fg, 0.24)
+  result.border = blend(bg, fg, 0.45)
+  result.inputBorder = result.border
+  result.inlay = blend(bg, fg, 0.62)
+  result.wordHl = blend(bg, fg, 0.16)
+  result.bracket = blend(bg, t0.accent, 0.30)
+  result.match = blend(bg, t0.accent, 0.30)
+  result.menuSel = blend(bg, t0.accent, 0.24)
+  result.popupSel = result.menuSel
+  result.scrollThumb = blend(bg, fg, 0.40)
+  result.crumbBg = blend(bg, t0.accent, 0.12)
+  result.syn[tkPunct] = result.dim
+
+proc isInk(t: Theme): bool =
+  ## black and white only, each of its colours one or the other: an e-ink theme
+  if t.base[0] == t.base[1]: return false
+  for c in t.base:
+    if c != 0x000000'u32 and c != 0xFFFFFF'u32: return false
+  if t.hasChrome:
+    for c in t.chromeCols:
+      if c != 0x000000'u32 and c != 0xFFFFFF'u32: return false
+  true
+
+proc inked(t0: Theme): Theme =
+  ## e-ink: every colour the theme would mix is the ink or the paper — an e-ink screen shows a grey as dithering, and
+  ## keeps a ghost of it. What other themes shade is shown inverted (the selection, find matches, the selected row of
+  ## a menu, buttons, the status bar, the breadcrumb bar with the active tab, sticky headers) or by weight (keywords
+  ## bold; the current line's number and the matching bracket are bold in every theme). The bars and docks keep the
+  ## colours `chrome` gave them
+  result = t0
+  let p = t0.bg                    # paper
+  let k = t0.fg                    # ink
+  proc other(c: Rgb): Rgb = (if c == p: k else: p)
+  result.boldKw = true
+  for f in [addr result.dim, addr result.gutter, addr result.gutterCur, addr result.sel, addr result.match,
+            addr result.matchCur, addr result.border, addr result.accent, addr result.guide, addr result.cursorSec,
+            addr result.ruler, addr result.popupFg, addr result.tabFg, addr result.tabActiveFg, addr result.popupSel,
+            addr result.menuSel, addr result.err, addr result.warn, addr result.info, addr result.hint,
+            addr result.gitAdd, addr result.gitMod, addr result.gitDel, addr result.stickyBg, addr result.inlay,
+            addr result.inputBorder, addr result.btnBg, addr result.badgeBg, addr result.scrollThumb,
+            addr result.focusBorder, addr result.minimap, addr result.shadow, addr result.crumbBg]:
+    f[] = k
+  for f in [addr result.curLine, addr result.wordHl, addr result.bracket, addr result.tabActiveBg,
+            addr result.popupBg, addr result.popupSelFg, addr result.inputBg, addr result.btnFg, addr result.menuBg,
+            addr result.toastBg, addr result.badgeFg, addr result.codeBg, addr result.userBg, addr result.splitBar]:
+    f[] = p
+  for f in [addr result.titleBg, addr result.dockBg, addr result.statusBg]:
+    if f[] != k: f[] = p
+  result.dockHeadBg = result.dockBg
+  result.tabBarBg = result.dockBg
+  result.tabBg = result.dockBg
+  result.panelBg = result.dockBg
+  result.hoverBg = result.dockBg
+  result.titleFg = other(result.titleBg)
+  result.statusFg = other(result.statusBg)
+  result.rainbow = [k, k, k]
+  for i in 0 .. 15: result.ansi[i] = k
+  result.ansi[0] = 0x000000             # (the terminal's black and white stay black and white; its colours are ink)
+  result.ansi[7] = 0xFFFFFF
+  result.ansi[15] = 0xFFFFFF
+  for tk in TokKind: result.syn[tk] = k
+
 proc allThemesRaw(): seq[Theme] =
   #            name                dark   bg        fg        accent    sel       comment   keyword   type      string    number    func      operator  macro     property  error     warning   ok
   @[
@@ -299,9 +371,36 @@ proc allThemesRaw(): seq[Theme] =
     slateTheme("slate",        0x242430, 0x1B1B24, 0x1F1F29, 0x262633, 0x3E4452),
     monoTheme("monochrome", true),
     monoTheme("monochrome-light", false),
+    # ned's own (6.32), for a tablet outdoors: in sunlight — deep colours, every one 7:1 or more on its background and
+    # far apart in hue, comments 6:1, keywords bold, the current line and line numbers strong — on white, on warm
+    # paper and on a cool blue white; and for an e-ink screen, black and white only (tests/themes/contrast.py)
+    mkTheme("sunlight",          false, 0xFFFFFF, 0x000000, 0x0046C0, 0xB0D0FF, 0x52606C, 0x6200C8, 0x005A5E, 0x005E17, 0x8A3D00, 0x0046C0, 0x2E2E3A, 0x96008A, 0xA6001F, 0xB00000, 0x7A4F00, 0x00612A).sunlit,
+    mkTheme("sunlight-warm",     false, 0xFBF5E6, 0x1A1206, 0x0043B5, 0xE8C98A, 0x5E5546, 0x5E00C0, 0x00575A, 0x2B5A00, 0x7E3A00, 0x0043B5, 0x3A2E20, 0x8C0080, 0x9E0020, 0xA80000, 0x6E4800, 0x1F5C14).chrome(0xF0E8D4, 0xF6EFDD, 0xF0E8D4).sunlit,
+    mkTheme("sunlight-blue",     false, 0xEFF5FB, 0x0B1A2E, 0x0040B8, 0xB5CCF0, 0x4E5D70, 0x0040B8, 0x6200C0, 0x005E17, 0x8A3500, 0x00585E, 0x283447, 0x8E007E, 0xA0001E, 0xA80000, 0x704800, 0x00592A).chrome(0xE1EAF4, 0xE8F0F8, 0xE1EAF4).sunlit,
+    mkTheme("e-ink",             false, 0xFFFFFF, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000).chrome(0xFFFFFF, 0xFFFFFF, 0x000000).inked,
+    mkTheme("e-ink-dark",        true,  0x000000, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF).chrome(0x000000, 0x000000, 0xFFFFFF).inked,
   ]
 
 var themeCache: seq[Theme]
+
+var inkScreen = false      # the theme in use is black and white only (e-ink): flushScreen sends every cell in them
+
+proc inkOf(c: Rgb): Rgb {.inline.} =
+  ## black or white, whichever the colour is nearer (by its luma: a grey mixed half way goes either side evenly)
+  if c == NoColor: return c
+  let luma = (((c shr 16) and 0xFF) * 2126 + ((c shr 8) and 0xFF) * 7152 + (c and 0xFF) * 722) div 10000
+  if luma >= 128: 0xFFFFFF'u32 else: 0x000000'u32
+
+proc inkCell(c: var Cell) {.inline.} =
+  ## a cell as an e-ink theme sends it: its colours black or white — the shades other parts of ned mix (a hover, a
+  ## fading highlight, a picture) become one or the other — faint text (a grey on the screen) plain, and text that
+  ## would vanish into its own colour (on the selection, a find match, a menu's row) in the other one: inverted
+  c.fg = inkOf(c.fg)
+  c.bg = inkOf(c.bg)
+  c.at.excl aDim
+  if c.fg == c.bg and c.fg != NoColor: c.fg = (if c.bg == 0xFFFFFF'u32: 0x000000'u32 else: 0xFFFFFF'u32)
+  if c.fg == c.bg and c.bg != NoColor and c.ch != 32 and c.ch != 0 and (c.ch < 0x2580 or c.ch > 0x259F):
+    c.fg = c.bg xor 0xFFFFFF'u32         # (not the block elements: drawn in their own colour on purpose)
 
 proc luminance(c: Rgb): float =
   proc ch(v: uint32): float =
@@ -335,6 +434,7 @@ proc bgUnder(bg, text: Rgb, minR: float): Rgb =
 proc makeReadable(t: var Theme) =
   ## one pass over every theme: interface colours get a minimum contrast, so every theme is as readable
   ## as the best ones (the theme's own hues stay; only lightness moves)
+  if isInk(t): return        # (black and white only: a colour moved towards the other would be a grey)
   for b in [t.bg, t.dockBg, t.crumbBg, t.menuBg, t.statusBg]: t.dim = readableOn(t.dim, b, 3.2)
   t.gutter = readableOn(t.gutter, t.bg, 2.2)
   t.inlay = readableOn(t.inlay, t.bg, 2.6)
@@ -414,6 +514,8 @@ proc rebuildTheme(t0: Theme, colors: JsonNode): Theme =
   result = mkTheme(t0.name, dark, b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11],
                    b[12], b[13], b[14], b[15])
   if hc: result = result.chrome(c[0], c[1], c[2])
+  result.boldKw = t0.boldKw                  # (a theme that tells keywords apart by weight keeps it)
+  if isInk(result): result = result.inked    # (still black and white only: e-ink)
   makeReadable(result)
   if colors != nil and colors.kind == JObject and colors{"ruler"} != nil and colors{"ruler"}.kind == JString:
     let rc = parseColor(colors{"ruler"}.getStr, result.bg)
@@ -446,6 +548,7 @@ proc themeFromJson(j: JsonNode, fallbackName: string): (bool, Theme) =
   start.name = name
   var cs = if colors != nil and colors.kind == JObject: colors.copy else: newJObject()
   if explicitDark or start.dark != dark: cs["dark"] = %dark
+  if j{"boldKeywords"} != nil and j{"boldKeywords"}.kind == JBool: start.boldKw = j{"boldKeywords"}.getBool
   (true, rebuildTheme(start, cs))
 
 proc reloadThemes()
@@ -557,6 +660,7 @@ proc autoWantsLight(): bool =
 proc applyTheme(name: string) =
   ## a theme by name ("auto": the light or dark one that matches the terminal, or the time of day), with your
   ## colour overrides
+  defer: inkScreen = isInk(theme)
   var want = name
   if name == "auto":
     let light = autoWantsLight()

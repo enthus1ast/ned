@@ -121,7 +121,8 @@ prints a message (with `{expressions}`) and goes on without stopping. Alt+Enter 
 at the cursor*, debugs just that test. Breakpoints are kept with the folder's session.
 
 **Which debugger.** Nim uses **gdb** (or lldb) through its machine interface: F5 builds with `--debugger:native`,
-and Nim's own gdb pretty printer (`nim-gdb.py` of the Nim you build with) shows strings, seqs and tables as values.
+and Nim's own gdb pretty printer (`nim-gdb.py` of the Nim you build with — or ned's copy of it, when that Nim came
+without one) shows strings, seqs and tables as values; *Nim: debug with gdb* (gdb in the terminal) loads it too.
 The other languages use a **Debug Adapter Protocol** debugger, as VS Code does: Python — debugpy, C, C++ and Rust —
 `gdb -i dap` or lldb-dap, Go — delve, JavaScript and TypeScript — js-debug. *Debug: check the debugger for this
 file* says which one F5 will use and whether it is installed; *Debug: install the debugger for this language…*
@@ -166,6 +167,9 @@ outputs are not saved in it.
   `importc`) says so — `notebook.nim` set to `compiled` runs each cell as a compiled program instead (the cells
   before it with it, slower but everything works). Python cells run in `python3`, and a cell's last expression is
   shown as Python's prompt would show it.
+- A Nim notebook can say how it runs: a line `# notebook: compiled` (or `# notebook: vm`) above its first cell runs
+  that file so, whatever `notebook.nim` says. The lessons of the [Nim tour](tour.md) have it. A cell of only
+  comments gets no output row.
 
 ## Memory checks
 

@@ -33,6 +33,23 @@ think, the `developer` role, no temperature. A model that only runs on the Respo
 is not verified for streaming, is handled by itself. When an endpoint refuses a parameter, ned changes the request,
 tries again, and remembers it for that model.
 
+## Secrets
+
+Before anything is sent, ned replaces the secrets in it with placeholders (`ai.redactSecrets`, on): API keys and
+tokens it knows by their shape (OpenAI, Anthropic, GitHub, GitLab, Slack, Stripe, Google, AWS, Hugging Face …),
+private keys, JSON web tokens, passwords in URLs and connection strings, `Authorization` headers, and the values of
+names that say they are secrets — `DB_PASSWORD=…`, `"apiKey": "…"`, `client_secret = '…'`. The model sees
+`DB_PASSWORD=[REDACTED:password#1]`; the same secret is the same placeholder for the whole session, and the model is
+told to keep a placeholder where its secret belongs. When it writes one into a file — an edit, a new file, an inline
+edit, a suggestion, a code block you apply — ned puts the secret back, so your file keeps it; a command the agent
+runs, or an MCP call, keeps the placeholder. Code that only names a password (`password: string`,
+`let token = nextToken()`) is left as it is.
+
+Files of secrets are not sent at all: `.env` and `.env.*` (not `.env.example`), `*.pem`, `*.key`, `id_rsa` and the
+other `id_…` keys, `.netrc`, `.npmrc`, `credentials.json`, `*.tfstate` …, and whatever the project's `.gitignore`
+keeps out for its secrets (`config/prod-secrets.yml`). With one of them open, the assistant is told it was left out,
+the agent cannot read or search it, and inline suggestions stay off in it.
+
 ## Chatting
 
 **Alt+C** opens the assistant in the right dock. Type and Enter sends; the answer streams in, with its code blocks

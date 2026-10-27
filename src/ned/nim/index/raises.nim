@@ -5,9 +5,20 @@
 #    than a wrong one). Defects are not listed, as in the compiler's effects ──
 
 type
+  NxExcAt* = object            # (why tracers) a place in a routine's body: where an exception (a side effect) comes in
+    path*: string
+    line*, col*: int
+    what*: string              # the routine called there ("raise": a raise statement; a global's name …)
+  NxVia* = object              # (why tracers) the routine called there, to follow it: its file, line and name
+    path*: string
+    line*: int
+    name*: string
   NxExc* = object
     name*: string              # the exception type, as declared
     anc*: seq[string]          # its base types, normalized, nearest first (… CatchableError, Exception, RootObj)
+    at*: NxExcAt               # where it comes into the routine (the first place: path "" when not known)
+    via*: NxVia                # (at a call) the routine called, which raises it in turn (path "": at is where it
+                               # starts — a raise, a global used — or the list it declares)
   NxRaises* = object
     known*: bool
     excs*: seq[NxExc]
@@ -302,6 +313,9 @@ proc nxRsCandidates(c: var NxRsCtx, refs: seq[NxRef], callPath: string, callLine
     if not x.known: return x
     if first:
       result = x
+      for e in result.excs.mitems:                 # (why tracers: the routine called is where to look next)
+        e.at = NxExcAt()
+        e.via = NxVia(path: r.file.path, line: r.sym.line, name: r.sym.name)
       first = false
     else:
       var same = x.excs.len == result.excs.len
@@ -321,6 +335,18 @@ proc nxRsCandidates(c: var NxRsCtx, refs: seq[NxRef], callPath: string, callLine
 
 proc nxRsMerge(dst: var seq[NxExc], r: NxRaises) =
   for e in r.excs: nxRsAdd(dst, e)
+
+proc nxRsMergeAt(dst: var seq[NxExc], r: NxRaises, path: string, line, col: int, what: string) =
+  ## what a call (an operator, an index, a name) raises, coming in at that place of the body
+  for e0 in r.excs:
+    var e = e0
+    e.at = NxExcAt(path: path, line: line, col: col, what: what)
+    nxRsAdd(dst, e)
+
+func nxRsAt(e: NxExc, path: string, line, col: int, what: string): NxExc =
+  result = e
+  result.at = NxExcAt(path: path, line: line, col: col, what: what)
+  result.via = NxVia()
 
 proc nxRsArgs(t: string, nameEnd: int): seq[string] =
   ## a call's arguments after the name ending at `nameEnd`: name(a, b) or name a, b
@@ -1189,7 +1215,7 @@ proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[
           if not x.known:
             c.why = x.why
             return false
-          nxRsMerge(exc, x)
+          nxRsMergeAt(exc, x, w.f.path, line, a, name)
       else: discard
       continue
     let (qa, qe) = nxRsQuoted(t, a)
@@ -1204,7 +1230,7 @@ proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[
     if not x.known:
       c.why = x.why
       return false
-    nxRsMerge(exc, x)
+    nxRsMergeAt(exc, x, w.f.path, line, a, name)
   var st2: NxLexState
   for (a, e) in nxLexRuns(t, st2, true):
     if a < fromCol or a >= toCol or prag[a]: continue
@@ -1218,7 +1244,7 @@ proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[
     if not x.known:
       c.why = x.why
       return false
-    nxRsMerge(exc, x)
+    nxRsMergeAt(exc, x, w.f.path, line, a, t[a ..< e])
   # indexing: x[i] — a `[` right after a name, a `)` or a `]` (not seq[int] in a type: the receiver tells)
   var st3: NxLexState
   var code = newSeq[bool](t.len)
@@ -1236,7 +1262,7 @@ proc nxRsScan(c: var NxRsCtx, w: var NxRsBody, line, fromCol: int, exc: var seq[
       if not x.known:
         c.why = x.why
         return false
-      nxRsMerge(exc, x)
+      nxRsMergeAt(exc, x, w.f.path, line, q, "[]")
     elif t[q] == '{' and not inStr and code[q - 1] and not (q + 1 < t.len and t[q + 1] == '.'):
       if c.why.len == 0: c.why = "a {} accessor"
       return false                                   # x{…}: a `{}` of x's type (JsonNode …): not looked into
@@ -1256,9 +1282,9 @@ proc nxRsRaiseOf(c: var NxRsCtx, w: var NxRsBody, st: NxRsLine, at: int, exc: va
     if w.excepts.len > 0 and w.excepts[^1].len == 1:
       let (ok, e) = nxRsExc(w.sc, w.excepts[^1][0])
       if not ok: return false
-      nxRsAdd(exc, e)
+      nxRsAdd(exc, nxRsAt(e, w.f.path, st.line, st.col, "raise"))
     else:
-      nxRsAdd(exc, NxExc(name: "Exception", anc: @["RootObj"]))
+      nxRsAdd(exc, nxRsAt(NxExc(name: "Exception", anc: @["RootObj"]), w.f.path, st.line, st.col, "raise"))
     return true
   let t = w.lines[st.line]
   var x = t[at .. ^1]
@@ -1303,7 +1329,7 @@ proc nxRsRaiseOf(c: var NxRsCtx, w: var NxRsBody, st: NxRsLine, at: int, exc: va
         else: (c.why = "raise of a parameter " & tt; return false)
   let (ok, e) = nxRsExc(w.sc, typ)
   if not ok: (c.why = "raise of " & typ; return false)
-  nxRsAdd(exc, e)
+  nxRsAdd(exc, nxRsAt(e, w.f.path, st.line, st.col, "raise"))
   true
 
 proc nxRsLines(lines: seq[string], a, b: int): seq[NxRsLine] =
@@ -1575,7 +1601,7 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
           if not x.known:
             c.why = x.why
             return false
-          nxRsMerge(exc, x)
+          nxRsMergeAt(exc, x, w.f.path, s.line, s.col, iterText)
     elif kw notin ["else", "block", "defer", "finally", "except", "of"]:
       if not nxRsScanStmt(c, w, s, s.col + kw.len, exc, headTo): return false
     if colon >= 0 and kw != "of" and not nxRsInline(c, w, s, colon + 1, exc): return false
@@ -1593,7 +1619,7 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
       while l < ls.len and (l == i - 1 or ls[l].ind > ind):
         if "{." in ls[l].text and nxFxPragma(ls[l].text, "global"):
           if c.why.len == 0: c.why = "a {.global.} variable"
-          nxRsAdd(exc, NxExc(name: NxFxMark))
+          nxRsAdd(exc, nxRsAt(NxExc(name: NxFxMark), w.f.path, ls[l].line, ls[l].col, "{.global.}"))
           return true
         inc l
     if w.convs.len > 0:
@@ -1709,7 +1735,12 @@ proc nxRsAnalyse(c: var NxRsCtx, r: NxRef, lr: NxLinesRef): NxRaises =
     return nxRsFail(s.name & ": " & c.why)
   if not nxRsBlock(c, w, ls, i, ls[0].ind, exc):
     if c.fx and (c.impure or nxFxHas(exc)):
-      return nxFxImpure(s.name & (if c.why.len > 0: ": " & c.why else: ""))    # (fx: a side effect, sure)
+      result = nxFxImpure(s.name & (if c.why.len > 0: ": " & c.why else: ""))  # (fx: a side effect, sure)
+      for e in exc:
+        if e.name == NxFxMark and e.at.path.len > 0:
+          result.excs = @[e]                 # (why tracers: where it is)
+          break
+      return
     return nxRsFail(s.name & ": " & (if c.why.len > 0: c.why else: "a statement it cannot read"))
   if i < ls.len: return nxRsFail(s.name & ": a body it cannot read")
   NxRaises(known: true, excs: exc)

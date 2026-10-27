@@ -59,7 +59,10 @@ proc focusPane(i: int) =
   paneGeometry(i)
   closeComp()
   hoverOpen = false
-  focus = fEditor
+  focus = case buf().paneView                              # (the assistant, the panel in a pane: their keys)
+          of 2: fRight
+          of 3: fPanel
+          else: fEditor
   needRender = true
 
 proc splitPaneOf(i: int, down: bool, show: Buffer = nil): bool =
@@ -73,6 +76,7 @@ proc splitPaneOf(i: int, down: bool, show: Buffer = nil): bool =
       return false
   if i != activePane: focusPane(i)
   let b = buf()
+  if not splitOn: panes[activePane].tabs = @[b.id]       # (the first split: the pane's tabs start with its file)
   panes[activePane].bufId = b.id
   panes[activePane].snap = snapView(b)
   let shown = if show != nil: show else: b
@@ -301,9 +305,20 @@ proc moveToOtherPane() =
   focusPane(o)
 
 proc dropBufFromPanes(id: int) =
-  ## buffer `id` closed: the panes (other than the active one) that showed it go
+  ## buffer `id` closed: out of every pane's tabs — a pane that showed it shows its tab before it, or goes
+  paneAfterClose = -1
   for i in countdown(panes.high, 0):
-    if splitOn and i != activePane and panes[i].bufId == id: closePane(i)
+    let k = panes[i].tabs.find(id)
+    if k >= 0: panes[i].tabs.delete(k)
+    if not splitOn: continue
+    if i == activePane:
+      if buf().id == id and panes[i].tabs.len > 0: paneAfterClose = panes[i].tabs[max(0, min(k, panes[i].tabs.len) - 1)]
+    elif panes[i].bufId == id:
+      let nb = if panes[i].tabs.len > 0: bufById(panes[i].tabs[max(0, min(k, panes[i].tabs.len) - 1)]) else: nil
+      if nb != nil:
+        panes[i].bufId = nb.id
+        panes[i].snap = snapView(nb)
+      else: closePane(i)
 
 proc paneLayoutPreset(kind: string) =
   ## the open files laid out at once: "columns 2", "columns 3", "grid", "main" (one large, the rest stacked beside)
@@ -353,6 +368,106 @@ proc paneLayoutPreset(kind: string) =
   if kind == "main": paneRoot.ratio = 0.6
   focusPane(0)
 
+# ── (6.32) each pane its own tabs, as editor groups: the files it has shown, in its header — a tap shows one there,
+#    × takes it out of the pane (closes the file when no other pane has it), Ctrl+PgUp/PgDn go through them ──
+
+proc paneTabsSync() =
+  ## (each frame) a pane's tabs: the file it shows added, closed files gone
+  if not splitOn: return
+  for i in 0 ..< panes.len:
+    let id = if i == activePane: buf().id else: panes[i].bufId
+    let b = bufById(id)
+    if b != nil and not b.isWelcome() and id notin panes[i].tabs: panes[i].tabs.add id
+    var k = 0
+    while k < panes[i].tabs.len:
+      if bufById(panes[i].tabs[k]) == nil: panes[i].tabs.delete(k) else: inc k
+
+proc paneShowTab(i, id: int) =
+  ## pane i shows file `id` (one of its tabs) and gets the focus
+  if i < 0 or i >= panes.len: return
+  if i != activePane: focusPane(i)
+  let k = bufs.find(bufById(id))
+  if k < 0: return
+  if k != curBuf:
+    pushJump()
+    curBuf = k
+  panes[activePane].bufId = id
+  focus = case buf().paneView
+          of 2: fRight
+          of 3: fPanel
+          else: fEditor
+  closeComp()
+  needRender = true
+
+proc paneCloseTab(i, id: int) =
+  ## file `id` out of pane i: the pane shows its tab before it (none left: the pane closes); a file no other pane
+  ## has is closed (asked to save first when changed)
+  if i < 0 or i >= panes.len: return
+  let k = panes[i].tabs.find(id)
+  if k >= 0: panes[i].tabs.delete(k)
+  var elsewhere = false
+  for j in 0 ..< panes.len:
+    if j != i and (id in panes[j].tabs or (if j == activePane: buf().id == id else: panes[j].bufId == id)):
+      elsewhere = true
+  let shown = if i == activePane: buf().id == id else: panes[i].bufId == id
+  if shown:
+    if panes[i].tabs.len > 0:
+      paneShowTab(i, panes[i].tabs[max(0, min(k, panes[i].tabs.len) - 1)])
+    elif splitOn and panes.len > 1:
+      closePane(i)
+  if not elsewhere:
+    let bi = bufs.find(bufById(id))
+    if bi >= 0: closeBuffer(bi)
+  needRender = true
+
+proc paneTabStep(d: int): bool =
+  ## Ctrl+PgUp/PgDn with panes: through the active pane's own tabs (false: it has one, the usual tabs then)
+  if not splitOn: return false
+  paneTabsSync()
+  let ts = panes[activePane].tabs
+  if ts.len < 2: return false
+  let k = max(0, ts.find(buf().id))
+  paneShowTab(activePane, ts[(k + d + ts.len) mod ts.len])
+  true
+
+proc paneTabAct(i, id: int, close: bool): Action =
+  (proc() = (if close: paneCloseTab(i, id) else: paneShowTab(i, id)))
+
+proc drawPaneTabs(b: Buffer, i, x, y, w: int, bg: Rgb): bool =
+  ## a pane with more than one tab: them, the one shown in bold — false: one tab (the header as before)
+  let ts = panes[i].tabs
+  if ts.len < 2: return false
+  let active = i == activePane
+  let lim = x + w - (if paneZoom: 5 else: 3)
+  # (from the tab shown backwards, as many as fit: the shown one always there)
+  var widths: seq[int]
+  for id in ts:
+    let tb = bufById(id)
+    widths.add (if tb == nil: 0 else: strWidth(tb.name) + (if tb.dirty: 2 else: 0) + 4)
+  let cur = max(0, ts.find(b.id))
+  var first = cur
+  var used = widths[cur]
+  while first > 0 and used + widths[first - 1] < lim - x - 1:
+    dec first
+    used += widths[first]
+  var xx = x + 1
+  if first > 0: xx = putStr(xx, y, "‹", theme.dim, bg, {}, lim)
+  for k in first ..< ts.len:
+    let tb = bufById(ts[k])
+    if tb == nil: continue
+    if xx + widths[k] > lim:
+      discard putStr(xx, y, "›", theme.dim, bg, {}, lim + 1)
+      break
+    let me = ts[k] == b.id
+    let x0 = xx
+    let fg = if me and active: theme.fg elif me: blend(theme.fg, theme.dim, 0.4) else: theme.dim
+    xx = putStr(xx + 1, y, tb.name & (if tb.dirty: " " & ic("dirty") else: ""), fg, bg,
+                (if me: {aBold} else: {}), lim)
+    region(x0, y, max(1, xx - x0), 1, paneTabAct(i, ts[k], false), relPath(tb.path))
+    xx = button(xx + 1, y, "×", paneTabAct(i, ts[k], true), "Close it in this pane", theme.dim, bg)
+    if k < ts.high and xx < lim: xx = putStr(xx, y, "│", blend(theme.dim, bg, 0.5), bg, {}, lim)
+  true
+
 proc drawPaneHeader(b: Buffer, i, x, y, w: int) =
   if ceIsView(b):
     ceDrawHeader(b, i, x, y, w)                 # (Compiler Explorer's view: its toolbar)
@@ -361,6 +476,14 @@ proc drawPaneHeader(b: Buffer, i, x, y, w: int) =
   let bg = if active: theme.crumbBg else: theme.splitBar      # never the editor's own background
   fillRect(x, y, w, 1, theme.dim, bg)
   if active: discard putStr(x, y, "▎", theme.accent, bg)
+  let pi0 = i
+  if drawPaneTabs(b, i, x, y, w, bg):
+    capture pi0:
+      if paneZoom and active:
+        discard button(x + w - 4, y, "⤡", proc() = toggleZoom(), "Every pane again", theme.accent, bg)
+      discard button(x + w - 2, y, ic("close"), proc() = closePane(pi0), "Close this pane (Alt+|)", theme.dim, bg)
+      region(x, y, 1, 1, proc() = focusPane(pi0), "", proc() = ctxOpen(paneHeaderMenu(pi0)))
+    return
   var xx = x + 1
   let lim = x + w - (if paneZoom: 5 else: 3)
   if b.path.len > 0: xx = putStr(xx, y, fileIcon(b.path), langColor(b.path), bg, {}, lim) + 1
@@ -411,6 +534,9 @@ proc drawSplit(): bool =
     if i != activePane and bufById(panes[i].bufId) == nil: gone.add i
   for k in countdown(gone.high, 0): closePane(gone[k])      # (a pane whose file was closed)
   if not splitOn: return false
+  paneTabsSync()
+  if focus == fRight and not rightOpen and buf().paneView != 2: focus = fEditor   # (the assistant's pane gone)
+  if focus == fPanel and not panelOpen and buf().paneView != 3: focus = fEditor   # (the panel's pane gone)
   let top = if lay.crumbY >= 0: lay.crumbY else: lay.textY
   let fullH = lay.textY + lay.textH - top
   var rects = newSeq[tuple[x, y, w, h: int]](panes.len)
@@ -455,8 +581,14 @@ proc nodeJson(n: PaneNode): JsonNode =
   if n.leaf:
     let b = if n.pane == activePane: buf() else: bufById(panes[n.pane].bufId)
     let top = if n.pane == activePane or b == nil: (if b != nil: b.topLine else: 0) else: panes[n.pane].snap.topLine
-    return (if b != nil and b.path.len > 0: %*{"file": b.path, "active": n.pane == activePane, "top": top}
-            else: newJNull())
+    if b == nil or b.path.len == 0: return newJNull()
+    result = %*{"file": b.path, "active": n.pane == activePane, "top": top}
+    var tabs = newJArray()
+    for id in panes[n.pane].tabs:
+      let tb = bufById(id)
+      if tb != nil and tb.path.len > 0: tabs.add %tb.path
+    if tabs.len > 1: result["tabs"] = tabs
+    return
   let a = nodeJson(n.a)
   let b = nodeJson(n.b)
   if a.kind == JNull: return b
@@ -470,25 +602,36 @@ proc layoutState(): JsonNode =
     let t = nodeJson(paneRoot)
     if t.kind == JObject and t{"file"} == nil: result["panes"] = t
 
-proc restoreLayout() =
-  if savedLayout.isNil or not sBool("ui.restoreLayout") or scrW < 70: return
+proc applyLayout(L: JsonNode, openMissing: bool): bool =
+  ## a layout as layoutState() wrote it: the side views and panels, the panes with their files and tabs —
+  ## openMissing: a file not open is opened (a named layout), else its pane is left out (the session's)
+  if L.isNil or L.kind != JObject: return false
+  let keep = curBuf
   try:
     for v in SideView:
-      if $v == savedLayout{"leftView"}.getStr: sideView = v
-      if $v == savedLayout{"rightView"}.getStr: rightView = v
+      if $v == L{"leftView"}.getStr: sideView = v
+      if $v == L{"rightView"}.getStr: rightView = v
     if sideView in RightViews: sideView = svFiles
     if rightView in LeftViews: rightView = svAssistant
-    treeOpen = savedLayout{"left"}.getBool
-    rightOpen = savedLayout{"right"}.getBool
+    treeOpen = L{"left"}.getBool
+    rightOpen = L{"right"}.getBool
     for k in PanelKind:
-      if $k == savedLayout{"panelKind"}.getStr and k != pkSearch: panelKind = k
-    if savedLayout{"panel"}.getBool and panelKind != pkTerminal: panelOpen = true
+      if $k == L{"panelKind"}.getStr and k != pkSearch: panelKind = k
+    if L{"panel"}.getBool and panelKind != pkTerminal: panelOpen = true
     if treeOpen and sideView == svFiles: flattenTree()
-    if buf().isWelcome(): return
-    var t = savedLayout{"panes"}
-    if t == nil and savedLayout{"split"} != nil:
+    proc indexOf(path: string): int =
+      result = bufIndexByPath(path)
+      if result < 0 and openMissing and fileExists(path):
+        discard openFile(path)
+        result = bufIndexByPath(path)
+    var t = L{"panes"}
+    if t == nil and openMissing:
+      closeSplit()                          # (a layout of one pane)
+      return true
+    if buf().isWelcome() and not openMissing: return false
+    if t == nil and L{"split"} != nil:
       # (a session of 6.30 or before: two panes)
-      let sp = savedLayout{"split"}
+      let sp = L{"split"}
       let i = bufIndexByPath(sp{"other"}.getStr)
       if i >= 0 and i != curBuf:
         let me = %*{"file": buf().path, "active": true}
@@ -502,12 +645,16 @@ proc restoreLayout() =
     proc build(j: JsonNode): PaneNode =
       if j == nil or j.kind != JObject: return nil
       if j{"file"} != nil:
-        let k = bufIndexByPath(j{"file"}.getStr)
+        let k = indexOf(j{"file"}.getStr)
         if k < 0: return nil
         let b = bufs[k]
         var sn = snapView(b)
         sn.topLine = clamp(j{"top"}.getInt(b.topLine), 0, b.lines.high)
-        ps.add Pane(bufId: b.id, snap: sn)
+        var tabs: seq[int]
+        for x in jitems(j{"tabs"}):
+          let tk = indexOf(x.getStr)
+          if tk >= 0 and bufs[tk].id notin tabs: tabs.add bufs[tk].id
+        ps.add Pane(bufId: b.id, snap: sn, tabs: tabs)
         if j{"active"}.getBool: act = ps.high
         return PaneNode(leaf: true, pane: ps.high)
       let a = build(j{"a"})
@@ -517,13 +664,88 @@ proc restoreLayout() =
       PaneNode(leaf: false, vertical: j{"vertical"}.getBool(true), ratio: clamp(j{"ratio"}.getFloat(0.5), 0.1, 0.9),
                a: a, b: b)
     let root = build(t)
-    if root == nil or root.leaf or ps.len < 2: return
+    if root == nil or root.leaf or ps.len < 2:
+      curBuf = clamp(keep, 0, bufs.high)
+      return false
     panes = ps
     paneRoot = root
     activePane = if act >= 0: act else: 0
     splitOn = true
+    paneZoom = false
+    paneLast = -1
     let k = bufIndexByPath(bufById(panes[activePane].bufId).path)
     if k >= 0:
       curBuf = k
       applyView(bufs[k], panes[activePane].snap)
-  except CatchableError: discard
+    needRender = true
+    true
+  except CatchableError: false
+
+proc restoreLayout() =
+  if savedLayout.isNil or not sBool("ui.restoreLayout") or scrW < 70: return
+  discard applyLayout(savedLayout, false)
+
+# ── (6.32) named layouts: the panes, their files and tabs, the side views and the panel, kept under a name for
+#    the project — saved, then put back with one pick ──
+
+proc layoutsFile(): string = stateDir() / "layouts.json"
+
+proc layoutsAll(): JsonNode =
+  try: result = parseJson(readFile(layoutsFile()))
+  except CatchableError: result = newJObject()
+  if result.kind != JObject: result = newJObject()
+
+proc layoutsHere(): JsonNode =
+  ## the project's named layouts (name → layout)
+  let all = layoutsAll()
+  result = all{if rootDir.len > 0: rootDir else: "-"}
+  if result == nil or result.kind != JObject: result = newJObject()
+
+proc layoutsWrite(here: JsonNode) =
+  var all = layoutsAll()
+  all[if rootDir.len > 0: rootDir else: "-"] = here
+  try:
+    createDir(stateDir())
+    writeFile(layoutsFile(), all.pretty)
+  except CatchableError as e: error("Cannot keep the layout: " & e.msg)
+
+proc cmdSaveLayout() =
+  askText("Name for this layout (the panes, their files and tabs, the side views)", "", proc(name: string) =
+    let n = name.strip
+    if n.len == 0: return
+    var here = layoutsHere()
+    here[n] = layoutState()
+    layoutsWrite(here)
+    info("Layout \"" & n & "\" kept — View › Layouts… puts it back"))
+
+proc layoutAct(name: string): Action =
+  (proc() =
+    let L = layoutsHere(){name}
+    if L == nil: return
+    if applyLayout(L, true): info("Layout \"" & name & "\"")
+    else: info("The files of layout \"" & name & "\" are not there any more"))
+
+proc layoutForgetAct(name: string): Action =
+  (proc() =
+    var here = layoutsHere()
+    if here.hasKey(name): here.delete(name)
+    layoutsWrite(here)
+    info("Layout \"" & name & "\" forgotten"))
+
+proc cmdLayouts(forget = false) =
+  let here = layoutsHere()
+  if here.len == 0:
+    info("No layouts kept for this project — View › Save this layout as…")
+    return
+  var items: seq[(string, string, proc() {.closure.})]
+  for name, L in here.pairs:
+    var files: seq[string]
+    proc walk(j: JsonNode) =
+      if j == nil or j.kind != JObject: return
+      if j{"file"} != nil: files.add extractFilename(j{"file"}.getStr)
+      walk(j{"a"})
+      walk(j{"b"})
+    walk(L{"panes"})
+    let detail = (if files.len > 0: $files.len & " panes: " & files.join(", ") else: "one pane")
+    items.add act(name, detail, if forget: layoutForgetAct(name) else: layoutAct(name))
+  openActions(if forget: "Forget a layout" else: "Layouts", items)

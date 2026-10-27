@@ -96,6 +96,7 @@ proc editorMenu(): seq[MenuItem] =
       mc("Debug: run to cursor", "Run to cursor"), mc("Debug: debug the test at the cursor", "Debug this test"),
       mc("Debug: add a watch expression…", "Watch…")])
     result.add mc("Nim: expand macro/template at cursor", "Expand macro")
+    result.add mc("Nim: why? (where an exception or a side effect comes from)", "Why? (exceptions, side effects)")
     result.add mc("Nim: ARC/ORC view of current proc (expandArc)", "ARC/ORC view")
     result.add mc("Nim: decompile this proc (side by side)", "Decompile this proc")
   if b.lang.mode == lmNim or b.lang.id in ["c", "cpp"]:

@@ -813,7 +813,12 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
   var locals: seq[NxSym]
   var modPath = ""
   let at = nxSymAt(f, p.line, a0.col)
-  if at >= 0: targets = @[NxRef(file: f, idx: int32(at))]
+  if at >= 0:
+    targets = @[NxRef(file: f, idx: int32(at))]
+    # (a forward declaration: the routine it announces too — its body's name and its calls)
+    if f.syms[at].kind in NxRoutineKinds and nxIsForward(b.lines, f.syms[at]):
+      let bi = nxBodyOf(f, b.lines, f.syms[at])
+      if bi >= 0: targets.add NxRef(file: f, idx: int32(bi))
   else: (targets, locals, modPath) = nxTargets(f, b.lines, p.line, a0.col)
   if modPath.len > 0 or (targets.len == 0 and locals.len == 0): return false
   let t0 = getMonoTime()
@@ -884,9 +889,12 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
         let d = nxSymAt(g, l, s)
         var ok = false
         if d >= 0:
-          let r = NxRef(file: g, idx: int32(d))
+          var r = NxRef(file: g, idx: int32(d))
+          if g.syms[d].kind in NxRoutineKinds and nxIsForward(lines, g.syms[d]):
+            let bi = nxBodyOf(g, lines, g.syms[d])       # (a forward declaration names the routine it announces)
+            if bi >= 0: r = NxRef(file: g, idx: int32(bi))
           for t in targets:
-            if nxSameDecl(t, r): ok = true
+            if nxSameDecl(t, r) or nxSameDecl(t, NxRef(file: g, idx: int32(d))): ok = true
         elif slow: ok = true
         else:
           let (rs, ls, mp) = nxTargets(g, lines, l, s)
@@ -894,6 +902,12 @@ proc engineReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)], decl
             for r in rs:
               for t in targets:
                 if nxSameDecl(t, r): ok = true
+          elif ls.len > 0 and ls[0].kind == nxField and ls[0].line == l and ls[0].col == s:
+            # (a field of the tuple a routine returns, where its type declares it — tuple[isoweek: …] —: the field
+            # its uses name, d.getIsoWeekAndYear.isoweek)
+            for t in targets:
+              if t.file.path == path and t.sym.kind == nxField and t.sym.line == l and nxNorm(t.sym.name) == nw:
+                ok = true
         if ok: hits.add (path, l, s)
     # (in strformat strings — fmt"{name}" — and in doc comments — `name` —: in a file where the code names it, or
     # the one that declares it; where no local of that name is in the way)

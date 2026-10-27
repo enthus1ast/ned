@@ -48,6 +48,9 @@ for t in tests/unit/t*.nim; do nim r -d:release --hints:off "$t" || break; done 
 python3 tests/plugins/tplugins.py ./ned --native      # the plugin host, the API, the examples
 python3 tests/plugins/tbundled.py --native            # ned's own plugins (plugins/), in nim e and compiled
 python3 tests/lsp/tnedls.py ./nedls                   # nedls: every feature, then random edits
+python3 tests/editors/check.py ./nedls                # the set-ups for Neovim, Helix and Zed
+python3 tests/tour/check.py                           # the Nim tour's lessons: every cell, every exercise
+python3 tests/plugins/tsandbox.py ./ned && python3 tests/ai/tredact.py ./ned && python3 tests/update/tupdate.py ./ned
 sh tests/format/parsecheck.sh "$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")"   # the formatter
 python3 tests/ui/run.py ./ned [t_name …]              # the editor through tmux: ~1300 checks, about an hour
 python3 .github/ci/pty_smoke.py ./ned && python3 .github/ci/bench.py ./ned && python3 tests/perf/rounds.py ./ned
@@ -69,5 +72,6 @@ machine: under load a few timing-sensitive tests can fail, and pass alone.
 - Documentation lives in `docs/` (the README is an overview). Plain words: say what happens for the person using
   ned, not how it is implemented; British spelling as the rest; no marketing.
 - Comments say why, in the same plain style. Keep a change small and in the style of the code around it.
-- A release: the version in `src/ned/version.nim` and `ned.nimble` (and the file names in the README), a
+- A release: the version in `src/ned/version.nim`, `ned.nimble`, `editors/vscode/package.json`,
+  `editors/zed/extension.toml` and `editors/zed/Cargo.toml` (and the file names in the README), a
   *What's new* section at the top of the README (the one before moves to CHANGELOG.md), every test above passing.

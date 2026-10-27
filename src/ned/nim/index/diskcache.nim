@@ -29,6 +29,8 @@ proc nxCacheDir(): string =
   if nxDiskCacheDir.len > 0: return nxDiskCacheDir
   getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "ned" / "index"
 
+proc nxCacheDirOf*(): string = nxCacheDir()     ## where the index cache is (ned --warm-index says it)
+
 var nxDkMemo: (int, Hash, bool, string)   # (how many, their hash, complete, the key): asked for each file read
 
 proc nxDefinesKey(): string =

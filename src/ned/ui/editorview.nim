@@ -139,6 +139,9 @@ proc drawPlugIndent(b: Buffer, st: PlugIndent, line, y, tx0, baseVc, limX, unit:
     grid[i] = c
 
 proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
+  if b.paneView != 0:                  # (6.32: a terminal, the assistant — in a pane)
+    drawPaneView(b, x0, y0, w, h, active)
+    return
   if b.id in mergeViews and not mergeInner and h >= 14 and w >= 40:
     drawMergeView(b, x0, y0, w, h, active)
     return
@@ -621,7 +624,11 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           if hx >= tx0:
             if hints[hk][1] == SwatchMark: drawSwatch(b, line, hints[hk][0], hx, y, limX, sw, rowBg)
             elif hints[hk][1].strip.len == 0: discard putStr(hx, y, hints[hk][1], theme.fg, rowBg, {}, limX)  # (a CSV column's padding)
-            else: discard putStr(hx, y, hints[hk][1], theme.inlay, blend(rowBg, theme.fg, 0.05), {aItalic}, limX)
+            else:
+              discard putStr(hx, y, hints[hk][1], theme.inlay, blend(rowBg, theme.fg, 0.05), {aItalic}, limX)
+              if hints[hk][1].startsWith(" {.raises: [") and hx < limX:      # (a tap: where each comes from)
+                region(hx, y, min(strWidth(hints[hk][1]), limX - hx), 1, whyHintAct(b.id, line),
+                       "Why? — where each of these comes from")
           shift += strWidth(hints[hk][1])
           inc hk
         let (cw, n) = charWidthAt(s, i, vc)
@@ -728,7 +735,11 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           if hx >= tx0:
             if hints[hk][1] == SwatchMark: drawSwatch(b, line, hints[hk][0], hx, y, tailLim, sw, rowBg)
             elif hints[hk][1].strip.len == 0: discard putStr(hx, y, hints[hk][1], theme.fg, rowBg, {}, tailLim)  # (a CSV column's padding)
-            else: discard putStr(hx, y, hints[hk][1], theme.inlay, blend(rowBg, theme.fg, 0.05), {aItalic}, tailLim)
+            else:
+              discard putStr(hx, y, hints[hk][1], theme.inlay, blend(rowBg, theme.fg, 0.05), {aItalic}, tailLim)
+              if hints[hk][1].startsWith(" {.raises: [") and hx < tailLim:    # (a tap: where each comes from)
+                region(hx, y, min(strWidth(hints[hk][1]), tailLim - hx), 1, whyHintAct(b.id, line),
+                       "Why? — where each of these comes from")
           shift += strWidth(hints[hk][1])
           inc hk
         let ex = tx0 + vc - baseVc + rowOff + shift
@@ -911,6 +922,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         for (t, fg, at) in vr[vi].spans:
           xx = putStr(xx, y, t, fg, vbg, at, limX - 1)
           if xx >= limX - 1: break
+        if vr[vi].tag != 0: mvRowRegions(b, line, vr[vi], tx0, y, limX - 1)   # (a macro's expansion: hover, go to)
         inc row
     sub0 = 0
     if b.folds.len > 0:

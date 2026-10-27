@@ -27,6 +27,7 @@ include index/concepts
 include index/hover
 include index/expand
 include index/typos
+include index/reshape
 
 proc nxCacheStats*(): string =
   ## (measuring: what the index's caches hold besides the parsed files and the scopes)

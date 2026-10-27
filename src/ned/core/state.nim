@@ -319,6 +319,7 @@ var
   hoverLines: seq[string]
   hoverScroll = 0
   hoverOpen = false
+  hoverForBuf = -1                      # the tab the hover popup was opened in (another one shown: it closes)
   helpOpen = false
   helpScroll = 0
   jumpStack: seq[(string, Pos)]
@@ -400,6 +401,7 @@ var
   pickBox: tuple[x, y, w, h: int]
   pickListY = 0
   pickListN = 0
+  pickRowH = 1               # (6.32) a list row's height: 2 for touch (ui.bigTargets)
   settingKey = ""            # the setting a value prompt is for
   dndPrevBufId = -1         # (drag and drop) the file shown before the press — a tab's press shows the tab's
   pickRegions = -1          # the picker's own regions (its query field, its buttons) start here
@@ -522,6 +524,7 @@ type
   Pane = object
     bufId: int
     snap: ViewSnap
+    tabs: seq[int]       # (6.32) the files this pane has shown, its own tabs in its header (buffer ids)
     rect: tuple[x, y, w, h: int]
     gutterW, textW, textH: int
   PaneNode = ref object
@@ -539,6 +542,7 @@ var
   paneRoot: PaneNode = PaneNode(leaf: true, pane: 0)
   paneLast = -1          # the pane that had the focus before the active one (the "other pane" of two-pane commands)
   paneZoom = false       # the active pane alone, full size, for a while (its layout kept)
+  paneAfterClose = -1    # (a file closed in the active pane: the pane's tab to show instead, its buffer id)
   splitDivs: seq[tuple[x, y, len: int, vertical: bool, node: PaneNode, x0, size: int]]   # the dividers on screen
   dragDiv = -1           # the divider a drag moves (its index in splitDivs, which are drawn again each frame)
   dragNode: PaneNode     # … and its split: the index is checked against it

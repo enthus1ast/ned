@@ -15,7 +15,8 @@ let queue = Promise.resolve();
 function options() {
   const c = vscode.workspace.getConfiguration('nedls');
   const o = {};
-  for (const k of ['inlayHints', 'parameterHints', 'raisesHints', 'checkOnSave', 'liveDiagnostics', 'nedSettings']) {
+  for (const k of ['inlayHints', 'parameterHints', 'raisesHints', 'checkOnSave', 'liveDiagnostics', 'workspaceDiagnostics',
+                   'nedSettings']) {
     o[k] = c.get(k);
   }
   const w = c.get('formatLineLength');

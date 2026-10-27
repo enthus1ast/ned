@@ -1,7 +1,8 @@
 #!/bin/bash
 # termux.sh [OUTDIR] — ned, nedls and nedfmt for Termux (Android, arm64) built here with zig, and the Termux
 # package (ned_<version>_aarch64.deb: `pkg install ./ned_*.deb` on the phone, or `dpkg -i`).
-# Needs nim and zig (https://ziglang.org — `pip install ziglang` works) and dpkg-deb.
+# Needs nim and zig (https://ziglang.org — `pip install ziglang` works) and dpkg-deb. The package's SHA-256 goes into
+# OUTDIR/SHA256SUMS (signed with NED_SIGNING_KEY when it is set: tests/build/sums.sh).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -41,10 +42,20 @@ rm -rf "$pkg"
 pre="$pkg/data/data/com.termux/files/usr"
 mkdir -p "$pre/bin" "$pre/share/doc/ned" "$pre/share/ned" "$pkg/DEBIAN"
 for p in ned nedls nedfmt; do install -m 755 "$out/$p" "$pre/bin/$p"; done
-install -m 644 "$root/README.md" "$root/CHANGELOG.md" "$root/LICENSE" "$pre/share/doc/ned/"
+install -m 644 "$root/README.md" "$root/CHANGELOG.md" "$root/LICENSE" "$root/PLUGIN-EXCEPTION.md" "$pre/share/doc/ned/"
 cp -r "$root/docs" "$pre/share/doc/ned/docs"       # (the README's links into docs/ work there too)
 cp -r "$root/examples/plugins" "$pre/share/ned/plugins"
 size=$(du -sk "$pkg/data" | cut -f1)
+# (when installed: Nim's standard library read into ned's index cache once — the first session starts at once)
+cat > "$pkg/DEBIAN/postinst" <<'POST'
+#!/data/data/com.termux/files/usr/bin/sh
+if command -v nim > /dev/null 2>&1; then
+  echo "ned: reading Nim's standard library once, so that completion and hover start at once…"
+  ned --warm-index -q || true
+fi
+exit 0
+POST
+chmod 755 "$pkg/DEBIAN/postinst"
 cat > "$pkg/DEBIAN/control" <<EOF
 Package: ned
 Version: $version
@@ -61,3 +72,5 @@ EOF
 deb="$out/ned_${version}_aarch64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$pkg" "$deb" > /dev/null
 echo "$deb"
+# (its SHA-256 in $out/SHA256SUMS, signed with NED_SIGNING_KEY when it is set: what ned --update checks)
+sh "$here/sums.sh" "$out" "$deb"

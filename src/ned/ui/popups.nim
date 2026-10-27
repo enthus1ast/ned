@@ -289,6 +289,12 @@ proc drawPicker() =
       py = if scrH > 24: 2 else: 1
       n = min(maxRows, max(1, pickShown.len))
     ph = n + 4
+  # (6.32: rows twice as tall for fingers — ui.bigTargets; not the quick fixes' box by its line)
+  let bt = sStr("ui.bigTargets")
+  pickRowH = if not pickNear and (bt == "on" or (bt == "auto" and lay.touchY >= 0)) and scrH >= 20: 2 else: 1
+  if pickRowH > 1:
+    n = max(1, n div 2)
+    ph = n * 2 + 4
   var title = pickTitle
   if pickKind == pickFile and scanning: title = "Open file — indexing " & $fileCache.len & " files…"
   elif pickKind == pickFile and scanTruncated: title = pickTitle & " — first " & $cfgScanLimit & " files"
@@ -306,7 +312,7 @@ proc drawPicker() =
   let lq = pickQueryNorm()
   pickBox = (px, py, pw, ph)
   pickListY = py + 3
-  pickListN = n
+  pickListN = n * pickRowH
   pickRegions = regions.len
   let iy = py + 1
   let x = putStr(px + 2, iy, "› ", theme.accent, theme.popupBg, {aBold})
@@ -355,10 +361,11 @@ proc drawPicker() =
     let fg = if solid: theme.popupSelFg else: theme.fg
     let dimC = if solid: theme.popupSelFg else: theme.dim
     let hlC = if solid: theme.popupSelFg else: theme.accent
-    let y = py + 3 + r
-    fillRect(px + 1, y, pw - 2, 1, fg, bg)
+    let y = py + 3 + r * pickRowH
+    fillRect(px + 1, y, pw - 2, pickRowH, fg, bg)
     var xx = px + 2
-    if sel: discard putStr(px + 1, y, "▍", hlC, bg)
+    if sel:
+      for k in 0 ..< pickRowH: discard putStr(px + 1, y + k, "▍", hlC, bg)
     if it.icon.len > 0:
       let ic = if solid: fg
         else:

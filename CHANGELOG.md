@@ -1,6 +1,104 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-631). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-632). Older releases:
+
+## What's new in 6.31
+
+6.31 is the release for everyone: ned is now under the **GNU GPL (version 3 or later)**, and comes with
+**documentation for those who want to work on it** and a **plugin API documented end to end**. The editor is cut
+into **as many panes as you like**, **multibuffers** edit pieces of many files as one and follow their files, and
+plugins can use both. Code snaps are PNG pictures too, the VS Code extension needs nothing from npm, and the
+release went through a hardening pass.
+
+**Panes, tiled.** Split the editor right or down as often as there is room — three columns, a grid of four, one large
+file with three stacked beside it (*View › Panes*, or ready-made: *View: panes: two columns*, *three columns*, *grid
+of four*, *one large and three*). Ctrl+Alt+Shift+arrows go to the pane that way, Alt+\ to the next, Alt+| closes the
+pane; drag the line between two panes (the other lines stay where they are), Ctrl+Alt+arrows resize from the
+keyboard; swap two panes' files, show one pane alone (zoom) and back, make them equal, turn a split. A tab dropped
+on a pane shows there — on its right or bottom quarter, it cuts that pane in two. Vim's Ctrl+W works (h j k l, w, s,
+v, q, o, =, x, H J K L), and `:q` closes a pane. The panes and their files come back the next time.
+[Panes](docs/guide/projects.md#panes-tiling).
+
+**Multibuffers.** A multibuffer — search results, problems, TODOs, the open files, the selection you add from a file
+(*Multibuffer: add the selection*) — numbers its lines as their files do; while you have not edited it, it follows its
+files (an edit in another tab, a formatter, git); saving writes only the pieces you edited, where their lines are now.
+Each piece's header has ⇡ ⇣ (more lines above, below) and ✕ (out); F12 goes to a definition through the file;
+*next piece*, *previous piece*, *refresh*. And safer: a piece ending with an empty line keeps it (and its file its last
+line end), a piece of a library's file or a read-only tab is not written, a multibuffer with edits not saved is not
+replaced by a new one of the same name. [Multibuffers](docs/guide/search.md#editing-the-results-multibuffers).
+
+**Telescope.** Alt+V opens the place chosen in a pane at the right, Alt+X in a pane below, and Alt+Q puts
+everything a finder lists in a multibuffer (as telescope.nvim's quickfix); new finders: *Lines of this file*,
+*Panes*, *Jumps*. Its **⊙** is in the status bar, beside the assistant's ✦ — and in a Markdown file **M↓** opens
+its preview beside it, and closes it. [Telescope](docs/guide/search.md#telescope-one-finder-for-everything-altshiftf).
+
+**Plugins.** The whole API is documented — every proc with what it does, what it returns, when ned waits for it,
+its limits and an example —, a new [cookbook](docs/plugins/cookbook.md) has 21 whole plugins checked by the tests,
+and plugins can split, fill and focus panes and make, read and grow multibuffers (`panes`, `splitPane`,
+`showInPane`, `paneLayout`, `openMultibuffer`, `pieces`, `addPiece`, `placeInFile` …). A plugin that gives ned a
+program to run — a language server, a formatter, a language's run or build command — now asks for the
+permission to run programs, as one that runs it itself does (ned's own plugins that you had on keep working); a
+plugin's `:` command starts with a capital letter, so `:w` and `:q` stay ned's.
+[Plugins](docs/plugins/README.md) · [API](docs/plugins/api.md) · [Cookbook](docs/plugins/cookbook.md).
+
+**For contributors.** [docs/dev](docs/dev/README.md): how ned is put together, how a frame is drawn, the text and
+editing machinery, the engines and nedls, the integrations, the plugin host, every test suite, recipes (a command,
+a setting, a dock, a language, a theme …) and the pitfalls that cost time before.
+
+**Code snap as PNG.** *Code snap: selection as PNG* draws the picture with rsvg-convert, resvg, ImageMagick, Inkscape
+or Chromium, the first one installed; with none of them it asks which to install and runs the command — `pkg install
+librsvg` in Termux, apt, dnf, pacman, Homebrew … — in the terminal.
+
+**VS Code.** The nedls extension is plain JavaScript with its own client — no npm packages — built by a script into
+a `.vsix` with nothing but Python.
+
+**Fixed:** a problem the compiler puts after the last line ("expected: ')', but got: '[EOF]'") was in Problems but
+not in the editor — it is at the end of the last line, and F8 goes there; in zen mode what follows a line (a C
+signature, a problem) was cut at the column — it goes on into the margin; a .nimble's fields written `name = value`
+each are lined up again as nimble's template writes them (`nim.format.alignNimbleFields`); the find box selects the
+text it opens with, so typing replaces it.
+
+Today's scoreboard (the engines are 6.29's):
+
+<!-- scoreboard -->
+| | score | at least |
+|---|---|---|
+| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
+| nim: go to definition, the same place | 100.0% ✓ | 98% |
+| nim: a variable's type, the same | 98.7% ✓ | 97% |
+| nim: member completion, ned | 98.4% ✓ | 96% |
+| nim: member completion, nimsuggest (not checked) | 70.9% |  |
+| nim: references in the file, the same as nimsuggest's | 95.6% ✓ | 92% |
+| nim: as you type, the compiler's errors found | 100.0% ✓ | 95% |
+| nim: as you type, clean files with no wrong error | 100.0% ✓ | 95% |
+| nedls: completion: the name offered | 100.0% ✓ | 98% |
+| nedls: hover: its doc comment | 100.0% ✓ | 97% |
+| nedls: hover: the same declaration | 98.9% ✓ | 97% |
+| nedls: hover: there | 100.0% ✓ | 98% |
+| nedls: signature help: the routine | 100.0% ✓ | 97% |
+| c: go to definition, the same as clangd's | 97.5% ✓ | 95% |
+| c: member completion, ned | 100.0% ✓ | 96% |
+| c: member completion, clangd (not checked) | 96.9% |  |
+| c: hover, the same parameters | 100.0% ✓ | 96% |
+| c++: go to definition, the same as clangd's | 100.0% ✓ | 95% |
+| c++: member completion, ned | 100.0% ✓ | 95% |
+| c++: member completion, clangd (not checked) | 96.2% |  |
+| c++: hover, the same parameters | 100.0% ✓ | 96% |
+| versus nimlangserver: hover, nedls | 98.3% ✓ | 90% |
+| versus nimlangserver: hover, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: definition, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: definition, nimlangserver (not checked) | 55.0% |  |
+| versus nimlangserver: member offered, nedls | 96.7% ✓ | 90% |
+| versus nimlangserver: member offered, nimlangserver (not checked) | 63.3% |  |
+| versus nimlangserver: the same definition where both answer | 97.0% ✓ | 90% |
+| format: lines the same as nph's | 99.6% ✓ | 99% |
+| format: files formatted, of those nph formats | 100.0% ✓ | 99% |
+
+against nimlangserver: nedls answers in 1.6 ms (the median), ready after 78 ms; nimlangserver in 253.6 ms, ready after 2120 ms
+
+against nph: 463 files formatted in 1.53 s by ned, 2.31 s by nph; nph refused 0, ned left 0 alone
+<!-- /scoreboard -->
+---
 
 ## What's new in 6.30
 

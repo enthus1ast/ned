@@ -245,7 +245,13 @@ proc nimGdbScript(): string =
     cands.add lib / "tools" / "debug" / "nim-gdb.py"
   for c in cands:
     if fileExists(c): return c
-  ""
+  # (6.32) none with the Nim in use (some packages of Nim leave tools/ out): ned's own copy of Nim's
+  const Bundled = staticRead("nim-gdb.py")
+  let own = privDir() / "nim-gdb.py"
+  try:
+    if not fileExists(own) or readFile(own) != Bundled: writeFile(own, Bundled)
+    return own
+  except CatchableError: ""
 
 proc dbgLaunch() =
   dbgSend(dbgLaunchCmd)                         # (the program's input is not gdb's)

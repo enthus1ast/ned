@@ -27,6 +27,9 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `ui.statusBar` | `true` | Status bar at the bottom |
 | `ui.touchBar` | `"off"` | A row of big keys above the status bar for touch (Esc, Tab, arrows, undo, redo, save, find, commands): auto = on narrow screens (phones). View › Appearance › Touch bar, or the palette, turns it on and off — one of: off, on, auto |
 | `ui.touchBarKeys` | `["esc","tab","unindent","left","down","up","right","undo"…` | The touch bar's keys, in order: esc tab indent unindent enter left right up down home end pgup pgdn undo redo save find palette copy cut paste, a key like "ctrl+p" or "alt+r", or "Label=command" for any palette command (e.g. "Run=Run file") |
+| `ui.batterySaver` | `"auto"` | Save the battery: no cursor glide, the compiler's check on save rather than while you type, no AI completion as you type, and ned wakes up less often when you are not typing — auto = while the device runs on its battery (as the system says; a tap on the leaf in the status bar turns it on or off) — one of: auto, on, off |
+| `ui.bigTargets` | `"auto"` | Lists (Open file, the palette, Telescope …) with rows twice as tall, easier to tap: auto = while the touch bar is shown — one of: auto, on, off |
+| `ui.touchBarLanguageKeys` | `{"nim":["▶=Run current file","✓=Nim: check project","…` | More touch bar keys while you edit a file of a language, after the others: by language id (nim, python, c …), each as in ui.touchBarKeys |
 | `ui.terminalScroll` | `true` | When the text moves up or down, let the terminal move the lines it shows and send only the new ones (much less to draw: smoother on Termux and over SSH). Turn it off if a terminal draws scrolled text in the wrong place |
 | `ui.minimap` | `"auto"` | Code minimap at the right edge ('auto' = when the editor is wide and the terminal draws fast enough) — one of: auto, on, off |
 | `ui.scrollbar` | `true` | Scrollbar with diagnostic marks (click or drag it to scroll) |
@@ -90,6 +93,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `editor.highlightOccurrences` | `true` | Highlight other occurrences of the word under the cursor |
 | `editor.continueComments` | `true` | Enter in a doc comment starts the next line with it: ## (Nim), /// and //! (C, C++, Rust …), * in /** … */ |
 | `editor.autoClosePairs` | `true` | Type the closing bracket/quote automatically |
+| `editor.autoDedent` | `true` | Nim: a closing bracket typed alone on its line goes back to the indentation of the line that opened it; of, elif, else, except and finally typed at the start of a line go back to the column of their case, if/when or try |
 | `editor.autoComplete` | `true` | Show completions while typing (Ctrl+Space always works) |
 | `editor.completionDocs` | `true` | Documentation of the selected completion beside the list (Ctrl+Space toggles it while the list is open) |
 | `editor.snippets` | `true` | Tab after a keyword expands a snippet (proc, for, test, def, fn, html …) |
@@ -101,7 +105,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `editor.formatOnSave` | `false` | Run the formatter when saving (for Nim: nim.formatter) |
 | `editor.formatOnPaste` | `"indent"` | Pasted lines of code: indent = they take the indentation of where they go (their own layout kept) · format = that, and Nim is formatted too (built-in formatter) · off = pasted exactly as copied — one of: indent, format, off |
 | `csv.alignColumns` | `true` | CSV and TSV files: line their columns up on screen (the file itself is not changed) and keep the first row in view |
-| `editor.formatOnSaveScope` | `"file"` | With editor.formatOnSave: the whole file, or only the lines you changed since git last saw it (staged or committed) — an old file you touch does not turn into one big diff — one of: file, changed |
+| `editor.formatOnSaveScope` | `"file"` | With editor.formatOnSave: the whole file, or only the lines you changed since git last saw it (staged or committed) — in a file git does not have, since you opened it; black, ruff and clang-format are given those lines — an old file you touch does not turn into one big diff — one of: file, changed |
 | `editor.formatOnSaveLanguages` | `[]` | With editor.formatOnSave: only these languages, e.g. ["nim", "json"] (their ids: nim, json, markdown, css, python …); empty: every language that has a formatter |
 | `editor.persistentUndo` | `true` | Keep each file's undo history after you close it (and ned): Ctrl+Z works again next time, as long as the file was not changed by something else |
 | `editor.renamePreview` | `true` | F2 rename: first list every change (Space unticks one, Enter applies) — false applies at once |
@@ -142,6 +146,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `nim.format.alignComments` | `false` | Built-in formatter: the comments at the end of lines that follow each other (`x: int  ## the x`) lined up at one column — the one they share already when there is room, else two after the longest line; a line the column would take past nim.format.lineLength keeps its comment one space after its code (off: one space each, as nph writes them) |
 | `nim.format.magicTrailingComma` | `false` | Built-in formatter: a list you end with a comma before its bracket — written one element a line, `f(⏎ a, ⏎ b, ⏎ )`, or on one line, `f(a, b,)` — stays one element per line, as black and ruff keep it (off: joined when it fits, as nph does) |
 | `nim.format.normalizeNumbers` | `false` | Built-in formatter: number literals written one way — 0x, 0b, 0o in lower case, hexadecimal digits in upper case (0xFF), e for an exponent (1e10), as ruff does |
+| `nim.format.embedded` | `true` | Built-in formatter: the SQL, HTML and JSON in triple-quoted strings formatted too (ned's own formatters, at the string's indentation) — the strings ned colours as that language: sql"""…""", #[sql]#, parseJson("""…"""), a database's exec/getRow…, nim.embeddedLanguages, or text that starts with SELECT … or an HTML tag. Off: strings stay exactly as written |
 | `nim.format.docCode` | `false` | Built-in formatter: the Nim code in doc comments formatted too — ```nim fences and .. code-block:: nim blocks in ## comments (ruff's docstring-code-format) |
 | `nim.format.reflowDocComments` | `false` | Built-in formatter: a ## doc comment paragraph with a line longer than nim.format.lineLength is re-wrapped to fit (lists, code and tables stay as they are) |
 | `nim.format.reflowComments` | `false` | Built-in formatter: a paragraph of # comments with a line longer than nim.format.lineLength is re-wrapped to fit, as reflowDocComments does for ## — prose only: what reads as commented-out code, banners, lists, TODOs and `# ned:` directives stay as they are (nph never re-wraps comments) |
@@ -343,6 +348,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `ai.fastModel` | `""` | A quicker, cheaper model to switch to (the ⚡ button in the assistant, or palette › AI: fast / smart model) — e.g. claude-haiku-5-5 or gpt-5-mini |
 | `ai.price` | `{}` | Dollars per million tokens, to show what a chat costs: {"input": 3, "output": 15, "cacheRead": 0.3} — empty shows tokens only |
 | `ai.warnTokens` | `60000` | Ask before sending a request bigger than this many tokens (0 = never ask) |
+| `ai.redactSecrets` | `true` | Keep secrets from the AI provider: API keys, tokens, private keys and passwords in what is sent (the file, the chat, the agent's reads, inline suggestions) are replaced with placeholders such as [REDACTED:api-key#1] — put back where the assistant writes one into a file — and files of secrets (.env, *.pem, id_ed25519, what the project's .gitignore keeps out for secrets) are not sent at all |
 | `ai.nimContext` | `true` | Nim files: send the definitions of the procs and types your code uses, found by the built-in engine, so answers know them |
 | `ai.commentCommands` | `true` | Comments ending in AI! or AI? (# make this a func AI!): when the file is saved, the assistant makes the change an AI! comment asks for — shown side by side, checked by the compiler first, to take or leave — and answers an AI? comment in the chat |
 | `ai.commentButton` | `true` | ✦ write it after the comment the cursor is on: the assistant writes the code the comment describes (as Alt+Shift+C on a comment does), shown before it is used |
@@ -372,6 +378,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `plugins.indexUrl` | `""` | A list of plugins to install from (Plugins: browse the plugin list…): a URL or a file of JSON — [{"name": …, "url": "https://… (git)", "description": …}] |
 | `plugins.checkForUpdates` | `true` | Once a day, ask the repositories of your plugins that came from git whether they have a newer version (git fetch, in the background): the Plugins dock shows ↑ 1.3.0, and Plugins: update… brings it. Plugins: check for updates asks now |
 | `plugins.pinned` | `{}` | Plugins kept at the version they are at — updates leave them alone: {"notes": "1.2.0"} (a plugin's menu in the Plugins dock: Pin at …) |
+| `plugins.sandbox` | `true` | Linux: run plugins in a sandbox (Landlock) — they read the project and what they need to run, and change files only in their data folder and the project, with no network, unless you allowed them more; a plugin you allowed to run programs itself runs as before (needs Linux 5.13 or newer: elsewhere plugins run as before) |
 | `plugins.timeoutMs` | `1500` | How long ned waits for a plugin that must answer before it goes on (an event before saving, a NimScript formatter, a vim text object) |
 | `plugins` | `{}` | Each plugin's own settings: {"zig-lite": {"width": 80}} — or "plugins.zig-lite.width": 80 (a plugin reads them with setting("width", 80)) |
 | `plugins.idleStopMinutes` | `10` | Stop the plugins' process after this many minutes without a call (0: never); it starts again when a plugin is needed. Plugins with timers or events keep it running |

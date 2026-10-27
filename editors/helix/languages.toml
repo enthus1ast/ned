@@ -1,0 +1,32 @@
+# nedls — ned's Nim engine as a language server — in Helix. Add these lines to your languages.toml
+# (~/.config/helix/languages.toml, or a project's .helix/languages.toml), then check with `hx --health nim`.
+
+[language-server.nedls]
+command = "nedls"
+args = ["--stdio"]
+
+# (sent when nedls starts; `nedls --help` lists them)
+[language-server.nedls.config]
+inlayHints = true
+parameterHints = "literals"       # literals | all | off
+raisesHints = false
+checkOnSave = true
+liveDiagnostics = true
+workspaceDiagnostics = true
+nedSettings = true                # your ned settings (~/.config/ned/config.json, .ned/settings.json) apply too
+
+[[language]]
+name = "nim"
+language-servers = ["nedls"]
+
+# ned's own engines for other languages too: add nedls to a language's servers. With another server for the same
+# language, choose what each one does, as here: clangd for everything but formatting, nedls for formatting
+# (Helix asks the first server that has a feature).
+#
+# [[language]]
+# name = "c"
+# language-servers = [{ name = "clangd", except-features = ["format"] }, "nedls"]
+#
+# [[language]]
+# name = "json"
+# language-servers = ["nedls"]

@@ -13,6 +13,7 @@ include "ned/nedls/features.nim"
 include "ned/nedls/diags.nim"
 include "ned/nedls/more.nim"
 include "ned/nedls/langs.nim"
+include "ned/nedls/symbols.nim"
 include "ned/nedls/actions.nim"
 include "ned/nedls/server.nim"
 

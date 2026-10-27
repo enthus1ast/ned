@@ -123,6 +123,22 @@ Ready-made layouts lay out the open files at once: *View: panes: two columns*, *
 *one large and three* (the current file large at the left, the next three stacked at the right). A tab dragged off
 the tab bar onto a pane shows it there; onto the right or bottom quarter of a pane, it cuts that pane in two.
 
+**Each pane its own tabs.** With more than one pane, the files a pane has shown are tabs in its header: a tap on one
+shows it there, Ctrl+PgUp and Ctrl+PgDn (Alt+← and Alt+→) go through that pane's tabs only, and its × takes the file
+out of the pane — and closes it when no other pane has it (asking first when it has unsaved changes). The tab bar at
+the top still lists every open file.
+
+**Named layouts.** *View: save this layout as…* keeps the panes — their files, their tabs, where each one is — with
+the side docks and the panel, under a name of your choosing, for the folder; *View: layouts…* puts one back
+(opening its files when they are closed), *View: forget a layout…* drops one. Also in View › Panes.
+
+**A terminal or the assistant as a pane.** *View: terminal in a pane* opens a shell of its own in a pane at the right
+— beside the code rather than under it — as a tab among the files: while that pane has the focus, keys go to the
+shell (Ctrl+Alt+Shift+arrows move to another pane); closing its tab (the × on the tab bar) ends the shell. The
+panel's terminals are separate. *View: assistant in a pane* moves the AI assistant from its dock into a pane the same
+way, and *View: panel in a pane* the bottom panel — Problems, Output, its terminals, the debugger — so that on a wide
+screen a build's output sits beside the code rather than under it.
+
 In vim mode, Ctrl+W works as in vim: h, j, k, l to the pane that way, w to the next, s and v split, q closes the pane,
 o keeps only this one, = makes them the same size, x swaps with the next, H J K L move the file that way; `:sp`, `:vs`,
 `:only`, and `:q` or `:close` close the pane when there are several.

@@ -222,6 +222,10 @@ proc mainLoop() =
       if b.changeId != b.swapAt and b.dirty: anySwap = true
     if anySwap: timeout = min(timeout, 1000)
     if away and not busy and inBuf.len == 0 and not inputBacklog and landBuf < 0: timeout = max(timeout, 1000)
+    # (saving the battery: while you are not typing, background work in slices a tenth of a second apart)
+    if batterySave and not busy and inBuf.len == 0 and not inputBacklog and msSince(lastInputAt) > 1500 and
+       not frameHeld:
+      timeout = max(timeout, 100)
     let caMs = caDueMs()
     if caMs >= 0: timeout = min(timeout, caMs)               # (the cursor's glide: its next frame)
     # (how long the round before took — a long one is a moment ned did not answer keys or the mouse)
@@ -290,12 +294,16 @@ proc mainLoop() =
       if mcpServers.len > 0: timedWork("MCP servers"): mcpPump(ready)
       timedWork("plugins"): plugPump(ready)
       timedWork("notebook"): nbPump(ready)
+      timedWork("Nim tour"): tourPump()
       if not syncStartDone: syncAtStart()
       if lfBusy() or buf().viewer != nil: timedWork("the large-file viewer"): lfPump()
       if dcView.bufId > 0: dcPump()
       if ce.viewBufId > 0: timedWork("Compiler Explorer"): cePump()
       if nifv.viewBufId > 0: timedWork("NIF view"): nifPump()
       if multiBufs.len > 0: timedWork("multibuffers"): mbPump()
+      if macroViews.len > 0: timedWork("macro expansions"): mvPump()
+      timedWork("nimble packages"): pkgWatchPump()
+      batteryPump()
       if astOn: astPump()
       if docPvSrc >= 0: docPvPump()
       if mcpWaitReq and not mcpStarting():
@@ -404,7 +412,7 @@ proc mainLoop() =
         if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb):
           timedWork("the compiler's check started"): typingCheck(cb)
         else: cb.chkAt = -1
-      elif cfgLiveCheck and (cb.dirty or cb.chkAt > 0) and cb.chkAt != cb.changeId and
+      elif cfgLiveCheck and not batterySave and (cb.dirty or cb.chkAt > 0) and cb.chkAt != cb.changeId and
          msSince(cb.lspChangeAt) > max(1200, min(4000, typingCheckMs.getOrDefault(cb.path, 0))) and
          cb.path notin typingChecks and not cEngineOn(cb) and not compOpen:   # (C: below)
         # (a check that takes long waits for a longer pause; none while the completion list is open: a word
@@ -552,7 +560,12 @@ proc usage() =
   echo "  -v, --version         show version"
   echo "  --check               check the setup: Nim, tools, clipboard, terminal (for bug reports too)"
   echo "  --update              install the newest release, the way this ned was installed (it asks first;"
-  echo "                        --check only says whether there is one, --yes does not ask)"
+  echo "                        --check only says whether there is one, --yes does not ask); the package is"
+  echo "                        checked against the release's SHA256SUMS and signature first. --update --verify"
+  echo "                        DIR [FILE…]: check a release you downloaded the same way"
+  echo "  --sandbox [options] [--] CMD…  run CMD (and what it starts) so that it changes files only in this folder,"
+  echo "                        reads only it and the system's, and has no network (Linux: Landlock) — the way"
+  echo "                        plugins run: ned --sandbox --help"
   echo "  --default-settings    print the full settings file with every option and its default"
   echo "  --doc-settings, --doc-commands  every setting, every command of the palette, as Markdown (the docs)"
   echo "  --reset [--yes] [--keep-plugins]  remove ned's settings, sessions, history, caches and downloads: ned"
@@ -566,6 +579,9 @@ proc usage() =
   echo "                        argument counts, unused imports and locals, a var that can be a let, deprecated or"
   echo "                        too-new library names … — text, GitHub annotations or JSON; --staged, --install-hook"
   echo "                        (git pre-commit): ned --lint --help"
+  echo "  --warm-index [-q]     read Nim's standard library into the index cache once, so a first session's"
+  echo "                        completion and hover start at once (the Termux package does it when installed)"
+  echo "  --import-theme FILE…  turn Zed (.json) and Helix (.toml) themes into your own, in ned's themes folder"
   echo "  --lsp-bridge FILE.nims  run a language server written in NimScript (import nedlsp) with the protocol's"
   echo "                        framing on stdin/stdout — the command for ned's plugins and for other editors"
   echo "  --wait FILE…          in ned's terminal (or with --remote): open the files in the running ned and wait"
@@ -773,6 +789,7 @@ proc main() =
         quit 0
       of "--engine-worker": workerMain()          # (the editor's engine worker: nim/worker.nim)
       of "--update": quit updateMain(cl[ai .. ^1])
+      of "--sandbox": quit sandboxMain(cl[ai .. ^1])     # (sys/landlock.nim: a command limited by Landlock)
       of "--term-host":                           # (a kept terminal's shell: term/termhost.nim)
         when not defined(windows): termHostMain(cl[ai .. ^1])
         else: quit 2
@@ -798,6 +815,9 @@ proc main() =
         formatFiles(cl[ai .. ^1])
       of "--lint":
         quit lintMain(cl[ai .. ^1])
+      of "--warm-index":
+        quit warmIndexMain(cl[ai .. ^1])
+      of "--import-theme": quit importThemeCli(cl[ai .. ^1])
       of "--lsp-bridge":
         # (a language server written in NimScript — nedlsp — given the protocol's framing: for ned and other editors)
         if ai >= cl.len: quit "ned: --lsp-bridge needs a .nims file", 2

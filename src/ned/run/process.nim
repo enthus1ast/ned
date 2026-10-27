@@ -116,7 +116,7 @@ proc spawnProc(argv: seq[string], cwd: string, sin = siNull, serr = erMerge, nic
   if argv.len == 0: raise newException(OSError, "empty command")
   if cfgFolderTrust == "ask" and runsProjectCode(argv):
     var where = if cwd.len > 0: cwd else: getCurrentDir()
-    if where.startsWith(privDir()) or where.startsWith(getTempDir()):
+    if (where.startsWith(privDir()) or where.startsWith(getTempDir())) and not codeTrusted(where):
       where = if rootDir.len > 0: rootDir else: where        # (a private copy of the text: the project's)
     if not codeTrusted(where):
       askTrust(where)

@@ -44,4 +44,10 @@ if [ -n "$ZIG" ]; then
 else
   echo "zig not found: macOS, Android and Windows builds skipped"
 fi
+# (the programs' SHA-256 in $out/SHA256SUMS, signed with NED_SIGNING_KEY when it is set: tests/build/sums.sh)
+set --
+for f in "$out"/ned-* "$out"/nedfmt-* "$out"/nedls-*; do
+  case "$f" in *.log) ;; *) [ -f "$f" ] && set -- "$@" "$f" ;; esac
+done
+[ $# -gt 0 ] && { sh "$here/sums.sh" "$out" "$@" || fails=1; }
 exit $fails

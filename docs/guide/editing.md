@@ -36,7 +36,9 @@ also in the **Edit** menu and the palette (Ctrl+E). With vim, Emacs or Helix key
 - **Auto-pairs and indentation**: a bracket or quote closes itself (`editor.autoClosePairs`), Enter indents the next
   line as the language expects (after a `:` in Nim and Python, a `{` in C …), and in a doc comment Enter starts the
   next line with `##`, `///` or ` * ` (`editor.continueComments`). Pasted code takes the indentation of where it
-  goes (`editor.formatOnPaste`).
+  goes (`editor.formatOnPaste`). In Nim a closing bracket typed alone on its line goes back to the line that opened
+  it, and `of`, `elif`, `else:`, `except`, `finally:` typed at the start of a line go back to their `case`, `if` or
+  `try` (`editor.autoDedent`).
 - **Snippets**: Tab after a keyword (`proc`, `for`, `test`, `def`, `fn` …) writes the whole construct; Tab and
   Shift+Tab move through its fields. Nim, Python, C, C++, JavaScript/TypeScript, Rust, Go, HTML and shell have
   snippets; yours go in the `snippets` setting — `{"nim": {"dbg": "echo \"${1:x} = \", $1"}}` (`"*"` for every
@@ -77,8 +79,12 @@ server's folding ranges, when it has them); `editor.folding` turns it off.
 - **Rulers** at the columns you choose — `"editor.rulers": [80, 120]`, or `["lineLength"]` for where the formatter
   wraps — and the part of a line past the last one tinted (`editor.rulerTint`). *View: set ruler columns…*.
 - **Sticky scroll** keeps the headers of the proc and the type you are in at the top; **indentation guides**,
-  **rainbow brackets**, the **minimap**, the **word under the cursor** highlighted everywhere it appears — each one
-  its own setting, and each one in **View**.
+  **rainbow brackets**, the **minimap** (with what the find box finds marked at its right edge, and git's changes —
+  added, changed, deleted lines — at its left), the **word under the cursor** highlighted everywhere it appears —
+  each one its own setting, and each one in **View**.
+- **Breadcrumbs** (the bar under the tabs): a tap on a folder lists what is in it — pick a file to open it; a tap on
+  a symbol (the proc, the type you are in) lists the declarations beside it in the same block — pick one to go
+  there.
 - **Colour swatches**: a small block in the colour before `#RRGGBB`, `rgb(…)`, `hsl(…)` and Nim's `0xRRGGBB`; a
   click copies the colour in another notation, or makes it lighter or darker.
 - **Ligatures** (`editor.fontLigatures`): `->`, `=>`, `!=`, `<=`, `>=` drawn as one symbol by ned in any terminal

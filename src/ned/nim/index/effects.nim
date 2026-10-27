@@ -162,3 +162,88 @@ proc nxFuncHints*(f: NxFile, lines: seq[string], ms = 2000, keep: proc(s: NxSym)
     let x = nxFxOne(c, NxRef(file: f, idx: int32(i)))
     if x.cut: return (result[0], true)
     if x.known and x.pure: result[0].add i
+
+# ── why tracers: why a routine raises an exception, or has a side effect — the place in its body where it comes in,
+#    then the routine called there and the place in its body, … down to the raise, the global, or the declaration
+#    that starts it ──
+
+type
+  NxWhyKind* = enum nwCall, nwRaise, nwGlobal, nwDeclared, nwStop
+  NxWhyStep* = object
+    path*: string
+    line*, col*: int
+    routine*: string           # the routine this place is in
+    what*: string              # (nwCall) the routine called · (nwGlobal) the variable · (nwDeclared, nwStop) why
+    kind*: NxWhyKind
+
+proc nxWhyRef(v: NxVia): NxRef =
+  ## the routine a step calls, found again by its file, line and name
+  var f = nxFiles.getOrDefault(v.path)
+  if f == nil:
+    try: f = nxLoad(v.path)
+    except CatchableError: return
+  if f == nil: return
+  for i in 0 ..< f.syms.len:
+    if f.syms[i].line == v.line and f.syms[i].name == v.name: return NxRef(file: f, idx: int32(i))
+
+proc nxFxBody(r: NxRef, ms: int): NxRaises =
+  ## (fx) the side effects of a routine, with where each comes in (the first one: the rest is not read)
+  var c = nxFxCtx(4000, ms)
+  try: result = nxRsRoutine(c, r, "", -1)
+  except CatchableError: result = nxRsFail("an error")
+  if c.cut: result = NxRaises(known: false, why: "out of time", cut: true)
+
+proc nxWhy*(r: NxRef, exc: string, fx = false, ms = 8000): seq[NxWhyStep] =
+  ## why routine `r` raises `exc` (fx: has side effects): each place on the way, the first in r's own body
+  if r.file == nil or r.sym.kind notin NxRoutineKinds: return
+  let t0 = getMonoTime()
+  var cur = r
+  var seen: HashSet[string]
+  for _ in 0 .. 24:
+    let key = cur.file.path & ":" & $cur.sym.line
+    if key in seen: break
+    seen.incl key
+    let left = ms - int((getMonoTime() - t0).inMilliseconds)
+    if left <= 0:
+      result.add NxWhyStep(path: cur.file.path, line: cur.sym.line, col: cur.sym.col, routine: cur.sym.name,
+                           what: "out of time", kind: nwStop)
+      return
+    let x = if fx: nxFxBody(cur, left) else: nxRaisesOfBody(cur, 4000, left)
+    let at0 = NxWhyStep(path: cur.file.path, line: cur.sym.line, col: cur.sym.col, routine: cur.sym.name)
+    if not x.known:
+      var s = at0
+      s.kind = nwStop
+      s.what = if x.why.len > 0: x.why else: "the engine cannot tell"
+      result.add s
+      return
+    var hit = -1
+    for i, e in x.excs:
+      if (fx and e.name == NxFxMark) or (not fx and nxNorm(e.name) == nxNorm(exc)):
+        hit = i
+        break
+    if hit < 0:
+      var s = at0
+      if fx:
+        s.kind = nwDeclared
+        s.what = if x.why.len > 0: x.why else: cur.sym.name & " has side effects"
+      else:
+        let (has, list) = nxRaisesDeclared(cur)
+        s.kind = (if has: nwDeclared else: nwStop)
+        s.what = if has: "{.raises: [" & list & "].}" else: "the engine does not see where"
+      result.add s
+      return
+    let e = x.excs[hit]
+    if e.at.path.len == 0:
+      var s = at0
+      s.kind = nwDeclared
+      s.what = if fx: (if x.why.len > 0: x.why else: cur.sym.name & " has side effects")
+               else: "it declares it"
+      result.add s
+      return
+    var s = NxWhyStep(path: e.at.path, line: e.at.line, col: e.at.col, routine: cur.sym.name, what: e.at.what)
+    s.kind = if e.via.path.len > 0: nwCall elif e.at.what == "raise": nwRaise elif fx: nwGlobal else: nwRaise
+    result.add s
+    if e.via.path.len == 0: return
+    let nx = nxWhyRef(e.via)
+    if nx.file == nil: return
+    cur = nx

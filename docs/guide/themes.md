@@ -2,8 +2,8 @@
 
 ned draws everything itself, in the terminal's own font, so how it looks is up to you: 56 built-in themes, light or
 dark that follows the terminal or the clock, your own colours over any theme, a theme editor that checks contrast,
-VS Code and base16 themes imported, Termux's colours set to match, three icon sets, an accessibility mode, a layout
-for phones, and settings for every bar, line and mark on the screen. The settings named here go in
+VS Code, Zed, Helix and base16 themes imported, Termux's colours set to match, three icon sets, an accessibility
+mode, a layout for phones, and settings for every bar, line and mark on the screen. The settings named here go in
 `~/.config/ned/config.json` or the Settings window — see [Settings](settings.md) and [every
 setting](../reference/settings.md#appearance).
 
@@ -143,6 +143,7 @@ Themes of your own are JSON files in **`~/.config/ned/themes/`** (`$XDG_CONFIG_H
 - `base` — the built-in theme every colour you leave out comes from (without it: `nim-crown` for a dark theme,
   `github-light` for a light one).
 - `dark` — whether it is a dark theme; left out, ned tells from `bg`.
+- `boldKeywords` — `true` for keywords in bold; left out, as in `base`.
 - `colors` — any of the [colour names](#changing-colours-themecolors).
 
 Saving a file in that folder applies the change straight away; *Theme: reload theme files* reads the folder again
@@ -158,6 +159,41 @@ after you copy files in. Your themes travel with [Settings sync](terminal.md#set
 
 The theme is written to `~/.config/ned/themes/` (a name a built-in theme has gets `-imported`), put in use, and can
 be edited there like any of your own.
+
+## Importing Zed and Helix themes
+
+*Theme: import a Zed or Helix theme…* asks for a file:
+
+- a **Zed** theme `.json`. A file with several themes in it (a light and a dark one, say) brings all of them. ned
+  takes the editor's background, text and selection, the title bar, panels and status bar, the colours of errors,
+  warnings and added lines, and the syntax colours of comments, keywords, types, strings, numbers, functions,
+  operators, preprocessor lines and properties. A keyword `font_weight` of 600 or more makes keywords bold.
+- a **Helix** theme `.toml`, with its `[palette]` and what it `inherits`. ned looks for the parent theme beside the
+  file, then in `~/.config/helix/themes` and in Helix's own `runtime/themes` folder. ned takes `ui.background`,
+  `ui.text`, `ui.selection`, `ui.cursor`, `ui.statusline`, `ui.bufferline` and `ui.virtual.ruler`, and the scopes
+  of comments, keywords, types, strings, numbers, functions, operators, macros, members, errors, warnings and added
+  lines. A colour given by a terminal colour's name (`"red"`, `"light-blue"` …) gets xterm's shade of it.
+
+Each theme becomes an ordinary theme file in `~/.config/ned/themes/`. It is named after the theme (Zed) or the file
+(Helix), with `-imported` added when a built-in theme has that name. The theme that is light or dark like the one
+you use now is put in use, and Alt+T has the others. Two things are done for you, and the message says which
+colours they changed:
+
+- What the theme does not say comes from the built-in theme nearest to it of the same kind, light or dark: that theme
+  is the file's `base`. The bars a theme does not colour are made from its background, as ned's own are.
+- A colour too faint to read on the background is made lighter or darker until it reads, its hue kept: text 7:1,
+  code 4.5:1, comments and operators 3:1, and 4.5:1 for text on the selection and on the bars.
+
+The file's `importedFrom` says where the theme came from; ned does not use it. Change the file like any of your own,
+or with the [theme editor](#the-theme-editor). A VS Code or base16 file given to this command is imported as
+*Theme: import a VS Code or base16 theme…* imports it.
+
+From the shell, `ned --import-theme FILE…` writes the theme files without starting ned, and leaves your `theme`
+setting as it is:
+
+```sh
+ned --import-theme ~/Downloads/harbour.json ~/.config/helix/themes/harbour.toml
+```
 
 ## Termux colours
 
@@ -194,9 +230,17 @@ Appearance › *Icons*) goes through them.
 - **Phones.** Below 70 columns ned switches to a phone layout: a dock opens over the editor at full width and gets
   out of the way when the editor has the focus again. `"ui.touchBar": "auto"` (or `on`; *Toggle touch bar*) adds a
   row of big keys above the status bar — choose them with `ui.touchBarKeys`: key names (`esc`, `tab`, `undo`,
-  `save`, `find`, `palette` …), a key like `"ctrl+p"`, or `"Label=command"` for any palette command. Press and hold
+  `save`, `find`, `palette` …), a key like `"ctrl+p"`, or `"Label=command"` for any palette command. While you
+  edit a file of a language the bar adds that language's own keys (`ui.touchBarLanguageKeys`): in a Nim file ▶ run,
+  ✓ check the project, μ what the macro writes, ? why, ⚡ quick fixes — when the row is too narrow for all, the usual
+  keys other than Esc, Tab and the arrows give way. With the touch bar shown, lists (Open file, the palette,
+  Telescope …) have rows twice as tall, easier to tap (`ui.bigTargets`: `auto`, `on`, `off`). Press and hold
   opens the context menu (`ui.longPressMenu`), and Alt+U turns ned's mouse off for a moment so Termux can select
   text. More in the [FAQ](../FAQ.md#speed-and-phones).
+- **Battery saver** (`ui.batterySaver`: `auto` — while the device runs on its battery —, `on`, `off`): no cursor
+  glide, the compiler's check on save instead of while you type (ned's own checks still run as you type), no AI
+  completion as you type, and background work in fewer, larger steps while you are not typing. A leaf ❦ in the
+  status bar shows it is on; a tap turns it off.
 
 ## Ligatures
 

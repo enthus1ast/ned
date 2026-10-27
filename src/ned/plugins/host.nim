@@ -24,14 +24,16 @@ const
   PlugExDir = currentSourcePath().plugSrcUp(4) & "/" & "examples" & "/" & "plugins"
   PlugBundledDir = currentSourcePath().plugSrcUp(4) & "/" & "plugins"
   # ned's own plugins: in ned, off until you turn one on (Plugins dock › AVAILABLE, Plugins › Available plugins…)
-  PlugBundledNames = ["align", "case-change", "char-picker", "clojure", "cmake", "code-snap", "color-picker",
-                      "commit-helper", "crystal", "dart", "db-client", "dial", "doc-gen", "dotenv", "elixir",
-                      "erlang", "exchange", "gleam", "graphql", "harpoon", "haskell", "import-graph", "indent-dots",
-                      "json-to-nim", "julia", "latex", "license-header", "markdown-tools", "mermaid", "nim-eval",
-                      "nim-html", "nix", "ocaml", "odin", "oil", "path-complete", "perl", "pomodoro", "protobuf", "r",
-                      "rainbow-indent", "regex-lab", "release-helper", "rest-client", "scala", "split-join", "sqlite",
-                      "svelte", "swift", "terraform", "text-objects", "time-tracker", "todo", "transform",
-                      "web-preview", "which-key", "yank-ring", "zig"]
+  PlugBundledNames = ["ada", "align", "benchy", "case-change", "char-picker", "clojure", "cmake", "code-snap",
+                      "color-picker", "commit-helper", "containers", "crystal", "dart", "db-client", "dial",
+                      "doc-gen", "dotenv", "elixir", "erlang", "examples-to-tests", "exchange", "fortran", "github",
+                      "gleam", "graphql", "harpoon", "haskell", "import-graph", "indent-dots", "json-to-nim", "julia",
+                      "kanban", "kotlin", "latex", "license-header", "markdown-tools", "mermaid", "nim-eval",
+                      "nim-html", "nim-playground", "nimble-browser", "nix", "ocaml", "odin", "oil", "pascal",
+                      "path-complete", "perl", "pomodoro", "protobuf", "r", "rainbow-indent", "regex-lab",
+                      "release-helper", "rest-client", "scala", "split-join", "sqlite", "svelte", "swift",
+                      "terraform", "text-objects", "time-tracker", "todo", "transform", "typst", "vlang",
+                      "web-preview", "web-routes", "which-key", "wiki-notes", "yank-ring", "zig"]
   PlugBundled = block:
     var r: seq[(string, string, string)]           # name, what it does (its first ## line), its source
     for n in PlugBundledNames:
@@ -1039,6 +1041,38 @@ proc plugBeingWritten(h: PlugHost): bool =
       except CatchableError: discard
   false
 
+proc plugSandboxed(h: PlugHost, argv: seq[string]): seq[string] =
+  ## the host's command inside ned's sandbox (Linux's Landlock, plugins.sandbox: ned --sandbox): its plugins read
+  ## the project and what they need to run, write only their data folders and the project, and have no network —
+  ## more only when you allowed it ("files": any file, "network"). A host with a plugin you allowed to run programs
+  ## itself runs as before (the programs could do anything you can), as every host does where there is no Landlock
+  result = argv
+  if not sBool("plugins.sandbox") or landlockAbi() == 0: return
+  var p = SandboxPolicy(listAll: true)
+  p.read.add [plugUserRoot(), plugCacheRoot()]
+  for id in h.ids:
+    let k = plugInfoOf(id)
+    if k < 0: continue
+    let g = plugGranted.getOrDefault(plugPermKey(plugs[k]))
+    if ppShell in g and plugs[k].scan.ownShell: return argv
+    if ppFiles in g: p.files = true
+    if ppNetwork in g:
+      p.net = true
+      p.keepEnv = true                      # (a key in the environment is what a plugin on the network may need)
+    p.read.add plugs[k].dir
+    let d = plugDataRoot() / id
+    try: createDir(d)
+    except CatchableError: discard
+    p.write.add d
+  # (the project — not when it is your home folder or holds it: then the sandbox would keep nothing from it)
+  let home = getHomeDir().strip(leading = false, chars = {'/'})
+  let r = rootDir.strip(leading = false, chars = {'/'})
+  if r.len > 0 and home != r and not home.startsWith(r & "/"): p.write.add rootDir
+  plugLogAdd(plugLabel(h), "in the sandbox (Landlock): it changes files " &
+             (if p.files: "anywhere (\"files\" allowed)" else: "only in " & p.write.join(", ")) &
+             (if p.net: "; network allowed" else: "; no network"))
+  result = @[getAppFilename(), "--sandbox", "--quiet"] & sandboxArgs(p) & @["--"] & argv
+
 proc plugStart(h: PlugHost) =
   ## the process (nothing when its plugins are off; a full-Nim plugin is built first)
   if h.pr.pid > 0 or h.building: return
@@ -1083,7 +1117,7 @@ proc plugStart(h: PlugHost) =
   try:
     let cwd = plugUserRoot()
     createDir(cwd)
-    var p = spawnProc(argv, cwd, siPipe, erPipe, niceness = 5)
+    var p = spawnProc(plugSandboxed(h, argv), cwd, siPipe, erPipe, niceness = 5)
     h.pr = p
     h.fdIn = p.inFd
     h.fdOut = p.outFd

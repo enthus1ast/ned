@@ -3,6 +3,74 @@
 var jsonCrumbsAt = ((-1, -1, -1, -1), newSeq[(string, int)]())   # ((buffer, change, line, column), the keys there)
 
 
+# ── (6.32) a crumb tapped lists what is beside it: a folder's files and folders, a symbol's siblings (the other
+#    declarations in the same block) — pick one to go there ──
+
+const CrumbCtrl = ["if", "elif", "else", "while", "for", "when", "case", "of", "try", "except", "finally", "block",
+                   "switch", "do", "with", "return", "loop", "match", "catch", "static", "defer"]
+
+proc crumbIsDecl(s: string): bool =
+  ## a line that declares something (not a control statement): what a symbol's siblings are
+  let c = crumbName(s)
+  if c.len == 0: return false
+  let w = s.strip.split({' ', '(', ':'})[0]
+  w notin CrumbCtrl
+
+proc crumbSiblings(b: Buffer, line: int, parent: int): seq[PickItem] =
+  ## the declarations at the indentation of `line` inside the block of `parent` (-1: the whole file)
+  let ind = leadingWs(b.lines[line]).len
+  var a = 0
+  var e = b.lines.high
+  if parent >= 0:
+    let pind = leadingWs(b.lines[parent]).len
+    a = parent + 1
+    e = a
+    while e < b.lines.len and (b.lines[e].strip.len == 0 or leadingWs(b.lines[e]).len > pind): inc e
+    dec e
+  for l in a .. min(e, b.lines.high):
+    let s = b.lines[l]
+    if s.strip.len == 0 or leadingWs(s).len != ind or not crumbIsDecl(s): continue
+    result.add PickItem(label: crumbName(s), detail: (if l == line: "here · " else: "") & "line " & $(l + 1),
+                        icon: (if l == line: "▸" else: "·"), path: b.path, line: l, col: ind)
+    if result.len >= 500: break
+
+proc crumbSymbolAct(line, parent: int, name: string): Action =
+  (proc() =
+    let bb = buf()
+    if line >= bb.lines.len: return
+    let sib = if bb.path.len > 0: crumbSiblings(bb, line, parent) else: @[]
+    if sib.len < 2:
+      pushJump()
+      bb.centerOn(Pos(line: line, col: leadingWs(bb.lines[line]).len))
+      return
+    openPicker(pickSymbol, "Beside " & name & " — pick one to go there", sib))
+
+proc crumbFolderAct(dir: string): Action =
+  (proc() =
+    var items: seq[(string, string, proc() {.closure.})]
+    var ds, fs: seq[string]
+    try:
+      for k, p in walkDir(dir):
+        let n = extractFilename(p)
+        if n.startsWith("."): continue
+        if k in {pcDir, pcLinkToDir}: ds.add p else: fs.add p
+    except OSError: discard
+    ds.sort()
+    fs.sort()
+    for d in ds:
+      capture d:
+        items.add act(extractFilename(d) & "/", "show it in the files", proc() =
+          showSide(svFiles)
+          revealInTree(d))
+    for f in fs:
+      capture f:
+        items.add act(extractFilename(f), "", proc() = discard openFile(f))
+    if items.len == 0:
+      showSide(svFiles)
+      revealInTree(dir)
+      return
+    openActions(relPath(dir) & "/", items))
+
 proc drawBreadcrumbs() =
   let y = lay.crumbY
   if y < 0: return
@@ -36,11 +104,7 @@ proc drawBreadcrumbs() =
         if cfgIcons == "nerd": x = putStr(x, y, fileIcon(b.path), langColor(b.path), cb, {}, lim) + 1
         x = button(x, y, p, proc() = cmdFindFile(), "Go to file", theme.fg, cb)
       else:
-        let lab = p
-        capture path:
-          x = button(x, y, lab, proc() =
-            showSide(svFiles)
-            revealInTree(path), "Reveal folder", theme.dim, cb)
+        x = button(x, y, p, crumbFolderAct(path), "What is in it", theme.dim, cb)
         x = putStr(x, y, sep, blend(theme.dim, cb, 0.4), cb, {}, lim)
   else:
     x = putStr(x, y, b.name, theme.fg, cb, {}, lim)
@@ -76,14 +140,15 @@ proc drawBreadcrumbs() =
             bb.centerOn(Pos(line: line, col: leadingWs(bb.lines[line]).len)), "Go to " & nm, theme.syn[tkProperty], cb)
   elif b.lines.len > 1 and b.lang.id notin ["html", "xml", "markdown", "text", "json"]:
     let p = b.primary.head
-    for l in stickyLines(b, min(p.line + 1, b.lines.high), 4):
+    var parent = -1
+    # (the blocks around the line under the cursor's — its own when it opens one; at a block's last line, with
+    # an empty one under it, the cursor's)
+    let below = min(p.line + 1, b.lines.high)
+    let at = if below > p.line and b.lines[below].strip.len == 0: p.line else: below
+    for l in stickyLines(b, at, 4):
       let c = crumbName(b.lines[l])
       if c.len == 0 or x + 4 >= lim: continue
       x = putStr(x, y, sep, blend(theme.dim, cb, 0.4), cb, {}, lim)
-      let line = l
-      capture line:
-        x = button(x, y, truncTo(c, max(4, lim - x)), proc() =
-          let bb = buf()
-          if line < bb.lines.len:
-            pushJump()
-            bb.centerOn(Pos(line: line, col: leadingWs(bb.lines[line]).len)), "Go to " & c, theme.syn[tkFunc], cb)
+      x = button(x, y, truncTo(c, max(4, lim - x)), crumbSymbolAct(l, parent, c),
+                 "What is beside " & c & " — or go to it", theme.syn[tkFunc], cb)
+      parent = l

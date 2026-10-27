@@ -2,7 +2,7 @@
   "name": "nedls",
   "displayName": "nedls — ned's Nim engine",
   "description": "Nim (and C, C++, JavaScript, HTML, CSS, SQL, JSON) with ned's own engine: completion, hover, definition, references, rename, call and type hierarchy, formatting, quick fixes and problems as you type — no nimsuggest needed.",
-  "version": "6.31.0",
+  "version": "6.32.0",
   "publisher": "foxoman",
   "license": "GPL-3.0-or-later",
   "repository": { "type": "git", "url": "https://github.com/foxoman/ned" },
@@ -36,6 +36,7 @@
         "nedls.raisesHints": { "type": "boolean", "default": false, "description": "What a routine can raise, as a hint after its header." },
         "nedls.checkOnSave": { "type": "boolean", "default": true, "description": "`nim check` the file when it is saved." },
         "nedls.liveDiagnostics": { "type": "boolean", "default": true, "description": "Check the unsaved text while typing." },
+        "nedls.workspaceDiagnostics": { "type": "boolean", "default": true, "description": "The problems of the project's files that are not open too: ned's checks go over them while nedls is idle, and they are listed in the Problems panel." },
         "nedls.formatLineLength": { "type": ["number", "null"], "default": null, "description": "The formatter's line length (40–240); not given: nim.format.lineLength, else the file's .editorconfig." },
         "nedls.nedSettings": { "type": "boolean", "default": true, "description": "Also read ned's own settings files (~/.config/ned/config.json, .ned/settings.json)." },
         "nedls.trace.server": { "type": "string", "enum": ["off", "messages", "verbose"], "default": "off", "description": "Log the messages between VS Code and nedls (Output › nedls)." }

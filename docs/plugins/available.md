@@ -1,6 +1,6 @@
 # ned's own plugins
 
-ned comes with fifty-eight plugins of its own. They are all off until you turn one on. Turn one on in the
+ned comes with seventy-three plugins of its own. They are all off until you turn one on. Turn one on in the
 **Plugins dock** (View › Plugins panel, or the menu bar's **Plugins** › Plugins panel): its **AVAILABLE ·
 ned's own plugins** section lists the ones that are off, each with a line saying what it does. A tap turns one
 on: the dock goes to it under **INSTALLED**, and once it runs the status bar says what it added — the languages,
@@ -26,7 +26,9 @@ clipboard, **oil** changes files — that is what it is for —, **commit-helper
 **license-header** runs git and writes headers into files, **dotenv** writes an `.env.example`, **transform** puts a
 sum on the clipboard, **yank-ring** reads the clipboard, **import-graph** reads a project's import lines with find
 and awk, **release-helper** runs git, **db-client** runs psql or mysql, **code-snap** runs the program that draws its PNG
-(and writes a picture beside your file when you set it to), the language plugins that start a language server or a
+(and writes a picture beside your file when you set it to), **benchy** runs nim, **nim-playground** runs curl and
+puts the link it makes on the clipboard, **nimble-browser** runs curl and nimble, **containers** runs docker or podman,
+**github** runs gh, the language plugins that start a language server or a
 formatter, or give F5 a command, run those programs, and **todo** writes `TODO.md` when it is not open in a tab. The others only edit; harpoon,
 pomodoro, time-tracker, yank-ring and char-picker keep their data in their own folder, which needs no permission.
 
@@ -84,6 +86,15 @@ it. In short:
 | **import-graph** | how a Nim project's modules import one another: a Mermaid flowchart and a tree in a Markdown tab, and the modules that import the file you are in |
 | **release-helper** | a Nim package's release: the version bumped in the `.nimble` file (and a `version.nim`), a CHANGELOG entry from git's log since the last tag, the tag made and pushed when you choose |
 | **db-client** | SQL run on PostgreSQL or MySQL/MariaDB with psql or mysql: the statement at the cursor (Ctrl+Enter) or the file, the rows as a table in a tab, an error at its line. Connections in `plugins.db-client.connections`; passwords stay in the programs' own files, never in ned's settings |
+| **benchy** | benchmarks — benchy's `timeIt` blocks, or timings of your own with std/monotimes — compiled with `-d:release` and run in the background: the results in a table in a tab, beside the last run's (12% faster, 3% slower, the same), and after each `timeIt` line |
+| **web-routes** | the routes of a Jester or Prologue web app — `GET /users/@id`, a router's prefix, Prologue's lists of patterns — listed, in a table or in the Plugins dock; each a tap from its handler. The assistant can list them too |
+| **examples-to-tests** | a routine's `runnableExamples` (or every one of the file's) written into `tests/t<module>.nim`, a block for each, importing the module; made again, they take the place of the ones before. Plain blocks, or std/unittest's tests |
+| **nimble-browser** | nimble's package list, browsed and searched (names, tags, descriptions): a package's README fetched and shown in a tab, `nimble install` in the terminal, `requires` added to your `.nimble`; *Nimble: refresh the package list* |
+| **nim-playground** | the selection (or the file) shared on play.nim-lang.org — the link on the clipboard — or run there, what it prints in the Output panel and an error on its line. When the playground cannot be reached, it says why |
+| **containers** | Docker or Podman, whichever is installed: the containers and images in the Plugins dock; a container's logs in a tab, start, stop, restart, a shell in it, inspect, remove; an image run with your options |
+| **github** | the project's pull requests and issues through gh: in the Plugins dock and to choose from — read one with its reviews and comments, its diff, check it out, its checks, comment, close, merge; a new issue, a new pull request |
+| **kanban** | a board from `TODO.md`: its `##` headings are the columns, its checklist items the cards. Alt+Left and Alt+Right move a card from column to column (ticked in *Done*), Alt+Up and Alt+Down within one — each move an edit of the file, which stays yours |
+| **wiki-notes** | Markdown notes linked with `[[links]]`: follow one (Alt+Shift+O; vim: Enter) — a note made when there is none —, completion of the notes' names and headings after `[[`, hover, the open note's backlinks in the Plugins dock, a hint on a link to no note |
 | **code-snap** | the selected code as a picture — a PNG, an SVG or an HTML page of a window with its lines, coloured, numbered — to put in a README or a post. The PNG is drawn by rsvg-convert (librsvg), resvg, ImageMagick, Inkscape or Chromium; with none of them, it asks which to install and runs the command (pkg in Termux, apt, dnf, pacman, Homebrew …) in the terminal |
 
 ## Languages
@@ -112,6 +123,12 @@ it. In short:
 | **latex** | LaTeX and BibTeX: colours, comments, indentation, F5 (`latexmk -pdf`, following a `% !TEX root` line), snippets, an outline; texlab and latexindent |
 | **perl** | Perl: colours, comments, indentation, F5 (`perl -Ilib`, `prove` for a `.t` file), snippets, an outline; Perl Navigator or Perl::LanguageServer, and perltidy |
 | **erlang** | Erlang: colours, comments, indentation, F5 (rebar3's eunit or ct, else erlc and erl), snippets, an outline; ELP or erlang_ls, and erlfmt |
+| **typst** | Typst: colours, comments, indentation, F5 (`typst watch`: the PDF made again on each save), snippets, an outline (headings, `#let`, labels); tinymist (or typst-lsp) and typstyle; the check on save compiles it |
+| **kotlin** | Kotlin, added to what ned knows: F5 and Build with Gradle (`./gradlew`) or kotlinc, `.kts` scripts, snippets, an outline; kotlin-lsp or kotlin-language-server, and ktfmt or ktlint |
+| **fortran** | Fortran, free and fixed form: its words in any case, comments, indentation, F5 (`fpm run`, else gfortran), snippets, an outline; fortls and fprettify; the check on save is `gfortran -fsyntax-only` |
+| **pascal** | Pascal — Free Pascal, Delphi, Lazarus: its words in any case, `//` and `{ }` comments, indentation (`begin` under its `if`), F5 (fpc, or lazbuild with a `.lpi`), snippets, an outline; pasls; the check on save is `fpc -s` |
+| **ada** | Ada and SPARK (`.adb`, `.ads`, `.gpr`): colours, comments, indentation in GNAT's style, F5 (Alire's `alr run`, else gnatmake), snippets, an outline; the Ada Language Server and gnatpp; GNAT's check on save |
+| **vlang** | V: colours, comments, tabs, F5 (`v run`, `v run .` in a module, `v test`), snippets, an outline; v-analyzer (or vls) and `v fmt`; the check on save is `v -check` |
 | **dotenv** | `.env` files: colours, their keys in the outline, their mistakes as you type, a `${KEY}`'s value on hover, an `.env.example` made from them |
 
 A language plugin works without its tools; the language server, formatter or compiler is used once it is on

@@ -118,6 +118,7 @@ proc render() =
   drawTouchBar()
   drawSignature()
   if compOpen and focus == fEditor and promptKind == pNone: drawCompletion()
+  if hoverOpen and hoverForBuf >= 0 and hoverForBuf != buf().id: hoverOpen = false   # (it was about another tab)
   if hoverOpen: drawHover()
   if promptKind in {pFind, pReplaceFind} or replaceActive: drawFindWidget()
   elif promptKind != pNone: drawQuickInput()

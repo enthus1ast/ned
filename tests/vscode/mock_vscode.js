@@ -239,6 +239,21 @@ class SemanticTokens {
     this.data = data; this.resultId = resultId;
   }
 }
+class SemanticTokensEdit {
+  constructor(start, deleteCount, data) {
+    if (typeof start !== 'number' || typeof deleteCount !== 'number') throw new Error('SemanticTokensEdit: numbers expected');
+    if (data !== undefined && !(data instanceof Uint32Array)) throw new Error('SemanticTokensEdit: Uint32Array expected');
+    this.start = start; this.deleteCount = deleteCount; this.data = data;
+  }
+}
+class SemanticTokensEdits {
+  constructor(edits, resultId) {
+    if (!Array.isArray(edits) || !edits.every((e) => e instanceof SemanticTokensEdit)) {
+      throw new Error('SemanticTokensEdits: SemanticTokensEdit[] expected');
+    }
+    this.edits = edits; this.resultId = resultId;
+  }
+}
 class CallHierarchyItem {
   constructor(kind, name, detail, uri, range, selectionRange) {
     Object.assign(this, { kind, name, detail, uri, range, selectionRange });
@@ -493,7 +508,8 @@ module.exports = {
   ParameterInformation, SignatureHelpTriggerKind, DocumentHighlight, DocumentHighlightKind, SymbolInformation,
   SymbolKind, SymbolTag, DocumentSymbol, CodeAction, CodeActionKind, CodeActionTriggerKind, CodeLens, TextEdit,
   WorkspaceEdit, FoldingRange, FoldingRangeKind, SelectionRange, InlayHint, InlayHintKind, InlayHintLabelPart,
-  SemanticTokensLegend, SemanticTokens, CallHierarchyItem, CallHierarchyIncomingCall, CallHierarchyOutgoingCall,
+  SemanticTokensLegend, SemanticTokens, SemanticTokensEdit, SemanticTokensEdits, CallHierarchyItem,
+  CallHierarchyIncomingCall, CallHierarchyOutgoingCall,
   TypeHierarchyItem, DocumentLink, LinkedEditingRanges, ProgressLocation,
   workspace, window, languages, commands,
   env: { appName: 'Mock Code', language: 'en' },

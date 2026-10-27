@@ -3532,17 +3532,19 @@ def t_527_expand():
         '  body\n  echo "end ", name\nproc f() =\n  echo sq(3 + 1)\n  withLog "job":\n    echo "working"\n    echo "done"\n'
         '  twice:\n    echo "hi"\nf()\n')
     start('x.nim', w=110, h=30); time.sleep(1.5)
-    keys('C-g'); text('10:9'); keys('Enter'); keys('M-m')
+    def in_tab():
+        keys('C-p'); text('>Nim: expand macro/template in a tab'); time.sleep(0.4); keys('Enter')
+    keys('C-g'); text('10:9'); keys('Enter'); in_tab()
     ok = wait_for(r'expand: sq', 5)
     check('527 a template written out at once: sq(3 + 1) → (3 + 1) * (3 + 1)', ok and '(3 + 1) * (3 + 1)' in screen(), screen())
     keys('C-w'); time.sleep(0.4)
-    keys('C-g'); text('11:4'); keys('Enter'); keys('M-m')
+    keys('C-g'); text('11:4'); keys('Enter'); in_tab()
     ok = wait_for(r'expand: withLog', 5)
     s = screen()
     check('527 … with its block: the body in its place', ok and 'echo "start ", "job"' in s and
           re.search(r'echo "working"\s*\n.*echo "done"\s*\n.*echo "end ", "job"', s) is not None, s)
     keys('C-w'); time.sleep(0.4)
-    keys('C-g'); text('14:4'); keys('Enter'); keys('M-m')
+    keys('C-g'); text('14:4'); keys('Enter'); in_tab()
     ok = wait_for(r'as the compiler expands it', 30)
     s = screen()
     check('527 a macro, as the compiler expands it (no nimsuggest)', ok and s.count('echo ["hi"]') == 2, s)
@@ -10196,6 +10198,519 @@ def t_627_nim3_contracts():
           screen())
 
 
+X632 = ('import std/macros\nmacro twice(body: untyped): untyped =\n  result = newStmtList(body, body)\n'
+        'template sq(x: untyped): untyped = x * x\ntemplate withLog(name: string, body: untyped) =\n  echo "start ", name\n'
+        '  body\n  echo "end ", name\nproc f() =\n  echo sq(3 + 1)\n  withLog "job":\n    echo "working"\n'
+        '    echo "done"\n  twice:\n    echo "hi"\nf()\n')
+
+def t_632_macro_view():
+    # 6.32: Alt+M shows what a template or macro writes under its call (not text: rows drawn there), follows the call
+    # when lines come and go above it, is written again when the call changes; the names in it hover and go to their
+    # definition; the header (or Alt+M again) hides it
+    setup({"nim.nimsuggest": False})
+    open(W + '/x.nim', 'w').write(X632)
+    start('x.nim', w=120, h=36); time.sleep(1.5)
+    keys('C-g'); text('10:9'); keys('Enter'); keys('M-m')
+    ok = wait_for(r'the template sq writes', 5)
+    s = screen()
+    rows = s.splitlines()
+    at = next((i for i, r in enumerate(rows) if 'echo sq(3 + 1)' in r), -1)
+    check('632 Alt+M: the template written out under its call, in the file', ok and at >= 0 and
+          'the template sq writes' in rows[at + 1] and '(3 + 1) * (3 + 1)' in rows[at + 2] and
+          'withLog "job":' in rows[at + 3], s)
+    check('632 … and not in the text (the file unchanged, no tab opened)', 'expand:' not in s and
+          '(3 + 1) * (3 + 1)' not in ftext('x.nim'), s)
+    # the call changed: written again after a pause
+    keys('C-g'); text('10:11'); keys('Enter'); keys('Delete'); text('5')
+    ok = wait_for(r'\(5 \+ 1\) \* \(5 \+ 1\)', 5)
+    check('632 the call changed: the expansion written again', ok, screen())
+    # lines added above: it follows its call
+    keys('C-g'); text('9'); keys('Enter'); keys('Home'); keys('Enter'); keys('Enter'); time.sleep(0.8)
+    rows = screen().splitlines()
+    at = next((i for i, r in enumerate(rows) if 'echo sq(5 + 1)' in r), -1)
+    check('632 lines added above: the expansion stays under its call', at >= 0 and
+          'the template sq writes' in rows[at + 1], screen())
+    keys('C-z'); keys('C-z'); time.sleep(0.5)
+    # Alt+M again on the call: hidden
+    keys('C-g'); text('10:9'); keys('Enter'); keys('M-m'); time.sleep(0.5)
+    check('632 Alt+M again hides it', 'the template sq writes' not in screen(), screen())
+    # a template with a block: the names in it go to their definition
+    keys('C-g'); text('11:4'); keys('Enter'); keys('M-m')
+    ok = wait_for(r'the template withLog writes', 5)
+    s = screen()
+    check('632 a template with a block: the body in its place', ok and 'echo "start ", "job"' in s and
+          re.search(r'echo "working"\s*\n.*echo "done"\s*\n.*echo "end ", "job"', s) is not None, s)
+    rows = s.splitlines()
+    y = next((i for i, r in enumerate(rows) if 'echo "start ", "job"' in r), -1)
+    x = rows[y].index('echo "start') if y >= 0 else 0
+    click(x + 2, y + 1)
+    ok = wait_for(r'system', 8)
+    check('632 a name in the expansion: a click goes to where it is declared (echo: system)', ok and
+          'system' in screen(), screen())
+    keys('C-w'); time.sleep(0.6)
+    # the header hides it when tapped
+    rows = screen().splitlines()
+    y = next((i for i, r in enumerate(rows) if 'the template withLog writes' in r), -1)
+    if y >= 0: click(rows[y].index('the template') + 2, y + 1)
+    time.sleep(0.5)
+    check('632 a tap on its header hides it', y >= 0 and 'the template withLog writes' not in screen(), screen())
+    # a macro: the compiler expands it
+    need('nim')
+    tm('send-keys', '-t', 'f', '-l', '\x1b[<35;1;30M')        # (the mouse away: no tooltip over the rows)
+    keys('C-g'); text('14:4'); keys('Enter'); keys('M-m')
+    ok = wait_for(r'the macro twice writes', 5)
+    ok = ok and wait_for(r'(?s)echo \["hi"\].*echo \["hi"\]', 60)
+    keys('Escape'); time.sleep(0.3)
+    s = screen()
+    check('632 a macro: the compiler writes it out, under the call', ok and 'expanding' not in s, s)
+    keys('C-p'); text('>Nim: hide every macro expansion'); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    check('632 hide every expansion', 'the macro twice writes' not in screen(), screen())
+
+
+def pkg632_install(home):
+    # a nimble package as nimble installs it: ~/.nimble/pkgs2/name-version-checksum/
+    d = home + '/.nimble/pkgs2/tinypkg632-0.1.0-' + 'ab' * 20
+    os.makedirs(d, exist_ok=True)
+    open(d + '/tinypkg632.nim', 'w').write('proc greet*(who: string): string = "hello " & who\n')
+    open(d + '/tinypkg632.nimble', 'w').write('version = "0.1.0"\nauthor = "x"\ndescription = "x"\nlicense = "MIT"\n')
+    return d
+
+def t_632_package_installed():
+    # 6.32: a nimble package installed while ned runs (in its terminal or another): what read the package folders
+    # when it started reads them again — no "cannot open file" for it (after a save, and back after the next, was
+    # the bug), with ned's engine and the compiler, and with nimlangserver
+    home = W + '/home632'
+    os.makedirs(home + '/.nimble/pkgs2', exist_ok=True)
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/usepkg.nim', 'w').write('import tinypkg632\n\necho greet("you")\n')
+    start('src/usepkg.nim', w=130, h=30, env_extra='HOME=' + home)
+    ok = wait_for(r'cannot open file: tinypkg632', 25)
+    check('632 a package not installed: cannot open file', ok, screen())
+    # (nothing installed yet: no "packages changed" when ned has just started — what `nim dump` adds to the list
+    # of folders it looks at is not a change)
+    seen = False
+    for _ in range(10):
+        time.sleep(0.5)
+        if 'Nimble packages changed' in screen(): seen = True
+    check('632 … nothing installed: no "packages changed" after ned starts', not seen, screen())
+    pkg632_install(home)
+    gone = False
+    for _ in range(40):
+        time.sleep(0.5)
+        if 'cannot open file' not in screen():
+            gone = True
+            break
+    check('632 … installed meanwhile: found, without a save', gone, screen())
+    keys('C-g'); text('3'); keys('Enter'); keys('End'); text(' # x'); keys('C-s'); time.sleep(6)
+    check('632 … and still found after a save, and another', 'cannot open file' not in screen(), screen())
+    keys('C-s'); time.sleep(5)
+    check('632 … (the second save)', 'cannot open file' not in screen(), screen())
+    # nimlangserver: its nimsuggest read the package folders when it started — it starts again
+    need('nimlangserver')
+    shutil.rmtree(home + '/.nimble/pkgs2', ignore_errors=True)
+    os.makedirs(home + '/.nimble/pkgs2', exist_ok=True)
+    setup({"nim.ide": "nimlangserver"})
+    # (the project's main file: nimlangserver's nimsuggest checks the project through it)
+    open(W + '/src/demo.nim', 'w').write('import tinypkg632\n\necho greet("you")\n')
+    start('src/demo.nim', w=130, h=30, env_extra='HOME=' + home)
+    time.sleep(3); keys('C-s')
+    ok = wait_for(r'cannot open file: tinypkg632', 60)
+    check('632 nimlangserver: a package not installed', ok, screen())
+    pkg632_install(home)
+    gone = False
+    for _ in range(80):
+        time.sleep(0.5)
+        if 'cannot open file' not in screen():
+            gone = True
+            break
+    check('632 nimlangserver: installed meanwhile — it starts again and finds it', gone, screen())
+
+W632 = ('type ParseFail = object of ValueError\n\nvar counter = 0\n\nproc inner(x: int) =\n  if x < 0:\n'
+        '    raise newException(ParseFail, "negative")\n\nproc middle(x: int) =\n  let y = x * 2\n  inner(y)\n\n'
+        'proc outer(x: int) =\n  discard x + 1\n  middle(x)\n\nproc touch() =\n  counter = counter + 1\n\n'
+        'proc viaTouch() =\n  touch()\n\nouter(1)\nviaTouch()\n')
+
+def t_632_why():
+    # 6.32: Why? — where an exception (or a side effect) comes from: the call in each routine down to the raise,
+    # each step a row that goes there; a tap on a routine's raises hint asks it
+    setup({"nim.nimsuggest": False, "nim.raisesHints": True})
+    open(W + '/src/why632.nim', 'w').write(W632)
+    start('src/why632.nim', w=130, h=34); time.sleep(2)
+    keys('C-g'); text('14'); keys('Enter')
+    keys('C-p'); text('>Nim: why?'); time.sleep(0.4); keys('Enter')
+    ok = wait_for(r'Why outer can raise ParseFail', 15)
+    s = screen()
+    check('632 Why?: the chain, each routine on the way', ok and 'outer calls middle' in s and
+          'middle calls inner' in s and 'inner: raise ParseFail' in s, s)
+    # Enter on the last step: the raise
+    keys('Down'); keys('Down'); keys('Enter'); time.sleep(0.6)
+    check('632 … Enter goes to that step (the raise, line 7)', re.search(r'Ln 7, Col', screen()) is not None, screen())
+    # a side effect: down to the global
+    keys('C-g'); text('21'); keys('Enter')
+    keys('C-p'); text('>Nim: why?'); time.sleep(0.4); keys('Enter')
+    ok = wait_for(r'Why viaTouch has side effects', 15)
+    s = screen()
+    check('632 Why? of a side effect: the call, then the global', ok and 'viaTouch calls touch' in s and
+          'touch uses the global counter' in s, s)
+    keys('Escape')
+    # a tap on the raises hint (from the top of the file: no sticky header over it)
+    keys('C-Home'); time.sleep(0.3)
+    wait_for(r'proc middle\(x: int\) \{\.raises: \[ParseFail\]', 20)
+    rows = screen().splitlines()
+    y = next((i for i, r in enumerate(rows) if 'proc middle' in r and 'raises' in r), -1)
+    if y >= 0:
+        click(rows[y].index('raises') + 2, y + 1)
+        ok = wait_for(r'Why middle can raise ParseFail', 10)
+        check('632 a tap on a raises hint: why', ok, screen())
+    else:
+        check('632 a tap on a raises hint: why (the hint is shown)', False, screen())
+
+E632 = ('type Point = object\n  x, y: int\n\n'
+        'proc gives(): int =\n  result = "no"\n\n'
+        'proc flag(): bool =\n  return \'c\'\n\n'
+        'proc f(p: Point, n: int) =\n  n = 3\n  let k = 1\n  k = 2\n  var s: string\n  s = 5\n  echo p.colour\n'
+        '  for i in 0 .. 2:\n    i = 1\n  echo s, k\n\n'
+        'const C = 1\nC = 2\n'
+        'var g: float\ng = 1\nvar fine: int\nfine = 3\n'
+        'proc ok(v: var int; w: int) =\n  v = 1\n  var w = w\n  w = 2\n  echo w\n\n'
+        'proc caller() =\n  var a = 0\n  ok(a, 1)\n  f(Point(x: 1, y: 2), 1)\n  echo gives(), flag(), g, fine, C\n\n'
+        'caller()\n')
+
+def t_632_engine_errors():
+    # 6.32: more of the compiler's errors from ned's engine, as you type (and in ned --lint): an assignment to a
+    # let, a const, a for loop's variable or a parameter; a literal of the wrong type given to a variable, to
+    # result or to return; a member an object does not have — each where the compiler says it, and nowhere else
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/e632.nim', 'w').write(E632)
+    r = subprocess.run([BIN, '--lint', '--format:json', '--severity:hint', '--fail-on:never', 'src/e632.nim'],
+                       capture_output=True, text=True, cwd=W)
+    try: got = json.loads(r.stdout)
+    except Exception: got = []
+    found = sorted((d['line'], d['rule']) for d in got if d['rule'] in ('assign-let', 'literal-type', 'field-missing'))
+    want = [(5, 'literal-type'), (8, 'literal-type'), (11, 'assign-let'), (13, 'assign-let'), (15, 'literal-type'),
+            (16, 'field-missing'), (18, 'assign-let'), (22, 'assign-let')]
+    check('632 the engine: assignments the compiler refuses, literals of the wrong type, a missing member',
+          found == want, '%s\n%s\n%s' % (found, r.stdout[:3000], r.stderr[:500]))
+    # … where the compiler agrees
+    if shutil.which('nim'):
+        c = subprocess.run(['nim', 'check', '--hints:off', '--warnings:off', '--colors:off', 'src/e632.nim'],
+                           capture_output=True, text=True, cwd=W)
+        lines = sorted(set(int(m.group(1)) for m in re.finditer(r'e632\.nim\((\d+), \d+\) Error', c.stdout + c.stderr)))
+        check('632 … the compiler says the same lines', lines == sorted(set(l for l, _ in want)), c.stdout + c.stderr)
+
+def t_632_pane_tabs():
+    # 6.32: each pane its own tabs (editor groups): the files opened in a pane are tabs in its header; a tap shows
+    # one there, Ctrl+PgDn goes through that pane's tabs only, × takes one out (the file closes when no other pane
+    # has it)
+    setup({"nim.nimsuggest": False})
+    start('src/demo.nim', w=150, h=36)
+    palette('View: split editor right'); time.sleep(0.5)
+    keys('C-p'); text('utils.nim'); time.sleep(0.6); keys('Enter'); time.sleep(0.5)
+    keys('C-p'); text('types.nim'); time.sleep(0.6); keys('Enter'); time.sleep(0.5)
+    def hdr():
+        # (the right pane's header: under the tab bar, its tabs with their ×)
+        for i, r in enumerate(screen().split('\n')[2:8]):
+            if 'utils.nim ×' in r and 'types.nim ×' in r: return i + 2, r
+        return -1, ''
+    hy, h = hdr()
+    check('632 pane tabs: the right pane\'s files are tabs in its header', hy >= 0 and h.count('×') >= 2, screen())
+    # a tap on utils.nim's tab: the right pane shows it
+    x = h.find('utils.nim', len(h) // 2)
+    click(x + 2, hy + 1); time.sleep(0.4)
+    keys('C-Home'); text('# right'); keys('Enter'); keys('C-s'); time.sleep(0.4)
+    check('632 … a tap on a tab shows it in that pane', ftext('src/demo/utils.nim').startswith('# right') and
+          not ftext('src/demo.nim').startswith('# right'), ftext('src/demo/utils.nim')[:60])
+    # Ctrl+PgDn: the pane's next tab (types.nim), not demo.nim of the other pane
+    keys('C-NPage'); time.sleep(0.4)
+    keys('C-Home'); text('# next'); keys('Enter'); keys('C-s'); time.sleep(0.4)
+    check('632 … Ctrl+PgDn goes through the pane\'s own tabs', ftext('src/demo/types.nim').startswith('# next') and
+          not ftext('src/demo.nim').startswith('# next'), ftext('src/demo/types.nim')[:60])
+    # × on types.nim's tab: out of the pane (and closed: no other pane has it); the pane shows utils.nim
+    hy, h = hdr()
+    k = h.find('types.nim', len(h) // 2)
+    xx = h.find('×', k)
+    if xx >= 0: click(xx + 1, hy + 1)
+    time.sleep(0.6)
+    s = screen()
+    rows = s.split('\n')
+    check('632 … × takes the tab out of the pane (closed: the tab bar has it no more); the pane shows utils.nim',
+          xx >= 0 and 'types.nim' not in rows[1] and any('utils.nim' in r and 'types.nim' not in r for r in rows[2:8]), s)
+    # a named layout: kept, the panes closed, put back with its files
+    keys('C-p'); text('types.nim'); time.sleep(0.6); keys('Enter'); time.sleep(0.5)
+    palette('View: save this layout as'); time.sleep(0.4); text('two up'); keys('Enter'); time.sleep(0.4)
+    palette('View: close the other panes'); time.sleep(0.5)
+    one = hdr()[0] < 0
+    palette('View: layouts'); time.sleep(0.5)
+    ok = wait_for(r'two up', 3)
+    keys('Enter'); time.sleep(0.8)
+    hy, h = hdr()
+    check('632 named layouts: kept, then put back — the panes and the right pane\'s tabs', one and ok and hy >= 0, screen())
+
+def t_632_crumbs():
+    # 6.32: a breadcrumb tapped lists what is beside it — a symbol's siblings (pick one: the cursor goes there), a
+    # folder's files (pick one: it opens)
+    setup({"nim.nimsuggest": False})
+    open(W + '/src/crumbs.nim', 'w').write('proc alpha() =\n  echo 1\n\nproc beta() =\n  echo 2\n\nproc gamma() =\n'
+                                           '  echo 3\n')
+    start('src/crumbs.nim', w=130, h=30); time.sleep(1)
+    keys('C-g'); text('5:3'); keys('Enter'); time.sleep(0.4)
+    rows = screen().split('\n')
+    y = next((i for i, r in enumerate(rows[:5]) if 'crumbs.nim' in r and 'beta' in r), -1)
+    x = rows[y].find('beta', rows[y].find('crumbs.nim')) if y >= 0 else -1
+    if x >= 0: click(x + 2, y + 1)
+    ok = wait_for(r'Beside beta', 4)
+    s = screen()
+    check('632 a symbol crumb: its siblings', ok and 'alpha' in s and 'gamma' in s, s)
+    text('gamma'); time.sleep(0.3); keys('Enter'); time.sleep(0.4)
+    check('632 … pick one: the cursor goes there (line 7)', re.search(r'Ln 7, Col', screen()) is not None, screen())
+    # the folder crumb (src): its files
+    rows = screen().split('\n')
+    y = next((i for i, r in enumerate(rows[:5]) if 'crumbs.nim' in r and '›' in r), -1)
+    x = rows[y].find('src') if y >= 0 else -1
+    if x >= 0: click(x + 1, y + 1)
+    ok = wait_for(r'demo\.nim', 4)
+    s = screen()
+    check('632 a folder crumb: what is in it', ok and 'crumbs.nim' in s and 'demo/' in s, s)
+    text('demo.nim'); time.sleep(0.3); keys('Enter'); time.sleep(0.5)
+    check('632 … pick a file: it opens', 'proc greet' in screen(), screen())
+
+def t_632_minimap_marks():
+    # 6.32: the minimap shows what the find box finds (▐ at its right edge) and git's changes (▎ at its left)
+    setup({"ui.minimap": "on"})
+    open(W + '/mm.nim', 'w').write(''.join('let value%d = %d  # a line long enough to fill the minimap\n' % (i, i)
+                                           for i in range(120)))
+    git('add mm.nim'); git('commit -qm mm')
+    start('mm.nim', w=150, h=40)
+    keys('C-g'); text('3'); keys('Enter'); keys('End'); text(' # changed'); keys('C-s'); time.sleep(2.5)
+    rows = screen().split('\n')
+    # (the minimap: the braille columns at the right of the editor)
+    mmx = max((r.rfind('⠀') for r in rows[3:30]), default=-1)
+    left = [r for r in rows[3:30] if '▎' in r[100:]]
+    check('632 minimap: a changed line marked at its left edge', len(left) >= 1, '\n'.join(rows[:30]))
+    keys('C-f'); time.sleep(0.3); text('value7'); time.sleep(0.6)
+    rows = screen().split('\n')
+    hits = [r for r in rows[3:38] if '▐' in r[100:]]
+    check('632 minimap: the find box\'s matches at its right edge', len(hits) >= 2, '\n'.join(rows[:38]))
+
+def t_632_touch_context():
+    # 6.32: the touch bar adds the language's own keys while you edit one of its files — Nim's tools in a Nim file
+    # (run, check, macro, why, fixes), none in a Markdown file
+    setup({"nim.nimsuggest": False, "ui.touchBar": "on"})
+    open(W + '/src/tc.nim', 'w').write('proc f(x: int) =\n  if x < 0:\n    raise newException(ValueError, "neg")\n\nf(1)\n')
+    open(W + '/notes.md', 'w').write('# notes\n')
+    start('src/tc.nim', w=120, h=30); time.sleep(1)
+    def touchbar():
+        return next((r for r in reversed(screen().split('\n')) if 'Esc' in r and 'Tab' in r), '')
+    bar = touchbar()
+    check('632 touch bar: Nim\'s keys in a Nim file', 'μ' in bar and '?' in bar and '✓' in bar and 'Esc' in bar, bar)
+    keys('C-g'); text('3'); keys('Enter')
+    x = bar.find('?')
+    rows = screen().split('\n')
+    by = next((i for i in range(len(rows) - 1, -1, -1) if 'Esc' in rows[i] and 'Tab' in rows[i]), -1)
+    click(x + 1, by + 1)
+    ok = wait_for(r'Why f can raise ValueError', 10)
+    check('632 … its ? key: why', ok, screen())
+    keys('Escape')
+    keys('C-p'); text('notes.md'); time.sleep(0.6); keys('Enter'); time.sleep(0.6)
+    bar = touchbar()
+    check('632 … not in a Markdown file', 'μ' not in bar and 'Esc' in bar, bar)
+    # with the touch bar: lists with rows twice as tall (ui.bigTargets), a tap on the second row of one picks it
+    keys('C-p'); time.sleep(0.6)
+    rows = screen().split('\n')
+    ys = [i for i, r in enumerate(rows) if re.search(r'│[▍ ]?[●·]? ?\S+\.(nim|nimble|nims|md)\b', r[:70])][:3]
+    check('632 bigger tap targets: a list\'s rows two lines apart', len(ys) >= 2 and ys[1] - ys[0] == 2, '\n'.join(rows))
+    keys('Escape')
+
+def t_632_battery():
+    # 6.32: battery saver (ui.batterySaver) — on: a leaf in the status bar, the compiler's check waits for a save;
+    # a tap on the leaf turns it off
+    setup({"nim.nimsuggest": False, "ui.batterySaver": "on", "nim.engineChecks": False})
+    open(W + '/src/bat.nim', 'w').write('proc f(x: int): int = x\n\necho f(1)\n')
+    start('src/bat.nim', w=120, h=30); time.sleep(1.5)
+    st = screen().split('\n')
+    bar = next((r for r in reversed(st) if 'Ln ' in r), '')
+    check('632 battery saver: its leaf in the status bar', '❦' in bar, bar)
+    keys('C-g'); text('3'); keys('Enter'); keys('End'); text(' + "x"'); time.sleep(5)
+    check('632 … the compiler waits for a save (no check while typing)', 'type mismatch' not in screen(), screen())
+    keys('C-s')
+    ok = wait_for(r'type mismatch', 20)
+    check('632 … and checks on save', ok, screen())
+    st = screen().split('\n')
+    y = next((i for i in range(len(st) - 1, -1, -1) if '❦' in st[i]), -1)
+    if y >= 0: click(st[y].index('❦') + 1, y + 1)
+    ok = wait_for(r'Battery saver off', 4)
+    check('632 … a tap on the leaf turns it off', ok and '❦' not in screen(), screen())
+
+def t_632_warm_index():
+    # 6.32: ned --warm-index — Nim's standard library read into the index cache once (the Termux package runs it
+    # when installed): files appear in the cache, and the first session's hover needs no parsing of them
+    need('nim')
+    cache = W + '/cache632'
+    shutil.rmtree(cache, ignore_errors=True)
+    env = dict(os.environ, XDG_CACHE_HOME=cache, XDG_CONFIG_HOME=CFG)
+    r = subprocess.run([BIN, '--warm-index'], capture_output=True, text=True, cwd=W, env=env, timeout=600)
+    n = len([f for f in os.listdir(cache + '/ned/index')]) if os.path.isdir(cache + '/ned/index') else 0
+    check('632 ned --warm-index: the standard library in the index cache', r.returncode == 0 and n > 200 and
+          'standard library read into the index cache' in r.stdout, '%d files · %s %s' % (n, r.stdout, r.stderr))
+
+def t_632_pane_views():
+    # 6.32: a terminal and the assistant as panes — beside the code, a tab among the files: keys go to the shell
+    # (or the assistant) while that pane has the focus; closing the terminal's tab ends its shell
+    setup({"nim.nimsuggest": False, "ai.model": "o4-mini-2025-04-16"})
+    start('src/demo.nim', w=150, h=36); time.sleep(1)
+    palette('View: terminal in a pane'); time.sleep(1.5)
+    text('echo hi$((600 + 32))'); keys('Enter')
+    ok = wait_for(r'hi632', 8)
+    s = screen()
+    check('632 a terminal in a pane: the shell answers there, beside the code', ok and 'Terminal 1' in s and
+          'proc greet' in s, s)
+    # its tab closed (the × on the tab bar — Ctrl+W there is the shell's): the terminal gone, its shell ended
+    tb = screen().split('\n')[1]
+    k = tb.find('Terminal 1')
+    xx = tb.find('×', k) if k >= 0 else -1
+    if xx >= 0: click(xx + 1, 2)
+    time.sleep(0.8)
+    check('632 … its tab closed: the terminal gone', xx >= 0 and 'Terminal 1' not in screen().split('\n')[1], screen())
+    palette('View: assistant in a pane'); time.sleep(1)
+    text('Explain this file'); keys('Enter')
+    ok = wait_for('package entry', 10)
+    s = screen()
+    check('632 the assistant in a pane: asked and answered beside the code', ok and 'proc greet' in s, s)
+    # the panel in a pane: its Output beside the code (from the code's pane, the others closed)
+    keys('C-M-S-Left'); keys('C-M-S-Left'); keys('C-M-S-Left'); time.sleep(0.3)
+    palette('View: close the other panes'); time.sleep(0.5)
+    palette('View: panel in a pane'); time.sleep(0.8)
+    s = screen()
+    check('632 the panel in a pane: its tabs (Problems, Output, Terminal) in a pane at the right',
+          'PROBLEMS' in s and 'OUTPUT' in s and 'proc greet' in s, s)
+
+def t_632_theme_import():
+    # 6.32: a Zed theme family and a Helix theme (with the theme it inherits) imported: written, the dark one in use
+    setup({"theme": "nim-crown", "nim.nimsuggest": False})
+    start('src/demo.nim', w=120, h=30); time.sleep(0.5)
+    S = REPO + '/tests/themes/samples'
+    palette('Theme: import a Zed or Helix'); time.sleep(0.4)
+    keys('C-u'); text(S + '/zed-harbour.json'); keys('Enter'); time.sleep(1.0)
+    a = tm('capture-pane', '-t', 'f', '-e', '-p').stdout
+    check('632 Zed: both themes written, the dark one in use', os.path.exists(CFG + '/ned/themes/harbour-dusk.json') and
+          os.path.exists(CFG + '/ned/themes/harbour-day.json') and '48;2;27;36;48' in a, screen())
+    palette('Theme: import a Zed or Helix'); time.sleep(0.4)
+    keys('C-u'); text(S + '/helix-harbour-night.toml'); keys('Enter'); time.sleep(1.0)
+    a = tm('capture-pane', '-t', 'f', '-e', '-p').stdout
+    check('632 Helix: written and in use, its palette over the parent\'s', '48;2;22;26;32' in a, screen())
+
+def t_632_autodedent():
+    # 6.32: in Nim, `of` typed at the start of a line goes back to its case's column, a closing bracket typed alone
+    # on its line to the line that opened it (editor.autoDedent); off: nothing moves
+    for on in (True, False):
+        setup({"nim.nimsuggest": False, "editor.autoClosePairs": False, "editor.autoDedent": on,
+               "editor.autoComplete": False})
+        open(W + '/src/ad.nim', 'w').write('')
+        start('src/ad.nim', w=110, h=30); time.sleep(0.8)
+        text('case k'); keys('Enter'); text('of 1:'); keys('Enter'); text('echo 1'); keys('Enter'); text('of 2: discard')
+        keys('Enter'); keys('Enter'); text('foo('); keys('Enter'); text('a'); keys('Enter'); text(')')
+        keys('C-s'); time.sleep(0.6)
+        ls = ftext('src/ad.nim').split('\n')
+        of2 = next((l for l in ls if 'of 2' in l), '')
+        close = next((l for l in ls if l.strip() == ')'), '')
+        if on:
+            check('632 auto-dedent: `of` back at its case\'s column, `)` back at its line\'s', of2.startswith('of 2') and
+                  close == ')', repr(ls))
+        else:
+            check('632 auto-dedent off: nothing moves', of2.startswith('  ') and close.startswith(' '), repr(ls))
+
+def t_632_tour():
+    # 6.32: the Nim tour — a lesson opens as your copy in ned's state folder (a folder ned trusts with folder trust
+    # on), its cells run compiled (its `# notebook: compiled` line), the exercise's check says ✓ and the lesson is
+    # marked done; the list of lessons, the next one
+    need('nim')
+    setup({"nim.nimsuggest": False, "security.folderTrust": "ask"})
+    d = STATE + '/ned/tour'
+    os.makedirs(d, exist_ok=True)
+    lesson = open(REPO + '/tour/lesson01_hello.nim').read()
+    mine = lesson.replace('let who = "World"\nlet message = ""', 'let who = "Grace"\nlet message = "Hello, " & who & "!"')
+    open(d + '/lesson01_hello.nim', 'w').write(mine)
+    start(w=150, h=48); time.sleep(0.5)
+    keys('Escape')
+    palette('Nim: tour (lessons in the notebook)')
+    ok = wait_for(r'lesson01_hello\.nim', 10)
+    s = screen()
+    check('632 the Nim tour: lesson 1 opens, its answer folded away', ok and '# Answer:' in s and '  # let who' not in s, s)
+    palette('Notebook: run all the cells')
+    keys('C-g'); text('76'); keys('Enter')
+    ok = wait_for(r'✓ Hello, Grace!', 120)
+    check('632 … its cells run (compiled, in a folder ned trusts): the exercise says ✓', ok, screen())
+    ok = wait_for(r'done ✓', 10)
+    try: prog = json.load(open(d + '/progress.json'))
+    except Exception: prog = {}
+    check('632 … the lesson is marked done', ok and prog.get('done') == [0], '%s · %s' % (prog, screen()))
+    keys('Escape')
+    palette('Nim: tour — all the lessons')
+    ok = wait_for(r'1 of 16', 8)
+    check('632 … the list: 1 of 16 done, a ✓ beside lesson 1', ok and '✓' in screen(), screen())
+    keys('Escape')
+    palette('Nim: tour — next lesson')
+    ok = wait_for(r'lesson02_values\.nim', 8)
+    check('632 … the next lesson: your copy of lesson 2', ok and os.path.exists(d + '/lesson02_values.nim'), screen())
+
+def t_632_refactorings():
+    # 6.32: the bigger refactorings — each a diff first (Apply it / Leave it), then the change, one Ctrl+Z per file:
+    # object ⇄ ref object, a call's syntax, the selection split into a new module, callback → async
+    setup({"nim.nimsuggest": False})
+    open(W + '/rfa.nim', 'w').write("type\n  P = object\n    x: int\n\nproc use() =\n  var q: P\n  q.x = 2\n  echo q.x\n")
+    start('rfa.nim', w=150, h=42)
+    keys('Down', 'End', 'Home')
+    palette('Refactor: object'); time.sleep(1.0)
+    s = screen()
+    check('632 object ⇄ ref object: a diff first, with Apply it and Leave it', 'Apply it' in s and 'Leave it' in s and
+          'ref object' in s, s)
+    keys('Enter'); time.sleep(1.0); keys('C-s'); time.sleep(0.8)
+    t = ftext('rfa.nim')
+    check('632 … applied: ref object, `var q = P()`', 'P = ref object' in t and 'var q = P()' in t, t)
+    keys('C-z'); time.sleep(0.5); keys('C-s'); time.sleep(0.8)
+    t = ftext('rfa.nim')
+    check('632 … one Ctrl+Z undoes it', 'P = object' in t and 'var q: P' in t, t)
+    # a call's syntax at the cursor
+    open(W + '/rfc.nim', 'w').write("proc f(a, b: int): int = a + b\nlet x = f(1, 2)\necho x\n")
+    tm('kill-server'); time.sleep(0.3)
+    start('rfc.nim', w=150, h=42)
+    keys('Down', 'Home')
+    for _ in range(8): keys('Right')
+    palette('Refactor: switch call syntax'); time.sleep(1.0)
+    s = screen()
+    check('632 switch call syntax: a diff with 1.f(2)', 'Apply it' in s and '1.f(2)' in s, s)
+    keys('Enter'); time.sleep(0.8); keys('C-s'); time.sleep(0.8)
+    check('632 … applied', 'let x = 1.f(2)' in ftext('rfc.nim'), ftext('rfc.nim'))
+    # the selected proc into a new module (the palette opened by hand: palette() presses Escape, dropping the selection)
+    open(W + '/rfbig.nim', 'w').write("proc helper*(s: string): string = s & \"!\"\n\nproc main*() =\n  echo helper(\"a\")\n")
+    tm('kill-server'); time.sleep(0.3)
+    start('rfbig.nim', w=150, h=42)
+    keys('Home', 'S-Down'); time.sleep(0.3)
+    keys('C-p'); text('>Refactor: split'); time.sleep(0.5); keys('Enter'); time.sleep(1.5)
+    text('rfsmall.nim'); keys('Enter'); time.sleep(1.2)
+    s = screen()
+    check('632 split into a new module: a diff of both files', 'Apply it' in s, s)
+    keys('Enter'); time.sleep(1.0)
+    palette('Save all'); time.sleep(1.0)
+    big = ftext('rfbig.nim')
+    small = ftext('rfsmall.nim') if os.path.exists(W + '/rfsmall.nim') else ''
+    check('632 … moved, imported, exported again', 'proc helper*' in small and 'import rfsmall' in big and
+          'export helper' in big, big + '\n----\n' + small)
+    # callback → async
+    open(W + '/rfcb.nim', 'w').write("import std/asyncdispatch\n\nproc fetch(u: string, cb: proc (r: string)) =\n"
+                                     "  cb(u & \"!\")\n\nproc run() {.async.} =\n  fetch(\"a\") do (r: string):\n    echo r\n")
+    tm('kill-server'); time.sleep(0.3)
+    start('rfcb.nim', w=150, h=42)
+    keys('Down', 'Down', 'Home')
+    for _ in range(6): keys('Right')
+    palette('Refactor: callback'); time.sleep(1.0)
+    s = screen()
+    check('632 callback → async: a diff first', 'Apply it' in s, s)
+    keys('Enter'); time.sleep(1.0); keys('C-s'); time.sleep(0.8)
+    t = ftext('rfcb.nim')
+    check('632 … applied: Future[string], and `let r = await fetch("a")` in the caller',
+          'Future[string] {.async.}' in t and 'let r = await fetch("a")' in t, t)
+
 tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_6241_plugin_check, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list, t_621_emit_format, t_621_reset, t_621_settings_form, t_621_fields, t_621_context_menus, t_621_drag_drop, t_621_atlas, t_621_decompile, t_621_new_project, t_622_settings_controls, t_622_nimscript, t_622_plugin_api, t_622_doc_comments, t_623_decompile_menu, t_623_align_comments, t_623_c_engine, t_623_emit_builtin_c, t_623_nim_rewrites, t_623_call_args, t_624_compiler_explorer, t_624_ce_toolbar, t_6241_dock_view_menu, t_6241_ce_all_procs, t_625_indent, t_625_plugins_menu, t_625_which_key, t_625_oil, t_625_engine_checks,
          t_625_chain_hints, t_625_rename_reach, t_625_completion_recent, t_625_oracle, t_625_c_if, t_625_c_checks,
          t_625_cpp_overloads, t_624_compiler_explorer_c,
@@ -10206,4 +10721,5 @@ tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_te
          t_629_move_boxes, t_629_kept_terminals, t_629_remote_servers, t_629_ai_pictures,
          t_629_jinja, t_629_ai_git, t_629_code_from_comments, t_629_plugin_updates, t_629_git_watch,
          t_629_update, t_629_telescope, t_629_cursor_glide, t_629_engine_highlights,
-         t_629_click_over_minimap, t_629_indent_plugins, t_630_themes, t_631_tiling, t_631_multibuffer, t_631_plugin_panes, t_631_eof_problem, t_631_zen_tail, t_631_nimble_fields, t_631_multibuffer_safety, t_631_telescope_more]
+         t_629_click_over_minimap, t_629_indent_plugins, t_630_themes, t_631_tiling, t_631_multibuffer, t_631_plugin_panes, t_631_eof_problem, t_631_zen_tail, t_631_nimble_fields, t_631_multibuffer_safety, t_631_telescope_more,
+         t_632_macro_view, t_632_package_installed, t_632_why, t_632_engine_errors, t_632_pane_tabs, t_632_crumbs, t_632_minimap_marks, t_632_touch_context, t_632_battery, t_632_warm_index, t_632_pane_views, t_632_theme_import, t_632_autodedent, t_632_tour, t_632_refactorings]

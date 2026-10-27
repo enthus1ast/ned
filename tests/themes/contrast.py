@@ -4,6 +4,8 @@ colours are (CIE76 ΔE). ned's own themes must pass:
   text 7:1 or more · keywords, types, strings, numbers, functions, macros, properties, errors 4.5:1 ·
   comments and operators 3:1 · no two syntax colours closer than ΔE 12 (one-colour themes aside, and the themes ned
   took in for Foxoman — Shades of Purple, ClassicBlue, Nebula — which must read, their design kept)
+The sunlight themes, stricter: text 10:1 · every syntax colour 7:1 · comments, operators, errors, warnings and ok
+4.5:1 · no two syntax colours closer than ΔE 20. The e-ink themes: black and white only, not one colour between.
 The themes ned copies from elsewhere are listed for information (ned's makeReadable lifts their interface colours).
 Run: python3 tests/themes/contrast.py   (exit 1 when one of ned's own themes fails)"""
 import itertools, math, os, re, sys
@@ -11,12 +13,17 @@ import itertools, math, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, '..', '..', 'src', 'ned', 'core', 'themes.nim')
 OWN = ['nim-crown', 'frankincense', 'desert-dusk', 'lagoon', 'sea-glass', 'paper-ink', 'rose-quartz', 'amber-crt',
-       'green-phosphor', 'oled-black', 'oled-warm', 'oled-dim', 'lcd-soft', 'lcd-warm', 'lcd-paper']
+       'green-phosphor', 'oled-black', 'oled-warm', 'oled-dim', 'lcd-soft', 'lcd-warm', 'lcd-paper',
+       'sunlight', 'sunlight-warm', 'sunlight-blue', 'e-ink', 'e-ink-dark']
+# (6.32: for a tablet in sunlight — stricter than the rest)
+SUN = ['sunlight', 'sunlight-warm', 'sunlight-blue']
+# (6.32: for an e-ink screen, which shows a grey as dithering — black and white only)
+INK = ['e-ink', 'e-ink-dark']
 # (6.30: themes ned took in for Foxoman — their colours lifted to read, their design as it was: two syntax colours
 # may be the same or near, as their authors made them)
 READ = ['shades-of-purple', 'shades-of-purple-super-dark', 'classic-blue', 'nebula-pulse', 'nebula-nova', 'nebula-nord',
         'nebula-serenity', 'nebula-glow', 'nebula-dawn']
-MONO = ['amber-crt', 'green-phosphor', 'monochrome', 'monochrome-light']
+MONO = ['amber-crt', 'green-phosphor', 'monochrome', 'monochrome-light', 'e-ink', 'e-ink-dark']
 NAMES = 'bg fg accent sel comment keyword type string number func operator macro property error warning ok'.split()
 
 def lum(c):
@@ -59,7 +66,9 @@ def themes():
 def main():
     failed = []
     print('%-22s %6s %6s %6s %6s %6s %6s  %s' % ('theme', 'text', 'kw', 'type', 'string', 'cmt', 'sel', 'problems'))
+    seen = set()
     for name, c in themes():
+        seen.add(name)
         bg = c['bg']
         bad = []
         for k in NAMES[1:]:
@@ -67,11 +76,21 @@ def main():
             need = 7.0 if k == 'fg' else 3.0 if k in ('comment', 'operator') else 4.5
             r = ratio(c[k], bg)
             if r < need: bad.append('%s %.2f<%s' % (k, r, need))
+        syn = ['keyword', 'type', 'string', 'number', 'func', 'macro', 'property']
+        if name in SUN:
+            for k in NAMES[1:]:
+                if k in ('sel', 'accent'): continue
+                need = 10.0 if k == 'fg' else 7.0 if k in syn else 4.5
+                r = ratio(c[k], bg)
+                if r < need: bad.append('%s %.2f<%s' % (k, r, need))
+        if name in INK:
+            for k in NAMES:
+                if c[k] not in (0x000000, 0xFFFFFF): bad.append('%s #%06X is not black or white' % (k, c[k]))
         if name not in MONO and name not in READ:
-            syn = ['keyword', 'type', 'string', 'number', 'func', 'macro', 'property']
+            least = 20 if name in SUN else 12
             for a, b in itertools.combinations(syn, 2):
                 d = math.dist(lab(c[a]), lab(c[b]))
-                if c[a] != c[b] and d < 12: bad.append('%s/%s ΔE %.1f' % (a, b, d))
+                if c[a] != c[b] and d < least: bad.append('%s/%s ΔE %.1f' % (a, b, d))
         own = name in OWN or name in READ
         if own and bad: failed.append(name)
         print('%-22s %6.2f %6.2f %6.2f %6.2f %6.2f %6.2f  %s%s' % (
@@ -79,6 +98,10 @@ def main():
             ratio(c['string'], bg), ratio(c['comment'], bg), ratio(c['sel'], bg), ', '.join(bad),
             '  ← FAILS' if own and bad else ''))
     print('\n* ned\'s own themes, and those it took in (must pass)')
+    missing = [n for n in OWN + READ if n not in seen]
+    if missing:
+        print('not found in themes.nim: ' + ', '.join(missing))
+        failed += missing
     if failed:
         print('failing: ' + ', '.join(failed))
         sys.exit(1)

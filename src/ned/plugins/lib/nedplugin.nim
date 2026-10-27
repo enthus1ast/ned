@@ -37,6 +37,9 @@
 ## - ned waits for some callbacks before it goes on — `onBeforeSave`, a NimScript formatter, a text object, code
 ##   actions — up to `plugins.timeoutMs` (1500 ms; 1 s for code actions). It does not wait for the others.
 
+# (Part of ned — GPL-3.0-or-later, with the ned Plugin Exception, PLUGIN-EXCEPTION.md: a plugin that imports
+# this may be conveyed under terms of your choice.)
+
 import std/[json, tables, strutils, os]
 export json, strutils, os
 when not defined(nimscript):

@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.31](#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [6.26](CHANGELOG.md#whats-new-in-626) · [older releases](CHANGELOG.md)
+- [What's new in 6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,103 +30,119 @@ library, and builds to one binary of about 12 MB.
 
 ---
 
-## What's new in 6.31
+## What's new in 6.32
 
-6.31 is the release for everyone: ned is now under the **GNU GPL (version 3 or later)**, and comes with
-**documentation for those who want to work on it** and a **plugin API documented end to end**. The editor is cut
-into **as many panes as you like**, **multibuffers** edit pieces of many files as one and follow their files, and
-plugins can use both. Code snaps are PNG pictures too, the VS Code extension needs nothing from npm, and the
-release went through a hardening pass.
+6.32 is about seeing what Nim does: **macros written out under their calls**, **where an exception or a side effect
+comes from**, **more errors before the compiler** and **references you can trust**, with **bigger refactorings** and
+**a Nim tour** that runs in the notebook. Panes get **their own tabs**, a **terminal or the assistant as a pane** and
+**named layouts**; nedls reaches **Neovim, Helix and Zed**; plugins run in a **sandbox** and releases are **checked
+before they are installed**.
 
-**Panes, tiled.** Split the editor right or down as often as there is room — three columns, a grid of four, one large
-file with three stacked beside it (*View › Panes*, or ready-made: *View: panes: two columns*, *three columns*, *grid
-of four*, *one large and three*). Ctrl+Alt+Shift+arrows go to the pane that way, Alt+\ to the next, Alt+| closes the
-pane; drag the line between two panes (the other lines stay where they are), Ctrl+Alt+arrows resize from the
-keyboard; swap two panes' files, show one pane alone (zoom) and back, make them equal, turn a split. A tab dropped
-on a pane shows there — on its right or bottom quarter, it cuts that pane in two. Vim's Ctrl+W works (h j k l, w, s,
-v, q, o, =, x, H J K L), and `:q` closes a pane. The panes and their files come back the next time.
-[Panes](docs/guide/projects.md#panes-tiling).
+**Macros you can see.** Alt+M on a macro or template call shows what it writes right under the call, coloured as
+Nim — not part of the file: nothing is saved and the line numbers stay. A template is written out at once by ned's
+engine, a macro by the compiler. In it, a name hovers with its documentation and a click (a tap) goes to where it is
+declared; an error the compiler reports on the call is shown on the generated line it is about. The expansion follows
+its call when lines come and go above it and is written again when the call changes; Alt+M again, or a tap on its
+heading, hides it. *Nim: expand macro/template in a tab* keeps the old way. [Expansion](docs/guide/nim.md).
 
-**Multibuffers.** A multibuffer — search results, problems, TODOs, the open files, the selection you add from a file
-(*Multibuffer: add the selection*) — numbers its lines as their files do; while you have not edited it, it follows its
-files (an edit in another tab, a formatter, git); saving writes only the pieces you edited, where their lines are now.
-Each piece's header has ⇡ ⇣ (more lines above, below) and ✕ (out); F12 goes to a definition through the file;
-*next piece*, *previous piece*, *refresh*. And safer: a piece ending with an empty line keeps it (and its file its last
-line end), a piece of a library's file or a read-only tab is not written, a multibuffer with edits not saved is not
-replaced by a new one of the same name. [Multibuffers](docs/guide/search.md#editing-the-results-multibuffers).
+**Why?** Tap a routine's exception hint — or *Nim: why?* — and ned shows where an exception comes from: the call in
+the routine that raises it, the call in that one, … down to the `raise` (or a routine's own `{.raises.}`); each step
+a row that goes there. For a routine that cannot be a func, the same down to the global it uses or the routine that
+has side effects. On the compiler's *can raise an unlisted exception* and *can have side effects*, Alt+Enter offers
+it.
 
-**Telescope.** Alt+V opens the place chosen in a pane at the right, Alt+X in a pane below, and Alt+Q puts
-everything a finder lists in a multibuffer (as telescope.nvim's quickfix); new finders: *Lines of this file*,
-*Panes*, *Jumps*. Its **⊙** is in the status bar, beside the assistant's ✦ — and in a Markdown file **M↓** opens
-its preview beside it, and closes it. [Telescope](docs/guide/search.md#telescope-one-finder-for-everything-altshiftf).
+**More errors before the compiler.** ned's engine says, as you type and in `ned --lint`: an assignment to a `let`, a
+`const`, a loop's variable or a parameter that is not `var`; a literal of the wrong type given to a variable, to
+`result` or by `return`; a member an object of the project does not have — in the compiler's words, checked on its
+compiler and standard library to say nothing the compiler would not.
 
-**Plugins.** The whole API is documented — every proc with what it does, what it returns, when ned waits for it,
-its limits and an example —, a new [cookbook](docs/plugins/cookbook.md) has 21 whole plugins checked by the tests,
-and plugins can split, fill and focus panes and make, read and grow multibuffers (`panes`, `splitPane`,
-`showInPane`, `paneLayout`, `openMultibuffer`, `pieces`, `addPiece`, `placeInFile` …). A plugin that gives ned a
-program to run — a language server, a formatter, a language's run or build command — now asks for the
-permission to run programs, as one that runs it itself does (ned's own plugins that you had on keep working); a
-plugin's `:` command starts with a capital letter, so `:w` and `:q` stay ned's.
-[Plugins](docs/plugins/README.md) · [API](docs/plugins/api.md) · [Cookbook](docs/plugins/cookbook.md).
+**Bigger refactorings, and references you can trust.** Each refactoring is a diff before anything changes, undone
+file by file with Ctrl+Z: *object ⇄ ref object* (constructors stay, `var x: T` and `result` get a `T()` where they
+relied on a value; `==`, shared copies, nil fields and nil checks listed), *split the selected declarations into a
+new module* (imports both ways, what the old module still uses exported, what it exported exported again),
+*callback → async* (`Future[T]`, `let r = await f(…)` in async callers, the rest listed), *switch call syntax*
+(`f(x, y)` · `x.f(y)` · `f x, y`, at the cursor or for a selection, only where the meaning stays). **Find
+references** now finds what nimsuggest finds on every place of the scoreboard's sample (95.6% before) and on 99% of
+870 more: `0..s.len`, a tuple's labels, a variable in its own value, `high(int64)` and `int.high`, a declaration
+below its use, command calls, forward declarations, a `let` in a condition, a module's own type over an imported
+one, pragma names, `when` over several lines or decided by `(NimMajor, NimMinor)`. (The comparison now also leaves
+out what nimsuggest itself does not resolve — `quote do:` bodies, implicitly generic routines; counted the old way,
+97.8%.)
 
-**For contributors.** [docs/dev](docs/dev/README.md): how ned is put together, how a frame is drawn, the text and
-editing machinery, the engines and nedls, the integrations, the plugin host, every test suite, recipes (a command,
-a setting, a dock, a language, a theme …) and the pitfalls that cost time before.
+**A package installed while ned runs is found.** (Foxoman's bug: "cannot open file", found after a save, lost after
+the next.) ned now watches nimble's package folders and the files that put packages on the path; when they change,
+its engine reads them again, nimsuggest and nimlangserver start again (they read them only when they start), and the
+open Nim files are checked again — no save needed. nedls too.
 
-**Code snap as PNG.** *Code snap: selection as PNG* draws the picture with rsvg-convert, resvg, ImageMagick, Inkscape
-or Chromium, the first one installed; with none of them it asks which to install and runs the command — `pkg install
-librsvg` in Termux, apt, dnf, pacman, Homebrew … — in the terminal.
+**The Nim tour.** Sixteen short lessons of Nim that run in the notebook, from the first `echo` through types,
+procedures, iterators, objects and references, generics, errors, templates and macros, async and the standard
+library, to ARC/ORC with `sink` and `lent`, and calling C. Ctrl+Enter runs a cell and shows what it printed under it.
+Each lesson ends with an exercise whose check says ✓ when your code works, and its answer is folded away beneath.
+The lessons are built into ned, so the tour needs no files and no network, only Nim and a C compiler. Each lesson
+opens as your own copy, and ned remembers where you were and which lessons you finished. *Help › Nim tour*. A
+notebook can now also say how it runs: `# notebook: compiled` above its first cell. [The Nim tour](docs/guide/tour.md).
 
-**VS Code.** The nedls extension is plain JavaScript with its own client — no npm packages — built by a script into
-a `.vsix` with nothing but Python.
+**Panes, each with its own tabs.** With several panes, a pane's files are tabs in its header: a tap shows one there,
+Ctrl+PgUp/PgDn go through that pane's tabs, × takes one out of the pane. **Named layouts**: *View: save this layout
+as…*, *View: layouts…* puts it back with its files. **A terminal or the assistant as a pane**: *View: terminal in a
+pane* (a shell of its own beside the code), *View: assistant in a pane*, *View: panel in a pane* (Problems,
+Output, the debugger beside the code). [Panes](docs/guide/projects.md#panes-tiling).
 
-**Fixed:** a problem the compiler puts after the last line ("expected: ')', but got: '[EOF]'") was in Problems but
-not in the editor — it is at the end of the last line, and F8 goes there; in zen mode what follows a line (a C
-signature, a problem) was cut at the column — it goes on into the margin; a .nimble's fields written `name = value`
-each are lined up again as nimble's template writes them (`nim.format.alignNimbleFields`); the find box selects the
-text it opens with, so typing replaces it.
+**Smaller things in the editor.** A breadcrumb tapped lists what is beside it — a folder's files, a symbol's
+neighbours. The minimap marks what the find box finds and git's changes. In a Nim file the touch bar adds ▶ run, ✓
+check, μ macro, ? why and ⚡ fixes (`ui.touchBarLanguageKeys`), and with the touch bar shown lists have rows twice as
+tall (`ui.bigTargets`). **Battery saver** (`ui.batterySaver`, on by itself on battery): no cursor glide, the compiler
+on save rather than while typing, no AI completion as you type, fewer wake-ups — a leaf ❦ in the status bar.
+**Themes** for phones and tablets outdoors and for e-ink screens: `sunlight`, `sunlight-warm`, `sunlight-blue`,
+`e-ink`, `e-ink-dark` (black and white only — every shade ned would mix is drawn as one or the other). **Zed and
+Helix themes imported**: *Theme: import a Zed or Helix theme…* (or `ned --import-theme FILE…`) makes a Zed theme
+family `.json` or a Helix `.toml` — with its palette and the theme it inherits — into themes of your own: what the
+theme leaves out comes from the nearest built-in theme, and a colour too faint to read is made readable, its hue
+kept.
 
-Today's scoreboard (the engines are 6.29's):
+**Formatter.** **Closer to nph**: 99.7% of the lines of Nim's compiler and standard library come out as nph writes
+them (360 of 463 files identical), with nph's empty lines in type sections and before a section's commented member,
+`x = block:`, `typeof(for …)` and `collect(for …)` as blocks, a `while` with a long condition, and comment blocks at
+their statement's level. **Code in strings**: the SQL, HTML and JSON in a Nim file's triple-quoted strings is
+formatted with the file (`nim.format.embedded`). **Indentation as you type**: in Nim a closing bracket and
+`of`/`elif`/`else`/`except`/`finally` go back to where they belong (`editor.autoDedent`). **Format only what I
+changed** now works in files git does not have (since you opened them), and gives black, ruff and clang-format the
+changed lines themselves.
 
-<!-- scoreboard -->
-| | score | at least |
-|---|---|---|
-| nim: type hints, the same as nimsuggest's | 99.6% ✓ | 98% |
-| nim: go to definition, the same place | 100.0% ✓ | 98% |
-| nim: a variable's type, the same | 98.7% ✓ | 97% |
-| nim: member completion, ned | 98.4% ✓ | 96% |
-| nim: member completion, nimsuggest (not checked) | 70.9% |  |
-| nim: references in the file, the same as nimsuggest's | 95.6% ✓ | 92% |
-| nim: as you type, the compiler's errors found | 100.0% ✓ | 95% |
-| nim: as you type, clean files with no wrong error | 100.0% ✓ | 95% |
-| nedls: completion: the name offered | 100.0% ✓ | 98% |
-| nedls: hover: its doc comment | 100.0% ✓ | 97% |
-| nedls: hover: the same declaration | 98.9% ✓ | 97% |
-| nedls: hover: there | 100.0% ✓ | 98% |
-| nedls: signature help: the routine | 100.0% ✓ | 97% |
-| c: go to definition, the same as clangd's | 97.5% ✓ | 95% |
-| c: member completion, ned | 100.0% ✓ | 96% |
-| c: member completion, clangd (not checked) | 96.9% |  |
-| c: hover, the same parameters | 100.0% ✓ | 96% |
-| c++: go to definition, the same as clangd's | 100.0% ✓ | 95% |
-| c++: member completion, ned | 100.0% ✓ | 95% |
-| c++: member completion, clangd (not checked) | 96.2% |  |
-| c++: hover, the same parameters | 100.0% ✓ | 96% |
-| versus nimlangserver: hover, nedls | 98.3% ✓ | 90% |
-| versus nimlangserver: hover, nimlangserver (not checked) | 55.0% |  |
-| versus nimlangserver: definition, nedls | 96.7% ✓ | 90% |
-| versus nimlangserver: definition, nimlangserver (not checked) | 55.0% |  |
-| versus nimlangserver: member offered, nedls | 96.7% ✓ | 90% |
-| versus nimlangserver: member offered, nimlangserver (not checked) | 63.3% |  |
-| versus nimlangserver: the same definition where both answer | 97.0% ✓ | 90% |
-| format: lines the same as nph's | 99.6% ✓ | 99% |
-| format: files formatted, of those nph formats | 100.0% ✓ | 99% |
+**nedls in more editors, and the whole project's problems.** Set-ups for **Neovim** (`editors/nvim`: `lsp/nedls.lua`
+for Neovim 0.11's `vim.lsp.enable('nedls')`, or `require('nedls').setup()`), **Helix** (`editors/helix/languages.toml`)
+and **Zed** (`editors/zed`: an extension that starts nedls beside the Nim extension), each with a README that says how
+to install it. An editor that asks for problems (pull diagnostics) gets the whole workspace's: ned's own checks, as
+`ned --lint` makes them, go over the project's files that are not open while nedls is idle, and the editor hears when
+they change (`workspaceDiagnostics`) — the VS Code extension asks for them, so its Problems panel lists the
+project's errors and warnings. Colours come as the edits since the last answer (semantic token deltas), not the whole
+file again. Workspace symbols answer at once, from a table nedls keeps up to date as files change: the project's
+names first, the names its imports export for a longer query, a name's word starts (`nsv` finds `newShapeValue`), and
+`Shape.wid` for a type's fields. And text typed on the last, empty line of a file no longer joins the line above in
+nedls's copy. [nedls in other editors](docs/guide/nim.md#nedls-neds-engine-in-other-editors).
 
-against nimlangserver: nedls answers in 1.6 ms (the median), ready after 78 ms; nimlangserver in 253.6 ms, ready after 2120 ms
+**Safety.** Releases carry SHA256SUMS and a signature, and `ned --update` and install.sh check them before
+installing (`ned --update --verify DIR` for a download). What goes to the AI has its secrets replaced with
+placeholders — keys, tokens, passwords in URLs, private keys — and files of secrets (`.env`, key files) are not sent
+(`ai.redactSecrets`). On Linux, plugins run in a Landlock sandbox (`plugins.sandbox`): they read the project and what
+they need, change files only in their data folder and the project, and have no network unless you allowed it; `ned
+--sandbox CMD` runs any command that way. [Safety](docs/guide/safety.md).
 
-against nph: 463 files formatted in 1.53 s by ned, 2.31 s by nph; nph refused 0, ned left 0 alone
-<!-- /scoreboard -->
----
+**Fifteen new plugins of ned's own** (Plugins dock › AVAILABLE): for Nim, **benchy** (benchmarks run, shown in a
+table, compared with the last run), **web-routes** (a Jester or Prologue app's routes, each a tap from its handler),
+**examples-to-tests** (a routine's runnableExamples made a test file), **nimble-browser** (nimble's packages searched,
+a README read, installed, required) and **nim-playground** (the selection shared on play.nim-lang.org or run there);
+**containers** (Docker or Podman: containers, images, logs, start, stop), **github** (pull requests and issues through
+gh), **kanban** (a board from TODO.md, a card moved by editing the file), **wiki-notes** (Markdown notes with
+[[links]], their backlinks); and the languages **Typst, Kotlin, Fortran, Pascal, Ada** and **V** — colours,
+indentation, F5, snippets, an outline, their language servers, formatters and compiler checks when they are
+installed. [ned's own plugins](docs/plugins/available.md). **Plugins under any licence**: the plugin library comes
+with the [ned Plugin Exception](PLUGIN-EXCEPTION.md) — a plugin that imports it can be conveyed under terms of your
+choice; ned itself stays GPL-3.0-or-later.
+
+**Termux.** The package reads Nim's standard library into ned's index when it is installed (`ned --warm-index`), so
+the first session's completion and hover start at once. The debugger shows Nim strings, seqs and tables readably
+even when the Nim in use came without its gdb pretty printers (ned keeps a copy).
 
 ## Features
 
@@ -164,7 +180,7 @@ signs and highlights, languages with their completions, hover, code actions, out
 language servers (also written in NimScript, for any editor: `ned --lsp-bridge`), tools for the assistant, views
 in their dock, progress and output, vim mappings, operators and text objects, timers, how indentation looks — the
 NimScript ones in one process, a dock to manage them with their versions and updates, a list to install from; each
-asks before it runs programs, changes files or uses the clipboard. Fifty-eight of ned's own come with it, off until
+asks before it runs programs, changes files or uses the clipboard. Seventy-three of ned's own come with it, off until
 you turn one on. → [Plugins](docs/plugins/README.md) · [Tutorial](docs/plugins/tutorial.md) · [API reference](docs/plugins/api.md)
 
 **Languages** — syntax highlighting for Nim, C, C++, JS/TS, Rust, Go, Python, Kotlin, C#, PHP, SQL, Java, Lua,
@@ -270,7 +286,8 @@ as a library (`import ned/nim/index`), `atlas use https://github.com/foxoman/ned
 
 **Updating**: `ned --update` (or *Help: update ned…* in the palette) finds the newest release and installs it the
 way this ned was installed — the Termux package, nimble, or a checkout it was built in — after saying what it will
-run and asking; `ned --update --check` only says whether there is one.
+run and asking; `ned --update --check` only says whether there is one. The package is checked against the
+release's SHA256SUMS and its signature first.
 
 ### Termux (Android)
 
@@ -282,7 +299,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.31.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.32.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -337,7 +354,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.31.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.32.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell
@@ -455,3 +472,7 @@ published by the Free Software Foundation, either version 3 of the License, or (
 It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details: the full
 text is in [LICENSE](LICENSE) (SPDX: `GPL-3.0-or-later`).
+
+Plugins may use any licence: the plugin library they import comes with the
+[ned Plugin Exception](PLUGIN-EXCEPTION.md), an additional permission to combine a plugin with it and convey the
+plugin under terms of your choice.
