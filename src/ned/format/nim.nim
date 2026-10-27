@@ -4049,17 +4049,21 @@ func fSameButRule*(a, b: string): bool =
 func fPrefixLike*(toks: seq[FTok], k: int): bool =
   ## an operator after an operand, with a space before it and none after: Nim reads it as a prefix
   ## (`echo -1` is echo(-1)) — the formatter must never change that
-  if k == 0 or k + 1 >= toks.len or toks[k].nl: return false        # first on its line: a statement's start
+  if k == 0 or k + 1 >= toks.len: return false
   # (`proc `$` *(x: T)`: right after a routine's name a `*` is its export mark, however it is spaced)
   if k >= 2 and toks[k].text == "*" and toks[k - 2].kind == fkKw and toks[k - 2].text in FRoutineKw and
      toks[k - 1].kind == fkIdent:
     return false
   var p = k - 1
   while p > 0 and toks[p].kind == fkComment: dec p
+  let after = toks[k + 1].sp or toks[k + 1].nl
+  if toks[k].nl:
+    # first on its line: a statement's start — or the value of the keyword that ends the line above, as after a
+    # space: `return @[…]` written `return` ⏎ `@[…]` (nph's layout of a long one) is still `return` of `@[…]`
+    return toks[p].kind == fkKw and not fWordOp(toks[p]) and not after
   # (after a keyword too: `distinct|(a)` is a typeclass, `distinct |(a)` does not parse)
   if not (fOperand(toks[p]) or toks[p].kind == fkKw and not fWordOp(toks[p])): return false
-  let before = toks[k].sp or toks[k].nl
-  let after = toks[k + 1].sp or toks[k + 1].nl
+  let before = toks[k].sp
   before and not after
 
 func fInImport*(toks: seq[FTok], k: int): bool =

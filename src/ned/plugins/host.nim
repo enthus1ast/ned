@@ -521,6 +521,11 @@ proc plugSignature(h: PlugHost): string =
 
 proc plugStop(h: PlugHost, why = "off")
 
+proc plugRunsAlone(p: PlugInfo): bool =
+  ## a process of its own: full Nim, plugins.alone — or a plugin you allowed to run programs itself: in the shared
+  ## process it would take every other plugin out of the sandbox with it (plugSandboxed)
+  p.alone or (ppShell in plugGranted.getOrDefault(plugPermKey(p)) and p.scan.ownShell)
+
 proc plugMakeHosts() =
   ## the processes the enabled plugins want: the NimScript ones together, each full-Nim (or alone) one by itself —
   ## a process whose plugins did not change is kept (and keeps running)
@@ -528,7 +533,7 @@ proc plugMakeHosts() =
   var shared: seq[string]
   for p in plugs:
     if not p.enabled: continue
-    if p.alone: want.add (p.id, @[p.id], p.full)
+    if plugRunsAlone(p): want.add (p.id, @[p.id], p.full)
     else: shared.add p.id
   if shared.len > 0: want.insert((PlugShared, shared, false), 0)
   var keep: seq[PlugHost]
@@ -1064,10 +1069,13 @@ proc plugSandboxed(h: PlugHost, argv: seq[string]): seq[string] =
     try: createDir(d)
     except CatchableError: discard
     p.write.add d
-  # (the project — not when it is your home folder or holds it: then the sandbox would keep nothing from it)
+  # (the project — not when it is your home folder or holds it: then the sandbox would keep nothing from it; nor
+  # when it holds ned's private folder, where the keys of its remote-control socket and its kept terminals are)
   let home = getHomeDir().strip(leading = false, chars = {'/'})
   let r = rootDir.strip(leading = false, chars = {'/'})
-  if r.len > 0 and home != r and not home.startsWith(r & "/"): p.write.add rootDir
+  let priv = privDir().strip(leading = false, chars = {'/'})
+  if r.len > 0 and home != r and not home.startsWith(r & "/") and priv != r and not priv.startsWith(r & "/"):
+    p.write.add rootDir
   plugLogAdd(plugLabel(h), "in the sandbox (Landlock): it changes files " &
              (if p.files: "anywhere (\"files\" allowed)" else: "only in " & p.write.join(", ")) &
              (if p.net: "; network allowed" else: "; no network"))
@@ -3540,7 +3548,7 @@ proc buildPluginItems(): seq[SideItem] =
     let on = p.enabled
     let role = if on: (if p.err.len > 0: 3 else: 1) else: 2
     var det = if p.err.len > 0 and p.err != "off": p.err elif not on: "off" elif p.project: "project"
-              elif p.bundled: "ned's" elif p.full: "Nim, compiled" elif p.alone: "own process" else: ""
+              elif p.bundled: "ned's" elif p.full: "Nim, compiled" elif plugRunsAlone(p): "own process" else: ""
     # its version (pluginInfo), an update waiting (↑), pinned (📌)
     if p.version.len > 0: det = p.version & (if det.len > 0: " · " & det else: "")
     let upd = plugUpdateText(p)

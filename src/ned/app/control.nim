@@ -7,7 +7,11 @@
 #    · scripts: ned --remote FILE[:LINE[:COL]] · --remote-command NAME · --remote-message TEXT ·
 #      --remote-problems [NAME] (a build's output on stdin → Problems) · --remote-get WHAT · --remote-list
 #  One JSON request per line, one or two answers back ("waiting", then "done").
+#  Each request carries a key ned writes beside the socket (remote-PID.key, 0600): a program in ned's sandbox — a
+#  plugin — can reach the socket but not read the key, so it cannot tell ned to run something outside the sandbox.
 # ════════════════════════════════════════════════════════════════════════════
+
+import std/sysrand
 
 type CtlClient = ref object
   fd: cint
@@ -19,9 +23,38 @@ type CtlClient = ref object
 var
   ctlFd: cint = -1
   ctlPath = ""
+  ctlKey = ""                      # what each request must carry (in remote-PID.key beside the socket)
   ctlClients: seq[CtlClient]
 
 proc ctlSockName(pid: int): string = privDir() / ("remote-" & $pid & ".sock")
+
+proc ctlNewKey(): string =
+  ## 32 random hex digits (a socket's or a kept terminal's key)
+  var b: seq[byte]
+  try: b = urandom(16)
+  except CatchableError: discard
+  if b.len < 16: return ""
+  for x in b: result.add toHex(int(x), 2).toLowerAscii
+
+proc ctlWriteKey(path, key: string): bool =
+  ## the key in a file only you can read (in ned's private folder, itself only yours)
+  try:
+    writeFile(path, key)
+    setFilePermissions(path, {fpUserRead, fpUserWrite})
+    true
+  except CatchableError: false
+
+proc ctlKeyOf(path: string): string =
+  ## the key of the socket (or kept terminal) at `path`, read from its .key file ("" when it cannot be read)
+  try: readFile(path.changeFileExt(".key")).strip
+  except CatchableError: ""
+
+proc ctlSameKey(a, b: string): bool =
+  ## (compared in the same time whatever the first difference: no guessing it a digit at a time)
+  if a.len != b.len or a.len == 0: return false
+  var d = 0
+  for i in 0 ..< a.len: d = d or (ord(a[i]) xor ord(b[i]))
+  d == 0
 
 proc ctlSweep() =
   ## sockets of neds that are gone
@@ -32,7 +65,9 @@ proc ctlSweep() =
       let pidS = n[7 ..< n.len - 5]
       if pidS.len == 0 or not pidS.allCharsInSet(Digits): continue
       let pid = parseInt(pidS)
-      if pid != getCurrentProcessId() and kill(Pid(pid), 0) != 0 and errno == ESRCH: removeFile(p)
+      if pid != getCurrentProcessId() and kill(Pid(pid), 0) != 0 and errno == ESRCH:
+        removeFile(p)
+        removeFile(p.changeFileExt(".key"))
   except CatchableError: discard
 
 proc sockAddr(path: string, a: var Sockaddr_un): bool =
@@ -49,6 +84,8 @@ proc ctlListen() =
   let path = ctlSockName(getCurrentProcessId())
   var a: Sockaddr_un
   if not sockAddr(path, a): return
+  let key = ctlNewKey()
+  if key.len == 0 or not ctlWriteKey(path.changeFileExt(".key"), key): return   # (no key: no socket)
   let fd = posix.socket(AF_UNIX, SOCK_STREAM, 0)
   if fd.cint < 0: return
   discard posix.unlink(path.cstring)
@@ -62,6 +99,7 @@ proc ctlListen() =
   setNonBlock(fd.cint)
   ctlFd = fd.cint
   ctlPath = path
+  ctlKey = key
   putEnv("NED_SOCKET", path)
 
 proc ctlSend(c: CtlClient, j: JsonNode) =
@@ -127,6 +165,12 @@ proc ctlHandle(c: CtlClient, line: string) =
     return
   if j.kind != JObject:
     c.ctlSend(%*{"error": "not a request"})
+    return
+  if not ctlSameKey(j{"key"}.getStr, ctlKey):
+    # (a program that cannot read the key beside the socket: one in ned's sandbox, a plugin above all)
+    c.ctlSend(%*{"error": "refused: the request did not carry the key beside ned's socket (only you can read it, " &
+                          "a plugin in ned's sandbox cannot)"})
+    c.ctlDrop()
     return
   needRender = true
   let fromTerm = focus == fPanel and panelOpen and panelKind == pkTerminal
@@ -276,6 +320,7 @@ proc ctlClose() =
     ctlFd = -1
   if ctlPath.len > 0:
     discard posix.unlink(ctlPath.cstring)
+    discard posix.unlink(ctlPath.changeFileExt(".key").cstring)
     ctlPath = ""
 
 # ── the other side: `ned` talking to the ned that is running ──
@@ -314,7 +359,9 @@ proc ctlAsk(path: string, req: JsonNode, waitMs = 5000): JsonNode =
   let fd = ctlConnect(path)
   if fd < 0: return nil
   defer: discard posix.close(fd)
-  let s = $req & "\n"
+  let r = req.copy
+  r["key"] = %ctlKeyOf(path)
+  let s = $r & "\n"
   if posix.write(fd, unsafeAddr s[0], s.len) != s.len: return nil
   var rest = ""
   let line = ctlReadLine(fd, rest, waitMs)
@@ -357,7 +404,9 @@ proc ctlClient(sock: string, req: JsonNode, wait: bool): int =
     stderr.writeLine("ned: no ned answers at " & sock)
     return 1
   defer: discard posix.close(fd)
-  let s = $req & "\n"
+  let r = req.copy
+  r["key"] = %ctlKeyOf(sock)
+  let s = $r & "\n"
   var off = 0
   while off < s.len:
     let n = posix.write(fd, unsafeAddr s[off], s.len - off)

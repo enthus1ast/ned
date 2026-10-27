@@ -43,9 +43,12 @@
 - **Plugins in a sandbox** (Linux 5.13 and newer): a plugin's process reads the project and what it needs to run,
   changes files only in its data folder and the project, and has no network, unless you allowed it more — the
   kernel holds it to that (Landlock), whatever its code does. It cannot read your other files (`~/.ssh`, your
-  settings) or signal ned, and it does not get the environment's secrets. A plugin you allowed to run programs
-  itself runs as before, since those programs could do anything you can; so do all plugins where the kernel has no
-  Landlock (an older Linux, Android, macOS). `plugins.sandbox` turns it off. `ned --sandbox CMD…` runs any command
+  settings) or signal ned, and it does not get the environment's secrets. Nor can it tell ned what to do: ned's
+  remote-control socket and the sockets of terminals kept running answer only a program that sends their key, kept
+  in a file in ned's private folder, which a plugin in the sandbox cannot read. A plugin you allowed to run
+  programs itself runs as before, since those programs could do anything you can — in a process of its own, so the
+  other plugins stay in the sandbox; so do all plugins where the kernel has no Landlock (an older Linux, Android,
+  macOS). `plugins.sandbox` turns it off. `ned --sandbox CMD…` runs any command
   this way: it may change only the current folder (`--write DIR` adds one, `--net` gives it the network;
   `ned --sandbox --help`).
 - **Checked updates**: `ned --update` and `install.sh` check a release's package before installing it — its SHA-256

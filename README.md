@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
+- [What's new in 6.32.1](#whats-new-in-6321) · [6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -29,6 +29,22 @@ library, and builds to one binary of about 12 MB.
 - [Contributing](#contributing)
 
 ---
+
+## What's new in 6.32.1
+
+The four things left open in 6.32:
+
+- **Typing in a very big Nim file is quick again.** ned read the whole file again at every key, to dim the code a
+  `when` leaves out: in a file of 50 000 lines a key took 45 ms to show. Now that waits for a pause in the typing,
+  as the semantic colours do, and a key takes about 1.5 ms there.
+- **The formatter lays out a long `return @[…]`** as nph does — `return`, then the list on the next line — instead
+  of refusing the whole file.
+- **Nothing in the sandbox can tell ned what to do.** ned's remote-control socket, and the socket of a terminal kept
+  running, could be reached by a plugin in the sandbox (Landlock does not limit that) — and through them, a plugin
+  could run any command or type into your shell. Each now answers only a program that sends its key, kept in a
+  file in ned's private folder that the sandbox cannot read.
+- **A plugin you allowed to run programs runs in a process of its own**, so the other plugins stay in the sandbox
+  (before, it took them all out of it with it).
 
 ## What's new in 6.32
 
@@ -299,7 +315,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.32.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.32.1_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -354,7 +370,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.32.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.32.1-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

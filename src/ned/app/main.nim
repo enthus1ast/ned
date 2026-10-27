@@ -175,7 +175,7 @@ proc mainLoop() =
       if b.lspDirty and (b.lspOpen or b.lspMore): timeout = min(timeout, 150)
     if msg.len > 0 and msSince(msgTime) < 6000: timeout = min(timeout, int(6001 - msSince(msgTime)))
     if toasts.len > 0: timeout = min(timeout, 500)
-    let semStale = cfgSemColors and cb0.id in semMaps and semMaps[cb0.id].at != cb0.changeId
+    let semStale = (cfgSemColors and cb0.id in semMaps and semMaps[cb0.id].at != cb0.changeId) or inactiveDue(cb0)
     if semStale: timeout = min(timeout, SemPauseMs + 10)
     if cfgSemColors and cb0.id in semMaps and semMaps[cb0.id].impNext != nil: timeout = min(timeout, 10)
     for b in bufs:
@@ -283,7 +283,9 @@ proc mainLoop() =
           let fb = bufById(ffiQueue[0])
           ffiQueue.delete(0)
           if fb != nil: timedWork("C wrappers checked"): ffiCheck(fb)
-        if semStale and msSince(cb0.lspChangeAt) >= SemPauseMs: needRender = true   # semantic colours catch up
+        if semStale and msSince(cb0.lspChangeAt) >= SemPauseMs:
+          needRender = true                    # semantic colours (and the code left out) catch up
+          if inactiveDue(cb0): timedWork("code left out, dimmed"): discard inactiveRanges(cb0)
         if rightOpen and rightView == svTodos and msSince(todoScanAt) > 30_000: todoScanProject()
       if oscBgReply.len > 0: handleTermBg()
       if ciDue and getMonoTime() >= ciDueAt: timedWork("CI status"): ciRefresh()
