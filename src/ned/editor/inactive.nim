@@ -1,12 +1,26 @@
 # ── code a compile leaves out, dimmed: Nim's `when` branches that are false on this platform (when
 #    defined(windows) on Linux), C's #if 0 and #ifdef __cplusplus (editor.dimInactiveCode) ──
 
-var inactiveCache: Table[int, (int, seq[(int, int)])]    # buffer id → (the change it was worked out for, ranges)
+var inactiveCache: Table[int, (int, seq[(int, int)], int)]
+  ## buffer id → (the change it was worked out for, ranges, the file's lines then)
 
 proc inactiveRanges(b: Buffer): seq[(int, int)] =
-  if not cfgDimInactive or b.lang == nil or b.largeOn: return
-  if b.lang.mode != lmNim and b.lang.id notin ["c", "cpp"]: return
-  if b.id in inactiveCache and inactiveCache[b.id][0] == b.changeId: return inactiveCache[b.id][1]
+  if not cfgDimInactive or b.lang == nil or b.largeOn or (b.lang.mode != lmNim and b.lang.id notin ["c", "cpp"]):
+    inactiveCache.del b.id
+    return
+  if b.id in inactiveCache:
+    let c = inactiveCache[b.id]
+    if c[0] == b.changeId: return c[1]
+    if msSince(b.lspChangeAt) < SemPauseMs:
+      # (typing: the ranges as they were, moved by the lines added or taken out at the cursor — worked out again
+      # in the pause, like the semantic colours: it reads the whole file, which in a big one made every key late)
+      let d = b.lines.len - c[2]
+      if d == 0: return c[1]
+      let at = b.primary.head.line
+      for (a, e) in c[1]:
+        let r = if a > at: (a + d, e + d) elif e >= at: (a, max(a, e + d)) else: (a, e)
+        if r[0] >= 0 and r[0] < b.lines.len: result.add (r[0], min(r[1], b.lines.high))
+      return
   try:
     if b.lang.mode == lmNim:
       if nimEngineOn(b):
@@ -36,7 +50,12 @@ proc inactiveRanges(b: Buffer): seq[(int, int)] =
       if r[0] <= merged[^1][1] + 1: merged[^1][1] = max(merged[^1][1], r[1])
       else: merged.add r
     result = merged
-  inactiveCache[b.id] = (b.changeId, result)
+  inactiveCache[b.id] = (b.changeId, result, b.lines.len)
+
+proc inactiveDue(b: Buffer): bool =
+  ## its dimmed ranges kept from before the last edit: the main loop draws again once typing pauses
+  cfgDimInactive and b.id in inactiveCache and inactiveCache[b.id][0] != b.changeId and not b.largeOn and
+    b.id notin diffViews and b.id notin multiBufs
 
 proc lineInactive(rs: seq[(int, int)], line: int): bool =
   var lo = 0

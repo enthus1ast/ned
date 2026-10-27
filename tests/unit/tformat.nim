@@ -36,6 +36,15 @@ suite "Nim":
     check files > 100
 
 suite "Nim: nph's layouts (6.32)":
+  test "a `return @[…]` too long for its line: `return`, then the seq on the next line (6.32.1: it was refused)":
+    let src = "proc f() =\n  for k in 0 ..< 3:\n    return @[line[0 ..< at].strip(leading = false), " &
+              "spaces(lead + deeper) & line[at .. ^1]]\n"
+    let want = "proc f() =\n  for k in 0 ..< 3:\n    return\n      @[line[0 ..< at].strip(leading = false), " &
+               "spaces(lead + deeper) & line[at .. ^1]]\n"
+    check nimFmt(src) == want
+    check nimFmt(want) == want
+    # (an operator that was a prefix stays one: `echo -1` is not `echo - 1`)
+    check nimFmt("echo -1\necho a - 1\n") == "echo -1\necho a - 1\n"
   test "a comment over a section's member: no empty line between them":
     check nimFmt("type\n  A = int\n\n  # the next one\n\n  B = int\nconst\n  # c\n\n  C = 1\n") ==
           "type\n  A = int\n\n  # the next one\n  B = int\n\nconst\n  # c\n  C = 1\n"

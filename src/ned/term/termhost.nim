@@ -5,7 +5,8 @@
 #  quits, or its window is closed, the host goes on; the next ned in the same folder connects again, the host plays
 #  back what the shell printed, and the terminal is as it was — with whatever was running still running.
 #  Messages, both ways: a kind (one byte), a length (4 bytes, big-endian), the bytes (see pty: hostFrame).
-#    ned → host: a attach ("force": take it from another ned) · d typed · r "COLS ROWS" · k end the shell · q detach
+#    ned → host: a attach (the host's key, from term-ID.key — a sandboxed plugin cannot read it —, then a line
+#    "force": take it from another ned) · d typed · r "COLS ROWS" · k end the shell · q detach
 #    host → ned: i what it is (JSON) · p what the shell printed so far · d printed · x its exit code · b in use
 #  Not on Windows; not REPLs (they start again by themselves), nor a remote folder's terminal (its ssh connection
 #  ends with ned).
@@ -60,7 +61,8 @@ when not defined(windows):
     var buf = ""
     var kind: char
     var pay: string
-    if not hostWriteAll(fd, hostFrame('a', if force: "force" else: ""), 500) or
+    let key = ctlKeyOf(hostPath(id, ".sock"))
+    if not hostWriteAll(fd, hostFrame('a', key & (if force: "\nforce" else: "")), 500) or
        not hostReadFrame(fd, buf, kind, pay, 2000) or kind != 'i':
       discard posix.close(fd)
       return false
@@ -94,6 +96,10 @@ proc hostStart(t: Term, cwd: string, env: seq[(string, string)], argv: seq[strin
     while fileExists(hostPath(id, ".json")) or fileExists(hostPath(id, ".sock")): id.add 'x'
     var a: Sockaddr_un
     if not sockAddr(hostPath(id, ".sock"), a): return false     # (too long a name for a socket)
+    # (its key: what a ned attaching sends first — in a file only you can read, not on its command line, which
+    # every program can see)
+    let key = ctlNewKey()
+    if key.len == 0 or not ctlWriteKey(hostPath(id, ".key"), key): return false
     let args = @[app, "--term-host", id, $t.w, $t.h, cwd, rootDir, "--"] & argv
     let pid = fork()
     if pid < 0: return false
@@ -132,6 +138,7 @@ proc hostList(): seq[JsonNode] =
           try:
             removeFile(p)
             removeFile(p.changeFileExt(".sock"))
+            removeFile(p.changeFileExt(".key"))
           except CatchableError: discard
           continue
         result.add j
@@ -199,6 +206,9 @@ when not defined(windows):
     signal(SIGPIPE, SIG_IGN)
     let sockP = hostPath(id, ".sock")
     let infoP = hostPath(id, ".json")
+    let keyP = hostPath(id, ".key")
+    let key = try: readFile(keyP).strip except CatchableError: ""
+    if key.len == 0: quit 1               # (no key: a ned could not prove it is yours)
     var a: Sockaddr_un
     if not sockAddr(sockP, a): quit 1
     let ls = posix.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -212,7 +222,9 @@ when not defined(windows):
     discard fcntl(lfd, F_SETFD, FD_CLOEXEC)
     proc gone(code: int) =
       discard posix.unlink(sockP.cstring)
-      try: removeFile(infoP)
+      try:
+        removeFile(infoP)
+        removeFile(keyP)
       except CatchableError: discard
       quit code
     let (mfd, slave) = ptyOpen()
@@ -292,7 +304,9 @@ when not defined(windows):
           var kind: char
           var pay: string
           if not hostReadFrame(c, b, kind, pay, 500) or kind != 'a': discard posix.close(c)
-          elif client >= 0 and pay != "force":
+          elif not ctlSameKey(pay.split('\n')[0], key):
+            discard posix.close(c)        # (without the key: a program that may not type into your shell)
+          elif client >= 0 and not pay.endsWith("\nforce"):
             discard hostWriteAll(c, hostFrame('b', ""), 200)
             discard posix.close(c)
           else:

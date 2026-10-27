@@ -143,7 +143,11 @@ and puts its path in `NED_SOCKET`, which everything ned starts inherits — abov
   `--remote-problems [NAME]` (a build's output on stdin becomes Problems), `--remote-get WHAT`, `--remote-list`.
   Without `NED_SOCKET`, `ctlFind` picks the ned whose project holds the files, else the last one started.
 
-The protocol is one JSON request per line, and one or two answers ("waiting", then "done"). The UI tests clear
+The protocol is one JSON request per line, and one or two answers ("waiting", then "done"). Each request carries
+`"key"`, which ned writes beside the socket (`remote-<pid>.key`, 0600) and the client reads (`ctlKeyOf`): a program
+in ned's sandbox (`plugins.sandbox`, sys/landlock.nim) can connect to the socket — Landlock does not limit that —
+but cannot read the key, so ned refuses it. A kept terminal's host (`term-<id>.sock`) checks its own key the same
+way, in the attach message. The UI tests clear
 `NED_SOCKET` for the ned they start, so a test run inside ned's terminal does not talk to the ned it runs in.
 
 ## Settings sync
