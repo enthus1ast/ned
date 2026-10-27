@@ -1,7 +1,7 @@
 id = "nedls"
 name = "nedls"
 description = "ned's Nim engine as a language server: completion, hover, definition, references, rename, formatting, quick fixes and problems as you type, without nimsuggest."
-version = "6.32.1"
+version = "6.32.2"
 schema_version = 1
 authors = ["Foxoman <sultan@foxoman.net>"]
 repository = "https://github.com/foxoman/ned"

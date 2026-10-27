@@ -439,7 +439,8 @@ proc lspExtras(b: Buffer) =
         if h.line == ra.line and h.col >= ra.col and h.col <= re.col: inUse = true
     if inUse: docHl.pos = h
     elif (docHl.bufId != b.id or docHl.pos != h or docHl.change != b.changeId) and msSince(navAt) > 150 and
-         (cEngineOn(b) or msSince(b.lspChangeAt) > 400):     # (Nim: once the typing pauses — words are marked till then)
+         msSince(b.lspChangeAt) > 400:     # (once the typing pauses — words are marked till then: the engine reads
+                                           # the whole file again after an edit, which in a big one made keys late)
       docHl = (b.id, b.changeId, h, @[])
       if not b.primary.hasSel and b.wordAt(h).len > 0:
         # (Nim: the lines on screen and a screen around them — it is asked as the cursor moves)

@@ -1414,14 +1414,15 @@ proc plugDataName(name: string): bool =
 proc plugApi(h: PlugHost, j: JsonNode) =
   let id = j{"id"}.getInt
   let fn = j{"fn"}.getStr
-  let a = j{"args"}
+  # (arguments that are not an object — a plugin's mistake, or one meaning harm — read as none)
+  let a = if j{"args"} != nil and j{"args"}.kind == JObject: j{"args"} else: newJObject()
   # (the plugin it says it is: one of the process's own, else — one plugin to a process — that one)
   let plugin = block:
     let c = j{"plugin"}.getStr
     if c in h.ids: c elif h.ids.len == 1: h.ids[0] else: ""
   let rid = j{"rid"}.getInt
   h.lastUse = getMonoTime()
-  let b = if a != nil and a.hasKey("buf"): bufById(a["buf"].getInt) else: nil
+  let b = if a.hasKey("buf"): bufById(a{"buf"}.getInt) else: nil
   template answer(v: JsonNode, err = "") = plugAnswer(h, id, v, err)
   template needBuf() =
     if b == nil:

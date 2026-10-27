@@ -75,10 +75,11 @@ proc emacsKey(k: Key): bool =
       of 'k': runCmd("Close tab")
       of 'u': b.undo()
       of 'h': b.setSingle(Pos(line: b.lines.high, col: b.lines[^1].len), Pos())
-      of 'o': runCmd("View: focus other pane")
+      of 'o': runCmd("View: focus next pane")
       of '2': runCmd("View: split editor down")
       of '3': runCmd("View: split editor right")
-      of '1', '0': runCmd("View: close split")
+      of '1': runCmd("View: close the other panes")
+      of '0': runCmd("View: close this pane")
       of '(': (if not macroRecording: macroStart())       # keyboard macro: C-x ( records, C-x ) stops, C-x e plays
       of ')': macroStop(prefixKeys = 1)
       of 'e': macroPlay(macroLast)

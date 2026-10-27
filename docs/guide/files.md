@@ -20,7 +20,7 @@
 | `~/.cache/ned/nedastcheck-*` | the Nim parser check the formatter can use (`nim.format.verify`), built once |
 | `~/.local/state/ned/errors.log` | details of internal errors, if any ever happen (please include it in a report) |
 | `~/.local/state/ned/remote/` | the local copies of remote (SSH) folders, and `remotes.json` |
-| `~/.local/state/ned/settings-sync/` | the clone of your settings repository (*Settings sync: push / pull*) |
+| `~/.local/state/ned/settings-sync/` | the clone of your settings repository (*Settings sync: push …*, *Settings sync: pull …*) |
 | `$TMPDIR/ned-UID/remote-PID.sock` | the socket a running ned answers on (`ned --remote …`, `ned FILE` in its terminal; only you can reach it; gone when it quits) |
 
 *Reset everything* (File › Preferences, the palette) — or `ned --reset` from the shell — removes all of these but

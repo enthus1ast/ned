@@ -277,7 +277,7 @@ ways that work (also any time: *Git: sign in to GitHub*):
 
 A remote that already uses SSH gets *Set up an SSH key* or *Use HTTPS and sign in with GitHub*. The first SSH
 connection asks whether to trust GitHub's host key — answer it in the terminal. ned never asks for, sees or stores a
-token, and the dock shows who you push as (*GitHub: @you*). Other servers ask for their login in the terminal.
+token, and the dock shows who you push as ("GitHub: @you"). Other servers ask for their login in the terminal.
 
 ### Pull requests, issues, CI and review comments
 

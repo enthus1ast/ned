@@ -613,6 +613,7 @@ proc wkHandle(line: string) =
   of "close":
     let b = wkDoc(id)
     if b != nil: bufs.delete(bufs.find(b))
+    bufForget(id)
     var keep: seq[WkTask]
     for t in wkTasks:
       if t.id != id: keep.add t

@@ -118,4 +118,4 @@ can add your own (see [Settings](settings.md#settings)).
 | Ctrl+Z · Ctrl+Y · Ctrl+S | undo · redo · save |
 
 Palette: *Hex: symbols…*, *Hex: sections…*, *Hex: Nim modules by size*, *Hex: open the Nim source of the proc at the
-cursor*, *Hex: copy as a Nim array / a Nim string / a C array*, *Hex: show as text*.
+cursor*, *Hex: copy as a Nim array*, *Hex: copy as a Nim string*, *Hex: copy as a C array*, *Hex: show as text*.

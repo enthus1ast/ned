@@ -470,6 +470,7 @@ proc flushScreen() =
           else:
             o.delete(mark + 2 .. mark + 2)          # ("\e[;…" → "\e[…")
             o.add 'm'
+      if ch < 0xA0: ch = visibleCh(ch)            # (a control character: its picture, never the control itself)
       if cfgAccessible and ch >= 128 and ch < 0x3000: ch = asciiGlyph(ch)
       if ch < 128: o.add char(ch)
       elif ch >= PoolBase.int: o.add cellPool[ch - PoolBase.int]          # (several code points: one character)
@@ -593,6 +594,7 @@ proc caEmit(o: var string, i: int, c0: Cell) =
   o.add 'm'
   var ch = c.ch.int
   if ch == 0: ch = 32
+  if ch < 0xA0: ch = visibleCh(ch)
   if cfgAccessible and ch >= 128 and ch < 0x3000: ch = asciiGlyph(ch)
   if ch < 128: o.add char(ch)
   elif ch >= PoolBase.int: o.add cellPool[ch - PoolBase.int]

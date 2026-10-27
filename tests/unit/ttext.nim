@@ -103,3 +103,25 @@ suite "widths and characters of several code points (6.13)":
           i += charWidthAt(s, i, vc)[1]
       check bad == 0
     graphemes = false
+
+suite "control characters never reach the terminal (6.32.2)":
+  test "C0, DEL and C1 (U+0080 … U+009F) become their pictures; the rest stays":
+    check visibleCh(0x1b) == 0x241B
+    check visibleCh(0x07) == 0x2407
+    check visibleCh(0x7f) == 0x2421
+    check visibleCh(0x9b) == 0xFFFD          # (an 8-bit CSI: some terminals obey it)
+    check visibleCh(0x85) == 0xFFFD
+    check visibleCh(0xA0) == 0xA0
+    check visibleCh(ord('a')) == ord('a')
+    check visibleCh(0x1F600) == 0x1F600
+  test "a cluster with a control character in it: kept in the pool with its picture":
+    graphemes = true
+    let s = "é\x1b[31m"
+    let c = cellOf(s, 0, 2 + 2)              # (e, the accent — and nothing of the escape: a cluster of two)
+    check c >= PoolBase
+    let bad = "á\xC2\x9B"              # (a cluster that ends in an 8-bit CSI, as a broken file could hold)
+    let c2 = cellOf(bad, 0, bad.len)
+    check c2 >= PoolBase
+    check "\xC2\x9B" notin cellPool[int(c2 - PoolBase)]
+    check "\xEF\xBF\xBD" in cellPool[int(c2 - PoolBase)]
+    graphemes = false

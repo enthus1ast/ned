@@ -253,8 +253,9 @@ the whole of `src/ned.nim`, built with `-d:nedNoMain`).
    ```
 
 4. **Every test** ([Testing](testing.md)): the unit tests, the plugin tests, nedls, the formatter's parse check, the
-   whole UI suite on a quiet machine, `pty_smoke.py`, `bench.py`, `rounds.py`, the fuzzer, the docs and themes checks,
-   and the scoreboard (CI runs it).
+   whole UI suite on a quiet machine, `pty_smoke.py`, `bench.py`, `rounds.py`, `budgets.py`, every command
+   (`smoke/commands.py`, with and without `--plugins`), the hostile input (`hostile/thostile.py`), the fuzzer, the docs
+   and themes checks, and the scoreboard (CI runs it).
 5. **The builds**: `bash tests/build/termux.sh OUT` (the `.deb`) and `bash tests/build/windows.sh OUT` (the zip), with
    zig as the C compiler; `tests/build/cross.sh` for every other target. Build one thing at a time on a small machine.
    Gather the release's files in one folder and run `NED_SIGNING_KEY=~/.ssh/ned-release sh tests/build/sums.sh

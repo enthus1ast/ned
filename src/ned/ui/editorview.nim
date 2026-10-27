@@ -251,6 +251,13 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       while focB < b.lines.high and not isBlank(b.lines[focB + 1]): inc focB
   let primSel = b.primary.hasSel
   let ds = if isMb: b.mbDiags() else: diagsFor(b.path)
+  # the problems that can be on the lines drawn (without folds, no line below topLine + the rows: a file with
+  # thousands of them made each frame look at every one for every line drawn — 10 ms a frame at 5 000)
+  var dsNear: seq[int]
+  block:
+    let lastL = if b.folds.len > 0: high(int) else: b.topLine + h + 1
+    for di in 0 ..< ds.len:
+      if max(ds[di].line, ds[di].eline) >= b.topLine and ds[di].line <= lastL: dsNear.add di
   var findQ = ""
   var fCase = true
   var fWord = false
@@ -436,7 +443,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     var diagR: seq[(int, int, int)]
     var worst = 0
     var lineDiag = -1
-    for di, d in ds:
+    for di in dsNear:
+      template d: untyped = ds[di]
       if d.line <= line and line <= max(d.line, d.eline):
         var a = if d.line == line: d.col else: 0
         var e = if d.eline == line and d.ecol >= 0 and d.eline >= d.line: d.ecol else: s.len

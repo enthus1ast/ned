@@ -18,6 +18,9 @@ has the tables of tools the tests use.
 | [docs](#the-documentation) | references up to date, every link goes somewhere | `python3 tests/docs/apiref.py --check && python3 tests/docs/links.py` | a second |
 | [themes](#theme-contrast) | ned's own themes are readable | `python3 tests/themes/contrast.py` | a second |
 | tour | the Nim tour's lessons: every cell runs and prints what it says, every exercise's answer passes | `python3 tests/tour/check.py` | a minute or two |
+| every command | each command of the palette run in a ned of its own (`--plugins`: with all of ned's plugins on, theirs too): no crash, no internal error, still answering | `python3 tests/smoke/commands.py ./ned` | 15 minutes |
+| hostile input | a plugin, the remote control and nedls fed nonsense; control characters on the screen | `python3 tests/hostile/thostile.py ./ned ./nedls` | a few minutes |
+| names | every command and setting the menus, key maps, ned's plugins and the docs name exists | `python3 tests/docs/names.py` | a second |
 
 Which to run before sending a change: the unit tests, the UI tests near your change (`--list` shows the names; a
 test's name says its release and topic), and the suite of the part you touched — the plugin tests for the plugin

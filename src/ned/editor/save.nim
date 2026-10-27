@@ -206,6 +206,7 @@ proc closeBufferAt(i: int) =
     if k >= 0: curBuf = k
     paneAfterClose = -1
   closeComp()
+  bufForget(b.id)                                 # (what ned kept about it: editor/bufforget.nim)
   needRender = true
 
 proc closeBuffer(i: int) =
