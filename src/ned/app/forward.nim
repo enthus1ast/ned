@@ -259,3 +259,5 @@ proc nimEngHighlights(b: Buffer, p: Pos, first = 0, last = int.high): seq[(Pos, 
 proc batteryToggle()                                   # app/battery.nim
 proc drawPaneView(b: Buffer, x0, y0, w, h: int, active: bool)   # ui/paneviews.nim
 proc paneTermEnd(id: int)                                       # ui/paneviews.nim
+proc wkMacros(path: string)                                     # nim/worker.nim
+proc mnNamesKnown(f: NxFile, lines: seq[string], sc: NxScope): bool  # nim/macronames.nim

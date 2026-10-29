@@ -18,7 +18,7 @@ proc orQuestions(b: Buffer, f: NxFile): seq[(int, int)] =
   var seen: HashSet[(int, int)]
   template want(l, c: int) =
     if l >= 0 and l < b.lines.len and (l, c) notin seen:
-      let k = orKey(b.lines[l], c)
+      let k = orKey(b.path, b.lines[l], c)
       if k notin asked and k notin tab:
         seen.incl (l, c)
         result.add (l, c)
@@ -55,7 +55,7 @@ proc orQuestions(b: Buffer, f: NxFile): seq[(int, int)] =
     if l < lo: continue
     for (a, e) in ids:
       if e >= t.len or t[e] != '(' or result.len >= 120: continue
-      let k = orKey(t, a)
+      let k = orKey(b.path, t, a)
       if k in asked or k in tab or k in orNotAsked: continue    # (asked before, answered, or nothing to ask)
       let (refs, locals, _) = try: nxTargets(f, b.lines, l, a) except CatchableError: (@[], @[], "")
       if locals.len > 0 or refs.len < 2:
@@ -86,7 +86,7 @@ proc oracleStep(b: Buffer) =
   var text = ""
   for (l, c) in qs:
     text.add "def " & b.path & (if dirty.len > 0: ";" & dirty else: "") & ":" & $(l + 1) & ":" & $c & "\n"
-    keys.add orKey(b.lines[l], c)
+    keys.add orKey(b.path, b.lines[l], c)
   text.add "quit\n"
   try: writeFile(qfile, text)
   except CatchableError: return

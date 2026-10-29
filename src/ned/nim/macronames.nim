@@ -93,11 +93,123 @@ func mnSame(a, b: seq[NxMacroCall]): bool =
   true
 
 proc mnForget(path: string) =
+  ## the file has no top-level macro calls (any more): nothing they make, and that is known
+  let was = nxMacroDone.getOrDefault(path, "\x00")
+  nxMacroDone[path] = ""
   if path in nxMacroSyms:
     nxMacroSyms.del path
     nxFiles.del path
     nxForgetScopesOf(path)
     inc nxGen
+  if was != "":
+    typoAt.clear()
+    wkMacros(path)
+
+# ── what the calls made, kept on disk with what it came from (the file's text, the files it sees, where the
+#    macros are, the defines and the compiler): the next time the file is opened as it was, the names are known at
+#    once — no compiler run, and nothing marked missing meanwhile — as Nim's own compiler keeps a module's results
+#    with what they depend on ──
+
+proc mnDiskFile(path: string): string =
+  getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "macros" / (toHex(cast[uint64](hash(path))) & ".json")
+
+proc mnNimStamp(): string =
+  let exe = findExe("nim")
+  if exe.len == 0: "" else: exe & "|" & nxStamp(exe)
+
+func mnTextKey(lines: openArray[string]): string =
+  let text = lines.join("\n") & "\n"
+  $text.len & ":" & $hash(text)
+
+proc mnDepsOf(f: NxFile, macroFiles: seq[string]): (bool, seq[(string, string)]) =
+  ## the files an expansion may have read besides the file itself — the project's and the packages' modules it
+  ## sees, those of the macros — with their stamps on disk; false when one of them has unsaved changes (what the
+  ## compiler read is not on disk then)
+  var ps = macroFiles
+  let sc = nxScope(f)
+  if sc != nil:
+    for (p, _) in sc.deps:
+      if p notin ps: ps.add p
+  result[0] = true
+  for p in ps:
+    if p == f.path or p.len == 0 or (nxLibDir.len > 0 and p.startsWith(nxLibDir & "/")): continue
+    let i = bufIndexByPath(p)
+    if i >= 0 and bufs[i].dirty: return (false, @[])
+    result[1].add (p, nxStamp(p))
+
+proc mnStore(path, textKey, sig: string, deps: seq[(string, string)]) =
+  var d = newJArray()
+  for (p, st) in deps: d.add %*[p, st]
+  let j = %*{"path": path, "text": textKey, "defs": nxDefinesKeyOf(), "nim": mnNimStamp(), "deps": d, "sig": sig,
+             "b": encode(nxMacroCallsBytes(nxMacroSyms.getOrDefault(path)))}
+  let f = mnDiskFile(path)
+  try:
+    createDir(parentDir(f))
+    let tmp = f & ".tmp" & $getCurrentProcessId()
+    writeFile(tmp, $j)
+    moveFile(tmp, f)
+  except CatchableError: discard
+
+var mnDiskTried: HashSet[string]       # (files looked for on the disk this session: once each)
+
+proc mnLoad(path: string, lines: seq[string]): bool =
+  ## what the calls made, from the disk, when it was made from this very text and nothing it came from changed
+  if path in nxMacroDone or path in mnDiskTried or lines.len == 0 or not nxDefinesComplete: return false
+  mnDiskTried.incl path                  # (once the defines are the project's: they are part of what it came from)
+  let f = mnDiskFile(path)
+  if not fileExists(f): return false
+  try:
+    let j = parseFile(f)
+    if j{"path"}.getStr != path or j{"text"}.getStr != mnTextKey(lines) or j{"defs"}.getStr != nxDefinesKeyOf() or
+       j{"nim"}.getStr != mnNimStamp() or j{"deps"} == nil or j{"deps"}.kind != JArray:
+      return false
+    for d in j["deps"]:
+      if d.kind != JArray or d.len != 2: return false
+      let p = d[0].getStr
+      let i = bufIndexByPath(p)
+      if nxStamp(p) != d[1].getStr or (i >= 0 and bufs[i].dirty): return false
+    let bytes = decode(j{"b"}.getStr)
+    let calls = nxMacroCallsFrom(bytes)
+    if nxMacroCallsBytes(calls) != bytes: return false          # (kept by another version of ned)
+    let sig = j{"sig"}.getStr
+    if calls.len > 0: nxMacroSyms[path] = calls
+    else: nxMacroSyms.del path
+    nxMacroDone[path] = sig
+    mnDone[path] = sig
+    nxFiles.del path
+    nxForgetScopesOf(path)
+    inc nxGen
+    typoAt.clear()
+    wkMacros(path)
+    needRender = true
+    true
+  except CatchableError, Defect: false
+
+var mnSigMemo: Table[string, (string, string)]   # project module → (its stamp, its top-level macro calls' lines)
+
+proc mnCallsSig(f: NxFile, lines: openArray[string]): string =
+  for (l, _) in mnCalls(f, lines): result.add lines[l] & "\n"
+
+proc mnNamesKnown(f: NxFile, lines: seq[string], sc: NxScope): bool =
+  ## are the names that the top-level macro calls of this file, and of the project's modules it imports, make known
+  ## — for the calls as they are now? (Until they are, a member the engine cannot find may be one of them)
+  if f == nil or sc == nil: return false
+  let own = mnCallsSig(f, lines)
+  if own.len > 0 and nxMacroDone.getOrDefault(f.path, "\x00") != own: return false
+  for _, p in sc.modules:
+    if p.len == 0 or p == f.path or not p.endsWith(".nim") or nxIsPkgPath(p) or
+       (nxLibDir.len > 0 and p.startsWith(nxLibDir & "/")):
+      continue
+    let st = nxCurStamp(p)
+    var sig = ""
+    if p in mnSigMemo and mnSigMemo[p][0] == st: sig = mnSigMemo[p][1]
+    else:
+      let g = nxLoad(p)
+      if g != nil: sig = mnCallsSig(g, mnLinesOf(p))
+      if mnSigMemo.len > 2000: mnSigMemo.clear()
+      mnSigMemo[p] = (st, sig)
+    if sig.len > 0 and nxMacroDone.getOrDefault(p, "\x00") != sig: return false
+  true
 
 proc mnNext()
 
@@ -128,15 +240,19 @@ proc mnExpand(path: string) =
   var texts: seq[(int, string, string)]          # (line, macro, the line as it is now)
   for (l, w) in calls: texts.add (l, w, lines[l])
   var bodies: Table[string, string]              # macro → its source (what it writes with a `*`)
+  var macroFiles: seq[string]                    # (where the macros are: what the names made depend on)
   let sc = nxScope(f)
   for w in names:
     for r in nxLookup(sc, w):
       let sy = r.file.syms[r.idx]
       if sy.kind != nxMacro: continue
+      if r.file.path notin macroFiles: macroFiles.add r.file.path
       let src = mnLinesOf(r.file.path)
       var t = ""
       for k in sy.line .. min(sy.endLine, src.high): t.add src[k] & "\n"
       bodies[w] = bodies.getOrDefault(w) & t
+  let (depsOk, deps) = mnDepsOf(f, macroFiles)
+  let textKey = mnTextKey(lines)
   let job = startJob(jkAux, cmd, parentDir(path), proc(j: Job) =
     mnRunning = ""
     mnSeen.clear()                             # (the buffers looked at again: typed while this ran?)
@@ -174,6 +290,12 @@ proc mnExpand(path: string) =
         nxForgetScopesOf(path)                     # (what sees this file: the others are kept)
         inc nxGen
         needRender = true
+      # (known now, for the calls as they were given: the engine's checks made without these names are made again,
+      # the worker told, and the disk keeps them)
+      nxMacroDone[path] = sig
+      typoAt.clear()
+      wkMacros(path)
+      if depsOk: mnStore(path, textKey, sig, deps)
     mnNext())
   if job != nil: job.deadlineMs = 60_000       # (a macro that never ends: stopped)
 
@@ -197,6 +319,7 @@ proc macroNamesFor(b: Buffer) =
       if p.len > 0 and p.startsWith(rootDir & "/") and p.endsWith(".nim") and p notin want: want.add p
   for i in countdown(want.high, 0):
     let p = want[i]
+    if p notin nxMacroDone and p notin mnDiskTried and mnLoad(p, mnLinesOf(p)): continue   # (kept on disk for this text)
     let k = mnQueue.find(p)
     if k >= 0: mnQueue.delete(k)
     if p == mnRunning: continue

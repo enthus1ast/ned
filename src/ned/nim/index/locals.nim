@@ -660,3 +660,41 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
          sufMin[s.line - a + 1] < scopes[k]: continue
       keep.add s
   swap(result, keep)        # (not `result = keep`: see above)
+
+# ── a file's face: what other code can see of it — its declarations (names, kinds, parameters, types, values,
+#    pragmas), what it imports and exports, and the bodies of its templates and macros (code that runs where they are
+#    used) — but not where they are, their doc comments or what routines' bodies hold. The same after an edit inside
+#    a body: what was worked out from it elsewhere still holds (as Nim's compiler keeps a module's interface apart
+#    from its implementation) ──
+
+var nxFaceMemo: Table[string, (string, string, string)]   # path → (the stamp, its face, its exported face)
+
+proc nxFaceStamp*(f: NxFile, exportedOnly = false): string =
+  ## the file's face as a short string (exportedOnly: what a module importing it sees)
+  if f == nil: return ""
+  nxFaceMemo.withValue(f.path, m):
+    if m[][0] == f.stamp: return (if exportedOnly: m[][2] else: m[][1])
+  var all, pub: Hash = 0
+  var lines: seq[string]
+  var haveLines = false
+  for s in f.syms:
+    if s.local: continue
+    var one = s.name & "\t" & $s.kind & "\t" & $s.exported & "\t" & s.generics & "\t" & $s.params & "\t" & s.ret &
+              "\t" & s.typ & "\t" & s.value & "\t" & s.pragmas & "\t" & s.owner & "\t" & $s.made
+    if s.kind in {nxTemplate, nxMacro} and s.endLine > s.line:
+      if not haveLines:
+        lines = nxLinesOf(f).ls
+        haveLines = true
+      for l in s.line + 1 .. min(s.endLine, lines.high): one.add "\n" & lines[l]
+    all = all !& hash(one)
+    if s.exported or s.kind in {nxField, nxEnumVal}: pub = pub !& hash(one)
+  var shape = f.exports.join(",") & "|"
+  for im in f.imports: shape.add im.spec & ":" & im.alias & ":" & $im.isInclude & ":" & im.only.join(",") & ":" &
+                                 im.excepts.join(",") & ";"
+  all = all !& hash(shape)
+  pub = pub !& hash(shape)
+  let a = $(!$all)
+  let p = $(!$pub)
+  if nxFaceMemo.len > 5000: nxFaceMemo.clear()
+  nxFaceMemo[f.path] = (f.stamp, a, p)
+  if exportedOnly: p else: a

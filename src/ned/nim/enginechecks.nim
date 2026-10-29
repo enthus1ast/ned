@@ -429,6 +429,7 @@ proc ecMembers(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag], typo
   # (a `.` operator in scope — JsObject's, a macro's — makes any name a member)
   for op in [".", ".=", ".()"]:
     if nxLookup(sc, op).len > 0: return
+  var namesKnown = 0                  # (are the names macro calls make known: 0 not asked yet, 1 yes, 2 no)
   var skipLines = newSeq[bool](code.len)
   for sy in f.syms:
     if sy.kind in {nxTemplate, nxMacro} and sy.endLine >= sy.line:
@@ -494,8 +495,12 @@ proc ecMembers(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag], typo
             res.add Diag(line: l, col: ma, eline: l, ecol: me, sev: 2, src: "ned", rule: "field-typo",
                          msg: "'" & name & "' is not a field of " & base & " — did you mean '" & meant & "'?")
         elif missing:
-          res.add Diag(line: l, col: ma, eline: l, ecol: me, sev: 1, src: "ned", rule: "field-missing",
-                       msg: "undeclared field: '" & name & "' for type " & base)
+          # (not while what the macro calls here and in the project's imports make is unknown: the member may be
+          # one of the names they make — `makeGetters(Config, title)` and `cfg.getTitle`)
+          if namesKnown == 0: namesKnown = (if mnNamesKnown(f, b.lines, sc): 1 else: 2)
+          if namesKnown == 1:
+            res.add Diag(line: l, col: ma, eline: l, ecol: me, sev: 1, src: "ned", rule: "field-missing",
+                         msg: "undeclared field: '" & name & "' for type " & base)
       k = s.find('.', me)
 
 func ecStmtStart(s: string, k: int, start = 0): int =

@@ -7,6 +7,8 @@ type NxMacroCall* = object
   syms*: seq[NxSym]         # what the expansion declares (positions: its own)
 
 var nxMacroSyms* = initTable[string, seq[NxMacroCall]]()   # path → its top-level macro calls, expanded
+var nxMacroDone* = initTable[string, string]()    # path → its top-level macro calls (their lines) that this expansion
+                                                 # is of: what they make is known while the calls are the same
 
 proc nxAddMacroSyms*(f: NxFile, lines: openArray[string]) =
   ## the names the file's macro calls make, added to its declarations (each at its call, wherever that is now; a

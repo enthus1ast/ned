@@ -1077,6 +1077,37 @@ proc nxSameImports(a, b: NxFile): bool =
       return false
   true
 
+proc nxSameDecls(a, b: NxFile): bool =
+  ## two versions of a file that declare the same, in the same order (an edit inside a routine's body, a comment):
+  ## what the files importing it see of it is the same
+  if a == b: return true
+  if a == nil or b == nil or a.syms.len != b.syms.len or a.exports != b.exports or not nxSameImports(a, b): return false
+  for i in 0 ..< a.syms.len:
+    let (x, y) = (a.syms[i].addr, b.syms[i].addr)
+    if x.name != y.name or x.kind != y.kind or x.exported != y.exported or x.generics != y.generics or
+       x.params != y.params or x.ret != y.ret or x.typ != y.typ or x.value != y.value or x.pragmas != y.pragmas or
+       x.owner != y.owner or x.made != y.made or x.local != y.local:
+      return false
+  true
+
+proc nxRepointScope(old: NxScope, path: string, g: NxFile): NxScope =
+  ## the scope with a module it imports in a new version that declares the same as the last (an edit inside a
+  ## body): its names pointed at the new version, nothing gathered or sorted again — nil when the declarations
+  ## changed. (Every module importing one that was edited made its whole scope again: in a big program, a hundred
+  ## thousand names for each of them)
+  var was: NxFile = nil
+  for r in old.refs:
+    if r.file.path == path:
+      was = r.file
+      break
+  if was == nil or was == g or not nxSameDecls(was, g): return nil
+  result = NxScope(stamp: old.stamp, ikey: old.ikey, own: old.own, modules: old.modules, deps: old.deps,
+                   byHash: old.byHash, refs: old.refs, memo: old.memo)
+  for r in result.refs.mitems:
+    if r.file == was: r.file = g
+  for d in result.deps.mitems:
+    if d[0] == path: d[1] = g.stamp
+
 proc nxIncludedScope*(f, host: NxFile): NxScope =
   ## what a file that another one includes can see: everything its includer sees (the includer's own
   ## declarations, its imports, its other include files), with this file's current declarations
@@ -1251,6 +1282,7 @@ proc nxScope*(f: NxFile): NxScope =
       if not many and old.stamp == stamp and old.own == f and old.ikey == ikey:
         let g = nxLoad(stale)
         if g != nil: patched = nxPatchScope(old, stale, g)
+        if patched == nil and g != nil: patched = nxRepointScope(old, stale, g)
       if patched != nil:
         nxKeepScope(f.skey, patched)
         inc nxTick

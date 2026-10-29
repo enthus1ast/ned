@@ -441,6 +441,9 @@ proc mainLoop() =
       if cfgOracle and not away and cb.lang != nil and cb.lang.mode == lmNim and not compilerRunning() and
          msSince(lastInputAt) > 2500 and roomLeft():
         timedWork("the compiler asked in the background"): oracleStep(cb)
+      if cfgMacroNames and cb.lang != nil and cb.lang.mode == lmNim and cb.path.len > 0 and cb.path notin nxMacroDone and
+         cb.path notin mnDiskTried and nxDefinesComplete and mnUsable(cb.path):
+        discard mnLoad(cb.path, cb.lines)          # (what its macro calls made, kept on disk for this text: at once)
       if cfgMacroNames and not away and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
          msSince(cb.lspChangeAt) > 1500 and msSince(lastInputAt) > 1000 and not compilerRunning():
         # (one compiler at a time, and not while you scroll or type: a phone has the CPU for one)

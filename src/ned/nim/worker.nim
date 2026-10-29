@@ -144,8 +144,20 @@ proc wkStart(): bool =
   for (proj, o) in wkDumps: dumps.add %*[proj, o]
   wkSend(%*{"op": "init", "root": rootDir, "ws": wsRoots, "s": wkSettingsJson(), "dumps": dumps,
             "n3": nim3On()})
+  var made: seq[string]                    # (what macro calls make, known already: the new worker knows it too)
+  for p in nxMacroSyms.keys: made.add p
+  for p in nxMacroDone.keys:
+    if p notin made: made.add p
+  for p in made: wkMacros(p)
   for b in bufs: b.wkLogFrom = -1
   true
+
+proc wkMacros(path: string) =
+  ## (the editor) what a file's top-level macro calls make, from the compiler: the worker's engine knows it too — its
+  ## checks, hints and counts (it once marked `cfg.getTitle` that `makeGetters(Config, title)` makes as no member)
+  if wkWorkerMode or wkp == nil or wkp.dead: return
+  wkSend(%*{"op": "macros", "path": path, "known": path in nxMacroDone, "sig": nxMacroDone.getOrDefault(path),
+            "b": encode(nxMacroCallsBytes(nxMacroSyms.getOrDefault(path)))})
 
 proc wkSync(b: Buffer) =
   ## the worker has this buffer's text as it is now: what changed since its version, or the whole text
@@ -554,6 +566,16 @@ proc wkHandle(line: string) =
       nxDumpApply(d[0].getStr, d[1].getStr)
       nxDumped.incl d[0].getStr
   of "settings": wkApplySettings(j)
+  of "macros":
+    let path = j{"path"}.getStr
+    let calls = nxMacroCallsFrom(decode(j{"b"}.getStr))
+    if calls.len > 0: nxMacroSyms[path] = calls
+    else: nxMacroSyms.del path
+    if j{"known"}.getBool: nxMacroDone[path] = j{"sig"}.getStr
+    else: nxMacroDone.del path
+    nxFiles.del path
+    nxForgetScopesOf(path)
+    inc nxGen
   of "dump":
     nxDumpApply(j{"proj"}.getStr, j{"out"}.getStr)
     nxDumped.incl j{"proj"}.getStr

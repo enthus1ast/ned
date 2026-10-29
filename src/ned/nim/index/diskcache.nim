@@ -156,6 +156,24 @@ proc nxCacheRead*(path, text: string): NxFile =
     f
   except CatchableError: nil
 
+proc nxDefinesKeyOf*(): string = nxDefinesKey()   ## (what the defines and the toolchain are: part of a cache entry's key)
+
+proc nxMacroCallsBytes*(calls: seq[NxMacroCall]): string =
+  ## what a file's macro calls make, as bytes — for the engine worker, and for the disk (nim/macronames.nim)
+  nxPut(result, NxCacheParser)
+  nxPut(result, calls)
+
+proc nxMacroCallsFrom*(s: string): seq[NxMacroCall] =
+  ## … read back: nothing when another version of the parser made them, or they are cut short
+  try:
+    var r = NxReader(s: s, p: 0)
+    var v = ""
+    nxGet(r, v)
+    if v != NxCacheParser: return
+    nxGet(r, result)
+    if r.p != r.s.len: result = @[]
+  except CatchableError: result = @[]
+
 var nxCacheTidyHere*: proc(): bool {.nimcall.}   # (the editor: no — its engine worker tidies, off its thread —
                                                  #   and writes the entries: a write can wait for the disk too)
 

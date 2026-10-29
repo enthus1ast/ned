@@ -17,7 +17,32 @@ var
 
 proc orDir(): string = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "oracle"
 proc orFile(path: string): string = orDir() / ($(hash(path) and 0x7FFFFFFF) & ".json")
-func orKey(lineText: string, col: int): string = $(hash(lineText) and 0xFFFFFFF) & ":" & $col
+var orCtxMemo: Table[string, (MonoTime, string)]
+
+proc orCtx(path: string): string =
+  ## what the compiler's answers about a file depend on besides their line: what the file declares, what the
+  ## project's modules it sees declare (their faces — the same after edits inside bodies), the defines and the
+  ## library. An answer is kept by these too: a return type changed in another file left the old type beside a line
+  ## that had not changed (as Nim's own compiler keeps a module's results with the interfaces they came from)
+  let now = getMonoTime()
+  orCtxMemo.withValue(path, m):
+    if (now - m[][0]).inMilliseconds < 1500: return m[][1]
+  var h: Hash = hash(nxDefinesKeyOf()) xor hash(nxLibDir)
+  let f = nxLoad(path)
+  if f != nil:
+    h = h xor hash(nxFaceStamp(f))
+    let sc = nxScope(f)
+    if sc != nil:
+      for (p, _) in sc.deps:
+        if p == path or (nxLibDir.len > 0 and p.startsWith(nxLibDir & "/")): continue
+        let g = nxFiles.getOrDefault(p)
+        if g != nil: h = h xor hash(p & "\t" & nxFaceStamp(g, exportedOnly = true))
+  result = $(h and 0xFFFFFFF)
+  if orCtxMemo.len > 200: orCtxMemo.clear()
+  orCtxMemo[path] = (now, result)
+
+proc orKey(path, lineText: string, col: int): string =
+  $(hash(lineText) and 0xFFFFFFF) & ":" & $col & ":" & orCtx(path)
 
 proc orTable(path: string): Table[string, seq[string]] =
   ## the answers kept for a file (read again when the file on disk changes: the worker reads what the editor wrote)
@@ -46,7 +71,7 @@ proc orTable(path: string): Table[string, seq[string]] =
 proc orAnswer(path, lineText: string, col: int): seq[string] =
   ## nimsuggest's lines for the name at col on a line with that text ("def\tskLet\ta.x\tint\t…"; none: @[])
   if path.len == 0: return
-  orTable(path).getOrDefault(orKey(lineText, col))
+  orTable(path).getOrDefault(orKey(path, lineText, col))
 
 func orField(l: string, i: int): string =
   let p = l.split('\t')
@@ -93,4 +118,4 @@ proc orKeep(b: Buffer, p: Pos, lines: seq[string]) =
   ## a compiler's answer got another way (one nimsuggest run for a hover): kept with the oracle's
   if not cfgOracle or b.path.len == 0 or p.line >= b.lines.len or lines.len == 0: return
   let (a, _) = b.wordRangeAt(p)
-  orStore(b.path, @[(orKey(b.lines[a.line], a.col), lines)])
+  orStore(b.path, @[(orKey(b.path, b.lines[a.line], a.col), lines)])
