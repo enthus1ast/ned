@@ -200,6 +200,56 @@ proc nxRemoteDump(ri: int, proj: string) =
       if j2.code != 0: setMsg("Could not fetch " & r.host & "'s Nim library: " & j2.output.strip.truncTo(120), 2)
       apply()))
 
+# ── what `nim dump` said of a project, kept on disk with the times of what it read (the configuration files from
+#    the project's folder up, the user's, the .nimble and its lock, the package folders, the `nim` program): the next
+#    time, the engine has the project's defines and paths from the first screen instead of a guess until `nim dump`
+#    answers (which is still asked, once a session, and wins when it says something else) ──
+
+proc nxDumpDeps(proj: string): seq[(string, string)] =
+  var files = @[findExe("nim"), proj.changeFileExt("nims"), proj & ".cfg", proj.changeFileExt("nim.cfg")]
+  var d = parentDir(proj)
+  while d.len > 1:
+    for n in ["nim.cfg", "config.nims", "nimble.paths", "nimble.lock", "atlas.config", "nimbledeps", "deps"]:
+      files.add d / n
+    let up = parentDir(d)
+    if up == d: break
+    d = up
+  try:
+    for k, f in walkDir(parentDir(proj)):
+      if f.endsWith(".nimble"): files.add f
+  except CatchableError: discard
+  let cfg = getEnv("XDG_CONFIG_HOME", getHomeDir() / ".config") / "nim"
+  let nimbleDir = getEnv("NIMBLE_DIR", getHomeDir() / ".nimble")
+  files.add [cfg / "nim.cfg", cfg / "config.nims", nimbleDir / "pkgs2", nimbleDir / "pkgs"]
+  for f in files:
+    if f.len > 0: result.add (f, nxStamp(f))
+
+proc nxDumpFile(proj: string): string =
+  getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "dump" / (toHex(cast[uint64](hash(proj))) & ".json")
+
+proc nxDumpKept(proj: string): string =
+  ## what `nim dump` said the last time, when nothing it read has changed since ("": not kept, or out of date)
+  try:
+    let j = parseFile(nxDumpFile(proj))
+    if j{"proj"}.getStr != proj or j{"deps"} == nil or j{"deps"}.kind != JArray: return ""
+    var kept: seq[(string, string)]
+    for d in j["deps"]:
+      if d.kind == JArray and d.len == 2: kept.add (d[0].getStr, d[1].getStr)
+    if kept != nxDumpDeps(proj): return ""
+    j{"out"}.getStr
+  except CatchableError: ""
+
+proc nxDumpKeep(proj, output: string) =
+  var d = newJArray()
+  for (p, st) in nxDumpDeps(proj): d.add %*[p, st]
+  let f = nxDumpFile(proj)
+  try:
+    createDir(parentDir(f))
+    let tmp = f & ".tmp" & $getCurrentProcessId()
+    writeFile(tmp, $(%*{"proj": proj, "deps": d, "out": output}))
+    moveFile(tmp, f)
+  except CatchableError: discard
+
 proc nxEnsureToolchain(b: Buffer) =
   ## guess the toolchain at once; ask `nim dump` (in the background, once per project) for the real
   ## search paths: config.nims / nim.cfg --path, nimble packages
@@ -228,12 +278,18 @@ proc nxEnsureToolchain(b: Buffer) =
     nxRemoteDump(ri, proj)
     return
   nxDumping.incl proj
+  let kept = nxDumpKept(proj)
+  if kept.len > 0:
+    nxDumpApply(proj, kept)                       # (as the last run said: at once — asked again below)
+    wkDump(proj, kept)
   discard startJob(jkTool, "nim dump --hints:off --warnings:off --dump.format:json " & quoteShell(proj) & " 2>/dev/null",
                    parentDir(proj), proc(j: Job) =
     nxDumping.excl proj
     nxDumped.incl proj
-    nxDumpApply(proj, j.output)
-    wkDump(proj, j.output))
+    if j.output != kept:
+      nxDumpApply(proj, j.output)
+      wkDump(proj, j.output)
+      if j.code == 0 and j.output.strip.startsWith("{"): nxDumpKeep(proj, j.output))
 
 proc engineDepOf(dir, name: string): NxDep =
   ## the version of package `name` the project in `dir` builds with (dir: "" for an empty name: not one it uses)

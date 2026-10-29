@@ -29,6 +29,49 @@ proc refLinesOf(path: string): seq[string] =
     if getFileSize(path) <= 3_000_000: result = readFile(path).splitLines
   except CatchableError: discard
 
+# ── the words of the project's files, kept on disk by each file's stamp: reopening a project of hundreds of files
+#    reads them from one file instead of reading every source again (slow on Android's shared storage) ──
+
+var
+  refDisk: Table[string, (string, seq[string])]  # path → (its stamp on disk, its words), from the last session
+  refDiskRead = false
+  refDiskVersion = -1                            # (refVersion when written last)
+
+proc refDiskFile(): string =
+  getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "words" / (toHex(cast[uint64](hash(rootDir))) & ".txt")
+
+proc refDiskLoad() =
+  refDiskRead = true
+  try:
+    for l in lines(refDiskFile()):
+      let p = l.split('\t')
+      if p.len == 3: refDisk[p[0]] = (p[1], p[2].splitWhitespace)
+  except CatchableError: discard
+
+proc refDiskSave() =
+  ## each file's words as its disk stamp has them (a file open with changes is left out: its words are not those
+  ## on disk)
+  if refDiskVersion == refVersion or rootDir.len == 0: return
+  refDiskVersion = refVersion
+  var ids = newSeq[string](refWordId.len)
+  for w, id in refWordId: ids[id] = w
+  var o = ""
+  for fid, path in refFilePath:
+    let info = refFileInfo[fid]
+    if '\t' in path or '\n' in path or info.stamp != nxStamp(path): continue
+    o.add path & "\t" & info.stamp & "\t"
+    for k, wid in info.words:
+      if k > 0: o.add ' '
+      o.add ids[wid]
+    o.add '\n'
+  let f = refDiskFile()
+  try:
+    createDir(parentDir(f))
+    let tmp = f & ".tmp" & $getCurrentProcessId()
+    writeFile(tmp, o)
+    moveFile(tmp, f)
+  except CatchableError: discard
+
 proc refIndexFile(path: string) =
   ## which words the file uses, in the project-wide index (again when it changed). Only the words are kept,
   ## not the text, nor where each one is: a big project's sources would otherwise be held in memory twice over
@@ -36,6 +79,25 @@ proc refIndexFile(path: string) =
   if stamp.len == 0: return
   var fid = refFileId.getOrDefault(path, -1'i32)
   if fid >= 0 and refFileInfo[fid].stamp == stamp: return
+  if not refDiskRead: refDiskLoad()
+  if fid < 0 and path in refDisk and refDisk[path][0] == stamp:
+    # (as the last session found them, for this very file)
+    fid = int32(refFilePath.len)
+    refFileId[path] = fid
+    refFilePath.add path
+    var ws: seq[int32]
+    for w in refDisk[path][1]:
+      var wid = refWordId.getOrDefault(w, -1'i32)
+      if wid < 0:
+        wid = int32(refFilesOf.len)
+        refWordId[w] = wid
+        refFilesOf.add @[]
+      refFilesOf[wid].add fid
+      ws.add wid
+    refFileInfo.add RefFile(stamp: stamp, words: ws)
+    refDisk.del path
+    inc refVersion
+    return
   let lines = refLinesOf(path)
   if fid < 0:
     fid = int32(refFilePath.len)
@@ -252,6 +314,7 @@ proc refLensPump(b: Buffer, budgetMs = 12) =
       refComplete = true
       refScanPos = 0
       refScanAt = getMonoTime()
+      refDiskSave()
     elif not refComplete: return            # (more next time round — the main loop comes back soon; the
                                             # counts wait for the whole project)
   let f = nxFileFor(b)

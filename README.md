@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.32.2](#whats-new-in-6322) · [6.32.1](#whats-new-in-6321) · [6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
+- [What's new in 6.32.3](#whats-new-in-6323) · [6.32.2](#whats-new-in-6322) · [6.32.1](#whats-new-in-6321) · [6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -29,6 +29,28 @@ library, and builds to one binary of about 12 MB.
 - [Contributing](#contributing)
 
 ---
+
+## What's new in 6.32.3
+
+- **A member a macro makes was marked as missing.** In the showcase, `cfg.getTitle` — made by
+  `makeGetters(Config, title, size)` — was marked *undeclared field* while its hover showed where it came from. The
+  check ran in the engine worker, which never learnt the names macro calls make; without the worker, it was not made
+  again when they came. The worker is told now, the checks are made again when the names arrive, and until they are
+  known (or when they never are: `nim.macroNames` off, no `nim`, a folder not trusted) a member is not marked.
+- **What the compiler told ned is kept, with what it came from.** An idea from the Nim compiler's new
+  `nimsuggest2`: results kept with exactly what they depend on, and used until one of those changes.
+  - The names macro calls make are kept on disk with the file's text, the files it sees, the macros' files, the
+    defines and the compiler: the next time a file is opened as it was, they are known at once, without the
+    compiler.
+  - What `nim dump` says of a project (its defines, search paths, packages) is kept with the times of the files it
+    read: the engine has it from the first screen instead of a guess until `nim dump` answers.
+  - The compiler's background answers (a type hint the engine cannot work out, the overload a call picks) were kept
+    by the text of their line only: a return type changed in another file left the old hint beside an unchanged
+    line. They are kept by what the file and the modules it imports declare now too.
+- **An edit inside a body no longer makes the modules that import the file gather their names again**: when a file
+  declares the same as before, what the others see of it is kept.
+- **Reference counts** come at once when a project is opened again: the words of its files are kept on disk by
+  each file's time, not read again from every file.
 
 ## What's new in 6.32.2
 
@@ -344,7 +366,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.32.2_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.32.3_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -399,7 +421,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.32.2-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.32.3-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

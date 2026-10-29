@@ -14,8 +14,11 @@ outline and symbol search immediately, with no compiler run and no server proces
 `export`, `include`, `from … import`, `except` and `import … as` are followed. A file that another one
 `include`s sees what its includer sees: the includer's imports, its declarations and its other include files
 (the includer is looked for in the file's folder and the one above). `when` branches are evaluated for your
-platform and for what your project's config defines (`nim dump` lists it, so a symbol it leaves out is false). Names are compared style-insensitively, as Nim does. Your
-open, unsaved buffers count over the files on disk.
+platform and for what your project's config defines (`nim dump` lists it, so a symbol it leaves out is false).
+What `nim dump` said is kept (`~/.cache/ned/dump`) with the times of the files it read — the config files, the
+`.nimble`, its lock, the package folders, `nim` itself — so the next session has it from the first screen; it is
+asked again once a session. Names are compared style-insensitively, as Nim does. Your open, unsaved buffers count
+over the files on disk.
 
 **How it knows types.** From declarations, literals and call results, through chains like
 `t.getOrDefault(k).len`. Generics are filled in from arguments (`some(5)` is an `Option[int]`,
@@ -69,8 +72,10 @@ For these, ned asks the compiler. After a pause in your typing, one nimsuggest r
 lines around the screen, answers them and quits; no server is kept running. The unsaved text goes to it as a
 private copy.
 
-The answers are kept on disk (`~/.cache/ned/oracle`), by the text of each line. A line you have not changed keeps
-its answer when you edit other lines, and still has it the next time you open the file. The answers are used by:
+The answers are kept on disk (`~/.cache/ned/oracle`), by the text of each line and by what the file and the
+project's modules it imports declare. A line you have not changed keeps its answer when you edit inside other
+routines, and still has it the next time you open the file; when a declaration changes — a proc's return type in
+another file — the answers that may depend on it are asked again. The answers are used by:
 
 - the type hints;
 - the hover of an overloaded call: **Called here — the compiler's choice: …**;
@@ -153,7 +158,9 @@ call without naming it, not in `when` branches left out.
   `result`, or by `return` (*type mismatch: got 'int literal(5)' for '5' but expected 'string'*, rule
   `literal-type`).
 - **A member an object of the project does not have**, when nothing of that name is in scope (*undeclared field:
-  'colour' for type Point*, rule `field-missing`); a near miss of a field's name is still the typo hint.
+  'colour' for type Point*, rule `field-missing`); a near miss of a field's name is still the typo hint. Not while
+  the names that macro calls in the file, or in the project's modules it imports, make are unknown (*Names a macro
+  makes*, below): `cfg.getTitle` may be one of them.
 
 The rules are `case-missing`, `arg-type` and `discarded`. On Nim's own compiler and standard library (463 files) and
 563 files of 19 nimble packages they report nothing the compiler would not — apart from a few mistakes in generic
@@ -269,8 +276,11 @@ changes; your unsaved text goes to it as a private copy, deleted after.
 `getFoo` and `getBar`, which no reader of the text can see: the compiler expands the file's top-level macro calls
 once, in the background (`nim check --expandMacro`, your unsaved text as a private copy, deleted after), and the
 project files it imports are expanded the same way. What the expansions declare — routines, types and their fields,
-constants — is then known to completion, hover (which says which call made it), signature help and *Go to
-definition* (which goes to the call). It runs again only when those calls change.
+constants — is then known to completion, hover (which says which call made it), signature help, *Go to
+definition* (which goes to the call), the type hints and the engine's checks. It runs again only when those calls
+change. What they made is kept on disk (`~/.cache/ned/macros`) with what it came from — the file's text, the files it
+sees, the macros' own files, the defines and the compiler — so the next time the file is opened as it was, the
+names are known at once, without the compiler.
 
 **The index on disk** (`nim.indexCache`, on by default). The engine's reading of the standard library and the
 nimble packages is kept in `~/.cache/ned/index`, so a new session — ned's or nedls' — answers its first question
@@ -622,7 +632,9 @@ Your own `nim.projectMapping` always wins.
 - Rewrites on Alt+Enter (and in nedls' code actions): *Write the type* of a let/var/const, *Write as `x.f(y)`* ⇄
   *`f(x, y)`*, *Name the arguments*, *Write as a case* ⇄ *Write as if/elif*, *Invert the if*, an integer literal in
   hex, binary, octal or decimal.
-- Reference counts after each proc and type (`nim.referenceCounts`); *Nim: exports nothing uses…*.
+- Reference counts after each proc and type (`nim.referenceCounts`); *Nim: exports nothing uses…*. The words of
+  the project's files that they look through are kept on disk (`~/.cache/ned/words`), by each file's time, so a
+  project opened again shows them without reading every file.
 - Completion offers names from standard modules not imported yet, and adds the import (`nim.autoImport`), and
   postfix templates after a `.`: `xs.for`, `c.case` with every value of its enum, `v.if` by its type
   (`nim.postfixCompletion`); with `nim.completeCallArguments` a routine comes with its parameters to fill in

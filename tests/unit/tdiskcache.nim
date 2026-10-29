@@ -203,3 +203,27 @@ suite "the index's memory (nim.indexMemory)":
     check counted.float > used.float * 0.6 and counted.float < used.float * 1.4
 
 removeDir(tmp)
+
+suite "what macro calls make, and a file's face (6.32.3)":
+  test "what macro calls make comes back the same from its bytes; other bytes give nothing":
+    let f = nxParse(@["proc getTitle*(x: Config): string = x.title", "proc getSize(x: Config): int = x.size"],
+                    tmp / "m.nim")
+    let calls = @[NxMacroCall(line: 3, text: "makeGetters(Config, title, size)", syms: f.syms)]
+    let back = nxMacroCallsFrom(nxMacroCallsBytes(calls))
+    check back.len == 1 and back[0].text == calls[0].text and back[0].syms == calls[0].syms
+    check nxMacroCallsFrom("not what it wrote").len == 0
+    check nxMacroCallsFrom(nxMacroCallsBytes(@[])).len == 0
+  test "a file's face: the same after an edit inside a body, another after a signature changes":
+    createDir(tmp)
+    defer: removeDir(tmp)
+    let p = tmp / "face.nim"
+    proc face(text: string, exported = false): string =
+      writeFile(p, text)
+      setLastModificationTime(p, getTime() + initDuration(seconds = rand(1000)))
+      nxStatForget(p)
+      nxFaceStamp(nxLoad(p), exported)
+    let a = face("proc f*(x: int): int =\n  x + 1\nproc g(): int = 2\n")
+    check face("proc f*(x: int): int =\n  x + 2  # changed\nproc g(): int = 2\n") == a
+    check face("proc f*(x: int): string =\n  $x\nproc g(): int = 2\n") != a
+    let pub = face("proc f*(x: int): int =\n  x + 1\nproc g(): int = 2\n", exported = true)
+    check face("proc f*(x: int): int =\n  x + 1\nproc g(): float = 2.0\n", exported = true) == pub
