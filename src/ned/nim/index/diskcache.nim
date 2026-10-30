@@ -156,6 +156,18 @@ proc nxCacheRead*(path, text: string): NxFile =
     f
   except CatchableError: nil
 
+proc nxEncode*[T](x: T): string =
+  ## any plain value (numbers, strings, enums, objects and tuples of them, seqs) as bytes — for what ned keeps on disk
+  nxPut(result, x)
+
+proc nxDecode*[T](s: string, x: var T): bool =
+  ## … read back; false when the bytes are not a whole value of that type
+  try:
+    var r = NxReader(s: s, p: 0)
+    nxGet(r, x)
+    r.p == r.s.len
+  except CatchableError: false
+
 proc nxDefinesKeyOf*(): string = nxDefinesKey()   ## (what the defines and the toolchain are: part of a cache entry's key)
 
 proc nxMacroCallsBytes*(calls: seq[NxMacroCall]): string =

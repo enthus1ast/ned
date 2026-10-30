@@ -21,6 +21,7 @@ has the tables of tools the tests use.
 | every command | each command of the palette run in a ned of its own (`--plugins`: with all of ned's plugins on, theirs too): no crash, no internal error, still answering | `python3 tests/smoke/commands.py ./ned` | 15 minutes |
 | hostile input | a plugin, the remote control and nedls fed nonsense; control characters on the screen | `python3 tests/hostile/thostile.py ./ned ./nedls` | a few minutes |
 | names | every command and setting the menus, key maps, ned's plugins and the docs name exists | `python3 tests/docs/names.py` | a second |
+| per-file memory | every global table ned keeps by a buffer's id is let go when its tab closes (`editor/bufforget.nim`), read from the source | `python3 tests/memory/bufids.py` | a second |
 
 Which to run before sending a change: the unit tests, the UI tests near your change (`--list` shows the names; a
 test's name says its release and topic), and the suite of the part you touched — the plugin tests for the plugin

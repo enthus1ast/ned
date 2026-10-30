@@ -228,6 +228,7 @@ proc sqlSchema(b: Buffer): SqlSchema =
                     if e > q: sqlLines[i] = spaces(q) & x[q ..< e] & ";"
                 got.addCreates(sqlLines, p)
         except CatchableError: discard
+        if sqlFileMemo.len > 500: sqlFileMemo.clear()
         sqlFileMemo[p] = (t, got)
       for k, v in got.tables:
         if k notin sc.tables: sc.tables[k] = v
@@ -260,6 +261,7 @@ proc projectCssNames(): (seq[string], seq[string]) =
       try:
         if getFileSize(p) < 3_000_000:
           let (c, i) = cssClassesAndIds(readFile(p).splitLines)
+          if cssFileMemo.len > 1000: cssFileMemo.clear()
           cssFileMemo[p] = (t, c, i)
         else: cssFileMemo[p] = (t, @[], @[])
       except CatchableError: continue

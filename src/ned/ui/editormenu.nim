@@ -16,6 +16,10 @@ proc openFolder(d: string) =
     rememberPos(b)
     lspDidClose(b)
     removeSwap(b)
+    emitClose(b)
+    embClose(b)
+    bufForget(b.id)                 # (what was kept for each tab: the tabs close here without closeBufferAt)
+  if d != rootDir: projectForget()
   bufs = @[newBuffer()]
   bufs[0].welcome = true
   curBuf = 0

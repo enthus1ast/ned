@@ -399,6 +399,11 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
     lsCloseDoc(cu)
     lsSemForget(cu)
     if cd != nil:
+      # (what the editor's parts kept for it goes, as when a tab closes: nedls kept it all, for every file a client
+      # ever closed)
+      bufForget(cd.b.id)
+      lxCheckedAt.del cd.b.id
+      lsWarmed.excl cd.b.id
       lsWsChanged(cd.b.path)           # (its names as the file on disk has them)
       lsLintAgain(cd.b.path)           # (not open now: ned's checks of the file on disk, for the workspace's problems)
     lsDiskChanged()

@@ -75,6 +75,16 @@ A callback that runs later — a job that finishes, a server's answer, a timer, 
 into `bufs`: tabs close and move in between. Keep `b.id`, look the buffer up with `bufById` when the callback runs,
 and do nothing when it is `nil`.
 
+### What you keep per file, or per project, must go
+
+A global table keyed by a buffer's id (`Table[int, …]`, `HashSet[int]`) keeps its entry after the tab closes unless
+it is in [`editor/bufforget.nim`](../../src/ned/editor/bufforget.nim): a closed buffer's id is never used again, so
+the entry stays for good (6.32.2 found sixty, and ned grew by a megabyte or two at each file closed).
+`python3 tests/memory/bufids.py` finds them. What is kept by a file's path or by a project — the words of its files,
+the compiler's answers, an index of headers — goes in `projectForget` (the same file) when another folder is
+opened, or has a bound (`if t.len > N: t.clear()`): a long session goes through many projects. Something keyed by a
+file's version or a line number makes a new key at every edit — give it a bound too.
+
 ### Never hold up the main loop
 
 A round that takes long is a moment when keys are not read. So no `sleep`, no waiting for a program to finish (start

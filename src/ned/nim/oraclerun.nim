@@ -90,6 +90,7 @@ proc oracleStep(b: Buffer) =
   text.add "quit\n"
   try: writeFile(qfile, text)
   except CatchableError: return
+  if orAsked.len > 200: orAsked.clear()              # (files of a long session: asked again if need be)
   let asked = addr orAsked.mgetOrPut(b.path, initHashSet[string]())
   for k in keys: asked[].incl k
   let proj = nimProjectFile(b)

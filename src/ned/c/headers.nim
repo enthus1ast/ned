@@ -406,6 +406,7 @@ proc cHeaderIndex(path: string): CIndex =
   if path in cIndexes and cIndexes[path].mt == mt: return cIndexes[path]
   result = cIndexOf(cHeaderCode(path), path)
   result.mt = mt
+  if cIndexes.len > 400: cIndexes.clear()    # (every header looked at, in every project of a long session)
   cIndexes[path] = result
 
 proc cIndexOf(s, path: string): CIndex =

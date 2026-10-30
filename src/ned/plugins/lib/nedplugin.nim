@@ -375,6 +375,8 @@ proc copied(b: Buf): bool =
   if r{"v"}.getStr != v: return false                 # (it changed meanwhile)
   var ls: seq[string]
   for x in r{"lines"}: ls.add x.getStr
+  if bufCopy.len >= 8: bufCopy.clear()     # (a copy of every file it ever read stayed: the last few are enough)
+  if bufMiss.len > 200: bufMiss.clear()
   bufCopy[b.id] = (v, ls)
   true
 
