@@ -170,6 +170,16 @@ proc mvExpand(b: Buffer, k: int) =
       macroViews[b.id][k] = v
       mvSync(b)
       return
+  if v.isMacro or not nimEngineOn(b):
+    # (a saved file the compiler has read — Nim 2.4's NIF, nimony's: what the call made, written out at once)
+    let fromNif = try: nifMacroText(b, v.line) except CatchableError: ""
+    if fromNif.len > 0:
+      v.isMacro = true
+      v.code = fromNif.splitLines
+      v.links = mvLinks(b, v.code)
+      macroViews[b.id][k] = v
+      mvSync(b)
+      return
   if not haveExe("nim"):
     v.err = "a macro is expanded by the compiler — nim is not on PATH"
     macroViews[b.id][k] = v

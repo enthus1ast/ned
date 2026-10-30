@@ -22,7 +22,8 @@ proc nimonyFind() =
   if exe.len == 0:
     for c in [getHomeDir() / "nimony" / "bin" / "nimony", getHomeDir() / "src" / "nimony" / "bin" / "nimony",
               getHomeDir() / ".local" / "nimony" / "bin" / "nimony"]:
-      if fileExists(addFileExt(c, ExeExt)):
+      # (one *install or update nimony* built but could not get working is passed over: it is half built)
+      if fileExists(addFileExt(c, ExeExt)) and not fileExists(parentDir(parentDir(c)) / ".ned-not-working"):
         exe = addFileExt(c, ExeExt)
         break
   var root = ""
@@ -90,6 +91,25 @@ proc nim3Why(dir: string): string =
   ""
 
 var nimonyBuilding = false              # (Nim 3: install or update nimony is running: the status bar says so)
+var nimonyJob: Job                      # (its job: a tool job of its own — Alt+R and the Run panel leave it alone)
+
+proc nimonyBuildStep(): string =
+  ## while nimony is being built: the step it is at (`3 of 10: nifler`), from the last such line of its output
+  if not nimonyBuilding or nimonyJob == nil: return ""
+  let o = nimonyJob.output
+  let k = o.rfind("[nimony ")
+  if k < 0: return ""
+  let e = o.find(']', k)
+  if e > k + 8: o[k + 8 ..< e] else: ""
+
+proc memAvailableMB(): int =
+  ## the memory the system can give now, in MB (/proc/meminfo's MemAvailable), -1 when it cannot be told
+  result = -1
+  try:
+    for l in readFile("/proc/meminfo").splitLines:
+      if l.startsWith("MemAvailable:"):
+        return parseInt(l.split(':')[1].strip.split(' ')[0]) div 1024
+  except CatchableError, ValueError: discard
 
 proc nim3On(): bool =
   ## is the project Nim 3 — built with nimony (said so, or nim.compiler "auto" and the project has nimony's or pnak's

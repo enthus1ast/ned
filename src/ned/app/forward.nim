@@ -270,5 +270,9 @@ proc nimNifDefinition(b: Buffer, p: Pos): bool
 proc nifTypeHints(b: Buffer, line: int): seq[(int, string)]
 proc nifHasHints(b: Buffer, line: int): bool
 proc nifForget()
+proc nifChecked()
+proc nifHoverNote(b: Buffer, p: Pos): string
+proc nimNifReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)]): bool
+proc nifMacroText(b: Buffer, line: int): string                  # nim/nifprint.nim
 proc tildePath(p: string): string                                 # ui/prompts.nim
 proc wkCChecks(b: Buffer): bool                                   # nim/worker.nim

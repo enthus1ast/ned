@@ -74,6 +74,9 @@ proc oracleStep(b: Buffer) =
   ## after a pause: one nimsuggest run for the questions of the lines around the screen (nothing when they are
   ## answered already, or were asked)
   if orRunning or getMonoTime() < orNextAt or not orUsable(b) or msSince(lastInputAt) < 2500: return
+  # (a saved file the compiler has read — Nim 2.4's NIF: its types and declarations are known, no nimsuggest run;
+  # on Termux that is one process less, and its memory)
+  if not b.dirty and nifColorsOn(b): return
   let f = try: nxFileFor(b) except CatchableError: nil
   if f == nil: return
   let qs = try: orQuestions(b, f) except CatchableError: @[]

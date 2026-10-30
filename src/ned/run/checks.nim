@@ -195,6 +195,7 @@ proc runCheckPath(path, langId: string, keepExamples: bool) =
       if p != path and p.startsWith(cwd & "/") and ds.len > 0: covered.add p
   discard startJob(jkCheck, cmd, cwd, proc(j: Job) =
     checkPending.excl path
+    nifChecked()                       # (Nim 2.4's `nim nif` wrote the compiler's reading: looked for at once)
     var found = initTable[string, seq[Diag]]()
     for p in covered: found[p] = @[]
     if keepExamples:

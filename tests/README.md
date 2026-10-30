@@ -85,6 +85,24 @@ it), but random palette commands can run tasks and shell commands in its test pr
 "save as" anywhere ned may write: give it a throwaway user (`NED_FUZZ_USER=fuzz`, run as root — as root it does
 not start without one). Logs go to `/tmp/ned-fuzz-UID-logs`.
 
+## The parsers' fuzzer
+
+```sh
+nim c -d:release --checks:on -r tests/fuzz/parsers.nim 20    # 20 seconds a reader or formatter
+```
+
+Real files — ned's own Nim, C, NIF, JSON, CSS, HTML, SQL, Markdown, YAML, TOML — changed at random (bytes, brackets,
+quotes and comment markers put in, pieces cut, repeated or dropped) and given to each reader and formatter. A crash
+(an index out of range, a range error, a nil, an assertion — what would close the editor) is reported with its input
+in `tests/fuzz/found/`. Built with `-d:useMalloc --passC:"-fsanitize=address,undefined -fno-sanitize=null"
+--passL:"-fsanitize=address,undefined"` it looks for memory errors too.
+
+## The engine graded by the compiler
+
+`tests/engine/nifgrade.py MAIN.nim --nim NIM24 --driver tests/engine/ned-engine` (the driver: `tests/engine/build.sh`)
+has Nim 2.4's `nim nif` read the program, then asks ned's engine for the declaration of each use of a module's name
+that the compiler's NIF answers, and lists where they differ.
+
 ## The engine comparison
 
 See [`engine/README.md`](engine/README.md): the numbers in the main README's *How good it is* come from there.

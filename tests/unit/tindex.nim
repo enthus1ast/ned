@@ -903,5 +903,12 @@ suite "Nim 2.4 (6.33)":
   test "an enum type exported by its name brings its values (std/os: PathComponent and pcFile)":
     let (f, ls) = fixture("import std/os\nlet k = pcFile\n")
     check nxDefinition(f, ls, 1, 9).len == 1
+  test "a generic routine's T is one type for all its arguments (nifgrade.py: add of a seq to a seq of seqs)":
+    let (f, ls) = fixture("var elems: seq[seq[string]]\nvar cur: seq[string]\nelems.add cur\nvar xs: seq[int]\n" &
+                          "xs.add [4, 5]\n")
+    let d1 = nxDefinition(f, ls, 2, 7)
+    check d1.len == 1 and "sink" in readFile(d1[0][0]).splitLines[d1[0][1]]
+    let d2 = nxDefinition(f, ls, 4, 4)
+    check d2.len == 1 and "openArray" in readFile(d2[0][0]).splitLines[d2[0][1]]
 
 removeDir(dir)

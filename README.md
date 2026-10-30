@@ -3,7 +3,7 @@
 **A fast, safe code editor and Nim IDE for Termux and Linux.**
 It runs in any terminal but looks and behaves like a desktop editor: menus, docks, tabs, tiled panes,
 mouse and touch support, dialogs, toasts and tooltips. It is written in Nim, uses only the standard
-library, and builds to one binary of about 12 MB.
+library, and builds to a single program, with nothing else to install.
 
 ![Member completion from the built-in Nim engine, with the documentation beside the list (nim-crown theme)](screenshots/completion-docs.png)
 
@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.34](#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32.4](CHANGELOG.md#whats-new-in-6324) · [6.32](CHANGELOG.md#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [older releases](CHANGELOG.md)
+- [What's new in 6.35](#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,38 +30,42 @@ library, and builds to one binary of about 12 MB.
 
 ---
 
-## What's new in 6.34
+## What's new in 6.35
 
-Nim 2.4's own reading of your code, a lighter screen, and every routine of ned explained.
+**Installing nimony no longer closes Termux.** *Nim 3: install or update nimony* ran Nimony's `hastur build all`,
+which starts about a dozen compilers at once, each with a C compiler per core: on a tablet Android ran out of memory
+and closed Termux, with ned and the terminal. Now each part is built in turn, at a low priority, with the C compiler
+two at a time; the status bar shows the step (*building nimony 4 of 10: nimony*), and with less than about 1.5 GB
+free ned asks first. At the end the new nimony checks a small program — one that does not work is never used — and
+the build is a job of its own: Alt+R or a test meanwhile no longer stops it.
 
-**The compiler's answers on a saved file (Nim 2.4 and newer).** The check on save is `nim nif` in place of `nim
-check`: the same messages in about the same time — and, for each module without errors, what the compiler made of
-it, kept in ned's folder (`~/.cache/ned/nif`). From it a saved file gets its names' colours by what each one is (a
-name a macro made among them), the types after its lets and vars where the engine had none or another
-(`let a: int = answer()`, `answer` made by a macro), and Go to definition of the declaration the compiler chose (of
-`show(2.5)`, the `show` that takes a float). Nimony's reading gives a Nim 3 project the same. After an edit the
-engine's answers are back until the next save; an older Nim is checked with `nim check` as before
-(`nim.compilerNif` off does that with 2.4 too).
+**More from the compiler's reading (Nim 2.4 and newer).** On a saved project the compiler has read (`nim nif`):
 
-**The engine graded by the compiler.** `tests/engine/nifgrade.py` asks ned's engine for the declaration of every use
-of a module's names that the compiler's NIF answers, and compares. It found two things the engine missed: an
-import in a one-line `when` branch (`else: import std/os` — ned's own files import std/os that way) and the values
-of an enum type a module re-exports by name (`pcFile`). With both fixed, the engine agrees with the compiler on
-99.1% of 4000 uses in the formatter and 97.8% in the engine's own code; the rest are listed by the tool.
+- **Find references** of the declaration the compiler chose — of `show(2.5)`, the `show` that takes a float, not
+  every `show` — across the project's files (the list says *(compiler)*);
+- **hover** with the type the compiler gave a let or var (*the compiler's type: `Table[string, seq[int]]`*);
+- **Alt+M** on a macro call shows what it made at once, written from the compiler's reading, without running the
+  compiler again;
+- no nimsuggest started in the background for the types the engine cannot work out — on a phone, a process less.
 
-**Which Nim, at a tap.** A tap on `✓ Nim` in the status bar says which Nim the project is and why — *Nim 3
-(nimony): ~/proj/nimony.paths is here*, *Nim 2.4.0 (PATH)* — and offers the rest: make it Nim 3 or Nim 2, decide
-from the project, install or update nimony (the status bar says *building nimony…* meanwhile), choose the Nim.
+The on-save check with `nim nif` now reports every error, not the first only, as `nim check` does; colours and type
+hints appear as soon as the check ends, not up to three seconds later; and of `"a".replace("b", "x").replace('c',
+'y')`, F12 on each `replace` goes to its own overload.
 
-**Less to draw on a phone.** A run of blank cells — the rest of a short line, the space before the minimap — is
-erased in its colour rather than sent as spaces: a jump to another part of a file sends 8% less to the terminal,
-a scroll 7% less. On a narrow screen, a menu item's keys no longer run over its label and the menu's frame (the
-long description some commands have is left out of menus), and the settings' long names end in `…`.
+**The engine.** A module that offered nothing when it was first read — `import util` written before `util.nim` has
+its first `proc …*` — now shows its new names without reopening the folder. Of a generic routine, T is one type for
+all the arguments: `elems.add cur` with a `seq[seq[string]]` and a `seq[string]` goes to the `add` that takes one
+element (found by `tests/engine/nifgrade.py`, the engine graded against the compiler). C files' checks lost when the
+engine worker stopped are asked again. The Nim library's files are looked at once a session, not every second.
 
-**Every routine says what it does.** Each of ned's files says what it is for, and each of its 7,300 routines —
-procs, templates, macros, iterators, local ones too — says what it does and how, in a comment: in the source, the
-plugins and the tests. `tests/docs/comments.py` keeps it so (CI runs it). A few comments that were wrong — setting
-names, menu names — are put right.
+**Fewer crashes, found before you.** `tests/fuzz/parsers.nim` gives broken text — millions of random changes to real
+files — to every reader and formatter: Nim, C, NIF, JSON, CSS, HTML, SQL, Markdown, YAML, TOML; also built with
+address and undefined-behaviour sanitizers. None crashed. Every test of the project ran for this release, the ones
+run only now and then too (every command, every plugin, hostile input, the Nim tour, the parser check).
+
+**Install with nimble, and a post to announce ned.** `nimble install https://github.com/foxoman/ned` builds ned,
+nedfmt and nedls into `~/.nimble/bin`; [docs/blog/announcing-ned.md](docs/blog/announcing-ned.md) says what ned is and
+the ways to install it.
 
 ## Features
 
@@ -218,7 +222,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.34.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.35.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -273,7 +277,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.34.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.35.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

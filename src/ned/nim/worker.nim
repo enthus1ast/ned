@@ -109,6 +109,7 @@ proc wkStop(why = "") =
     let b = bufById(id)
     if b != nil and b.id in ihStates: ihStates[b.id].key = ""    # (the chunks it was asked for: asked again)
   for id in w.checksFly.keys: typoAt.del id
+  cEngChecked.clear()                  # (C files' checks it was asked for: asked again, of the next worker)
 
 proc wkSettingsJson(): JsonNode =
   ## a copy of the settings as JSON, to send to the worker
@@ -474,6 +475,7 @@ proc wkAnswer(line: string) =
       b.wkLogFrom = -1
       if b.id in ihStates: ihStates[b.id].key = ""
       typoAt.del b.id
+      cEngChecked.del b.id
   of "error":
     wkLastErr = j{"m"}.getStr
     if wkVerify: internalError("engine worker", newException(CatchableError, wkLastErr))
@@ -517,6 +519,7 @@ proc wkRead(ready: HashSet[cint]) =
     for id in w.hintsFly.keys:
       if id in ihStates: ihStates[id].key = ""
     for id in w.checksFly.keys: typoAt.del id
+    cEngChecked.clear()
     w.refsAsked.clear()
     discard w.pr.reap()
   elif not w.dead and msSince(w.usedAt) > WkIdleMs and w.hintsFly.len == 0 and w.checksFly.len == 0:

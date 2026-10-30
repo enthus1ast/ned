@@ -46,3 +46,44 @@ suite "pnak.nif":
   test "NIF's escapes in a string":
     let rs = pnakRequires(@["(stmts (requires \"https://h/a\\20b\" \"1234567\"))"])
     check rs.len == 1 and rs[0].url == "https://h/a b"
+
+suite "Nim 2.4's NIF (nim nif)":
+  # (as Nim 2.4.0 writes `let s1 = show(3)` and a proc a macro made: a token's place comes after the token before it)
+  const Nif24 = """(.nif27)
+(.vendor "nim2")
+(stmts@,1,app.nim
+ (import strutils.0.strcl1rjq1)@,3,app.nim
+ (proc@5 :answer.0.app . . .@1
+  (params)
+  (i -1)
+  (pragmas).
+  (stmts
+   (result@1 :result.1 . .
+    (i -1).)@1
+   (asgn result.1 42)
+   (ret result.1)))@4,F,app.nim
+ (let :s1.0.app .
+  (pragmas)string.0.sysvq0asl@9
+  (call show.0.utierkx2a@1 3)))"""
+
+  test "each token's place is the one written after the token before it":
+    let ns = nifParse(Nif24.splitLines, before = true)
+    var procAt, letAt, threeAt = (-1, -1)
+    for n in ns:
+      if n.tag == "proc": procAt = (n.sline, n.scol)
+      if n.isDef and n.atom == "s1.0.app": letAt = (n.sline, n.scol)
+      if n.atom == "3": threeAt = (n.sline, n.scol)
+    check procAt == (2, 0)          # (line 3, from 0)
+    check letAt == (14, 4)          # (`let s1 = show(3)` on line 15: s1 at column 4)
+    check threeAt == (14, 14)       # (the 3 in show(3))
+
+  test "what a macro made, written back as Nim":
+    let ns = nifParse(Nif24.splitLines, before = true)
+    let top = nifTopStatements(ns)
+    check top.len == 3
+    check nifPrint(ns, top[1], false) == "proc answer(): int =\n  result = 42"
+    check nifPrint(ns, top[2], false) == "let s1: string = show(3)"
+
+  test "a form the printer does not write: nothing (the compiler is asked instead)":
+    let ns = nifParse(@["(stmts (emit \"x\"))"], before = true)
+    check nifPrint(ns, nifTopStatements(ns)[0], false) == ""

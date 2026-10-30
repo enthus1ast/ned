@@ -159,7 +159,18 @@ def main():
                 except OSError: return False
             return 0 <= g[1] < len(ls) and re.match(r'\s*(proc|func|method|iterator|converter|template|macro)\s+`?' +
                                                   re.escape(name) + r'\b', ls[g[1]]) is not None
-        if any(same(g) for g in got): agree += 1
+        def sig(path, line):
+            # (a declaration's first line without its pragmas, `;` as `,`: the same routine declared twice for two
+            # configurations — system.nim's `add` and seqs_v2's — is one answer; `nim nif` does not define nimSeqsV2)
+            ls = lines_of.get(path)
+            if ls is None:
+                try: ls = lines_of[path] = open(path, encoding='utf-8', errors='replace').read().split('\n')
+                except OSError: return None
+            if not 0 <= line < len(ls): return None
+            t = re.sub(r'\{\..*', '', ls[line]).replace(';', ',')
+            return ' '.join(t.split()) if re.match(r'\s*(proc|func|template|macro|iterator|converter|method)\b', t) else None
+        ws = sig(want[0], want[1])
+        if any(same(g) for g in got) or (ws and any(sig(os.path.normpath(g[0]), g[1]) == ws for g in got)): agree += 1
         else:
             if not got: none += 1
             wrong.append((path, line, col, sym, want, got))

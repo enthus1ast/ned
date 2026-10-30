@@ -22,3 +22,4 @@ tests/unit/t*
 *.zip
 # python
 __pycache__/
+/tests/fuzz/found/

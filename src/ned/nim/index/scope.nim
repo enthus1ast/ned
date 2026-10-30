@@ -147,6 +147,10 @@ proc nxStamp*(path: string): string =
   let now = getMonoTime()
   nxStatSeen.withValue(path, v):
     if nxStatMemo or (now - v[][1]).inMilliseconds < NxStatFreshMs: return v[][0]
+    # (the Nim library's files change with the toolchain, not while you type — rust-analyzer calls it durability: they
+    # are looked at once a session; a toolchain change or a file ned writes forgets them, nxStatForget)
+    if nxLibDir.len > 0 and path.startsWith(nxLibDir) and path.len > nxLibDir.len and path[nxLibDir.len] in {'/', '\\'}:
+      return v[][0]
   result = try:
              let i = getFileInfo(path)
              $i.lastWriteTime.toUnix & ":" & $i.size
@@ -466,6 +470,7 @@ proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraP
   ## extra roots (the newest of each is kept in nxPkgDirs). Everything cached about modules, projects and scopes is
   ## dropped and the generation moves on
   nxLibDir = libDir
+  nxStatSeen.clear()                    # (the library's stamps, kept for the session: looked at again)
   nxPkgRoots = lazyPaths & extraPkgRoots
   nxSearchPaths.setLen(0)
   for p in searchPaths:
@@ -1066,6 +1071,19 @@ proc nxLayerOf(refs: sink seq[NxRef]): NxLayer =
         result.deps.add (r.file.path, r.file.stamp)
   nxSortByHash(result.byHash)
 
+proc nxLayerSeal(l: NxLayer, seen: HashSet[string], skip: HashSet[string] = initHashSet[string]()) =
+  ## a layer's files: those its names come from (include files among them) and every module read to make it — a module
+  ## that offered nothing yet, or none of an `only` list, is one: when it changes, the layer is made again (it was kept
+  ## empty while its importer typed on). `skip`: modules another layer already depends on (system's)
+  var have: HashSet[string]
+  for (p, _) in l.deps: have.incl p
+  for p in seen:
+    if p in skip: continue
+    l.paths.incl p
+    if p notin have:
+      have.incl p
+      l.deps.add (p, nxCurStamp(p))
+
 proc nxLayerFresh(l: NxLayer): bool =
   ## whether none of the files a layer's names come from has changed since the layer was made
   for (p, st) in l.deps:
@@ -1543,10 +1561,10 @@ proc nxScope*(f: NxFile): NxScope =
         private = true
         var seen2 = [f.path].toHashSet
         l = nxLayerOf(sysRefs(seen2))
-        l.paths = seen2
+        nxLayerSeal(l, seen2)
       else:
         l = nxLayerOf(refs)
-        l.paths = seen
+        nxLayerSeal(l, seen)
         nxLayerKeep(sysKey, l)
     result.refs.layers.add l
     sysSeen = l.paths
@@ -1577,10 +1595,10 @@ proc nxScope*(f: NxFile): NxScope =
         var seen2 = sysSeen
         seen2.incl f.path
         l = nxLayerOf(impRefs(seen2))
-        l.paths = seen2
+        nxLayerSeal(l, seen2, sysSeen)
       else:
         l = nxLayerOf(refs)
-        l.paths = seen
+        nxLayerSeal(l, seen, sysSeen)
         nxLayerKeep(key, l)
     result.refs.layers.add l
   nxIndexNames(result)

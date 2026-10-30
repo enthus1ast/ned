@@ -12,6 +12,8 @@ proc nifCacheBase(): string =
   ## where ned keeps the NIF of the projects it checked (~/.cache/ned/nif), out of the projects themselves
   getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "nif"
 
+const NifReadMax = 3_000_000           # (bytes: a bigger NIF is not read as a tree — its nodes take ~25 times its size)
+
 var nim2NifDirs: seq[string]          # the NIF folders checked in this session, the latest first
 
 proc nim2NifDir(main: string): string =
@@ -39,7 +41,8 @@ proc nim2NifDir(main: string): string =
 
 proc nim2NifCheckCmd(flags, main: string): string =
   ## the on-save check with Nim 2.4: `nim nif`, the flags of `nim check`, its NIF into ned's folder for the main file
-  "nim nif --nimcache:" & quoteShell(nim2NifDir(main)) & flags & " " & quoteShell(main)
+  # (nim check reports every error and defines `nimcheck`; nim nif does neither by itself — it stopped at the first)
+  "nim nif --errorMax:0 -d:nimcheck --nimcache:" & quoteShell(nim2NifDir(main)) & flags & " " & quoteShell(main)
 
 var nim2NifMaps: Table[string, (times.Time, Table[string, string])]   # folder → (when read, source file → its NIF)
 
@@ -69,7 +72,9 @@ proc nim2NifMap(dir: string): Table[string, string] =
           inc k
       finally: fh.close()
       # (`(stmts@,1,app.nim`: the second comma's file)
-      let a = head.find(',', head.find("(stmts"))
+      let st = head.find("(stmts")
+      if st < 0: continue
+      let a = head.find(',', st)
       if a < 0: continue
       let c = head.find(',', a + 1)
       if c < 0: continue
@@ -115,7 +120,9 @@ proc nifDecls(nif: string): Table[string, string] =
   nifDeclMemo.withValue(nif, m):
     if m[][0] == t: return m[][1]
   var text = ""
-  try: text = readFile(nif)
+  try:
+    if getFileSize(nif) > NifReadMax * 4: return     # (scanned, not parsed: up to four times as big)
+    text = readFile(nif)
   except CatchableError: return
   var i = 0
   var tag = ""
@@ -138,8 +145,12 @@ proc nifDecls(nif: string): Table[string, string] =
       while i < text.len and text[i] != '"': inc i
       inc i
     elif c in {' ', '\n', '\t'}: inc i
+    elif c in {'@', '~'}:
+      # (line information — base-62 numbers, letters among them, and a file name: not an atom, the tag stays)
+      inc i
+      while i < text.len and text[i] notin {' ', '\n', '\t', '(', ')', '"', ':'}: inc i
     else:
-      if c notin {'@', '~', ',', ')'} and c notin Digits: tag = ""      # (an atom between: no longer its tag's first)
+      if c != ')': tag = ""      # (an atom between: no longer its tag's first)
       inc i
   if nifDeclMemo.len > 64: nifDeclMemo.clear()
   nifDeclMemo[nif] = (t, result)
@@ -169,8 +180,9 @@ type NifFacts = ref object
   nifTime: times.Time
   kinds: Table[int, Table[string, TokKind]]  # line → a name as Nim compares it → its colour (tkText: not one colour)
   hints: Table[int, seq[(string, string)]]   # line → (a let or var declared there, its type as Nim writes it)
-  uses: Table[int, seq[(string, string)]]    # line → (a name as Nim compares it, the symbol it is), in the NIF's order
+  uses: Table[int, seq[(string, string, int)]]   # line → (a name as Nim compares it, the symbol it is, its column)
   defs: Table[string, (string, int, int)]    # this module's symbol → (its file, line, column)
+  defTypes: Table[string, string]            # a let's or var's symbol → its type as the compiler gave it
 
 func nifTagKind(tag: string, top: bool): TokKind =
   ## a declaration's colour: routines, templates and macros, types, fields, enum values and constants, parameters,
@@ -188,66 +200,6 @@ func nifTagKind(tag: string, top: bool): TokKind =
   of "let": (if top: tkGlobal else: tkText)
   else: tkText
 
-proc nifTypeText(ns: seq[NifNode], i: int, nimony: bool): string =
-  ## a type of the NIF as Nim writes it (`seq[string]`, `Table[string, int]`, `ref Node`) — "" for a form not known here
-  if i < 0 or i >= ns.len: return ""
-  let n = ns[i]
-  if n.tag.len == 0:
-    let nm = nifSymName(n.atom)
-    if nm.len == 0 or nm[0] notin IdentStartChars or '`' in n.atom or '.' notin n.atom: return ""
-    return nm
-  var kids: seq[int]
-  for j in i + 1 ..< min(ns.len, i + 4000):
-    if ns[j].depth <= n.depth: break
-    if ns[j].parent == i: kids.add j
-  template num(k: int): int =
-    ## the k-th part as a number (-2 when it is not one)
-    (try: parseInt(ns[kids[k]].atom) except ValueError: -2)
-  case n.tag
-  of "i", "u":
-    if kids.len != 1: return ""
-    let bits = num(0)
-    let base = if n.tag == "i": "int" else: "uint"
-    if bits == -1 or (nimony and bits == 64): base elif bits in [8, 16, 32, 64]: base & $bits else: ""
-  of "f":
-    if kids.len != 1: return ""
-    let bits = num(0)
-    if bits == 64 or bits == -1: "float" elif bits == 32: "float32" else: ""
-  of "c": (if kids.len == 1 and num(0) == 8: "char" else: "")
-  of "bool": "bool"
-  of "ref", "ptr":
-    if kids.len != 1: return ""
-    let t = nifTypeText(ns, kids[0], nimony)
-    if t.len > 0: n.tag & " " & t else: ""
-  of "at":
-    if kids.len < 2: return ""
-    var head = kids[0]
-    if ns[head].tag == "gbody":
-      # (a generic's body: its name is its last part)
-      var last = -1
-      for j in head + 1 ..< ns.len:
-        if ns[j].depth <= ns[head].depth: break
-        if ns[j].parent == head: last = j
-      head = last
-    let h = nifTypeText(ns, head, nimony)
-    if h.len == 0: return ""
-    var args: seq[string]
-    for k in kids[1 .. ^1]:
-      let a = nifTypeText(ns, k, nimony)
-      if a.len == 0: return ""
-      args.add a
-    h & "[" & args.join(", ") & "]"
-  of "array":
-    if kids.len != 2 or ns[kids[1]].tag != "range": return ""
-    let el = nifTypeText(ns, kids[0], nimony)
-    var bounds: seq[string]
-    for j in kids[1] + 1 ..< ns.len:
-      if ns[j].depth <= ns[kids[1]].depth: break
-      if ns[j].parent == kids[1] and ns[j].tag.len == 0: bounds.add ns[j].atom
-    if el.len == 0 or bounds.len != 2: return ""
-    "array[" & bounds[0] & ".." & bounds[1] & ", " & el & "]"
-  else: ""
-
 var nifFactsMemo: Table[string, NifFacts]    # file → its facts
 var nifFactsLooked: Table[string, MonoTime]  # (a file's NIF looked for: at most every 3 s)
 
@@ -256,7 +208,9 @@ proc nifFactsBuild(path, nif: string, nim2: bool): NifFacts =
   ## from their NIF), the types of the lets and vars, which symbol each name is, where this module declares each
   result = NifFacts()
   var nodes: seq[NifNode]
-  try: nodes = nifParse(readFile(nif).splitLines, before = nim2)
+  try:
+    if getFileSize(nif) > NifReadMax: return
+    nodes = nifParse(readFile(nif).splitLines, before = nim2)
   except CatchableError: return
   let mainDir = if nim2: (try: parentDir(readFile(parentDir(nif) / "main.txt").strip) except CatchableError: "")
                 else: ""
@@ -286,7 +240,9 @@ proc nifFactsBuild(path, nif: string, nim2: bool): NifFacts =
         if kids.len > 3: break
       if kids.len > 3 and kids[0] == i:
         let t = nifTypeText(nodes, kids[3], not nim2)
-        if t.len > 0: result.hints.mgetOrPut(n.sline, @[]).add (nifSymName(n.atom), t)
+        if t.len > 0:
+          result.hints.mgetOrPut(n.sline, @[]).add (nifSymName(n.atom), t)
+          result.defTypes[n.atom] = t
   # the other modules' declarations, for the symbols used here
   var foreign: Table[string, Table[string, string]]
   proc kindOf(sym: string): TokKind =
@@ -304,7 +260,7 @@ proc nifFactsBuild(path, nif: string, nim2: bool): NifFacts =
     let name = nifSymName(n.atom)
     if name.len == 0 or name[0] notin IdentStartChars or '`' in n.atom or not here(n.file): continue
     let w = nxNorm(name)
-    if not n.isDef: result.uses.mgetOrPut(n.sline, @[]).add (w, n.atom)
+    if not n.isDef: result.uses.mgetOrPut(n.sline, @[]).add (w, n.atom, n.scol)
     let k = kindOf(n.atom)
     let row = addr result.kinds.mgetOrPut(n.sline, initTable[string, TokKind]())
     row[].withValue(w, old):
@@ -375,36 +331,46 @@ proc nifHasHints(b: Buffer, line: int): bool =
   let fx = nifFactsFor(b)
   fx != nil and line in fx.hints
 
-proc nimNifDefinition(b: Buffer, p: Pos): bool =
-  ## Go to definition by the compiler's reading of the saved file: the symbol the name at the cursor is (the n-th of
-  ## that name on the line is the n-th the NIF names there), then where its module's NIF declares it
-  let fx = nifFactsFor(b)
-  if fx == nil or p.line notin fx.uses: return false
+func nifIdentsOn(s: string, w: string): seq[int] =
+  ## the columns where a name (as Nim compares names) is written on a line, in order
+  var i = 0
+  while i < s.len:
+    if s[i] in IdentStartChars and (i == 0 or s[i - 1] notin IdentChars):
+      var j = i
+      while j < s.len and s[j] in IdentChars: inc j
+      if nxNorm(s[i ..< j]) == w: result.add i
+      i = j
+    else: inc i
+
+proc nifSymAt(b: Buffer, fx: NifFacts, p: Pos): string =
+  ## the symbol the name at a place is, by the compiler's reading (the n-th of that name on the line is the n-th the
+  ## NIF names there, in the order of their columns) — "" when it cannot tell
+  if fx == nil or p.line notin fx.uses: return ""
   let s = b.lines[p.line]
   var a = min(p.col, s.len)
   while a > 0 and s[a - 1] in IdentChars: dec a
   var e = a
   while e < s.len and s[e] in IdentChars: inc e
-  if a == e or s[a] notin IdentStartChars: return false
+  if a == e or s[a] notin IdentStartChars: return ""
   let w = nxNorm(s[a ..< e])
-  # (which of the names so written on the line it is)
-  var nth = 0
-  var i = 0
-  while i < a:
-    if s[i] in IdentStartChars and (i == 0 or s[i - 1] notin IdentChars):
-      var j = i
-      while j < s.len and s[j] in IdentChars: inc j
-      if nxNorm(s[i ..< j]) == w: inc nth
-      i = j
-    else: inc i
+  let nth = nifIdentsOn(s[0 ..< a], w).len
   var syms: seq[string]
-  for (u, sym) in fx.uses[p.line]:
-    if u == w and sym notin syms: syms.add sym
-  var all: seq[string]
-  for (u, sym) in fx.uses[p.line]:
-    if u == w: all.add sym
-  if syms.len == 0: return false
-  let sym = if syms.len == 1: syms[0] elif nth < all.len: all[nth] else: ""
+  # (the uses in the order they stand on the line: the NIF's own is the tree's — a chain's outer call first)
+  var byCol: seq[(int, string)]
+  for (u, sym, c) in fx.uses[p.line]:
+    if u == w:
+      byCol.add (c, sym)
+      if sym notin syms: syms.add sym
+  if syms.len == 0: return ""
+  if syms.len == 1: return syms[0]
+  byCol.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
+  if nth < byCol.len: byCol[nth][1] else: ""
+
+proc nimNifDefinition(b: Buffer, p: Pos): bool =
+  ## Go to definition by the compiler's reading of the saved file: the symbol the name at the cursor is (nifSymAt),
+  ## then where its module's NIF declares it
+  let fx = nifFactsFor(b)
+  let sym = nifSymAt(b, fx, p)
   if sym.len == 0: return false
   var target: (string, int, int)
   if sym in fx.defs: target = fx.defs[sym]
@@ -415,7 +381,9 @@ proc nimNifDefinition(b: Buffer, p: Pos): bool =
     let f = nifForeignNif(fx.nif, m, nim2)
     if f.len == 0: return false
     var ns: seq[NifNode]
-    try: ns = nifParse(readFile(f).splitLines, before = nim2)
+    try:
+      if getFileSize(f) > NifReadMax: return false
+      ns = nifParse(readFile(f).splitLines, before = nim2)
     except CatchableError: return false
     let mainDir = if nim2: (try: parentDir(readFile(parentDir(f) / "main.txt").strip) except CatchableError: "")
                   else: ""
@@ -432,6 +400,78 @@ proc nimNifDefinition(b: Buffer, p: Pos): bool =
   let nb = if target[0] == b.path: b else: openFile(target[0])
   if nb != nil: nb.centerOn(nb.clampPos(Pos(line: target[1], col: target[2])))
   true
+
+proc nimNifReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)]): bool =
+  ## Find references by the compiler's reading (Nim 2.4's NIF): every place of the project's files that names the
+  ## symbol at the cursor — the overload, not every routine of that name. Only when the NIF of each of the project's
+  ## files is newer than the file and none of them has unsaved changes; and where the places of a line cannot be told
+  ## apart (a template wrote more of the name than the line has), not at all: false, and the engine answers
+  let fx = nifFactsFor(b)
+  if fx == nil or not fx.nif.endsWith(".nim2.nif"): return false
+  let sym = nifSymAt(b, fx, p)
+  if sym.len == 0: return false
+  let w = nxNorm(nifSymName(sym))
+  let dir = parentDir(fx.nif)
+  let mainDir = try: parentDir(readFile(dir / "main.txt").strip) except CatchableError: ""
+  var found: seq[(string, int, int)]
+  for src, nif in nim2NifMap(dir):
+    if rootDir.len == 0 or not src.startsWith(rootDir & "/"): continue        # (the project's own files)
+    let ob = bufIndexByPath(src)
+    if ob >= 0 and bufs[ob].dirty: return false
+    var text = ""
+    try:
+      if getLastModificationTime(nif) < getLastModificationTime(src): return false
+      if getFileSize(nif) > NifReadMax: return false
+      text = readFile(nif)
+    except CatchableError: return false
+    if sym notin text: continue
+    let ns = nifParse(text.splitLines, before = true)
+    var srcLines: seq[string]
+    try: srcLines = (if ob >= 0: bufs[ob].lines else: readFile(src).splitLines)
+    except CatchableError: return false
+    # (each line's names of this spelling: which are the symbol, by their order there)
+    var perLine: Table[int, seq[(int, bool)]]
+    for n in ns:
+      if n.tag.len > 0 or n.sline < 0 or '.' notin n.atom or '`' in n.atom: continue
+      if nxNorm(nifSymName(n.atom)) != w: continue
+      let f = if n.file.isAbsolute: n.file else: normalizedPath(mainDir / n.file)
+      if f != src: continue
+      perLine.mgetOrPut(n.sline, @[]).add (n.scol, n.atom == sym)
+    for line, xs0 in perLine:
+      var xs = xs0
+      var any = false
+      for (_, mine) in xs:
+        if mine: any = true
+      if not any: continue
+      if line >= srcLines.len: return false
+      let cols = nifIdentsOn(srcLines[line], w)
+      xs.sort(proc(x, y: (int, bool)): int = cmp(x[0], y[0]))
+      if cols.len != xs.len:
+        var all = true
+        for (_, mine) in xs:
+          if not mine: all = false
+        if not all: return false
+        for c in cols: found.add (src, line, c)
+        continue
+      for k, (_, mine) in xs:
+        if mine: found.add (src, line, cols[k])
+  if found.len == 0: return false
+  found.sort(proc(x, y: (string, int, int)): int = cmp((x[0], x[1], x[2]), (y[0], y[1], y[2])))
+  hits = found
+  true
+
+proc nifHoverNote(b: Buffer, p: Pos): string =
+  ## for hover: the type the compiler gave the let or var at the cursor, in a saved file it has read — "" otherwise
+  let fx = nifFactsFor(b)
+  let sym = nifSymAt(b, fx, p)
+  if sym.len == 0: return ""
+  let t = fx.defTypes.getOrDefault(sym)
+  if t.len > 0: "the compiler's type: `" & t & "`" else: ""
+
+proc nifChecked() =
+  ## an on-save check ended: its NIF is looked for at the next frame (not after the 3 s wait a look before it began)
+  nifFactsLooked.clear()
+  needRender = true
 
 proc nifForget() =
   ## (another folder opened) the facts read from NIFs go
