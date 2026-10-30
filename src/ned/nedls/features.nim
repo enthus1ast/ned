@@ -23,8 +23,10 @@ proc lsEnsureFiles() =
   let t0 = getMonoTime()
   while scanning and msSince(t0) < 3000: pumpScan(100)
 
+# whether ned's Nim engine answers for this document (it is a Nim file; the features below do nothing for others)
 proc lsEngineOn(d: LsDoc): bool = d != nil and nimEngineOn(d.b)
 
+# Markdown text as LSP's MarkupContent
 func lsMd(s: string): JsonNode = %*{"kind": "markdown", "value": s}
 
 proc lsLocation(path: string, l, c: int, lines: seq[string] = @[]): JsonNode =
@@ -51,6 +53,10 @@ proc lsImportEdit(d: LsDoc, module: string): JsonNode =
 proc lxCompItems(d: LsDoc, p: Pos): JsonNode
 
 proc lsCompletion(params: JsonNode): JsonNode =
+  ## textDocument/completion for a Nim file, from the editor's own completion (engineComplete): each item with the text
+  ## edit that replaces the word typed so far, a snippet of the call when the client expands snippets, the `import` it
+  ## would need as an additional edit (or left to resolve), and a sort key that keeps ned's order. At most lsCompLimit
+  ## items, the list marked incomplete beyond. A .nimble file's requires get the package names and versions
   let d = lsDocOf(params)
   result = %*{"isIncomplete": false, "items": []}
   if not lsEngineOn(d): return
@@ -115,6 +121,9 @@ proc lsCompletionResolve(item: JsonNode): JsonNode =
 # ── hover, signature help ──
 
 proc lsHover(params: JsonNode): JsonNode =
+  ## textDocument/hover: the editor's hover text for the name or operator at the position — a header or importc pragma's
+  ## C declaration, a .nimble package, the symbol's signature and documentation, a keyword's help — as Markdown with the
+  ## range it is about; nil when there is nothing
   let d = lsDocOf(params)
   if not lsEngineOn(d): return nil
   let b = d.b
@@ -146,6 +155,9 @@ proc lsHover(params: JsonNode): JsonNode =
   %*{"contents": lsMd(md), "range": {"start": lsPos(b, ra), "end": lsPos(b, re)}}
 
 proc lsSignatureHelp(params: JsonNode): JsonNode =
+  ## textDocument/signatureHelp: every overload of the routine being called, in the order the editor shows them
+  ## (iterators first in a `for`), each with its parameters' spans and documentation, and the one the editor picked
+  ## active with the parameter being typed; nil when the cursor is not in a call
   let d = lsDocOf(params)
   if not lsEngineOn(d): return nil
   let b = d.b
@@ -169,6 +181,8 @@ proc lsSignatureHelp(params: JsonNode): JsonNode =
     if (r.sym.kind == nxIterator) != inFor: ordered.add r
   var sigs = newJArray()
   proc sigJson(lbl: string, spans: seq[(int, int)], active: int, doc: string): JsonNode =
+    ## one signature as LSP shapes it: the label, each parameter as a (start, end) character span of it, the active
+    ## parameter and the documentation
     var ps = newJArray()
     for (a, e) in spans: ps.add %*{"label": [lsChar(lbl, a), lsChar(lbl, e)]}
     result = %*{"label": lbl, "parameters": ps}
@@ -179,6 +193,7 @@ proc lsSignatureHelp(params: JsonNode): JsonNode =
     pick = 0
   else:
     for i, r in ordered:
+      # the symbol of the overload being looked at
       template s: untyped = r.sym
       let binds = if h.ufcs and h.recv.len > 0: nxBindings(s, h.recv) else: initTable[string, string]()
       let (lbl, spans) = nxSigLabel(s, h.ufcs, binds)
@@ -209,6 +224,8 @@ proc lsDefinitions(d: LsDoc, p: Pos): seq[(string, int, int)] =
     result.add ((if path == f.path: b.path else: path), l, c)
 
 proc lsDefinition(params: JsonNode): JsonNode =
+  ## textDocument/definition: the places the name at the position is declared (several when overloads cannot be told
+  ## apart), as locations
   let d = lsDocOf(params)
   result = newJArray()
   if not lsEngineOn(d): return
@@ -236,6 +253,7 @@ proc lsTypeDefinition(params: JsonNode): JsonNode =
     if t.len == 0: t = nxTypeOfName(f, sc, nxLocals(f, b.lines, p.line, p.col), locals[0].name, p.line, 0).typ
   elif refs.len > 0:
     let r = refs[0]
+    # the symbol of the first reference found
     template s: untyped = r.sym
     tf = r.file
     case s.kind
@@ -263,6 +281,9 @@ proc lsDeclPositions(d: LsDoc, p: Pos): HashSet[(string, int, int)] =
   for (path, l, c) in lsDefinitions(d, p): result.incl (path, l, c)
 
 proc lsReferences(params: JsonNode): JsonNode =
+  ## textDocument/references: every use of the name found by the editor's Find references over the project (its files
+  ## listed first), without the declaration when the client does not ask for it; tells the client when the search was
+  ## cut short
   let d = lsDocOf(params)
   result = newJArray()
   if not lsEngineOn(d): return
@@ -335,6 +356,8 @@ proc lsFileUses(d: LsDoc, p: Pos): seq[(int, int, int)] =
       if ok: result.add (l, c, e)
 
 proc lsDocumentHighlight(params: JsonNode): JsonNode =
+  ## textDocument/documentHighlight: the places in this file that name what is at the position, a declaration marked as
+  ## a write and a use as a read
   let d = lsDocOf(params)
   result = newJArray()
   if not lsEngineOn(d): return
@@ -349,6 +372,9 @@ proc lsDocumentHighlight(params: JsonNode): JsonNode =
 # ── rename ──
 
 proc lsPrepareRename(params: JsonNode): JsonNode =
+  ## textDocument/prepareRename: the range and name that would be renamed, or an error saying why not (an operator, a
+  ## keyword, a number, a string or comment, a module, a name ned cannot resolve, one declared outside the project or by
+  ## a template call)
   let d = lsDocOf(params)
   if not lsEngineOn(d): return nil
   let b = d.b
@@ -378,6 +404,9 @@ proc lsPrepareRename(params: JsonNode): JsonNode =
   %*{"range": lsRangeIn(b.lines, a.line, a.col, e.line, e.col), "placeholder": w}
 
 proc lsRename(params: JsonNode): JsonNode =
+  ## textDocument/rename: the editor's rename (engineRename) as a workspace edit with one text edit for every place of
+  ## the name in every file, found again in the line even when written in another style (Foo_bar for fooBar); a refusal
+  ## is an error with the reason
   let d = lsDocOf(params)
   if not lsEngineOn(d): return nil
   let b = d.b
@@ -424,6 +453,9 @@ proc lsRename(params: JsonNode): JsonNode =
 # ── symbols ──
 
 proc lsSymbolKind(s: NxSym): int =
+  ## the LSP symbol kind for one of the engine's symbols: routines are functions (methods for method), enums, concepts
+  ## (interface), ref and ptr objects (class) and other objects and tuples (struct) are told apart, then fields, enum
+  ## values, constants, variables and modules
   case s.kind
   of nxProc, nxFunc, nxIterator, nxConverter, nxTemplate, nxMacro: 12
   of nxMethod: 6
@@ -441,6 +473,8 @@ proc lsSymbolKind(s: NxSym): int =
   of nxModule: 2
 
 proc lsSymDetail(s: NxSym): string =
+  ## the short text shown beside a symbol in the outline: a routine's kind and short signature, a type's keyword
+  ## (object, enum …), a variable's type
   case s.kind
   of NxRoutineKinds: nxKindWord(s.kind) & " " & nxShortDetail(s)
   of nxType:
@@ -450,6 +484,9 @@ proc lsSymDetail(s: NxSym): string =
   else: nxShortDetail(s)
 
 proc lsDocumentSymbol(params: JsonNode): JsonNode =
+  ## textDocument/documentSymbol: the file's top-level symbols with a type's fields and enum values as its children (a
+  ## flat list with container names when the client takes no nesting), and the tasks of a .nimble or config.nims as
+  ## functions named "task name"
   let d = lsDocOf(params)
   result = newJArray()
   if not lsEngineOn(d): return
@@ -457,6 +494,8 @@ proc lsDocumentSymbol(params: JsonNode): JsonNode =
   let f = nxFileFor(b)
   if f == nil: return
   proc symJson(s: NxSym): JsonNode =
+    ## one symbol as a DocumentSymbol: its name and kind, the range from its first line to its last and the range of the
+    ## name, with a detail and the deprecated tag
     let l = clamp(s.line, 0, b.lines.high)
     let s0 = b.lines[l]
     let c = min(s.col, s0.len)
@@ -677,6 +716,9 @@ proc lsSemForget(uri: string) =
 proc lsOpt(key: string): JsonNode
 
 proc lsInlayHints(params: JsonNode): JsonNode =
+  ## textDocument/inlayHint for the range's lines: the editor's own hints (types, parameter names, what routines raise)
+  ## worked out by engineInlays — repeated while the time allows when a round was cut short — as LSP hints; the type
+  ## ones are marked as types, the others as parameters
   let d = lsDocOf(params)
   result = newJArray()
   block:
@@ -845,6 +887,8 @@ proc lsOnTypeFormatting(params: JsonNode): JsonNode =
   if l < 0 or l >= b.lines.len or l > 20_000 or b.lines[l].strip.len == 0: return
   var ok = true
   proc codeToks(s: string, ok: var bool): seq[FTok] =
+    ## the formatter's tokens of a line without its comments; ok turns false when the lexer finds it unfinished (an open
+    ## string)
     for t in fLex(s & "\n", ok):
       if t.kind != fkComment: result.add t
   proc goesOn(ts: seq[FTok]): bool =

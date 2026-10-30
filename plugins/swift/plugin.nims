@@ -141,6 +141,7 @@ func swiftCode(s: string, nest: var int, triple: var bool): string =
     inc i
 
 func swiftIdentEnd(s: string, i: int): int =
+  ## where the name (letters, digits, `_`, backticks and non-ASCII characters) that starts at `i` ends
   result = i
   while result < s.len and (s[result].isAlphaNumeric or s[result] in {'_', '`'} or ord(s[result]) >= 128):
     inc result
@@ -209,6 +210,8 @@ func swiftSymbols*(lines: seq[string]): seq[Symbol] =
     let first = swiftWord(w)
     var isTypeDecl = false
     template put(nm, kd, dt: string) =
+      ## adds a symbol for this line (its name, kind and detail, its column found in the line) unless the line is inside
+      ## code, such as a function's body
       if not inCode:
         result.add Symbol(name: nm, kind: kd, detail: dt, line: ln, col: max(0, s.find(nm, col)), depth: depth)
     case first
@@ -261,6 +264,7 @@ func swiftSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc swiftHave(cmd: string): bool =
+  ## whether the first word of a configured command (with ~ expanded) is a program that can be found on PATH
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

@@ -2,6 +2,11 @@
 #    takes to draw it, what runs in the background, the memory — and what to change when something is slow ──
 
 proc perfReport(): string =
+  ## the Performance report as text: how long the last frames took to make, how many bytes they sent and how long the
+  ## terminal took to draw them, the terminal's speed, rounds of work over 50 ms that kept ned from reading keys and
+  ## what took over 30 ms in the last minute, the Nim engine's timings and index size, cursor glides, compiler checks
+  ## and git runs, memory, the jobs and servers running, and settings that would make ned lighter for what the numbers
+  ## show. Also written to NED_PERF_LOG when ned quits
   var buildSum, writeSum, bytesSum, buildMax, writeMax, bytesMax, scrolled = 0
   for f in frameStats:
     buildSum += f.buildUs
@@ -12,6 +17,7 @@ proc perfReport(): string =
     bytesMax = max(bytesMax, f.bytes)
     if f.scrolled: inc scrolled
   let n = max(1, frameStats.len)
+  # microseconds as milliseconds with two decimals
   func ms(us: int): string = formatFloat(float(us) / 1000.0, ffDecimal, 2) & " ms"
   result = "ned " & Version & " — performance\n" & "=".repeat(30) & "\n\n"
   result.add "Frames (the last " & $frameStats.len & ")\n"
@@ -95,4 +101,5 @@ proc perfReport(): string =
   result.add "\n(ned --bench FILE measures the same without a terminal: ms and bytes per frame)\n"
 
 proc cmdPerfReport() =
+  ## Help › Performance: the report in a tab of its own
   discard openScratch("Performance", perfReport(), langByName("Text"))

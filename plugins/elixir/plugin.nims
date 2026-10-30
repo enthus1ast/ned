@@ -81,6 +81,7 @@ snippet("elixir", "test", "test \"${1:what it does}\" do\n\t$0\nend", "an ExUnit
 
 # ── the outline, when there is no language server ──
 
+# whether c can be part of an Elixir name (the ? and ! that may end one are not counted)
 func exIdentChar(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_'}
 
 proc exArity(lines: seq[string], ln, at: int): int =

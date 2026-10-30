@@ -2,6 +2,8 @@
 #    C-s · M-% · C-/ · C-x C-s / C-f / C-w / b / k / u / h / o / 2 / 3 / 1 / C-c · M-g g · M-x · M-; · C-l ──
 
 proc emacsMove(kind: KeyKind, word = false) =
+  ## moves the cursor as cmdMove does, extending the selection while the mark is set; with no mark a selection that was
+  ## there is first dropped (the cursor goes to its head)
   let b = buf()
   if not emacsMark and b.primary.hasSel: b.setSingle(b.primary.head)
   cmdMove(kind, emacsMark, word)

@@ -306,6 +306,8 @@ proc pageClassesAndIds(b: Buffer): (seq[string], seq[string]) =
 # ── completion, hover ──
 
 proc toCompItems(ws: seq[WebItem]): seq[CompItem] =
+  ## turns the engines' completions into the editor's list items, sorted by rank and then label, with their help text
+  ## ready
   for w in ws:
     result.add CompItem(label: w.label, insert: w.insert, snippet: w.snippet, detail: w.detail, kind: w.kind,
                         filter: w.label, sortText: $w.rank & w.label, rank: w.rank, doc: w.doc, docMade: true)
@@ -618,6 +620,10 @@ proc webRename(b: Buffer, p: Pos, newName: string): bool =
 # ── problems: after a pause in typing, for the file in front ──
 
 proc webDiagsOf(b: Buffer): seq[Diag] =
+  ## the problems ned's own engines find in the file, as the editor's diagnostics: by its language the CSS, HTML (with
+  ## the files it links to, and its <style> and <script> parts), SQL, JavaScript or JSON checks, or — in a Nim file —
+  ## those of the HTML, CSS, SQL and JavaScript inside its strings. Nothing when an external language server is to do it
+  ## (web.engine). Also used by the lint, the engine worker and nedls.
   if extractFilename(b.path) == "pnak.nif": return pnakDiags(b)     # (Nim 3's lockfile)
   var ws: seq[WebDiag]
   let fam = webFamily(b.lang.id)

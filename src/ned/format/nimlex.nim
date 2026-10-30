@@ -85,9 +85,13 @@ func contains(a: openArray[string], s: string): bool {.inline.} =
   false
 
 proc fKwIndex*(): array['a' .. 'y', seq[int]] =
+  ## for each first letter, the indexes of the keywords that start with it — built when ned is compiled, for the keyword
+  ## look-up
   for i, k in FKeywords: result[k[0]].add i
 
 proc fKwIndexLen*(): array['a' .. 'y', array[2 .. 9, seq[int]]] =
+  ## for each first letter and each length of 2 to 9, the indexes of the keywords like that — built when ned is
+  ## compiled, so a word needs only one or two comparisons
   for i, k in FKeywords: result[k[0]][k.len].add i
 
 const
@@ -111,6 +115,7 @@ func fKeywordAt*(text: string, i, j: int): int =
     if same: return k
   -1
 
+# can this character be in a name: a letter, digit or underscore, or a byte of a non-ASCII character?
 func fIsIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
 
 func fUniOpLen*(text: string, i: int): int =
@@ -140,6 +145,8 @@ func fIdentAt(text: string, j: int): bool {.inline.} =
   else: not (c in {'\194', '\195', '\226'} and fUniOpLen(text, j) > 0)
 
 func fPunct*(c: char): string {.inline.} =
+  ## the text of a one-character token: a shared string for the brackets, comma, semicolon, colon and dot (no new string
+  ## is made), else the character as a string
   case c
   of '(': "("
   of ')': ")"
@@ -180,6 +187,7 @@ proc fAccQuoted*(s: string): string =
     parts.add s[i ..< j]
     i = j
   if parts.len < 2: return s
+  # does the part start with a letter?
   proc alpha(p: string): bool = p.len > 0 and p[0] in {'a' .. 'z', 'A' .. 'Z'}
   result = "`"
   for k, p in parts:
@@ -201,10 +209,14 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
   var lineHasTok = false
   result = newSeqOfCap[FTok](n div 6 + 16)
   template add(k: FKind, a, b: int) =
+    ## adds a token of kind k from text[a ..< b]; a one-character bracket or separator uses a shared string
     if b - a == 1 and k in {fkOpen, fkClose, fkComma, fkSemi, fkColon, fkDot}:
       addT(k, a, fPunct(text[a]))           # a shared literal: no allocation
     else: addT(k, a, text[a ..< b])
   template addT(k: FKind, a: int, tt: string) =
+    ## adds a token of kind k starting at a with the given text, noting its layout: whether it is first on its line, its
+    ## column, the whitespace in front, whether it spans lines (long strings and block comments), the empty lines before
+    ## its line and its byte offset
     var t = tt
     # only long strings and block comments can span lines
     let nlAt = if k in {fkStr, fkComment}: t.rfind('\n') else: -1
@@ -389,6 +401,7 @@ proc fLex*(text: string, ok: var bool): seq[FTok] =
     ok = false       # a character Nim does not have
     return
 
+# is this token a word operator such as `and`, `or`, `div`, `in` or `of`?
 func fWordOp*(t: FTok): bool {.inline.} = t.kind == fkKw and t.text in FWordOps
 
 func fOperand*(t: FTok): bool {.inline.} =
@@ -440,6 +453,9 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
   var blockInd = -1        # (a member opening a block — `x = f:` — its indentation: what is under it is code)
   result = newSeqOfCap[FLine](toks.len div 6 + 16)
   template noteSection() =
+    ## after a line is complete: keeps track of the section (`var`, `let`, `const`, `type`) and of a member's block that
+    ## the next lines belong to, by indentation
+    # the line just completed (the last one in the result)
     template ll: untyped = result[^1]
     if not ll.comment:
       if blockInd >= 0 and ll.indent <= blockInd: blockInd = -1
@@ -653,6 +669,7 @@ proc fDepths*(lines: var seq[FLine]) =
   # `result.add if a:` ⏎ its body ⏎ `else:` written under the `if` (further right than the line): the branches at the
   # line's own depth, as nph writes them — an if-expression given to a command or `return` is laid out as a statement
   for i in 0 ..< lines.len:
+    # the line looked at, by its index
     template l: untyped = lines[i]
     if l.comment or l.toks.len < 4 or l.toks[^1].kind != fkColon: continue
     var at = -1
@@ -684,6 +701,7 @@ proc fDepths*(lines: var seq[FLine]) =
   # a routine): at that statement's depth — nph writes a comment with what follows it
   var next = -1                    # (the next code line's index)
   for i in countdown(lines.high, 0):
+    # the line looked at, by its index
     template l: untyped = lines[i]
     if not l.comment:
       next = i

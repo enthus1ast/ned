@@ -6,6 +6,7 @@ when not defined(windows):
   var SIGWINCH {.importc, header: "<signal.h>".}: cint
 
 proc onWinch(sig: cint) {.noconv.} =
+  ## the handler of the signal that the terminal was resized: it only notes it, and the main loop sizes the screen again
   gResized = true
 
 var inputBacklog = false   # processInput stopped early to draw a frame; more keys are waiting
@@ -15,6 +16,10 @@ var
   frameHeld = false            # a frame waits (frames not asked for by input are paced)
 
 proc processInput(force: bool) =
+  ## takes the keys and mouse events that are waiting in the input buffer and hands each to handleKey (a failure becomes
+  ## an internal-error note). After a burst of more than 50 ms it stops and notes the backlog, so that a frame is drawn
+  ## and ned stays responsive. With `force` an event cut off at the end of the input — a half-arrived escape sequence —
+  ## is taken as it is
   var k: Key
   let t0 = getMonoTime()
   var n = 0
@@ -39,6 +44,9 @@ proc compilerRunning(): bool =
   orRunning                         # (the compiler asked in the background: nim.compilerOracle)
 
 proc pumpJobs(ready: HashSet[cint]) =
+  ## services the background jobs: reads the output of those that poll says have some, kills an auxiliary job after 4
+  ## seconds and any job past its own time limit, and for one whose output has ended and whose process is reaped records
+  ## the exit code, marks it done and calls its callback; finished jobs are then dropped from the list
   let snapshot = jobs
   for j in snapshot:
     if not j.eof and j.outFd in ready:
@@ -78,6 +86,14 @@ proc pumpJobs(ready: HashSet[cint]) =
 var privSwept = false
 
 proc mainLoop() =
+  ## the editor's main loop, until it is told to quit. A closed terminal or a stop signal saves every unsaved edit (hot
+  ## exit, else recovery files) and leaves. Each round: sizes the screen after a resize; draws a frame when one is
+  ## wanted, at most 60 a second (30 on a slow terminal) unless a key asked for it; waits with poll on the keyboard and
+  ## every pipe that can speak — jobs, language servers, nimsuggest, MCP servers, the remote-control socket, plugins,
+  ## notebooks, terminals, the git watcher, the debugger — for as long as the soonest thing that is due allows; reads
+  ## the keys; then does the background work in small slices so that typing always wins (the file scan, searches,
+  ## highlighting, TODOs, checks, hints, the engine's reading, git marks, language server traffic and restarts, recovery
+  ## files, disk changes, autosave, the status message timing out)
   lastFileCheck = getMonoTime()
   var busyFrom = getMonoTime()
   while not quitting:
@@ -330,6 +346,8 @@ proc mainLoop() =
       # take up to a few dozen ms on a phone — two in one round and a key waits for both)
       workDeferred = false
       template roomLeft(): bool =
+        ## whether this round has used less than 8 ms so far; if not, it notes that work was put off, so that the next
+        ## round comes at once
         # (from the round's start: keys, the TODOs' slice and the hints count too)
         (if msSince(busyFrom) < 8: true else: (workDeferred = true; false))
       if (cfgInlayHints or cfgCsvAlign) and inBuf.len == 0 and not away: timedWork("type and parameter hints"): requestInlays(buf())
@@ -556,6 +574,7 @@ proc mainLoop() =
       internalError("main loop", e)
 
 proc usage() =
+  ## prints the help text of the command line: every option, the files ned keeps, and the main keys
   echo AppName & " " & Version & " — fast, safe terminal code editor and Nim IDE for Termux, Linux and macOS"
   echo ""
   echo "Usage: ned [options] [file[:line[:col]] | +line file | folder] ..."
@@ -627,6 +646,7 @@ proc emergencySave() =
         except CatchableError: discard
 
 proc onTermSignal(sig: cint) {.noconv.} =
+  ## the handler of SIGHUP and SIGTERM: it only notes the signal, and the main loop saves the unsaved edits and leaves
   termSignal = sig.int
 
 proc runBench(path: string) =
@@ -644,6 +664,8 @@ proc runBench(path: string) =
   let b = openFile(path)
   if b == nil: quit "cannot open " & path
   proc bench(name: string, n: int, step: proc()) =
+    ## runs `step` and draws a frame, `n` times, and prints to stderr the milliseconds a frame took and the bytes it
+    ## sent to the terminal
     let t0 = getMonoTime()
     let bytes0 = frameBytesTotal
     for i in 0 ..< n:
@@ -773,6 +795,15 @@ proc remoteMain(targets: seq[(string, int, int)], op, arg: string, explicit, wai
   code
 
 proc main() =
+  ## starts ned. Reads the command line — options, and files as FILE:LINE:COL or +LINE FILE — and runs the ones that do
+  ## something else and exit (help, version, --check, --format, --lint, --update, --sandbox, --reset, --bench, the
+  ## --remote ones …). When a ned is running, `ned FILE` in its terminal and the remote options talk to it instead.
+  ## Otherwise it puts the Nim, Cargo and Go tool folders on PATH, takes piped input and keys from the terminal, chooses
+  ## the project folder, loads state, settings and theme, makes the first tab and opens the files, sets the signal
+  ## handlers, starts the file scan and the control socket, enters raw mode and restores the session, layout, unsaved
+  ## edits and recovery files, then runs the main loop. A crash writes recovery files and the stack trace; a leave saves
+  ## the state and stops the assistant, terminals, language servers, MCP servers, plugins, nimsuggest, the engine
+  ## worker, ssh connections and jobs, and with --startup-time prints how long each step took
   var targets: seq[(string, int, int)]
   var pendingLine = -1
   var optsDone, wantStdin, doCheck = false

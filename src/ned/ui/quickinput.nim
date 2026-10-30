@@ -1,6 +1,7 @@
 # ── quick input (prompts) and the find widget ──
 
 func promptHint(kind: PromptKind): string =
+  ## the hint line shown under a prompt's field for that kind of prompt
   case kind
   of pGoto: "Type a line number, line:column or +/- offset"
   of pSaveAs, pNewFile, pNewFolder, pRenamePath: "Tab completes paths · Enter to confirm · Esc to cancel"
@@ -11,6 +12,8 @@ func promptHint(kind: PromptKind): string =
   else: "Enter to confirm · Esc to cancel · ↑↓ history"
 
 proc drawQuickInput() =
+  ## draws the prompt as a framed box at the top of the screen: its label as the title, a field for the text (hiding it
+  ## for an API key), the hint for its kind and OK and Cancel buttons when there is room
   let w = min(scrW - 2, 72)
   let x = (scrW - w) div 2
   let y = max(0, lay.bodyTop)
@@ -38,6 +41,9 @@ proc drawQuickInput() =
                  hintEnd)
 
 proc drawFindWidget() =
+  ## draws the find bar at the top right of the editor: while replacing step by step, the question with Yes, No, All and
+  ## Done buttons and the count; otherwise the query field with the result count (or the regex error), the case,
+  ## whole-word and regex toggles, previous and next buttons and a close button
   let isReplace = replaceActive
   let ex = lay.edX
   let ew = lay.edW

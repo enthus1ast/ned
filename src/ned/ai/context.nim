@@ -3,6 +3,10 @@
 var aiDiffCache = initTable[string, string]()
 
 proc diffForCall(c: AiCall): string =
+  ## the change an edit_file or write_file call makes, as a unified diff against the file's text now (its tab's, else
+  ## the disk's): the diff saved with the call when it has run, else worked out and kept in a cache. An old_text that is
+  ## missing or not unique gives a note saying so, an edit that changes nothing "(no change)"; any other tool gives an
+  ## empty text
   if c.name notin ["edit_file", "write_file"]: return ""
   if c.diff.len > 0: return c.diff
   let key = c.id & "/" & $c.args.len
@@ -36,6 +40,7 @@ proc diffForCall(c: AiCall): string =
   aiDiffCache[key] = result
 
 proc showCallDiff(mi, ci: int) =
+  ## opens the diff of a tool call in a tab of its own (AI change: path)
   if mi >= aiMsgs.len or ci >= aiMsgs[mi].calls.len: return
   let c = aiMsgs[mi].calls[ci]
   let d = diffForCall(c)
@@ -50,6 +55,7 @@ proc showCallDiff(mi, ci: int) =
 # ── @mentions ──
 
 proc termTail(n: int): string =
+  ## the last `n` lines of the current terminal, with the empty rows at the end taken off — for @terminal
   if terms.len == 0: return ""
   let t = terms[clamp(curTerm, 0, terms.high)]
   var rows: seq[string]
@@ -62,6 +68,8 @@ proc termTail(n: int): string =
   rows[max(0, rows.len - n) .. ^1].join("\n")
 
 proc gitText(args: string): string =
+  ## the output of `git --no-pager` with these arguments in the project's repository (empty when there is none or git
+  ## fails), cut to 60000 characters
   let root = gitHome()
   if root.len == 0: return ""
   let (ok, o, _) = runFilter("git --no-pager " & args, "", root, 8000)
@@ -69,6 +77,8 @@ proc gitText(args: string): string =
   if o.len > 60_000: o[0 ..< 60_000] & "\n… (diff truncated)" else: o
 
 proc problemsText(): string =
+  ## the errors and warnings of the language server and the last build, one to a line as path:line:col: error or
+  ## warning: message, 200 at most — for @problems
   var o: seq[string]
   var paths: seq[string]
   for k in diagsLsp.keys: paths.add k
@@ -155,6 +165,9 @@ proc expandMentions(t: string): string =
 # ── project instructions (AGENTS.md, CLAUDE.md …) go into the system prompt ──
 
 proc projectInstructions(): string =
+  ## the project's own instructions for the assistant, to go in the system prompt: each of AGENTS.md, CLAUDE.md, NED.md,
+  ## .ned/instructions.md and .github/copilot-instructions.md that exists (12000 characters of it at most) in a tag with
+  ## the file's name; nothing when ai.projectInstructions is off
   if not sBool("ai.projectInstructions"): return ""
   for f in ["AGENTS.md", "CLAUDE.md", "NED.md", ".ned/instructions.md", ".github/copilot-instructions.md"]:
     let p = rootDir / f

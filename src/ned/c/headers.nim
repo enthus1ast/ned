@@ -247,6 +247,7 @@ proc cBlank(s: var string) =
     ls = le + 1
 
 func cWordAt(s: string, i: int, w: string): bool =
+  ## whether the word w stands at index i of s as a whole word (no identifier character before or after it)
   i >= 0 and s.continuesWith(w, i) and (i == 0 or s[i-1] notin IdentChars) and
     (i + w.len >= s.len or s[i + w.len] notin IdentChars)
 
@@ -431,6 +432,8 @@ proc cIndexOf(s, path: string): CIndex =
       if lineStarts[m] <= i: lo = m else: hi = m - 1
     lo
   proc keep(r: var CIndex, name: string, p: CProto) =
+    ## records a declaration under its name in the index, with this file's path; the first one stays, except that a
+    ## function or macro replaces a type or variable of the same name; nothing is recorded for a declaration of no kind
     if p.kind.len == 0: return
     var q = p
     q.path = path

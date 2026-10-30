@@ -30,6 +30,8 @@ var
   tsLastQuery = ""
 
 proc pickQueryNorm(): string =
+  ## the query the picker filters by: lower case with spaces taken out (for the file picker, none when it starts with :
+  ## @ > or #, which are jump prefixes)
   var q = pickQuery
   if pickKind == pickFile and q.len > 0 and q[0] in {':', '@', '>', '#'}: q = ""
   q.toLowerAscii.replace(" ", "")
@@ -58,6 +60,9 @@ proc refilterPicker(keepSel = false) =
     let total = if reuse: pickCand.len + (pickItems.len - pickCandUpTo) else: pickItems.len
     let quick = total > 40000
     template consider(i: int) =
+      ## scores picker item `i` against the query (a quick scorer on very big lists); a name that does not match still
+      ## counts, after the others, when every word of the query is in the item's description; items that match are added
+      ## to the candidates
       var sc = if quick: fuzzyQuick(lq, pickItems[i].label) else: fuzzyScore(lq, pickItems[i].label)
       if sc == low(int) and pickItems[i].search.len > 0:
         # every word of the query in the description: listed after the name matches
@@ -88,6 +93,9 @@ proc refilterPicker(keepSel = false) =
   needRender = true
 
 proc openPicker(kind: PickKind, title: string, items: seq[PickItem]) =
+  ## opens a picker of the given kind with a title and its items, with an empty query: forgets the last Telescope
+  ## finder's previews and live search, closes completion and hover, and filters; the symbol picker starts on the symbol
+  ## the cursor is in
   inc tsGen
   tsActive = false
   tsPreviews.setLen(0)
@@ -115,6 +123,7 @@ proc openPicker(kind: PickKind, title: string, items: seq[PickItem]) =
       pickSel = pickShown.find(best).max(0)
 
 proc closePicker() =
+  ## closes the picker, putting the previous theme back if the theme picker was only previewing one
   pickFolderDir = ""
   if pickKind == pickTheme and pickPrevTheme.len > 0: applyTheme(pickPrevTheme)
   pickKind = pickNone
@@ -122,6 +131,8 @@ proc closePicker() =
   needRender = true
 
 proc fileItems(): seq[PickItem] =
+  ## the file picker's items: the open files (marked ●), up to 30 recent ones (○), then every file of the project
+  ## (workspace folders labelled by their name)
   pickSeen.clear()
   for b in bufs:
     if b.path.len > 0 and b != buf():
@@ -153,11 +164,13 @@ proc feedPickerFiles() =
   refilterPicker(keepSel = true)
 
 proc pickPath(it: PickItem): string =
+  ## the file an item stands for: its path, else its label as an absolute path or under the project folder
   if it.path.len > 0: it.path
   elif it.label.isAbsolute: it.label
   else: rootDir / it.label
 
 proc cmdFindFile(initial = "") =
+  ## opens the file picker (Go to file), with `initial` already typed in the query
   openPicker(pickFile, "Open file   (:line  @symbol  #project symbol  >command)", fileItems())
   pickQuery = initial
   pickCur = initial.len
@@ -175,6 +188,7 @@ proc cmdPalette() =
   openPicker(pickCmd, "Command palette", items)
 
 proc cmdBuffers() =
+  ## opens a picker of the open tabs (modified ones marked), starting on the next one
   var items: seq[PickItem]
   for i, b in bufs:
     items.add PickItem(label: (if b.path.len > 0: relPath(b.path) else: "untitled"),
@@ -183,6 +197,8 @@ proc cmdBuffers() =
   if bufs.len > 1: pickSel = 1
 
 proc cmdThemes() =
+  ## opens a picker of the themes (and "auto"), starting on the current one; moving through it previews each theme,
+  ## closing it without choosing puts the old one back
   var items: seq[PickItem]
   items.add PickItem(label: "auto", detail: "light or dark, to match the terminal (theme.light / theme.dark)", line: -1)
   for t in allThemes(): items.add PickItem(label: t.name, detail: (if t.dark: "dark" else: "light"), line: -1)
@@ -192,11 +208,16 @@ proc cmdThemes() =
     if it.label == cfgThemeName: pickSel = i
 
 proc cmdLanguages() =
+  ## opens a picker of the languages to set the current file's language mode
   var items: seq[PickItem]
   for l in langs: items.add PickItem(label: l.name, detail: l.exts.join(" "), line: -1)
   openPicker(pickLang, "Set language mode", items)
 
 proc acceptPicker() =
+  ## uses the selected item by the picker's kind: runs the command, opens the file or symbol at its line (leaving a jump
+  ## to come back to), switches to the tab, sets the theme (kept in the settings) or the file's language, or runs the
+  ## action; in the file picker a query starting with `:` goes to that line, `@` to the file's symbols, `>` to the
+  ## command palette, and a name matching nothing opens (creates) that file once the scan is done
   let kind = pickKind
   if kind == pickFile and pickQuery.len > 0 and pickQuery[0] in {':', '@', '>'}:
     let q = pickQuery
@@ -271,11 +292,13 @@ proc editLine(text: var string, cur: var int, k: Key): bool =
     fieldSelClear()                      # (another field had the selection: this one starts with none)
     fieldSelOwner = cast[pointer](addr text)
   proc move(text: var string, cur: var int, to: int, shift: bool) =
+    ## moves the cursor to byte `to`, extending the selection when Shift is held and dropping it otherwise
     if shift:
       if fieldSelAnchor < 0: fieldSelect(text, cur, cur)
     else: fieldSelClear()
     cur = clamp(to, 0, text.len)
   proc insertText(text: var string, cur: var int, t: string) =
+    ## types `t` at the cursor, replacing the selection if there is one
     discard fieldDeleteSel(text, cur)
     text.insert(t, cur)
     cur += t.len
@@ -345,6 +368,11 @@ proc editLine(text: var string, cur: var int, k: Key): bool =
   true
 
 proc pickerKey(k: Key) =
+  ## the keys of the open picker: Esc closes, Enter uses the selection, arrows, Tab, Ctrl+N/P/J/K and Page Up/Down move
+  ## in the list, Alt+V, Alt+X and Alt+Q open the item beside, below or all in a multibuffer, and other keys edit the
+  ## query and filter again (typing > @ or # alone in the file picker switches to commands or symbols); in the folder
+  ## browser Backspace or Left goes up, Right goes in and Alt+Enter opens the folder as the project; moving over themes
+  ## previews them
   if pickFolderDir.len > 0:
     # the folder browser: Backspace or ← goes up, → goes in, Alt+Enter opens the highlighted folder,
     # a typed path (/… or ~/…) jumps there

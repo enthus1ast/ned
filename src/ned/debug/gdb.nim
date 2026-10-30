@@ -96,6 +96,8 @@ func miQuote(s: string): string =
   "\"" & s.replace("\\", "\\\\").replace("\"", "\\\"") & "\""
 
 proc dbgSend(cmd: string) =
+  ## sends a command line to the debugger: written to gdb's input, or — in a DAP session — translated into DAP requests
+  ## by dapFromMi. Does nothing when no session is running.
   if dbgDap:
     if dbgOn: dapFromMi(cmd)
     return
@@ -108,6 +110,7 @@ proc dbgSend(cmd: string) =
     off += n
 
 func dbgExpandable(t: string): bool =
+  ## whether a variable of this C type (as gdb names it) has fields or items to show: a Nim object, tuple, array or seq
   let b = t.strip(chars = {' ', '*'})
   b.startsWith("tyObject_") or b.startsWith("tyTuple_") or b.startsWith("tyArray_") or b.startsWith("tySequence_")
 
@@ -132,6 +135,7 @@ proc dbgPrettyValue(v: string): seq[string] =
     cur.add ch
   if cur.strip.len > 0: parts.add cur.strip
   proc shortLen(x: string): string =
+    ## writes every Nim string or seq that gdb printed as `{len = 3, p = 0x…}` as `‹len 3›`
     # Nim strings and seqs inside: {len = 3, p = 0x…} → ‹len 3›
     result = x
     var k = result.find("{len = ")
@@ -203,6 +207,9 @@ proc dbgPanel() =
   needRender = true
 
 proc dbgEnd(msg: string) =
+  ## ends the debug session: stops the DAP adapter, or tells gdb to exit and kills it, closes the pipes, forgets the
+  ## frames, variables, breakpoint numbers and watchpoints of the run, shows `msg` as the state and redraws the Debug
+  ## panel
   if dbgDap: dapStop()
   if dbgProc.pid > 0:
     dbgSend("-gdb-exit")
@@ -254,6 +261,8 @@ proc nimGdbScript(): string =
   except CatchableError: ""
 
 proc dbgLaunch() =
+  ## starts the program under gdb once every breakpoint is answered: first its arguments (its input is /dev/null, not
+  ## gdb's), then `-exec-run`
   dbgSend(dbgLaunchCmd)                         # (the program's input is not gdb's)
   dbgSend("-exec-run")
 
@@ -311,6 +320,9 @@ proc dbgCExpr(cond: string): string =
   result = dbgStrCompares(result)
 
 proc dbgCExprNames(cond: string): string =
+  ## the names half of dbgCExpr: `and`, `or`, `not`, `true` and `false` become C's `&&`, `||`, `!`, `1` and `0`; a local
+  ## variable becomes its C name from the frame's variable list, a global its C name (the one in the module stopped in,
+  ## when several have it). String literals and names after a dot stay as written.
   var i = 0
   while i < cond.len:
     let ch = cond[i]
@@ -414,6 +426,8 @@ proc dbgLogStart() =
     dbgSend($(8000 + k) & "-data-evaluate-expression " & miQuote(ex))
 
 proc dbgLogGot() =
+  ## one of a logpoint's expressions has been answered (or failed): when none is left to wait for, the logpoint's
+  ## message is printed
   dec dbgLogWait
   if dbgLogWait <= 0 and dbgLogPending.len > 0: dbgLogFinish()
 
@@ -684,6 +698,9 @@ proc dbgLine(line: string) =
   dbgPanel()
 
 proc dbgRead() =
+  ## reads what the debugger process has written. A DAP adapter: its output over TCP is only logged, otherwise it goes
+  ## to dapReadFd, and a gone adapter ends the session. gdb: the bytes are added to dbgRbuf and each complete line goes
+  ## to dbgLine.
   if dbgDap:
     if dapSock >= 0:                         # an adapter reached over TCP: its own output is a log
       var t2: array[16384, char]
@@ -713,6 +730,8 @@ proc dbgRead() =
     dbgLine(line)
 
 proc toggleBreakpoint() =
+  ## sets or removes a breakpoint on the cursor's line of the current file (the file must be saved). Removing also drops
+  ## the line's condition and logpoint. While debugging, gdb (-break-insert, -break-delete) or the DAP adapter is told.
   let b = buf()
   if b.path.len == 0:
     info("Save the file first: breakpoints belong to files")
@@ -836,6 +855,7 @@ proc dbgStart() =
     dbgPanel())
 
 proc dbgCmd(cmd: string) =
+  ## sends a stepping command (the F-keys') to the running debugger, or says that nothing is being debugged
   if not dbgOn:
     info("Not debugging — F5 starts (with breakpoints from F9)")
     return
@@ -919,6 +939,8 @@ proc setBpCond(cond: string) =
   needRender = true
 
 proc cmdBpCond() =
+  ## palette command: asks for a condition for the breakpoint on the cursor's line, with the present one filled in — the
+  ## answer goes to setBpCond
   let b = buf()
   if b.path.len == 0:
     info("Open a saved file first")
@@ -946,6 +968,8 @@ proc setBpLog(msg: string) =
   needRender = true
 
 proc cmdBpLog() =
+  ## palette command: asks for the message of a logpoint on the cursor's line, with the present one filled in — the
+  ## answer goes to setBpLog
   let b = buf()
   if b.path.len == 0:
     info("Open a saved file first")
@@ -984,6 +1008,8 @@ proc dbgAddWatchpoint(expr: string) =
   dbgPanel()
 
 proc dbgRemoveWatchpoint(expr: string) =
+  ## stops stopping when `expr` changes: gdb's watchpoint is deleted (or the DAP adapter gets the shorter list of data
+  ## breakpoints), and `expr` leaves the list of wanted ones
   var keep: seq[(string, string)]
   for (e, n) in dbgWatchpoints:
     if e == expr:
@@ -997,6 +1023,8 @@ proc dbgRemoveWatchpoint(expr: string) =
   dbgPanel()
 
 proc cmdWatchpoint() =
+  ## palette command: asks which variable or field to stop on when it changes, starting from the selected text (one
+  ## line) or the word at the cursor — the answer goes to dbgAddWatchpoint
   let b = buf()
   let (a, e) = b.primary.range
   openPrompt(pDbgWp, "Stop whenever this changes (a variable, or a field: p.count)",

@@ -3,6 +3,8 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 proc gotoBufLine(id, line: int) =
+  ## goes to a line of the open buffer with this id: remembers where it was (for jumping back), makes that buffer
+  ## current, focuses the editor and centres the cursor on the line, after its indentation
   for i, b in bufs:
     if b.id == id:
       pushJump()
@@ -15,6 +17,8 @@ proc gotoBufLine(id, line: int) =
 # ── bookmarks ──
 
 proc toggleBookmark() =
+  ## puts a bookmark on the cursor's line, or takes it off when there is one; a saved file's bookmarks are also kept in
+  ## savedMarks, for the session
   let b = buf()
   if b.isWelcome(): return
   let l = b.primary.head.line
@@ -37,6 +41,8 @@ proc allBookmarks(): seq[(int, int)] =
       if m < b.lines.len: result.add (i, m)
 
 proc gotoBookmark(d: int) =
+  ## jumps to the next bookmark (d > 0) or the previous one, over all open buffers in tab order, wrapping round at the
+  ## ends
   let all = allBookmarks()
   if all.len == 0:
     info("No bookmarks — Alt+' toggles one on the current line")
@@ -60,9 +66,11 @@ proc gotoBookmark(d: int) =
   gotoBufLine(bufs[bi].id, l)
 
 proc bookmarkAct(id, line: int): Action =
+  ## an action that jumps to the line of a buffer — made here so each list row keeps its own values
   result = proc() = gotoBufLine(id, line)
 
 proc listBookmarks() =
+  ## palette command: lists every bookmark (file, line and the line's text) and jumps to the one picked
   var items: seq[(string, string, Action)]
   for (bi, l) in allBookmarks():
     let b = bufs[bi]
@@ -73,6 +81,7 @@ proc listBookmarks() =
   openActions("Bookmarks", items)
 
 proc clearBookmarks() =
+  ## palette command: removes the bookmarks of every open buffer, and the saved ones
   for b in bufs:
     b.marks.setLen(0)
     if b.path.len > 0: savedMarks.del b.path

@@ -1,3 +1,6 @@
+# the format commands: which formatter a file gets, formatting a whole file, selected lines, only the lines changed (on
+# save) or the code inside a Nim triple-quoted string — with an external formatter, a language server or ned's own
+# formatters.
 func builtinFmtKind(path, langId: string): string =
   ## which of ned's own formatters fits a file: "nim", "json", "markdown", "css", "scss" (with // comments) or ""
   let ext = splitFile(path).ext.toLowerAscii
@@ -51,6 +54,8 @@ proc cWantsClangFormat(): bool =
   else: cClangdInUse()
 
 proc cStyleOf(path: string, indentW = 2): CStyle =
+  ## the style ned's own C formatter uses for a file: the style and options set in the settings, or the project's
+  ## .clang-format, at the given indentation
   cStyleFor(path, cfgCStyleName, cfgCStyleOpts, indentW)
 
 proc formatEmitBlocks(text, path: string): (string, int, string) =
@@ -231,6 +236,8 @@ proc fmtKeepRange(old, nw: seq[string], l0, l1: int): seq[string] =
     for ch in t:
       if ch notin Whitespace: inc result
   func code(ls: seq[string], a, b: int): string =
+    ## the text of lines a up to b with all the whitespace taken out, to compare the code of two sets of lines whatever
+    ## their spacing and line breaks
     for i in a ..< b:
       for ch in ls[i]:
         if ch notin Whitespace: result.add ch
@@ -336,6 +343,12 @@ proc formatSelection(b: Buffer) =
   discard b.formatLineRange(a.line, l1, quiet = false)
 
 proc formatBuffer(b: Buffer) =
+  ## Format (Alt+F): with several lines selected, formats just those where ned's own C formatter or a language server
+  ## can do ranges. Otherwise picks the formatter in this order: for Nim, nph or nimpretty as set (or ned's own); for
+  ## other languages, the formatters setting, then a plugin's, then the language's own command (clang-format for C only
+  ## when it is wanted); the first one installed is run as a filter on the text and its answer goes in as a minimal
+  ## edit. With none, the built-in formatters (JSON first), else the language server's, else the other built-in ones;
+  ## says so when no formatter exists
   if not b.canEdit(): return
   var cmds: seq[string]
   if b.primary.hasSel and b.primary.range[0].line != b.primary.range[1].line and cFormatsOwn(b):
@@ -405,6 +418,8 @@ proc formatBuffer(b: Buffer) =
     return
   let bk = builtinFmtKind(b.path, b.lang.id)
   proc builtin(b: Buffer) =
+    ## formats the whole buffer with ned's own formatter of this kind of file and reports how long it took (or that it
+    ## was already formatted, or the formatter's error)
     let t0 = getMonoTime()
     let text = b.allText & "\n"
     let (res, err) = builtinFormatText(bk, text, b.indentW(), b.path)
@@ -539,6 +554,8 @@ proc formatEmbedded(b: Buffer): bool =
   true
 
 proc cmdFormatEmbedded() =
+  ## Format the code in the string at the cursor: formats the triple-quoted string under the cursor as the language it
+  ## holds; otherwise tells what to do
   let b = buf()
   if not formatEmbedded(b):
     info("Put the cursor in a \"\"\"string\"\"\" that holds code (JSON, CSS, HTML, SQL, C in an emit …)")

@@ -1,4 +1,8 @@
+# the answers of ned's own Nim engine to the editor: completion (with its postfix templates), signature help, hover, go
+# to definition, find references and rename — and the reading ahead of imports and scopes in quiet moments, so that the
+# first answer is quick.
 proc nxTraceNote(what: string, t0: MonoTime) {.nimcall.} =
+  ## the index's hook for timing: when the performance trace is on, notes how long a piece of work took
   if perfTraceOn: noteWork(what, t0)
 
 nxTrace = nxTraceNote
@@ -115,6 +119,8 @@ proc engineWarm(b: Buffer) =
     nxPrefetchedAt.clear()
     nxPreloadSeen.clear()
   template queue(f: NxFile, depth: int) =
+    ## puts the modules the file imports (not its includes) in the list of modules to warm, with their distance from the
+    ## open file, at most nxWarmLeft of them; skipped when the engine worker does that work in its own process
     # (the modules it imports, and theirs, made ready for the engine's checks — which the engine worker makes now,
     # in its own process: then only the open file's scope here, for completion and hover)
     if f != nil and (not wkOn() or getEnv("NED_DEEPWARM").len > 0):
@@ -230,6 +236,8 @@ func nxKindIcon(k: NxKind): int =
   of nxModule: 9
 
 func nxIconText(k: NxKind): string =
+  ## the one-character icon for a symbol kind in lists: ƒ for routines, T for types, c for constants and enum values, m
+  ## for fields, v for the rest
   case k
   of NxRoutineKinds: "ƒ"
   of nxType: "T"
@@ -274,6 +282,8 @@ proc postfixItems(b: Buffer, c: NxCompletion, line, dot: int): seq[CompItem] =
   let sh = c.recvShape
   let r = recv.replace("$", "\\$")
   proc add(res: var seq[CompItem], label, detail, body: string) =
+    ## adds one postfix template to the list: its snippet `body`, shown after the receiver's own fields and procs and
+    ## replacing the receiver as well as the dot
     # (after the receiver's fields and procs: `xs.le` is len before let)
     res.add CompItem(label: label, insert: label, filter: label, sortText: "9" & label, kind: 15,
                      detail: "postfix · " & detail, snippet: body, rank: 5, postfix: rs + 1)
@@ -529,6 +539,10 @@ proc nimSourceFiles(): seq[string]
 var nimRenameReach = false               # (a rename: references in fmt strings, doc comments and your other packages too)
 
 proc engineHover(b: Buffer, p: Pos): string =
+  ## the hover text for the position, from the engine: the type (and value, when the compiler can work it out) of a
+  ## selected expression, else the symbol's signature and documentation, with the types that satisfy a concept or the
+  ## concepts a type satisfies, and — for overloads the engine cannot tell apart — the one the compiler says this call
+  ## picks. Empty when there is nothing; a failure inside is logged as an internal error
   let wt0 = getMonoTime()
   defer: noteWork("hover from the engine", wt0)
   try:
@@ -604,6 +618,7 @@ proc engineDefinition(b: Buffer, p: Pos): bool =
   true
 
 func nxSameDecl(a, b: NxRef): bool =
+  ## whether two references are the same declaration: the same file, line and name
   a.file.path == b.file.path and a.sym.line == b.sym.line and a.sym.name == b.sym.name
 
 const

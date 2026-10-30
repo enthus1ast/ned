@@ -22,6 +22,8 @@ proc mdCells*(line: string): seq[string] =
   result.add cur.strip
 
 proc mdIsDelim*(line: string): bool =
+  ## is this line the delimiter row under a table's header — cells made only of dashes and alignment colons, with at
+  ## least one dash each?
   let t = line.strip
   if '-' notin t: return false
   if '|' notin t and not t.startsWith(":"): return false
@@ -74,12 +76,15 @@ proc fmtMarkdown*(s: string): (string, string) =
         for k in 0 ..< r.len:
           if k < n: w[k] = max(w[k], strWidth(r[k]))
       proc cell(x: string, k: int): string =
+        ## the text of a cell padded to the width of column k, aligned left, right or centred as the column's delimiter
+        ## says
         let pad = w[k] - strWidth(x)
         case al[k]
         of 'r': spaces(pad) & x
         of 'c': spaces(pad div 2) & x & spaces(pad - pad div 2)
         else: x & spaces(pad)
       proc row(r: seq[string]): string =
+        ## one table row written out: the aligned cells between ` | ` and the table's leading indentation
         var parts: seq[string]
         for k in 0 ..< r.len:
           parts.add (if k < n: cell(r[k], k) else: r[k])

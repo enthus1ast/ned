@@ -1,3 +1,5 @@
+# the terminal panel: reading the shells' output, drawing one terminal or two side by side with their tabs, command
+# marks and scrollback, and handling their keys, mouse, selection, commands menu and splitting.
 proc hostRead(t: Term) =
   ## a kept terminal: what its host sent (see termhost)
   var tmp: array[65536, char]
@@ -38,6 +40,9 @@ proc hostRead(t: Term) =
            " — press Enter to start a new shell]\e[0m")
 
 proc ptyRead(t: Term) =
+  ## reads what a shell's pseudo-terminal has sent (up to about 1 MB at a time) into the terminal's screen; at the end
+  ## of the stream it marks the terminal dead, closes it, collects the shell's exit code and writes the "process exited
+  ## — press Enter to start a new shell" line
   var tmp: array[65536, char]
   var got = 0
   while got < 1_000_000:
@@ -59,6 +64,9 @@ proc ptyRead(t: Term) =
     else: break
 
 proc termRead(t: Term) =
+  ## takes in a terminal's output (a kept terminal's host messages, or its shell's bytes), then sends the answers the
+  ## screen has queued for the program's queries, types in the text waiting for the shell's first output, flushes code
+  ## queued for a REPL and asks for a redraw
   if t.hosted: t.hostRead()
   else: t.ptyRead()
   if t.reply.len > 0:
@@ -72,15 +80,20 @@ proc termRead(t: Term) =
   needRender = true
 
 proc termFds(): seq[cint] =
+  ## the descriptors of the terminals that are alive, for the main loop to wait on
   for t in terms:
     if not t.dead and t.fd >= 0: result.add t.fd
 
 proc pumpTerms(ready: HashSet[cint]) =
+  ## reads each terminal whose descriptor is ready; a terminal with REPL code queued that has had no prompt yet gets it
+  ## flushed (after 5 s)
   for t in terms:
     if not t.dead and t.fd >= 0 and t.fd in ready: t.termRead()
     elif t.replQ.len > 0: t.replFlush()          # a REPL that printed no prompt yet: typed in after 5 s
 
 proc curTermObj(): Term =
+  ## the terminal in use: a pane's while keys go to a pane's terminal, else the current one of the panel's (a terminal
+  ## in an editor pane is passed over); nil when there is none
   if termForPane >= 0 and termForPane < terms.len: return terms[termForPane]
   if terms.len == 0: return nil
   curTerm = clamp(curTerm, 0, terms.high)
@@ -94,6 +107,8 @@ proc curTermObj(): Term =
   terms[curTerm]
 
 proc termCwd(): string =
+  ## the folder a new terminal starts in: the current file's folder when the terminal's folder setting is "file", else
+  ## the project's
   let b = buf()
   if cfgTermCwd == "file" and b.path.len > 0: parentDir(b.path) else: rootDir
 
@@ -106,6 +121,8 @@ proc remoteShellCmd(): string =
   sshCmd(r, false) & " -t " & quoteShell(remoteScript("cd " & quoteShell(cwd) & " && exec \"${SHELL:-sh}\" -l"))
 
 proc openTerminal() =
+  ## makes the panel's first terminal when the panel has none (a shell on the server in a remote folder); nothing
+  ## otherwise
   var panel = 0
   for t in terms:
     if t.paneId == 0: inc panel
@@ -116,6 +133,8 @@ proc openTerminal() =
     curTerm = terms.high
 
 proc newTerminal() =
+  ## adds a terminal — a shell on the server in a remote folder — makes it the current one, opens the panel on it and
+  ## gives it the focus
   let rc = remoteShellCmd()
   terms.add newTerm(max(20, lay.edW), max(4, lay.panelH - 1), termCwd(), rc, keep = true)
   if rc.len > 0: terms[^1].name = remotes[remoteOf(rootDir)].host
@@ -144,6 +163,7 @@ proc killTerminals() =
         os.sleep(5)
 
 proc termScroll(d: int) =
+  ## moves the view `d` rows into the scrollback (negative: back towards the live screen), kept within the scrollback
   let t = curTermObj()
   if t == nil: return
   t.view = clamp(t.view + d, 0, t.sb.len)
@@ -159,6 +179,7 @@ proc termRowAt(t: Term, vr: int): TRow =
   else: t.scr[clamp(abs - t.sb.len, 0, t.scr.high)]
 
 proc inSel(t: Term, absRow, col: int): bool =
+  ## true when the cell at that absolute row and column is inside the terminal's selection, whichever way it was dragged
   if not t.hasSel: return false
   var (a, b) = (t.selA, t.selB)
   if b < a: swap(a, b)
@@ -197,6 +218,11 @@ proc termCmdChip(t: Term): (string, Rgb) =
   else: ("✗ exit " & $c.code & " · " & dur, theme.err)
 
 proc drawTermPane(ti: int, x0, y0, w, h: int, focused: bool) =
+  ## draws terminal `ti` into the rectangle: sizes the terminal to it; a two-column gutter with a mark for each command
+  ## when the shell sends them (clicking a mark opens that command's menu); its rows with the selection and reverse
+  ## video, the rows of the command being browsed tinted; a badge showing the command browsed or the scrollback
+  ## position; the cursor when focused. A click on the text focuses the terminal and selects or goes to the program; a
+  ## right-click opens Copy, Paste, the command items, Clear, New terminal, Split and Kill.
   let t = terms[ti]
   let bgDef = theme.bg
   # a gutter for the commands' marks once the shell sends them
@@ -307,6 +333,9 @@ proc drawTermPane(ti: int, x0, y0, w, h: int, focused: bool) =
     openMenu(items, mouseX, mouseY + 1))
 
 proc drawTerminal(x0, y0, w, h: int) =
+  ## draws the terminal panel: starts the first terminal if there is none, makes sure a split is still valid, shows a
+  ## row of tabs when there are several terminals (a failed last command marked ✗), then the current terminal or — split
+  ## — two side by side with a divider
   openTerminal()
   termPanes.setLen(0)
   let bgDef = theme.bg
@@ -350,9 +379,11 @@ proc drawTerminal(x0, y0, w, h: int) =
   else:
     drawTermPane(curTerm, x0, yy0, w, hh, true)
 
+# true when two terminals are shown side by side
 proc termSplitOn(): bool = termSplit
 
 proc termHeaderChip(): (string, Rgb) =
+  ## the last command's result and its colour for the panel's header; empty when there is no terminal
   let t = curTermObj()
   if t == nil: ("", theme.dim) else: t.termCmdChip()
 
@@ -384,6 +415,8 @@ proc termNav(t: Term, d: int) =
   t.termGoCmd(ran[k])
 
 proc termCmdOutput(t: Term, ci: int): string =
+  ## the text a command printed, from its first output row to where it ended (or the cursor, if it still runs), without
+  ## trailing empty lines
   let c = t.cmds[ci]
   if c.outRow < 0: return ""
   let e = if c.endRow >= 0: c.endRow - 1 else: t.gRow - 1
@@ -405,6 +438,8 @@ proc termRunText(t: Term, cmd: string) =
   focus = fPanel
 
 proc termCmdMenu(ti, ci: int) =
+  ## the menu of one command of a terminal: copy its output, copy the command, run it again, open its output in a tab,
+  ## or go to it in the terminal
   if ti < 0 or ti >= terms.len: return
   let t = terms[ti]
   if ci < 0 or ci >= t.cmds.len: return
@@ -452,6 +487,8 @@ proc termCommands() =
   openActions("Terminal commands", items)
 
 proc termSplitToggle() =
+  ## turns the split on or off: on needs a second terminal (one is made when there is only one) to show beside the
+  ## current one, and opens the panel on it
   if termSplit:
     termSplit = false
     info("One terminal")
@@ -478,6 +515,8 @@ proc termCycle(d: int) =
   needRender = true
 
 proc termCopySel() =
+  ## copies the terminal's selection to the clipboard (each row without trailing spaces) and says how many characters;
+  ## nothing without a selection
   let t = curTermObj()
   if t == nil or not t.hasSel: return
   var (a, b) = (t.selA, t.selB)
@@ -499,6 +538,8 @@ proc termCopySel() =
     info("Copied " & $txt.len & " characters from the terminal")
 
 proc mouseToTerm(t: Term, x, y: int, press: bool, btn: int) =
+  ## passes a mouse press or release to the program in the terminal, as an SGR sequence or in the older form, with the
+  ## position counted from 1 in the terminal's rectangle
   let (x0, y0, _, _) = termRect
   let cx = x - x0 + 1
   let cy = y - y0 + 1
@@ -508,6 +549,8 @@ proc mouseToTerm(t: Term, x, y: int, press: bool, btn: int) =
     t.termWrite("\e[M" & char(32 + btn) & char(min(255, 32 + cx)) & char(min(255, 32 + cy)))
 
 proc termClick(x, y: int) =
+  ## a click in the terminal: when the program asked for the mouse and the view is live, sends it a press and a release;
+  ## otherwise it starts a selection at that cell
   let t = curTermObj()
   if t == nil: return
   if t.mouseMode != 0 and t.view == 0:
@@ -522,6 +565,8 @@ proc termClick(x, y: int) =
   termSelecting = true
 
 proc termDragTo(x, y: int) =
+  ## carries on a selection while the mouse is dragged: scrolls the view one row when the mouse is above or below the
+  ## terminal and sets the end of the selection to the cell under it
   let t = curTermObj()
   if t == nil: return
   let (x0, y0, w, h) = termRect
@@ -532,6 +577,9 @@ proc termDragTo(x, y: int) =
   t.hasSel = true
 
 proc keyBytes(t: Term, k: Key): string =
+  ## the bytes a terminal program receives for a key: control letters, Alt as a leading ESC, arrows (the application
+  ## form when the program asked, else with the modifiers as ESC [ 1 ; m), Home, End, Insert, Delete, PgUp, PgDn, F1 to
+  ## F12 and Shift+Tab; a paste in bracketed form when the program asked for that
   let ctrl = mCtrl in k.mods
   let alt = mAlt in k.mods
   let shift = mShift in k.mods
@@ -540,9 +588,12 @@ proc keyBytes(t: Term, k: Key): string =
   if alt: m += 2
   if ctrl: m += 4
   proc arrow(c: char): string =
+    ## the sequence for an arrow or Home/End key whose final letter is `c`: with a modifier ESC [ 1 ; m c, in
+    ## application cursor mode ESC O c, else ESC [ c (m is 1 + shift, 2 for alt, 4 for ctrl)
     if m > 1: "\e[1;" & $m & $c
     elif t.appCursor: "\eO" & $c
     else: "\e[" & $c
+  # the sequence for a key with a number code: ESC [ n ~, with the modifier ESC [ n ; m ~
   proc tilde(n: int): string = (if m > 1: "\e[" & $n & ";" & $m & "~" else: "\e[" & $n & "~")
   case k.kind
   of kChar:
@@ -586,6 +637,11 @@ proc keyBytes(t: Term, k: Key): string =
   else: ""
 
 proc terminalKey(k: Key) =
+  ## handles a key pressed while the terminal has the focus. Shift with PgUp, PgDn, Up or Down scrolls the scrollback;
+  ## in a terminal whose shell has ended Enter starts a new one (a REPL tab starts its REPL again) and Esc returns to
+  ## the editor; Ctrl+Shift+C copies the selection; Ctrl+Up/Down browse the commands, then Alt+Enter opens the menu of
+  ## the one shown and Esc leaves; any other key goes to the shell, bringing the view back to live and dropping the
+  ## selection
   let t = curTermObj()
   if t == nil: return
   if mShift in k.mods and k.kind in {kPgUp, kPgDn, kUp, kDown}:

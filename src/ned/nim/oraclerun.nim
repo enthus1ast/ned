@@ -17,12 +17,15 @@ proc orQuestions(b: Buffer, f: NxFile): seq[(int, int)] =
   let tab = orTable(b.path)
   var seen: HashSet[(int, int)]
   template want(l, c: int) =
+    ## adds the name at that place to the questions, unless it is not worth asking: outside the buffer, already listed,
+    ## asked this session or already answered
     if l >= 0 and l < b.lines.len and (l, c) notin seen:
       let k = orKey(b.path, b.lines[l], c)
       if k notin asked and k notin tab:
         seen.incl (l, c)
         result.add (l, c)
   proc noHint(s: NxSym): bool =
+    ## whether the declaration has no type hint (inlay) after its name yet
     var c = s.col + s.name.len
     if c < b.lines[s.line].len and b.lines[s.line][c] == '*': inc c
     for (c0, lab) in b.inlays.getOrDefault(s.line):

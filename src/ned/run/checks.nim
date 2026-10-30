@@ -1,9 +1,14 @@
+# the check that runs when a file is saved: which checker command suits a language, running it as a background job and
+# turning its output into the file's problems, and the C compiler's check of the C in a Nim file's emit.
 proc lspActiveFor(b: Buffer): bool =
+  ## true when a language server for the buffer's language is running (it then reports the problems, so no checker
+  ## command is run)
   for s in servers:
     if s.langId == b.lang.id and not s.dead: return true
   false
 
 proc cargoRoot(start: string): string =
+  ## the nearest folder at or above `start` (up to ten levels) that holds a Cargo.toml, or "" when there is none
   var d = start
   for _ in 0 .. 10:
     if fileExists(d / "Cargo.toml"): return d
@@ -25,6 +30,7 @@ proc pluginLibFlag(lines: openArray[string]): string =
   ""
 
 proc pluginLibFlagOf(path: string): string =
+  ## ` --path:` flag for a plugin source file on disk, from `pluginLibFlag`; "" when the file cannot be read
   try: pluginLibFlag(readFile(path).splitLines)
   except CatchableError: ""
 
@@ -40,11 +46,12 @@ proc checkCmdForPath(path, langId: string): (string, string) =
       # a file another one includes is no module of its own: the module that includes it is checked (its errors
       # land on this file's lines)
       let top = nxTopIncluder(path)
-      if top.len > 0:
-        return ("nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on" &
-                pluginLibFlagOf(top) & " " & quoteShell(top), parentDir(top))
-      return ("nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on" &
-              pluginLibFlagOf(path) & " " & q, dir)
+      let main = if top.len > 0: top else: path
+      let flags = " --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off --listFullPaths:on" & pluginLibFlagOf(main)
+      # (Nim 2.4 and newer: `nim nif` — the same check, and the compiler's reading of each module kept in ned's
+      # folder, for the colours, type hints and Go to definition of the saved file; older Nim: nim check)
+      if nim2NifOn(): return (nim2NifCheckCmd(flags, main), parentDir(main))
+      return ("nim check" & flags & " " & quoteShell(main), parentDir(main))
   of "c":
     if haveExe("cc"): return ("cc -fsyntax-only -Wall " & q, dir)
   of "cpp":
@@ -73,12 +80,15 @@ proc checkCmdForPath(path, langId: string): (string, string) =
         return (c, dir)
   ("", "")
 
+# the checker command and folder for a buffer's file and language
 proc checkCmdFor(b: Buffer): (string, string) = checkCmdForPath(b.path, b.lang.id)
 
 var unusedHints: Table[string, seq[(int, int, string)]]   # file → (line, col, name) the compiler says is unused
 var covLines: Table[string, Table[int, bool]]            # test coverage: file → line → ran
 
 func quotedNameOf(msg: string): string =
+  ## the text between the first pair of single quotes in a compiler message (the name it is about), or "" when there is
+  ## none
   let a = msg.find('\'')
   if a < 0: return ""
   let e = msg.find('\'', a + 1)
@@ -100,6 +110,9 @@ proc cEmitCheck(path: string) =
   cCheckPending.incl path
   let name = splitFile(path).name
   proc finish(ds: seq[Diag], known: bool) =
+    ## ends the C check of the file: removes the temporary folder, and — unless the Nim did not compile, when the C is
+    ## not known — replaces the file's "C: " problems in `diagsBuild` with `ds`, leaving its other problems, then asks
+    ## for a redraw
     cCheckPending.excl path
     try: removeDir(dir)
     except CatchableError: discard
@@ -145,6 +158,9 @@ proc cEmitCheck(path: string) =
       finish(ds, true)))
 
 proc runCheck(b: Buffer) =
+  ## runs the check that follows a save, when checking on save is on: a Nim file with C in an emit gets the C compiler's
+  ## check too; nothing more when a language server covers the file; otherwise nimsuggest's check when ned's own Nim
+  ## index does not serve the buffer, else the language's checker command on the file
   if b.path.len == 0 or not cfgCheckOnSave: return
   if b.lang != nil and b.lang.mode == lmNim and b.path.endsWith(".nim") and not b.largeOn:
     # C in an {.emit.}: checked by the C compiler too (with any Nim engine or language server)

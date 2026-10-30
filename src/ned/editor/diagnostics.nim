@@ -1,3 +1,5 @@
+# a file's problems (errors, warnings, hints) merged from every source — language server, builds and checks, tests,
+# plugins, ned's own checks — kept in step with the buffer, and the colour of each severity
 proc cmdCodeActions()
 
 proc diagText(d: Diag, path: string): string =
@@ -41,6 +43,9 @@ proc lspAndBuildDiags(path: string): seq[Diag] =
     for d in em: result.add d
 
 proc diagsMake(path: string): seq[Diag] =
+  ## builds a file's merged list of problems: the language server's and the build's (without repeats), then the AI
+  ## checks'; for Nim files the follow-on errors are dropped; a problem past the last line is moved to the end of the
+  ## last line, so the editor, the gutter and F8 can show it
   if path.len == 0: return
   result = lspAndBuildDiags(path)
   for d in diagsAi.getOrDefault(path): result.add d
@@ -81,6 +86,7 @@ proc diagsFor(path: string): seq[Diag] =
   diagsShared(path)[]
 
 proc sevColor(sev: int): Rgb =
+  ## the theme's colour for a severity: 1 error, 2 warning, 3 information, anything else a hint
   case sev
   of 1: theme.err
   of 2: theme.warn

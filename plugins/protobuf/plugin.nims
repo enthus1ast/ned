@@ -107,6 +107,7 @@ func protoCode(s: string, inComment: var bool): string =
     inc i
 
 func protoIdentEnd(s: string, i: int): int =
+  ## where the name that starts at i ends: letters, digits, _ and . (a qualified name)
   result = i
   while result < s.len and (s[result].isAlphaNumeric or s[result] in {'_', '.'}): inc result
 
@@ -132,6 +133,8 @@ func protoSymbols*(lines: seq[string]): seq[Symbol] =
     let first = words[0]
     var opens = ""                     # the kind of block this line's `{` opens
     template put(nm, kd, dt: string) =
+      ## adds an outline symbol (name, kind, detail) for the line being read at the current depth, unless it is inside a
+      ## value or an option's braces
       if not inCode:
         result.add Symbol(name: nm, kind: kd, detail: dt, line: ln, col: max(0, s.find(nm, col)), depth: depth)
     if inCode: discard
@@ -194,6 +197,8 @@ func protoSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc protoHave(cmd: string): bool =
+  ## whether the first word of the command line is a program that can be found (a ~ is expanded) — so a server or
+  ## formatter that is set is only used when it is installed
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

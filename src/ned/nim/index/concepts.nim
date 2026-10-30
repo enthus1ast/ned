@@ -36,10 +36,13 @@ type
 
 const NxCpOpChars = {'+', '-', '*', '/', '\\', '<', '>', '!', '?', '^', '|', '=', '%', '&', '$', '@', '~'}
 
+# the answer for "both must hold": the weaker of the two
 proc nxCpAll(a, b: NxSat): NxSat = min(a, b)
+# the answer for "either may hold": the stronger of the two
 proc nxCpAny(a, b: NxSat): NxSat = max(a, b)
 
 func nxIsConcept*(s: NxSym): bool =
+  ## whether the symbol is a type declared as a concept
   s.kind == nxType and (s.typ == "concept" or s.typ.startsWith("concept ") or s.typ.startsWith("concept\t"))
 
 proc nxConceptOf*(r: NxRef): NxConcept =
@@ -144,6 +147,8 @@ proc nxCpKindOf(sc: NxScope, t: string): string =
   ""
 
 proc nxCpSame(sc: NxScope, a, b: string): bool =
+  ## whether two types as written are the same: `var`, `sink` and the like left off, `ref`, `ptr`, `static` and
+  ## `typedesc` alike on both, and then the same type or the same name once aliases are followed
   let x = nxStripValMods(a).strip
   let y = nxStripValMods(b).strip
   if x.len == 0 or y.len == 0: return false
@@ -542,6 +547,7 @@ const NxCpBuiltins = ["int", "int8", "int16", "int32", "int64", "uint", "uint8",
 proc nxCpTypesOf(f: NxFile): seq[NxRef] =
   ## the types a file declares that a concept can be tried on: not generic, not local, not a concept
   for i in 0 ..< f.syms.len:
+    # the symbol being looked at in the loop
     template s: untyped = f.syms[i]
     if s.kind == nxType and not s.local and not s.made and s.generics.len == 0 and not nxIsConcept(s) and
        s.name.len > 0 and s.name.allCharsInSet(IdentChars):

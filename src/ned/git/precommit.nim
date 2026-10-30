@@ -63,6 +63,8 @@ proc precommitTests(files: seq[string], then: proc(failed: seq[(string, seq[stri
   var skipped = 0
   var i = 0
   proc next() =
+    ## runs the next test file, and when all have been run calls `then` with the failures and the number that could not
+    ## run (state 1: failed, 2: did not compile or took too long, 3: skipped)
     if i >= tests.len:
       then(failed, skipped)
       return
@@ -87,6 +89,8 @@ proc precommitChecks(root: string, all: bool, commit: proc()) =
     commit()
     return
   proc testsThen() =
+    ## the second check: unless the setting leaves tests out, runs the tests of the files and, if any fail, asks whether
+    ## to open the test, commit anyway or cancel; otherwise commits
     if cfgCommitChecks notin ["both", "tests"]:
       commit()
       return

@@ -110,6 +110,8 @@ proc post(path: string, body: JsonNode, what: string, done: proc(body: string)) 
     done(b)
 
 proc share() =
+  ## Playground: share the selection — sends the selection (else the whole file) to the playground's /pasty, and puts
+  ## the link it gives on the clipboard (when allowed), in the message line and in the Output panel
   let b = current()
   let (code, _) = codeOf(b)
   if code.strip.len == 0:
@@ -135,6 +137,10 @@ proc share() =
     message("Playground: " & link & where)
 
 proc runThere() =
+  ## Playground: run the selection there — sends the selection (else the whole file) to the playground's /compile with
+  ## the chosen Nim version and backend, marks the lines of the compiler's errors in the file, and puts the compiler's
+  ## words and what the program printed in the Output panel; the message line has the first error or the first line
+  ## printed
   let b = current()
   let (code, first) = codeOf(b)
   if code.strip.len == 0:

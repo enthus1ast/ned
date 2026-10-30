@@ -88,7 +88,9 @@ const
   PromiseStatics = ["all", "allSettled", "any", "race", "resolve", "reject"]
   Mdn = "https://developer.mozilla.org/docs/Web/"
 
+# can the character start a JavaScript identifier (a letter, _, $ or any non-ASCII byte)?
 func isIdStart(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '_', '$'} or ord(c) >= 0x80
+# can the character be inside a JavaScript identifier (as isIdStart, and digits)?
 func isIdChar(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '$'} or ord(c) >= 0x80
 
 # ── the tokens ──
@@ -165,12 +167,16 @@ proc jsTokens*(lines: openArray[string]): seq[JsTok] =
   for l in 0 .. lines.high:
     let s = lines[l]
     var i = 0
+    # true when a line break lies between the last code token and the one being read (also for the first token)
     template nl(): bool = prev < 0 or result[prev].eline < l
     template add(k: JsTokKind, a, e: int, isOpen = false) =
+      ## adds a token of kind k for the columns a to e of the current line; any token but a comment becomes the last
+      ## code token
       let x = JsTok(kind: k, text: s[a ..< e], line: l, col: a, eline: l, ecol: e, open: isOpen, nl: nl())
       if k != jtComment: prev = result.len
       result.add x
     template finish(e: int) =
+      ## ends the comment or template piece carried over from earlier lines at column e of this line, and adds it
       cur.eline = l
       cur.ecol = e
       if cur.kind != jtComment: prev = result.len
@@ -290,6 +296,7 @@ func word(d: JsDoc, k: int): string =
   if k >= 0 and k < d.t.len and d.t[k].kind == jtIdent: d.t[k].text else: ""
 
 func punct(d: JsDoc, k: int, p: string): bool =
+  ## is token k the punctuation p?
   k >= 0 and k < d.t.len and d.t[k].kind == jtPunct and d.t[k].text == p
 
 func afterDot(d: JsDoc, k: int): bool =
@@ -364,6 +371,7 @@ func stmtEnd(d: JsDoc, k: int, depth = 0): int =
   if k >= d.t.len or depth > 64: return d.t.high
   if d.punct(k, "{"): return (if d.fwd[k] >= 0: d.fwd[k] else: d.t.high)
   if d.punct(k, ";"): return k
+  # the token of the ) that closes the ( at token j; -1 when j is no ( or it is never closed
   template paren(j: int): int = (if d.punct(j, "(") and d.fwd[j] >= 0: d.fwd[j] else: -1)
   case d.word(k)
   of "if":
@@ -420,6 +428,7 @@ func findAt(d: JsDoc, j, e: int, p: string): int =
 
 # ── the brackets and the scopes ──
 
+# what a bracket token opens: ${ for a template piece, else the bracket itself
 func openerOf(x: JsTok): string = (if x.kind == jtTemplate: "${" else: x.text)
 
 proc matchBrackets(d: var JsDoc) =
@@ -431,6 +440,7 @@ proc matchBrackets(d: var JsDoc) =
     d.fwd[i] = -1
     d.back[i] = -1
   proc diag(x: JsTok, msg: string): WebDiag =
+    ## an error (js-brace) for a bracket token — for a template piece, at its ${ or } end
     let (l, c) = if x.kind == jtTemplate: (x.eline, x.ecol - 2) else: (x.line, x.col)
     WebDiag(line: l, col: c, eline: l, ecol: c + (if x.kind == jtTemplate: 2 else: 1), sev: 1, rule: "js-brace",
             msg: msg)
@@ -489,6 +499,7 @@ func braceKind(d: JsDoc, i: int): ScopeKind =
   skBlock
 
 proc addScope(d: var JsDoc, kind: ScopeKind, a, b: int, closed: bool): int =
+  ## adds a scope of the kind over the tokens a to b (its parent is set later) and gives back its number
   d.scopes.add Scope(kind: kind, parent: -1, a: a, b: max(a, b), closed: closed)
   d.scopes.high
 
@@ -994,6 +1005,7 @@ proc analyze(lines: openArray[string]): JsDoc =
 # ── what a name is ──
 
 func classByName(d: JsDoc, name: string): int =
+  ## the number of the document's class with this name, -1 when there is none
   if name.len == 0: return -1
   for i, c in d.classes:
     if c.name == name: return i
@@ -1025,9 +1037,12 @@ func staticOwners(name: string): seq[string] =
   of "window": @["window", "EventTarget.prototype"]
   else: (if jsMembersOf(name).len > 0: @[name] else: @[])
 
+# true when something is known of what the receiver has: built-in members, a class of the file or an object's keys
 func known(r: Recv): bool = r.owners.len > 0 or r.cls >= 0 or r.keys.len > 0
 
 func typeRecv(d: JsDoc, typ: string): Recv =
+  ## the receiver for a value of the named type: a class of the document when it has one by that name, else the built-in
+  ## members of that type
   result.cls = d.classByName(typ)
   if result.cls < 0: result.owners = instanceOwners(typ)
 
@@ -1111,6 +1126,7 @@ func scopeAt(d: JsDoc, line, col: int): int =
       best = sc.a
       result = s
 
+# the name of the owner of built-in members without .prototype (Array.prototype → Array)
 func ownerName(owner: string): string = owner.replace(".prototype", "")
 
 func webPage(name: string): string =
@@ -1155,6 +1171,9 @@ func memberUrl(owner, name: string): string =
     else: Mdn & "API/" & webPage(base) & "/" & name
 
 func memberItem(owner: string, i, rank: int, maybe = false): WebItem =
+  ## the completion for built-in member i of the owner: a method gets a call with a place for the arguments; the detail
+  ## has the signature and the owner (with 'maybe' when the receiver's type is only a guess) and the help text its
+  ## description and documentation link
   let m = JsMembers[i]
   let fn = m.kind == "method"
   WebItem(label: m.name, insert: m.name,
@@ -1164,6 +1183,7 @@ func memberItem(owner: string, i, rank: int, maybe = false): WebItem =
 
 proc ownerItems(owners: openArray[string], rank: int, items: var seq[WebItem], seen: var HashSet[string],
                 maybe = false) =
+  ## adds the built-in members of each owner as completions, leaving out the names already in `seen`
   for o in owners:
     for i in jsMembersOf(o):
       if JsMembers[i].name notin seen:
@@ -1171,6 +1191,8 @@ proc ownerItems(owners: openArray[string], rank: int, items: var seq[WebItem], s
         items.add memberItem(o, i, rank, maybe)
 
 func globalItem(i, rank: int): WebItem =
+  ## the completion for built-in global number i of JsGlobals: a function gets a call with a place for the arguments;
+  ## the icon follows its kind (function, class, object, constant)
   let g = JsGlobals[i]
   let fn = g.kind == "function"
   WebItem(label: g.name, insert: g.name, snippet: (if fn: g.name & "($1)$0" else: ""),
@@ -1183,6 +1205,8 @@ func globalItem(i, rank: int): WebItem =
                  else: KConst))
 
 func declItem(lines: openArray[string], x: JsDecl, rank: int): WebItem =
+  ## the completion for a name the document declares: the icon by its kind, a call snippet for a function, the detail
+  ## with its kind, parameters, class and line, and the declaring line as help
   let fn = x.kind in {jdFunction, jdMethod} or x.typ == "function"
   let kind = if fn: KFunction
              elif x.kind == jdClass or x.typ == "class": KClass
@@ -1265,6 +1289,8 @@ proc jsComplete*(lines: openArray[string], line, col: int): (int, seq[WebItem]) 
   result[1] = items
 
 func declHover(lines: openArray[string], x: JsDecl): string =
+  ## the hover text (Markdown) of a declared name: its owner and name, parameters, kind (static, type), its line, and
+  ## the line that declares it
   result = "**" & (if x.kind in {jdMethod, jdField} and x.owner.len > 0: x.owner & "." else: "") & x.name & "**" &
            x.params & " — " & (if x.kind == jdParam: "parameter" elif x.getter: "getter" else: $x.kind)
   if x.isStatic: result.add " (static)"
@@ -1272,10 +1298,13 @@ func declHover(lines: openArray[string], x: JsDecl): string =
   result.add " · line " & $(x.line + 1) & "\n```js\n" & lines[x.line].strip & "\n```"
 
 func memberHover(owner: string, i: int): string =
+  ## the hover text (Markdown) of built-in member i: owner, name, signature, what it does and where it is documented
   let m = JsMembers[i]
   "**" & owner & "." & m.name & "**" & m.sig & " — " & m.kind & "\n\n" & m.desc & "\n\n" & memberUrl(owner, m.name)
 
 func globalHover(i: int): string =
+  ## the hover text (Markdown) of built-in global i: name, signature, kind (and Node.js), what it does and where it is
+  ## documented
   let g = JsGlobals[i]
   "**" & g.name & "**" & g.sig & " — " & g.kind & (if g.env == "node": " · Node.js" else: "") & "\n\n" & g.desc &
     "\n\n" & globalUrl(i)
@@ -1352,6 +1381,7 @@ proc jsReferences*(lines: openArray[string], line, col: int): seq[(int, int, int
   if k < 0: return
   let name = d.t[k].text
   template add(x: JsTok) =
+    ## adds the token's place (line, column, end column) to the result unless it is there already
     let e = (x.line, x.col, x.ecol)
     if e notin result: result.add e
   # a member: by its class
@@ -1471,6 +1501,7 @@ proc jsExportAt*(lines: openArray[string], name: string): (int, int) =
 # ── the problems ──
 
 func diagAt(x: JsTok, sev: int, rule, msg: string): WebDiag =
+  ## a problem covering the token, with its severity, rule name and message
   WebDiag(line: x.line, col: x.col, eline: x.eline, ecol: x.ecol, sev: sev, rule: rule, msg: msg)
 
 proc redeclared(d: JsDoc, ds: var seq[WebDiag], fragment: bool) =

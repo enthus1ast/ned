@@ -1071,9 +1071,11 @@ func decodeAt(s: string, i: int): (int, int) =
     cp = (cp shl 6) or (c and 0x3F)
   (cp, n)
 
+# a code point written the Unicode way: U+ and four hex digits (five above U+FFFF)
 func uplus(cp: int): string = "U+" & toHex(cp, (if cp > 0xFFFF: 5 else: 4))
 
 func hexBytes(s: string): string =
+  ## the bytes of s as two hex digits each, separated by spaces (for showing a character's UTF-8)
   for i, c in s:
     if i > 0: result.add ' '
     result.add toHex(ord(c), 2)
@@ -1161,9 +1163,12 @@ func shown(c: Ch): string =
   if c.group == "spaces and invisible" or c.cp < 0x20: "⬚" else: utf8Of(c.cp)
 
 func label(c: Ch): string =
+  ## a character's line in the list: the character itself, its name, and its everyday name after a dash when it has one
   shown(c) & "  " & c.name & (if c.alias.len > 0: " — " & c.alias else: "")
 
 proc recents(): seq[int] =
+  ## the code points used last, newest first, read from recent.txt in the plugin's data folder (a word that is not hex
+  ## is skipped)
   for x in readData("recent.txt").splitWhitespace:
     try: result.add parseHexInt(x)
     except ValueError: discard
@@ -1189,6 +1194,8 @@ proc put(b: Buf, cp: int) =
   used(cp)
 
 proc insertChar() =
+  ## Insert a character… — lists the table's characters (the recently used ones first, then the table's order) in a
+  ## picker that filters by name, and puts the one chosen at the cursor
   let b = current()
   if not b.valid:
     message("Open a file first")
@@ -1231,6 +1238,8 @@ func parseCodePoint(s: string): int =
   if result > 0x10FFFF or result in 0xD800 .. 0xDFFF: result = -1
 
 proc insertByCode() =
+  ## Insert a character by its code point… — asks for a code point, puts that character at the cursor and says its code
+  ## point and name in the message line; warns when the text is not a code point
   let b = current()
   if not b.valid:
     message("Open a file first")
@@ -1245,6 +1254,7 @@ proc insertByCode() =
   message(uplus(cp) & "  " & nameOf(cp))
 
 proc underCursor() =
+  ## shows the code point, name and UTF-8 bytes of the character at the cursor in the message line
   let b = current()
   if not b.valid:
     message("Open a file first")

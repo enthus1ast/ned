@@ -310,6 +310,7 @@ proc cxLex(text: string, toks: var seq[CxTok], comments: var seq[CxComment], pp:
   var lineStart = true
   let n = text.len
   template adv() =
+    ## moves on one character, counting lines and columns and noting when a new line has begun
     if text[i] == '\n':
       inc line
       col = 0
@@ -612,6 +613,8 @@ const
     "__ANDROID_API__", "__riscv_xlen", "__mips64", "__PPC__", "__PPC64__", "__s390__", "__sparc"]
 
 func cxCompilerOwn(name: string): bool =
+  ## whether a macro name is one only the compiler defines (its target, version and type sizes: the names listed above
+  ## and those with the prefixes above) — when the compiler's own list lacks it, it is not defined
   if name in CxTargetMacros or name in CxCompilerOwn: return true
   for p in CxCompilerPrefixes:
     if name.startsWith(p): return true
@@ -729,6 +732,7 @@ var
   cxDefiners: seq[seq[int32]]              # a macro's number → the files whose #defines or #undefs touch it
 
 func cxHasBit(bs: seq[uint64], i: int32): bool =
+  ## whether bit i is set in a set of bits kept as 64-bit words (a file's set of the files it includes)
   let w = int(i) shr 6
   w < bs.len and (bs[w] and (1'u64 shl (int(i) and 63))) != 0
 
@@ -770,6 +774,7 @@ proc cxMacroSig(m: CxMacro): string =
   (if m.fn: "(" & m.params.join(",") & ")" else: "") & "=" & m.body.strip
 
 proc cxIntern(name: string): int32 =
+  ## the number of a macro's name, given the next free one the first time — the same number in every file read
   result = cxMNames.getOrDefault(name, -1)
   if result < 0:
     result = int32(cxMNames.len)
@@ -867,18 +872,22 @@ type
     hide: CxHide
   CxLook = proc(name: string): CxMacro
 
+# whether a token is a name: it starts with a letter, an underscore or a byte of a multi-byte character
 func cxIsName(t: string): bool = t.len > 0 and (t[0] in IdentStartChars or ord(t[0]) >= 128)
 
 func cxHidden(h: CxHide, n: string): bool =
+  ## whether the macro n is among those whose expansion made a token, so that it is not expanded again in it
   var x = h
   while x != nil:
     if x.name == n: return true
     x = x.up
 
 func cxHideAdd(h: CxHide, n: string): CxHide =
+  ## the list of macros hiding with n added (the list itself when n is in it already)
   if cxHidden(h, n): h else: CxHide(name: n, up: h)
 
 proc cxBodyToks(m: CxMacro): lent seq[string] =
+  ## the tokens of a macro's replacement, cut up once and kept
   cxReady(m)
   if not m.tokd:
     m.btoks = cxPPToks(m.body)
@@ -892,9 +901,12 @@ proc cxSubst(m: CxMacro, name: string, args: seq[seq[CxPT]], use: CxPT, look: Cx
   let body = cxBodyToks(m)
   let hide = cxHideAdd(use.hide, name)
   let hide0 = CxHide(name: name)              # (an argument's tokens from the text: made by no macro yet)
+  # the macros hiding in a token that came from an argument: the argument's own and this macro; for a token from the
+  # text (nil), only this macro
   template argHide(h: CxHide): CxHide = (if h == nil: hide0 else: cxHideAdd(h, name))
   var paste = false                           # (a `##` of the body's is in it)
   proc argOf(p: int): seq[CxPT] =
+    ## the tokens of argument number p of the macro's use, none when the use gave fewer
     if p < args.len: args[p] else: @[]
   var i = 0
   while i < body.len:
@@ -1026,6 +1038,8 @@ proc cxPPValue(ts: seq[string], look: CxLook): (bool, int64) =
   var p = 0
   var bad = false
   proc num(t: string): CxVal =
+    ## a number of an #if's expression as a value — decimal, 0x, 0b or octal, with u and l suffixes (u makes it
+    ## unsigned) —; the expression is marked bad for a floating-point number or one that is not a number
     result.known = true
     var x = t.toLowerAscii.replace("'", "")
     while x.len > 1 and x[^1] in {'u', 'l'}:
@@ -1051,6 +1065,8 @@ proc cxPPValue(ts: seq[string], look: CxLook): (bool, int64) =
       inc k
     if result.v > uint64(high(int64)): result.uns = true
   proc chr(t: string): CxVal =
+    ## a character constant of an #if ('a', '\n', '\x41', '\101') as its value; the expression is marked bad when it is
+    ## too short to be one
     result.known = true
     var x = t
     while x.len > 0 and x[0] != '\'': x = x[1 .. ^1]
@@ -1077,9 +1093,13 @@ proc cxPPValue(ts: seq[string], look: CxLook): (bool, int64) =
         of 'v': 11
         else: uint64(ord(x[2]))
     else: result.v = uint64(ord(x[1]))
+  # whether the value is not zero
   proc truth(x: CxVal): bool = x.v != 0
   proc expr(prec: int): CxVal
   proc unary(): CxVal =
+    ## one operand of an #if's expression: a parenthesised expression, a number, a character, true or false (C++), or a
+    ## name, with - + ~ ! applied. A name left after expansion is 0 when it is known not to be a macro, else not known
+    ## (a call of an unknown macro is skipped with its arguments)
     if p >= ts.len:
       bad = true
       return
@@ -1121,6 +1141,7 @@ proc cxPPValue(ts: seq[string], look: CxLook): (bool, int64) =
             inc p
       else: bad = true
   proc precOf(op: string): int =
+    ## how tightly a binary operator binds, from ?: (1) to * / % (11); -1 for anything that is not one
     case op
     of "?": 1
     of "||": 2
@@ -1135,6 +1156,9 @@ proc cxPPValue(ts: seq[string], look: CxLook): (bool, int64) =
     of "*", "/", "%": 11
     else: -1
   proc expr(prec: int): CxVal =
+    ## an expression whose operators bind at least as tightly as prec (precedence climbing), with ?: and the logical
+    ## operators known when one side decides; any other operator with an unknown side is not known. It is unsigned
+    ## arithmetic when either side is; dividing by zero is not known
     result = unary()
     while not bad and p < ts.len:
       let op = ts[p]
@@ -1170,6 +1194,7 @@ proc cxPPValue(ts: seq[string], look: CxLook): (bool, int64) =
       let uns = l.uns or r.uns
       let (a, b) = (l.v, r.v)
       let (sa, sb) = (cast[int64](a), cast[int64](b))
+      # the answer of a comparison as 1 or 0
       proc cmpRes(x: bool): CxVal = CxVal(known: true, v: (if x: 1 else: 0))
       result = case op
         of "|": CxVal(known: true, uns: uns, v: a or b)
@@ -1309,6 +1334,7 @@ type
     firstSet: bool
 
 func cxTokKind(t: string): CxTokKind =
+  ## the kind of a preprocessor token from its text: number, string, character, word, else punctuation
   if t.len == 0: ctPunct
   elif t[0] in Digits or (t[0] == '.' and t.len > 1 and t[1] in Digits): ctNum
   elif t[^1] == '"': ctStr
@@ -1331,6 +1357,9 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
   var rec = false                                 # an #if's condition is being read: note the macros from before
   let projFile = path.len == 0 or not cxIsSystem(path)
   proc look(n: string): CxMacro =
+    ## a macro as this file sees it at this point: the file's own #define, or what a header it includes leaves after
+    ## that; else the includer's, then the compiler's and -D ones. The answer is kept until the next directive; while an
+    ## #if's condition is read, a macro that comes from before the file is noted among those its includer can change
     # this file's own #define, or a header's included after it (the last first); then the includer's, then the
     # compiler's. (A proc, not a closure kept in a variable: the other procs here would keep it, and it them — a
     # cycle that holds the file's tokens until ORC collects it)
@@ -1362,6 +1391,7 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
     seen[id] = (step, r, before)
     r
   proc setM(id: int32, m: CxMacro) =
+    ## records the macro as this file leaves it from this directive on
     inc step
     w.own[id] = (step, m)
   var frames: seq[CxFrame]
@@ -1386,6 +1416,9 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
         return
 
   proc branchEnd(k, line: int) =
+    ## ends a branch of the open #if number k (at line): a left-out branch's lines are added to those gone; for a branch
+    ## not known to be taken, the macros it changed become not known, and are passed on to the not-known branch around
+    ## it
     if frames[k].dead: return
     if frames[k].cur == 0: w.gone.add (frames[k].start, line)
     elif frames[k].cur < 0:
@@ -1404,6 +1437,7 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
   var inInit = false
   var budget = 20000
   proc setBraces(bs: seq[bool]) =
+    ## sets the braces open at this point (true for a body) and counts the bodies among them
     braces = bs
     opaque = 0
     for x in braces:
@@ -1442,9 +1476,14 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
       else: discard
     if opaque == 0 and stmt.len < 3 and not (x.kind == ctPunct and t in [";", "}", "{"]): stmt.add t
   proc chunk(a, b: int) =
+    ## reads the tokens a ..< b between two directives: a macro used in a declaration at file level (not inside a body
+    ## or an initializer) is expanded into the tokens it stands for, when the expansion balances and the budget lasts;
+    ## one standing for attributes is dropped; every token goes through track
+    # the tokens of the file
     template ts: untyped = toks
     var i = a
     while i < b:
+      # the token being read
       template x: untyped = toks[i]
       if opaque == 0 and not inInit and x.kind == ctWord and budget > 0 and
          x.text in cxMNames and x.text notin CxKeywords and
@@ -1498,11 +1537,14 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
       inc i
   var ti = 0
   proc tokensTo(line: int) =
+    ## reads the tokens up to the line of the next directive, unless tokens are not wanted or the place is in a branch
+    ## left out
     let a = ti
     while ti < toks.len and toks[ti].line < line: inc ti
     if not wantToks or a == ti or state() == 0: return
     chunk(a, ti)
   proc firstWord(r: string): string =
+    ## the first word of r when it is a name, else an empty string
     let ws = r.splitWhitespace
     if ws.len > 0 and cxIsName(ws[0]): ws[0] else: ""
   proc defd(r: string): int =
@@ -1512,9 +1554,11 @@ proc cxPre(toks0: var seq[CxTok], pp: seq[(int, string)], path: string, cpp, wan
     result = if n.len > 0: cxDefinedOf(n, lookC) else: -1
     rec = false
   proc cond(r: string): int =
+    ## the answer to an #if or #elif condition: 1, 0, or -1 when not known — noting the macros it asked about
     rec = true
     result = cxPPCond(r, lookC, fromDir)
     rec = false
+  # the opposite of a three-way answer (1, 0, -1 not known): not known stays so
   func notOf(v: int): int = (if v < 0: -1 else: 1 - v)
   for pi, (l, d) in pp:
     tokensTo(l)
@@ -1734,11 +1778,13 @@ proc cxUnbalanced(pp: seq[(int, string)], toks: seq[CxTok], gone: var seq[(int, 
   if order.len == 0: return
   order.sort(proc(x, y: int): int = cmp(chains[y].depth, chains[x].depth))
   template isGone(l: int): bool =
+    ## whether line l is inside a branch left out (not on its #if or #endif lines)
     var r = false
     for (ga, gb) in gone:
       if l > ga and l < gb: r = true
     r
   template covered(a, b: int): bool =
+    ## whether a branch left out spans the lines a to b
     var r = false
     for (ga, gb) in gone:
       if ga <= a and gb >= b: r = true
@@ -1960,6 +2006,7 @@ proc cxxFold(toks: seq[CxTok]): seq[CxTok] =
   let n = toks.len
   var i = 0
   template add(t0: CxTok) =
+    ## adds a token to the result, giving it its own position as the place of its name when it has none
     var t = t0
     if t.nameLine == 0 and t.nameCol == 0:
       t.nameLine = t.line
@@ -2108,6 +2155,7 @@ proc cxNamesOf(used: seq[(int, int, bool)], usedText: seq[string], pp: seq[(int,
   block:
     var all, live: HashSet[string]
     proc isGone(l: int): bool =
+      ## whether line l is inside a branch left out (not on its #if or #endif lines)
       for (a, b) in gone:
         if l > a and l < b: return true
     for i, (_, l, attr) in used:
@@ -2288,6 +2336,8 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
     ## an anonymous struct's name, unique across the files read together
     "(anonymous " & word & " at " & base & ":" & $(line + 1) & ")"
   proc addSym(s0: CxSym) =
+    ## adds a declaration to the file; when it has no documenting comment it takes the one above it (or after it on its
+    ## last line)
     var s = s0
     if s.doc.len == 0: s.doc = cxDocFor(comments, s.line, s.endLine)
     f.syms.add s
@@ -2749,6 +2799,8 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
       result[0].add ps
       if va: result[1] = true
   proc fnText(ret, name: string, ps: seq[CxParam], va: bool, suffix: string): string =
+    ## a function's declaration on one line: `return-type name(type name, …) suffix`, with `...` for a variable argument
+    ## list
     var pl: seq[string]
     for x in ps: pl.add (x.typ & (if x.name.len > 0: " " & x.name else: "")).replace("* ", "*").replace("& ", "&")
     if va: pl.add "..."
@@ -2801,6 +2853,8 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
       inc q
     (sfx, "")
   proc enumConsts(a, b: int, owner, scope: string) =
+    ## adds a constant to the file for each enumerator in the enum's body (tokens a ..< b), skipping its value up to the
+    ## next comma
     var k = a
     while k < b:
       if toks[k].kind == ctWord:
@@ -3251,6 +3305,8 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
   if st < toks.len: parseDecl(st, toks.len)
 
 proc cxStampOf(path: string): string =
+  ## a file's identity on disk — modification time, its fraction of a second and size — that changes when the file does;
+  ## empty when it cannot be read
   try:
     let i = getFileInfo(path)
     $i.lastWriteTime.toUnix & "/" & $i.lastWriteTime.nanosecond & "/" & $i.size
@@ -3330,6 +3386,9 @@ proc cxFindInclude*(name, fromDir: string): string =
   cxFoundAt[2][key] = result
 
 proc cxFindInclude0(name, fromDir: string): string =
+  ## the file an #include names, searched for with no memory of earlier answers: `next<x.h>` (#include_next) only in the
+  ## folders after the including file's, "x.h" next to the including file first, then the include folders; empty when
+  ## not found
   if name.startsWith("next"):
     let n = name[4 .. ^1].strip(chars = {'<', '>', '"'})
     var after = -1
@@ -3348,6 +3407,7 @@ proc cxFindInclude0(name, fromDir: string): string =
   ""
 
 proc cxIsSystem*(path: string): bool =
+  ## whether a path is in one of the C compiler's include folders (or /usr/include, /usr/lib), that is a system header
   for d in cxSysDirs:
     if path.startsWith(d.strip(leading = false, chars = {'/'}) & "/"): return true
   path.startsWith("/usr/include/") or path.startsWith("/usr/lib/")
@@ -3404,9 +3464,12 @@ proc cxStrip*(t: string): (string, int) =
   (words.join(" "), stars)
 
 proc cxIndexed(g: CxFile) =
+  ## makes the file's tables of declarations by name, by owner and by scope the first time they are asked for
+  ## (parameters, locals and labels are not in them)
   if g.indexed: return
   g.indexed = true
   for k in 0 ..< g.syms.len:
+    # the declaration number k of the file
     template s: untyped = g.syms[k]
     if s.kind in {cxParam, cxLocal, cxLabel}: continue
     g.byName.mgetOrPut(s.name, @[]).add k.int32
@@ -3422,6 +3485,8 @@ iterator cxNamed*(g: CxFile, name: string): int =
     for k in ks[]: yield k.int
 
 proc cxFindSym*(files: seq[CxFile], name: string, kinds: set[CxKind]): (CxFile, int) =
+  ## the first declaration of that name, among the files in order, whose kind is one of kinds: (the file, its index), or
+  ## (nil, -1) when there is none
   for g in files:
     for k in cxNamed(g, name):
       if g.syms[k].kind in kinds: return (g, k)
@@ -3479,6 +3544,8 @@ proc cxRecord*(files: seq[CxFile], typ: string): (string, int) =
   ("", 0)
 
 proc cxFields*(files: seq[CxFile], owner: string): seq[(CxFile, int)] =
+  ## the fields of a struct or union (in C++ also the methods of a class) of that owner name, over all the files, as
+  ## (file, index)
   for g in files:
     cxIndexed(g)
     g.byOwner.withValue(owner, ks):
@@ -3491,6 +3558,8 @@ func cxLocalsAt*(f: CxFile, line: int): seq[CxSym] =
        (s.kind != cxLocal or s.line <= line): result.add s
 
 proc cxTypeOfName*(files: seq[CxFile], f: CxFile, name: string, line: int): string =
+  ## the declared type of a name seen at that line: the nearest parameter or local, else a global variable, a function
+  ## (as "fn:" and what it returns) or an enum constant; empty when it is not known
   let ls = cxLocalsAt(f, line)
   for i in countdown(ls.high, 0):
     if ls[i].name == name and ls[i].kind != cxLabel: return ls[i].typ
@@ -3800,6 +3869,7 @@ proc cxIncludeItems(f: CxFile, t: string, col: int, systemDirs: seq[string]): (b
       if result[1].len > 400: return
 
 func cxWordAt*(t: string, col: int): (int, int) =
+  ## the identifier the column is in or touches: (where it starts, where it ends), equal when there is none
   var a = min(col, t.len)
   var e = a
   while a > 0 and t[a - 1] in IdentChars: dec a
@@ -3835,6 +3905,7 @@ type CxxCtx = object
   scopes: seq[string]           # where a name is looked for, the nearest first ("" — the file level — last)
   cls: string                   # in a method's body: its class (qualified), else ""
 
+# a name qualified by its scope: `scope::name`, or the name when the scope is empty
 func cxxJoin(scope, name: string): string = (if scope.len > 0: scope & "::" & name else: name)
 
 func cxxOwnersMatch(a, b: string): bool =
@@ -3881,6 +3952,8 @@ func cxxSubst(t: string, params, args: seq[string]): string =
       inc i
 
 func cxxStdSubst(t, grp: string, args: seq[string]): string =
+  ## the library type's template arguments put in for the names its members' types use (K and V for a map, T and U for a
+  ## pair, else T)
   let ps = case grp
            of "map": @["K", "V"]
            of "pair": @["T", "U"]
@@ -3923,6 +3996,8 @@ proc cxxSpecMatch*(spec: string, tparams, args: seq[string]): (bool, seq[string]
   if parts.len != args.len: return (false, @[])
   var binds: Table[string, seq[string]]
   proc balanced(xs: seq[string]): bool =
+    ## whether the tokens' < > and ( ) are balanced and there is no comma outside them, so the run can stand for one
+    ## template argument
     var d = 0
     for x in xs:
       if x in ["<", "("]: inc d
@@ -3932,6 +4007,8 @@ proc cxxSpecMatch*(spec: string, tparams, args: seq[string]): (bool, seq[string]
       elif x == "," and d == 0: return false
     d == 0
   proc m(p, a: seq[string], i, j: int): bool =
+    ## whether the specialisation's tokens p from i match the use's tokens a from j: each template parameter takes a
+    ## balanced run of tokens (the longest first, backing off), and the same parameter must take the same run every time
     if i == p.len: return j == a.len
     if p[i] in tparams:
       if p[i] in binds:
@@ -4118,6 +4195,7 @@ proc cxxCtxAt(files: seq[CxFile], f: CxFile, line: int): CxxCtx =
   # in a method: its class, its bases, the class's namespace; in `int a::b::f() { … }`: a::b
   var fn = -1
   for k in 0 ..< f.syms.len:
+    # the declaration number k of the file
     template s: untyped = f.syms[k]
     if s.kind in {cxFunc, cxMethod} and s.isDef and line >= s.line and line <= s.endLine:
       if fn < 0 or s.line >= f.syms[fn].line: fn = k
@@ -4490,6 +4568,10 @@ proc cxxMemberItems(files: seq[CxFile], typ: string, arrow: bool, ctx: CxxCtx): 
     cxCallOf(result[^1], s)
 
 proc cxxComplete(f: CxFile, line, col: int, systemDirs: seq[string]): (seq[CxItem], bool, string) =
+  ## completion in a C++ file at line:col: (items, whether it is after a member access, the type there). It offers the
+  ## names of #include files; after `::` the names in that namespace, a class's members, an enum's constants or std's;
+  ## after `.` and `->` the members of the receiver's type; else the locals, the names visible from here (the class's
+  ## own members, the file's, the headers'), std's names when `using namespace std`, and the keywords
   let t = f.lines[line]
   let c = min(col, t.len)
   var w = c
@@ -4648,6 +4730,7 @@ proc cxxNormType(files: seq[CxFile], t: string, scopes: seq[string]): (string, i
   (b, st)
 
 proc cxxIsEnum(files: seq[CxFile], t: string): bool =
+  ## whether a type names an enum declared in these files
   let n = cxxSplit(cxxNoArgs(t))[^1]
   n.len > 0 and n notin CxxArith and cxFindSym(files, n, {cxEnum})[0] != nil
 
@@ -4853,6 +4936,10 @@ proc cxxMemberTargets(files: seq[CxFile], key, w: string, ctx: CxxCtx, all = fal
   cxxMethodDefs(files, owner, w) & defs & decls
 
 proc cxxTargets0(f: CxFile, line, col: int, jump: bool): seq[(CxFile, CxSym)] =
+  ## where the word at line:col is declared in C++, in the order that suits a jump: the declaration itself (with jump
+  ## on, its counterpart: a definition for a declaration and the other way round), a member after `.` or `->`, the name
+  ## after `Scope::`, a local, parameter or label, a member of the class the code is in, then what the file and its
+  ## headers declare (types, definitions, declarations, macros)
   let t = f.lines[line]
   let (a, e) = cxWordAt(t, col)
   if a >= e: return
@@ -5214,6 +5301,8 @@ proc cxEvalConst*(files: seq[CxFile], expr: string, depth = 0): (bool, int64) =
   var p = 0
   var ok = true
   proc num(t: string): int64 =
+    ## a number of an expression as a value — decimal, 0x, 0b or octal, without u and l suffixes; the expression is
+    ## marked bad for anything else
     var x = t.toLowerAscii
     while x.len > 1 and x[^1] in {'u', 'l'}: x.setLen(x.len - 1)
     try:
@@ -5224,6 +5313,9 @@ proc cxEvalConst*(files: seq[CxFile], expr: string, depth = 0): (bool, int64) =
     except ValueError: ok = false
   proc expr(prec: int): int64
   proc unary(): int64 =
+    ## one operand of a constant expression: a parenthesised expression, a cast (its type skipped), a number, a
+    ## character, an enum constant or an object-like macro (evaluated in turn), with - + ~ ! applied; sizeof and defined
+    ## are not known
     if p >= ts.len:
       ok = false
       return
@@ -5279,6 +5371,7 @@ proc cxEvalConst*(files: seq[CxFile], expr: string, depth = 0): (bool, int64) =
           result = v
       else: ok = false
   proc precOf(op: string): int =
+    ## how tightly a binary operator binds, from ?: (1) to * / % (11); -1 for anything that is not one
     case op
     of "?": 1
     of "||": 2
@@ -5293,6 +5386,8 @@ proc cxEvalConst*(files: seq[CxFile], expr: string, depth = 0): (bool, int64) =
     of "*", "/", "%": 11
     else: -1
   proc expr(prec: int): int64 =
+    ## an expression whose operators bind at least as tightly as prec (precedence climbing), ?: included; dividing by
+    ## zero marks the expression bad
     result = unary()
     while ok and p < ts.len:
       let op = ts[p]
@@ -5478,6 +5573,10 @@ proc cxMacroExpansion*(f: CxFile, s: CxSym, line, col: int): string =
   outp
 
 proc cxHover*(f: CxFile, line, col: int): string =
+  ## the hover on the name at line:col: its declaration in a fenced block, what kind it is with its file and line, its
+  ## documenting comment (taken from a prototype in a header or another declaration when the definition has none), a
+  ## struct's members, and for C also a struct's size and the offset of each field, an enum constant's value, a macro's
+  ## value. Empty when it names nothing; std:: names are explained from a known list
   let ts = cxTargets(f, line, col)
   if ts.len == 0 and f != nil and f.cpp and line < f.lines.len:
     # std::vector: what the library's name is (its headers are not read)
@@ -5757,6 +5856,7 @@ proc cxUsedNames*(f: CxFile) =
 # ── references by symbol: what a use names, as a key its declaration has wherever it is seen from ──
 
 func cxIsHeaderPath*(path: string): bool =
+  ## whether a path has a header's extension (.h, .hh, .hpp, .hxx, .h++, .inl, .ipp, .tpp)
   path.splitFile.ext.toLowerAscii in [".h", ".hh", ".hpp", ".hxx", ".h++", ".inl", ".ipp", ".tpp"]
 
 proc cxStaticSym(g: CxFile, s: CxSym): bool =
@@ -5854,6 +5954,7 @@ proc cxIncludeText*(header, fromFile: string, dirs: openArray[string]): string =
   ## from the include folder that has it ("util/str.h"), else from the file's folder ("../include/x.h")
   let h = normalizedPath(header)
   proc under(d: string): string =
+    ## the part of the header's path below the folder d, empty when the header is not under it
     let dd = normalizedPath(d).strip(leading = false, chars = {'/'})
     if dd.len > 0 and h.startsWith(dd & "/"): h[dd.len + 1 .. ^1] else: ""
   for d in cxSysDirs:
@@ -5965,6 +6066,9 @@ func cxSemRank(k: CxKind): int =
   else: 0
 
 proc cxSemAdd(m: CxSemNames, g: CxFile) =
+  ## adds the names a file declares to the sets: its fields and its methods, and for every other name (parameters,
+  ## locals, labels and what a branch left out declares aside) its kind — a name declared as several things keeps the
+  ## kind that ranks highest (cxSemRank)
   for s in g.syms:
     case s.kind
     of cxParam, cxLocal, cxLabel: continue

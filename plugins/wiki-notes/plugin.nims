@@ -73,6 +73,7 @@ func norm*(name: string): string =
   s.splitWhitespace.join(" ")
 
 func stemOf(path: string): string =
+  ## a note's name: its file name without the .md
   let n = extractFilename(path)
   if n.toLowerAscii.endsWith(".md"): n[0 ..< ^3] else: n
 
@@ -87,6 +88,7 @@ func headingLine*(lines: seq[string], heading: string): int =
 # ── the notes ──
 
 proc folder(): string =
+  ## the folder the notes are in: plugins.wiki-notes.folder (with ~ expanded), the project's folder when it is empty
   let f = setting("folder", "").strip
   if f.len == 0: projectRoot() else: expandTilde(f)
 
@@ -132,10 +134,12 @@ proc noteLines(path: string): seq[string] =
   if fileExists(path): result = readFile(path).replace("\r\n", "\n").split('\n')
 
 proc inFolder(path: string): bool =
+  ## whether the path is a .md file in the notes' folder or under it
   let f = folder()
   path.toLowerAscii.endsWith(".md") and (path.startsWith(f & "/") or parentDir(path) == f)
 
 func linkAt*(line: string, ln, col: int): (bool, Link) =
+  ## the [[link]] of the line that the column is in, or on its brackets (false when there is none)
   for l in linksOf(line, ln):
     if col >= l.a and col <= l.b: return (true, l)
 
@@ -188,6 +192,7 @@ proc follow(b: Buf): bool =
   true
 
 proc followOrSay(b: Buf) =
+  ## follows the link at the cursor; when there is none it says so in a message
   if not follow(b): message("Wiki: put the cursor on a [[link]]")
 
 # ── backlinks ──
@@ -216,6 +221,9 @@ proc backlinks*(target: string): seq[Back] =
 var marked: seq[int]              # the tabs whose links were marked (to clear when they have none any more)
 
 proc markMissing(b: Buf) =
+  ## marks each [[link]] of the tab whose note does not exist yet with a hint saying that following it makes the note,
+  ## unless plugins.wiki-notes.markMissing is off; a tab without links does not read the notes, and loses the marks it
+  ## had
   var links: seq[Link]
   if setting("markMissing", true):
     for i, l in b.lines:
@@ -244,6 +252,8 @@ command "Wiki: follow the link":
 keyIn("markdown", "alt+shift+o", "follow the [[link]] (or make its note)", proc(b: Buf) = followOrSay(b))
 
 proc enterKey(count: int) =
+  ## vim's Enter in a Markdown file: follows the [[link]] at the cursor, else goes to the first letter of the line below
+  ## (count lines down)
   let b = current()
   if not follow(b):
     # (vim's Enter, where there is no link: the next line's first letter)

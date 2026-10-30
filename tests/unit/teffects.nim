@@ -7,12 +7,15 @@ import std/[os, osproc, strutils, tables, sets, algorithm, unittest]
 import ../../src/ned/nim/index
 
 proc realOf(p: string): string =
+  ## the path a symbolic link points to; any other path as it is
   result = p
   try:
     if symlinkExists(p): result = expandFilename(p)
   except OSError: discard
 
 proc nimLib(): string =
+  ## the folder of Nim's standard library next to the nim on PATH, empty when there is none (the tests that need it are
+  ## skipped)
   let nim = findExe("nim")
   if nim.len == 0: return ""
   let prefix = nim.realOf.parentDir.parentDir
@@ -28,12 +31,14 @@ createDir(dir)
 var n = 0
 
 proc fixture(text: string, name = ""): NxFile =
+  ## writes the text to a file of its own in the test folder (the index caches by path) and loads it with the index
   inc n
   let p = dir / (if name.len > 0: name else: "f" & $n & ".nim")
   writeFile(p, text)
   nxLoad(p)
 
 proc compiles(path: string): (bool, string) =
+  ## runs `nim check` on the file; whether it passed, and what it printed
   let (outp, code) = execCmdEx("nim check --hints:off --warnings:off --colors:off " & quoteShell(path))
   (code == 0 and "Error" notin outp, outp)
 
@@ -117,6 +122,8 @@ suite "can be a func":
       let f = fixture(FuncSrc)
       let lines = FuncSrc.split('\n')
       proc purity(name: string): NxPurity =
+        ## the engine's answer about side effects for the routine of that name in the file (the test fails when there is
+        ## no such routine)
         for i, s in f.syms:
           if s.name == name and s.kind in NxRoutineKinds: return nxSideEffectsOf(NxRef(file: f, idx: int32(i)))
         doAssert false, name
@@ -153,6 +160,7 @@ suite "can be a func":
       nxBufferStamp = proc(path: string): string = (if path == p: stamp else: "")
       nxBufferLines = proc(path: string): seq[string] = (if path == p: lines else: @[])
       proc hinted(): seq[string] =
+        ## the names of the procs the engine says can be funcs, in the order of the alphabet
         let f = nxLoad(p)
         for i in nxFuncHints(f, lines)[0]: result.add f.syms[i].name
         result.sort()
@@ -237,6 +245,8 @@ suite "converters in exception hints":
     else:
       let f = fixture(ConvSrc)
       proc list(name: string): string =
+        ## the exceptions the routine of that name can raise, sorted and joined by commas; a question mark when that is
+        ## not known
         for i, s in f.syms:
           if s.name == name and s.kind in NxRoutineKinds:
             let r = nxRaisesOf(NxRef(file: f, idx: int32(i)))
@@ -333,6 +343,7 @@ suite "concepts":
   let f = fixture(ConceptSrc)
   let sc = nxScope(f)
   proc cpt(name: string): NxConcept =
+    ## the concept the engine reads from the type of that name in the file (the test fails when there is none)
     for i, s in f.syms:
       if s.name == name and s.kind == nxType: return nxConceptOf(NxRef(file: f, idx: int32(i)))
     doAssert false, name

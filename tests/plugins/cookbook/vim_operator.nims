@@ -7,6 +7,8 @@ import std/algorithm
 requiresNed(">= 6.31")
 
 proc sortRange(b: Buf, r: Range, linewise: bool, reverse = false, unique = false) =
+  ## sorts what the range covers: whole lines (a motion ending at a line's start does not take that line), optionally
+  ## backwards and without repeated lines; within one line, the comma-separated items
   if linewise or r.start.line != r.stop.line:
     let first = r.start.line
     var last = r.stop.line

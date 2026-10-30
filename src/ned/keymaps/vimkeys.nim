@@ -1,3 +1,6 @@
+# the vim keymap's key handling (editor.vimMode): Ctrl+W window commands, and vimKey, which takes each key in insert,
+# replace, normal and visual mode — counts, operators, motions, text objects, macros and repeating the last change with
+# a dot.
 proc vimWindowKey(c: char): bool =
   ## Ctrl+W then c: vim's window commands, on ned's panes
   result = true

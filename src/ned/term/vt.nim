@@ -1,3 +1,6 @@
+# the terminal emulator's core: creating a terminal and its shell, the screen and scrollback, and the parser that turns
+# what the shell prints (UTF-8, escape and CSI sequences, colours, modes, shell-integration marks) into cells on the
+# screen
 proc blankTerm(w, h: int): Term =
   ## a terminal with nothing in it yet (and no shell)
   result = Term(w: max(10, w), h: max(2, h), fd: -1, autoWrap: true, cursorVisible: true, fg: NoColor, bg: NoColor,
@@ -58,6 +61,8 @@ proc newTerm(w, h: int, cwd: string, cmd = "", keep = false): Term =
     t
 
 proc ansiColor(n: int): Rgb =
+  ## the colour of a 256-colour palette index: 0–15 from the theme's ANSI colours, 16–231 the 6×6×6 colour cube, 232–255
+  ## the grey ramp
   if n < 16: return theme.ansi[n]
   if n < 232:
     let v = n - 16
@@ -78,10 +83,14 @@ proc trimScrollback(t: Term) =
     t.view = min(t.view, t.sb.len)
 
 proc resize(t: Term, w, h: int) =
+  ## changes the terminal's size (at least 10×2): rows are cut or padded to the new width; when shorter, rows leave from
+  ## the top into the scrollback (the cursor line stays), when taller blank rows are added; resets the scroll region,
+  ## clamps the cursor and tells the shell the new size
   let w = max(10, w)
   let h = max(2, h)
   if w == t.w and h == t.h: return
   proc fit(rows: var seq[TRow], t: Term, w: int) =
+    ## pads every row with blank cells, or cuts it, to exactly `w` cells
     for r in rows.mitems:
       if r.len < w:
         let c = TCell(ch: 32, fg: NoColor, bg: NoColor)
@@ -111,6 +120,8 @@ proc resize(t: Term, w, h: int) =
   t.setWinSize()
 
 proc scrollUp(t: Term, n = 1) =
+  ## scrolls the scroll region up `n` lines, blank lines coming in at the bottom; a line leaving the top of the main
+  ## screen (not the alternate one) goes into the scrollback, and a view scrolled back keeps showing the same lines
   for _ in 0 ..< n:
     if t.top == 0 and not t.altActive:
       t.sb.add move(t.scr[0])                  # (moved, not copied: the row leaves the screen just below)
@@ -120,11 +131,13 @@ proc scrollUp(t: Term, n = 1) =
     t.scr.insert(t.blankRow, t.bot)
 
 proc scrollDown(t: Term, n = 1) =
+  ## scrolls the scroll region down `n` lines, blank lines coming in at the top; the lines at the bottom are lost
   for _ in 0 ..< n:
     t.scr.delete(t.bot)
     t.scr.insert(t.blankRow, t.top)
 
 proc lineFeed(t: Term) =
+  ## moves the cursor one row down, scrolling the region up when it is on the region's last row
   if t.cy == t.bot: t.scrollUp()
   elif t.cy < t.h - 1: inc t.cy
 
@@ -133,6 +146,10 @@ const DecLine = [("j", "┘"), ("k", "┐"), ("l", "┌"), ("m", "└"), ("n", "
                  ("o", "⎺"), ("s", "⎽"), ("y", "≤"), ("z", "≥"), ("{", "π"), ("|", "≠"), ("}", "£")]
 
 proc putChar(t: Term, cp0: int) =
+  ## prints one character at the cursor with the current colours and attributes: maps it through the DEC line-drawing
+  ## set when that is on, skips zero-width characters, wraps to the next line (when auto-wrap is on) once the last
+  ## column was used, pushes the rest of the row right in insert mode, and fills the second cell of a wide character
+  ## with a 0 placeholder
   var cp = cp0
   if (t.lineDraw and not t.shiftOut) or (t.g1Line and t.shiftOut):
     if cp < 128:
@@ -164,17 +181,22 @@ proc putChar(t: Term, cp0: int) =
   else: t.cx += cw
 
 proc eraseCells(t: Term, row, a, b: int) =
+  ## blanks the cells `a` to `b` (clamped to the row) of a screen row, keeping the current background colour
   if row < 0 or row >= t.h: return
   let c = t.blankCell
   for x in max(0, a) .. min(t.w - 1, b): t.scr[row][x] = c
 
 proc csiParams(t: Term): seq[int] =
+  ## the numbers of the escape sequence being read, split at `;` (a `:` sub-parameter is dropped; an empty one is 0)
   if t.params.len == 0: return @[]
   for p in t.params.split(';'):
     let q = p.split(':')[0]
     result.add (if q.len == 0: 0 else: (try: parseInt(q) except ValueError: 0))
 
 proc sgr(t: Term, ps: seq[int]) =
+  ## the "select graphic rendition" sequence (`ESC[…m`): sets or resets the current foreground and background colours
+  ## (16-colour, 256-colour `38;5;n` and true-colour `38;2;r;g;b` forms) and the bold, dim, italic, underline, reverse
+  ## and strike-through attributes; no numbers means reset
   var ps = ps
   if ps.len == 0: ps = @[0]
   var i = 0
@@ -215,6 +237,9 @@ proc sgr(t: Term, ps: seq[int]) =
     inc i
 
 proc setMode(t: Term, ps: seq[int], on: bool) =
+  ## sets or resets terminal modes (`ESC[…h` / `ESC[…l`): with `?` the private ones — application cursor keys, origin
+  ## mode, auto-wrap, cursor visibility, the alternate screen (47, 1047, 1049: the main screen is kept aside and comes
+  ## back), mouse reporting (1000, 1002, 1003, 1006) and bracketed paste; without it only insert mode
   let priv = t.inter.contains('?')
   for p in ps:
     if priv:
@@ -252,7 +277,12 @@ proc setMode(t: Term, ps: seq[int], on: bool) =
       if p == 4: t.insertMode = on
 
 proc doCsi(t: Term, fin: char) =
+  ## runs one finished `ESC [` sequence whose final character is `fin`: moves the cursor, erases in the line or screen,
+  ## inserts and deletes lines and characters, scrolls, sets the scroll region, saves and restores the cursor, answers
+  ## the device-attribute, status and cursor-position requests into `t.reply`, and hands colours and modes to sgr and
+  ## setMode; a soft reset (`ESC[!p`) is the one intermediate-character form handled
   let ps = t.csiParams()
+  # the i-th number of the sequence, or `def` when it is missing or 0
   proc arg(i: int, def = 1): int = (if i < ps.len and ps[i] > 0: ps[i] else: def)
   t.wrapPending = false
   if t.inter.len > 0 and t.inter[0] notin {'?', '>', '='}:
@@ -371,9 +401,13 @@ proc doCsi(t: Term, fin: char) =
     t.cy = clamp(t.sy, 0, t.h - 1)
   else: discard
 
+# the cursor's row counted from the first line the terminal ever scrolled out, the way the remembered commands count
+# rows
 func gRow(t: Term): int = t.sbDropped + t.sb.len + t.cy      # the cursor's row, as a global row
 
 func rowByGlobal(t: Term, g: int): TRow =
+  ## the row with that global number, from the scrollback or the screen (empty when it was dropped or does not exist
+  ## yet)
   let a = g - t.sbDropped
   if a < 0: return @[]
   if a < t.sb.len: return t.sb[a]
@@ -381,6 +415,8 @@ func rowByGlobal(t: Term, g: int): TRow =
   @[]
 
 proc rowText(row: TRow, fromCol = 0): string =
+  ## a row's text from column `fromCol` on as a string, wide characters' placeholders left out and trailing spaces
+  ## trimmed
   for x in max(0, fromCol) ..< row.len:
     if row[x].ch != 0: result.addUtf8(int(if row[x].ch < 32: 32'u32 else: row[x].ch))
   result = result.strip(leading = false)
@@ -428,6 +464,10 @@ proc osc133(t: Term, arg: string) =
   else: discard
 
 proc feed(t: Term, data: string) =
+  ## the terminal's parser: takes bytes the shell printed and acts on them one at a time — printable text and UTF-8 go
+  ## to putChar, control characters move the cursor, and escape, CSI, OSC (window title, shell-integration marks),
+  ## string and character-set sequences go through the states of `t.st`; a broken UTF-8 sequence shows as a replacement
+  ## character
   var i = 0
   while i < data.len:
     let c = data[i]
@@ -542,6 +582,8 @@ proc feed(t: Term, data: string) =
     inc i
 
 proc termWrite(t: Term, s: string) =
+  ## sends keystrokes or pasted text to the shell: through the term host for a kept terminal, else straight to the
+  ## pseudo-terminal, retrying briefly when it is full
   if t.fd < 0 or t.dead or s.len == 0: return
   if t.hosted:
     t.hostSend('d', s)
@@ -557,6 +599,7 @@ proc termWrite(t: Term, s: string) =
     else: break
 
 proc termReap(t: Term) =
+  ## collects the shell's exit code without waiting when it has ended, and marks it as gone (pid 0)
   if t.pid <= 0 or t.hosted: return      # (a kept shell is its host's child: the host says how it ended)
   var status: cint
   let r = waitpid(t.pid, status, WNOHANG)

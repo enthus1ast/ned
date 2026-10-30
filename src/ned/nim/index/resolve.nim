@@ -1,4 +1,9 @@
+# working out what a word in the code refers to: the word at a column, the operators and constructor fields, forward
+# declarations and their bodies, overloads narrowed by a call's arguments, and nxTargets, which gives the declarations
+# (index symbols, locals or a module) behind the name at a position.
 func nxWordAt*(text: string, col: int): (int, int) =
+  ## the start and end of the identifier at col in the text (or touching it on its left); empty (a == e) when there is
+  ## none
   var a = min(col, text.len)
   var e = a
   while a > 0 and nxIsIdent(text[a - 1]): dec a
@@ -252,6 +257,7 @@ proc nxTupleFieldOf*(f: NxFile, sc: NxScope, typ, w: string): seq[NxRef] =
   ## a field of an anonymous tuple a routine returns (splitFile(p).name: `tuple[dir, name, ext: string]`):
   ## where that routine writes it
   for r in sc.refs:
+    # the routine being checked
     template s: untyped = r.sym
     if s.kind notin NxRoutineKinds or s.ret.len == 0 or nxStripMods(s.ret) != typ: continue
     let ls = nxFileLines(r.file.path)
@@ -306,6 +312,7 @@ proc nxForwardOf*(f: NxFile, lines: openArray[string], r: NxSym): int =
   result = -1
   if r.kind notin NxRoutineKinds or r.made: return
   for j in 0 ..< f.syms.len:
+    # the candidate declaration, in place
     template s: untyped = f.syms[j]
     if s.line < r.line and s.name == r.name and not s.made and nxSameSig(s, r) and nxIsForward(lines, s): return j
 
@@ -313,6 +320,7 @@ proc nxBodyOf*(f: NxFile, lines: openArray[string], fw: NxSym): int =
   ## the routine a forward declaration declares: the later one with the same name, kind and signature (or -1)
   result = -1
   for j in 0 ..< f.syms.len:
+    # the candidate declaration, in place
     template s: untyped = f.syms[j]
     if s.line > fw.line and s.name == fw.name and not s.made and nxSameSig(s, fw) and not nxIsForward(lines, s):
       return j
@@ -341,6 +349,7 @@ func nxInInitializer(lines: openArray[string], declLine, line: int): bool =
 proc nxLocalRoutine(locals: seq[NxSym], w: string, line: int): seq[NxSym] =
   ## a routine declared inside the one around `line` by that name (it hides the module's)
   for i in countdown(locals.high, 0):
+    # the local being looked at
     template s: untyped = locals[i]
     if s.kind in NxRoutineKinds and nxNorm(s.name) == nxNorm(w) and s.line <= line: return @[s]
 

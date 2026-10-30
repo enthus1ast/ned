@@ -25,6 +25,7 @@ type
     cfPlain, cfMethod, cfCommand
 
 func nxEditOf(path: string, l, c, el, ec: int, text: string): NxEdit =
+  ## an edit that replaces the text from line:col to endLine:endCol of a file with `text`
   NxEdit(path: path, line: l, col: c, endLine: el, endCol: ec, text: text)
 
 proc nxApplyEdits*(lines: seq[string], edits: seq[NxEdit]): seq[string] =
@@ -39,6 +40,7 @@ proc nxApplyEdits*(lines: seq[string], edits: seq[NxEdit]): seq[string] =
     starts[i] = o
     o += l.len + 1
   proc off(l, c: int): int =
+    ## the offset in the joined text of a line and column (clamped to the line; past the last line: the end)
     if l >= lines.len or l < 0: return text.len
     starts[l] + clamp(c, 0, lines[l].len)
   var lastStart = high(int)
@@ -54,10 +56,12 @@ proc nxApplyEdits*(lines: seq[string], edits: seq[NxEdit]): seq[string] =
   text.split('\n')
 
 func nxIdentEnd(s: string, i: int): int =
+  ## the index just after the identifier that runs on from i
   result = i
   while result < s.len and nxIsIdent(s[result]): inc result
 
 func nxSameRef(a, b: NxRef): bool =
+  ## whether two references are the same declaration (same file, line and name)
   a.file.path == b.file.path and a.sym.line == b.sym.line and a.sym.name == b.sym.name
 
 proc nxReferencesIn*(t: NxRef, files: seq[string]): seq[(string, int, int)] =
@@ -166,6 +170,8 @@ proc nxObjKeyword(lines: seq[string], s: NxSym): (int, int, int) =
   elif t.continuesWith("object", k) and nxIdentEnd(t, k) == k + 6: return (s.line, k, 0)
 
 proc nxIsTypeNamed(typ, name: string): bool =
+  ## whether a written type is the plain type `name` (var, ref and the like stripped, ignoring style; a generic instance
+  ## is not)
   let b = nxStripMods(typ.strip)
   b.len > 0 and b.find('[') < 0 and nxNorm(b) == nxNorm(name)
 
@@ -202,6 +208,7 @@ proc nxPlanRefObject*(f: NxFile, lines: seq[string], line, col: int, files: seq[
   let hits = nxReferencesIn(t, (if dpath in files: files else: files & @[dpath]))
   var cache: Table[string, seq[string]]
   proc linesOf(p: string): seq[string] =
+    ## a file's lines, read once and kept for the rest of the plan
     if p notin cache: cache[p] = nxFileLines(p)
     cache[p]
   var paths: seq[string]
@@ -303,6 +310,7 @@ proc nxPlanRefObject*(f: NxFile, lines: seq[string], line, col: int, files: seq[
     if g == nil: continue
     let sc = nxScope(g)
     proc isT(l, col: int, e: string): bool =
+      ## whether expression e, written at that place, has the object type being changed (nil never does)
       let x = e.strip
       if x.len == 0 or x == "nil": return false
       nxIsTypeNamed(nxTypeOfExpr(g, sc, nxLocals(g, pl, l, col), x, l, 0).typ, n)
@@ -386,6 +394,7 @@ proc nxDirectImports(f: NxFile): Table[string, string] =
       if rp.len > 0: result[rp] = part
 
 proc nxImportsModule(f: NxFile, target: string): bool =
+  ## whether f imports the module at path `target` directly
   for p, _ in nxDirectImports(f):
     if p == target: return true
 
@@ -491,6 +500,7 @@ proc nxPlanSplit*(f: NxFile, lines: seq[string], a, e: int, newPath: string, fil
        s.kind in NxRoutineKinds + {nxType, nxConst, nxLet, nxVar}:
       moved.add i
   if moved.len == 0: return NxPlan(msg: "No declaration in the selection")
+  # whether a declaration is in the selected lines of this file (so it moves)
   proc inRange(r: NxRef): bool = r.file.path == f.path and r.sym.line >= sa and r.sym.line <= se
   # what the moved code uses: modules to import, and names that stay behind (the two would import each other)
   let direct = nxDirectImports(f)
@@ -651,6 +661,7 @@ proc nxPlanAsync*(f: NxFile, lines: seq[string], line, col: int, files: seq[stri
     let pc = nxMatchClose(whole, 0)
     if pc < 0: return NxPlan(msg: "Cannot read the parameters of " & s.name)
     proc posOf(o: int): (int, int) =
+      ## the line and column in the file of an offset into the parameter list joined over its lines
       var r = lineStarts[0]
       for x in lineStarts:
         if x[2] <= o: r = x
@@ -1017,6 +1028,8 @@ func nxUnwrap(x: string): string =
   else: x
 
 func nxNamedArg(x: string): bool =
+  ## whether an argument is written by name (`name = value` or `name: value`), which cannot become the receiver of a
+  ## method call
   let eq = nxFindTop(x, '=')
   (eq > 0 and (eq + 1 >= x.len or x[eq + 1] != '=') and x[0 ..< eq].strip.allCharsInSet(IdentChars)) or
     (nxFindTop(x, ':') > 0 and x[0 ..< nxFindTop(x, ':')].strip.allCharsInSet(IdentChars))

@@ -22,6 +22,9 @@ proc ciNimVersions(): seq[string] =
   result.add "stable"
 
 proc ciWorkflowText(info: NimbleInfo, lint, fmtCheck: bool, nedRepo: string): string =
+  ## the text of the GitHub Actions workflow: a job installing the dependencies and building and testing (or checking
+  ## the main file) on Linux and macOS with each Nim version, and, when asked, a second job that builds ned from
+  ## `nedRepo` and runs its lint and/or format check
   let vers = ciNimVersions()
   var vq: seq[string]
   for v in vers: vq.add "'" & v & "'"

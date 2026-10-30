@@ -28,6 +28,7 @@ proc gcParse(text: string, files: var Table[string, seq[GcHunk]]) =
   var h: GcHunk
   var inHunk = false
   template flush() =
+    ## stores the hunk read so far under its file, if there is one
     if inHunk and cur.len > 0: files.mgetOrPut(cur, @[]).add h
     inHunk = false
   for line in text.split('\n'):
@@ -45,6 +46,7 @@ proc gcParse(text: string, files: var Table[string, seq[GcHunk]]) =
       let f = line.splitWhitespace()
       if f.len < 3: continue
       proc rng(x: string): (int, int) =
+        ## reads a range of a hunk header (`-12,3` or `+7`) as (first line, number of lines); a missing count is 1
         let q = x[1 .. ^1].split(',')
         (parseInt(q[0]), (if q.len > 1: parseInt(q[1]) else: 1))
       try:
@@ -90,6 +92,9 @@ proc gcCommand(root: string, path = ""): string =
     "; echo " & GcMark & "; git ls-files --others --exclude-standard" & only
 
 proc gcFilesOf(root, output: string): seq[GcFile] =
+  ## turns the output of gcCommand into files with their hunks: the three diffs (against HEAD, staged, not staged) are
+  ## matched up by file name, and the files git does not track yet (up to 60, text files under 1 MB) come as one hunk
+  ## holding all their lines
   let parts = output.split(GcMark & "\n")
   if parts.len < 4: return
   var head, cached, work: Table[string, seq[GcHunk]]
@@ -120,6 +125,8 @@ proc gcFilesOf(root, output: string): seq[GcFile] =
                       head: @[GcHunk(oldStart: 0, oldLen: 0, newStart: 0, newLen: ls.len, new: ls)])
 
 proc gcNote(f: GcFile, hs: seq[GcHunk]): string =
+  ## the note in a change's header: the lines it adds and removes, and whether the change is staged, partly staged or
+  ## not staged (or a new file git does not track)
   var adds, dels, staged, notStaged = 0
   for h in hs:
     adds += h.newLen
@@ -209,6 +216,7 @@ var
   gcLeft = 0
 
 proc gcAsk(root: string) =
+  ## asks git, in one repository, for the diffs of the changes view; when every repository has answered, shows the view
   discard startJob(jkGit, gcCommand(root), root, proc(j: Job) =
     dec gcLeft
     gcPending.add gcFilesOf(root, j.output)
@@ -271,6 +279,8 @@ proc gcApply(root, rel: string, hunks: seq[GcHunk], args, done: string, then: pr
     if then != nil: then())
 
 proc gcAfter(path, said: string) =
+  ## after a stage, unstage or revert: says what was done, refreshes the change marks of the file if it is open and the
+  ## git status, and makes the open changes view again
   info(said)
   let i = bufIndexByPath(path)
   if i >= 0: bufs[i].refreshGit()
@@ -384,6 +394,7 @@ proc cmdGitUnstageHere() =
   gcAct(b.path, b.primary.head.line, "unstage")
 
 proc cmdGitStageAll() =
+  ## Git: stage all — `git add -A`, then refreshes the status and the changes view
   let root = gitHome()
   if root.len == 0: return
   discard startJob(jkGit, "git add -A", root, proc(j: Job) =

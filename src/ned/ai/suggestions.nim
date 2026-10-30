@@ -11,16 +11,21 @@ var
   ghostAskedBuf = -1
 
 proc ghostVisible(b: Buffer): bool =
+  ## whether the suggestion is still to be shown in this buffer: nothing has changed since it was made and the cursor is
+  ## still where it was asked for (a single cursor, nothing selected)
   ghostText.len > 0 and b.id == ghostBuf and b.changeId == ghostChange and b.cursors.len == 1 and
     b.primary.head == ghostPos and not b.primary.hasSel
 
 proc ghostClear() =
+  ## forgets the suggestion shown
   ghostText = ""
   ghostBuf = -1
 
 var ghostFallback = ""     # the default suggestion model is not offered: use the chat model instead
 
 proc ghostModel(): string =
+  ## the model that writes the suggestions: ai.inlineCompletionModel, else the chat model when the default was found not
+  ## to be offered, else a fast one for Anthropic or OpenAI (suggestions must come in a moment), else the chat model
   let m = sStr("ai.inlineCompletionModel")
   if m.len > 0: return m
   if ghostFallback.len > 0: return ghostFallback
@@ -30,6 +35,8 @@ proc ghostModel(): string =
   else: aiModel()
 
 proc ghostAccept(): bool =
+  ## puts the suggestion in the file at the cursor, as one undo step, with the cursor after it; false when none is shown
+  ## or the file cannot be edited
   let b = buf()
   if not ghostVisible(b) or not b.canEdit(): return false
   let t = ghostText

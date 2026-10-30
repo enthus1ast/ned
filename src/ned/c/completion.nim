@@ -3,6 +3,9 @@
 var cHeaderNamesCache: Table[string, seq[string]]
 
 proc cHeaderNames(dirs: seq[string], angle: bool): seq[string] =
+  ## the .h and .hpp files in the given folders (for <…> includes also one folder level down, as `sys/types.h`), each
+  ## name once and the scan stopped after about 8000; the result for system folders (angle) is kept in a table, as
+  ## listing them is slow
   let key = $angle & dirs.join("|")
   if angle and key in cHeaderNamesCache: return cHeaderNamesCache[key]
   defer:

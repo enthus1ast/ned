@@ -33,18 +33,23 @@ proc builtinsFromSource(): seq[TiBuiltin] =
 let builtins = builtinsFromSource()
 
 proc builtin(name: string): TiBuiltin =
+  ## the built-in theme of that name, as read from themes.nim (a KeyError when there is none)
   for b in builtins:
     if b.name == name: return b
   raise newException(KeyError, "no built-in theme " & name)
 
+# the theme file's colour k, as the text it is written as
 proc col(t: JsonNode, k: string): string = t["colors"][k].getStr
 
+# the built-in theme's colour k, written as #rrggbb
 proc colOf(b: TiBuiltin, k: string): string = tiHex(b.base[TiKeys.find(k)])
 
 proc isNedTheme(t: JsonNode): bool =
   ## what themeFromJson takes: a name of its own, light or dark, a built-in base, every colour #RRGGBB
   result = true
   template need(c: bool, why: string) =
+    ## when the condition does not hold, notes the reason with the theme (shown if the test fails) and makes the result
+    ## false
     if not c:
       checkpoint(why & ": " & $t)
       result = false
@@ -72,6 +77,7 @@ proc reads(t: JsonNode): bool =
   ## every colour reads on the background — the thresholds of contrast.py for the themes ned took in (text 7:1, code
   ## 4.5:1, comments and operators 3:1), and the theme editor's for the bars and the selection (text on them 4.5:1)
   result = true
+  # the theme's colour k as a number
   proc c(k: string): uint32 = uint32(tiParse(t["colors"][k].getStr, 0))
   let bg = c("bg")
   for (k, need) in [("fg", 7.0), ("keyword", 4.5), ("type", 4.5), ("string", 4.5), ("number", 4.5),

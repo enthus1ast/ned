@@ -24,6 +24,8 @@ proc runInTerm(cmd: string) =
   if tt.gotOutput: tt.termWrite(cmd & "\r") else: tt.pending = cmd & "\r"
 
 proc cmdDebugGdb() =
+  ## palette command: saves everything, then types into the terminal a line that builds the current Nim file with native
+  ## debug information and starts gdb on it (with Nim's pretty printers when found), or lldb when there is no gdb
   let b = buf()
   if b.lang.mode != lmNim or b.path.len == 0:
     info("Open a Nim file to debug")
@@ -76,6 +78,8 @@ proc restoreBreakpoints() =
   lastTask = s{"lastTask"}.getStr("")
 
 proc restoreSession() =
+  ## at start-up and when a folder is opened, brings back the folder's saved session: its breakpoints and watches, then the files that were open
+  ## (the ones that still exist) with the same one current, and puts the focus in the editor
   if not cfgRestoreSession or savedSessions.isNil: return
   let s = savedSessions{rootDir}
   if s == nil: return

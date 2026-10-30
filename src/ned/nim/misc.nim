@@ -1,3 +1,5 @@
+# small Nim commands that need no engine: share to the Nim Playground, switch the Nim version (choosenim or grabnim),
+# browse the standard library's names, and list a project's nimble requirements to install.
 proc cmdShareToPlayground() =
   ## the selection (or the whole file) on play.nim-lang.org; the link goes to the clipboard
   let b = buf()
@@ -58,6 +60,8 @@ proc cmdSwitchNim() =
     openActions("Switch Nim version (" & tool & ")", items))
 
 proc stdModulePath(m: string): string =
+  ## the source file of a standard library module (with or without the `std/` prefix), looked for in the library's
+  ## folders; "" when Nim's library is not known or has no such module
   let lib = nimLibDir()
   if lib.len == 0: return ""
   let short = if m.startsWith("std/"): m[4 .. ^1] else: m

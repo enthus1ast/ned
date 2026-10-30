@@ -116,6 +116,7 @@ import nedplugin
 requiresNed(">= 6.31")
 
 func words(lines: seq[string]): int =
+  ## the number of words in the lines (runs of text between whitespace)
   for l in lines: result += l.splitWhitespace.len
 
 proc showCounts(b: Buf) =
@@ -946,6 +947,8 @@ discard every(30_000) do ():
   told = still                                # (… and said again when they change again)
 
 proc remind() =
+  ## asks what to be reminded of and in how many minutes, replaces any reminder already set, and starts a one-off timer
+  ## that shows the reminder in a toast when it ends
   let what = ask("Remind you of what?", "a break")
   if what.len == 0: return
   let mins = (try: parseInt(ask("In how many minutes?", "25")) except ValueError: 0)
@@ -1001,11 +1004,15 @@ settingDef("withTime", true, "Daily log: begin each line with the time (14:03)")
 settingDef("heading", "# $date", "Daily log: the first line of a day's log ($date: the day)")
 settingDef("days", 14, "Daily log: how many days 'Daily log: open a day…' lists")
 
+# today's date, as year-month-day
 proc today(): string = localTime()[0 ..< 10]                  # "2026-10-26"
 
+# the path of a day's log inside the plugin's data folder, in a folder for its month
 func fileOf(day: string): string = day[0 ..< 7] & "/" & day & ".md"     # "2026-10/2026-10-26.md": a folder a month
 
 proc addLine() =
+  ## asks for a line and adds it to today's log, with the time in front when the setting asks; a new day's file gets its
+  ## heading first and the day is noted in days.txt, the list that 'open a day' reads
   let text = ask("Log:")
   if text.strip.len == 0: return
   let day = today()
@@ -1018,6 +1025,8 @@ proc addLine() =
   toast("Logged")
 
 proc openDay() =
+  ## lists the days that have a log, the latest first and as many as the days setting says, and opens the one picked as
+  ## a file from the plugin's data folder
   var days: seq[string]
   for d in readData("days.txt").splitLines:
     if d.len > 0: days.add d
@@ -1069,6 +1078,8 @@ proc gitAllowed(): bool =
   if not result: warn("git-line may not run programs: Plugins dock › git-line › Allow…")
 
 proc blame(b: Buf) =
+  ## runs git blame for the cursor's line, waiting for it, and shows who last changed that line and why (the commit
+  ## summary) in a message; says when the file is not saved or git fails
   if not gitAllowed(): return
   let p = b.path
   if p.len == 0:
@@ -1088,6 +1099,8 @@ proc blame(b: Buf) =
   message("Line " & n & ": " & author & " — " & summary & (if b.dirty: " (as saved)" else: ""))
 
 proc fetch() =
+  ## starts a git fetch in the background, with a note in the status bar while it runs, and reports in a toast or a
+  ## warning when it is done
   if not gitAllowed(): return
   status("⟳ git fetch")
   # shellAsync: the plugin goes on; the callback runs when git is done
@@ -1154,6 +1167,8 @@ func camel(w: string): string =
     else: result.add c
 
 proc changeCase(b: Buf) =
+  ## offers the word at the cursor in five forms (UPPER, lower, Capitalised, snake_case, camelCase) in a pick list and
+  ## replaces the word with the one chosen; nothing happens on Esc
   let c = b.cursor
   let r = wordRange(b.line(c.line), c.line, c.col)
   if r.isEmpty:
@@ -1166,6 +1181,8 @@ proc changeCase(b: Buf) =
   if i >= 0: b.replace(r, forms[i])
 
 proc replaceEverywhere(b: Buf) =
+  ## asks for a new word for the one at the cursor, finds every place the file has it as a whole word, asks to confirm
+  ## the count, then replaces them from the last backwards so the earlier places keep their columns
   let w = b.wordAt(b.cursor)
   if w.len == 0:
     message("No word at the cursor")
@@ -1224,6 +1241,8 @@ proc projectFiles(): seq[string] =
     if f.len > 0: result.add (if f.startsWith("./"): f[2 .. ^1] else: f)
 
 proc listTodos() =
+  ## greps the project's files for TODO and FIXME, fifty files at a time with the progress shown after each, and lists
+  ## the lines (file:line:text) in the Output panel, where a click goes to the line; says how many it found
   let files = projectFiles()
   var found: seq[string]
   var i = 0
@@ -1275,6 +1294,8 @@ import std/algorithm
 requiresNed(">= 6.31")
 
 proc sortRange(b: Buf, r: Range, linewise: bool, reverse = false, unique = false) =
+  ## sorts what the range covers: whole lines (a motion ending at a line's start does not take that line), optionally
+  ## backwards and without repeated lines; within one line, the comma-separated items
   if linewise or r.start.line != r.stop.line:
     let first = r.start.line
     var last = r.stop.line
@@ -1469,6 +1490,8 @@ proc keep(b: Buf) =
   b.markSaved()
 
 proc openPad() =
+  ## opens the scratch pad in a tab of its own, filled from the saved pad, or brings the one already open to the front;
+  ## a pad with no changes gets the cursor at the start
   # a tab of that title already open is used again — as it is, when it has changes not saved
   let b = newTab(Title, readData("scratch.md"), "scratch")
   if not b.dirty: b.setCursor(pos(0, 0))
@@ -1569,6 +1592,9 @@ import std/algorithm
 requiresNed(">= 6.31")
 
 proc findAll(b: Buf) =
+  ## asks for a regular expression, finds every match in the whole text with one request, and lists each as
+  ## path:line:column: text in the Output panel; a pattern that is not a regular expression is reported with ned's
+  ## reason
   let pattern = ask("Find (a regular expression):")
   if pattern.len == 0: return
   let text = b.text
@@ -1589,6 +1615,8 @@ proc findAll(b: Buf) =
   message($rows.len & " matches")
 
 proc replaceIn(b: Buf) =
+  ## asks for a pattern and a replacement ($0 for the match, $1 … $9 for its groups) and replaces the matches in the
+  ## selection — or in the whole file when nothing is selected — saying how many it changed
   let sel = b.selection
   let r = if sel.isEmpty: rng(pos(0, 0), pos(b.lineCount - 1, b.line(b.lineCount - 1).len)) else: sel
   let pattern = ask("Replace (a regular expression):")
@@ -1639,6 +1667,8 @@ import nedplugin
 requiresNed(">= 6.31")
 
 proc wordPlaces() =
+  ## collects, from every open file, each line that has the word at the cursor with a line either side, and opens them
+  ## together in one multibuffer
   let b = current()
   let w = b.wordAt(b.cursor)
   if w.len == 0:
@@ -1674,6 +1704,8 @@ proc testBeside() =
   if splitPane(show = t) < 0: message("No room for another pane")
 
 proc fileHere() =
+  ## opens the real file, at the real line and column, behind the cursor's place in a multibuffer; says so when the
+  ## cursor is not in a piece of one
   let b = current()
   let (path, at) = b.placeInFile(b.cursor)
   if path.len == 0:

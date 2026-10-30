@@ -144,6 +144,8 @@ proc nxParseParams*(text: string): seq[NxParam] =
   for q in pending: result.add NxParam(name: q)
 
 proc nxParamsText*(ps: seq[NxParam], skipFirst = false): string =
+  ## a parameter list written out as `name: type = default`, comma-separated; skipFirst leaves out the first (the
+  ## receiver of a method call)
   var parts: seq[string]
   for i, p in ps:
     if skipFirst and i == 0: continue

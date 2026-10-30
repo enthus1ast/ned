@@ -38,6 +38,7 @@ func fmtKindOf*(path: string): string =
   else: ""
 
 func looksCppText(text: string): bool =
+  ## is this C text really C++ (a .h file can be either)? Templates, namespaces, std:: and similar give it away
   for w in ["template<", "template <", "namespace ", "std::", "class ", "public:", "private:", "nullptr"]:
     if w in text: return true
 
@@ -183,6 +184,7 @@ proc nimCompilerRoot*(): string =
   compilerRootCache
 
 proc fmtCacheDir(): string =
+  ## ned's cache folder (under XDG_CACHE_HOME or ~/.cache), where the built parser check is kept
   getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "ned"
 
 proc astCheckerPath*(): string =
@@ -354,6 +356,10 @@ proc settingOf(j: JsonNode, key: string): JsonNode =
 var fmtWidthSaid = false        # (a settings file gave nim.format.lineLength: before any .editorconfig)
 
 proc applySettingsFile(p: string) =
+  ## reads the formatting settings from a settings file (JSON with comments allowed, keys flat like
+  ## `nim.format.lineLength` or nested) and sets the formatter's options from them: Nim layout (width, wrapping,
+  ## imports, alignment, comments, blank lines, verify), the C in emits, embedded languages and the C style; keys that
+  ## are missing or have the wrong type are skipped
   if not fileExists(p): return
   var j: JsonNode
   try: j = parseJson(stripJsoncText(readFile(p)))
@@ -417,6 +423,7 @@ proc applySettingsFile(p: string) =
   if n != nil and n.kind == JString: fmtCFormatter = n.getStr
 
 proc userSettingsFile(): string =
+  ## the user's own ned settings file, config.json under XDG_CONFIG_HOME or ~/.config
   getEnv("XDG_CONFIG_HOME", getHomeDir() / ".config") / "ned" / "config.json"
 
 proc projectSettingsFile(start: string): string =
@@ -539,6 +546,7 @@ proc unifiedDiff*(a, b, nameA, nameB: string, color = false): string =
   for i, op in ops:
     if op[0] != ' ': changes.add i
   if changes.len == 0: return ""
+  # the text in the given ANSI colour code when colours are on, else as it is
   proc c(s, code: string): string = (if color: "\e[" & code & "m" & s & "\e[0m" else: s)
   result = c("--- " & nameA, "1") & "\n" & c("+++ " & nameB, "1") & "\n"
   var i = 0
@@ -581,6 +589,8 @@ proc unifiedDiff*(a, b, nameA, nameB: string, color = false): string =
 # ── which files ──
 
 proc gitRootLookup(dir: string): string =
+  ## the top folder of the git repository that holds dir, found by walking up to the nearest .git; empty when there is
+  ## none
   var d = dir
   for _ in 0 .. 40:
     if dirExists(d / ".git") or fileExists(d / ".git"): return d
@@ -592,6 +602,8 @@ proc gitRootLookup(dir: string): string =
 var gitRootMemo: Table[string, (MonoTime, string)]   # (a folder → its repository's top, looked at again after 2 s)
 
 proc gitRootOf(dir: string): string =
+  ## gitRootLookup remembered for two seconds per folder (an answer of none is not kept, as a `git init` may follow), so
+  ## many files of a folder do not each walk up the tree
   let now = getMonoTime()
   gitRootMemo.withValue(dir, m):
     if (now - m[][0]).inMilliseconds < 2000: return m[][1]
@@ -633,6 +645,7 @@ proc filesIn(dir: string, usualSkips = true): seq[string] =
   result.sort()
 
 proc matches(re: Regex, s: string): bool =
+  ## does the regular expression match anywhere in the string?
   var caps: seq[int]
   reSearch(re, s, 0, caps)
 
@@ -806,6 +819,7 @@ proc nphExcluded*(path: string): bool =
 # ── the command ──
 
 func usageText(prog, version: string): string =
+  ## the text of --help: the usage line, every option with what it does, and the exit statuses
   prog & " " & version & " — ned's formatters: Nim (nph's style, checked), JSON, Markdown tables, CSS/SCSS, C, YAML, " &
   "TOML, HTML, SQL\n\n" &
   "Usage: " & prog & " [options] FILE|FOLDER…     " & prog & " [options] -   (stdin → stdout)\n\n" &
@@ -853,6 +867,11 @@ proc ensureChecker(prog: string, quiet: bool): string =
   ""
 
 proc fmtCliMain*(args: seq[string], prog = "nedfmt", version = "", nimFmt: FmtFn = nil): int =
+  ## the whole command line of nedfmt and `ned --format`: reads the options, the files and folders (or `-` for stdin →
+  ## stdout) and nph's .nph.toml, picks the files by the include and exclude patterns, formats each with ned's formatter
+  ## of its kind under the settings of its project, and then writes the file safely, writes elsewhere (--out, --outDir),
+  ## shows a diff or only checks. Gives the exit status: 0 done, 1 --check found files that would change, 2 a file was
+  ## left alone, 3 wrong arguments. --install-hook adds the git pre-commit hook
   var check, diff, quiet, hook, force, verify = false
   var color = isatty(stdout) and getEnv("NO_COLOR").len == 0
   var colorSet = false
@@ -949,6 +968,8 @@ proc fmtCliMain*(args: seq[string], prog = "nedfmt", version = "", nimFmt: FmtFn
     if checker.len == 0: return 3
     checkerTried = true
   proc settingsFor(p: string) =
+    ## gets the formatter ready for the file p: its layout settings (the user's, then the project's), a --line-length
+    ## from the command line over them, and the Nim parser check when it is wanted (built on first use)
     applySettingsFor(p)
     if lineLength > 0:
       FmtWidth = clamp(lineLength, 40, 240)

@@ -24,10 +24,14 @@ pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com
 const CharLitLangs = ["nim", "c", "cpp", "rust", "go", "java", "csharp", "kotlin", "zig", "odin", "haskell", "elixir",
                       "gleam", "scala", "swift", "dart"]
 
+# whether the byte can be part of a name: a letter, digit or `_`, or part of a non-ASCII character
 func isIdent(c: char): bool = c in IdentChars or ord(c) >= 128
+# whether the line is empty or only spaces
 func isBlank(s: string): bool = s.strip.len == 0
 
 func runeLenAt(t: string, i: int): int =
+  ## how many bytes the UTF-8 character that starts at byte `i` takes (1 past the end of the text), read from its first
+  ## byte
   if i >= t.len: 1
   elif ord(t[i]) < 0xC0: 1
   elif ord(t[i]) < 0xE0: 2
@@ -52,6 +56,7 @@ func scanKinds(t, lang, cm: string): string =
   let (bo, bc) = if cm == "//": ("/*", "*/") elif lang == "nim": ("#[", "]#") else: ("", "")
   var i = 0
   template fill(a, e: int, k: char) =
+    ## marks the bytes from `a` up to `e` of the result with the kind `k`
     for x in a ..< e: result[x] = k
   while i < t.len:
     let c = t[i]
@@ -106,9 +111,12 @@ proc scanAround(b: Buf, line: int): Scan =
   result.lang = b.lang
   result.kinds = scanKinds(result.t, result.lang, b.lineComment)
 
+# the position in the buffer as an offset in the scanned text
 func offsetOf(sc: Scan, p: Pos): int = sc.starts[p.line - sc.first] + p.col
 
 func posOf(sc: Scan, i: int): Pos =
+  ## the buffer position (line and column) of the offset `i` in the scanned text — the last line that starts at or
+  ## before it
   var l = sc.starts.high
   while l > 0 and sc.starts[l] > i: dec l
   pos(sc.first + l, i - sc.starts[l])
@@ -134,6 +142,9 @@ func enclosing(sc: Scan, at: int): (int, int) =
         if o <= at and at <= i and o > result[0]: result = (o, i)
 
 proc argument(b: Buf, p: Pos, around: bool): Range =
+  ## the range of the argument at the cursor in the innermost brackets around it (Nim's {. .} too), split at the commas
+  ## that are not in strings, comments or inner brackets; with `around` the comma that goes with it is included (the one
+  ## after, else the one before). An empty range when there are no brackets or no arguments
   let sc = scanAround(b, p.line)
   let at = min(sc.offsetOf(p), max(0, sc.t.len - 1))
   let (o, c) = sc.enclosing(at)
@@ -147,6 +158,8 @@ proc argument(b: Buf, p: Pos, around: bool): Range =
   let (a0, e0) = if pragma: (o + 2, c - 1) else: (o + 1, c)
   var a = a0
   proc addArg(x0, y0, sep: int) =
+    ## adds the argument that spans `x0` up to `y0`, with the spaces round it left out, and where its comma is (-1:
+    ## none)
     var (x, y) = (x0, y0)
     while x < y and sc.t[x] in Whitespace: inc x
     while y > x and sc.t[y - 1] in Whitespace: dec y
@@ -181,12 +194,14 @@ textObject("aa", "an argument and its comma") do (b: Buf, p: Pos) -> Range: argu
 # ── lines: an indentation level, the line, the whole text ──
 
 func indentOf(s: string): int =
+  ## the width of the line's indentation, a tab counting four columns
   for c in s:
     if c == ' ': inc result
     elif c == '\t': result += 4
     else: break
 
 func firstCol(s: string): int =
+  ## the column of the line's first character that is not a space or a tab
   while result < s.len and s[result] in {' ', '\t'}: inc result
 
 proc window(b: Buf, p: Pos): (int, seq[string], int) =
@@ -201,6 +216,9 @@ func wholeLines(first, last, lastLen, lineCount: int): Range =
   if last + 1 < lineCount: rng(pos(first, 0), pos(last + 1, 0)) else: rng(pos(first, 0), pos(last, lastLen))
 
 proc indentLevel(b: Buf, p: Pos, above, below: bool): Range =
+  ## the whole lines round the cursor that are indented as much as its line or more, blank lines inside them too (on a
+  ## blank line: the level of the next line with text). At the top level it is the paragraph. `above` adds the line
+  ## above the block (the if, the proc), `below` the line below too when it is indented less (the closing bracket)
   let (first, ls, total) = window(b, p)
   let n = ls.len
   let l0 = p.line - first
@@ -247,6 +265,7 @@ textObject("al", "the whole line") do (b: Buf, p: Pos) -> Range:
   rng(pos(p.line, 0), pos(p.line, s.len))
 
 proc entire(b: Buf, inner: bool): Range =
+  ## the whole text as lines; `inner` leaves out the blank lines at its start and its end
   let ls = b.lines
   var (a, e) = (0, ls.high)
   if inner:

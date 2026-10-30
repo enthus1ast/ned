@@ -22,6 +22,7 @@ settingDef("ignoreCase", false, "Regex: try a pattern — upper and lower case t
 var lastPattern = ""
 
 func lineStarts(text: string): seq[int] =
+  ## the byte offset where each line of the text starts (the first is 0)
   result = @[0]
   for i, c in text:
     if c == '\n': result.add i + 1
@@ -51,6 +52,9 @@ func shown(s: string): string =
   "\"" & t & "\""
 
 proc tryPattern(b: Buf, pat: string) =
+  ## Regex: try a pattern — lights up every match of the pattern in the selection (else the file), puts a ● in the
+  ## gutter of each line that has one and the first match's groups after it, shows the match count in the status bar and
+  ## moves the cursor to the first match after it; an empty pattern clears the marks, a bad one is warned about
   b.clearDecorations()
   if pat.len == 0:
     status("")
@@ -98,6 +102,8 @@ command "Regex: clear the marks":
   status("")
 
 proc replaceWith() =
+  ## Regex: replace with a pattern — asks for a pattern and its replacement ($0 … $9), says how many matches it would
+  ## change and asks, then replaces them in the selection (else the file) as one change
   let b = current()
   let pat = ask("Replace (a regular expression)", lastPattern)
   if pat.len == 0: return
@@ -151,6 +157,7 @@ func classWords(body: string): string =
   (if neg: "any character but " else: "one of ") & parts.join(", ")
 
 func quantWords(q: string): string =
+  ## a quantifier (* + ? {n} {n,} {n,m}, with a ? after it for lazy) in words: "once or more", "from 2 to 4 times" …
   let lazy = q.len > 1 and q[^1] == '?' and q[0] != '?'
   let core = if lazy: q[0 ..< q.high] else: q
   result = case core
@@ -170,6 +177,8 @@ proc explain*(pat: string): seq[string] =
   var group = 0
   var depth = 0
   template put(piece, words: string) =
+    ## adds a line to the explanation: the piece of the pattern, padded to a column, and what it does, indented two
+    ## spaces for each group it is inside
     result.add spaces(depth * 2) & alignLeft(piece, 12) & "  " & words
   while i < pat.len:
     let c = pat[i]
@@ -265,6 +274,8 @@ proc patternAt(b: Buf): string =
   lastPattern
 
 proc explainHere() =
+  ## Regex: explain the pattern — takes the pattern under the cursor (else asks), and opens a tab explaining it a piece
+  ## at a time, with the error if the regex engine does not accept it
   let b = current()
   var pat = patternAt(b)
   if pat.len == 0: pat = ask("Regular expression", "")

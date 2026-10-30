@@ -26,8 +26,11 @@ const
   DashLangs = ["css", "scss", "sass", "less", "html", "xml", "yaml", "toml", "lisp", "clojure", "scheme", "racket",
                "elisp"]
 
+# whether c can be part of a name: a letter, digit or _, or any byte of a non-ASCII character
 func isIdent(c: char): bool = c in IdentChars or ord(c) >= 128
+# whether c is an ASCII capital letter
 func isUp(c: char): bool = c in {'A' .. 'Z'}
+# whether c is an ASCII lower-case letter
 func isLow(c: char): bool = c in {'a' .. 'z'}
 
 func splitName(t: string): (string, seq[string], string) =
@@ -56,6 +59,8 @@ func splitName(t: string): (string, seq[string], string) =
   (t[0 ..< a], words, t[e .. ^1])
 
 func joinHumps(ws: seq[string], firstLow: bool): string =
+  ## the words written as camelCase (the first word kept in lower case when firstLow) or PascalCase: every other word
+  ## with a capital
   for i, w in ws:
     # (two words that are both numbers at the join keep an underscore: x86_64 stays x86_64)
     if i > 0 and w[0] in Digits and ws[i - 1][^1] in Digits: result.add '_'
@@ -123,6 +128,7 @@ proc wordSpan(s: string, c: int, dash: bool): (int, int) =
   while e < s.len and w(e): inc e
   (a, e)
 
+# whether position a comes earlier in the buffer than b
 func before(a, b: Pos): bool = a.line < b.line or (a.line == b.line and a.col < b.col)
 
 proc targets(b: Buf): seq[Range] =
@@ -195,10 +201,13 @@ proc styled(st: Style): proc(t: string): Style =
   result = proc(t: string): Style = st
 
 proc toStyle(st: Style) =
+  ## changes the names at the cursors or in the selection to the style st
   let b = current()
   if b.valid: changeTo(b, targets(b), styled(st))
 
 proc toNext() =
+  ## changes the names at the cursors or in the selection to the next style of the cycle, each name from the style it
+  ## has now
   let b = current()
   if b.valid: changeTo(b, targets(b), proc(t: string): Style = nextStyle(t))
 
@@ -229,6 +238,7 @@ command "Case: choose…": choose()
 # ── vim: vim-abolish's cr ──
 
 proc crMap(keys: string, st: Style) =
+  ## (a factory: binds the vim normal-mode keys, as vim-abolish does, to write the name at the cursor in style st)
   nmap(keys, "the name to " & StyleNames[st]) do (count: int): toStyle(st)
 
 crMap("crs", sSnake)

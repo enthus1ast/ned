@@ -1,6 +1,9 @@
 # ── interactive rebase, cherry-pick from a branch, compare branches, branch graph, GitHub (gh) ──
 
 proc gitRebasePlan(root, base, what: string) =
+  ## opens the plan of an interactive rebase in a tab of its own: lists the commits after `base` (oldest first) as `pick
+  ## <hash> <subject>` lines under a few lines of instructions, ready to be edited; refuses when there are merge commits
+  ## after it or no commits at all. Saving the tab runs the rebase (doRebaseFromBuffer)
   discard startJob(jkGit, "git rev-list --merges --count " & quoteShell(base) & "..HEAD && " &
                    "git --no-pager log --reverse --format='%h%x09%s' " & quoteShell(base) & "..HEAD", root, proc(j: Job) =
     var ls = j.output.strip.splitLines
@@ -31,6 +34,9 @@ proc gitRebasePlan(root, base, what: string) =
     focus = fEditor)
 
 proc gitInteractiveRebase() =
+  ## Git › Interactive rebase: asks which commits to rebase — those not pushed yet (everything after the upstream
+  ## branch) or those made after any of the last 40 commits — then opens the plan for them. Refused outside a repository
+  ## and while another rebase, merge or similar is in progress
   let root = gitHome()
   if root.len == 0:
     info("Not a git repository")
@@ -61,6 +67,11 @@ proc gitInteractiveRebase() =
     else: openActions("Interactive rebase — which commits?", items))
 
 proc doRebaseFromBuffer(b: Buffer): bool =
+  ## saving the rebase plan tab: checks every line (a known action, a known commit from the plan, none twice, nothing
+  ## squashed into a commit that is not there), turns the plan into git's todo list — a reworded commit becomes a pick
+  ## followed by an amend with the new message, commits left out of the plan are dropped — and, after a confirmation (it
+  ## rewrites history), runs `git rebase -i --autostash` with that list; the plan tab closes when the rebase is done.
+  ## Gives false when the plan is wrong or changes nothing
   let rb = rebaseBufs[b.id]
   var known = initTable[string, string]()
   for (h, s) in rb.orig: known[h] = s
@@ -170,6 +181,8 @@ proc pickBranch(title: string, cb: proc(name: string)) =
     else: openActions(title.replace("$cur", gitBranch), items))
 
 proc gitCherryPickFromBranch() =
+  ## Git › Cherry-pick from a branch: asks for a branch, lists its last commits that this branch does not have, and
+  ## copies the chosen one onto the current branch (`git cherry-pick`) after a confirmation
   let root = gitHome()
   pickBranch("Cherry-pick from which branch?", proc(br: string) =
     discard startJob(jkGit, "git --no-pager log --format='%h%x09%s%x09%ar' -n 100 HEAD.." & quoteShell(br), root,
@@ -220,6 +233,8 @@ proc gitCompareBranch() =
       else: openActions(gitBranch & " vs " & br & " — " & $items.len & " file(s); pick one for its diff", items)))
 
 proc gitBranchGraph() =
+  ## Git › Branch graph: shows `git log --graph --all` of the last 600 commits, with branch names, in a read-only tab
+  ## (Enter on a commit shows its files)
   let root = gitHome()
   if root.len == 0:
     info("Not a git repository")

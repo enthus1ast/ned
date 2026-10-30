@@ -5,6 +5,8 @@ var
   nimIndexLoaded = false
 
 proc nimLibDir(): string =
+  ## Nim's library folder (the one holding system.nim): looked for beside the `nim` on PATH, under $PREFIX and in the
+  ## usual system places; "" when none
   let nim = findExe("nim")
   var cands: seq[string]
   if nim.len > 0:
@@ -23,6 +25,8 @@ proc nimLibDir(): string =
   ""
 
 proc scanNimExports(path: string, into: var Table[string, seq[string]], module: string) =
+  ## reads a library module's source and adds to `into` each exported name (a star after it) — top-level routines, and
+  ## the names in type, const, let and var sections — under that module's name
   var section = false
   try:
     for line in lines(path):
@@ -61,6 +65,9 @@ proc scanNimExports(path: string, into: var Table[string, seq[string]], module: 
   except CatchableError: discard
 
 proc loadNimIndex() =
+  ## makes the index of what the standard library exports (name to the modules that export it), once per session: read
+  ## from the cache in ned's state folder when it was made for this library, else by scanning the library's modules and
+  ## saving it
   if nimIndexLoaded: return
   nimIndexLoaded = true
   let lib = nimLibDir()
@@ -285,11 +292,13 @@ proc removeImport(b: Buffer, module: string): bool =
   false
 
 proc importAct(id: int, module: string): Action =
+  ## an action that adds an import of the module to the buffer
   result = proc() =
     let b = bufById(id)
     if b != nil: addImport(b, module)
 
 proc removeImportAct(id: int, module: string): Action =
+  ## an action that removes the import of the module from the buffer and says whether it was found
   result = proc() =
     let b = bufById(id)
     if b != nil:

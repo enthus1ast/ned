@@ -3,13 +3,20 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 proc dirPrefix(dir: string): string =
+  ## the folder as the start of a path typed in a prompt: empty for the project's root, else its path from the root with
+  ## a closing `/`
   if dir == rootDir: "" else: relPath(dir) & "/"
 
 proc treeKey(k: Key) =
+  ## a key typed in the file tree: arrows, PgUp, PgDn, Home, End and j, k move the selection; Enter, l and o open a file
+  ## or open and close a folder; Right and Left (h) open a folder or go in, close it or go to its parent; Delete or d
+  ## deletes after a question (on the server too); n, a, f and A ask for a new file or folder in the selected folder, r
+  ## renames, R reads the tree again, . shows or hides hidden files; Esc and q give the focus back to the editor
   if treeRows.len == 0: flattenTree()
   let n = if treeSel >= 0 and treeSel < treeRows.len: treeRows[treeSel] else: nil
   let rows = max(1, scrH - 4)
   template activate() =
+    ## opens the selected file, or opens or closes the selected folder
     if n != nil:
       if n.isDir:
         n.expanded = not n.expanded
@@ -88,6 +95,9 @@ proc treeKey(k: Key) =
   else: discard
 
 proc panelJump(i: int) =
+  ## follows line `i` of the bottom panel: a debugger line or a dependency's action runs its own action, a line with a
+  ## place opens that file at its line and column (centred, with the problem shown in the status line) after noting
+  ## where it came from for Jump back; the focus goes to the editor
   if i < 0 or i >= panelLines.len: return
   let pl = panelLines[i]
   if pl.path.startsWith("dbg:"):
@@ -106,6 +116,9 @@ proc panelJump(i: int) =
   focus = fEditor
 
 proc panelKey(k: Key) =
+  ## a key typed in the bottom panel: arrows, PgUp, PgDn, Home, End and j, k move the selection (and stop the panel
+  ## following new output), Enter follows the line, Ctrl+C stops the running command, Esc gives the focus back to the
+  ## editor and q also closes the panel
   let rows = max(1, scrH div 3 - 1)
   case k.kind
   of kUp, kDown, kPgUp, kPgDn, kHome, kEnd:
@@ -160,6 +173,10 @@ proc inlayAdjust(b: Buffer, line, tx: int, segStart = 0, segEnd = high(int)): in
   tx - shift
 
 proc editorPosAt(x, y: int): (bool, Pos) =
+  ## the place in the text under a screen cell, for a click: false outside the editor. It goes down from the top line
+  ## through the rows each line takes (wrapped rows, folded lines skipped, the rows of a cell's output under a line,
+  ## which give the end of that line), the column found from the visible columns after the gutter, the continuation
+  ## indent of wrapped rows and the inlay hints drawn on the line; below the text it is the end of the last line
   let b = buf()
   let (ex, ey, ew, eh) = editorRect
   if x < ex or x >= ex + ew or y < ey or y >= ey + eh: return (false, Pos())

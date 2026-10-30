@@ -1,3 +1,6 @@
+# the Output panel's side of running commands: turning a running job's output into panel lines and problems (compiler
+# messages with their file and line), starting, stopping and finishing runs, expanding $file-style words in commands,
+# and opening a file or address in the browser.
 proc parseErrLine(s, cwd: string): (bool, string, int, int, int, string) =
   ## recognises Nim, GCC/Clang/Go/TS, Rust and Python locations. sev: 1 err, 2 warn, 3 info
   let t = s.strip()
@@ -70,6 +73,8 @@ proc parseErrLine(s, cwd: string): (bool, string, int, int, int, string) =
   (false, "", 0, 0, 0, "")
 
 proc addPanelLine(pl: PanelLine) =
+  ## adds a line to the Output panel; past 22000 lines it drops the oldest 2000 at once (moving the selection and scroll
+  ## position with them) so trimming is not done a line at a time
   panelStore[pkOutput].add pl
   if panelStore[pkOutput].len > 22000:
     # drop the oldest 2000 at once: one move per 2000 lines instead of a 20000-line shift per line
@@ -114,6 +119,10 @@ proc nimbleResolveDone(j: Job) =
                          line: ds[0].line, col: ds[0].col, sev: 1))
 
 proc addRunLine(j: Job, raw: string) =
+  ## one line of a run's output into the panel: colour codes, a trailing carriage return and anything before a last one
+  ## (progress lines) removed, the server's paths in a remote folder turned into the local copy's, nimble's and atlas's
+  ## messages passed to their collectors; if `parseErrLine` finds a location, the line links to it and an error or
+  ## warning is added to `diagsBuild` as a problem
   var s = stripAnsi(raw)
   for r in remotes:                         # the server's paths in compiler messages: the local copies
     if r.absPath.len > 1 and r.absPath in s: s = s.replace(r.absPath & "/", r.mirror & "/")
@@ -136,6 +145,9 @@ proc addRunLine(j: Job, raw: string) =
 proc searchLine(j: Job, raw: string)
 
 proc jobChunk(j: Job, chunk: string) =
+  ## takes a chunk of a job's output: keeps it in `j.output` (up to 8 MB; searches and AI jobs do not), and hands each
+  ## complete line to the reader for the job's kind — `addRunLine`, `searchLine` or `aiLine`; the unfinished last line
+  ## waits in `j.partial` for the next chunk
   if j.kind notin {jkSearch, jkAi} and j.output.len < 8_000_000: j.output.add chunk
   if j.kind == jkAi:
     let data = j.partial & chunk
@@ -151,11 +163,13 @@ proc jobChunk(j: Job, chunk: string) =
     j.partial = parts[^1]
 
 proc runningJob(): Job =
+  ## the run job that is still going, or nil
   for j in jobs:
     if j.kind == jkRun and not j.done: return j
   nil
 
 proc stopRun() =
+  ## stops the running job and writes "Stopped" in the Output panel; says so when nothing is running
   let j = runningJob()
   if j == nil:
     info("Nothing is running")
@@ -164,6 +178,8 @@ proc stopRun() =
   addPanelLine(PanelLine(text: "■ Stopped", sev: 2, line: -1))
 
 proc expandCmd(cmd: string, b: Buffer): string =
+  ## replaces $file, $dir and $name (when the buffer has a file), $tmp and $root in a command with the buffer's path,
+  ## its folder, its name without extension, ned's temporary folder and the project's folder
   result = cmd
   if b != nil and b.path.len > 0:
     result = result.replace("$file", b.path).replace("$dir", parentDir(b.path))
@@ -213,6 +229,8 @@ proc runCommand(cmd0, cwd: string, after: proc(code: int) {.closure.} = nil) =
   info("Running: " & cmd0 & onHost)
 
 proc probeTool(tool, args: string) =
+  ## runs `tool args` in the background and keeps the first word of its output that looks like a version number in
+  ## `toolVersions`; does nothing when the tool is not installed
   if not haveExe(tool): return
   discard startJob(jkAux, tool & " " & args & " 2>&1", rootDir, proc(j: Job) =
     for l in j.output.splitLines:
@@ -232,6 +250,9 @@ proc probeTools() =
   probeTool("nimony", "--version")
 
 proc nimCmd(b: Buffer, run: bool): string =
+  ## the command that runs (`run`) or builds the buffer's Nim file: `nim e` for a .nims, nimble run or build for a
+  ## .nimble, Nim 3's compiler when that is on, else `nim` with the chosen backend, the release or danger mode and the
+  ## extra flags
   let f = quoteShell(b.path)
   let mode = case cfgNimMode
     of "release": " -d:release"
@@ -247,6 +268,8 @@ proc nimCmd(b: Buffer, run: bool): string =
     (if cfgNimFlags.len > 0: " " & cfgNimFlags else: "") & " " & f
 
 proc openInBrowser(path: string) =
+  ## opens a file or an address in the browser with what the system has for it (Explorer on Windows; termux-open,
+  ## wslview, xdg-open or open elsewhere), or says no opener was found
   let isUrl = "://" in path
   when defined(windows):
     # (Explorer opens a page in the default browser, a file with the program it belongs to)

@@ -3,6 +3,8 @@
 #    : commands · C add a cursor below · , keep one cursor ──
 
 proc hxSetMode(m: HxMode) =
+  ## switches between Helix's normal, select and insert modes; edits made in one insert session are merged into one undo
+  ## step on leaving it, and the cursor's shape is set for the mode
   if m == hxInsert and vimUndoMark < 0: vimUndoMark = buf().undoStack.len
   if m != hxInsert and hxMode == hxInsert:
     buf().mergeUndo(vimUndoMark)
@@ -11,14 +13,19 @@ proc hxSetMode(m: HxMode) =
   vimShape()
   needRender = true
 
+# whether the character is part of a word: for a WORD (W, B, E) anything but a blank; for a word a letter, digit,
+# underscore or non-ASCII byte
 func hxIsWordCh(c: char, big: bool): bool = (if big: c notin {' ', '\t'} else: c.isAlphaNumeric or c == '_' or ord(c) >= 0x80)
 
 proc hxWordFwd(b: Buffer, p: Pos, big, toEnd: bool): Pos =
   ## w: the start of the next word · e: the end of this/next word (positions between characters)
   var l = p.line
   var c = p.col
+  # the character at the position being walked, a line break past the end of its line
   template ch(): char = (if c < b.lines[l].len: b.lines[l][c] else: '\n')
   template step(): bool =
+    ## moves the walked position on by one character, over a line break to the next line's start; false at the end of
+    ## the buffer
     (if c < b.lines[l].len: (inc c; true) elif l < b.lines.high: (inc l; c = 0; true) else: false)
   if toEnd:
     # skip blanks, then to the end of the word
@@ -35,8 +42,11 @@ proc hxWordFwd(b: Buffer, p: Pos, big, toEnd: bool): Pos =
   Pos(line: l, col: c)
 
 proc hxWordBack(b: Buffer, p: Pos, big: bool): Pos =
+  ## the start of the word before the position (b) — skips blanks and line breaks backwards, then the run of word (or of
+  ## other) characters
   var l = p.line
   var c = p.col
+  # the character before the walked position, a line break at the start of its line
   template prevCh(): char = (if c > 0: b.lines[l][c - 1] else: '\n')
   while prevCh() in {' ', '\t', '\n'}:
     if c > 0: dec c
@@ -58,6 +68,9 @@ proc hxRange(b: Buffer): (Pos, Pos) =
   (p, p)
 
 proc helixKey(k: Key): bool =
+  ## the Helix keymap for one key: insert mode passes everything but Esc on to the editor; normal and select mode take
+  ## counts, the g and space prefixes, r<char>, motions (select mode extends the selection instead of moving it) and the
+  ## editing keys. True when the key was taken
   let b = buf()
   # ── insert ──
   if hxMode == hxInsert:
@@ -278,12 +291,16 @@ proc helixKey(k: Key): bool =
   true
 
 proc helixEditorKey(k: Key): bool =
+  ## the editor's entry to the Helix keymap: only when editor.keymap is helix, and not while the completion list is open
+  ## in insert mode; sets the cursor's shape for the mode after the key
   if cfgKeymap != "helix": return false
   if compOpen and hxMode == hxInsert: return false
   result = helixKey(k)
   vimShape()
 
 func keymapAct(v: string): Action =
+  ## an action that selects the key bindings `v` (default, vim, emacs or helix): saves editor.keymap, leaves vim mode,
+  ## resets the Helix and emacs states and tells what the main keys are
   proc() =
     setSetting("editor.keymap", %v)
     if v != "vim" and sBool("editor.vimMode"): setSetting("editor.vimMode", %false)
@@ -295,6 +312,7 @@ func keymapAct(v: string): Action =
                                  elif v == "emacs": " — C-x C-s saves, M-x runs a command, C-g cancels" else: ""))
 
 proc cmdKeymap() =
+  ## the command "Key bindings: default · vim · emacs · helix…": a menu of the four keymaps with a line on each, the current one marked
   var items: seq[(string, string, Action)]
   for (v, d) in [("default", "VS Code-like: Ctrl+S, Ctrl+P, Ctrl+F …"), ("vim", "modal: hjkl, i, :w …"),
                  ("emacs", "C-f C-b C-n C-p, C-x C-s, C-k C-y, C-SPC, M-x"),

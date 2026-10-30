@@ -1,6 +1,8 @@
 # ── outline ──────────────────────────────────────────────────────────────────
 
 proc heuristicOutline(b: Buffer): seq[SideItem] =
+  ## the outline of any file from ned's text-based symbol finder: one row per symbol, nested by the line's indentation
+  ## (a Markdown heading by its level), with the symbol's icon and a colour for functions and types
   for it in heuristicSymbols(b):
     let ind = if it.line < b.lines.len: leadingWs(b.lines[it.line]).len div max(1, b.indentW()) else: 0
     result.add SideItem(text: it.label.strip, detail: it.detail, path: b.path, line: it.line, col: it.col,

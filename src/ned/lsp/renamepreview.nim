@@ -15,6 +15,9 @@ var renamePv: RenamePv
 proc applyRenameHits(hits: seq[(string, int, int)], oldName, newName: string)
 
 proc renderRenamePv() =
+  ## writes the preview tab's text: a heading with how many changes are ticked, the keys, then for each file its changes
+  ## as `[x] line N` with the old line and, for a ticked one, the new line; keeps a list from each row to its change
+  ## (renamePv.rowItem). The tab is read-only, so it is filled by setContent, with the cursor kept
   let b = bufById(renamePv.bufId)
   if b == nil: return
   var lines: seq[string]
@@ -79,6 +82,8 @@ proc closeRenamePv(ci: int) =
       break
 
 proc openRenamePv() =
+  ## opens the preview tab with every change ticked, the cursor on the first one; remembers the tab the rename started
+  ## in
   let n = max(renamePv.hits.len, renamePv.edits.len)
   renamePv.fromBuf = buf().id
   renamePv.on = newSeq[bool](n)
@@ -93,6 +98,8 @@ proc openRenamePv() =
       break
 
 proc previewRenameHits(hits: seq[(string, int, int)], oldName, newName: string) =
+  ## a rename worked out by ned's Nim engine or nimsuggest (every place of the name): shown in the preview to tick, or
+  ## applied at once when editor.renamePreview is off
   if not cfgRenamePreview:
     applyRenameHits(hits, oldName, newName)
     return
@@ -100,6 +107,8 @@ proc previewRenameHits(hits: seq[(string, int, int)], oldName, newName: string) 
   openRenamePv()
 
 proc previewWorkspaceEdit(s: LspServer, we: JsonNode, oldName, newName: string) =
+  ## a rename worked out by a language server (a workspace edit): its text edits listed one by one in the preview to
+  ## tick, or the edit applied at once when the preview is off, or the edit has nothing to list
   if not cfgRenamePreview or we == nil or we.kind != JObject:
     applyWorkspaceEdit(s, we)
     return

@@ -1,6 +1,7 @@
 # ── pnak, Nim 3's package tool: its pnak.nif lockfile (every package at its commit) read — the outline, hover, F12
 #    to the package's checkout, its problems — and pnak fetch / pnak pin run for the project ──
 
+# whether the path is a pnak lockfile
 func pnakFile(path: string): bool = extractFilename(path) == "pnak.nif"
 
 proc pnakExe(): string =
@@ -37,6 +38,7 @@ proc pnakCheckout(dir, name: string): (bool, string, string) =
   (true, head, at)
 
 func pnakSameCommit(a, b: string): bool =
+  ## whether two commit ids are the same commit, one possibly being the short form of the other (case ignored)
   let x = a.toLowerAscii
   let y = b.toLowerAscii
   x.len > 0 and y.len > 0 and (x.startsWith(y) or y.startsWith(x))
@@ -49,6 +51,7 @@ proc pnakDiags(b: Buffer): seq[Diag] =
   let fetched = dirExists(dir / "deps")
   var seen: Table[string, int]
   template add(l, c, e, sv: int, rl, m: string) =
+    ## adds a problem on line l between columns c and e, with severity sv, rule rl and message m
     result.add Diag(line: l, col: c, eline: l, ecol: e, sev: sv, src: "ned", rule: rl, msg: m)
   for r in pnakRequires(b.lines):
     let key = r.name.toLowerAscii
@@ -79,6 +82,8 @@ proc pnakAt(b: Buffer, p: Pos): int =
   -1
 
 proc pnakHover(b: Buffer, p: Pos): string =
+  ## the hover for an entry of a pnak.nif: its package, URL, commit (flagging a branch or tag) and where it is checked
+  ## out in deps/; on the file's first line, what a pnak.nif is
   if b == nil or not pnakFile(b.path): return ""
   let rs = pnakRequires(b.lines)
   let i = pnakAt(b, p)
@@ -120,6 +125,7 @@ proc pnakDefinition(b: Buffer, p: Pos): bool =
   true
 
 proc pnakOutlineOf(b: Buffer): seq[SideItem] =
+  ## the outline of a pnak.nif: one row per package with its commit (or "newest")
   for r in pnakRequires(b.lines):
     result.add SideItem(text: r.name, detail: (if r.commit.len > 0: r.commit[0 ..< min(10, r.commit.len)] else: "newest"),
                         path: b.path, line: r.line, col: r.col, icon: "▣", role: 8)

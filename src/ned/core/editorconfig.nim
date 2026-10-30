@@ -7,6 +7,8 @@ when defined(windows): import ../sys/winos as os   # (std/os, with '/' in the pa
 else: import std/os
 
 proc ecStamp(path: string): int64 =
+  ## when a file was last changed, in milliseconds (0 when it cannot be looked at) — what tells that a cached
+  ## .editorconfig is out of date
   try:
     let t = getLastModificationTime(path)
     t.toUnix * 1000 + t.nanosecond div 1_000_000
@@ -22,6 +24,8 @@ type
 var ecCache: Table[string, (int64, EcFile)]      # .editorconfig path → (when it changed, what it says)
 
 proc parseEditorConfig(text: string): EcFile =
+  ## reads an .editorconfig's text: its `root` setting before any section, and each [glob] section with its property
+  ## names (in lower case) and values, in order; comments and lines without `=` are skipped
   var cur = -1
   for raw in text.splitLines:
     let l = raw.strip

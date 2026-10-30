@@ -22,6 +22,8 @@ const
   SecIdent = {'A'..'Z', 'a'..'z', '0'..'9', '_'}
 
 func secPlaceholder(tab: var SecretTable, kind, value: string): string =
+  ## the placeholder for a secret value of this kind: the one it already has in the table, else a new
+  ## `[REDACTED:kind#n]` (n counting up) which is added to the table
   for (p, v) in tab.items:
     if v == value: return p
   result = SecretMark & kind & "#" & $(tab.items.len + 1) & "]"
@@ -249,6 +251,8 @@ proc secAssignments(s: string, spans: var seq[SecSpan]) =
 # ── the rest: private keys, passwords in URLs, Authorization headers, connection strings ──
 
 proc secPrivateKeys(s: string, spans: var seq[SecSpan]) =
+  ## finds PEM private keys (`-----BEGIN … PRIVATE KEY-----` through the matching END line, or to the end of the text
+  ## when it has none) and adds each as a span of kind private-key
   var i = 0
   while true:
     let a = s.find("-----BEGIN ", i)
@@ -326,6 +330,8 @@ proc secHeaders(s: string, spans: var seq[SecSpan]) =
       i = max(a, e)
 
 proc secTokens(s: string, spans: var seq[SecSpan]) =
+  ## finds the tokens that are secrets by their shape — the known prefixes (AWS, GitHub, Slack, Stripe, OpenAI/Anthropic
+  ## sk- …), JSON web tokens and Telegram bot tokens — at the start of a word, and adds their spans
   var i = 0
   while i < s.len:
     let c = s[i]
@@ -413,6 +419,7 @@ proc restoreSecretsJson*(text: string, tab: SecretTable): string =
   try:
     var j = parseJson(text)
     proc walk(n: JsonNode) =
+      ## replaces, in each string of the JSON, the placeholders by the secrets they stand for
       case n.kind
       of JString: n.str = restoreSecrets(n.str, tab)
       of JArray:

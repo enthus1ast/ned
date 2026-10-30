@@ -1,7 +1,12 @@
+# project-wide text search: runs ripgrep or grep (or a built-in scan when neither exists) over the project, collects the
+# matching lines for the Search view of the left dock, and has the glob matching of its "files to include" box.
 proc searchTitle() =
+  ## asks for a redraw so the Search view shows the new result count and whether the search is still running
   needRender = true
 
 proc addSearchHit(path: string, line, col: int, text: string) =
+  ## adds one result row to the Search view: one row per line, the text trimmed and cut to 300 bytes, counting the files
+  ## as the path changes; when the result limit is reached the search process is stopped
   if searchCount >= cfgSearchMax: return
   if searchHits.len > 0 and searchHits[^1].path == path and searchHits[^1].line == line: return   # one row per line
   if path != searchLastPath:
@@ -15,12 +20,17 @@ proc addSearchHit(path: string, line, col: int, text: string) =
     killProc(searchJob.pr)
 
 proc stopSearch() =
+  ## ends a running search: kills the ripgrep or grep process, forgets the job and the built-in scan, and marks the
+  ## search as finished
   if searchJob != nil and not searchJob.done: killProc(searchJob.pr)
   searchJob = nil
   searchBuiltin = false
   searchDone = true
 
 proc searchLine(j: Job, raw: string) =
+  ## reads one output line of ripgrep (path:line:col:text) or grep (path:line:text) and adds it as a result, making the
+  ## path absolute and skipping files whose unsaved buffers were already searched in memory; for grep the column is
+  ## found by matching the query in the text again. Output from a search that a newer one has replaced is ignored
   if j != searchJob: return
   var line = raw
   if line.endsWith('\r'): line.setLen(line.len - 1)
@@ -113,6 +123,7 @@ proc pumpSearch(budgetMs: int) =
   searchTitle()
 
 proc wsSearchDirs(): string =
+  ## the other folders of a multi-root workspace that exist, quoted and ready to append to a search command line
   for r in wsRoots:
     if dirExists(r): result.add " " & quoteShell(r)
 

@@ -60,11 +60,13 @@ Settings (initializationOptions, or workspace/didChangeConfiguration under "nedl
                                   over the project's files that are not open, while nedls is idle
 """
 
+# the handler for SIGTERM and SIGINT: only notes the signal, which the main loop then ends on
 proc onLsSignal(sig: cint) {.noconv.} = lsSignal = sig.int
 
 # ── settings ──
 
 proc lsOptIn(o: JsonNode, key: string): JsonNode =
+  ## a setting from one settings object, written under "nedls" or at its top level (nil when it is not there)
   if o == nil or o.kind != JObject: return nil
   let sub = o{"nedls"}
   if sub != nil and sub.kind == JObject and sub.hasKey(key): return sub[key]
@@ -126,6 +128,9 @@ proc lsSetRoot(dir: string) =
   fileCacheValid = false
 
 proc lsInitialize(params: JsonNode): JsonNode =
+  ## the initialize request: reads what the client can do (position encoding, snippets, nested symbols, resolving, pull
+  ## diagnostics, applying edits, progress …) and its project folders and options, sets the project folder and ned's
+  ## settings, guesses the Nim toolchain, and answers with the capabilities nedls offers and its version
   let caps = params{"capabilities"}
   # positions: UTF-8 when the client can, else UTF-16 (LSP's default)
   lsUtf8 = false
@@ -230,6 +235,8 @@ proc lsAskConfig() =
   if lsPullConfig: lsConfigReq = lsRequestOut("workspace/configuration", %*{"items": [{"section": "nedls"}]})
 
 proc lsOnInitialized() =
+  ## the initialized notification: asks the client for its settings and, when it can, registers for changes of .nim,
+  ## .nims and .nimble files and of the config files that matter
   lsAskConfig()
   if lsWatchFiles:
     lsRequestOut("client/registerCapability", %*{"registrations": [{
@@ -260,6 +267,8 @@ proc lsFilesChanged(params: JsonNode) =
   lsDiagsDirty = true
 
 proc lsWorkspaceFolders(params: JsonNode) =
+  ## workspace folders added or removed by the client: the other folders ned counts as part of the project are kept in
+  ## line, and the file list is read again
   let ev = params{"event"}
   for f in jitems(ev{"removed"}):
     let p = lsPathOf(f{"uri"}.getStr)
@@ -273,6 +282,7 @@ proc lsWorkspaceFolders(params: JsonNode) =
 
 # ── dispatch ──
 
+# a request id as text, the key of the cancelled set
 proc lsIdKey(id: JsonNode): string = (if id == nil: "" else: $id)
 
 proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
@@ -339,6 +349,9 @@ proc lsHandleRequest(meth: string, params: JsonNode, id: JsonNode) =
     lsReplyError(id, ErrMethodNotFound, "method not found: " & meth)
 
 proc lsHandleNotification(meth: string, params: JsonNode) =
+  ## one notification: the document's life (didOpen, didChange, didSave, didClose — each keeps ned's buffer, checks,
+  ## workspace names and problem lists in line), settings and watched-file changes, workspace folders, exit and
+  ## cancelRequest. Dropped before initialize, as the protocol says
   if meth == "exit":
     lsExit = true
     return
@@ -424,6 +437,9 @@ proc lsHandleNotification(meth: string, params: JsonNode) =
   else: discard                                # ($/setTrace, $/progress … and unknown ones: nothing to do)
 
 proc lsHandle(msg: JsonNode) =
+  ## one incoming message: an answer to a request of nedls's goes to the function waiting for it; a request is answered
+  ## (cancelled ones with the cancel error, a failing handler with an error reply — the server goes on); a notification
+  ## is handled. Warnings ned logged meanwhile go to the log, and with --verbose how long it took
   lsHeardAt = getMonoTime()              # (the idle work — the workspace's checks, its symbols — waits for a pause)
   if msg == nil or msg.kind != JObject:
     lsReplyError(newJNull(), ErrInvalidRequest, "a message must be a JSON object")
@@ -522,6 +538,8 @@ proc lsParentGone(): bool =
   posix.kill(Pid(lsParentPid), 0) != 0 and errno == ESRCH
 
 proc lsCleanup() =
+  ## on the way out: kills the compiler jobs still running and deletes the private copies of files made for checks while
+  ## typing
   for j in jobs:
     if not j.done: killProc(j.pr, SIGKILL)
   for _, (id, t, copy) in typingChecks:
@@ -531,6 +549,11 @@ proc lsCleanup() =
   typingChecks.clear()
 
 proc lsMainLoop() =
+  ## the server's loop: waits on stdin and on the running jobs' output (for no longer than the next check, publish or
+  ## idle work is due), reads and handles the messages, pumps the compiler jobs, then, when no message waits, the
+  ## checks, the publishing of problems and the idle work. It asks the client to colour and hint again when the
+  ## toolchain turns out different, and ends on exit, a signal, a closed stdout or stdin, or the client's process being
+  ## gone
   var lastNx = nxGen
   while not lsExit:
     if lsSignal != 0 or lsOutBroken: break
@@ -586,6 +609,10 @@ proc lsMainLoop() =
       break
 
 proc nedlsMain(): int =
+  ## the nedls program: --lint runs the engine's checks over files and ends; --version, --help, --stdio, --verbose and
+  ## --log: are the other options; then it takes stdin and stdout for the protocol, sets the signals, starts the
+  ## language tables and an empty buffer and runs the main loop. Its exit code: 0 after a shutdown request, else 1 (2
+  ## for an unknown option)
   let args = commandLineParams()
   let li = args.find("--lint")
   if li >= 0:                                  # (the engine's checks over files, then out: ned --lint's)

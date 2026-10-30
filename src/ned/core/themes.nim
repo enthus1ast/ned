@@ -13,6 +13,10 @@ proc blend(a, b: Rgb, t: float): Rgb =
 
 proc mkTheme(name: string, dark: bool, bg, fg, accent, sel, comment, keyword, typ, str, num, fn, op,
              macroC, prop, err, warn, ok: Rgb): Theme =
+  ## builds a theme from sixteen colours: the background, text, accent and selection, the colours of comments, keywords,
+  ## types, strings, numbers, functions, operators, macros and properties, and of errors, warnings and good news. Every
+  ## other colour (dim text, line numbers, current line, bars, popups, git marks, the terminal's palette) is mixed from
+  ## the background, the text and the accent, in strengths that differ for a dark and a light theme
   let black: Rgb = 0x000000
   result.name = name
   result.dark = dark
@@ -267,6 +271,7 @@ proc inked(t0: Theme): Theme =
   result = t0
   let p = t0.bg                    # paper
   let k = t0.fg                    # ink
+  # the ink when c is the paper, else the paper
   proc other(c: Rgb): Rgb = (if c == p: k else: p)
   result.boldKw = true
   for f in [addr result.dim, addr result.gutter, addr result.gutterCur, addr result.sel, addr result.match,
@@ -298,6 +303,8 @@ proc inked(t0: Theme): Theme =
   for tk in TokKind: result.syn[tk] = k
 
 proc allThemesRaw(): seq[Theme] =
+  ## the built-in themes as they are written, before makeReadable touches them: most from mkTheme's sixteen colours, the
+  ## phosphor, slate and monochrome ones by their own helpers. A new list on every call
   #            name                dark   bg        fg        accent    sel       comment   keyword   type      string    number    func      operator  macro     property  error     warning   ok
   @[
     mkTheme("one-dark",          true,  0x282C34, 0xABB2BF, 0x61AFEF, 0x3E4451, 0x5C6370, 0xC678DD, 0xE5C07B, 0x98C379, 0xD19A66, 0x61AFEF, 0x56B6C2, 0xE06C75, 0xE06C75, 0xE06C75, 0xE5C07B, 0x98C379),
@@ -403,12 +410,17 @@ proc inkCell(c: var Cell) {.inline.} =
     c.fg = c.bg xor 0xFFFFFF'u32         # (not the block elements: drawn in their own colour on purpose)
 
 proc luminance(c: Rgb): float =
+  ## how bright a colour looks, from 0 (black) to 1 (white): each channel in linear light, weighted by how bright the
+  ## eye finds red, green and blue (the WCAG formula)
   proc ch(v: uint32): float =
+    ## a channel (0 to 255) as linear light, 0 to 1: the sRGB curve undone
     let x = float(v) / 255.0
     if x <= 0.03928: x / 12.92 else: pow((x + 0.055) / 1.055, 2.4)
   0.2126 * ch((c shr 16) and 0xFF) + 0.7152 * ch((c shr 8) and 0xFF) + 0.0722 * ch(c and 0xFF)
 
 proc contrast(a, b: Rgb): float =
+  ## the contrast ratio of two colours, from 1 (the same) to 21 (black on white), whichever is the lighter (the WCAG
+  ## formula)
   let x = luminance(a)
   let y = luminance(b)
   (max(x, y) + 0.05) / (min(x, y) + 0.05)
@@ -464,6 +476,7 @@ proc makeReadable(t: var Theme) =
 proc customThemes(): seq[Theme]
 
 proc allThemes(): seq[Theme] =
+  ## every theme: the built-in ones made readable, then the user's from the themes folder. Made the first time and kept
   if themeCache.len > 0: return themeCache
   themeCache = allThemesRaw()
   for t in themeCache.mitems: makeReadable(t)
@@ -553,6 +566,7 @@ proc themeFromJson(j: JsonNode, fallbackName: string): (bool, Theme) =
 
 proc reloadThemes()
 
+# the folder of the user's own theme files: `ned/themes` in the config folder (XDG_CONFIG_HOME, else ~/.config)
 proc themesDir(): string = getEnv("XDG_CONFIG_HOME", getHomeDir() / ".config") / "ned" / "themes"
 
 proc customThemes(): seq[Theme] =
@@ -596,6 +610,7 @@ const ThemeAliases = [("molokai", "monokai"), ("catppuccin-macchiato", "catppucc
   ## (6.30: themes that were another one under another name — or nearly: a setting naming one gets that one)
 
 proc themeAlias(name: string): string =
+  ## the theme an old name stands for (see ThemeAliases), empty when the name is not one of them
   for (a, b) in ThemeAliases:
     if a == name: return b
 
@@ -623,6 +638,8 @@ proc trueBlackOf(t0: Theme): Theme =
   makeReadable(result)
 
 proc themeNamed(name: string): (bool, Theme) =
+  ## the theme of that name (an old name counts as the new one) as (true, theme), or (false, an empty theme) when there
+  ## is none
   let n = if themeAlias(name).len > 0: themeAlias(name) else: name
   for t in allThemes():
     if t.name == n: return (true, t)
@@ -650,6 +667,7 @@ proc isDaytime(): bool =
   else: m >= day or m < night
 
 proc autoByClock(): bool =
+  ## whether theme.autoBy is "clock": "auto" then follows the time of day and not the terminal's background
   let n = settingNode("theme.autoBy")
   n != nil and n.kind == JString and n.getStr == "clock"
 
@@ -682,5 +700,6 @@ proc applyTheme(name: string) =
   cfgThemeName = theme.name
 
 proc trueBlackOn(): bool =
+  ## whether theme.trueBlack is turned on
   let n = settingNode("theme.trueBlack")
   n != nil and n.kind == JBool and n.getBool

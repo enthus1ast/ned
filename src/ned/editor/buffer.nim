@@ -7,35 +7,49 @@ const
   ekType = 1
   ekDelete = 2
 
+# the buffer of the current tab
 proc buf(): Buffer {.inline.} = bufs[curBuf]
 
 proc newBuffer(): Buffer =
+  ## an empty buffer: one empty line, one cursor at the start, a two-space indent, the Text language and a fresh id (it
+  ## is not added to the tabs)
   result = Buffer(id: nextBufId, lines: @[""], cursors: @[cur(Pos())], indent: "  ",
                   lang: langByName("Text"), hlStart: @[0'u32, 0'u32], git: @[0'u8], ecTrim: -1, ecFinalNl: -1,
                   wkLogFrom: -1)
   inc nextBufId
 
+# the number of the latest undo step (0 when there is none) — what `savedSeq` is compared with to tell whether the text
+# changed since it was saved
 func topSeq(b: Buffer): int = (if b.undoStack.len == 0: 0 else: b.undoStack[^1].seqId)
 func dirty(b: Buffer): bool =
+  ## whether the buffer has changes that are not saved: the latest undo step is not the one that was current at the last
+  ## save (the hex editor counts its own undo steps)
   if b.hex != nil: b.hex.undo.len != b.hex.savedAt          # (the hex editor's own undo)
   else: b.topSeq() != b.savedSeq
 func isWelcome(b: Buffer): bool =
+  ## whether this is the untouched Welcome tab: flagged so, with no file, no title, no text and no edits yet
   b.welcome and b.path.len == 0 and b.title.len == 0 and b.lines.len == 1 and b.lines[0].len == 0 and
     b.undoStack.len == 0
 
 func name(b: Buffer): string =
+  ## the buffer's name for tabs and messages: its file's name, else its title (a virtual buffer), else Welcome or
+  ## untitled
   if b.path.len > 0: extractFilename(b.path)
   elif b.title.len > 0: b.title
   elif b.isWelcome(): "Welcome"
   else: "untitled"
+# the width of a tab in this buffer: the file's own (.editorconfig) or the editor.tabSize setting
 proc tabOf(b: Buffer): int = (if b.tabSize > 0: b.tabSize else: cfgTabSize)
+# whether large-file mode is in force for the buffer (the file is large and the person has not turned the mode off)
 func largeOn(b: Buffer): bool = b != nil and b.large and not b.largeOff
 proc wrapFor(b: Buffer): bool =
   ## soft wrap: not in large-file mode, nor in a CSV table (its rows scroll sideways)
   cfgWrapUser and not b.largeOn and not (cfgCsvAlign and b.lang != nil and b.lang.mode == lmCsv)
+# the width in columns of one indent level: a tab's width when the file indents with tabs, else the number of spaces
 proc indentW(b: Buffer): int = (if b.indent == "\t": b.tabOf else: max(1, b.indent.len))
 
 proc clampPos(b: Buffer, p: Pos): Pos =
+  ## the nearest valid position to `p`: inside the text, and never in the middle of a UTF-8 character
   result.line = clamp(p.line, 0, b.lines.high)
   let s = b.lines[result.line]
   result.col = clamp(p.col, 0, s.len)
@@ -43,11 +57,13 @@ proc clampPos(b: Buffer, p: Pos): Pos =
     dec result.col
 
 func posAfter(a: Pos, text: string): Pos =
+  ## where the end of `text` lands when it is put in at `a`
   let nl = text.count('\n')
   if nl == 0: Pos(line: a.line, col: a.col + text.len)
   else: Pos(line: a.line + nl, col: text.len - text.rfind('\n') - 1)
 
 proc getText(b: Buffer, a0, c0: Pos): string =
+  ## the text between two positions (given in either order, clamped to the buffer), lines joined with \n
   var a = b.clampPos(a0)            # out-of-range ends read up to the text's edge instead of failing
   var c = b.clampPos(c0)
   if c < a: swap(a, c)
@@ -59,6 +75,7 @@ proc getText(b: Buffer, a0, c0: Pos): string =
   result.add '\n'
   result.add b.lines[c.line][0 ..< c.col]
 
+# the whole text, lines joined with \n
 proc allText(b: Buffer): string = b.lines.join("\n")
 
 proc shiftSeq[T](s: var seq[T], at, delta: int) =
@@ -74,6 +91,8 @@ proc shiftSeq[T](s: var seq[T], at, delta: int) =
     s.setLen(s.len - d)
 
 proc shiftDiagTable(t: var DiagTable, path: string, a, c, dl: int) =
+  ## moves a file's problems with an edit that replaced lines a..c and changed the line count by `dl`: those below move
+  ## by `dl`, those on lines removed by the edit go to its first line
   if path notin t: return
   for d in t.mget(path).mitems:
     if d.line > c:
@@ -102,6 +121,11 @@ proc shiftInlays(b: Buffer, a, c, e: Pos) =
   b.inlays = nt
 
 proc rawReplace(b: Buffer, a, c: Pos, text: string): Pos =
+  ## puts `text` in place of the text between a and c and gives back the position at its end — only the text, no undo
+  ## step and no cursors (replaceText does those). The per-line tables (highlighting state, git marks) change size with
+  ## the lines, highlighting is marked stale from line a, the change counter goes up, the language server and the engine
+  ## worker are told through lspDirty and wkLog, and inlay hints and problems move with the text. A line over 4096 bytes
+  ## is changed in place instead of rebuilt, and one over editor.longLineLimit switches the file to large-file mode.
   if b.wkLogFrom >= 0:
     # (the engine worker has the text of change wkLogFrom: these edits bring it up to date — too many, the whole text)
     if b.wkLog.len < 3000: b.wkLog.add WkEdit(a: a, c: c, text: text)
@@ -177,6 +201,8 @@ proc rawReplace(b: Buffer, a, c: Pos, text: string): Pos =
   needRender = true
 
 func shiftPos(p, a, c, e: Pos): Pos {.inline.} =
+  ## where position `p` goes when the text between a and c is replaced by text ending at e: unchanged before a, to e
+  ## from inside the replaced text, moved along after it
   if p <= a: p
   elif p <= c: e
   elif p.line == c.line: Pos(line: e.line, col: e.col + p.col - c.col)
@@ -185,27 +211,32 @@ func shiftPos(p, a, c, e: Pos): Pos {.inline.} =
 # ── folding: which lines are hidden (the rest lives in the IDE section) ──
 
 func isHidden(b: Buffer, l: int): bool =
+  ## whether line `l` is hidden inside a fold (a fold's first line stays shown)
   for (s, e) in b.folds:
     if l > s and l <= e: return true
   false
 
 func foldAt(b: Buffer, l: int): int =
+  ## the index in b.folds of the fold that starts on line `l`, or -1
   for i, (s, _) in b.folds:
     if s == l: return i
   -1
 
 func nextVisible(b: Buffer, l: int): int =
+  ## the next line below `l` that a fold does not hide
   result = l + 1
   for (s, e) in b.folds:
     if result > s and result <= e: result = e + 1
 
 proc prevVisible(b: Buffer, l: int): int =
+  ## the previous line above `l` that a fold does not hide (a folded block counts as its first line)
   result = l - 1
   for i in countdown(b.folds.high, 0):
     let (s, e) = b.folds[i]
     if result > s and result <= e: result = s
 
 proc unfoldLine(b: Buffer, l: int) =
+  ## opens every fold that contains line `l`
   var keep: seq[(int, int)]
   for f in b.folds:
     if l >= f[0] and l <= f[1]: continue
@@ -261,6 +292,7 @@ proc shiftMarks(b: Buffer, a, c, e: Pos) =
     for (n, l2) in logs: bpLog[b.path & ":" & $n] = l2
 
 proc revealCursor(b: Buffer) =
+  ## opens the folds that hide any of the cursors, so that an edit or a move never leaves one out of sight
   if b.folds.len == 0: return
   for cu in b.cursors:
     if b.isHidden(cu.head.line): b.unfoldLine(cu.head.line)
@@ -285,6 +317,9 @@ proc replaceText(b: Buffer, a0, c0: Pos, text: string): Pos =
   e
 
 proc beginEdit(b: Buffer, kind = ekOther) =
+  ## starts an undo step: the edits made until endEdit are one group, with the cursors as they are now. `kind` (typing,
+  ## deleting, other) decides whether endEdit may join it to the step before. With one cursor it also notes the line's
+  ## text for the next-edit suggestions.
   b.inGroup = true
   b.group = UndoGroup(before: b.cursors, kind: kind, time: getMonoTime())
   # (next-edit suggestions: the line the edits are on, as it was before they began)
@@ -320,6 +355,9 @@ proc dropOldestUndo(b: Buffer) =
     if b.undoBranches[k].at < 0: b.undoBranches.delete(k) else: inc k
 
 proc endEdit(b: Buffer) =
+  ## ends the undo step beginEdit started: an empty one is dropped; else it is added to the undo stack with the cursors
+  ## after it (what was undone before stays reachable as a branch). Typing after typing, or deleting after deleting,
+  ## within 1.5 seconds and where the last one ended, joins the step before. The history keeps 2000 steps.
   b.inGroup = false
   if b.group.ops.len == 0: return
   if b.nesHas:
@@ -355,6 +393,9 @@ proc textAt(b: Buffer, a, c: Pos, text: string): bool =
   b.getText(a, c) == text
 
 proc undo(b: Buffer) =
+  ## takes back the latest undo step: its edits are reversed, last first, the cursors go back to where they were and the
+  ## step moves to the redo stack. When the text is no longer what the step left (it was changed behind the history's
+  ## back) the whole history is cleared with a warning instead.
   if b.undoStack.len == 0:
     info("Nothing to undo")
     return
@@ -380,6 +421,8 @@ proc undo(b: Buffer) =
   b.normalize()
 
 proc redo(b: Buffer) =
+  ## does the latest undone step again, in order, with the cursors as they were after it; clears the history with a
+  ## warning when the text no longer matches, as undo does
   if b.redoStack.len == 0:
     info("Nothing to redo")
     return
@@ -433,14 +476,19 @@ proc normalize(b: Buffer) =
       b.prim = i
       break
 
+# the primary cursor — the one the view follows and the single-cursor commands use
 func primary(b: Buffer): var Cursor = b.cursors[b.prim]
 
 proc setSingle(b: Buffer, p: Pos, anchor = Pos(line: -1)) =
+  ## leaves one cursor, with its head at `p` and its anchor at `anchor` (at `p` too when none is given, so nothing is
+  ## selected); both are clamped to the text
   let p2 = b.clampPos(p)
   b.cursors = @[Cursor(anchor: (if anchor.line < 0: p2 else: b.clampPos(anchor)), head: p2, goalX: -1)]
   b.prim = 0
 
 func bracketDelta(s: string, toks: seq[TokKind]): int =
+  ## how much a line changes the bracket depth: its opening brackets minus its closing ones, counting only those the
+  ## lexer marked as punctuation (not the ones in strings or comments)
   for i in 0 ..< min(s.len, toks.len):
     if toks[i] == tkPunct:
       case s[i]
@@ -482,6 +530,8 @@ proc stateAt(b: Buffer, line: int): (LexSt, int) =
   (st, d)
 
 proc hlTarget(b: Buffer): int =
+  ## the line up to which highlighting should be exact: a screenful and 200 lines past the top line or the cursor,
+  ## whichever is lower down
   min(b.lines.len, max(b.topLine, b.cursors[b.prim].head.line) + max(textH, 20) + 200)
 
 proc hlPump(b: Buffer, budgetMs: int) =
@@ -494,6 +544,8 @@ proc hlPump(b: Buffer, budgetMs: int) =
   if b.hlValid >= target: needRender = true
 
 proc tokenAt(b: Buffer, p: Pos): TokKind =
+  ## the kind of token (keyword, string, comment …) at a position: its line is lexed from the state the line starts in;
+  ## past the end of the line the last token's kind (text on an empty line)
   let (st, _) = b.stateAt(p.line)
   var toks: seq[TokKind]
   discard lexLine(b.lang, b.lines[p.line], st, toks)

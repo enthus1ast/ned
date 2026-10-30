@@ -54,13 +54,17 @@ type
   NxAcc = object
     off, maxAlign: int
 
+# x rounded up to the next multiple of the alignment a (a power of two)
 func nxLayAlignUp(x, a: int): int {.inline.} = (if a <= 1: x else: (x + a - 1) and not (a - 1))
 
 func nxLayAlign(a: var NxAcc, v: int) =
+  ## moves the running offset up to an alignment of v and remembers the largest alignment seen
   a.maxAlign = max(a.maxAlign, v)
   a.off = nxLayAlignUp(a.off, v)
 
 func nxLayFinish(a: var NxAcc): int =
+  ## pads the running offset to the largest alignment (the tail padding of a type) and gives the number of padding bytes
+  ## added
   result = nxLayAlignUp(a.off, a.maxAlign) - a.off
   a.off += result
 
@@ -80,6 +84,8 @@ type NxLinesRef* = ref object   # a file's lines, shared (not copied for every l
 var nxLayLines: seq[NxLinesRef]   # the files last read for a layout (or for what a routine raises)
 
 proc nxLayLinesRef(path: string): NxLinesRef =
+  ## a file's lines as a shared reference, read again only when the file's stamp changed; the last 32 files are kept,
+  ## and an older version of the same file is dropped
   let st = nxCurStamp(path)
   for x in nxLayLines:
     if x.path == path and x.stamp == st: return x
@@ -89,6 +95,7 @@ proc nxLayLinesRef(path: string): NxLinesRef =
   if nxLayLines.len >= 32: nxLayLines.delete(0)
   nxLayLines.add result
 
+# the shared lines of a file
 template nxLayLinesOf(path: string): seq[string] = nxLayLinesRef(path).lines
 
 proc nxLayPragmas(p: string): seq[(string, string)] =
@@ -702,6 +709,7 @@ proc nxLayObject(c: var NxLayCtx, r: NxRef, env: NxLayEnv, def: string, prags: s
     of "pure": pure = true
     else: discard
   let lr = nxLayLinesRef(r.file.path)
+  # the lines of the file the type is declared in
   template lines: untyped = lr.lines
   if r.sym.line >= lines.len or bodyB >= lines.len: return
   # (pragmas after `object`: the parser leaves them out of the definition — not read, so no layout)
@@ -822,6 +830,7 @@ proc nxLayObject(c: var NxLayCtx, r: NxRef, env: NxLayEnv, def: string, prags: s
 proc nxLayDecl(c: var NxLayCtx, r: NxRef, args: seq[NxLayArg], depth: int): NxLayout =
   ## the layout of the type `r` declares, with its generic parameters bound to `args`
   if depth > 24: return
+  # the declaration being laid out
   template s: untyped = r.sym
   var key = r.file.path & ":" & $s.line & ":" & s.name
   for a in args: key.add "|" & a.text & "@" & a.env.file.path
@@ -974,6 +983,8 @@ proc nxLayDecl(c: var NxLayCtx, r: NxRef, args: seq[NxLayArg], depth: int): NxLa
   res
 
 proc nxLayCtxNew(): NxLayCtx =
+  ## a fresh layout context for the platform ned (or the project's dump) says it is building for: its pointer size and
+  ## the alignment of 64-bit numbers
   let (w, a) = nxLayPlatform()
   NxLayCtx(word: w, i64: a)
 

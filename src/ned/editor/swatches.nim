@@ -3,6 +3,7 @@
 const SwatchMark = "■"
 
 func hexNib(c: char): int =
+  ## the value 0..15 of a hexadecimal digit, or -1 for any other character
   case c
   of '0'..'9': ord(c) - ord('0')
   of 'a'..'f': ord(c) - ord('a') + 10
@@ -23,6 +24,8 @@ func hexColour(h: string): (bool, int, int, int, float) =
   else: (false, 0, 0, 0, 1.0)
 
 proc hslToRgb(h, s, l: float): (int, int, int) =
+  ## converts a colour from hue (degrees, any value is wrapped into 0..360), saturation and lightness (0..1) to red,
+  ## green and blue (0..255)
   let c = (1.0 - abs(2.0 * l - 1.0)) * s
   var hd = h
   while hd < 0.0: hd += 360.0
@@ -41,6 +44,7 @@ proc hslToRgb(h, s, l: float): (int, int, int) =
    clamp(int((b + m) * 255.0 + 0.5), 0, 255))
 
 func rgbToHsl(r, g, b: int): (int, int, int) =
+  ## converts red, green and blue (0..255) to hue in degrees, and saturation and lightness in percent, all rounded
   let rf = r.float / 255.0
   let gf = g.float / 255.0
   let bf = b.float / 255.0
@@ -169,7 +173,10 @@ func declShape(s: string): (bool, int, int, int) =
   (true, ind, padStart, k)
 
 proc typeHintAt(b: Buffer, line, col: int): string =
-  ## the type hint (`: int`) drawn at a column of a line, or ""
+  ## the type hint (`: int`) drawn at a column of a line, or "" — the compiler's (a saved file's NIF) first
+  if cfgInlayHints and b.lang.mode == lmNim:
+    for (c, t) in nifTypeHints(b, line):
+      if c == col: return t
   if cfgInlayHints and line in b.inlays:
     for (c, lb) in b.inlays[line]:
       if c == col and lb.strip.startsWith(":"): return lb
@@ -177,7 +184,8 @@ proc typeHintAt(b: Buffer, line, col: int): string =
 proc lineDecor(b: Buffer, line: int, toks: seq[TokKind], sw: seq[(int, int, Rgb)]): seq[(int, string)] =
   ## what is drawn between the characters of a line: inlay hints and colour swatches, in column order
   decorOverlay.setLen(0)
-  if (cfgInlayHints or b.lang.mode == lmCsv) and line in b.inlays: result = b.lineInlays(line, toks)
+  if (cfgInlayHints or b.lang.mode == lmCsv) and (line in b.inlays or (b.lang.mode == lmNim and nifHasHints(b, line))):
+    result = b.lineInlays(line, toks)
   let (nc, nh) = b.nesHint(line)          # (a next-edit suggestion's place: what it would become)
   if nc >= 0:
     result.add (nc, nh)
@@ -253,6 +261,8 @@ proc swatchMenu(b: Buffer, line, col, n: int, rgb: Rgb) =
   let isHex = lit.startsWith("#") or lit.startsWith("0x") or lit.startsWith("0X")
   if isHex and not b.readOnly:
     proc shade(dl: int): Action =
+      ## the action that makes the clicked hex colour dl percent lighter (or darker when negative) in the text: same
+      ## notation (# or 0x, letter case, alpha kept), done only if the colour is still there as it was
       result = proc() =
         let bb = bufById(bid)
         if bb == nil or line >= bb.lines.len or col + n > bb.lines[line].len or bb.lines[line][col ..< col + n] != lit: return
@@ -271,6 +281,8 @@ proc swatchMenu(b: Buffer, line, col, n: int, rgb: Rgb) =
   openActions(lit & "  " & rgbS, items)
 
 proc drawSwatch(b: Buffer, line, col, hx, y, limX: int, sw: seq[(int, int, Rgb)], bg: Rgb) =
+  ## draws the colour block for the colour starting at text column col of the line, at screen column hx of row y, in
+  ## that colour on the background bg; clicking it opens the swatch menu, and the tip names the colour as rgb(…)
   var c = theme.fg
   var n = 0
   for (sc, sn, cc) in sw:

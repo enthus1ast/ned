@@ -6,12 +6,15 @@ import std/[os, strutils, unittest]
 import ../../src/ned/nim/index
 
 proc realOf(p: string): string =
+  ## the path a symbolic link points to; any other path as it is
   result = p
   try:
     if symlinkExists(p): result = expandFilename(p)
   except OSError: discard
 
 proc nimLib(): string =
+  ## the folder of Nim's standard library next to the nim on PATH, empty when there is none (the tests that need it are
+  ## skipped)
   let nim = findExe("nim")
   if nim.len == 0: return ""
   let prefix = nim.realOf.parentDir.parentDir
@@ -63,10 +66,12 @@ writeFile(dir / "w.nim", Src)
 let f = nxLoad(dir / "w.nim")
 
 proc refOf(name: string): NxRef =
+  ## the reference to the routine of that name in the test file
   for i in 0 ..< f.syms.len:
     if f.syms[i].name == name and f.syms[i].kind in NxRoutineKinds: return NxRef(file: f, idx: int32(i))
 
 proc lineOf(text: string): int =
+  ## the number of the first line of the test source that has the text, -1 when none does
   let ls = Src.splitLines
   for i, l in ls:
     if text in l: return i

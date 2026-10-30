@@ -5,6 +5,7 @@
 var pickActions: seq[Action]
 var pickSwatches: seq[int]       # a colour shown before each action's label (the theme editor), -1: none
 
+# one entry for openActions: a label, the grey detail text beside it and what it does
 func act(label, detail: string, a: Action): (string, string, Action) = (label, detail, a)
 
 var

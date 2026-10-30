@@ -1,6 +1,9 @@
 # ── request building ──
 
 proc aiSystemPrompt(): string =
+  ## the system prompt: what ned is and the project's root, the file being edited, the Nimble package, how to answer,
+  ## what the tools are for in agent mode, which Nim to write (Nim 3 with Nimony's guides in a Nim 3 project, else Nim
+  ## 2), how to treat the placeholders that stand for secrets, then ai.system and the project's instruction files
   result = "You are the AI assistant inside ned, a fast terminal code editor (Nim first; also C, C++, Python, JS, Rust, " &
            "HTML) running in Termux on Android or on Linux. Project root: " & rootDir & ". "
   let b = buf()
@@ -158,6 +161,10 @@ proc fileContext(): string =
     ">\n" & t & "</file>" & (if defs.len > 0: "\n" & defs else: "")
 
 proc anthropicBody(): JsonNode =
+  ## the request for Anthropic's Messages API: the conversation as user, assistant (text and tool_use) and tool_result
+  ## messages, the system prompt, the output limit, temperature, and the tools in agent mode. With ai.promptCaching the
+  ## system prompt, the tools and the newest message get cache breakpoints, so that the conversation so far is reused by
+  ## the next request
   let msgs = newJArray()
   let lastUser = aiLastUser()
   for mi, m in aiMsgs:

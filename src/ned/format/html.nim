@@ -49,6 +49,7 @@ type
     nl: int               # … with this many line breaks
 
 func hFindClose(s: string, i: int, close: string, limit: int): int =
+  ## the index just after the next `close` text found from i within `limit` characters, or -1
   let e = s.find(close, i, last = min(s.high, i + limit))
   if e < 0: -1 else: e + close.len
 
@@ -134,11 +135,13 @@ proc htmlToks(s: string, err: var string): seq[HTok] =
   var i = 0
   var textStart = 0
   template add(t: HTok, next: int) =
+    ## adds token t to the result, first adding the text that came before it as a text token, and moves on to `next`
     if i > textStart: result.add HTok(kind: htText, text: s[textStart ..< i])
     result.add t
     i = next
     textStart = next
   template fail(msg: string) =
+    ## gives up with the error message and the line the reader had reached
     err = msg & " (line " & $(s[0 ..< i].count('\n') + 1) & ")"
     return
   while i < s.len:
@@ -268,6 +271,8 @@ iterator hWords(s: string): tuple[ws: bool, nl: int, word: string] =
   yield (ws, nl, "")
 
 proc hAdd(f: var HFlat, a: HAtom) =
+  ## adds an atom to the flattened content, noting whether whitespace (and how many line breaks) stood before it in the
+  ## source
   var a = a
   a.gap = if f.ws: gSpace else: gNone
   a.nl = f.nl
@@ -310,8 +315,11 @@ proc hAtomsOf(kids: seq[HNode], closed: bool): seq[HAtom] =
       if result[i].gap == gSpace: result[i].gap = gKeep
       if i < result.high and result[i + 1].gap == gSpace: result[i + 1].gap = gKeep
 
+# is this atom put on lines of its own: a block element, or a comment or template statement that stood alone in the
+# source
 func hOwnLine(a: HAtom): bool = a.kind == haBlock or a.alone
 
+# is this atom a <br> tag, after which a line is broken
 func hIsBr(a: HAtom): bool = a.kind == haTag and a.node != nil and a.node.tok.lname == "br"
 
 proc hWidth(s: string, last = false): int =
@@ -322,6 +330,7 @@ proc hWidth(s: string, last = false): int =
     strWidth(if e < 0: s else: s[0 ..< e])
 
 proc hPiece(a: HAtom, d, ind, maxW: int): string =
+  ## the text an atom is written as: a start tag laid out by hTagText, anything else as it is
   if a.kind == haTag and a.node != nil: hTagText(a.node.tok, d, ind, maxW) else: a.text
 
 proc hFill(o: var string, atoms: openArray[HAtom], d, ind, maxW: int) =
@@ -405,6 +414,8 @@ type HCanon = object
   edge: bool  # next to a block's tag: whitespace there does not count
 
 proc hAdd(c: var HCanon, x: string, blk = false) =
+  ## adds a piece to the comparison form of a document: a block's tag is marked off with NUL characters and whitespace
+  ## next to it is dropped, other pieces are joined by a single space where whitespace stood
   if blk:
     c.s.add "\0" & x & "\0"
     c.edge = true
@@ -432,6 +443,8 @@ proc hCanon(c: var HCanon, kids: seq[HNode]) =
       elif n.blk: (c.sp, c.edge) = (false, true)
 
 proc hCanonOf(s: string, err: var string): string =
+  ## the comparison form of an HTML text (its tags, collapsed text, comments and raw content) that the formatter's
+  ## result is checked against; empty with err set when the HTML cannot be read
   let toks = htmlToks(s, err)
   if err.len > 0: return
   let root = hTree(toks)

@@ -141,6 +141,7 @@ proc lsDiagPaths(): seq[string] =
   ## the files whose problems nedls knows of: the open documents, those with problems, those it said had some
   var seen: HashSet[string]
   template want(p: string) =
+    ## adds the path to the result, once, if it is not empty
     if p.len > 0 and p notin seen:
       seen.incl p
       result.add p
@@ -414,6 +415,8 @@ proc lsSaved(b: Buffer) =
       inc n
 
 proc lsPumpCheckQueue() =
+  ## starts the next `nim check` of the queue when the compiler is not busy: the saved open file with runCheck, any
+  ## other file by its path
   if lsCheckQueue.len == 0 or lsCheckBusy(): return
   let (p, saved) = lsCheckQueue[0]
   lsCheckQueue.delete(0)

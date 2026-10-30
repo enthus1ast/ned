@@ -1,4 +1,10 @@
+# opening a folder as the project, the editor's right-click menu, and scrolling by the mouse wheel in whichever part of
+# the screen it is over
 proc openFolder(d: string) =
+  ## makes folder `d` the project: refuses while an untitled file is unsaved or saving all fails, saves the session of
+  ## the old folder, closes its tabs and forgets what was kept for them, then starts afresh in `d` — settings, workspace
+  ## roots, the file tree and file scan, git status, nimble info, the Nim index, language servers — adds it to the
+  ## recent folders and restores the folder's last session
   for b in bufs:
     if b.dirty and b.path.len == 0 and b.title.len == 0:
       let i = bufs.find(b)
@@ -51,6 +57,10 @@ proc openFolder(d: string) =
   info("Opened " & d)
 
 proc editorMenu(): seq[MenuItem] =
+  ## the menu of a right click in the editor, built for the cursor: navigation (definition, references, hover, rename,
+  ## quick fixes), cut/copy/paste, comment and format, multibuffer items in a multibuffer, the git change on the line,
+  ## header/source switch for C, for Nim also refactorings, debug, macro expansion and its other tools, the compiler
+  ## explorer, the AI commands and folding
   let b = buf()
   let hasSel = b.primary.hasSel
   result = @[mc("Go to definition"), mc("Go to type definition"), mc("Peek definition"), mc("Find references"),
@@ -114,6 +124,9 @@ proc editorMenu(): seq[MenuItem] =
     result.add mc("Unfold")
 
 proc scrollAt(x, y, d: int) =
+  ## scrolls by `d` lines whatever is under the pointer at x, y: the terminal or the bottom panel, the file tree or a
+  ## left or right dock list (moving its selection along), the assistant, or the editor (a hex view scrolls its rows and
+  ## keeps its cursor on the screen)
   if panelTopY >= 0 and y >= panelTopY and x >= lay.edX and x < lay.edX + lay.edW:
     if panelKind == pkTerminal:
       termScroll(-d)

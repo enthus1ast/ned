@@ -18,6 +18,8 @@ var
   dndFolderRow = -1             # (the tree row of the folder it would go into)
 
 proc dndArmFile(path: string) =
+  ## a press on a file or folder in the tree: it becomes a drag of that path once the pointer moves (nothing when drag
+  ## and drop is off)
   if not cfgDragDrop or path.len == 0: return
   dndArmed = dtFile
   dndPath = path
@@ -32,10 +34,12 @@ proc dndArmText(b: Buffer, p: Pos) =
   dndText = b.getText(a, e)
 
 proc dndStart(t: DragTarget) =
+  ## starts the drag of kind `t` (the armed press has turned into a drag)
   dragTarget = t
   dndArmed = dtNone
   needRender = true
 
+# whether position `p` lies inside the selection from `a` up to, but not including, `e`
 func inSel(p, a, e: Pos): bool = (p.line > a.line or (p.line == a.line and p.col >= a.col)) and
                                  (p.line < e.line or (p.line == e.line and p.col < e.col))
 
@@ -96,11 +100,13 @@ proc dropHover(x, y: int) =
   needRender = true
 
 proc dndBufIndex(id: int): int =
+  ## the place of the buffer with that id among the tabs (-1: none)
   for i, b in bufs:
     if b.id == id: return i
   -1
 
 proc dndShow(bufId: int) =
+  ## shows the tab of that buffer in the active pane and gives the keyboard to the editor
   let bi = dndBufIndex(bufId)
   if bi >= 0:
     curBuf = bi
@@ -136,6 +142,10 @@ proc dndSplitWith(id: int, down: bool) =
   dndSplit(down, proc() = dndShow(id), id)
 
 proc dndDrop(x, y: int, mods: set[Mod]) =
+  ## ends a drag where the pointer was let go, by what was dragged and the zone it landed in: a tab pulled off the bar
+  ## is shown in a pane or in a new split; a file or folder is opened (a folder revealed in the tree), opened in a pane
+  ## or split, moved into a tree folder after asking, or its path typed in the terminal; selected text is moved to the
+  ## drop place (copied with Ctrl or Alt, as one undo step) or pasted into the terminal
   let t = dragTarget
   let (z, idx) = dndZoneAt(x, y)
   dragTarget = dtNone
@@ -215,6 +225,7 @@ proc dndDrop(x, y: int, mods: set[Mod]) =
   else: discard
 
 proc dndCancel() =
+  ## drops an armed press or a drag in progress without doing anything
   dndArmed = dtNone
   if dragTarget in {dtTabOut, dtFile, dtText}: dragTarget = dtNone
   dndX = -1
@@ -224,6 +235,7 @@ proc drawDnd() =
   if dragTarget notin {dtTabOut, dtFile, dtText} or dndX < 0: return
   let (z, idx) = dndZoneAt(dndX, dndY)
   proc tint(x, y, w, h: int) =
+    ## shades a rectangle of the screen by blending the accent colour into its background
     for yy in max(0, y) ..< min(scrH, y + h):
       for xx in max(0, x) ..< min(scrW, x + w):
         let i = yy * scrW + xx

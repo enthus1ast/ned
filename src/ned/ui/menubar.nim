@@ -6,6 +6,8 @@ const CmdRenamed = {"View: focus other pane": "View: focus next pane",       # (
                     "View: close split": "View: close this pane"}
 
 proc cmdByName(name: string): int =
+  ## the index in `commands` of the command with that name (-1: none); a command that was renamed is found under its old
+  ## name too
   for i, c in commands:
     if c.name == name: return i
   for (o, n) in CmdRenamed:
@@ -13,6 +15,8 @@ proc cmdByName(name: string): int =
   -1
 
 proc runCmd(name: string) =
+  ## runs the command with that name and counts the use (the palette ranks commands by use); a warning for an unknown
+  ## name
   let i = cmdByName(name)
   if i >= 0:
     cmdUses[commands[i].name] = cmdUses.getOrDefault(commands[i].name) + 1
@@ -25,17 +29,23 @@ proc mc(name: string, label = "", check = -1): MenuItem =
   let lbl = if label.len > 0: label else: name
   if i < 0: return mi(lbl, "", nil, check, true)
   let n = name
-  mi(lbl, commands[i].keys, proc() = runCmd(n), check)
+  # (a command's keys — or, for some, a line on what it does: too long beside a menu item, so left out there)
+  let k = commands[i].keys
+  mi(lbl, (if strWidth(k) <= 24: k else: ""), proc() = runCmd(n), check)
 
 proc mc(name: string, label = "", check = -1, disabled: bool): MenuItem =
+  ## the same menu item, but drawn disabled when `disabled` is true
   result = mc(name, label, check)
   if disabled: result.disabled = true
 
+# the tick state of a menu item: 1 ticked, 0 not (-1 is no tick at all)
 func chk(b: bool): int = (if b: 1 else: 0)
 
+# the action that opens file `p`
 proc openAct(p: string): Action = (proc() = discard openFile(p))
 
 proc recentMenu(): seq[MenuItem] =
+  ## the recent files that still exist, at most 12, as menu items that open them
   for r in recentFiles:
     if result.len >= 12: break
     if fileExists(r):
@@ -43,6 +53,8 @@ proc recentMenu(): seq[MenuItem] =
   if result.len == 0: result.add mi("(no recent files)", disabled = true)
 
 proc menuItems(i: int): seq[MenuItem] =
+  ## the items of menu-bar menu number `i` (File, Edit, View, Go, Run, Git, Nim, AI, Plugins, Help), each backed by a
+  ## command so it shares the command's keys and action
   case MenuNames[clamp(i, 0, MenuNames.high)]
   of "File":
     # (short: what is used every day at the top level, the rest one level down)
@@ -355,6 +367,7 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("Performance report", "Performance…"), mc("Copy info for bug report"), msep(), mc("About ned")]
 
 proc openMenuBar(i: int) =
+  ## opens menu-bar menu `i` (wrapping round at both ends) under its title in the title bar, closing any other menu
   let n = MenuNames.len
   let k = (i + n) mod n
   closeMenus()

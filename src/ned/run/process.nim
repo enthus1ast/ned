@@ -3,6 +3,7 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 proc setNonBlock(fd: cint) =
+  ## puts the file descriptor in non-blocking mode, so reading it never waits for output that has not come
   if fd >= 0: discard fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) or O_NONBLOCK)
 
 # ── Child processes ───────────────────────────────────────────────────────────
@@ -16,6 +17,7 @@ type
 proc csystem(cmd: cstring): cint {.importc: "system", header: "<stdlib.h>".}
 
 func closeFd(fd: var cint) =
+  ## closes the file descriptor if it is open and sets it to -1
   if fd >= 0:
     discard posix.close(fd)
     fd = -1
@@ -32,11 +34,13 @@ proc shellCommands(cmd: string): seq[seq[string]] =
   var inWord = false
   var i = 0
   template endWord() =
+    ## ends the word being collected: adds it to the command's words
     if inWord:
       cur.add w
       w = ""
       inWord = false
   template endCmd() =
+    ## ends the word and the command being collected: a command with words goes to the result, and a new one starts
     endWord()
     if cur.len > 0: result.add cur
     cur = @[]
@@ -198,12 +202,15 @@ proc reap(p: var Proc): bool =
   p.exited
 
 proc killProc(p: var Proc, sig = SIGTERM) =
+  ## sends the signal (SIGTERM unless told) to the process's group, so everything a build or run started stops, or to
+  ## the process alone when that fails; does nothing once it has exited
   if p.pid > 0 and not p.exited:
     if posix.kill(Pid(-p.pid), sig) != 0: discard posix.kill(p.pid, sig)
 
 var reapPids: seq[Pid]           # stopped helpers (a debugger, its adapter) still to be waited for
 
 proc reapSoon(pid: Pid) =
+  ## notes a stopped helper's pid to be waited for by `reapPending` (once)
   if pid > 0 and pid notin reapPids: reapPids.add pid
 
 proc reapPending() =
@@ -215,6 +222,8 @@ proc reapPending() =
     if r != 0: reapPids.delete(i) else: inc i
 
 proc waitProc(p: var Proc, timeoutMs = 2000): int =
+  ## waits for the process to end, looking every 3 ms, and returns its exit code; after `timeoutMs` it is killed with
+  ## SIGKILL and the code is 137
   let t0 = getMonoTime()
   while not p.reap():
     if msSince(t0) > timeoutMs:
@@ -228,6 +237,7 @@ proc waitProc(p: var Proc, timeoutMs = 2000): int =
   p.code
 
 func closeProc(p: var Proc) =
+  ## closes the process's input, output and error pipes
   closeFd(p.inFd)
   closeFd(p.outFd)
   closeFd(p.errFd)
@@ -235,6 +245,10 @@ func closeProc(p: var Proc) =
 proc jobChunk(j: Job, chunk: string)
 
 proc startJob(kind: JobKind, cmd, cwd: string, onDone: proc(j: Job) {.closure.} = nil): Job =
+  ## starts a shell command as a background job of the given kind, in a folder, with its output (errors merged in) read
+  ## without blocking and `onDone` called when it ends. Check and auxiliary jobs run at a lower priority than ned (kind
+  ## decides), and git of a remote folder is wrapped to run on the server. A folder that is not trusted gives a job that
+  ## has already ended with code 126 and says why in its output; any other failure is reported and gives nil.
   # git for a remote folder runs on the server (its repository is the real one)
   let run = if remotes.len > 0 and (kind == jkGit or cmd.startsWith("git ")): gitWrap(cmd, cwd) else: cmd
   try:
@@ -262,6 +276,8 @@ proc startJob(kind: JobKind, cmd, cwd: string, onDone: proc(j: Job) {.closure.} 
       result = nil
 
 func stripAnsi(s: string): string =
+  ## the string without terminal escape sequences: those starting `ESC [` up to their final letter, `ESC ]` up to a bell
+  ## or `ESC \`, and any other escape with the character after it
   var i = 0
   while i < s.len:
     if s[i] == '\e' and i + 1 < s.len:
@@ -281,8 +297,11 @@ func stripAnsi(s: string): string =
     inc i
 
 proc resolvePath(p, cwd: string): string =
+  ## the full path of an existing file named by `p` (relative to `cwd` when it is not absolute), or "" when there is no
+  ## such file, or the name is empty or over 1000 bytes
   if p.len == 0 or p.len > 1000: return ""
   let q = if p.isAbsolute: p else: cwd / p
   if fileExists(q): normalizedPath(q) else: ""
 
+# true for a string that has digits only (and is not empty)
 func allDigits(s: string): bool = s.len > 0 and s.allCharsInSet(Digits)

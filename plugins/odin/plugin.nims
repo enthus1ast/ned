@@ -97,7 +97,9 @@ type OdinScan = object
   comment: int                   # inside /* */ (they nest): how deep
   raw: bool                      # inside a `raw string` that goes on to the next line
 
+# whether c can start an Odin name: a letter, _ or a byte of a non-ASCII character
 func odinIdentStart(c: char): bool = c in {'a'..'z', 'A'..'Z', '_'} or ord(c) >= 0x80
+# whether c can be part of an Odin name
 func odinIdentChar(c: char): bool = odinIdentStart(c) or c in {'0'..'9'}
 
 proc odinCode(s: string, st: var OdinScan): string =

@@ -69,6 +69,8 @@ when defined(linux) or defined(android):
     PrSetNoNewPrivs = 38.cint
 
   proc llProbe(): int =
+    ## asks the kernel for its Landlock version (creating a ruleset with the flag that only asks for it): the number, or
+    ## 0 when the call fails
     let r = llSyscall(SysCreateRuleset, nil, 0.csize_t, LlCreateVersion.clong)
     if r < 0: 0 else: r.int
 
@@ -92,6 +94,8 @@ proc landlockAbi*(): int =
   llAbiCache
 
 func llFsHandled(abi: int): uint64 =
+  ## the file rights a ruleset of this Landlock version can hold back — execute, read, write, remove and make of every
+  ## kind, then refer (from version 2), truncate (3) and ioctl on devices (5)
   result = (1'u64 shl 13) - 1                 # ABI 1: execute … make symlinks
   if abi >= 2: result = result or LlRefer
   if abi >= 3: result = result or LlTruncate
@@ -216,6 +220,8 @@ proc sandboxMain*(args: seq[string]): int =
   var require, quiet, explain = false
   var i = 0
   template val(): string =
+    ## the value of the option being read: the next argument, which `i` moves on to; when there is none it prints the
+    ## error with the usage and makes `sandboxMain` return 2
     if i + 1 >= args.len:
       stderr.writeLine("ned --sandbox: " & args[i] & " needs a value\n" & SandboxUsage)
       return 2

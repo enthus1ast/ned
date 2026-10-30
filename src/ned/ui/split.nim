@@ -3,10 +3,14 @@
 #    cursors; each other one keeps a snapshot of its view (ViewSnap) and draws from it ──
 
 func snapView(b: Buffer): ViewSnap =
+  ## a copy of the buffer's view — scroll position, cursors and last edit — which a pane that is not active keeps and
+  ## draws from
   ViewSnap(topLine: b.topLine, topSub: b.topSub, leftCol: b.leftCol, prim: b.prim, cursors: b.cursors,
            lastHead: b.lastHead, lastChange: b.lastChange)
 
 proc applyView(b: Buffer, v: ViewSnap) =
+  ## puts a pane's saved view back into the buffer (scroll position clamped to its lines, cursors, last edit) and
+  ## normalises the cursors; the other half of snapView
   b.topLine = clamp(v.topLine, 0, b.lines.high)
   b.topSub = v.topSub
   b.leftCol = v.leftCol
@@ -25,6 +29,7 @@ proc phoneFlip(): bool =
   lay.edW < 60 and panes.len == 2 and not paneRoot.leaf and paneRoot.vertical
 
 proc paneAt(x, y: int): int =
+  ## the number of the pane whose rectangle holds the screen cell, or -1 (also with no split)
   if not splitOn: return -1
   for i in 0 ..< panes.len:
     let r = panes[i].rect
@@ -102,6 +107,8 @@ proc splitPaneOf(i: int, down: bool, show: Buffer = nil): bool =
   true
 
 proc splitEditor(down: bool) =
+  ## splits the active pane in two, the new one right of it or below (down) and showing the same file; refuses on the
+  ## welcome page, and tells the person how to move between panes the first time
   let b = buf()
   if b.isWelcome():
     info("Open a file first")
@@ -172,6 +179,7 @@ proc closeSplit() =
   splitOn = false
   needRender = true
 
+# closes the active pane — or, with one pane, only says there is nothing to close
 proc closeActivePane() = (if splitOn: closePane(activePane) else: info("One pane only — nothing to close"))
 
 proc toggleSplitFocus() =
@@ -237,6 +245,7 @@ proc balanceNode(n: PaneNode): int =
   x + y
 
 proc equalizePanes() =
+  ## gives every pane the same share: each split's divider is moved by the number of panes on its sides (balanceNode)
   discard balanceNode(paneRoot)
   needRender = true
 
@@ -290,6 +299,8 @@ proc toSidePane() =
   elif bufs.len > 0 and not buf().isWelcome(): splitEditor(false)   # (the new pane, the focus: the same file for now)
 
 proc openToSide(path: string, line = -1, col = -1): Buffer =
+  ## opens a file in the other pane (splitting first when there is one pane) at the given line and column, and gives
+  ## back its buffer
   toSidePane()
   openFile(path, line, col)
 
@@ -431,6 +442,8 @@ proc paneTabStep(d: int): bool =
   true
 
 proc paneTabAct(i, id: int, close: bool): Action =
+  ## the click action of a tab in pane i's header: close the file in that pane, or show it there. A proc of its own so
+  ## each tab drawn in a loop keeps its own values.
   (proc() = (if close: paneCloseTab(i, id) else: paneShowTab(i, id)))
 
 proc drawPaneTabs(b: Buffer, i, x, y, w: int, bg: Rgb): bool =
@@ -469,6 +482,9 @@ proc drawPaneTabs(b: Buffer, i, x, y, w: int, bg: Rgb): bool =
   true
 
 proc drawPaneHeader(b: Buffer, i, x, y, w: int) =
+  ## draws the header row of pane i: the Compiler Explorer's toolbar for its view, else the pane's tabs, or with one tab
+  ## the file's icon, name and folder; and a close button (with ⤡ to show every pane again when zoomed). Clicking it
+  ## focuses the pane, right-click opens its menu.
   if ceIsView(b):
     ceDrawHeader(b, i, x, y, w)                 # (Compiler Explorer's view: its toolbar)
     return
@@ -596,6 +612,8 @@ proc nodeJson(n: PaneNode): JsonNode =
   %*{"vertical": n.vertical, "ratio": n.ratio, "a": a, "b": b}
 
 proc layoutState(): JsonNode =
+  ## the window layout as JSON for the session or a named layout: whether the side views and the panel are open and
+  ## which, and — when split — the tree of panes with their files
   result = %*{"left": treeOpen, "leftView": $sideView, "right": rightOpen, "rightView": $rightView,
               "panel": panelOpen, "panelKind": $panelKind}
   if splitOn:
@@ -620,6 +638,8 @@ proc applyLayout(L: JsonNode, openMissing: bool): bool =
     if L{"panel"}.getBool and panelKind != pkTerminal: panelOpen = true
     if treeOpen and sideView == svFiles: flattenTree()
     proc indexOf(path: string): int =
+      ## the number of the open buffer for the path; for a named layout (openMissing) a file that is not open is opened
+      ## first. -1 when there is none.
       result = bufIndexByPath(path)
       if result < 0 and openMissing and fileExists(path):
         discard openFile(path)
@@ -643,6 +663,8 @@ proc applyLayout(L: JsonNode, openMissing: bool): bool =
     var ps: seq[Pane]
     var act = -1
     proc build(j: JsonNode): PaneNode =
+      ## turns a saved layout tree into pane nodes, adding a Pane (file, scroll position, tabs) for each leaf whose file
+      ## can be found. A split with one side missing becomes the other side; nil when nothing is left.
       if j == nil or j.kind != JObject: return nil
       if j{"file"} != nil:
         let k = indexOf(j{"file"}.getStr)
@@ -682,15 +704,19 @@ proc applyLayout(L: JsonNode, openMissing: bool): bool =
   except CatchableError: false
 
 proc restoreLayout() =
+  ## puts back the layout saved with the session — only with ui.restoreLayout on and a screen at least 70 columns wide;
+  ## files that are no longer open leave their panes out
   if savedLayout.isNil or not sBool("ui.restoreLayout") or scrW < 70: return
   discard applyLayout(savedLayout, false)
 
 # ── (6.32) named layouts: the panes, their files and tabs, the side views and the panel, kept under a name for
 #    the project — saved, then put back with one pick ──
 
+# the file in ned's state directory where named layouts are kept, for every project
 proc layoutsFile(): string = stateDir() / "layouts.json"
 
 proc layoutsAll(): JsonNode =
+  ## everything in the layouts file (project folder → name → layout); an empty object when it is missing or not readable
   try: result = parseJson(readFile(layoutsFile()))
   except CatchableError: result = newJObject()
   if result.kind != JObject: result = newJObject()
@@ -702,6 +728,8 @@ proc layoutsHere(): JsonNode =
   if result == nil or result.kind != JObject: result = newJObject()
 
 proc layoutsWrite(here: JsonNode) =
+  ## stores the current project's named layouts in the layouts file, leaving the other projects' alone; a failure to
+  ## write is shown as an error
   var all = layoutsAll()
   all[if rootDir.len > 0: rootDir else: "-"] = here
   try:
@@ -710,6 +738,7 @@ proc layoutsWrite(here: JsonNode) =
   except CatchableError as e: error("Cannot keep the layout: " & e.msg)
 
 proc cmdSaveLayout() =
+  ## asks for a name and keeps the present layout under it for this project (View › Save this layout as…)
   askText("Name for this layout (the panes, their files and tabs, the side views)", "", proc(name: string) =
     let n = name.strip
     if n.len == 0: return
@@ -719,6 +748,7 @@ proc cmdSaveLayout() =
     info("Layout \"" & n & "\" kept — View › Layouts… puts it back"))
 
 proc layoutAct(name: string): Action =
+  ## the action that puts the named layout back, opening the files it needs; says so when they are gone
   (proc() =
     let L = layoutsHere(){name}
     if L == nil: return
@@ -726,6 +756,7 @@ proc layoutAct(name: string): Action =
     else: info("The files of layout \"" & name & "\" are not there any more"))
 
 proc layoutForgetAct(name: string): Action =
+  ## the action that deletes the named layout from this project's layouts
   (proc() =
     var here = layoutsHere()
     if here.hasKey(name): here.delete(name)
@@ -733,6 +764,8 @@ proc layoutForgetAct(name: string): Action =
     info("Layout \"" & name & "\" forgotten"))
 
 proc cmdLayouts(forget = false) =
+  ## lists this project's named layouts, each with the names of the files in its panes, to put one back — or, with
+  ## forget, to delete one
   let here = layoutsHere()
   if here.len == 0:
     info("No layouts kept for this project — View › Save this layout as…")
@@ -741,6 +774,7 @@ proc cmdLayouts(forget = false) =
   for name, L in here.pairs:
     var files: seq[string]
     proc walk(j: JsonNode) =
+      ## collects the file names of every pane in a saved layout tree, in order
       if j == nil or j.kind != JObject: return
       if j{"file"} != nil: files.add extractFilename(j{"file"}.getStr)
       walk(j{"a"})

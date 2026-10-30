@@ -58,6 +58,7 @@ proc pcRequires(lines: openArray[string]): seq[PcRequire] =
     inReq = t.endsWith(",") or depth > 0
 
 proc pcNimbleLines(nb: string): seq[string] =
+  ## the lines of a .nimble file: the open buffer's (unsaved text too), else from disk, empty if unreadable
   let i = bufIndexByPath(nb)
   if i >= 0: return bufs[i].lines
   try: readFile(nb).splitLines except CatchableError: @[]
@@ -204,6 +205,7 @@ proc pcNimbleChecks*(b: Buffer): seq[Diag] =
     if raw.len > 0 and raw[0] in {' ', '\t'}: continue                    # (inside a task or a when)
     fields[k] = (l, t[eq + 1 .. ^1].strip)
   template add(l, c, e: int, sv: int, m: string) =
+    ## adds a problem of the nimble rule on line l between columns c and e, with severity sv and message m
     result.add Diag(line: l, col: c, eline: l, ecol: e, sev: sv, src: "ned", rule: "nimble", msg: m)
   # (the fields `nimble publish` and nimble's own check want)
   var missing: seq[string]

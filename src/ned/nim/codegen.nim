@@ -100,6 +100,8 @@ proc missingBranches(b: Buffer): tuple[cl, ofInd, insertAt: int, hasElse: bool, 
   if result.missing.len == 0: result.why = "Every value of " & tname & " has a branch"
 
 proc addMissingBranches() =
+  ## the command that adds an `of value: discard` branch, at the `of` indentation, for every enum or bool value the
+  ## `case` at the cursor has no branch for (placed before an existing else); says why when it cannot
   let b = buf()
   if not nimEngineOn(b) or not b.canEdit(): return
   let (_, ofInd, insertAt, hasElse, tname, missing, why) = missingBranches(b)
@@ -123,6 +125,7 @@ proc typeAtCursor(b: Buffer): (NxFile, int) =
   let f = nxFileFor(b)
   if f == nil: return (nil, -1)
   for i in 0 ..< f.syms.len:
+    # the symbol being looked at in the loop
     template sy: untyped = f.syms[i]
     if sy.kind == nxType and sy.line == b.primary.head.line and ("object" in sy.typ or "tuple" in sy.typ): return (f, i)
   (nil, -1)
@@ -188,6 +191,8 @@ proc reorderPlan(b: Buffer): ReorderPlan =
               before: size, after: lay.sorted)
 
 proc reorderFields() =
+  ## the command that rewrites the object type on the cursor's line with its fields sorted by alignment, largest first,
+  ## when that makes the object smaller (reorderPlan works it out); tells the size before and after
   let b = buf()
   if not b.canEdit(): return
   var p: ReorderPlan
@@ -202,6 +207,8 @@ proc reorderFields() =
   info("Reordered the fields of " & p.name & ": " & $p.before & " → " & $p.after & " bytes — Ctrl+Z undoes it")
 
 proc generateForType(what: string) =
+  ## the commands that write procs for the object type on the cursor's line, after its type section: `$`, `==`, `hash`
+  ## (adding the std/hashes import), a constructor (init, or new for a ref type), or all four, from the type's fields
   let b = buf()
   if not b.canEdit(): return
   let (f, ti) = typeAtCursor(b)
@@ -262,6 +269,7 @@ proc docCommentStub() =
   if f == nil: return
   var ri = -1
   for i in 0 ..< f.syms.len:
+    # the symbol being looked at in the loop
     template sy: untyped = f.syms[i]
     if sy.kind in NxRoutineKinds and sy.line <= b.primary.head.line and b.primary.head.line <= sy.line + 3: ri = i
   if ri < 0:
@@ -421,6 +429,9 @@ proc ctorAtCursor(b: Buffer): CtorInfo =
   result.ok = true
 
 proc fillMissingFields() =
+  ## the command that adds `field: value` for each field the object constructor at the cursor does not set — on its
+  ## line, or one per line under the last one given when it spans lines — with the field's default or a value picked for
+  ## its type
   let b = buf()
   if not b.canEdit(): return
   var ci: CtorInfo
@@ -466,6 +477,7 @@ proc forwardDeclAt(b: Buffer): (NxFile, int) =
   if f == nil: return (nil, -1)
   let line = b.primary.head.line
   for i in 0 ..< f.syms.len:
+    # the symbol being looked at in the loop
     template sy: untyped = f.syms[i]
     if sy.kind notin NxRoutineKinds or sy.line != line or sy.made or b.hasBody(sy): continue
     if b.lines[line].len > 0 and b.lines[line][0] in {' ', '\t'}: continue    # (top level only)
@@ -474,6 +486,7 @@ proc forwardDeclAt(b: Buffer): (NxFile, int) =
     let want = nxParamsText(sy.params, false)
     var done = false
     for j in 0 ..< f.syms.len:
+      # the other symbol compared with the one at i
       template other: untyped = f.syms[j]
       if j != i and other.kind == sy.kind and nxNorm(other.name) == nxNorm(sy.name) and
          nxParamsText(other.params, false) == want and b.hasBody(other): done = true

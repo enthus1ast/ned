@@ -65,6 +65,8 @@ const NimDocs* = [
 ]
 
 func nimDocFor*(word: string): string =
+  ## the short explanation of a keyword, pragma or built-in name from the NimDocs list (the name matched whatever its
+  ## case); empty when the list does not have it
   for (k, d) in NimDocs:
     if cmpIgnoreCase(k, word) == 0: return d
   ""
@@ -107,12 +109,17 @@ const NxKeywords* = ["addr", "and", "as", "asm", "bind", "block", "break", "case
   "when", "while", "xor", "yield"]
 
 proc nxRank*(f: NxFile, r: NxRef): int =
+  ## where a declaration sorts in the list, lowest first: 1 for this module, the rank its reference already has when it
+  ## came by another way, 3 for system, else 2 for the other imports
   if r.file == f: 1
   elif r.origin > 0: r.origin.int
   elif nxInSystem(r.file.path): 3
   else: 2
 
 proc nxShortDetail*(s: NxSym, ufcs = false): string =
+  ## the short text beside a name in the list: a routine's parameters and result (without the receiver when it is called
+  ## with a dot), a type's definition, an enum value's type, a field's or variable's type (or its value, when it has no
+  ## type), "module" for a module
   case s.kind
   of NxRoutineKinds:
     result = "(" & nxParamsText(s.params, ufcs) & ")"
@@ -148,20 +155,26 @@ proc nxVisible*(f: NxFile, r: NxRef): bool =
   if r.sym.exported or r.file == f or r.file.path == f.path: return true
   nxInModule(f, r.file.path)
 
+# the key of an item in the index: the name's hash with a bit for whether it is a routine (a routine and something else
+# of one name are two items)
 template nxItemKey(name: string, routine: bool): Hash = (hash(name) shl 1) xor Hash(ord(routine))
 
 proc nxIxFind(ix: NxItemIx, items: seq[NxItem], name: string, routine: bool): int =
+  ## the position in `items` of the item of that name (a routine or not), or -1
   let i = int(ix.at.getOrDefault(nxItemKey(name, routine), -1'i32))
   if i >= 0 and items[i].label == name and (items[i].kind in NxRoutineKinds) == routine: return i
   ix.clash.getOrDefault(name & "/" & $routine, -1)
 
 proc nxIxPut(ix: var NxItemIx, items: seq[NxItem], name: string, routine: bool, idx: int) =
+  ## records that `items[idx]` is the item of that name; in the rare case that another name has the same hash, it is
+  ## kept by its name
   let k = nxItemKey(name, routine)
   let i = ix.at.getOrDefault(k, -1'i32)
   if i < 0: ix.at[k] = int32(idx)
   elif items[i].label != name or (items[i].kind in NxRoutineKinds) != routine: ix.clash[name & "/" & $routine] = idx
 
 proc nxIxOf(items: seq[NxItem], room = 0): NxItemIx =
+  ## the index of a list of items, with room for `room` more
   result.at = initTable[Hash, int32](max(64, (items.len + room) * 2))
   for i in 0 ..< items.len: result.nxIxPut(items, items[i].label, items[i].kind in NxRoutineKinds, i)
 
@@ -169,6 +182,7 @@ proc nxAddRefsIx(items: var seq[NxItem], ix: var NxItemIx, f: NxFile, refs: open
                  rankBias = 0, recv = "", binds = initTable[string, string](), lazy = false) =
   ## nxAddRefs with the items' index kept by the caller (a list made a slice at a time)
   for r in refs:
+    # the declaration behind the reference being looked at
     template s: untyped = r.sym
     if s.kind == nxModule or s.name.len == 0 or not (s.name[0] in {'a'..'z', 'A'..'Z', '_'} or s.name[0] >= '\x80'):
       continue                     # operators are not typed by name
@@ -225,13 +239,16 @@ var
                                                                #   routines that take it: exact, related, generic)
 
 proc nxRestOf(items: sink seq[NxItem]): NxRest =
+  ## a shared list of the rest of the scope's items, with its index made
   result = NxRest(items: items)
   result.ix = nxIxOf(result.items)
 
+# the position of the item of that name (a routine or not) in the shared list, or -1
 proc nxRestFind(r: NxRest, label: string, routine: bool): int = r.ix.nxIxFind(r.items, label, routine)
 
 var nxPrep: tuple[key: Hash, sc: NxScope, pos: int, items: seq[NxItem], ix: NxItemIx]   # (made a slice at a time)
 
+# whether the list of the rest of the scope is half made (nxCompletionPrepare has more to do)
 proc nxCompletionPending*(): bool = nxPrep.sc != nil
 
 proc nxCompletionPrepare*(f: NxFile, budgetMs: int): bool =
@@ -310,6 +327,8 @@ proc nxModuleItems*(f: NxFile, before: string): seq[NxItem] =
       dec j
   var seen: HashSet[string]
   proc addDir(res: var seq[NxItem], dir, detail: string) =
+    ## adds the modules (.nim files) and the folders of `dir` to the list, with `detail` beside the modules — those
+    ## already offered, this file's own module, hidden folders and nimcache, tests and private are left out
     if not dirExists(dir): return
     try:
       for kind, p in walkDir(dir):
@@ -406,6 +425,8 @@ proc nxJoinBack(lines: seq[string], line, upto: int): string =
       elif c == '#': return x[0 ..< i]
     x
   proc balance(x: string): int =
+    ## how many brackets the text leaves open (opened minus closed, outside string literals); below 0 when it closes
+    ## more than it opens
     var q = '\0'
     for i, c in x:
       if q != '\0':
@@ -794,6 +815,8 @@ type NxFitMemo = object
   parentMade: bool
 
 proc nxFitInit(sc: NxScope, w: string): NxFitMemo =
+  ## the notes for judging what fits the expected type `w`: its base name, what it is an alias of, whether it is a whole
+  ## number, a float or an openArray, and the alternatives of a union
   result.w = w
   let b = nxBaseName(w)
   result.wb = nxNorm(b)
@@ -818,6 +841,7 @@ proc nxSubtypeFits(sc: NxScope, m: var NxFitMemo, tb: string): bool =
     if pr.file != nil:
       var kids, refOf: Table[string, seq[string]]
       for r in sc.refs:
+        # the declaration behind the reference being looked at
         template s: untyped = r.file.syms[r.idx]
         if s.kind != nxType: continue
         let k = s.typ.find(" of ")
@@ -880,6 +904,7 @@ proc nxRankExpected*(items: var seq[NxItem], f: NxFile, sc: NxScope, want: strin
     if it.detail == "keyword" or it.kind == nxModule: continue
     var fits = false
     if it.refs.len == 0:
+      # the item's own declaration, a local one
       template s: untyped = it.local                 # (no copy of the declaration)
       if s.kind in NxRoutineKinds: fits = nxFitsExpected(sc, memo, s.ret)
       elif s.kind == nxType: fits = not plain and nxNorm(s.name) == wb
@@ -887,6 +912,7 @@ proc nxRankExpected*(items: var seq[NxItem], f: NxFile, sc: NxScope, want: strin
       else: fits = nxFitsExpected(sc, memo, s.typ)
     else:
       for r in it.refs:
+        # the declaration behind the reference being looked at
         template s: untyped = r.file.syms[r.idx]
         case s.kind
         of NxRoutineKinds:
@@ -919,6 +945,7 @@ proc nxRankExpected*(items: var seq[NxItem], f: NxFile, sc: NxScope, want: strin
     it.rank = if it.rank <= 1 or not plain or it.kind == nxEnumVal: -1 else: max(0, it.rank - 1)
 
 template nxNote(what: string, t0: MonoTime) =
+  ## tells the trace hook, when there is one, how long the step `what` took since t0
   if nxTrace != nil: nxTrace(what, t0)
 
 proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false): NxCompletion =
@@ -1046,11 +1073,13 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
       for r in nxLookup(sc, v.typeName):
         if r.sym.kind == nxType:
           for i in 0 ..< r.file.syms.len:
+            # the declaration at index i of the file, in the loop
             template s: untyped = r.file.syms[i]
             if s.kind == nxEnumVal and s.owner == v.typeName: vals.add NxRef(file: r.file, idx: int32(i))
       nxAddRefs(result.items, f, vals)
       var tprocs: seq[NxRef]
       for r in sc.refs:
+        # the declaration behind the reference being looked at
         template s: untyped = r.sym
         if s.kind in NxRoutineKinds and s.params.len > 0:
           let p = nxStripMods(s.params[0].typ)
@@ -1120,6 +1149,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
         let intLike = ra in NxInts or ownDistinct.len > 0
         var seenD: HashSet[string]
         for r in sc.refs:
+          # the declaration behind the reference being looked at
           template s: untyped = r.sym
           if s.kind != nxType or s.name in seenD or s.name == st: continue
           let def = s.typ.strip
@@ -1149,6 +1179,8 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
       result.items.add NxItem(label: s.name, detail: nxShortDetail(s), kind: s.kind, local: s, rank: 0, ufcs: true)
     var exact, related, generic: seq[NxRef]
     template sortIn(r: NxRef, ex, rel, gen: var seq[NxRef]) =
+      ## puts a routine that takes a first parameter into the list for how well the receiver's type fits it: exact (3),
+      ## related (2) or generic (1) — all into generic when the receiver's type is not known
       if r.sym.kind in NxRoutineKinds and r.sym.params.len > 0:
         if not result.known: gen.add r
         else:
@@ -1199,6 +1231,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
       for u in convTo[0 ..< min(convTo.len, 3)]:
         var viaConv: seq[NxRef]
         for r in sc.refs:
+          # the declaration behind the reference being looked at
           template s: untyped = r.sym
           if s.kind notin NxRoutineKinds or s.kind == nxConverter or s.params.len == 0 or s.name in have: continue
           if nxCompatP(sc, s.params[0], s.generics, u) >= 2:
@@ -1267,16 +1300,20 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
   if here >= 0:
     let hs = f.syms[here]
     for j in 0 ..< f.syms.len:
+      # the other declaration being compared with the enclosing routine
       template s2: untyped = f.syms[j]
       if j != here and s2.kind in NxRoutineKinds and not s2.made and
          (s2.line > hs.line or (s2.line == hs.line and j < here)) and s2.line <= hs.endLine:
         nested.add (s2.line, s2.endLine)
   proc inHere(f: NxFile, here: int, nested: seq[(int, int)], ln: int): bool =
+    ## whether line `ln` is in the routine `here` and not in a routine nested inside it (a local there belongs to the
+    ## nested one)
     if here < 0 or ln < f.syms[here].line or ln > f.syms[here].endLine: return false
     for (a, e) in nested:
       if ln >= a and ln <= e: return false
     true
   for i in 0 ..< f.syms.len:
+    # the declaration at index i of the file, in the loop
     template s: untyped = f.syms[i]
     if s.kind == nxField: continue
     if s.local and not inHere(f, here, nested, s.line): continue   # (another routine's type)
@@ -1410,6 +1447,7 @@ proc nxComplete*(f: NxFile, lines: seq[string], line, col: int, shared = false):
         if not (it.kind == nxEnumVal and it.refs.len > 0 and it.refs[0].sym.owner == r.sym.name): keep.add it
       result.items = keep
       for i in 0 ..< r.file.syms.len:
+        # the declaration at index i of the enum's file, in the loop
         template s2: untyped = r.file.syms[i]
         if s2.kind == nxEnumVal and s2.owner == r.sym.name:
           let used = nxNorm(s2.name) in taken
@@ -1514,6 +1552,10 @@ proc nxDoc*(r: NxRef, ufcs = false, withSig = true): string =
   result.add "\n\n" & where & (if withAt: " · " & extractFilename(r.file.path) & ":" & $(s.line + 1) else: "")
 
 proc nxDocItem*(it: NxItem, maxOverloads = 6): string =
+  ## the documentation shown beside a list item, in Markdown: a keyword's explanation, a module's import line and docs,
+  ## a local's signature and what it is, or a declaration's own docs. For overloads: every signature (twelve at most),
+  ## then each different documentation text, up to `maxOverloads` of them. A forward declaration and its body count as
+  ## one routine
   if it.refs.len == 0:
     let s = it.local
     if s.kind == nxModule and s.value.len > 0:

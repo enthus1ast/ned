@@ -1,3 +1,6 @@
+# the lexers of the languages that need more than the generic one — YAML, TOML and Makefile keys, Nim filter templates,
+# Jinja, CSV, NIF — the host lexer that picks the right one for a language's mode, lexInto, which hands the text of
+# embedded languages to their own lexers, and lexLine, the entry point that colours one line.
 func keyPrefix(s: string, toks: var seq[TokKind], sep: char): int =
   ## marks a leading `key<sep>` (YAML/TOML/INI keys) as a property; returns where lexing continues
   var i = 0
@@ -161,6 +164,7 @@ proc lexNif(s: string, toks: var seq[TokKind]) =
   let n = s.len
   var i = 0
   template info() =
+    ## colours the line information (`@3,1`, `~2`) that may follow a tag or an atom as a comment
     if i < n and s[i] in {'@', '~'}:
       let a = i
       inc i
@@ -356,6 +360,9 @@ proc lexInto(lang: Lang, s: string, st: LexSt, toks: var seq[TokKind], start = 0
   lexHost(lang, s, 0, toks, after)
 
 proc lexLine(lang: Lang, s: string, st: LexSt, toks: var seq[TokKind]): LexSt =
+  ## colours a whole line of text as `lang`, starting in state `st`, and gives the state the next line starts in. All of
+  ## it is plain text to begin with; at the outermost level the records of the embedded-language ranges of the line
+  ## before are cleared. A nil language leaves it plain
   toks.setLen(s.len)
   for i in 0..<s.len: toks[i] = tkText
   if lexDepth == 0:

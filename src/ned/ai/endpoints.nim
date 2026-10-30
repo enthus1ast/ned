@@ -6,6 +6,8 @@ var
   aiNoStream = false          # the running request asked for one JSON reply instead of a stream
   aiFinish = ""               # why the model stopped (length / max_tokens … explains an empty reply)
 
+# whether this model's endpoint has refused the thing `q` names before (learned by aiLearnQuirk), so that the request
+# leaves it out
 proc hasQuirk(q: string): bool = (aiModel() & "|" & q) in aiQuirks
 
 proc isReasoningModel(m: string): bool =
@@ -25,6 +27,8 @@ proc aiOutputBudget(model: string): int =
       except ValueError: discard
 
 proc useResponsesApi(): bool =
+  ## whether to use OpenAI's Responses API, not chat completions: ai.openaiApi is "responses", or "auto" and the model
+  ## has been found to need it
   cfgAiProvider == "openai" and (sStr("ai.openaiApi") == "responses" or
     (sStr("ai.openaiApi") == "auto" and hasQuirk("responses")))
 
@@ -33,6 +37,7 @@ proc aiLearnQuirk(msg: string): bool =
   let m = msg.toLowerAscii
   var learned = false
   proc learn(q: string) =
+    ## remembers the quirk `q` for the current model, and notes that something new was learned
     let key = aiModel() & "|" & q
     if key notin aiQuirks:
       aiQuirks.incl key
@@ -84,6 +89,8 @@ proc aiLearnQuirk(msg: string): bool =
   learned
 
 proc openaiTools(flat: bool): JsonNode =
+  ## the tools the model may call — the built-in ones and the MCP servers' — in OpenAI's format; `flat` is the Responses
+  ## API's, with the function's fields at the top instead of under "function"
   result = newJArray()
   for (n, d, sc) in AiTools:
     if flat: result.add %*{"type": "function", "name": n, "description": d, "parameters": parseJson(sc)}
@@ -93,6 +100,10 @@ proc openaiTools(flat: bool): JsonNode =
     else: result.add %*{"type": "function", "function": {"name": n, "description": d, "parameters": sc}}
 
 proc openaiBody(): JsonNode =
+  ## the request for a chat-completions endpoint: the system prompt (as a developer message for reasoning models, or in
+  ## the first user message when the endpoint takes no system role), the conversation with its pictures, tool calls and
+  ## results, then the options this model takes — streaming (with usage), the right name for the output limit,
+  ## temperature, tools in agent mode
   let msgs = newJArray()
   let model = aiModel()
   let sysRole = if hasQuirk("developer") or (cfgAiProvider == "openai" and isReasoningModel(model)): "developer"
@@ -156,6 +167,7 @@ proc responsesBody(): JsonNode =
     result["tools"] = openaiTools(true)
 
 proc aiCleanup() =
+  ## deletes the temporary files of the request (its headers, which hold the key, and its body)
   for f in aiTmp:
     try: removeFile(f)
     except CatchableError: discard
@@ -167,6 +179,8 @@ proc aiPlanInterrupted() =
   if aiPlanState in {apPlanning, apDoing}: aiPlanState = (if aiPlanSteps.len > 0: apReady else: apNone)
 
 proc aiFail(msg: string) =
+  ## ends the request with an error: a plan being run waits, the message is added to the chat as a notice (with a hint
+  ## about pictures when the model may not read them) and the assistant is idle again
   aiPlanInterrupted()
   var msg = msg
   var pics = false
@@ -247,12 +261,20 @@ proc aiCostText(inTok, outTok, cacheTok: int): string =
   let pr = settingNode("ai.price")
   if pr == nil or pr.kind != JObject or pr.len == 0: return ""
   proc rate(k: string): float =
+    ## the price per million tokens set in ai.price for that kind (0 when it has none)
     let v = pr{k}
     if v == nil: 0.0 elif v.kind == JFloat: v.getFloat elif v.kind == JInt: v.getInt.float else: 0.0
   let usd = (inTok.float * rate("input") + outTok.float * rate("output") + cacheTok.float * rate("cacheRead")) / 1e6
   "$" & formatFloat(usd, ffDecimal, (if usd < 0.1: 3 else: 2))
 
 proc aiRequest() =
+  ## sends the conversation to the model with curl as a streaming job: checks curl, key, model and address first, waits
+  ## for the MCP servers' tools in agent mode, builds the body for the provider (Anthropic, Responses, chat completions)
+  ## with secrets replaced, asks before a request over ai.warnTokens, and keeps the headers and body in private
+  ## temporary files. When curl ends it adds up the tokens, turns a refusal of a parameter into a retry (up to three
+  ## times), reports a failure with a hint, and otherwise runs the tool calls it was sent, or finishes the answer (an
+  ## empty one is explained) with a toast about changed files or the reply. Inline edits and one-shot requests are
+  ## handed to their own callback
   if not haveExe("curl"):
     aiFail("The assistant needs curl:  pkg install curl")
     return
@@ -439,9 +461,14 @@ proc aiRequest() =
   if aiJob == nil: aiFail("Could not start curl")
 
 proc curAssistant(): int =
+  ## the index of the assistant message being written (the last one), -1 when the last message is not one
   if aiMsgs.len > 0 and aiMsgs[^1].role == 1: aiMsgs.high else: -1
 
 proc aiLine(line: string) =
+  ## one line of curl's output: the HTTP status marker is kept; a reply that is not streamed is collected whole; a line
+  ## of the stream is read for its text, tool calls, token counts, finish reason and errors, in the form of the
+  ## provider's API (Anthropic, Responses or chat completions), and added to the assistant's message — or to the text of
+  ## an inline edit
   var l = line
   if l.endsWith('\r'): l.setLen(l.len - 1)
   if l.startsWith("__HTTP__"):
@@ -633,6 +660,10 @@ proc mcpFetchMentions(t: string, withContext: bool, shownAs: string): bool =
   true
 
 proc aiSend(text: string, withContext = true, shownAs = "") =
+  ## sends the user's message: refuses while the assistant is busy, runs a /command (which may give a prompt of its
+  ## own), waits for the MCP resources it mentions, then adds the message — with the @mentions' contents and, with
+  ## `withContext`, the current file in front — to the chat, remembers it in the prompt history (100 kept) and starts
+  ## the request; `shownAs` is what the chat shows in its place
   var t = text.strip
   if t.len == 0: return
   if aiBusy:
@@ -666,6 +697,8 @@ proc aiSend(text: string, withContext = true, shownAs = "") =
   aiRequest()
 
 proc aiStop() =
+  ## stops the assistant: kills the request and any command it is running, drops the checks of its edits still running,
+  ## adds "Stopped." and answers its open tool calls with "Cancelled by the user." so that the next request is valid
   aiPlanInterrupted()
   mcpWaitReq = false
   inc aiCheckGen
@@ -702,6 +735,8 @@ proc aiStop() =
   inc aiVersion
 
 proc aiNewChat() =
+  ## starts a new chat: stops the assistant, saves the old chat, and clears the messages, the always-allowed tools and
+  ## the token counts
   aiStop()
   saveChat()
   aiMsgs.setLen(0)

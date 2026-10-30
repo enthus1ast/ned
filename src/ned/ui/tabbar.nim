@@ -3,6 +3,8 @@
 var tabScroll = 0
 
 proc tabMenu(i: int): seq[MenuItem] =
+  ## the right-click menu of tab number i: the close variants, reopening a closed tab, showing it in a split, copying
+  ## its path and revealing it in the file tree. The tab is held by index and checked again when an item is used.
   let idx = i
   @[mi("Close", "Ctrl+W", proc() = closeBuffer(idx)),
     mi("Close others", "", proc() =
@@ -40,6 +42,9 @@ proc tabMenu(i: int): seq[MenuItem] =
         revealInTree(bufs[idx].path))]
 
 proc drawTabBar() =
+  ## draws the tab row above the editor and records each tab's and close mark's cells (tabRanges, closeRanges) with
+  ## their click regions. It scrolls (tabScroll) so the current tab is always in view, with ‹ › buttons at the ends and
+  ## a menu button on the right.
   let y = lay.tabY
   if y < 0: return
   let x0 = lay.edX

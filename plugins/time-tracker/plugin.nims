@@ -34,6 +34,7 @@ var
   lastAt = pos(-1, 0)
   lastWrite = 0.0                # the clock when the time was last written
 
+# today's date as yyyy-mm-dd, in local time
 proc today(): string = localTime()[0 ..< 10]
 
 func dur(s: int): string =
@@ -72,14 +73,17 @@ const DayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 const MonthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
                     "October", "November", "December"]
 
+# the day of the week of a day's number, Monday 0 to Sunday 6
 func weekday(days: int): int = ((days mod 7) + 7 + 3) mod 7      # Monday 0 (1970-01-01 was a Thursday)
 
 func longDate(date: string): string =
+  ## a yyyy-mm-dd date written for the report: the weekday's name, the day and the month's name (Monday 5 October)
   let p = date.split('-')
   DayNames[weekday(daysOf(date))] & " " & $parseInt(p[2]) & " " & MonthNames[parseInt(p[1]) - 1]
 
 # ── the data ──
 
+# the path in the plugin's data folder of the file for the month of a yyyy-mm-dd day (2026-10.jsonl)
 proc monthFile(day: string): string = dataDir() / day[0 .. 6] & ".jsonl"
 
 proc readMonth(day: string): seq[(string, string, string, int)] =
@@ -119,6 +123,8 @@ proc flush() =
   appendData(day[0 .. 6] & ".jsonl", text)      # (its own data folder: ned adds the lines, no permission needed)
 
 proc showStatus() =
+  ## puts today's time for the current project in the status bar ("time paused" while counting is paused, nothing when
+  ## plugins.time-tracker.showStatus is off), touching the status bar only when the text changed
   let t = if paused: "⏸ time paused"
           elif not setting("showStatus", true): ""
           else: "⏱ " & dur(int(todays.getOrDefault(projectRoot()))) & " today"
@@ -127,6 +133,8 @@ proc showStatus() =
     shown = t
 
 proc add(project, file: string, secs: float) =
+  ## adds the seconds to the time not written yet for that project and file (to its entry when it has one, else as a new
+  ## one) and to today's total for the project
   for x in pending.mitems:
     if x[0] == project and x[1] == file:
       x[2] += secs
@@ -156,6 +164,9 @@ proc did(path: string) =
   showStatus()
 
 proc tick() =
+  ## the timer every 15 seconds: when the cursor has moved in the tab that was already the current one, that counts as
+  ## something done (reading), the time not written is written when a minute has passed since the last write, and the
+  ## status bar is brought up to date; nothing while paused
   if paused: return
   load()
   # reading counts too: the cursor moved in the tab you look at (another tab: onEnter)
@@ -186,15 +197,21 @@ proc nameOf(project: string, all: seq[string]): string =
   if n.len > 0: n else: project
 
 proc mdTable(head: string, rows: seq[(string, int)]): seq[string] =
+  ## the lines of a Markdown table with the heading `head` and a Time column from the (name, seconds) rows, `|` in a
+  ## name escaped
   result.add "| " & head & " | Time |"
   result.add "|---|---:|"
   for (k, s) in rows: result.add "| " & k.replace("|", "\\|") & " | " & dur(s) & " |"
 
 proc sortedRows(t: Table[string, int]): seq[(string, int)] =
+  ## the table's (name, seconds) pairs with the most time first
   for k, v in t: result.add (k, v)
   result.sort(proc(a, b: (string, int)): int = cmp(b[1], a[1]))
 
 proc report(): string =
+  ## the report as Markdown text: today by project, this week (from Monday) day by day, by project and by file (the 30
+  ## longest), added up from the month files (last month's too when the week began in it) after writing what is not
+  ## written yet. Projects whose folders have the same name are told apart by their paths
   flush()
   dayKey = ""
   load()

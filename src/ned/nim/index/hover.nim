@@ -1,3 +1,6 @@
+# hover, go to definition and signature help for the Nim index: what the name under the cursor is (its declaration, a
+# constant's value, the generic types bound at a call, a template's expansion, a type's layout, what a routine raises),
+# where it is declared, and the call the cursor is inside.
 proc nxConstValue*(f: NxFile, e: string, depth: int): string =
   ## a constant expression's value as the compiler would work it out (nxCtEval), "" when the index cannot tell
   nxCtRender(nxCtEval(f, e, depth))
@@ -176,6 +179,11 @@ proc nxConceptCallNote*(f: NxFile, lines: seq[string], line, col: int, s: NxSym)
   notes.join("\n\n")
 
 proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
+  ## the markdown hover text for the name at line:col, "" when there is none. Tried in turn: a NimScript compiler
+  ## switch, a `when` condition's value, a module name, a local, then the declarations the name resolves to — their
+  ## documentation, plus (for a routine) the generic binding at this call, a concept the argument fails, a constant's
+  ## value, a template's expansion, a type's memory layout or what a routine can raise. Also names `std/` and `pkg/`
+  ## prefixes, nimble tasks and arguments given by name
   if f != nil and nxIsScript(f.path) and line >= 0 and line < lines.len:
     # a compiler switch in a NimScript file: `--opt:speed`, switch("opt", "speed")
     let sw = nxSwitchAt(lines[line], col)
@@ -312,6 +320,9 @@ proc nxHover*(f: NxFile, lines: seq[string], line, col: int): string =
       if rh.len > 0: result.add "\n\n" & rh
 
 proc nxDefinition*(f: NxFile, lines: seq[string], line, col: int): seq[(string, int, int, string)] =
+  ## where the name at line:col is declared, as (file, line, column, signature) for each candidate — a module gives its
+  ## file, a local its own position. A bodiless forward declaration is followed to the routine itself further down its
+  ## file
   let (refs, locals, modPath) = nxTargets(f, lines, line, col)
   if modPath.len > 0: return @[(modPath, 0, 0, "module " & nxModuleName(modPath))]
   if locals.len > 0: return @[(f.path, locals[0].line, locals[0].col, nxSig(locals[0]))]
@@ -474,6 +485,8 @@ proc nxLexRuns*(line: string, st: var NxLexState, ops: bool): seq[(int, int)] =
       i = e
     else: inc i
 
+# the (start, end) of each identifier on a line outside strings, chars and comments, carrying the multi-line comment and
+# string state in st
 proc nxIdents*(line: string, st: var NxLexState): seq[(int, int)] = nxLexRuns(line, st, false)
 
 proc nxSymAt*(f: NxFile, line, col: int): int =
@@ -482,6 +495,7 @@ proc nxSymAt*(f: NxFile, line, col: int): int =
   if f.byLineN != f.syms.len or (f.syms.len > 0 and f.byLine.len == 0):
     f.byLine = initTable[int, seq[int]]()
     for i in 0 ..< f.syms.len:
+      # the declaration being indexed
       template s: untyped = f.syms[i]
       f.byLine.mgetOrPut(s.line, @[]).add i
     f.byLineN = f.syms.len

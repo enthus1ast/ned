@@ -189,7 +189,9 @@ func pascalSymbols*(lines: seq[string]): seq[Symbol] =
     let first = ws[0][0]
     let base = (if section.len > 0: 1 else: 0)
     template add(nm, kd, dt: string, cl, dp: int) =
+      ## adds an outline symbol for the line being read (name, kind, detail, column and nesting depth) to the result
       result.add Symbol(name: nm, kind: kd, detail: dt, line: ln, col: cl, depth: dp)
+    # a word of the lower-cased line as it is written in the source line (its own capitals)
     template orig(w: (string, int)): string = s[w[1] ..< w[1] + w[0].len]
     # inside a class (record …) body: its methods and properties, until its end
     if containers > 0:

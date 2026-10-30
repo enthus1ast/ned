@@ -99,6 +99,9 @@ proc nimFfiDecls(lines: seq[string]): seq[NimFfi] =
     for q in 0 ..< rest.len: map.add Pos(line: l, col: startCol + q)
     var e = l
     proc closed(x: string): bool =
+      ## whether the declaration text gathered so far is complete: its pragma is closed (`.}`), or it ends in `=`, or
+      ## its brackets are balanced and it does not end in `,` or `(` (so a parameter list laid out one to a line is read
+      ## to its end)
       let pa = x.find("{.")
       if pa >= 0: return x.find(".}", pa) >= 0
       x.endsWith("=") or (x.count('(') <= x.count(')') and not x.endsWith(",") and not x.endsWith("("))
@@ -240,6 +243,7 @@ proc nimFfiDecls(lines: seq[string]): seq[NimFfi] =
     l = e + 1
 
 func ffiAtLine(decls: seq[NimFfi], line: int): int =
+  ## the index of the wrapper whose lines include this one, -1 when no wrapper does
   for i, d in decls:
     if line >= d.line and line <= d.eline: return i
   -1

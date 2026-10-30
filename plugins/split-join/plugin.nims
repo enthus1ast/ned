@@ -37,6 +37,8 @@ type Scan = object
   lang: string
 
 func runeLenAt(t: string, i: int): int =
+  ## how many bytes the UTF-8 character that starts at byte `i` takes (1 past the end of the text), read from its first
+  ## byte
   if i >= t.len: 1
   elif ord(t[i]) < 0xC0: 1
   elif ord(t[i]) < 0xE0: 2
@@ -52,6 +54,7 @@ func scanKinds(t, lang, cm: string): string =
   let (bo, bc) = if cm == "//": ("/*", "*/") elif lang == "nim": ("#[", "]#") else: ("", "")
   var i = 0
   template fill(a, e: int, k: char) =
+    ## marks the bytes from `a` up to `e` of the result with the kind `k`
     for x in a ..< e: result[x] = k
   while i < t.len:
     let c = t[i]
@@ -95,6 +98,8 @@ func scanKinds(t, lang, cm: string): string =
       inc i
 
 func bracketPairs(t, kinds: string): seq[(int, int)] =
+  ## every ( [ { of the code (not of strings and comments) with the offset of the bracket that closes it, found with a
+  ## stack; a closing bracket with no matching opener is skipped, and an opener left over has no pair
   var st: seq[int]
   for i in 0 ..< t.len:
     if kinds[i] != 'c': continue
@@ -126,13 +131,17 @@ proc scanAround(b: Buf, line: int): Scan =
   result.kinds = scanKinds(result.t, result.lang, b.lineComment)
   result.pairs = bracketPairs(result.t, result.kinds)
 
+# the position in the buffer as an offset in the scanned text
 func offsetOf(sc: Scan, p: Pos): int = sc.starts[p.line - sc.first] + p.col
 
 func posOf(sc: Scan, i: int): Pos =
+  ## the buffer position (line and column) of the offset `i` in the scanned text — the last line that starts at or
+  ## before it
   var l = sc.starts.high
   while l > 0 and sc.starts[l] > i: dec l
   pos(sc.first + l, i - sc.starts[l])
 
+# whether the bracket pair has a line end between its brackets
 func multiLine(sc: Scan, pr: (int, int)): bool = '\n' in sc.t[pr[0] ..< pr[1]]
 
 func around(sc: Scan, at: int, want: int): int =
@@ -171,6 +180,8 @@ proc listItems(sc: Scan, pr: (int, int)): seq[Item] =
   let (a0, e0) = sc.inside(pr)
   var a = a0
   proc addItem(r: var seq[Item], a, e: int, sep: char) =
+    ## adds the item that spans `a` up to `e`, with the spaces and line ends round it left out and `sep` as what follows
+    ## it
     var (x, y) = (a, e)
     while x < y and sc.t[x] in Whitespace: inc x
     while y > x and sc.t[y - 1] in Whitespace: dec y
@@ -210,6 +221,7 @@ func statements(sc: Scan, pr: (int, int), its: seq[Item]): string =
   ""
 
 func lineIndent(s: string): string =
+  ## the spaces and tabs at the start of the line, as written
   var k = 0
   while k < s.len and s[k] in {' ', '\t'}: inc k
   s[0 ..< k]
@@ -221,6 +233,10 @@ func isCall(sc: Scan, open: int): bool =
   open > 0 and sc.t[open] == '(' and (sc.t[open - 1] in IdentChars or sc.t[open - 1] in {')', ']', '>'})
 
 proc splitPair(b: Buf, sc: Scan, pr: (int, int)) =
+  ## rewrites the list in the brackets as one item a line, one indentation unit deeper than the line the opening bracket
+  ## is on and with the closing bracket on a line of its own; it says why (a message) when the list is empty or holds
+  ## statements. The comma after the last item follows the language's habit, or the list's own when the language has
+  ## none, and the cursor goes to the opening bracket
   let its = sc.listItems(pr)
   if its.len == 0:
     message("Split/join: the list is empty — nothing to split")

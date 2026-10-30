@@ -5,6 +5,7 @@
 type SetupRow = tuple[group, name: string, state: int, ver, purpose, hint: string]
   ## state: 0 found · 1 missing, optional · 2 missing, needed · 3 a note
 
+# whether ned runs in Termux on Android, from its environment variables
 proc isTermux(): bool = getEnv("TERMUX_VERSION").len > 0 or "com.termux" in getEnv("PREFIX")
 
 proc trueColorWhy(): string =
@@ -34,6 +35,7 @@ proc trueColorWhy(): string =
     let vte = (try: parseInt(getEnv("VTE_VERSION", "0")) except ValueError: 0)
     if vte >= 3600: return "VTE " & $vte
 
+# whether the environment says this terminal draws 24-bit colour
 proc detectTrueColor(): bool = trueColorWhy().len > 0
 
 proc installHint(termuxPkg, linuxPkg: string): string =
@@ -61,6 +63,8 @@ proc versionOf(tool: string): string =
   ""
 
 proc osLine(): string =
+  ## one line on the system for the setup check and bug reports: its name, release and machine from uname, and WSL,
+  ## Termux and Android versions where they apply
   var u: Utsname
   if uname(u) == 0:
     result = $cast[cstring](addr u.sysname[0]) & " " & $cast[cstring](addr u.release[0]) & " " &
@@ -74,6 +78,8 @@ proc osLine(): string =
     if ok and o.strip.len > 0: result.add " · Android " & o.strip
 
 proc termLine(inEditor: bool): string =
+  ## one line on the terminal: its TERM, whether it draws 24-bit or 256 colours and why ned thinks so, and its size in
+  ## columns and rows
   let tc = if inEditor: trueColor else: detectTrueColor()
   let (w, h) = if inEditor: (scrW, scrH) else: getTermSize()
   let why = trueColorWhy()
@@ -85,8 +91,15 @@ proc termLine(inEditor: bool): string =
   result = "TERM=" & getEnv("TERM", "?") & " · " & how & " · " & $w & "×" & $h
 
 proc setupRows(inEditor: bool): seq[SetupRow] =
+  ## the rows of the setup check, in groups: the system (terminal and its answers, keys, emoji, underlines, remote
+  ## control, settings file, state folder), Nim and its tools, other tools (sh on Windows, git, gh, rg, curl, the
+  ## clipboard helper) and the AI provider with whether a key is set (the key itself is never shown). Each says if it
+  ## was found, is missing but optional, is missing and needed, or is just a note, with the command that installs it.
+  ## `inEditor` adds what only the running editor knows
   var rows: seq[SetupRow]
   proc tool(group, name, purpose: string, needed: bool, hint: string, askVersion = true) =
+    ## adds the row for a program: found (with its version, when asked for) or not found, in which case it is
+    ## missing-needed or only optional, with the hint on how to install it
     if haveExe(name):
       rows.add (group, name, 0, (if askVersion: versionOf(name) else: ""), purpose, "")
     else:
@@ -171,6 +184,8 @@ proc setupRows(inEditor: bool): seq[SetupRow] =
   rows
 
 proc setupReport(inEditor: bool): string =
+  ## the setup check as text: the rows by group, each marked ✓ found, ✗ missing and needed or · optional, with the hint
+  ## under it, and a closing count of what is missing; the same text is printed by `ned --check`
   let rows = setupRows(inEditor)
   result = AppName & " " & Version & " — setup check\n"
   var group = ""
@@ -200,6 +215,8 @@ proc setupReport(inEditor: bool): string =
   result.add "\nReporting a problem? Help › Copy info for bug report puts a short summary on the clipboard.\n"
 
 proc bugReportInfo(): string =
+  ## the short summary for a bug report: ned's version, the Nim version, system, terminal and theme, and the tools found
+  ## (✗ for those that are not)
   let rows = setupRows(true)
   var tools: seq[string]
   var nimV = ""
@@ -213,10 +230,12 @@ proc bugReportInfo(): string =
            "tools: " & tools.join(", ") & "\n"
 
 proc cmdCheckSetup() =
+  ## Help › Check setup: the setup report in a tab of its own
   info("Checking setup…")
   discard openScratch("Setup check", setupReport(true), langByName("Text"))
 
 proc cmdCopyBugInfo() =
+  ## Help › Copy info for bug report: puts the summary on the clipboard
   let s = bugReportInfo()
   clipSet(s)
   toast("Copied for a bug report: ned " & Version & ", Nim, system, terminal and tools — paste it into the issue", 3)

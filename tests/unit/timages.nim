@@ -13,6 +13,8 @@ type Fixture = object
   w, h, frames: int
 
 proc fixtures(): seq[Fixture] =
+  ## the pictures listed in the manifest of the images folder: each line gives the file, the file of the expected
+  ## pixels, the size, the number of frames and the kind
   for line in lines(dir / "manifest.txt"):
     if line.len == 0 or line.startsWith("#"): continue
     let f = line.splitWhitespace()
@@ -20,14 +22,18 @@ proc fixtures(): seq[Fixture] =
                        kind: f[5])
 
 proc expected(f: Fixture): seq[uint8] =
+  ## the pixels PIL made of the picture (RGBA bytes), to compare ned's decoding with
   let s = readFile(dir / f.exp)
   result = newSeq[uint8](s.len)
   for i, c in s: result[i] = uint8(ord(c))
 
+# a duration in milliseconds
 proc ms(d: Duration): float = d.inNanoseconds.float / 1e6
+# the number rounded to a whole number, as text
 proc whole(x: float): string = $int(x + 0.5)
 
 proc bytes(px: seq[uint8]): string =
+  ## the pixel bytes as a string
   result = newString(px.len)
   for i, b in px: result[i] = char(b)
 
@@ -66,6 +72,7 @@ proc boxReduce(px: seq[uint8], w, h, s: int): seq[uint8] =
       for k in 0..3: result[(y * ow + x) * 4 + k] = uint8((sum[k] + n div 2) div n)
 
 proc picture(w, h: int, f: proc (x, y: int): (int, int, int, int)): ImgPicture =
+  ## a w × h picture whose pixel at (x, y) is the (red, green, blue, alpha) that f gives for it
   result = ImgPicture(w: w, h: h, px: newSeq[uint8](w * h * 4), frames: 1, scaled: 1, fullW: w, fullH: h)
   for y in 0 ..< h:
     for x in 0 ..< w:
@@ -77,6 +84,8 @@ proc picture(w, h: int, f: proc (x, y: int): (int, int, int, int)): ImgPicture =
       result.px[o + 3] = uint8(a)
 
 proc photoLike(w, h: int): ImgPicture =
+  ## a picture that behaves like a photograph — smooth gradients with a little noise from a fixed seed — so it always
+  ## comes out the same
   var r = initRand(7)
   picture(w, h, proc (x, y: int): (int, int, int, int) =
     let n = r.rand(16) - 8
@@ -93,10 +102,13 @@ proc readSixel(s: string): (int, int, seq[uint32]) =
   var pal: seq[uint32] = newSeq[uint32](256)
   var px: seq[uint32]
   proc num(i: var int): int =
+    ## reads the decimal number at i in the sixel text and moves i past it (0 when there are no digits)
     while i < s.len and s[i] in Digits:
       result = result * 10 + ord(s[i]) - ord('0')
       inc i
   proc draw(px: var seq[uint32], w, h, x, y: int, bits: int, c: uint32) =
+    ## paints a column of up to six pixels from row y in the colour c; the bits say which of the six, and pixels outside
+    ## the picture are left
     for k in 0..5:
       if (bits and (1 shl k)) != 0 and x < w and y + k < h: px[(y + k) * w + x] = c
   while i < s.len - 2:
@@ -306,9 +318,12 @@ suite "damaged files":
 
   test "a header claiming 100000 × 100000 is refused before anything is allocated":
     proc chunk(kind, body: string): string =
+      ## a PNG chunk: the length of the body in four bytes, the kind, the body, and four zero bytes where the checksum
+      ## goes
       for k in [24, 16, 8, 0]: result.add char((body.len shr k) and 255)
       result.add kind & body & "\0\0\0\0"
     proc be32(v: int): string =
+      ## the number as four bytes, most significant first
       for k in [24, 16, 8, 0]: result.add char((v shr k) and 255)
     let png = "\x89PNG\r\n\x1a\n" & chunk("IHDR", be32(100000) & be32(100000) & "\x08\x06\0\0\0") &
               chunk("IDAT", "\x78\x9c\x03\0\0\0\0\x01") & chunk("IEND", "")
@@ -388,6 +403,8 @@ suite "speed":
       big.add mcus[(i * 7 + i div 250) mod mcus.len]
     big.add "\xFF\xD9"
     proc timed(data: string, w, h: int): (float, ImgPicture) =
+      ## decodes the JPEG data for a w × h space three times; gives back the shortest time in milliseconds and the
+      ## picture
       var best = 1e9
       var p: ImgPicture
       for k in 0..2:

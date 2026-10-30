@@ -7,6 +7,7 @@ var
   fieldSelOwner: pointer          # the text the selection is in
   fieldSelAnchor = -1             # its other end (the field's cursor is the one end)
 
+# whether the field-selection belongs to this field (to this very string variable)
 proc fieldOwns(text: var string): bool {.inline.} = fieldSelOwner == cast[pointer](addr text)
 
 proc fieldSelRange(text: var string, cur: int): (int, int) =
@@ -16,6 +17,7 @@ proc fieldSelRange(text: var string, cur: int): (int, int) =
     (min(a, cur), max(a, cur))
   else: (cur, cur)
 
+# drops the selection in whichever field has it
 proc fieldSelClear() = fieldSelAnchor = -1
 
 proc fieldSelect(text: var string, a, b: int) =
@@ -33,15 +35,19 @@ proc fieldDeleteSel(text: var string, cur: var int): bool =
   true
 
 proc fieldSelText(text: var string, cur: int): string =
+  ## the selected text of the field (empty when nothing is selected in it)
   let (a, b) = fieldSelRange(text, cur)
   text[a ..< b]
 
 func fieldWordStart(s: string, i: int): int =
+  ## where the word at byte `i` starts: back over spaces, then back to a space or one of / . , : ( ) [ ] " (so path
+  ## parts count as words)
   result = clamp(i, 0, s.len)
   while result > 0 and s[result - 1] == ' ': dec result
   while result > 0 and s[result - 1] notin {' ', '/', '.', ',', ':', '(', ')', '[', ']', '"'}: dec result
 
 func fieldWordEnd(s: string, i: int): int =
+  ## where the word at byte `i` ends: forward over spaces, then on to a space or one of / . , : ( ) [ ] "
   result = clamp(i, 0, s.len)
   while result < s.len and s[result] == ' ': inc result
   while result < s.len and s[result] notin {' ', '/', '.', ',', ':', '(', ')', '[', ']', '"'}: inc result

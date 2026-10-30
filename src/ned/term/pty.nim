@@ -119,13 +119,17 @@ var
   termPaneCursor = false       # (… while it is drawn, the active pane: its cursor shown)
   termOther = -1               # … the one that is not curTerm
 
+# an empty terminal cell: a space in the default foreground colour on the terminal's current background
 func blankCell(t: Term): TCell = TCell(ch: 32, fg: NoColor, bg: t.bg)
 proc blankRow(t: Term): TRow =
+  ## a new row as wide as the terminal, filled with blank cells
   result = newSeq[TCell](t.w)
   let c = t.blankCell
   for i in 0 ..< t.w: result[i] = c
 
 proc termShell(): string =
+  ## the shell the terminal runs: the terminal.shell setting if set, else $SHELL when that file exists, else the first
+  ## of bash, zsh, fish or sh found on the path, else /bin/sh (on Windows: pwsh, powershell, then %ComSpec%)
   if cfgTermShell.len > 0: return cfgTermShell
   when defined(windows):
     for c in ["pwsh", "powershell"]:
@@ -176,6 +180,8 @@ proc hostSend(t: Term, kind: char, payload: string) =
     else: break
 
 proc setWinSize(t: Term) =
+  ## tells the shell the terminal's size in columns and rows: a message to the term host for a kept terminal, else the
+  ## window-size ioctl on the pseudo-terminal
   if t.fd < 0: return
   if t.hosted:
     t.hostSend('r', $t.w & " " & $t.h)

@@ -36,6 +36,8 @@ type
     code*: seq[int]          ## 0-based: the lines that would hold its code (the declaration, each statement)
 
 proc addHit*(h: var CovHits, file: string, line, count: int) =
+  ## adds `count` runs to a file's line in the table (counts from several programs or .gcda files add up); an empty file
+  ## name or a line below 1 is ignored
   if file.len == 0 or line <= 0: return
   h.mgetOrPut(file, initTable[int, int]()).mgetOrPut(line, 0) += max(count, 0)
 
@@ -102,6 +104,7 @@ func covRewriteC*(src: string): string =
 # ── gcov's output ──
 
 proc resolved(file, base: string): string =
+  ## a normalised absolute file name: `file` as it is when absolute (or when there is no base folder), else under `base`
   if file.len == 0: return ""
   if file.isAbsolute or base.len == 0: normalizedPath(file) else: normalizedPath(base / file)
 
@@ -123,7 +126,9 @@ proc parseGcovJson*(s: Stream, h: var CovHits, mapPath: CovPathMap, baseDir = ""
   var curFile = ""
   var pending: seq[(int, int)]       # a file's lines read before its name (kept until the file's object ends)
   var lineNo, lineCount = 0
+  # whether the parser is directly inside one object of the document's `files` array
   proc inFile(st: seq[Frame]): bool = st.len == 3 and st[2].obj and st[1].key == "files"
+  # whether the parser is directly inside one object of a file's `lines` array
   proc inLine(st: seq[Frame]): bool = st.len == 5 and st[4].obj and st[3].key == "lines" and st[1].key == "files"
   while true:
     let t = p.getTok()
@@ -283,6 +288,8 @@ proc parseLcovMapped*(s: Stream, h: var CovHits, mapPath: CovPathMap,
 
 proc parseLcovMappedFile*(path: string, h: var CovHits, mapPath: CovPathMap,
                           cmap: proc(cfile: string): Table[int, (string, int)]) =
+  ## reads an lcov file from disk through parseLcovMapped (the C lines of clang's coverage taken to .nim lines by
+  ## `cmap`); raises IOError when it cannot be opened
   let s = newFileStream(path, fmRead)
   if s == nil: raise newException(IOError, "cannot read " & path)
   defer: s.close()
@@ -381,6 +388,7 @@ func covNoCodeLine*(t: string): bool =
   w in NoCodeWords
 
 func gcovIndentOf(l: string): int =
+  ## the number of leading spaces of a line
   while result < l.len and l[result] == ' ': inc result
 
 func endsOpen(code: string): bool =
@@ -395,6 +403,8 @@ func endsOpen(code: string): bool =
   false
 
 func startsWithWord(t: string, words: openArray[string]): string =
+  ## the first of `words` that `t` starts with as a whole word (followed by the end, a space, tab, `*`, backtick or
+  ## `[`), "" when none
   for w in words:
     if t.startsWith(w) and (t.len == w.len or t[w.len] in {' ', '\t', '*', '`', '['}): return w
   ""

@@ -1,6 +1,7 @@
 # ── quick fixes of our own: Nim imports, AI fix/explain ──
 
 proc diagsAtCursor(b: Buffer): seq[Diag] =
+  ## the problems that cover the cursor's line, the most severe first
   let l = b.primary.head.line
   for d in diagsFor(b.path):
     if d.line <= l and l <= max(d.line, d.eline): result.add d
@@ -146,6 +147,9 @@ proc aiFixVerify(bid: int, text: string, attempt: int, firstMsg: string) =
     applyInlineEdit()
 
 proc aiFixProblem() =
+  ## the command "AI: fix problem at cursor": for a compiler error in a saved .nim file, the model's fix is asked for
+  ## and checked with nim check before it is applied (aiFixAsk); for any other problem the model is just asked to fix it
+  ## in place. Says so when the cursor's line has no problem
   let b = buf()
   let ds = diagsAtCursor(b)
   if ds.len == 0:
@@ -159,6 +163,8 @@ proc aiFixProblem() =
                ": " & d.msg.splitLines()[0] & ". Change as little as possible.")
 
 proc aiExplainProblem() =
+  ## the command "AI: explain problem at cursor": sends the problem on the cursor's line to the assistant side panel,
+  ## asking what it means and how to fix it
   let b = buf()
   let ds = diagsAtCursor(b)
   if ds.len == 0:

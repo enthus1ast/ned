@@ -30,6 +30,8 @@ proc lineSpan(b: Buf): (int, int) =
   (r.start.line, last)
 
 proc withLines(f: proc(ls: seq[string]): seq[string]) =
+  ## runs `f` on the lines of the selection (the file's lines when nothing is selected) and puts what it gives back in
+  ## their place, selected; nothing changes when the lines come back the same
   let b = current()
   let (a, e) = lineSpan(b)
   let ls = b.lines(a, e)
@@ -51,6 +53,8 @@ proc wordRange(b: Buf): Range =
   rng(pos(c.line, a), pos(c.line, e))
 
 proc withText(f: proc(s: string): string) =
+  ## runs `f` on the selection (the run of non-space characters at the cursor when nothing is selected) and replaces it
+  ## with the result, selected; an error of `f` is shown as a warning and leaves the text alone
   let b = current()
   let r = wordRange(b)
   if r.isEmpty:
@@ -68,6 +72,7 @@ proc withText(f: proc(s: string): string) =
   b.select(rng(r.start, pos(r.start.line + ls.high, (if ls.len == 1: r.start.col + t.len else: ls[^1].len))))
 
 proc wholeOrSelection(b: Buf): (Range, string) =
+  ## the selection and its text, or the whole file and its text when nothing is selected
   let r = b.selection
   if r.isEmpty:
     let n = b.lineCount
@@ -86,6 +91,8 @@ func numKey(s: string): (bool, float) =
   except ValueError: (false, 0.0)
 
 proc sortBy(ls: seq[string], how: string): seq[string] =
+  ## the lines sorted: "az" and "za" ignoring case, "num" by the number each starts with (the lines without one after,
+  ## by text), "len" by length; the order of lines that compare equal is kept
   result = ls
   case how
   of "az": result.sort(proc(a, b: string): int = cmp(a.toLowerAscii, b.toLowerAscii))
@@ -99,19 +106,23 @@ proc sortBy(ls: seq[string], how: string): seq[string] =
   else: discard
 
 func uniqueLines(ls: seq[string]): seq[string] =
+  ## the lines without the ones seen before, the first of each kept
   for l in ls:
     if l notin result: result.add l
 
 func numbered(ls: seq[string]): seq[string] =
+  ## each line with its number in front ("1. "), the numbers lined up on the right
   let w = len($ls.len)
   for i, l in ls: result.add align($(i + 1), w) & ". " & l
 
 func joined(ls: seq[string]): seq[string] =
+  ## the lines as a single line, joined with a space (the indentation of the first line kept, the others stripped)
   var parts: seq[string]
   for i, l in ls: parts.add (if i == 0: l.strip(leading = false) else: l.strip)
   @[parts.join(" ")]
 
 func splitCommas(ls: seq[string]): seq[string] =
+  ## each line split at its commas into one item a line, with the line's indentation, empty items dropped
   for l in ls:
     let ind = l.len - l.strip(trailing = false).len
     for p in l.split(','):
@@ -145,17 +156,22 @@ command "Transform: shuffle lines": withLines(shuffled)
 # ── text ──
 
 func hexEncode(s: string): string =
+  ## the bytes of the text as two lower case hex digits each
   for c in s: result.add toHex(ord(c), 2).toLowerAscii
 
 proc hexDecode(s: string): string =
+  ## the bytes that hex digits stand for (0x, spaces, line ends and colons are ignored); an odd number of digits is an
+  ## error
   let t = s.multiReplace(("0x", ""), (" ", ""), ("\n", ""), (":", ""))
   if t.len mod 2 != 0: raise newException(ValueError, "not hex: an odd number of digits")
   for i in countup(0, t.len - 2, 2): result.add chr(parseHexInt(t[i .. i + 1]))
 
 func htmlEscape(s: string): string =
+  ## the text with & < > " and ' written as HTML entities
   s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"), ("'", "&#39;"))
 
 func htmlUnescape(s: string): string =
+  ## the text with the HTML entities for < > " ' and the space, and then &amp;, turned back into characters
   s.multiReplace(("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'"), ("&nbsp;", " "),
                  ("&amp;", "&"))
 
@@ -239,6 +255,8 @@ command "Transform: lower case": withText(proc(s: string): string = s.toLowerAsc
 # ── JSON ──
 
 proc jsonAs(pretty: bool) =
+  ## the selection (the file when nothing is selected) rewritten as indented JSON, using the file's indentation unit and
+  ## at least two spaces, or as JSON on one line; a text that is not JSON is a warning
   let b = current()
   let (r, s) = wholeOrSelection(b)
   var j: JsonNode
@@ -273,6 +291,8 @@ func numbersIn*(s: string): seq[float] =
     else: inc i
 
 func fmtNum(x: float): string =
+  ## a number for the message: a whole number without a decimal point, else up to six decimals with the zeros at the end
+  ## taken off
   if x == float(int(x)) and abs(x) < 1e15: $int(x) else: formatFloat(x, ffDecimal, 6).strip(leading = false, chars = {'0'})
 
 command "Transform: add up the numbers":

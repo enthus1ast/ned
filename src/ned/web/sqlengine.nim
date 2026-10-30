@@ -28,6 +28,7 @@ const
   NotTables = ["select", "where", "set", "values", "lateral", "only", "unnest", "json_each", "json_tree",
                "generate_series", "dual", "pragma_table_info"]
 
+# the word in lower case, which is how SQL names are compared
 func lowerWord(s: string): string = s.toLowerAscii
 
 proc sqlTokens*(lines: openArray[string], fromLine = 0, toLine = int.high, upto = (int.high, 0)): seq[SqlToken] =
@@ -91,12 +92,14 @@ proc sqlTokens*(lines: openArray[string], fromLine = 0, toLine = int.high, upto 
       inc i
 
 func unquote(s: string): string =
+  ## a name without its quotes — "x", `x` or [x] become x; anything else is unchanged
   if s.len >= 2 and s[0] in {'"', '`', '['}: s[1 ..< s.high] else: s
 
 proc addCreates*(sc: var SqlSchema, lines: openArray[string], path: string) =
   ## the tables (and views) a text creates or alters
   let ts = sqlTokens(lines)
   var i = 0
+  # the lower-case text of token k when it is a word or a quoted name, else an empty string (also past the end)
   template w(k: int): string = (if k < ts.len and ts[k].kind in {stWord, stQuoted}: ts[k].text.lowerWord else: "")
   while i < ts.len:
     if w(i) == "create":
@@ -194,7 +197,12 @@ proc stmtAround(lines: openArray[string], line, col: int, all = false): SqlStmt 
     result.toks.setLen(e)
 
 proc readNames(st: var SqlStmt) =
+  ## fills in a statement's tables, aliases and WITH names: the names that follow FROM, JOIN, INTO, UPDATE and TABLE (a
+  ## schema prefix dropped, a comma list after FROM taken in turn), with the alias after each (`users u`, `users AS u`),
+  ## and each `name AS (` as a common table expression
   let ts = st.toks
+  # the lower-case, unquoted text of token k when it is a word or a quoted name, else an empty string (also before the
+  # start and past the end)
   template w(k: int): string = (if k >= 0 and k < ts.len and ts[k].kind in {stWord, stQuoted}: ts[k].text.unquote.lowerWord else: "")
   for k in 0 ..< ts.len:
     if w(k) == "as" and k > 0 and ts[k - 1].kind in {stWord, stQuoted} and k + 1 < ts.len and ts[k + 1].text == "(":
@@ -255,6 +263,7 @@ proc sqlComplete*(lines: openArray[string], line, col: int, sc: SqlSchema): (int
       return
   var items: seq[WebItem]
   proc colItems(items: var seq[WebItem], t: SqlTable, rank: int) =
+    ## adds each column of the table to the completions, its table and type as the detail
     for cl in t.cols:
       items.add WebItem(label: cl.name, insert: cl.name, detail: t.name & (if cl.typ.len > 0: " · " & cl.typ else: ""),
                         kind: KField, rank: rank)
@@ -314,6 +323,7 @@ proc sqlHover*(lines: openArray[string], line, col: int, sc: SqlSchema): string 
   var st = stmtAround(lines, line, a, all = true)
   readNames(st)
   proc tableDoc(t: SqlTable): string =
+    ## the help text of a table or view: its name, where it is created (file and line) and its columns with their types
     result = "**" & t.name & "** — " & (if t.view: "view" else: "table") &
              (if t.path.len > 0: " (" & t.path.splitPath.tail & ":" & $(t.line + 1) & ")" else: "") & "\n```sql\n"
     for cl in t.cols: result.add cl.name & (if cl.typ.len > 0: "  " & cl.typ else: "") & "\n"

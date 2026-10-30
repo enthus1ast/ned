@@ -6,9 +6,13 @@ type JTok* = object
   nl*: int           # line breaks just before it in the source
 
 proc jsonToks*(s: string, err: var string): seq[JTok] =
+  ## reads JSON (comments allowed) as tokens — brackets, commas, colons, whole values (strings, numbers, true, false,
+  ## null; their text untouched) and comments — each with the number of line breaks before it; err is set for a string
+  ## that runs past its line, an unclosed string or comment, or text that is not a value
   var i = 0
   var nl = 0
   template add(k: char, t: string) =
+    ## adds a token of kind k with its text and the line breaks counted since the last token, and resets that count
     result.add JTok(kind: k, text: t, nl: nl)
     nl = 0
   while i < s.len:
@@ -74,6 +78,8 @@ proc fmtJson*(s: string, indent = 2, maxW = 80): (string, string) =
   var pending = false          # the next token starts a new line
   let ind = spaces(indent)
   proc newline(o: var string, d: int, blank: bool) =
+    ## starts a new line in the output at depth d (with a blank line before it if asked), first removing spaces at the
+    ## end of the line it leaves
     while o.len > 0 and o[^1] == ' ': o.setLen(o.len - 1)
     if o.len > 0:
       o.add "\n"

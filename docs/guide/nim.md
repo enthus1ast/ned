@@ -435,6 +435,21 @@ What Nim 2.4 added to the language is read as the rest:
 - The standard library names Nim 2.4 added are known for `nim.minVersion` (*'readRawData' is not in Nim 2.2.12 or
   older*).
 
+**The compiler's own reading of a saved file.** With Nim 2.4 or newer, the check on save is `nim nif` in place of
+`nim check`: the same messages, about the same time — and, for each module without errors, what the compiler made
+of it, kept in ned's folder (`~/.cache/ned/nif`, never in the project). From it, a file as saved gets:
+
+- **colours** by what each name is in the compiler's reading — a routine, a type, a field, a constant, a global, a
+  parameter — names a macro or a template made among them;
+- **the types after its lets and vars** as the compiler gave them (`: Table[string, int]`), where the engine has
+  none or another;
+- **Go to definition** of the declaration the compiler chose: of `show(2.5)`, the `show` that takes a float.
+
+After an edit, until the next save, the engine's answers are back; a file with an error keeps them too (the
+compiler writes nothing for it). `nim.compilerNif` off goes back to `nim check`. A Nim older than 2.4 is checked
+with `nim check` as before, and everything else works the same with it. (`nim track`, Nim 2.4's Go to definition
+through its incremental compilation, is not used: 2 to 4 seconds a question, and it missed uses.)
+
 ## One Nim per project
 
 `nim.toolchain` (Nim settings; best in the project's `.ned/settings.json`, or *Nim: choose the Nim for this
@@ -515,7 +530,10 @@ one up to three above it, has `nimony.args`, `nimony.paths` or `pnak.nif` (the f
 nimony is installed; otherwise Nim 2. `nim` and `nimony` say it outright (*Nim › Nim 3 (Nimony) › This project is
 Nim 3* writes `"nim.compiler": "nimony"` to the project's `.ned/settings.json`; *Nim 3: decide from the project
 (auto)* goes back). The status bar says which: `Nim 3` or the Nim 2 version (`✓ Nim 2.4.0`), and *nimony (not
-found)* when the project asks for Nim 3 and there is no nimony.
+found)* when the project asks for Nim 3 and there is no nimony. A tap on it says why — *Nim 3 (nimony):
+~/proj/nimony.paths is here*, *Nim 2.4.0 (PATH)* — and offers the rest: make the project Nim 3 or Nim 2, decide
+from the project, install or update nimony (while it builds, the status bar says *building nimony…*), choose the
+Nim, the Nim panel.
 
 **Installing nimony.** *Nim 3: install or update nimony* (Nim › Nim 3 (Nimony)) clones Nimony into
 `~/.local/nimony` — or brings it up to date there — and builds it with its own builder, in the Run panel: a few
@@ -555,11 +573,11 @@ With Nim 3:
   — F12 goes there, or, on a symbol, to where the NIF declares it. *Nim 3: the NIF of this file beside it* opens
   what nimony made of the file (it checks the file first when there is none yet); each side follows the cursor
   in the other.
-- **Colours from what nimony read**: once nimony has checked a saved file, its names take the colour of what they
-  are in nimony's reading — a routine, a type, a field, an enum value, a constant, a variable, a parameter —
-  including names a macro or a template made, which reading alone cannot know. The colours apply while the file
-  is as nimony saw it; after an edit the usual colours are back until the next check. (Nim 2.4 keeps what it
-  compiled in a binary form that ned does not read, so this is for Nim 3.)
+- **What nimony read**: once nimony has checked a saved file, its names take the colour of what they are in
+  nimony's reading — a routine, a type, a field, an enum value, a constant, a variable, a parameter — including
+  names a macro or a template made, which reading alone cannot know; its lets and vars show the types nimony gave
+  them, and F12 goes to the declaration nimony chose. All this while the file is as nimony saw it; after an edit
+  the engine's answers are back until the next check. (Nim 2.4 does the same with `nim nif`: see Nim 2.4 above.)
 - **pnak**, Nim 3's package tool: *Nim 3: pnak fetch* checks out the packages the `.nimble` (or `pnak.nif`) asks
   for in `deps/` and writes `nimony.paths`; *Nim 3: pnak pin* writes `pnak.nif`, the lockfile: every package,
   the ones the project needs and theirs, at its commit. In `pnak.nif` the Outline lists the packages, hover says

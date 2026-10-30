@@ -17,6 +17,8 @@ var
   embAvail: Table[string, bool]                  # language id → a server for it is installed
 
 proc embServerAvailable(lg: Lang): bool =
+  ## whether a language server for the language is installed (yours from the settings, or one of the language's own),
+  ## looked for once per language
   if lg == nil: return false
   if lg.id in embAvail: return embAvail[lg.id]
   var ok = false
@@ -119,11 +121,14 @@ proc embedDocs(b: Buffer): seq[EmbDoc] =
   closeRuns(result, initHashSet[string]())
 
 func embExt(id: string): string =
+  ## the file extension of a hidden document for the language id (js for javascript, the id itself otherwise)
   case id
   of "javascript": "js"
   else: id
 
 proc embCloseDoc(sh: Buffer) =
+  ## closes one hidden document: tells its server, forgets what ned keeps about it (its Nim file, range and server) and
+  ## takes its problems off the Nim file
   let s = embSrv.getOrDefault(sh.path)
   if s != nil and not s.dead and sh.lspOpen:
     s.lspNotify("textDocument/didClose", %*{"textDocument": {"uri": uriFromPath(sh.path)}})
@@ -181,6 +186,7 @@ proc embSync(b: Buffer, start = true) =
     lspSync(sh)
 
 proc embClose(b: Buffer) =
+  ## closes all the hidden documents of a Nim file (when it is closed)
   if b == nil or b.id notin embDocs: return
   for k, sh in embDocs[b.id]: embCloseDoc(sh)
   embDocs.del b.id
@@ -234,6 +240,8 @@ proc embComplete(b: Buffer, p: Pos, manual: bool): bool =
   true
 
 proc embHover(b: Buffer, p: Pos, auto: bool): bool =
+  ## hover in HTML, CSS, SQL … in a Nim string: asks that language's server about the hidden document at the same
+  ## position; false when the cursor is not in such code or its server cannot hover
   let (s, sh) = embDocAt(b, p)
   if s == nil or s.caps == nil or s.caps{"hoverProvider"} == nil: return false
   discard s.lspRequest("textDocument/hover", %*{"textDocument": {"uri": uriFromPath(sh.path)},

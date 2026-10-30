@@ -57,6 +57,7 @@ proc nbCells(b: Buffer): seq[(int, int)] =
   if start <= b.lines.high: result.add (start, b.lines.high)
 
 proc nbKind(b: Buffer): string =
+  ## which kind of session the buffer's file runs in: "nim" for a .nim file, "python" for Python, "" for anything else
   if b == nil or b.lang == nil: return ""
   if b.lang.mode == lmNim and b.path.endsWith(".nim"): "nim"
   elif b.lang.id == "python": "python"
@@ -67,13 +68,17 @@ proc nbCanRun(b: Buffer): bool =
   nbKind(b).len > 0 and replHasCells(b)
 
 proc nbSessionOf(b: Buffer): NbSession =
+  ## the live notebook session of the buffer, or nil
   for s in nbSessions:
     if s.bufId == b.id and not s.dead: return s
   nil
 
+# whether the buffer has a session or outputs of cells to show
 proc nbActive(b: Buffer): bool = nbSessionOf(b) != nil or b.id in nbOuts
 
 proc nbCellCode(b: Buffer, c: (int, int)): string =
+  ## the code of a cell as it is run: its lines with tabs turned into four spaces and the blank lines at the end taken
+  ## off
   var ls: seq[string]
   for i in c[0] .. c[1]: ls.add b.lines[i].replace("\t", "    ")
   while ls.len > 0 and ls[^1].strip.len == 0: ls.setLen(ls.len - 1)
@@ -145,6 +150,8 @@ proc nbRefresh() =
     needRender = true
 
 proc nbSetOut(bufId, cell: int, o: NbOut) =
+  ## stores the output (running or finished) of a cell of a buffer and counts a new version, so the rows under the cells
+  ## are laid out again
   var outs = nbOuts.getOrDefault(bufId)
   while outs.len <= cell: outs.add NbOut()
   outs[cell] = o
@@ -197,6 +204,9 @@ for line in sys.stdin:
 """
 
 proc nbStart(b: Buffer): NbSession =
+  ## starts the session for a buffer's file in the file's folder: `nim secret` for Nim, or python3 running the small
+  ## driver program that keeps the variables between cells; nil with an error when the program is not installed or
+  ## cannot start. The pipes are made non-blocking.
   let kind = nbKind(b)
   let dir = parentDir(b.path)
   var argv: seq[string]
@@ -222,6 +232,8 @@ proc nbStart(b: Buffer): NbSession =
   nbSessions.add result
 
 proc nbStop(s: NbSession) =
+  ## ends a session: its process group is sent SIGTERM and reaped later, the pipes are closed and the session is marked
+  ## dead
   if s.dead: return
   s.dead = true
   if s.pr.pid > 0:
@@ -321,12 +333,18 @@ proc nbFinish(s: NbSession, ended = "") =
   nbSend(s)
 
 proc nbFds(fds: var seq[TPollfd]) =
+  ## adds the live sessions' pipes to the list the main loop waits on: the output to read, and the input when something
+  ## is waiting to be written
   for s in nbSessions:
     if s.dead: continue
     if s.fdOut >= 0: fds.add TPollfd(fd: s.fdOut, events: POLLIN)
     if s.fdIn >= 0 and s.wbuf.len > 0: fds.add TPollfd(fd: s.fdIn, events: POLLOUT)
 
 proc nbPump(ready: HashSet[cint]) =
+  ## run by the main loop: lays out the rows under the cells, writes what is waiting to the sessions and reads the lines
+  ## they print. A line that carries the end mark and the cell's token completes the cell (nbFinish); the other lines
+  ## are its output. A session whose file was closed or whose process ended is dropped (a cell it was running ends with
+  ## a note), and one that runs longer than notebook.timeoutSeconds is stopped.
   nbRefresh()
   if nbSessions.len == 0: return
   var gone: seq[NbSession]
@@ -479,6 +497,9 @@ proc nbMode(b: Buffer): string =
   sStr("notebook.nim")
 
 proc nbRunCells(b: Buffer, which: seq[int]) =
+  ## runs the cells with these numbers. A file that is not a Nim or Python notebook is refused with an explanation. A
+  ## Nim file in compiled mode builds and runs all the cells up to the last one as a program; otherwise the cells with
+  ## code are queued to the buffer's session (started if there is none) and sent one at a time.
   if not nbCanRun(b):
     info("Notebook: a Nim or Python file with # %% cells (each starts after a line # %%)")
     return
@@ -517,16 +538,19 @@ proc nbRunAt(b: Buffer, line: int, advance = false) =
       b.ensureVisible()
 
 proc cmdNbRunCell(advance: bool) =
+  ## runs the cell at the cursor; with `advance` the cursor then goes to the next cell
   let b = buf()
   nbRunAt(b, b.primary.head.line, advance)
 
 proc cmdNbRunAll() =
+  ## runs every cell of the notebook, from the first
   let b = buf()
   var xs: seq[int]
   for i in 0 ..< nbCells(b).len: xs.add i
   nbRunCells(b, xs)
 
 proc cmdNbRunAbove() =
+  ## runs the cells from the first up to and including the one at the cursor
   let b = buf()
   let ci = nbCellIndexAt(b, b.primary.head.line)
   var xs: seq[int]
@@ -534,6 +558,7 @@ proc cmdNbRunAbove() =
   nbRunCells(b, xs)
 
 proc cmdNbClear() =
+  ## takes the shown outputs and the notebook's problems off the file (the session keeps its variables)
   let b = buf()
   nbOuts.del b.id
   nbDropRows(b)
@@ -546,6 +571,7 @@ proc cmdNbClear() =
   info("Notebook: the outputs cleared (the session keeps its variables — Notebook: restart forgets them)")
 
 proc cmdNbRestart() =
+  ## stops the buffer's session, so its variables are forgotten and the next run starts a new one
   let b = buf()
   let s = nbSessionOf(b)
   if s != nil: nbStop(s)
@@ -554,6 +580,7 @@ proc cmdNbRestart() =
   info("Notebook: the session stopped — its variables are gone; the next run starts a new one")
 
 proc cmdNbWholeOutput() =
+  ## opens the whole output of the cell at the cursor in a scratch tab (under the cell only the first lines are shown)
   let b = buf()
   let ci = nbCellIndexAt(b, b.primary.head.line)
   let outs = nbOuts.getOrDefault(b.id)

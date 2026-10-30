@@ -35,6 +35,8 @@ proc crumbSiblings(b: Buffer, line: int, parent: int): seq[PickItem] =
     if result.len >= 500: break
 
 proc crumbSymbolAct(line, parent: int, name: string): Action =
+  ## what clicking a symbol crumb does: a picker of the declarations beside it (same indentation, inside the same parent
+  ## block); when it has no sibling, a jump straight to its line
   (proc() =
     let bb = buf()
     if line >= bb.lines.len: return
@@ -46,6 +48,8 @@ proc crumbSymbolAct(line, parent: int, name: string): Action =
     openPicker(pickSymbol, "Beside " & name & " — pick one to go there", sib))
 
 proc crumbFolderAct(dir: string): Action =
+  ## what clicking a folder crumb does: a picker of its visible folders (shown in the file tree) and files (opened); an
+  ## empty folder is just shown in the tree
   (proc() =
     var items: seq[(string, string, proc() {.closure.})]
     var ds, fs: seq[string]
@@ -72,6 +76,10 @@ proc crumbFolderAct(dir: string): Action =
     openActions(relPath(dir) & "/", items))
 
 proc drawBreadcrumbs() =
+  ## draws the bar above the editor: the file's path as clickable folder names ending in the file (a workspace folder's
+  ## files from that folder's name on), and after it, by file type, the CSV column the cursor is in, the JSON keys down
+  ## to the cursor, or the blocks (functions, classes …) around the cursor; clicking elsewhere on it opens the
+  ## breadcrumb menu
   let y = lay.crumbY
   if y < 0: return
   let cb = theme.crumbBg           # its own shade: the bar never reads as a line of code

@@ -1,3 +1,5 @@
+# the diff tab's keys, the commands that compare a file with its last commit or with another file, and the command that
+# opens a Markdown preview
 proc diffKey(k: Key): bool =
   ## keys in a diff tab: F7 / Shift+F7 between changes, Enter opens the line, r reverts; typing is ignored
   let b = buf()

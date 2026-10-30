@@ -3,6 +3,9 @@
 #    runs it when it is installed (and a session after a new Nim reads only what changed) ──
 
 proc warmIndexMain(args: seq[string]): int =
+  ## ned --warm-index: finds Nim's standard library and parses every module of it (leaving out tests, examples and the
+  ## JavaScript and Windows parts) into the index's disk cache, then once more with the defines `nim dump` gives; prints
+  ## how many files and how long, unless -q. Gives the exit code, 1 when there is no library or the cache is off
   let t0 = getMonoTime()
   initLangs()
   rootDir = getCurrentDir()
@@ -30,6 +33,7 @@ proc warmIndexMain(args: seq[string]): int =
   files.sort()
   var firstErr = ""
   proc pass(): int =
+    ## parses each library file through the disk cache and gives how many worked; the first failure is kept to report
     for f in files:
       try:
         discard nxParseDisk(f)

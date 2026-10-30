@@ -25,6 +25,8 @@ var
   cfgTodoName = false
 
 func todoRank(color: string): int =
+  ## how urgent a tag's colour makes it, for sorting files and chips: red 0, orange 1, yellow 2, blue 4, any other
+  ## colour 3
   case color.toLowerAscii
   of "red": 0
   of "orange": 1
@@ -117,6 +119,8 @@ proc todoHits(s: string, toks: openArray[TokKind]): seq[TodoHit] =
   if result.len > 1: result.sort(proc(x, y: TodoHit): int = cmp(x.a, y.a))
 
 func todoItemOf(path: string, line: int, s: string, h: TodoHit): TodoItem =
+  ## the list entry for a tag found on one line s of a file: where it is, its tag, the text after it and the name in
+  ## brackets (empty when there is none)
   TodoItem(path: path, line: line, col: h.a, tag: h.tag, text: h.text,
            who: (if h.wa >= 0: s[h.wa + 1 ..< h.we - 1] else: ""))
 
@@ -154,6 +158,9 @@ proc shiftTodos(b: Buffer, a, c, e: Pos) =
   if e.line == c.line or b.binary: return
   let delta = e.line - c.line
   proc moved(items: var seq[TodoItem]): bool =
+    ## moves the marks of a list for an edit that replaced the text a ..< c with a ..< e: marks below follow their
+    ## lines, those on the last replaced line move to the new last line, those inside the text that went are dropped.
+    ## True when any changed
     var keep: seq[TodoItem]
     for it in items:
       var it = it

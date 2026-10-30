@@ -1428,6 +1428,8 @@ const
   ]
 
 func nameIndex[T](xs: openArray[T]): Table[string, int] =
+  ## the table from each entry's lower-case name to its place in the list, to look names up without scanning (built when
+  ## compiling)
   for i, x in xs: result[x.name.toLowerAscii] = i
 
 const

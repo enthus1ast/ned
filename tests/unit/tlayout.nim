@@ -6,12 +6,15 @@ import std/[os, osproc, strutils, tables, sets, algorithm, unittest]
 import ../../src/ned/nim/index
 
 proc realOf(p: string): string =
+  ## the path a symbolic link points to; any other path as it is
   result = p
   try:
     if symlinkExists(p): result = expandFilename(p)
   except OSError: discard
 
 proc nimLib(): string =
+  ## the folder of Nim's standard library next to the nim on PATH, empty when there is none (the tests that need it are
+  ## skipped)
   let nim = findExe("nim")
   if nim.len == 0: return ""
   let prefix = nim.realOf.parentDir.parentDir
@@ -27,17 +30,20 @@ createDir(dir)
 var n = 0
 
 proc fixture(text: string): NxFile =
+  ## writes the text to a file of its own in the test folder (the index caches by path) and loads it with the index
   inc n
   let p = dir / ("f" & $n & ".nim")
   writeFile(p, text)
   nxLoad(p)
 
 proc layoutOf(f: NxFile, name: string): NxLayout =
+  ## the engine's memory layout of the type of that name in the file (the test fails when it is not declared)
   for i, s in f.syms:
     if s.kind == nxType and s.name == name: return nxLayoutOf(NxRef(file: f, idx: int32(i)))
   doAssert false, name & " not declared"
 
 proc offsets(l: NxLayout): seq[(string, int)] =
+  ## each field of the layout with its offset, leaving out the rows with no name or no known size
   for r in l.rows:
     if r.name.len > 0 and r.size >= 0: result.add (r.name, r.offset)
 
@@ -432,10 +438,13 @@ suite "exception hints (engine)":
   let f = fixture(RaisesSrc)
   let lines = RaisesSrc.split('\n')
   proc raisesOf(name: string): NxRaises =
+    ## the engine's answer about what the routine of that name can raise (the test fails when there is no such routine)
     for i, s in f.syms:
       if s.name == name and s.kind in NxRoutineKinds: return nxRaisesOf(NxRef(file: f, idx: int32(i)))
     doAssert false, name
   proc list(name: string): string =
+    ## the exceptions the routine of that name can raise, sorted and joined by commas; a question mark when that is not
+    ## known
     let r = raisesOf(name)
     if not r.known: return "?"
     var names: seq[string]

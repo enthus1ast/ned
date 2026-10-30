@@ -1,4 +1,8 @@
+# the find and replace commands: counting the matches, finding as you type, stepping to the next or previous match,
+# replacing all at once and asking match by match
 proc countMatches() =
+  ## counts the matches of the find query in the whole buffer (findTotal) and which of them the selection is at
+  ## (findIdx); it gives up on a very big file after 25 ms or 100000 matches and marks the count as capped
   let b = buf()
   findTotal = 0
   findIdx = 0
@@ -20,6 +24,8 @@ proc countMatches() =
       break
 
 proc findIncremental() =
+  ## as the find box is typed in: selects the first match from where the search began (an empty query puts the cursors
+  ## back there) and updates the count
   let b = buf()
   findQuery = promptText
   if findQuery.len == 0:
@@ -33,6 +39,9 @@ proc findIncremental() =
   countMatches()
 
 proc findStep(forward: bool) =
+  ## goes to the next (or previous) match and selects it, with `n/total` in the message. With no query yet it takes the
+  ## selected text or the word at the cursor. A file in the large-file viewer is searched by the viewer in the
+  ## background.
   let b = buf()
   if findQuery.len == 0:
     let (a, e) = b.primary.range
@@ -64,6 +73,8 @@ proc replacementFor(line, q, r: string, a, e: int, caseS, rx: bool): string =
   if re[].reSearch(line, a, caps) and caps[0] == a: reExpand(r, line, caps, re[].ncap) else: r
 
 proc replaceAllIn(b: Buffer, q, r: string, caseS, word: bool, rx = false): int =
+  ## replaces every match of `q` in the buffer with `r` (a regular expression's groups expanded) as one undo step,
+  ## working from the last line up so positions stay valid; gives the number replaced
   if q.len == 0 or not b.canEdit(): return 0
   if rx and cachedRegex(q, caseS)[].err.len > 0: return 0
   b.beginEdit()
@@ -78,6 +89,8 @@ proc replaceAllIn(b: Buffer, q, r: string, caseS, word: bool, rx = false): int =
   b.normalize()
 
 proc replaceNext(fromPos: Pos): bool =
+  ## selects the next match for the replace query from `fromPos`; with none left it ends the replacing, says how many
+  ## were replaced and gives false
   let b = buf()
   let (ok, a, e) = b.searchFrom(replaceQuery, fromPos, true, findCase, findWord, findRegex)
   if not ok:
@@ -88,6 +101,8 @@ proc replaceNext(fromPos: Pos): bool =
   true
 
 proc replaceKey(k: Key) =
+  ## a key while replacing match by match: y or space replaces this match and moves to the next, n skips it, a or !
+  ## replaces all the rest, q or Esc stops; the message says how many were replaced
   let b = buf()
   if k.kind == kEsc:
     replaceActive = false

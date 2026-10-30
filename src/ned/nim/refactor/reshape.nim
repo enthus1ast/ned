@@ -3,6 +3,7 @@
 #    you say so (one undo step a file, the files left changed, not saved), and the places it leaves to you listed ──
 
 proc rfPlanEdits(plan: NxPlan): seq[RfEdit] =
+  ## a plan's edits in the form the editor applies (file, from, to, new text)
   for x in plan.edits:
     result.add (x.path, Pos(line: x.line, col: x.col), Pos(line: x.endLine, col: x.endCol), x.text)
 
@@ -49,6 +50,7 @@ proc rfPreviewPlan(title: string, plan: NxPlan) =
     discard openScratch("Refactor preview", text, langByName("Diff"))
   let pvId = buf().id
   proc back() =
+    ## closes the preview's tab and brings the file the refactoring started from to the front
     # the preview's tab closed, the file it started from in front again
     let pv = bufById(pvId)
     if pv != nil and pv.id != fromId:
@@ -59,6 +61,8 @@ proc rfPreviewPlan(title: string, plan: NxPlan) =
       let k = bufs.find(x)
       if k >= 0: curBuf = k
   proc doApply() =
+    ## applies the plan: refuses if a file changed since the preview, creates the new files, makes the edits (one undo
+    ## step a file) and lists the places left to look at
     back()
     for i, p in files:
       let now = if p in plan.creates: (if fileExists(p): rfLinesOf(p) else: newSeq[string]()) else: rfLinesOf(p)
@@ -90,6 +94,8 @@ proc rfPreviewPlan(title: string, plan: NxPlan) =
               (if plan.notes.len > 0: " · " & $plan.notes.len & " to look at" else: ""), items)
 
 proc rfNimReady(b: Buffer, what: string): bool =
+  ## whether a refactoring can work on this buffer (a saved Nim file with the built-in engine on); says so when it
+  ## cannot
   if b.lang.mode != lmNim or not nimEngineOn(b) or b.path.len == 0:
     info(what & " works on a saved Nim file, with the built-in engine")
     return false

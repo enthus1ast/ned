@@ -36,6 +36,8 @@ proc foldHeaderFor(b: Buffer, l: int): int =
   -1
 
 proc addFold(b: Buffer, s, e: int) =
+  ## folds lines s..e (the first line stays shown): folds it swallows are dropped, a block inside an already folded one
+  ## is ignored, and the list stays sorted by first line
   var keep: seq[(int, int)]
   for f in b.folds:
     if f[0] >= s and f[1] <= e: continue        # swallowed
@@ -46,6 +48,7 @@ proc addFold(b: Buffer, s, e: int) =
   b.folds = keep
 
 proc foldLine(b: Buffer, l: int) =
+  ## folds the innermost block around line `l`; a cursor that was inside it moves to the block's first line
   let h = b.foldHeaderFor(l)
   if h < 0:
     info("Nothing to fold here")
@@ -56,6 +59,7 @@ proc foldLine(b: Buffer, l: int) =
   if p.line > h and p.line <= e: b.setSingle(Pos(line: h, col: min(p.col, b.lines[h].len)))
 
 proc toggleFold(b: Buffer, l: int) =
+  ## opens the fold at (or hiding) line `l`, or folds the block around it when there is none
   if b.foldAt(l) >= 0 or b.isHidden(l): b.unfoldLine(l) else: b.foldLine(l)
 
 proc foldAllAt(b: Buffer, level: int) =

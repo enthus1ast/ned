@@ -2,6 +2,8 @@
 
 proc buildTestItems(): seq[SideItem]
 proc buildItems(v: SideView): seq[SideItem] =
+  ## the rows of a dock view's list, from that view's builder (nothing for the file tree and the assistant, which draw
+  ## themselves; the outline is the current buffer's)
   case v
   of svFiles, svAssistant: @[]
   of svSearch: buildSearchItems()
@@ -17,6 +19,9 @@ proc buildItems(v: SideView): seq[SideItem] =
   of svPlugins: buildPluginItems()
 
 proc showSide(v: SideView) =
+  ## opens the dock view `v` in the dock it belongs to, giving it the keyboard and resetting its selection; also
+  ## refreshes what the view shows — the outline's selection at the cursor, the timeline, the TODO scan, git status, the
+  ## file tree revealing the current file, and the search box filled with the selection or word under the cursor
   if v in RightViews:
     rightOpen = true
     rightView = v
@@ -53,6 +58,8 @@ proc showSide(v: SideView) =
   needRender = true
 
 proc toggleDock(side: DockSide) =
+  ## a dock's toggle key: closes the dock when it has the keyboard, gives it the keyboard when it is open without, else
+  ## opens it on its last view
   if side == dsLeft:
     if treeOpen and focus == fTree:
       treeOpen = false
@@ -68,12 +75,16 @@ proc toggleDock(side: DockSide) =
   needRender = true
 
 proc toggleAssistant() =
+  ## closes the assistant when it has the keyboard, else shows and focuses it
   if rightOpen and rightView == svAssistant and focus == fRight:
     rightOpen = false
     focus = fEditor
   else: showSide(svAssistant)
 
 proc activateItem(dl: var DockList, v: SideView, idx: int) =
+  ## uses row `idx` of a dock list (Enter or a click): selects it and runs its action, or opens its file at its line
+  ## (leaving a jump to come back to for the outline, search and TODOs, and moving the keyboard to the editor on a wide
+  ## screen); a staged or unstaged git file opens its diff
   if idx < 0 or idx >= dl.items.len: return
   dl.sel = idx
   let it = dl.items[idx]
@@ -91,6 +102,8 @@ proc activateItem(dl: var DockList, v: SideView, idx: int) =
         gitDiffView(rel, it.data == "staged")
 
 proc gitItemMenu(it: SideItem): seq[MenuItem] =
+  ## the menu of a file row in the git dock: open the file (or show a new folder in the tree), open its diff (not for
+  ## untracked files), stage, unstage, and discard the changes after asking (an untracked file or folder is deleted)
   let root = gitHome()
   let p = it.path
   let rel = if p.startsWith(root & "/"): p[root.len + 1 .. ^1] else: p
@@ -118,6 +131,8 @@ proc gitItemMenu(it: SideItem): seq[MenuItem] =
           else: gitRun(@["restore", "--", rel], "Discarded changes to " & rel)))]
 
 proc searchItemMenu(it: SideItem): seq[MenuItem] =
+  ## the menu of a row in the search results: for a hit, open it, replace that line or all in its file (when the replace
+  ## box is open) and dismiss it or its file; for a file heading, the same for the whole file
   let path = it.path
   let line = it.line
   if it.data == "hit":
@@ -142,6 +157,10 @@ proc searchItemMenu(it: SideItem): seq[MenuItem] =
     result.add mi("Dismiss this file", "", proc() = dismissHit(pp, -1))
 
 proc drawDockList(dl: var DockList, v: SideView, x0, y0, w, h: int, focused: bool, isRight: bool) =
+  ## draws a dock's list of rows: a note when it is empty, otherwise the rows from the scroll position (the selection
+  ## kept in view) as headings, or an icon, text and grey detail, with the search hits showing their matches (and the
+  ## replacement beside them when replacing) and TODO rows as tag, name and message; each row is clickable (a right
+  ## click opens its menu) and a line of key hints shows at the bottom for git and TODOs
   let bg0 = theme.dockBg
   if dl.items.len == 0:
     let msg = case v

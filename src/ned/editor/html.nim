@@ -1,3 +1,5 @@
+# HTML editing helpers: a closing tag added when the `>` of an opening one is typed, linked editing (renaming a tag
+# renames its partner) and the expansion of Emmet abbreviations
 const VoidTags = ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
                   "source", "track", "wbr"]
 
@@ -89,6 +91,9 @@ var htmlLink, htmlLinkLast: tuple[bufId, line, a: int, closing: bool, name: stri
   (0, 0, 0, false, "", -1, 0, 0)
 
 proc htmlLinkBefore(b: Buffer) =
+  ## run before an edit: when the cursor is in a tag's name, remembers that name and where the matching opening or
+  ## closing tag's name is (in htmlLink), so htmlLinkAfter can rename it; with the whole name deleted, the partner from
+  ## the last change is used
   htmlLink.pl = -1
   if b.cursors.len != 1 or b.primary.hasSel or b.readOnly: return
   let h = b.primary.head
@@ -151,6 +156,8 @@ const EmTags = ["a", "abbr", "address", "article", "aside", "audio", "b", "block
   "tbody", "td", "textarea", "tfoot", "th", "thead", "title", "tr", "ul", "video", "lorem"]
 
 func emCount(s: string, i: var int): int =
+  ## reads the `*3` repeat count at `i` in an Emmet abbreviation (moving `i` on); 1 when there is none, a ValueError for
+  ## a count outside 1 to 200
   result = 1
   if i < s.len and s[i] == '*':
     inc i
@@ -164,6 +171,8 @@ func emCount(s: string, i: var int): int =
     result = n
 
 proc emElement(s: string, i: var int): EmNode =
+  ## reads one element of an Emmet abbreviation at `i`: a tag name followed by any of `#id`, `.class`, `[attr=value …]`,
+  ## `{text}` and `*count`; a ValueError when it is malformed or empty
   result = EmNode(count: 1)
   let st = i
   while i < s.len and (s[i].isAlphaNumeric or s[i] in {':', '-'}): inc i
@@ -261,6 +270,10 @@ proc emNumber(s: string, idx: int): string =
       inc i
 
 proc emRender(n: EmNode, parentTag: string, idx: int, ind, unit: string, outp: var seq[string]) =
+  ## adds the HTML lines for an Emmet node, repeated by its count, to `outp`, indented by `ind` and `unit` for the
+  ## children. A missing tag name comes from the parent (li in a list, td in a row …), `$` in names and text becomes the
+  ## copy's number, a, img, link, input and label get their usual attributes, void tags have no closing tag, and \x01
+  ## marks where the cursor goes.
   for k in 1 .. n.count:
     let ix = if n.count > 1: k else: idx
     if n.group:

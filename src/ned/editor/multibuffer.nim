@@ -1,7 +1,13 @@
+# multibuffers, as in Zed: pieces of many files in one editable buffer, each under a `§ path:line` header, written back
+# to their files on save and kept in step with the files as they change; also the references list in the Search panel
+# and renaming at exact positions
 proc mbHeader(lang: Lang, path: string, start: int): string =
+  ## the header line of a piece: the language's comment mark (or #), then `§`, the file's path relative to the project
+  ## and the piece's first line number (counting from 1)
   (if lang != nil and lang.lineComment.len > 0: lang.lineComment else: "#") & " § " & relPath(path) & ":" & $(start + 1)
 
 proc mbHeaderOf(lang: Lang, sc: MbSection): string =
+  ## the header line for a piece, with its note after a dash when it has one
   mbHeader(lang, sc.path, sc.start) & (if sc.note.len > 0: "  — " & sc.note else: "")
 
 proc mbReadFile(path: string): tuple[lines: seq[string], nl, crlf: bool] =
@@ -17,6 +23,8 @@ proc mbReadFile(path: string): tuple[lines: seq[string], nl, crlf: bool] =
   except IOError, OSError: discard
 
 proc fileLinesNow(path: string): seq[string] =
+  ## a file's lines as they are now: those of its open tab (with unsaved edits), else what is on disk — none when it
+  ## cannot be read
   let i = bufIndexByPath(path)
   if i >= 0: return bufs[i].lines
   mbReadFile(path).lines
@@ -33,6 +41,7 @@ var
   mbPumpAt: MonoTime
 
 proc mbMatchAt(cur, orig: seq[string], s: int): bool =
+  ## whether the lines `orig` stand exactly at line `s` of `cur`
   if s < 0 or s + orig.len > cur.len: return false
   for i in 0 ..< orig.len:
     if cur[s + i] != orig[i]: return false
@@ -262,6 +271,12 @@ proc openMultibufferOf(title: string, ranges: seq[tuple[path: string, first, las
   b
 
 proc saveMultibuffer(b: Buffer): bool =
+  ## writes the multibuffer's edited pieces back into their files (Ctrl+S). The pieces are read from between the §
+  ## headers (a changed or removed header, or text before the first, refuses). A piece is placed where its original
+  ## lines are now in the file, and refused if they were changed there too; read-only and library files are refused. An
+  ## open file takes the change as one edit in its tab and is saved unless it already had unsaved changes; another file
+  ## is written directly in its own line-end style. Pieces below an edited one move by the lines it gained or lost, and
+  ## the headers show the new line numbers. Gives false when nothing could be saved.
   var secs = multiBufs[b.id]
   # the pieces, as edited: between the § headers
   var pieces: seq[seq[string]]
@@ -361,6 +376,8 @@ proc saveMultibuffer(b: Buffer): bool =
   true
 
 proc cmdMultibufferFromSearch() =
+  ## palette command: opens a multibuffer of the lines in the Search panel (or the last project search, or references
+  ## found), each with a line of context
   var hits: seq[(string, int)]
   if panelKind == pkSearch:
     for pl in panelLines:
@@ -554,6 +571,7 @@ proc cmdMbAddSelection() =
     discard mbAddRange(b.path, s.line, last)
 
 proc cmdMbShow() =
+  ## palette command: goes to the multibuffer that pieces are being added to
   let b = bufById(mbLast)
   if b == nil or b.id notin multiBufs:
     info("No multibuffer open — Multibuffer: add the selection makes one")
@@ -592,6 +610,9 @@ proc cmdMbFromTodos() =
   openMultibuffer("TODOs", hits, 1)
 
 proc showReferences(title: string, hits: seq[(string, int, int)]) =
+  ## shows (path, line, column) hits in the Search panel and focuses it: grouped by file, one row for each line, with
+  ## the word or operator at the column marked (several uses on a line mark the same row). Each file is read once, and
+  ## open tabs are read from their buffers. With no hits it says so.
   panelKind = pkSearch
   panelLines.setLen(0)
   var last = ""

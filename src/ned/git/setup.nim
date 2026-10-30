@@ -1,6 +1,8 @@
 # ── git for a new folder and for other people's projects: init, who you are, clone from a link ──
 
 proc gitLastLine(o: string): string =
+  ## the last line of a command's output with its colour codes taken out — the line git puts its reason on — or "failed"
+  ## when there is none
   let ls = stripAnsi(o).strip.splitLines
   if ls.len > 0: ls[^1] else: "failed"
 
@@ -39,6 +41,8 @@ proc gitInitIn(dir: string, firstCommit: bool) =
       return
     let d = dir
     proc commit() =
+      ## stages everything and makes the first commit of the new repository, then reports it and refreshes the Git
+      ## dock's status
       discard startJob(jkGit, "git add -A && git commit -qm " & quoteShell("First commit"), d, proc(j2: Job) =
         if j2.code == 0: info("A git repository with its first commit: " & relPath(d))
         else: info("A git repository in " & relPath(d) & " — not committed yet: " & gitLastLine(j2.output))
@@ -51,6 +55,7 @@ proc gitInitIn(dir: string, firstCommit: bool) =
       info("Initialised a git repository in " & relPath(d) & " — the Git dock (Alt+G) stages and commits")
       if gitIdentityMissing(d): gitAskIdentity(d))
 
+# a new project's folder made a git repository, with its first commit
 proc gitInitNewProject(dir: string) = gitInitIn(dir, true)
 
 proc gitInitHere(dir = "") =
@@ -139,6 +144,9 @@ proc gitCloneFromLink(link = "") =
     error("git is not installed — Termux: pkg install git · Debian/Ubuntu: sudo apt install git")
     return
   proc withLink(l: string) =
+    ## clones from one link: works out the repository and branch, refuses links git cannot take or that carry a login,
+    ## asks where to clone to (and whether to take only the latest version), and runs `git clone` in the panel — in the
+    ## terminal when git needs your login
     let (url, branch) = gitLinkParts(l)
     if url.len == 0: return
     if not gitArgSafe(url) or (branch.len > 0 and not gitArgSafe(branch)):

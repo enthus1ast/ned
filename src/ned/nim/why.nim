@@ -16,6 +16,8 @@ proc whyRoutineAt(f: NxFile, line: int): int =
       result = i
 
 proc whyLabel(s: NxWhyStep, exc: string, fx: bool): string =
+  ## the sentence for one step of the chain: a routine calling another, the raise that starts it, the global used, a
+  ## routine declaring it, or where the engine stops following
   case s.kind
   of nwCall: s.routine & " calls " & s.what
   of nwRaise: s.routine & ": raise " & exc & " — it starts here"
@@ -50,6 +52,7 @@ proc whyShow(r: NxRef, exc: string, fx: bool) =
                           else: "Why " & r.sym.name & " can raise " & exc), items)
   pickSel = 0                                       # (the chain from its start)
 
+# an action that shows the chain for a routine
 proc whyAct(r: NxRef, exc: string, fx: bool): Action = (proc() = whyShow(r, exc, fx))
 
 proc whyOf(r: NxRef) =

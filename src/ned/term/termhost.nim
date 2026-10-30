@@ -17,6 +17,7 @@ const
   HostBehind = 1 shl 20         # … output not yet taken by ned: the shell waits (as in any terminal)
   HostDrop = 8 shl 20           # … a ned that takes nothing at all any more is let go
 
+# a term host's file in ned's private folder (`term-ID` plus .sock, .json or .key)
 proc hostPath(id, ext: string): string = privDir() / ("term-" & id & ext)
 
 when not defined(windows):
@@ -177,6 +178,7 @@ proc termKeptMenu() =
   if ks.len == 0:
     info("No terminal is kept running (terminal.keepRunning: " & (if cfgTermKeep: "on" else: "off") & ")")
     return
+  # the menu action that ends one kept terminal's shell and says so (a factory proc: each menu item needs its own `j`)
   proc endAct(j: JsonNode): Action = (proc() =
     hostEnd(j)
     info("Ended " & j{"name"}.getStr & " in " & j{"project"}.getStr.tildePath))
@@ -221,6 +223,7 @@ when not defined(windows):
     let lfd = ls.cint
     discard fcntl(lfd, F_SETFD, FD_CLOEXEC)
     proc gone(code: int) =
+      ## the host's exit: removes its socket, info and key files, then quits with `code`
       discard posix.unlink(sockP.cstring)
       try:
         removeFile(infoP)
@@ -254,12 +257,15 @@ when not defined(windows):
       endAt: MonoTime                 # (asked to end: SIGKILL if it is still there 2 s later)
       tmp: array[65536, char]
     proc drop(c: var cint) =
+      ## lets go of the connected ned: closes its socket and clears what was waiting to be read from it or sent to it
       if c >= 0: discard posix.close(c)
       c = -1
       cin = ""
       cout = ""
       coutAt = 0
     proc output(s: string) =
+      ## takes what the shell printed: adds it to the kept output (cut back to the last megabyte, from a line's start,
+      ## only now and then) and queues it for the connected ned, if there is one
       ring.add s
       if ring.len > 2 * HostRing:       # (cut down to the last HostRing now and then: not copied at every read)
         var cut = ring.len - HostRing

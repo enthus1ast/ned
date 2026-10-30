@@ -6,6 +6,7 @@ import std/[os, strutils, unittest, tables, times]
 import ../../src/ned/nim/index
 
 proc nimLib(): string =
+  ## the folder of Nim's standard library next to the nim on PATH (the test stops when there is none)
   let nim = findExe("nim")
   doAssert nim.len > 0, "put nim on PATH"
   var exe = nim
@@ -22,6 +23,7 @@ removeDir(tmp)
 let pkgs = tmp / "nimble" / "pkgs2"
 
 proc put(path, text: string) =
+  ## writes the text to the file, making its folder first
   createDir(path.parentDir)
   writeFile(path, text)
 
@@ -59,6 +61,8 @@ const AtlasCfg = "############# begin Atlas config section ##########\n--noNimbl
                  "############# end Atlas config section   ##########\n"
 
 proc why(root, name: string): string =
+  ## the version the project's dependency of that name is read at, with the reason, as 'version (why)'; '(none)' when it
+  ## has no such dependency
   for d in nxProjectAt(root).deps:
     if d.name == name: return d.version & " (" & d.why & ")"
   "(none)"

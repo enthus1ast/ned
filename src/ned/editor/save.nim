@@ -31,6 +31,13 @@ proc hexSave(b: Buffer, path = ""): bool =
   true
 
 proc saveBuffer(b: Buffer, path = "", force = false): bool =
+  ## Ctrl+S for one buffer; true when it was written. Special tabs go their own way (multibuffer, commit message, rebase
+  ## plan, signature plan, plugin tab, hex editor). Without force, a file that changed on disk, is read-only or is being
+  ## edited by another ned is only saved after a confirmation. With a new path (Save as) the buffer takes that name and
+  ## language; with no name at all it asks for one. Then: plugins' before-save events, format on save, trailing-space
+  ## and final-newline rules, the line ending and encoding it was read in, and a crash-safe write after a local-history
+  ## copy. After a successful write: the undo history is stored, the recovery file removed, and settings, themes and
+  ## .editorconfig reload if that was the file, and the language server, checks, tests, git marks and plugins are told
   if b.id in multiBufs and path.len == 0: return saveMultibuffer(b)
   if b.id in commitBufs and path.len == 0: return doCommitFromBuffer(b)
   if b.id in rebaseBufs and path.len == 0: return doRebaseFromBuffer(b)
@@ -139,12 +146,15 @@ proc saveBuffer(b: Buffer, path = "", force = false): bool =
   true
 
 proc saveAll(): bool =
+  ## saves every changed buffer that has a file; false when any of them failed or needed a confirmation
   result = true
   for b in bufs:
     if b.dirty and b.path.len > 0:
       if not b.saveBuffer(): result = false
 
 proc reloadBuffer(b: Buffer) =
+  ## reads the file again from disk into the buffer (in the encoding it was opened with) as one undoable edit, keeping
+  ## the cursors, line ending and the 'saved' state; a hex buffer opens the bytes anew
   if b.hex != nil:
     try:
       b.hexOpen(readFile(b.path))
@@ -178,6 +188,10 @@ proc reloadBuffer(b: Buffer) =
     error("Reload failed: " & e.msg)
 
 proc closeBufferAt(i: int) =
+  ## closes the tab at index i without asking: tells plugins and the language server, keeps the cursor position, the
+  ## undo history and (for a file) a place in the reopen-closed-tab list, removes the recovery file, ends a terminal
+  ## tab's shell and closes the other panes showing it. The last tab left is replaced by an empty welcome buffer; the
+  ## current tab moves to a neighbour
   if i < 0 or i >= bufs.len: return
   let b = bufs[i]
   plugClosed(b)
@@ -210,6 +224,8 @@ proc closeBufferAt(i: int) =
   needRender = true
 
 proc closeBuffer(i: int) =
+  ## closing a tab as the person asks: a buffer with unsaved changes first asks to save, discard or cancel, then closes
+  ## it with closeBufferAt
   if i < 0 or i >= bufs.len: return          # a stale index (two clicks before the tab bar was redrawn)
   let b = bufs[i]
   if b.dirty:
@@ -238,6 +254,8 @@ proc saveOnFocusLost() =
   if n > 0: info("Saved " & $n & (if n == 1: " file" else: " files") & " (you switched away: editor.saveOnFocusLost)")
 
 proc checkDiskChanges() =
+  ## run now and then: for every open file whose time or size on disk changed, reloads it when it has no unsaved changes
+  ## and auto-reload is on, otherwise marks it as changed on disk (saving then asks first) and warns once
   for b in bufs:
     if b.path.len == 0 or b.mtime == 0: continue
     let (m, s) = fileStamp(b.path)

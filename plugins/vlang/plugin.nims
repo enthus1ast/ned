@@ -130,6 +130,7 @@ func vCode(s: string, inBlock: var int, inStr: var char): string =
     else: inc i
 
 func vIdentEnd(s: string, i: int): int =
+  ## where the name (letters, digits and `_`) that starts at `i` ends
   result = i
   while result < s.len and s[result] in {'a'..'z', 'A'..'Z', '0'..'9', '_'}: inc result
 
@@ -147,6 +148,7 @@ func vSymbols*(lines: seq[string]): seq[Symbol] =
     let t = code.strip
     let col = code.len - code.strip(trailing = false).len
     template add(nm, kd, dt: string, cl, dp: int) =
+      ## adds a symbol for this line with the name, kind, detail, column and depth given
       result.add Symbol(name: nm, kind: kd, detail: dt, line: ln, col: cl, depth: dp)
     if t.len > 0:
       var w = t

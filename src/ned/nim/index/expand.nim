@@ -1,6 +1,8 @@
 # ── a template call written out: its body with the arguments in place (no compiler needed) ──
 
 proc nxFileLines*(path: string): seq[string] =
+  ## a file's lines: the editor's open buffer when it holds the file (so unsaved changes count), else the file on disk,
+  ## empty when it cannot be read
   if nxBufferLines != nil and nxBufferStamp(path).len > 0: return nxBufferLines(path)
   try: result = readFile(path).splitLines
   except CatchableError: discard

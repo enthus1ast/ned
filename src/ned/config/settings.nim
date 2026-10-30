@@ -3,11 +3,17 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 
+# ned's settings folder: ned under XDG_CONFIG_HOME, else ~/.config
 proc configDir(): string = getEnv("XDG_CONFIG_HOME", getHomeDir() / ".config") / AppName
+# the user's settings file, config.json in the settings folder
 proc configFile(): string = configDir() / "config.json"
+# the user's own spelling words, words.txt in the settings folder
 proc spellUserFile(): string = configDir() / "words.txt"     # your own dictionary words (spell check)
+# the file ned keeps what it remembers between runs in: ned/state.json under XDG_STATE_HOME, else ~/.local/state
 proc stateFile(): string = getEnv("XDG_STATE_HOME", getHomeDir() / ".local" / "state") / AppName / "state.json"
 proc tmpDir(): string =
+  ## a folder for temporary files: TMPDIR when it exists, else /tmp, else the home folder (on Windows the user's own
+  ## temporary folder)
   when defined(windows): return getTempDir().strip(leading = false, chars = {'/', '\\'})   # (%TEMP%: the user's own)
   result = getEnv("TMPDIR")
   if result.len == 0 or not dirExists(result): result = "/tmp"
@@ -36,9 +42,13 @@ const NlsKeys = ["projectMapping", "workingDirectoryMapping", "checkOnSave", "ni
                  "useNimTrack"]
 
 proc allThemeNames(): seq[string] =
+  ## the names of every theme ned has: the built-in ones and those in the themes folder
   for t in allThemes(): result.add t.name
 
 proc defS(cat, key: string, def: JsonNode, doc: string, opts: seq[string] = @[]) =
+  ## registers a setting: its category (the section of the Settings window), key, default value, the text that describes
+  ## it and, for a choice, the values it may take. Its kind comes from the default's type: a bool, a number, a string, a
+  ## choice (when values are given), else JSON
   let kind = if opts.len > 0: skEnum
              else:
                case def.kind
@@ -50,6 +60,8 @@ proc defS(cat, key: string, def: JsonNode, doc: string, opts: seq[string] = @[])
   setDefs.add SetDef(key: key, cat: cat, doc: doc, kind: kind, def: def, opts: opts)
 
 proc initSettingDefs() =
+  ## defines every setting ned has, once — the one table the settings file, the Settings window, the validation of a
+  ## value and the reference docs are made from
   if setDefs.len > 0: return
   # ── Appearance ──
   defS("Appearance", "theme", %"nim-crown", "Colour theme — Alt+T previews them live; auto: theme.light or " &
@@ -514,6 +526,10 @@ proc initSettingDefs() =
   defS("Nim", "nim.compiler", %"auto", "Nim 2 (nim) or Nim 3 (nimony) for checks, Alt+R and the engine's reading; " &
        "auto: Nim 3 when the project has nimony.args, nimony.paths or pnak.nif and nimony is installed",
        @["auto", "nim", "nimony"])
+  defS("Nim", "nim.compilerNif", %true, "With Nim 2.4 or newer: the check on save is `nim nif` — the same messages as " &
+       "nim check, and the compiler's reading of each file without errors, from which a saved file's colours, the " &
+       "types after its lets and vars and Go to definition come (the engine's while it is changed). Older Nim: nim " &
+       "check, as before")
   defS("Nim", "nim.ciNedRepository", %"", "Where a CI workflow made by Nim › add a CI workflow builds ned from, for " &
        "its lint and format check (https://… or git@…; asked the first time)")
   defS("Nim", "nim.toolchain", %"auto", "The Nim this project builds with — for every tool ned starts (nim, nimble, " &
@@ -786,6 +802,7 @@ proc defaultSettingsText(): string =
 proc settingsMarkdown(): string =
   ## every setting as Markdown, by category (`ned --doc-settings`: docs/reference/settings.md is made from it)
   initSettingDefs()
+  # a Markdown table cell: the bars escaped and the line breaks made spaces
   proc cell(s: string): string = s.replace("|", "\\|").replace("\n", " ")
   result = "# Settings reference\n\n" &
            "Every setting ned has, its default and what it does — made by `ned --doc-settings` (do not edit this " &
@@ -815,19 +832,25 @@ proc settingsMarkdown(): string =
       result.add "| `" & d.key & "` | `" & cell(def) & "` | " & cell(doc) & " |\n"
 
 proc settingNode(key: string): JsonNode =
+  ## the effective value of a setting (the defaults overlaid with the user's file and the folder's), nil when there is
+  ## none
   if settingsJ == nil or not settingsJ.hasKey(key): nil else: settingsJ[key]
 
 proc sval(key: string): JsonNode =
+  ## the effective value of a setting; its default when the effective ones lack it, else JSON null
   result = settingsJ.getOrDefault(key)
   if result.isNil:
     let i = setIndex.getOrDefault(key, -1)
     if i >= 0: result = setDefs[i].def
     else: result = newJNull()
 
+# a setting as a bool
 proc sBool(key: string): bool = sval(key).getBool
 proc sInt(key: string): int =
+  ## a setting as a whole number (a decimal one cut)
   let v = sval(key)
   if v.kind == JFloat: int(v.getFloat) else: v.getInt
+# a setting as a string
 proc sStr(key: string): string = sval(key).getStr
 
 var
@@ -856,6 +879,9 @@ proc nimSection(): JsonNode =
     result["projectMapping"] = nlsAutoMap
 
 proc sectionFor(section: string): JsonNode =
+  ## the settings whose keys start with `section.`, as an object without that prefix — what a language server is given
+  ## when it asks for its configuration; the nim section is made by nimSection. An empty section is null; with nothing
+  ## set it is an empty object (a null css section stops one server from checking CSS)
   if section == "nim": return nimSection()
   if section.len == 0: return newJNull()
   result = newJObject()
@@ -865,6 +891,8 @@ proc sectionFor(section: string): JsonNode =
   # nothing set: an empty object, not null (vscode-html-language-server stops validating CSS on a null "css")
 
 proc validSetting(d: SetDef, v: JsonNode): bool =
+  ## whether a value fits a setting: the right JSON type, and for a choice one of its values. Old forms are still taken:
+  ## a plugins.native true or false, and the name of a theme that was folded into another
   if d.key == "plugins.native" and v.kind == JBool: return true       # (6.19's true/false: on/off)
   if d.key in ["theme", "theme.dark", "theme.light"] and v.kind == JString and themeAlias(v.getStr).len > 0:
     return true                                                       # (a theme 6.30 folded into another)
@@ -1113,6 +1141,7 @@ proc applySettings() =
   cfgNimMode = sStr("nim.buildMode")
   cfgNimTarget = sStr("nim.backend")
   cfgNimCompiler = sStr("nim.compiler")
+  cfgNimNif = sBool("nim.compilerNif")
   block:
     # code inside strings: which names mean which language (and emit's language follows the backend)
     var m = initTable[string, string]()
@@ -1253,6 +1282,7 @@ proc applySettings() =
   cfgKeys.clear()
   for k, v in sval("keys"): cfgKeys[k.toLowerAscii.replace(" ", "")] = v.getStr
 
+# the folder's own settings file, .ned/settings.json in the project folder
 proc projectSettingsFile(): string = rootDir / ".ned" / "settings.json"
 
 var
@@ -1319,6 +1349,7 @@ proc applyUserLanguages() =
   userLangIds.setLen(0)
   if j.len == 0: return
   proc words(n: JsonNode): seq[string] =
+    ## the words of a language's field: a string cut at spaces, or a list of strings (none for nothing)
     if n == nil: return
     if n.kind == JString: return n.getStr.splitWhitespace()
     for x in jitems(n): result.add x.getStr
@@ -1394,6 +1425,10 @@ func riskyProjectKey(k: string): bool =
     k.startsWith("ai.")
 
 proc mergeProjectSettings(j: JsonNode) =
+  ## lays the folder's settings over the effective ones — a key as `editor.tabSize` or inside a section object. A key
+  ## ned does not know, or a value of the wrong type, is only warned about. The keys that start programs or send code
+  ## (riskyProjectKey) are held back until the folder is trusted and noted in projectSettingsBlocked; the others are
+  ## noted in projectSettingKeys
   projectSettingKeys.setLen(0)
   projectSettingsBlocked.setLen(0)
   var flat = newJObject()
@@ -1421,6 +1456,9 @@ proc mergeProjectSettings(j: JsonNode) =
     warn("project settings: " & notes.join(", ") & " — in " & projectSettingsFile())
 
 proc loadConfig() =
+  ## makes the effective settings: every default, then what the state file overrides (theme, Nim build mode), then the
+  ## user's config.json, then the folder's .ned/settings.json, and applies them; a file that cannot be read is warned
+  ## about and left out
   initSettingDefs()
   settingsJ = newJObject()
   for d in setDefs: settingsJ[d.key] = d.def
@@ -1445,6 +1483,9 @@ proc loadConfig() =
   applySettings()
 
 func jsonValueEnd(s: string, i0: int): int =
+  ## where the JSON value that starts at i0 ends in the text: a string, an object or array (nested ones and comments
+  ## skipped), or a bare value up to a comma, bracket or line end. It works on the settings file with its comments,
+  ## which a JSON parser would not take
   var i = i0
   while i < s.len and s[i] in Whitespace: inc i
   if i >= s.len: return i
@@ -1513,6 +1554,10 @@ proc nsShutdown()
 proc refreshUserCommands()
 
 proc reloadSettings(fromFile = true) =
+  ## applies changed settings: re-reads the files when fromFile, then carries out what a change means — switching the
+  ## Nim engine stops one and starts the other, a changed project mapping restarts the Nim server, settings held back
+  ## for an untrusted folder are said so — and refreshes the theme, mouse and cursor modes, language server
+  ## configuration, user commands and the engine worker; every buffer is checked again
   let oldMouse = cfgMouse
   let oldHover = cfgHoverFx
   let oldMain = sStr("nim.projectFile")
@@ -1626,6 +1671,8 @@ proc setProjectSetting(key: string, val: JsonNode) =
   reloadSettings(true)
 
 proc toggleSetting(key, label: string) =
+  ## turns a true or false setting the other way (written to the settings file) and says so in the message line with the
+  ## label
   setSetting(key, %(not sBool(key)))
   info(label & (if sBool(key): " on" else: " off"))
 
@@ -1674,9 +1721,12 @@ proc rulerColumns(b: Buffer): seq[int] =
     if c notin result: result.add c
     result.sort()
 
+# whether any ruler is wanted: columns set, or one at the line length
 proc rulersSet(): bool = cfgRulers.len > 0 or cfgRulerAtLength
 
 proc rulerList(): string =
+  ## the columns of the rulers of the current file as text ("80, 120"), with " (the line length)" when one follows the
+  ## line length
   for i, c in rulerColumns(buf()): result.add (if i > 0: ", " else: "") & $c
   if cfgRulerAtLength: result.add " (the line length)"
 

@@ -92,9 +92,11 @@ func fmtAlpha(a: float): string =
     if s.endsWith("0"): s = s[0 ..< s.high]
     s
 
+# x rounded to the nearest whole number and kept within 0 … 255 (a colour channel)
 func clampByte(x: float): int = max(0, min(255, int(x + 0.5)))
 
 func hex2(n: int, upper: bool): string =
+  ## a channel as two hex digits, in capitals or in lower case
   let s = toHex(n, 2)
   if upper: s else: s.toLowerAscii
 
@@ -117,6 +119,8 @@ func rgbToHsl(c: Col): (float, float, float) =
   (h, s * 100.0, l * 100.0)
 
 func hslToCol(h, s, l: float, a = 1.0, alpha = false): Col =
+  ## the colour of an hsl() value (hue 0 … 360, saturation and lightness 0 … 100; a hue outside the circle wraps round,
+  ## the others are clamped), with the alpha given
   let sf = max(0.0, min(1.0, s / 100.0))
   let lf = max(0.0, min(1.0, l / 100.0))
   var hd = h
@@ -137,6 +141,7 @@ func hslToCol(h, s, l: float, a = 1.0, alpha = false): Col =
 
 # ── names ──
 
+# a colour's name as CSS writes it: in lower case
 func cssName(n: string): string = n.toLowerAscii
 
 func nameOf(c: Col): string =
@@ -188,6 +193,8 @@ func numArg(t: string, scale: float): (bool, float) =
   except ValueError: (false, 0.0)
 
 func hexCol(h: string): (bool, Col) =
+  ## the colour of 3, 4, 6 or 8 hex digits (#rgb, #rgba, #rrggbb, #rrggbbaa — the # already taken off); false for
+  ## anything else
   for c in h:
     if c notin HexDigits: return (false, Col())
   case h.len
@@ -352,11 +359,14 @@ func nimCode(lang, line: string, f: Found): bool =
   lang == "nim" and (f.form in {fNimHex, fNimName} or (f.form == fRgb and not inString(line, f.start)))
 
 proc atCursor(b: Buf): (string, Found) =
+  ## the cursor's line, and the colour found at the cursor in it (its start is -1 when there is none)
   let p = b.cursor
   let l = b.line(p.line)
   (l, colourAt(l, b.lang, p.col))
 
 proc convert() =
+  ## Colour: convert — rewrites the colour at the cursor in its next form (hex, rgb(), hsl(); in Nim code 0xRRGGBB and
+  ## rgb()) and shows the change in the message line
   let b = current()
   if not b.valid: return
   let (l, f) = atCursor(b)
@@ -373,6 +383,8 @@ proc convert() =
   message("Colour: " & l[f.start ..< f.stop] & " → " & to)
 
 proc shade(sign: float) =
+  ## Colour: lighter (+1) and darker (-1) — changes the lightness of the colour at the cursor by the `step` setting,
+  ## keeping its form, and shows the change in the message line
   let b = current()
   if not b.valid: return
   let (l, f) = atCursor(b)
@@ -413,6 +425,9 @@ func usualForm(lines: seq[string], lang: string): Form =
   if cssy(lang): fName else: fHex
 
 proc pickNamed() =
+  ## Colour: pick… — lists CSS's named colours with their hex and rgb(); the one chosen replaces the colour at the
+  ## cursor (in its form, its alpha kept) or, with none there, goes in at the cursor (over the selection) in the form
+  ## the file uses most
   let b = current()
   if not b.valid: return
   var items, details: seq[string]

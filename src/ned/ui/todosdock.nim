@@ -15,9 +15,11 @@ proc computeBufTodos(b: Buffer): seq[TodoItem] =
     for h in todoHits(s, toks): result.add todoItemOf(b.path, l, s, h)
 
 proc todoForBuf(b: Buffer): seq[TodoItem] =
+  ## the tag comments last found in the open file (todoRefreshBufs fills the cache); none when it has not been read yet
   if b.id in todoBufCache: todoBufCache[b.id][1] else: @[]
 
 proc todoBufStale(b: Buffer): bool =
+  ## true when the file's tag comments were never worked out or the buffer has changed since
   b.id notin todoBufCache or todoBufCache[b.id][0] != b.changeId
 
 proc todoRefreshBufs() =
@@ -191,6 +193,7 @@ proc todoGrouped(items: seq[TodoItem]): seq[(string, seq[TodoItem])] =
     ys.sort(proc(a, b: TodoItem): int = cmp(a.line, b.line))
     result.add (p, ys)
   proc best(xs: seq[TodoItem]): int =
+    ## the rank of the most urgent tag among the items (lower is more urgent), 9 when there are none
     result = 9
     for x in xs:
       if x.tag < todoTags.len: result = min(result, todoTags[x.tag].rank)
@@ -199,6 +202,7 @@ proc todoGrouped(items: seq[TodoItem]): seq[(string, seq[TodoItem])] =
     if c != 0: c else: cmp(relPath(a[0]), relPath(b[0])))
 
 proc todoVisible(items: seq[TodoItem]): seq[TodoItem] =
+  ## the items whose tag has not been switched off with the dock's chips (todoOff)
   for it in items:
     if it.tag < todoTags.len and todoTags[it.tag].word notin todoOff: result.add it
 
@@ -209,6 +213,7 @@ proc todoChipOrder(counts: seq[int]): seq[int] =
   result.sort(proc(a, b: int): int = cmp(todoTags[a].rank, todoTags[b].rank))
 
 proc todoCounts(items: seq[TodoItem]): seq[int] =
+  ## how many comments there are of each tag, in the order of todoTags
   result = newSeq[int](todoTags.len)
   for it in items:
     if it.tag < result.len: inc result[it.tag]
@@ -220,6 +225,8 @@ var
   todoDockVis, todoDockFiles = 0
 
 proc todoDockKeyNow(): string =
+  ## a text that changes whenever anything the dock's list is built from changes: the scan generation, the scope, the
+  ## project, the tags, the open files, the tags switched off and the collapsed files. The list is rebuilt only then.
   result = $todoGen & "|" & $todoScopeFile & "|" & rootDir & "|" & $todoTags.len & "|"
   if todoScopeFile: result.add $buf().id
   else:
@@ -264,6 +271,8 @@ proc buildTodoItems(): seq[SideItem] =
   todoDockItems = result
 
 proc todoMarkdown(): string =
+  ## the visible tag comments as Markdown: a heading with the project (or file) name and count, then a check-list per
+  ## file with the tag, the person, the line and the text
   let items = todoVisible(todoCollect(todoScopeFile))
   let title = if todoScopeFile: buf().name else: extractFilename(rootDir)
   result = "## TODOs — " & title & " (" & $items.len & ")\n"
@@ -275,6 +284,7 @@ proc todoMarkdown(): string =
                  " line " & $(it.line + 1) & (if it.text.len > 0: ": " & it.text else: "") & "\n"
 
 proc todoCopyMarkdown() =
+  ## copies the TODO list as Markdown to the clipboard and says how many items it has
   let md = todoMarkdown()
   clipSet(md)
   toast("Copied the TODO list as Markdown (" & $max(0, md.count("\n- [ ]")) & " items)", 3)
@@ -352,6 +362,8 @@ proc todoInsert(tag: string) =
   needRender = true
 
 proc todoInsertMenu() =
+  ## opens a menu of the tags (the todo.tags setting) at the cursor; the one chosen is inserted as a comment by
+  ## todoInsert
   var items: seq[MenuItem]
   for t in todoTags:
     let w = t.word
@@ -374,6 +386,8 @@ proc todoDeleteComment(path: string, line: int, word, text: string) =
     return
   var toks: seq[TokKind]
   proc hitOn(l: int): TodoHit =
+    ## the tag comment on line l that is the one being removed (same tag word and text), leaving that line's tokens in
+    ## toks; a hit with tag -1 when it is not there
     result = TodoHit(tag: -1)
     if l < 0 or l >= b.lines.len: return
     let (st, _) = b.stateAt(l)
@@ -404,6 +418,7 @@ proc todoDeleteComment(path: string, line: int, word, text: string) =
   let txt = s[a ..< e]
   let lg = b.lang
   proc startsWithAny(x: string, ms: openArray[string]): bool =
+    ## true when x starts with one of the markers that is not empty
     for m in ms:
       if m.len > 0 and x.startsWith(m): return true
   let lineCmt = startsWithAny(txt, [lg.docLine, lg.lineComment])
@@ -499,6 +514,9 @@ proc todoCreateIssue(path: string, line: int, word, who, text: string) =
                 " — run gh auth login once if you have not"))))
 
 proc todoItemMenu(it: SideItem): seq[MenuItem] =
+  ## the menu of a row of the TODOs dock: open it, copy it, done (delete the comment), create a GitHub issue, copy the
+  ## list as Markdown, switch between the file and the project, rescan. Empty for a row that is not a comment (a file's
+  ## heading).
   let p = it.path
   let l = it.line
   let c = it.col

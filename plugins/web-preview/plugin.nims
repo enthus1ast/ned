@@ -22,6 +22,7 @@ settingDef("browser", "", "The program that opens a page (empty: termux-open, xd
 
 var serving = false
 
+# the text quoted for the shell, in single quotes (a quote inside it written as '\'')
 func q(s: string): string = "'" & s.replace("'", "'\\''") & "'"
 
 proc opener(): string =
@@ -35,6 +36,9 @@ proc opener(): string =
   else: ""
 
 proc openInBrowser(target: string) =
+  ## opens a file or an address with the browser opener, started in the background (on Termux an address goes to
+  ## termux-open-url and a file to termux-open); it warns when no program can open it and says what it opened in the
+  ## status bar
   var o = opener()
   # (Termux: an address goes to termux-open-url, a file to termux-open)
   if o == "termux-open" and (target.startsWith("http://") or target.startsWith("https://")) and
@@ -47,6 +51,8 @@ proc openInBrowser(target: string) =
   else: status("Opened " & target)
 
 proc openFileHere() =
+  ## Web: open this file in the browser — saves the file when it has changes and opens it by its path; a file with no
+  ## path is not opened
   let b = current()
   let p = b.path
   if p.len == 0:
@@ -62,6 +68,9 @@ func urlPath*(root, file: string): string =
   "/" & rel.replace(" ", "%20")
 
 proc serveAndOpen() =
+  ## Web: serve the project and open this page — saves the file, starts python's http.server on plugins.web-preview.port
+  ## for the project's folder in a terminal (only once, then the same server is used) and, after 700 ms for the server
+  ## to start, opens the page from http://localhost, or the server's root for a file outside the project
   let b = current()
   let root = projectRoot()
   let port = setting("port", 8000)
@@ -93,6 +102,8 @@ func urlAt*(s: string, col: int): string =
   ""
 
 proc openUrlHere() =
+  ## Web: open the address at the cursor — opens the selection, else the http(s) address under the cursor, in the
+  ## browser
   let b = current()
   let r = b.selection
   let u = if not r.isEmpty: b.textIn(r).strip else: urlAt(b.line(b.cursor.line), b.cursor.col)

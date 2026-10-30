@@ -37,6 +37,8 @@ const Words = ["{", "}", "[", "]", "(", ")", "\"", "'", "`", ",", ":", ";", "<",
                "SELECT", "FROM", "(requires", "function", "=>", "import", "var(", "url(", "&amp;", "\\u12", "0x"]
 
 proc mutate(r: var Rand, text: string): string =
+  ## the text damaged one to eight times at random places: a piece cut out, a word of Words put in, a piece of another
+  ## sample put in, or the end cut off
   result = text
   for _ in 0 ..< r.rand(1 .. 8):
     let n = result.len

@@ -19,6 +19,8 @@ type FOut* = object
   identDef*: bool       # a let/var/const member (`let x = …`, or one in such a section): nph's identDefs
 
 proc fTop*(toks: openArray[FTok], what: proc(t: FTok, depth: int): bool): int =
+  ## the index of the first token outside any brackets for which `what` is true (it is given the token and its depth),
+  ## or -1
   var d = 0
   for k, t in toks:
     if t.kind in {fkOpen, fkPragOpen}: inc d
@@ -60,6 +62,7 @@ func fTopEq*(toks: openArray[FTok], a, b: int): int =
   -1
 
 func fTopColon*(toks: openArray[FTok], a, b: int): int =
+  ## the index of the first `:` outside brackets in toks[a ..< b], or -1
   var d = 0
   for k in a ..< b:
     let t = toks[k]
@@ -275,6 +278,7 @@ proc fBranchWidth(toks: seq[FTok], depth: int): int =
   depth * 2 + fRender(toks).len + (if toks[0].text == "else": 5 else: 4)
 
 func fTypeMemberComplex*(l: FLine): bool =
+  ## does the line hold an `object` or `enum` keyword — a type member whose definition goes on in the lines under it?
   for t in l.toks:
     if t.kind == fkKw and t.text in ["object", "enum"]: return true
   false
@@ -297,6 +301,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       var l = move(work[k])
       if not l.comment and not l.verbatim and l.toks.len > 0 and
          l.toks[^1].kind != fkComment and not fOpensBlock(l) and k + 1 < work.len:
+        # the line right after the one looked at: a comment under a statement that may join it
         template c: untyped = work[k + 1]
         if c.comment and c.toks.len == 1 and c.depth > l.depth and
            c.toks[0].text.startsWith("#") and not c.toks[0].text.startsWith("##[") and
@@ -319,7 +324,10 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     while k < work.len:
       var l = move(work[k])
       if not l.comment and not l.verbatim and l.toks.len > 1 and l.toks[^1].kind == fkColon and k + 2 < work.len:
+        # the line right after the block header being looked at: a comment written deeper than the block's first
+        # statement
         template c: untyped = work[k + 1]
+        # the line after that comment: the block's first statement
         template b: untyped = work[k + 2]
         if c.comment and c.toks.len == 1 and not c.blank and c.toks[0].text.startsWith("#") and
            not c.toks[0].text.startsWith("##") and not c.toks[0].text.startsWith("#[") and
@@ -338,6 +346,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   var k = 0
   var res = newSeqOfCap[FLine](work.len)
   while k < work.len:
+    # the line looked at: a `var`, `let`, `const` or `type` section head on a line of its own
     template l: untyped = work[k]
     if not l.comment and l.toks.len == 1 and l.toks[0].kind == fkKw and l.toks[0].text in FSectionKw:
       var j = k + 1
@@ -375,9 +384,11 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   res = newSeqOfCap[FLine](work.len)
   k = 0
   while k < work.len:
+    # the line looked at: one that ends in `=` and may be a type's name waiting for its `object`, `enum` …
     template l: untyped = work[k]
     if not l.comment and not l.verbatim and l.toks.len >= 2 and l.toks[^1].kind == fkOp and l.toks[^1].text == "=" and
        k + 1 < work.len and fTopEq(l.toks, 0, l.toks.len) == l.toks.high:
+      # the line after it: the body of the type definition
       template m: untyped = work[k + 1]
       var isType = l.toks[0].kind == fkKw and l.toks[0].text == "type"
       if not isType:
@@ -416,6 +427,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     while q > 0 and done[j].toks[q].kind == fkComment: dec q
     done[j].toks[q].kind == fkKw and done[j].toks[q].text == "enum"
   for k in 0 ..< work.len:
+    # the line looked at: one that ends in a comment which may go on in comment lines under it
     template l: untyped = work[k]
     if not l.comment and not l.verbatim and l.toks.len > 1 and l.toks[^1].kind == fkComment and
        not l.toks[^1].text.startsWith("#[") and not l.toks[^1].text.startsWith("##[") and
@@ -448,9 +460,11 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   res = newSeqOfCap[FLine](work.len)
   var ak = 0
   while ak < work.len:
+    # the line looked at: one that ends in `=`, waiting for its value
     template l: untyped = work[ak]
     if not l.comment and not l.verbatim and l.toks.len >= 2 and l.toks[^1].kind == fkOp and l.toks[^1].text == "=" and
        fValueEq(l.toks) and ak + 1 < work.len:
+      # the line after it: the lambda (or `block:`) that is the value
       template m: untyped = work[ak + 1]
       # (`x =` ⏎ `block:` too: `x = block:`, nph never leaves it under the `=`)
       if not m.comment and not m.verbatim and not m.blank and m.depth == l.depth + 1 and
@@ -478,6 +492,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
     res = newSeqOfCap[FLine](work.len)
     var vk = 0
     while vk < work.len:
+      # the line looked at: a statement `x = if/when/case/try …` whose branches may be laid out under it
       template l: untyped = work[vk]
       var eq = -1
       var kw = ""
@@ -560,12 +575,16 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   res = newSeqOfCap[FLine](work.len)
   var jk = 0
   while jk < work.len:
+    # the line looked at: a candidate for an `if`/`when` (or `return if`) written on one line
     template l: untyped = work[jk]
     var joined: seq[FTok]
     var nxt = jk + 1
     var ok = false
     proc usable(x: FLine): bool =
+      ## can this line take part in a one-line if/else: code that is not a comment, not verbatim and does not end in a
+      ## comment
       not x.comment and not x.verbatim and x.toks.len > 0 and x.toks[^1].kind != fkComment
+    # do the tokens have no `:` outside brackets? (`when x: a: int` holds fields, not values)
     proc noColon(t: seq[FTok]): bool = fTopColon(t, 0, t.len) < 0     # (`when x: a: int` — fields, not values)
     if usable(l) and l.toks.len >= 3 and
        ((l.toks[0].kind == fkKw and l.toks[0].text in ["if", "when"]) or
@@ -616,10 +635,12 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   res = newSeqOfCap[FLine](work.len)
   var mk = 0
   while mk < work.len:
+    # the line looked at: `x =` or a lone `return`, `yield`, `discard`, `raise`, whose value may be on the line after
     template l: untyped = work[mk]
     if not l.comment and not l.verbatim and mk + 1 < work.len and l.toks.len >= 1 and
        (fValueEq(l.toks) or (l.toks.len == 1 and l.toks[0].kind == fkKw and
                              l.toks[0].text in ["return", "yield", "discard", "raise"])):
+      # the line after it: the value
       template m: untyped = work[mk + 1]
       var after = mk + 2
       while after < work.len and work[after].comment: inc after     # (a doc comment under it stays there)
@@ -640,6 +661,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   res = newSeqOfCap[FLine](work.len)
   var importDepth = -1
   for li in 0 ..< work.len:
+    # the line looked at: an `import`, `include` or `export` that may be followed by an indented list of modules
     template l: untyped = work[li]
     if not l.comment and importDepth >= 0 and l.depth <= importDepth: importDepth = -1
     if not l.comment and l.toks.len == 1 and l.toks[0].kind == fkKw and
@@ -698,6 +720,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   # when the body starts with no comment, it stays on the line)
   res = newSeqOfCap[FLine](work.len)
   for k in 0 ..< work.len:
+    # the line looked at: `Foo = object` (or `tuple`, `ref object`) with a trailing comment
     template l: untyped = work[k]
     if k + 1 < work.len and work[k + 1].comment and work[k + 1].depth > l.depth and
        not l.comment and not l.verbatim and l.toks.len > 3 and l.toks[^1].kind == fkComment and
@@ -731,14 +754,17 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   res = newSeqOfCap[FLine](work.len)
   var ck = 0
   while ck < work.len:
+    # the line looked at: one that a comment line under it may be joined to
     template l: untyped = work[ck]
     var join = false
     if ck + 1 < work.len and not l.comment and not l.verbatim and l.toks.len > 0 and l.toks[^1].kind != fkComment:
+      # the line after it: the comment
       template c: untyped = work[ck + 1]
       let ct = c.toks[0]
       let single = c.comment and c.toks.len == 1 and not c.blank and not ct.text.startsWith("#[") and
                    not ct.text.startsWith("##[") and (ck + 2 >= work.len or not work[ck + 2].comment)
       template fits(a: int): bool =
+        ## does the line, from token `a` on, with the comment added after it, fit in the line limit?
         l.depth * 2 + fRenderLen(l.toks.toOpenArray(a, l.toks.high)) + 1 + ct.text.len <= FmtMax
       if single and c.depth == l.depth + 1 and headKind(l) == 1: join = fits(0)
       elif single and c.depth == l.depth and l.depth > 0 and (ck + 2 >= work.len or work[ck + 2].depth < l.depth):
@@ -777,6 +803,7 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
   var lastBranchComment = newSeq[bool](work.len)
   var absorbed = newSeq[bool](work.len)      # a branch's value written under it, now on the branch's line
   for idx in 0 ..< work.len:
+    # the line looked at: it may be a `case` whose branches have to be moved to its level
     template l: untyped = work[idx]
     while shifts.len > 0 and l.depth <= shifts[^1] and not l.comment: shifts.setLen(shifts.len - 1)
     var sh = 0
@@ -844,6 +871,8 @@ proc fTransform*(lines: seq[FLine]): seq[FOut] =
       if commented >= 0: lastBranchComment[commented] = true
   i = 0
   while i < work.len:
+    # the line looked at in the last pass, which makes the output entry for each line (its depth, blank line, kind and
+    # what it needs when laid out)
     template l: untyped = work[i]
     if absorbed[i]:
       inc i
@@ -1194,6 +1223,7 @@ proc fPackSegs(segs: seq[seq[FTok]], pad, contPad: string): seq[string] =
     inc n
   if acc.len > 0: parts.add (lead, acc, n)
   proc plain(res: var seq[string], l: string, a: seq[FTok]) =
+    ## adds a piece with its lead-in to `res` as one line, or, when that is too long, broken at its operators
     let r = l & fRender(a)
     let sub = if fFitLen(r) > FmtMax: fBreakOps(a, l, contPad) else: @[]
     if sub.len > 1: res.add sub else: res.add r
@@ -1675,6 +1705,8 @@ proc fListKind*(toks: openArray[FTok], open: int): int =
   2
 
 proc fListMode*(kind: int): FWrap =
+  ## the layout setting for a kind of list: the parameters, arguments or collections setting; an index or generic
+  ## arguments are never put one to a line
   case kind
   of 0: FmtParams
   of 1: FmtArgs
@@ -1928,6 +1960,7 @@ type
     lineLen, indent, pendingNL: int
 
 proc xNew(x: var XTree, nd: XNode): int =
+  ## adds a node to the tree and gives its index
   x.n.add nd
   x.n.high
 
@@ -2244,8 +2277,11 @@ proc xExpr(x: var XTree, i, e, limit: int, next: var int, cmd = true): int =
 
 # the layout (nph's renderer: lineLen, indent, a pending line break)
 
+# a length plus a number of characters: unchanged when it already ends in a line break
 func `+`(a: XLen, b: int): XLen = (if a.nl: a else: (a.len + b, false))
+# a number of characters plus a length: the sum, with the length's line break
 func `+`(a: int, b: XLen): XLen = (a + b.len, b.nl)
+# two lengths one after the other: the first alone when it ends in a line break, else the sum
 func `+`(a, b: XLen): XLen = (if a.nl: a else: (a.len + b.len, b.nl))
 
 func xFirstW(t: FTok): int =
@@ -2260,13 +2296,20 @@ func xLen(x: XTree, a, b: int): XLen =
   if m < b: (x.pos[m] + xFirstW(x.toks[m]) - x.pos[a], true)
   else: (x.pos[b - 1] + x.toks[b - 1].text.len - x.pos[a], false)
 
+# the one-line length of a node
 func xNodeLen(x: XTree, nd: int): XLen = x.xLen(x.n[nd].a, x.n[nd].b)
+# 1 when a space stands before token k in the one-line text, else 0 — none at the start of a line
 func xSpAt(x: XTree, k: int): int = (if x.pendingNL >= 0 or k == 0: 0 else: ord(x.sp[k]))
+# would text of this length, put on the current line, go over the line limit (or hold a line break)?
 proc xOver(x: XTree, l: XLen): bool = l.nl or x.lineLen + l.len > FmtMax
+# does a length fit within the line limit on its own, with no line break in it?
 proc xFits(l: XLen): bool = not l.nl and l.len <= FmtMax
+# how many columns a new line is indented by, for the flags: 0, 4 for a long indent, else 2
 func xFlagIndent(f: set[XFlag]): int = (if xfNoIndent in f: 0 elif xfLongIndent in f: 4 else: 2)
 
 func xPut(x: var XTree, k: int) =
+  ## puts token k on the current line, or at the start of a new one when a line break is pending, and updates the
+  ## current line's length
   let t = x.toks[k]
   if x.pendingNL >= 0:
     x.brk[k] = x.pendingNL
@@ -2276,21 +2319,25 @@ func xPut(x: var XTree, k: int) =
   # (after a long string over several lines nph's line length counts all of it: nothing fits after it)
 
 func xOptNL(x: var XTree) =
+  ## makes a line break pending before the next token, at the current indentation
   x.pendingNL = x.indent
   x.lineLen = x.indent
 
 func xOptIndent(x: var XTree, w: int) =
+  ## indents by w more columns; a pending line break moves along with it
   x.indent += w
   if x.pendingNL >= 0:
     x.pendingNL = x.indent
     x.lineLen = x.indent
 
 func xIndentNL(x: var XTree, w: int) =
+  ## indents by w more columns and breaks the line there
   x.indent += w
   x.pendingNL = x.indent
   x.lineLen = x.indent
 
 func xDedent(x: var XTree, w: int) =
+  ## indents by w fewer columns; a pending line break is not left deeper than the new indentation
   x.indent -= w
   if x.pendingNL > x.indent:
     x.pendingNL = x.indent
@@ -2310,6 +2357,8 @@ func xSimple(x: XTree, nd: int): bool =
   else: false
 
 func xNlLenImpl(x: XTree, nd: int): (bool, XLen) =
+  ## the length of a node up to where nph would rather break: (true, that length) when it ends at an opening bracket or
+  ## a triple-quoted string's first line, else (false, the whole length)
   let node = x.n[nd]
   case node.kind
   of xDot:
@@ -2338,6 +2387,7 @@ func xStacked(x: XTree, nd: int, inCall: bool): bool =
   else: false
 
 func xDotCall(x: XTree, nd: int): bool =
+  ## is this node a call, or a dotted chain ending in one (not an object construction)?
   let node = x.n[nd]
   case node.kind
   of xDot: x.xDotCall(node.l)
@@ -2552,6 +2602,8 @@ proc fNphLayout*(toks0: seq[FTok], depth: int, exprLine = false, declLike = fals
     x.firstMulti[k] = fm
   var nx = 0
   template whole(i, e: int): int =
+    ## reads the expression in tokens i ..< e as a tree and gives its node; if it fails or stops short of e, the whole
+    ## layout gives up (the result is empty)
     let r = x.xExpr(i, e, -1, nx)
     if x.fail or nx != e: return
     r
@@ -2820,12 +2872,15 @@ proc fCommentValue(o: FOut): seq[string] =
   if eq < 0 and not o.exprLine: return
   var outp: seq[string]
   if eq >= 0: outp.add spaces(ind) & fRender(toks.toOpenArray(0, eq))
+  # is this token a binary operator: a symbolic one other than `=`, or a word one such as `and`?
   proc binOp(t: FTok): bool = (t.kind == fkOp and t.text != "=") or fWordOp(t)
   proc chain(a, b, vind: int, outp: var seq[string]): bool =
     ## toks[a ..< b] at `vind`: a line break after each comment — comments only after operators, and inside
     ## brackets only in a last `(…)` operand, which is laid out `(` ⏎ its operands 2 deeper ⏎ `)` (like nph)
     var piece: seq[FTok]
     template flush(comment: string): bool =
+      ## writes the pending piece of the chain as one line (laid out as a long value if it does not fit) and puts the
+      ## comment after it, or 2 deeper under it when it does not fit; false when the layout is not one it knows
       var ok = true
       if piece.len > 0:
         let line = spaces(vind) & fRender(piece)
@@ -3006,6 +3061,7 @@ proc fCommentCond(o: FOut): seq[string] =
     segs[^1].add t
   if segs[^1].len == 0 or segs.len < 2: return
   proc parened(s: seq[FTok]): bool =
+    ## is this whole list of tokens one parenthesised group, its first `(` closed by its last `)`?
     if s.len < 2 or s[0].text != "(" or s[^1].text != ")": return false
     var dd = 0
     for k, t in s:
@@ -3435,6 +3491,7 @@ proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string] =
   var procAt = 0
   if t0.kind == fkIdent and (o.declLike or o.identDef) and not hasInnerComment:
     proc procAfter(k: int): bool =
+      ## is there a `proc`, `iterator` or `func` followed by `(` right after token k? (a proc type or lambda as a value)
       k + 2 < o.toks.len and o.toks[k + 1].kind == fkKw and o.toks[k + 1].text in ["proc", "iterator", "func"] and
         o.toks[k + 2].kind == fkOpen and o.toks[k + 2].text == "("
     let eq = fTopEq(o.toks, 1, o.toks.len)
@@ -3878,6 +3935,7 @@ proc fStructureOf*(lines: seq[FLine]): seq[int] =
                                           # block it opens, the indentation of that block's first line): one-line
                                           # sections (`type X = object`) +1, a value on the line after `x =` -1
   for li in 0 ..< lines.len:
+    # the line looked at when working out how deep each token sits
     template l: untyped = lines[li]
     if l.comment: continue
     while adj.len > 0 and l.depth <= adj[^1][0]:
@@ -4137,6 +4195,7 @@ proc fSameTokensMap(a, b: seq[FTok], map: var seq[int32]): bool =
       return false               # `echo -1` vs `echo - 1`: spacing decides what an operator applies to
 
 proc fSameTokens*(a, b: seq[FTok]): bool =
+  ## do two token lists hold the same code, whatever their layout?
   var none: seq[int32]
   fSameTokensMap(a, b, none)
 
@@ -4283,6 +4342,7 @@ proc fNormalize*(lines: var seq[FLine]) =
   var idx = 0
   while idx < lines.len:
     let li = idx
+    # the line looked at: a routine header that may have a doc comment under it
     template l: untyped = lines[li]
     inc idx
     if not l.comment and not l.verbatim and l.toks[0].kind == fkKw and l.toks[0].text in FRoutineKw and
@@ -4772,6 +4832,9 @@ proc fAlignRuns(entries: seq[FOut], res: var seq[string], firstLine, parentOf: s
     under[i] = entries[i].lineCount == 2 and firstLine[i] + 1 < res.len and
                res[firstLine[i] + 1].strip.startsWith("#")
   proc kindOf(i: int): (int, int) =
+    ## how an entry takes part in lining up: (1, the index of its `:`) for a typed field of an object or tuple, (2, the
+    ## index of its `=`) for a member of a const, let or var section, (0, 0) for a line that is not lined up (a comment,
+    ## a line of several rows, nothing after the colon or equals)
     let o = entries[i]
     let parent = parentOf[i]
     if o.comment or o.verbatim or parent < 0 or o.toks.len < 3: return
@@ -5055,6 +5118,10 @@ proc fParenIfBreak(line: string): seq[string] =
     return @[head, spaces(lead + deeper) & line[at .. ^1]]
 
 proc fFormatCore(text: string, err: var string): string =
+  ## formats a whole file: reads it, applies nph's changes beyond layout, imports, line transformations and comment
+  ## reflow, writes each entry with the blank-line rules and the lining up of fields, values and comments, and then
+  ## checks the result — the same tokens, the same line breaks where Nim reads them, the same block structure; if not,
+  ## err is set and the text is given back as it was
   if text.len == 0: return ""                       # (an empty file stays empty)
   var ok = true
   let toks = fLex(text, ok)
@@ -5088,6 +5155,7 @@ proc fFormatCore(text: string, err: var string): string =
   var gap = newSeq[bool](entries.len)           # an empty line written before it
   var lastAtPrev: seq[int]                      # (each depth's last entry before this one)
   for i in 0 ..< entries.len:
+    # the entry being written out
     template o: untyped = entries[i]
     lastAtPrev = lastAt
     parentOf[i] = if o.depth > 0 and o.depth - 1 < lastAt.len: lastAt[o.depth - 1] else: -1
@@ -5205,6 +5273,7 @@ proc fFormatCore(text: string, err: var string): string =
     entries[i].lineCount = rendered.len
     # (a long string's lines keep their trailing spaces: they are part of the string)
     for k in 0 ..< rendered.len:
+      # line k of the entry's output
       template r: untyped = rendered[k]
       if r.len == 0 or r[^1] notin Whitespace or (o.verbatim and k < rendered.high):
         res.add move(rendered[k])          # (nothing to strip: the line itself)
@@ -5263,9 +5332,11 @@ func fMarker(c: string): string =
   t = t[4 .. ^1].strip
   if t in ["off", "on", "skip"]: t else: ""
 
+# may the text hold `fmt: off`, `on` or `skip` markers? (a quick test before reading them properly)
 func fHasMarkers(text: string): bool {.inline.} = "fmt:" in text or "FMT:" in text
 
 proc fLineStarts(text: string): seq[int] =
+  ## the offset of the start of each line of the text
   result = @[0]
   for i, c in text:
     if c == '\n': result.add i + 1
@@ -5337,6 +5408,8 @@ proc fDocCodeLines(body: seq[string]): seq[string] =
   result = body
   var i = 0
   proc fmtCode(code: seq[string], width: int): seq[string] =
+    ## formats the Nim code of a doc comment's example at the given width; empty when it is already formatted or cannot
+    ## be formatted
     var c = code
     while c.len > 0 and c[^1].strip.len == 0: c.setLen(c.len - 1)
     if c.len == 0: return
@@ -5582,6 +5655,8 @@ var
 const FChunkMemoMax = 24 * 1048576
 
 proc fSettingsKey(): string =
+  ## all the settings that change the formatter's result, as one string: the key under which formatted pieces are
+  ## remembered
   $FmtWidth & "," & $FmtMax & "," & $FmtParams & "," & $FmtArgs & "," & $FmtColl & "," & $FmtBlank & "," &
     $FmtImports & "," & $FmtAlign & "," & $FmtReflow & "," & $FmtReflowPlain & "," & $fNoCheck & "," & $FmtScript &
     "," & $FmtAlignComments & "," & $FmtMagicComma & "," & $FmtNumbers & "," & $FmtDocCode

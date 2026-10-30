@@ -5,12 +5,15 @@ import std/[strutils, unittest]
 import ../../src/ned/format/formatters
 
 proc html(s: string, indent = 2, maxW = 100): string =
+  ## the HTML formatted with this indentation and line width; the test fails if the formatter reports an error
   let (r, err) = fmtHtml(s, indent, maxW)
   checkpoint err
   check err.len == 0
   r
 
 proc sql(s: string, indent = 2, upper = true): string =
+  ## the SQL formatted with this indentation (keywords in capitals when upper is set); the test fails if the formatter
+  ## reports an error
   let (r, err) = fmtSql(s, indent, upper)
   checkpoint err
   check err.len == 0

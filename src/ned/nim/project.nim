@@ -8,6 +8,7 @@ proc haveExe(name: string): bool =
   exeCache[name].len > 0
 
 proc resetExeCache() =
+  ## forgets the remembered PATH lookups, so a program installed since is found
   exeCache.clear()
 
 proc findNimbleFile(start: string): string =
@@ -35,10 +36,13 @@ proc nimStrings(s: string): seq[string] =
     else: inc i
 
 proc val(t: string): string =
+  ## the first double-quoted string on the line, "" if none
   let q = nimStrings(t)
   if q.len > 0: q[0] else: ""
 
 proc parseNimble(path: string): NimbleInfo =
+  ## reads a .nimble file line by line into its name, version, author, description, license, srcDir, binaries,
+  ## requirements (also those listed over several lines) and tasks; unreadable gives only the file and folder
   result.file = path
   result.dir = parentDir(path)
   result.name = splitFile(path).name
@@ -74,6 +78,8 @@ proc parseNimble(path: string): NimbleInfo =
     inRequires = false
 
 proc loadNimbleInfo(force = false) =
+  ## reads the .nimble of the current file's folder (or the project's) into `nimble`, or clears it when there is none;
+  ## it is not read again for the same file unless forced
   let f = findNimbleFile(if buf().path.len > 0: parentDir(buf().path) else: rootDir)
   if f.len == 0:
     nimble = NimbleInfo()
@@ -130,6 +136,8 @@ proc nimProjectFile(b: Buffer): string =
   projFileMemo[b.path] = (result, getMonoTime())
 
 proc nimProjectFile0(b: Buffer): string =
+  ## the work of nimProjectFile: the package's main module for a file in a nimble package's source folder; else the
+  ## module that includes the file; else the file itself
   let nf = findNimbleFile(parentDir(b.path))
   if nf.len > 0:
     let info = parseNimble(nf)

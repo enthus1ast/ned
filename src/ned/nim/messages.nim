@@ -94,6 +94,8 @@ func sigName(sig: string): (string, int) =
   (sig[i ..< e], e)
 
 proc genericNames(sig: string): seq[string] =
+  ## the generic parameter names of a routine signature (`proc foo[T, U: SomeInteger](…)` gives T and U), none when it
+  ## has no brackets
   let (_, e) = sigName(sig)
   if e >= sig.len or sig[e] != '[': return
   var d = 0
@@ -273,6 +275,8 @@ proc nimFollowOn(msg: string): bool =
     if msg.startsWith(p): return true
 
 proc dropNimFollowOns(ds: var seq[Diag]) =
+  ## removes from the list the errors that only follow another on the same line — those the compiler reports after a
+  ## type mismatch or an undeclared identifier there
   var lines: HashSet[int]
   for d in ds:
     if d.sev == 1 and (d.msg.startsWith("type mismatch") or d.msg.startsWith("undeclared identifier")): lines.incl d.line

@@ -154,6 +154,8 @@ var
   dirs: seq[(string, string)]    # plugin id, its folder
 
 proc send(j: JsonNode) =
+  ## writes one message to ned on standard output, as a line of JSON starting with the mark ned tells messages by (any
+  ## other line the plugin prints is its log); under `nim e` it is an `echo`.
   when defined(nimscript):
     echo ProtoMark & $j
   else:
@@ -226,6 +228,9 @@ proc api*(fn: string, args: JsonNode = newJObject()): JsonNode =
     else: queued.add m              # (ned's calls wait until this one is answered)
 
 proc register(file, kind: string, data: JsonNode, cb: proc(args: JsonNode): JsonNode = nil): int =
+  ## tells ned about something this plugin registers (`kind`: command, event, timer, view …): `data` plus the kind and
+  ## the plugin the file belongs to. With a callback, it is kept in `callbacks` and its index goes to ned as "cb", so
+  ## ned can call it later; that index is returned (-1 when there is no callback).
   let pid = pluginOf(file)
   var d = data
   if d == nil: d = newJObject()
@@ -241,6 +246,10 @@ proc register(file, kind: string, data: JsonNode, cb: proc(args: JsonNode): Json
   send(d)
 
 proc handle(j: JsonNode) =
+  ## deals with one message from ned. A "call" runs the callback with that index on its args — after noting the buffer
+  ## versions ned sent, with `curPlugin`, `curRid` and `knownCur` set for that call and put back after it, since calls
+  ## can nest while the plugin waits for an answer — and replies "ret" with its value, or with the exception's message
+  ## ("no such callback" for an index it does not have). "quit" ends the process.
   case j{"t"}.getStr
   of "call":
     let cb = j{"cb"}.getInt(-1)
@@ -289,6 +298,7 @@ proc `%`*(r: Range): JsonNode = %*{"start": %r.start, "stop": %r.stop}
   ## The range as ned's JSON, `{"start": {…}, "stop": {…}}`.
 proc toPos(j: JsonNode): Pos = Pos(line: j{"line"}.getInt, col: j{"col"}.getInt)
 proc toRange(j: JsonNode): Range =
+  ## reads a range from ned's JSON; a missing or non-object value gives `noRange()`
   if j == nil or j.kind != JObject: return Range(start: Pos(line: -1), stop: Pos(line: -1))
   Range(start: toPos(j{"start"}), stop: toPos(j{"stop"}))
 proc `%`*(e: Edit): JsonNode = %*{"range": %e.range, "text": e.text}
@@ -303,6 +313,7 @@ proc `%`*(p: Problem): JsonNode =
               "fixes": newJArray()}
   for f in p.fixes: result["fixes"].add %f
 proc toEvent(j: JsonNode): Event =
+  ## the `Event` an event call's args describe: the tab (-1 for none), its path and its language
   Event(buf: Buf(id: j{"buf"}.getInt(-1)), path: j{"path"}.getStr, lang: j{"lang"}.getStr)
 
 func pos*(line, col: int): Pos = Pos(line: line, col: col)
@@ -895,6 +906,8 @@ template autocmd*(event, pattern: string, cb: proc(ev: Event)) =
     else: event), (if event == "FileType" and not pattern.startsWith("lang:"): "lang:" & pattern else: pattern), cb)
 
 proc toJson(s: LangSpec): JsonNode =
+  ## turns a `LangSpec` into the JSON ned reads (the fields of the `languages` setting), leaving out each field that is
+  ## not set — an empty string or list, 0 or false; a block comment only when it has its two strings
   result = newJObject()
   if s.name.len > 0: result["name"] = %s.name
   if s.extensions.len > 0: result["extensions"] = %s.extensions
@@ -1145,6 +1158,8 @@ template textObject*(keys, desc: string, cb: proc(b: Buf, p: Pos): Range) =
 # ── timers ──
 
 proc regTimer(file: string, ms: int, repeat: bool, cb: proc()): int =
+  ## registers a timer with ned (a "timer" registration of `ms` and whether it repeats) whose callback runs `cb`;
+  ## returns the callback's index, which is the timer's id for `stopTimer`
   let f = cb
   register(file, "timer", %*{"ms": ms, "repeat": repeat}, proc(a: JsonNode): JsonNode =
     f()

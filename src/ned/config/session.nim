@@ -1,4 +1,10 @@
+# ned's remembered state between runs (state.json): recent files, cursor positions, theme, each folder's open files,
+# breakpoints and layout, bookmarks, AI prompt history — loaded at start, saved at exit — and the folder trust that lets
+# ned run a folder's code.
 proc loadState() =
+  ## reads state.json into the tables the editor keeps (recent files, saved positions, command and completion use
+  ## counts, saved layout and sessions, AI history, trusted folders, bookmarks, the Nim build mode); a missing or
+  ## damaged file is ignored, so ned starts fresh
   try:
     let j = parseFile(stateFile())
     if j.kind != JObject: return                 # damaged state file: start fresh, never crash
@@ -38,6 +44,7 @@ proc loadState() =
   except CatchableError: discard
 
 proc rememberPos(b: Buffer) =
+  ## remembers where the main cursor of a file is, to put it back when the file is opened again
   if b.path.len > 0:
     savedPos[b.path] = b.cursors[b.prim].head
 
@@ -50,6 +57,9 @@ proc aiQuirksList(): JsonNode =
     if result.len < 300: result.add %q
 
 proc saveState() =
+  ## writes state.json: the undo history of clean files, the cursor positions (of recent files, at most 300), the recent
+  ## files, the 300 most recent completions chosen, the last 50 AI prompts, bookmarks and trusted folders — and, when
+  ## sessions are restored, this folder's open files, breakpoints, watches and tasks. A failure to write is ignored
   for b in bufs: writeUndo(b)            # (clean files only; unchanged ones are skipped)
   for b in bufs: rememberPos(b)
   var pos = newJObject()
@@ -108,6 +118,7 @@ proc saveState() =
   except CatchableError: discard
 
 proc addRecent(path: string) =
+  ## puts a file at the top of the recent files, once, keeping at most 60
   let i = recentFiles.find(path)
   if i >= 0: recentFiles.delete(i)
   recentFiles.insert(path, 0)

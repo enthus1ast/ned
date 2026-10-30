@@ -1,7 +1,12 @@
+# searching the text: matches in a line (plain or regular expression, whole words), the next match from a position,
+# selecting occurrences with several cursors, adding cursors above and below, and finding the bracket that matches the
+# one at the cursor
 func isWordAt(s: string, j, n: int): bool {.inline.} =
+  ## whether the `n` bytes at `j` are a whole word: no word character just before them or just after
   (j == 0 or not isWordByte(s[j-1])) and (j + n >= s.len or not isWordByte(s[j + n]))
 
 func findInLine(s, q: string, start: int, caseSens, word: bool): int =
+  ## the first place from `start` where `q` occurs in the line (only as a whole word when `word`), or -1
   var i = start
   while true:
     let j = rawFind(s, q, i, caseSens)
@@ -10,6 +15,7 @@ func findInLine(s, q: string, start: int, caseSens, word: bool): int =
     i = j + 1
 
 proc findAllInLine(s, q: string, caseSens, word: bool): seq[int] =
+  ## every place `q` occurs in the line, as start columns that do not overlap; it stops after about 2000
   if q.len == 0 or q.len > s.len: return
   var i = 0
   while true:
@@ -38,6 +44,10 @@ proc findSpans(s, q: string, caseSens, word, rx: bool): seq[(int, int)] =
     i = if e > a: e elif a < s.len: a + utf8Len(s[a]) else: a + 1
 
 proc searchFrom(b: Buffer, q: string, frm: Pos, forward, caseSens, word: bool, rx = false): (bool, Pos, Pos) =
+  ## the next match of `q` from `frm`, forwards or backwards, wrapping round the end of the text: (found, start, end).
+  ## Forwards a match may begin at `frm`; backwards it must end at or before it. A plain query with a line break in it
+  ## never matches. A regular expression is tried line by line and given up after 1.5 seconds, so a bad pattern on a
+  ## huge file cannot hang ned.
   if q.len == 0 or ('\n' in q and not rx): return (false, Pos(), Pos())
   let n = b.lines.len
   if rx:
@@ -77,6 +87,9 @@ proc searchFrom(b: Buffer, q: string, frm: Pos, forward, caseSens, word: bool, r
   (false, Pos(), Pos())
 
 proc selectNextOccurrence(b: Buffer) =
+  ## Ctrl+D: with nothing selected, selects the word at each cursor; with a selection, adds a cursor on the next
+  ## occurrence of the selected text after the last cursor (whole words when it began from a word), skipping places that
+  ## already have one. Only single-line selections can be matched.
   let p = b.primary
   if not p.hasSel:
     for c in b.cursors.mitems:
@@ -111,6 +124,8 @@ proc selectNextOccurrence(b: Buffer) =
   info("No more occurrences")
 
 proc selectAllOccurrences(b: Buffer) =
+  ## puts a selection on every occurrence of the selected text (first selecting the next one when nothing is) and keeps
+  ## the original one as the primary cursor
   if not b.primary.hasSel: b.selectNextOccurrence()
   let (pa, pe) = b.primary.range
   if pa.line != pe.line: return
@@ -129,6 +144,8 @@ proc selectAllOccurrences(b: Buffer) =
     info($cs.len & " occurrences selected")
 
 proc addCursorVert(b: Buffer, dir: int) =
+  ## adds a cursor one line above the topmost (dir < 0) or below the bottommost cursor, in the same column; nothing is
+  ## added at the top or bottom of the text
   var src = b.cursors[0]
   for c in b.cursors:
     if (dir > 0 and src.head < c.head) or (dir < 0 and c.head < src.head): src = c
@@ -145,6 +162,7 @@ func matchBracket(b: Buffer, p: Pos): (bool, Pos, Pos) =
   ## bracket at/before p and its partner
   const opens = "([{"
   const closes = ")]}"
+  # the line the position is on
   template s: untyped = b.lines[p.line]
   var at = -1
   if p.col < s.len and (s[p.col] in opens or s[p.col] in closes): at = p.col
@@ -161,6 +179,7 @@ func matchBracket(b: Buffer, p: Pos): (bool, Pos, Pos) =
   var scanned = 0
   var budget = 2_000_000              # (bytes: a partner further away is not looked for — a minified file's `[`)
   while l >= 0 and l < b.lines.len and scanned < 5000:
+    # the line being scanned
     template t: untyped = b.lines[l]
     if forward:
       let stop = min(t.len, i + budget)

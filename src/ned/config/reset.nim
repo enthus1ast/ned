@@ -11,7 +11,9 @@ var
   resetPending: seq[string]     # what goes once ned has stopped everything (main's shutdown)
   resetRestart = false
 
+# ned's folder for downloaded data (spelling dictionaries, plugins' own data) under XDG_DATA_HOME, else ~/.local/share
 proc resetDataRoot(): string = getEnv("XDG_DATA_HOME", getHomeDir() / ".local" / "share") / AppName
+# ned's cache folder (Nim index, compiled plugins, NimScript and nimble caches) under XDG_CACHE_HOME, else ~/.cache
 proc resetCacheRoot(): string = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName
 
 proc resetSize(paths: seq[string]): (int64, int) =
@@ -29,12 +31,16 @@ proc resetSize(paths: seq[string]): (int64, int) =
     except CatchableError: discard
 
 func resetBytes(n: int64): string =
+  ## a size for people: bytes, KB, MB with one decimal, or GB with one decimal
   if n < 1024: $n & " B"
   elif n < 1024 * 1024: $(n div 1024) & " KB"
   elif n < 1024 * 1024 * 1024: formatFloat(n.float / 1048576.0, ffDecimal, 1) & " MB"
   else: formatFloat(n.float / 1073741824.0, ffDecimal, 1) & " GB"
 
 proc resetParts(project = ""): seq[ResetPart] =
+  ## the parts of ned that a reset can remove, each with its key, label, explanation, paths and whether it is ticked at
+  ## first: settings (the config folder but for plugins), installed plugins, sessions and history (the state folder),
+  ## caches, downloads, and — when the project has one, and unticked — the project's .ned folder
   let cfg = configDir()
   var settingsPaths: seq[string]
   if dirExists(cfg):

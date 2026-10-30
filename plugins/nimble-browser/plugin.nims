@@ -31,6 +31,7 @@ type Pkg* = object
 # ── the list ──
 
 proc nimbleDir(): string =
+  ## nimble's folder, where its package lists are: the nimbleDir setting, else $NIMBLE_DIR, else ~/.nimble
   let s = setting("nimbleDir", "").strip
   if s.len > 0: return expandTilde(s)
   let e = getEnv("NIMBLE_DIR")
@@ -95,6 +96,7 @@ proc load(): seq[Pkg] =
   cache
 
 proc installedVersion(name: string): string =
+  ## the highest installed version of the package (compared as text), "" when it is not installed
   for (n, v) in installed:
     if n == name.toLowerAscii and (result.len == 0 or v > result): result = v
 
@@ -119,6 +121,8 @@ func score*(p: Pkg, words: seq[string]): int =
     result += s
 
 func search*(ps: seq[Pkg], query: string): seq[Pkg] =
+  ## the packages that match all the words of the query, the best first (by score, then by name); all of them when the
+  ## query is empty
   let words = query.toLowerAscii.splitWhitespace
   if words.len == 0: return ps
   var scored: seq[(int, Pkg)]
@@ -175,6 +179,9 @@ func curlWhy*(code: int, said: string): string =
   else: (if said.len > 0: said else: "curl stopped (" & $code & ")")
 
 proc showReadme(p: Pkg) =
+  ## opens a tab with what the list says of the package and its README, fetched with curl in the background from the
+  ## addresses its repository could have it at (the first that answers is used); without a README, the reason is in the
+  ## tab instead
   let urls = readmeUrls(p.url)
   let head = details(p, installedVersion(p.name))
   let title = "nimble: " & p.name
@@ -233,6 +240,8 @@ func requiresAt*(lines: seq[string], name: string): (int, bool) =
     result[0] = e
 
 proc addRequires(p: Pkg) =
+  ## adds a requires line for the package to the project's .nimble file (after the last requires, else at the end), in
+  ## its tab and not saved; says so instead when it has one already or the project has no .nimble file
   let f = nimbleFile()
   if f.len == 0:
     message("Nimble: the project has no .nimble file (nimble init makes one)")
@@ -254,6 +263,8 @@ proc addRequires(p: Pkg) =
   message("Nimble: requires \"" & p.name & "\" added to " & extractFilename(f) & " — save it to keep it")
 
 proc act(p: Pkg) =
+  ## a list of what can be done with the package — its README, install it (after asking, in the terminal), add it to the
+  ## project's .nimble file — and does the one chosen
   let have = installedVersion(p.name)
   let nf = nimbleFile()
   var items = @["Its README", "Install it (nimble install " & p.name & ")"]
@@ -270,6 +281,8 @@ proc act(p: Pkg) =
   else: discard
 
 proc choose(ps: seq[Pkg], title: string) =
+  ## lists the packages to pick from (a ✓ and the version for the installed ones, each with its description) and opens
+  ## the actions for the one picked
   var items, dets: seq[string]
   for p in ps:
     let have = installedVersion(p.name)
@@ -279,6 +292,7 @@ proc choose(ps: seq[Pkg], title: string) =
   if i >= 0: act(ps[i])
 
 proc noList(): bool =
+  ## true, with a message saying how to make it, when nimble's package list cannot be read
   if load().len > 0: return false
   message("Nimble: no package list in " & nimbleDir() & " — Nimble: refresh the package list (nimble refresh) " &
           "makes it")

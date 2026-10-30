@@ -51,6 +51,7 @@ proc customKey(k: Key): bool =
   false
 
 proc toggleTerminal() =
+  ## closes the bottom panel when the terminal in it has the focus, else shows the terminal and gives it the focus
   if panelOpen and panelKind == pkTerminal and focus == fPanel:
     panelOpen = false
     focus = fEditor
@@ -59,6 +60,8 @@ proc toggleTerminal() =
     focus = fPanel
 
 proc cycleFocus(d: int) =
+  ## moves the focus to the next (`d` = 1) or previous area that is open — editor, file dock, bottom panel, right dock —
+  ## round the ring
   var order = @[fEditor]
   if treeOpen: order.add fTree
   if panelOpen: order.add fPanel
@@ -77,6 +80,11 @@ func terminalPassKey(k: Key): bool =
   false
 
 proc globalKey(k: Key): bool =
+  ## the keys that act wherever the focus is: Ctrl for quit, save, palette, find file, tree, new, close, symbols, go to
+  ## line, find, replace and the terminal; Alt for running, building, problems, themes, the docks, wrap, line numbers,
+  ## mouse, macros, references, the assistant, zen, panes, bookmarks, folds, tasks, the tabs 1–9 and help; Alt or Ctrl
+  ## with arrows and PgUp, PgDn for tabs; and the function keys (help, rename, find next, run, debugger, problems,
+  ## hunks, tasks, definition). False for any other key, so that the focused area gets it
   let ctrl = mCtrl in k.mods
   let alt = mAlt in k.mods
   let shift = mShift in k.mods
@@ -240,6 +248,13 @@ proc globalKey(k: Key): bool =
   else: result = false
 
 proc editorKey(k: Key) =
+  ## a key typed in the editor. Cursors left past the text by an outside change are put back first. Then, in turn: a
+  ## suggestion shown (Tab takes it, Esc drops it), hover, the welcome page, vim and helix keys, signature help, the
+  ## completion list (arrows, PgUp, PgDn, Tab and Enter accept, Esc closes); then Ctrl keys (select all, copy, cut,
+  ## paste, undo, redo, next occurrence, line, delete line, comment, complete, quick fixes, bracket), Alt keys
+  ## (duplicate, add a cursor, all occurrences, definition, jump, hover, format, comment), typing (with format on type),
+  ## paste, Enter (a notebook cell, quick fixes, a REPL, or a new line), Tab (snippet stops, next edit, snippets, Emmet,
+  ## indent), Backspace, Delete, movement and Esc (ends snippet stops, extra cursors, the selection, then the panel)
   let b = buf()
   # (cursors left past the end by a change that came from elsewhere — a reload, the assistant's undo — are put
   # back on the text before a key moves them)
@@ -406,6 +421,7 @@ proc editorKey(k: Key) =
   else: discard
 
 proc helpKey(k: Key) =
+  ## a key in the help screen: arrows and PgUp, PgDn scroll it, any other key closes it
   case k.kind
   of kUp: helpScroll = max(0, helpScroll - 1)
   of kDown: inc helpScroll
@@ -558,6 +574,9 @@ proc cmdKeyboardShortcuts() =
   openActions("Keyboard shortcuts — pick a command, then press its key", items, search)
 
 proc captureKey(k: Key) =
+  ## the key pressed after a command was picked in Keyboard shortcuts: it is stored as that command's key in the keys
+  ## setting. Esc cancels, Backspace removes the user's keys for the command, and a key that cannot be named is refused;
+  ## when the key runs other commands already it asks first, and it warns when a terminal may not send the key
   let name = keyCaptureFor
   keyCaptureFor = ""
   if k.kind == kEsc:
@@ -581,6 +600,8 @@ proc captureKey(k: Key) =
     warn("That key cannot be bound — try another")
     return
   proc bindIt() =
+    ## stores the key for the command in the keys setting and says what it replaced, and why a terminal might not send
+    ## it
     let was = if keys.hasKey(kn): keys[kn].getStr else: ""
     keys[kn] = %name
     setSetting("keys", keys)
@@ -603,6 +624,12 @@ proc captureKey(k: Key) =
   else: bindIt()
 
 proc handleKey(k: Key) =
+  ## the entry point for every key and mouse event. It is noted for macro recording; a mouse event goes to handleMouse;
+  ## then the first layer that is open takes the key: key capture, jump labels, a dialog, a menu, a form, help, replace,
+  ## a picker, a prompt, a special view (diff, picture, hex, rename preview, flame graph, notebook cells, git graph,
+  ## blame, multi-file), pane resizing and moving, the terminal; then Esc Esc for zen mode, closing a hover, the user's
+  ## and plugins' keys, emacs keys, the search view's own Alt keys and globalKey; at last the area that has the focus
+  ## (file dock, right dock, panel, or the editor, with the linked editing of HTML tags around it)
   needRender = true
   if macroRecording: macroNoteKey(k)
   if bufs.len > 0:

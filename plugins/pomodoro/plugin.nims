@@ -31,24 +31,30 @@ var
   startedAt = 0.0                # the clock when it started (seconds since 1970)
   inRow = 0                      # focus sessions since the last long break
 
+# today's date as yyyy-mm-dd, the key of the day's count
 proc today(): string = localTime()[0 ..< 10]
 
 proc left(): int =
   ## the seconds left of the session running (by the clock: the timer's calls stop while the device sleeps)
   total - int(unixTime() - startedAt)
 
+# a count with its noun, the noun with an s unless the count is 1: "4 minutes"
 func plural(n: int, w: string): string = $n & " " & w & (if n == 1: "" else: "s")
 
 func mmss(s: int): string =
+  ## seconds as minutes and seconds: 24:13, 4:59 (no zero in front of the minutes)
   let m = s div 60
   let r = s mod 60
   $m & ":" & (if r < 10: "0" else: "") & $r
 
 # ── the day's count ──
 
+# the file in the data folder where the sessions finished each day are counted
 proc countFile(): string = dataDir() / "sessions.json"
 
 proc readCounts(): JsonNode =
+  ## the counts of finished sessions by day, read from the count file (an empty object when it is not there or cannot be
+  ## read)
   let f = countFile()
   result = newJObject()
   if fileExists(f):
@@ -67,6 +73,7 @@ proc addOne(): int =
 
 # ── sessions ──
 
+# the word the status bar starts with for the session running
 proc label(): string = (if kind == kFocus: "Focus " else: "Break ")
 
 proc tick()
@@ -114,6 +121,7 @@ proc ended() =
     toast("The break is over — Focus: start when you are ready")
 
 proc tick() =
+  ## called every second by the timer: ends the session when its time is up, else shows the time left in the status bar
   let l = left()
   if l <= 0: ended()
   else: status(label() & mmss(l))

@@ -4,6 +4,7 @@ proc nxEnclosing*(f: NxFile, line: int): int =
   ## index of the top-level routine around `line`, or -1
   result = -1
   for i in 0 ..< f.syms.len:
+    # the declaration at index i, in place
     template s: untyped = f.syms[i]      # (no copy of each symbol)
     if s.kind in NxRoutineKinds and s.line <= line and line <= s.endLine and not s.made:
       if result < 0 or s.line > f.syms[result].line: result = i
@@ -114,6 +115,7 @@ proc nxTemplateAround*(fl: NxLines, line: int): NxTplAround =
   ## the innermost template whose body (or header) `line` is in — at the top level or declared inside a routine —
   ## or line -1
   result.line = -1
+  # the lines of the file being looked at
   template lines: untyped = fl.ls
   if not fl.tplsMade:
     fl.tplsMade = true
@@ -152,6 +154,7 @@ proc nxTemplateCalls*(f: NxFile, lines: openArray[string], tpl: NxTplAround, min
   ## left out here (mine), calls in such branches first
   let key = f.path & "\t" & f.stamp.split('#')[0] & "\t" & $tpl.line & "\t" & $mine
   if key in nxCallSites: return nxCallSites[key]
+  # whether line l is in a `when` branch left out here
   template inactive(l: int): bool = nxInactiveLine(f, l)
   var other, before: seq[(int, int, string)]
   # a template declared in a routine is called in the rest of it; one at the top level after it (or, in other
@@ -293,6 +296,8 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
   var chainWhen: Table[int, bool]
   var secScope = 0
   template flushScopes() =
+    ## gives each local found since the last call its scope: the indentation of the block it lives in (a loop variable's
+    ## body is one level further in)
     while scopes.len < result.len:
       scopes.add (if result[scopes.len].kind == nxForVar: lastFor + 1 else: lastS)
   for l in a .. last:
@@ -330,6 +335,9 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
     let rest = if we < t.len: t[we .. ^1].strip else: ""
     proc addVars(text: string, kk: NxKind, res: var seq[NxSym], l: int, raw: string, lines: openArray[string],
                  ind: int) =
+      ## adds the names of one let/var/const section entry to res — `a, b: int = 3` or an unpacked `(a, b) = …` — with
+      ## the type and value written (the value taken from the indented block below it when it has no type), their column
+      ## and which element of a tuple each takes
       let c1 = nxFindTop(text, ':')
       let e1 = nxFindTop(text, '=')
       var endNames = text.len
@@ -347,6 +355,7 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
         res.add NxSym(name: nm, kind: kk, typ: (if unpack: "" else: nxCollapse(typ)), value: val, line: l,
                       col: nxWordCol(raw, nm), slot: vi.int16, slots: (if unpack: -names.len.int16 else: 0))
     template whole(x: string): string =
+      ## x with the lines its brackets are still open on joined to it (up to 60 lines)
       # a declaration whose brackets close on later lines: all of it
       var tj = x
       if dep > 0:

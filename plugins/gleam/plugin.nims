@@ -62,7 +62,9 @@ snippet("gleam", "use", "use ${1:x} <- ${2:result.try}(${3:value})\n$0", "a use 
 
 # ── the outline, when there is no language server ──
 
+# whether c can start a Gleam name: a letter or _
 func gleamIdentStart(c: char): bool = c in {'a'..'z', 'A'..'Z', '_'}
+# whether c can be part of a Gleam name
 func gleamIdentChar(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_'}
 
 proc gleamCode(s: string, inString: var bool): string =

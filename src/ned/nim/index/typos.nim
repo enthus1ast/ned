@@ -68,6 +68,7 @@ proc nxTypos*(f: NxFile, lines: seq[string], lo, hi: int, cur: (int, int)): seq[
   for l in 0 ..< lines.len:
     for (s, e) in nxIdents(lines[l], st0): count.inc nxNorm(lines[l][s ..< e])
   for ri in 0 ..< f.syms.len:
+    # the routine being checked for misspelt names
     template r: untyped = f.syms[ri]
     if r.kind notin {nxProc, nxFunc, nxMethod, nxIterator, nxConverter} or r.made: continue
     if r.endLine < lo or r.line > hi or r.endLine <= r.line: continue

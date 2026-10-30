@@ -34,6 +34,8 @@ settingDef("formatter", "", "The formatter's command, which reads the text on it
            "(when terraform is installed), \"off\" for none. Plugins: reload after a change")
 
 proc tfSpec(name: string, exts: seq[string], run, build: string): LangSpec =
+  ## the language description shared by Terraform, its variables files and HCL (the same syntax and words): only the
+  ## name, the file extensions and the F5 and Alt+B commands differ
   LangSpec(
     name: name,
     extensions: exts,
@@ -141,6 +143,7 @@ func tfCode(s: string, st: var int, heredoc: var string): string =
     inc i
 
 func tfNameEnd(s: string, i: int): int =
+  ## where the name (letters, digits, `_` and `-`) that starts at `i` ends
   result = i
   while result < s.len and (s[result].isAlphaNumeric or s[result] in {'_', '-'}): inc result
 
@@ -206,6 +209,7 @@ func tfSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc tfHave(cmd: string): bool =
+  ## whether the first word of a configured command (with ~ expanded) is a program that can be found on PATH
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

@@ -1,4 +1,10 @@
+# what ned does with what language servers send: the answers to its requests (symbols, hover, completion, references,
+# formatting, signature help, hierarchies …), the servers' own requests and notifications (problems, progress, messages,
+# settings), reading their output, and shutting them down or restarting them.
 func symbolIcon(kind: int): string =
+  ## the one-character icon for an LSP symbol kind in the symbol list: ƒ for functions, methods and constructors, T for
+  ## types, v for variables, properties and fields, c for constants and enum members, m for modules, namespaces and
+  ## packages, • for the rest
   case kind
   of 6, 9, 12: "ƒ"
   of 5, 10, 11, 23, 26: "T"
@@ -8,8 +14,11 @@ func symbolIcon(kind: int): string =
   else: "•"
 
 proc handleSymbols(s: LspServer, b: Buffer, res: JsonNode) =
+  ## the answer to a document symbols request: the symbols, nested ones named with their parents (a.b), as the "Go to
+  ## symbol" list; ned says so when there are none
   var items: seq[PickItem]
   proc walk(n: JsonNode, prefix: string) =
+    ## adds the symbols of a list to the picker's items, and those of their children with the parents' names in front
     for it in n:
       let name = it{"name"}.getStr
       var rng = it{"selectionRange"}
@@ -38,6 +47,7 @@ proc showHoverAuto(text: string, auto: bool) =
   hoverForBuf = buf().id
   needRender = true
 
+# shows hover text asked for by the user (not the automatic hover)
 proc showHover(text: string) = showHoverAuto(text, false)
 
 proc handleInlays(s: LspServer, req: LspReq, res: JsonNode)
@@ -47,6 +57,7 @@ proc handleLinks(s: LspServer, req: LspReq, res: JsonNode)
 proc handleOnType(s: LspServer, req: LspReq, res: JsonNode)
 
 proc lspAlive(uid: int): bool =
+  ## whether the server with this uid (as problems carry it) is still running
   for s in servers:
     if s.uid == uid and not s.dead: return true
   false
@@ -78,6 +89,8 @@ proc lspSetDiags(s: LspServer, path: string, items: JsonNode) =
   needRender = true
 
 proc lspConfigChanged() =
+  ## tells every ready server that the settings changed (workspace/didChangeConfiguration), with the section ned keeps
+  ## for its language
   for s in servers:
     if s.dead or not s.ready: continue
     if s.langId == "nim":
@@ -86,6 +99,10 @@ proc lspConfigChanged() =
       s.lspNotify("workspace/didChangeConfiguration", %*{"settings": sectionFor(s.langId)})
 
 proc lspHandle(s: LspServer, m: JsonNode) =
+  ## handles one message from a server. A request of the server's is answered (its settings, refreshes, applying an
+  ## edit). A reply to one of ned's requests is matched with it by id and acted on by the kind of the request: the
+  ## capabilities after initialize, completion, hover, references, symbols, semantic colours, hierarchies, formatting,
+  ## signature help and so on. A notification takes the server's problems, messages and progress into ned
   if m.kind != JObject: return
   if m.hasKey("id") and m.hasKey("method"):
     case m["method"].getStr

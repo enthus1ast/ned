@@ -5,6 +5,7 @@ type DepPkg = object
   ver: seq[int]
 
 proc depVer(s: string): seq[int] =
+  ## a version text as its leading numbers ("v1.2.3-rc" gives 1, 2, 3), stopping at the first part that is not a number
   for part in s.strip(chars = {'v', ' '}).split('.'):
     var d = ""
     for c in part:
@@ -15,6 +16,7 @@ proc depVer(s: string): seq[int] =
     except ValueError: break
 
 proc depCmp(a, b: seq[int]): int =
+  ## compares two versions number by number (a missing number counts as 0): negative, zero or positive
   for i in 0 ..< max(a.len, b.len):
     let x = if i < a.len: a[i] else: 0
     let y = if i < b.len: b[i] else: 0
@@ -160,11 +162,16 @@ proc cmdNimbleTree() =
   var nPkgs, nMissing, nOld = 0
   var seen: HashSet[string]
   proc line(text: string, sev: int, a: Action) =
+    ## adds a row to the dependency list: one that runs an action when chosen (kept in depActs, referred to by its
+    ## index) or, with no action, a plain line
     if a != nil:
       depActs.add a
       ls.add PanelLine(text: text, path: "dep:" & $(depActs.high), line: 0, sev: sev)
     else: ls.add PanelLine(text: text, line: -1, sev: sev)
   proc walk(reqs0: seq[string], prefix: string, depth: int) =
+    ## adds the rows for a list of requirements, drawn as a tree with the branch characters, then for each package found
+    ## its own requirements below it. A package is marked ok, too old, not installed or the compiler too old; one
+    ## already shown says so instead of repeating its tree; it stops at 12 levels
     # (a dependency's own Nim requirement only when this compiler does not meet it)
     var reqs: seq[string]
     for spec in reqs0:

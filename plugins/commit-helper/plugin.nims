@@ -24,6 +24,7 @@ type Change* = object
   path*: string
   added*, removed*: int
 
+# s as one word for a shell command line, in single quotes (a quote inside it written '\'')
 func q(s: string): string = "'" & s.replace("'", "'\\''") & "'"
 
 func parseStaged*(nameStatus, numstat: string): seq[Change] =
@@ -41,6 +42,7 @@ func parseStaged*(nameStatus, numstat: string): seq[Change] =
         c.removed = (try: parseInt(f[1]) except ValueError: 0)
         break
 
+# the file name at the end of a path
 func base(p: string): string = p.split('/')[^1]
 
 func kindOf*(cs: seq[Change]): string =
@@ -88,6 +90,7 @@ func summaryOf*(cs: seq[Change]): string =
     of 'D': del.add base(c.path)
     else: other.add base(c.path)
   func names(xs: seq[string]): string =
+    ## the names written in words: one, "a and b", "a, b and c" — and from four on only how many files there are
     if xs.len == 1: xs[0]
     elif xs.len == 2: xs[0] & " and " & xs[1]
     elif xs.len <= 3: xs[0 ..< ^1].join(", ") & " and " & xs[^1]
@@ -99,6 +102,9 @@ func summaryOf*(cs: seq[Change]): string =
   parts.join("; ")
 
 proc draft*(cs: seq[Change], style: string): string =
+  ## the message text for the changes: a first line (the summary, with the kind and scope in front unless the style is
+  ## plain), a line for each file — the most changed first — with its + and - counts and whether it is new, deleted or
+  ## renamed, then # lines saying how the text is used
   var head = summaryOf(cs)
   if style != "plain":
     let s = scopeOf(cs)
@@ -118,12 +124,16 @@ proc draft*(cs: seq[Change], style: string): string =
     "# Git: commit with this message — commits what is staged.\n"
 
 proc staged(): seq[Change] =
+  ## the staged changes, from git diff --cached (names with their status, and the line counts, renames followed); raises
+  ## ValueError with git's message when git fails
   let a = shell("git diff --cached --name-status -M")
   let b = shell("git diff --cached --numstat -M")
   if a.code != 0: raise newException(ValueError, a.output.strip)
   parseStaged(a.output, b.output)
 
 proc draftNow() =
+  ## Git: draft a commit message — reads what is staged (asking to stage everything with git add -A when nothing is) and
+  ## opens the drafted message in a tab, the cursor at the end of its first line
   var cs: seq[Change]
   try: cs = staged()
   except ValueError as e:
@@ -143,6 +153,8 @@ proc draftNow() =
   t.setCursor(pos(0, text.find('\n')))
 
 proc commitNow() =
+  ## Git: commit with this message — takes the text of the current tab without its # lines, writes it into the data
+  ## folder and runs git commit -F on it; shows git's first line, and closes the tab if it is the draft
   let b = current()
   var msg: seq[string]
   for l in b.lines:

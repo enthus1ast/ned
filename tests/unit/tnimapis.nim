@@ -8,9 +8,11 @@ import std/[os, osproc, strutils, unittest, tables]
 include ../../src/ned/nim/nimapis
 
 proc ver(s: string): seq[int] =
+  ## a version like 2.0.4 as its numbers
   for p in s.split('.'): result.add parseInt(p)
 
 proc less(a, b: seq[int]): bool =
+  ## is version a older than b? A part a version does not have counts as 0.
   for i in 0 ..< max(a.len, b.len):
     let x = if i < a.len: a[i] else: 0
     let y = if i < b.len: b[i] else: 0
@@ -18,6 +20,7 @@ proc less(a, b: seq[int]): bool =
   false
 
 proc stepOf(module, name: string): int =
+  ## the number of the first release step of NimApiSteps that lists the name under the module; -1 when no step does
   result = -1
   for i, st in NimApiSteps:
     for ln in st[3].split('\n'):

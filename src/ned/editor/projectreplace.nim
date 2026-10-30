@@ -30,6 +30,7 @@ proc replaceInBuffer(b: Buffer, q, r: string, caseS, word, rx: bool, onlyLine = 
   b.normalize()
 
 proc searchResultFiles(): seq[string] =
+  ## the files of the current search results, each once and in result order, leaving out files the person dismissed
   for h in searchHits:
     if h.path in searchDismissed: continue
     if result.len == 0 or result[^1] != h.path:
@@ -67,6 +68,9 @@ proc replaceInDiskFile(path, q, r: string, caseS, word, rx: bool): (int, string)
   (n, "")
 
 proc undoProjectReplace() =
+  ## reverts the last replace-all: writes the saved old text back to the files changed on disk and undoes the edit in
+  ## each open buffer that has not been edited since (its top undo sequence must still be the one the replace made);
+  ## then clears the undo records and repeats the search
   if lastReplaceUndo.len == 0 and lastReplaceBufs.len == 0:
     info("No replace-all to undo")
     return
@@ -88,6 +92,10 @@ proc undoProjectReplace() =
   if dockQueryRan.len > 0: projectSearch(dockQueryRan)
 
 proc projectReplaceAll() =
+  ## Replace all in the Search view: needs a search that has run and whose query is unchanged (otherwise it re-runs the
+  ## search and stops), counts the matching lines in the kept results, asks for confirmation, then replaces in the open
+  ## buffers (undoable edits, to be saved) and in the other files on disk (written at once, with the old text kept for
+  ## the undo); a toast with an Undo button reports the total and the search is repeated
   if dockQueryRan.len == 0 or searchHits.len == 0:
     info("Search first (Enter in the search box), then replace")
     return
@@ -150,6 +158,8 @@ proc replaceHit(path: string, line: int) =
   info("Replaced " & $k & " on line " & $(line + 1) & " of " & b.name & " — Ctrl+S saves")
 
 proc replaceInFileHits(path: string) =
+  ## replaces every match of the current search in one file, in its editor buffer (the file is opened; Ctrl+S saves,
+  ## Ctrl+Z undoes), and drops that file's results from the list
   let b = openFile(path)
   if b == nil: return
   let k = replaceInBuffer(b, dockQueryRan, dockReplace, searchCaseS, searchWord, searchRx)
@@ -161,6 +171,8 @@ proc replaceInFileHits(path: string) =
   info("Replaced " & $k & " in " & b.name & " — Ctrl+S saves, Ctrl+Z undoes")
 
 proc dismissHit(path: string, line: int) =
+  ## takes a result out of the replace: one line of a file, or the whole file when line is negative; it is remembered in
+  ## searchDismissed so a later replace skips it, and the result list and its count shrink
   if line < 0: searchDismissed.incl path
   else: searchDismissed.incl path & ":" & $line
   var keep: seq[SearchHit]
@@ -171,6 +183,8 @@ proc dismissHit(path: string, line: int) =
   searchCount = searchHits.len
 
 proc showProblems() =
+  ## opens the bottom panel on the Problems tab, scrolled to the top with the first problem selected, and gives it the
+  ## keyboard focus
   setPanel(pkProblems)
   panelFollow = false
   panelScroll = 0

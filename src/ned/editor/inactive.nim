@@ -5,6 +5,11 @@ var inactiveCache: Table[int, (int, seq[(int, int)], int)]
   ## buffer id → (the change it was worked out for, ranges, the file's lines then)
 
 proc inactiveRanges(b: Buffer): seq[(int, int)] =
+  ## the line ranges (first, last) of code the compiler leaves out, to be dimmed: false `when` branches in Nim (from the
+  ## Nim index) and `#if 0` / `#ifdef __cplusplus` parts in C and C++. They are worked out once per change of the text
+  ## and kept; while typing, the earlier ranges are moved by the lines added or removed at the cursor and the real work
+  ## waits for a pause; a big file just opened is dimmed a moment later. The result is sorted, with overlapping ranges
+  ## merged. It is empty when dimming is off, for other languages and in large-file mode.
   if not cfgDimInactive or b.lang == nil or b.largeOn or (b.lang.mode != lmNim and b.lang.id notin ["c", "cpp"]):
     inactiveCache.del b.id
     return
@@ -63,6 +68,7 @@ proc inactiveDue(b: Buffer): bool =
     b.id notin diffViews and b.id notin multiBufs
 
 proc lineInactive(rs: seq[(int, int)], line: int): bool =
+  ## whether a line lies in one of the sorted, merged ranges, found by halving
   var lo = 0
   var hi = rs.high
   while lo <= hi:

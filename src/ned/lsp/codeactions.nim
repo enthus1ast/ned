@@ -28,6 +28,11 @@ proc fixTouches(fixes: JsonNode, a, e: int): bool =
   false
 
 proc cmdCodeActions() =
+  ## the command "Quick fix / code actions…": collects ned's own fixes and asks the language servers for theirs, each
+  ## about the problems on the cursor's or selection's lines (at a line's end also the next line's, where C reports a
+  ## missing `;`). In C in an emit, or CSS or another language in a Nim string, the question goes to that language's
+  ## server about its hidden document. The answers come to handleCodeActions; when no server can be asked the list is
+  ## shown at once
   let b = buf()
   if b.lang.mode == lmNim and b.lines[b.primary.head.line].len <= 2000:
     # C in an emit, CSS … in a string: that server's fixes (its edits are on the .nim's own lines)
@@ -177,6 +182,8 @@ proc showCodeActions() =
   openActions("Quick fixes", items)
 
 proc handleCodeActions(s: LspServer, req: LspReq, res: JsonNode) =
+  ## keeps one server's answer to the quick-fix question in progress (an answer to an older question is dropped), and
+  ## shows the list when every server asked has answered
   if req.extra != $fixRound or fixWanted == 0: return     # (an answer to an older question)
   fixGot.add (s, res)
   if fixGot.len >= fixWanted: showCodeActions()

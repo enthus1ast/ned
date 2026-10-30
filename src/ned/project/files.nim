@@ -20,6 +20,8 @@ var
   pickSeen: HashSet[string]
 
 proc startScan() =
+  ## starts the project's file scan over: forgets the file list and the TODO scan's results (and starts that scan
+  ## again), then queues the project's folder and a workspace's other folders for `pumpScan` to walk
   inc todoGen
   todoFiles.clear()
   todoQueue.setLen(0)
@@ -77,12 +79,17 @@ proc pumpScan(budgetMs: int) =
   elif not scanning: needRender = true
 
 proc projectFiles(): seq[string] =
+  ## the project's files as the picker and search use them — paths relative to the project (absolute for a workspace's
+  ## other folders); when the list is out of date it starts a scan and runs the first 80 ms of it, so what is found so
+  ## far is returned and `pumpScan` adds the rest
   if not fileCacheValid:
     startScan()
     pumpScan(80)
   fileCache
 
 proc loadChildren(n: TreeNode) =
+  ## reads the folder of a tree node from disk into its children — folders first, then files, each sorted without regard
+  ## to case — leaving out hidden names (unless hidden files are shown) and the excluded ones
   n.children.setLen(0)
   var dirs, files: seq[TreeNode]
   try:
@@ -99,6 +106,8 @@ proc loadChildren(n: TreeNode) =
   n.loaded = true
 
 proc flattenInto(n: TreeNode) =
+  ## adds the rows of a node's children to `treeRows` in order, going into each expanded folder (read first if it has
+  ## not been)
   for c in n.children:
     treeRows.add c
     if c.isDir and c.expanded:
@@ -106,6 +115,9 @@ proc flattenInto(n: TreeNode) =
       flattenInto(c)
 
 proc flattenTree() =
+  ## rebuilds `treeRows`, the file tree's visible rows. It makes the root again when the project or the workspace's
+  ## folders changed (a workspace's folders are top-level rows of their own), then flattens the expanded folders and
+  ## keeps the selected row in range.
   let key = if wsRoots.len > 0: rootDir & "|" & wsRoots.join("|") else: rootDir
   if treeRoot == nil or treeBuiltFor != key:
     treeBuiltFor = key
@@ -123,7 +135,10 @@ proc flattenTree() =
   treeSel = clamp(treeSel, 0, max(0, treeRows.high))
 
 proc refreshTree() =
+  ## reads every folder of the tree that was loaded again from disk, keeping the ones that were open, rebuilds the rows
+  ## and marks the project's file list as out of date
   proc reload(n: TreeNode) =
+    ## re-reads a loaded node's folder, then those of its children that were open, remembering which were open by path
     if not n.loaded: return
     var expanded: HashSet[string]
     for c in n.children:
@@ -138,6 +153,8 @@ proc refreshTree() =
   fileCacheValid = false
 
 proc revealInTree(path: string) =
+  ## opens the folders on the way to a file in the tree (in the project or one of a workspace's folders; a file outside
+  ## them does nothing) and selects the file's row
   if treeRoot == nil: flattenTree()
   var node = treeRoot
   var base = rootDir

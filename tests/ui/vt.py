@@ -74,6 +74,10 @@ class VT:
                         self.x = (ps[1] if len(ps) > 1 and ps[1] else 1) - 1
                     elif f == 'm': self.sgr(ps)
                     elif f == 'C': self.x = min(self.w - 1, self.x + (ps[0] if ps and ps[0] else 1))
+                    elif f == 'X':
+                        # erase characters: n cells from the cursor, in the background in use (the cursor stays)
+                        for xx in range(self.x, min(self.w, self.x + (ps[0] if ps and ps[0] else 1))):
+                            self.cells[self.y][xx] = (' ', None, self.bg, frozenset())
                     elif f == 'r':
                         self.top = (ps[0] if ps and ps[0] else 1) - 1
                         self.bot = (ps[1] if len(ps) > 1 and ps[1] else self.h) - 1

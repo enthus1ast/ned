@@ -72,6 +72,7 @@ func nixCode(s: string, st: var int): string =
   result = s
   var i = 0
   template blank(n: int) =
+    ## makes the next n characters of the line spaces and moves i past them
     for k in i ..< min(s.len, i + n): result[k] = ' '
     i += n
   while i < s.len:
@@ -109,6 +110,7 @@ func nixCode(s: string, st: var int): string =
         blank(2)
       else: inc i
 
+# whether c can be part of a Nix name (letters, digits, _, - and ')
 func nixIsName(c: char): bool = c.isAlphaNumeric or c in {'_', '-', '\''}
 
 func nixAttrPath(s: string, i: int): int =
@@ -205,6 +207,8 @@ func nixSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc nixHave(cmd: string): bool =
+  ## whether the first word of the command line is a program that can be found (a ~ is expanded) — so a server or
+  ## formatter that is set is only used when it is installed
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

@@ -9,6 +9,8 @@ var
   nesJob: Job
 
 proc nesVisible(b: Buffer): bool =
+  ## whether the suggestion on hand still applies to this buffer: it was made for the same text, with one cursor, and
+  ## the word to change is still at its place
   nesSug.buf == b.id and nesSug.change == b.changeId and b.cursors.len == 1 and nesSug.at.line < b.lines.len and
     b.lines[nesSug.at.line].continuesWith(nesSug.fromT, nesSug.at.col)
 
@@ -18,6 +20,7 @@ proc nesHint(b: Buffer, line: int): (int, string) =
   (nesSug.at.col + nesSug.fromT.len, " → " & nesSug.toT & " ⇥" & (if nesSug.ai: " (AI)" else: ""))
 
 proc nesClear() =
+  ## forgets the suggestion
   nesSug.buf = -1
 
 func nesWordAt(s: string, i, n: int): bool =
@@ -67,6 +70,8 @@ func nesChange(before, now: string): (int, string, string) =
   (a, t0, t1)
 
 proc nesShow(b: Buffer, at: Pos, t0, t1: string, ai = false) =
+  ## makes the place `at` the suggestion (change word `t0` into `t1`, from the AI if `ai`) for the text as it is now,
+  ## redraws so the hint appears after it, and says in the message line what Tab and Esc do
   nesSug = (b.id, b.changeId, at, t0, t1, ai)
   needRender = true
   let away = at.line < b.topLine or at.line > b.topLine + max(1, textH) - 1

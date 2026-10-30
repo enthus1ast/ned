@@ -5,12 +5,19 @@ var
   minimapShown = false
 
 proc minimapWidth(w: int): int =
+  ## how many columns the minimap gets in an editor `w` columns wide: 0 when it is off or the editor is too narrow; 10
+  ## when on (at 40 columns or more), and under "auto" at 100 or more, but not on a small screen or a slow terminal
   case cfgMinimap
   of "off": 0
   of "on": (if w >= 40: 10 else: 0)
   else: (if w >= 100 and not lay.overlay and not slowTerminal(): 10 else: 0)   # (auto: not on a slow terminal)
 
 proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
+  ## draws the minimap: every cell is a braille character whose dots show where lines have text (four lines by four
+  ## columns of text per cell), the part in view brighter, a row tinted red for a line with an error and in the tag's
+  ## colour for a TODO comment, git changes at the left edge and the find box's matches at the right; a long file is
+  ## shown as the window that follows the scrolling. A click or drag on it moves the view there, and a right click opens
+  ## its menu
   let bg = theme.bg
   fillRect(x0, y0, w, h, theme.minimap, bg)
   let total = b.lines.len
@@ -23,6 +30,7 @@ proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
   let vpA = b.topLine
   let vpB = b.topLine + textH
   let dsRef = diagsShared(b.path)
+  # the problem list of the buffer being drawn
   template ds: untyped = dsRef[]
   var diagLines: HashSet[int]
   for d in ds:

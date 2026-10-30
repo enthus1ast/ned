@@ -111,6 +111,7 @@ proc engineRaisesHints(b: Buffer, f: NxFile, lo, hi: int, hints: var Table[int, 
   ## time (what was worked out is kept: the next round goes on from there)
   result = true
   for i in 0 ..< f.syms.len:
+    # the symbol of the file being looked at in the loop
     template s: untyped = f.syms[i]
     if s.kind notin {nxProc, nxFunc, nxIterator, nxConverter} or s.line > hi or s.line + 16 < lo: continue
     let left = engineInlayBudget - int(msSince(t0))
@@ -198,6 +199,9 @@ proc engineTypeHints(b: Buffer, f: NxFile, sc: NxScope, lo, hi: int, hints: var 
   defer:
     for l, v in got: hints.mgetOrPut(l, @[]).add v
   proc hintFor(s: NxSym, typ: string) =
+    ## adds the ": type" hint after a declared name: the type the engine worked out (from the compiler's answer when it
+    ## could not tell), without system., cut at 40 characters unless the whole is wanted; none for untyped or void, and
+    ## not twice at the same place
     var t = typ.strip.replace("system.", "")
     if t.len == 0 and s.line < b.lines.len:
       t = orTypeOf(b.path, b.lines[s.line], s.col)     # (what the compiler said, when the engine cannot tell)
@@ -228,6 +232,8 @@ proc engineTypeHints(b: Buffer, f: NxFile, sc: NxScope, lo, hi: int, hints: var 
     var done, doneTop: HashSet[int]
     var cut = false
     proc hintLocals(last: int) =
+      ## the type hints for the lets, vars, consts and loop variables without a type that are in view and in scope at
+      ## line `last`; stops, marking the round cut, when the time is used up
       for s in nxLocals(f, b.lines, last, high(int) div 2, everything = true):
         if msSince(t0) > engineInlayBudget:
           cut = true
@@ -308,6 +314,10 @@ var ihStates: Table[int, IhState]
 var ihPending = false            # chunks around the screen still to do: the main loop comes back soon
 
 proc engineInlayStep(b: Buffer) =
+  ## one round of working out the editor's hints with ned's own engine, in chunks of 16 lines: the lines on screen
+  ## first, then those ahead in the direction of scrolling, then behind. A round takes a few milliseconds (fewer while
+  ## you scroll or type), a chunk that runs out of time is tried again with more, and when the text changed the hints
+  ## far from the screen are dropped while those near stay until redone
   ihPending = false
   let f = nxFileFor(b)
   if f == nil or b.lines.len == 0: return
@@ -458,10 +468,15 @@ proc inlayCovered(b: Buffer): bool =
   vlo >= b.inlayLo and vhi <= b.inlayHi
 
 proc inlayWindow(b: Buffer): (int, int) =
+  ## the lines hints are worked out for: a screen above the view to two screens and a bit below it
   let page = max(textH, 20)
   (clamp(b.topLine - page, 0, b.lines.high), min(b.lines.high, b.topLine + 2 * page + 20))
 
 proc requestInlays(b: Buffer) =
+  ## gets the buffer's inlay hints when they are not worked out yet for the text and the view: a CSV file lines up its
+  ## columns itself; Nim is done by ned's engine (in its worker, if on) or nimsuggest; C by ned's C engine; any other
+  ## language by an inlayHint request to its server. Waits while you type, and asks no more often than a few times a
+  ## second
   if b.lang.mode == lmCsv:
     if not cfgCsvAlign or b.largeOn:
       if b.inlays.len > 0: b.inlays.clear()
@@ -510,6 +525,8 @@ proc requestInlays(b: Buffer) =
     LspReq(kind: lrInlay, bufId: b.id, version: b.changeId, pos: Pos(line: lo, col: hi)))
 
 proc handleInlays(s: LspServer, req: LspReq, res: JsonNode) =
+  ## the answer to an inlayHint request becomes the buffer's hints (label parts joined, padding added, sorted along each
+  ## line) — unless the buffer changed since the request
   var b: Buffer = nil
   for x in bufs:
     if x.id == req.bufId: b = x

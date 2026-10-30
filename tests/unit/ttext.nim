@@ -5,6 +5,8 @@ import std/[random, strutils, unittest]
 import ../../src/ned/core/text
 
 proc oneByOne(s: string, col: int): int =
+  ## the screen column of byte col of the line, found the slow way — one character at a time with charWidthAt — as the
+  ## fast code must agree with
   var i = 0
   while i < col and i < s.len:
     let (w, n) = charWidthAt(s, i, result)

@@ -9,6 +9,7 @@ func nxIsScript*(path: string): bool =
   ## a NimScript file: config.nims, build.nims, a package's .nimble
   path.endsWith(".nims") or path.endsWith(".nimble")
 
+# whether the path is a package's .nimble file (which sees nimble's own API)
 func nxIsNimbleFile*(path: string): bool = path.endsWith(".nimble")
 
 func nxScriptTasks*(lines: openArray[string]): seq[tuple[name: string, line, col: int, desc: string]] =
@@ -207,6 +208,7 @@ func nxSwitchValues*(i: int): seq[string] =
     if w.len > 0 and w.allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '_', '.'}): result.add w
 
 func nxSwitchDoc*(i: int): string =
+  ## the help text of switch i: its `--name:argument (-x)` line, a blank line, then the description
   let s = NxSwitches[i]
   "--" & s[0] & (if s[2].len > 0: ":" & s[2] else: "") & (if s[1].len > 0: "  (-" & s[1] & ")" else: "") &
     "\n\n" & s[3]
@@ -328,6 +330,8 @@ proc nxProjectDefines*(root: string): seq[(string, string)] =
   var order: seq[string]
   var files = 0
   proc note(name, where: string) =
+    ## remembers a define's name (once, in the order found) with where the project asks about it; skips names that do
+    ## not start with a letter
     if name.len == 0 or not name[0].isAlphaAscii: return
     if name notin seen:
       seen[name] = where

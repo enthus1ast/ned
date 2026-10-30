@@ -2,6 +2,8 @@
 #    saved as a .ned-workspace file — VS Code's .code-workspace files open too ──
 
 proc wsNotifyServers(added, removed: seq[string]) =
+  ## tells every language server that is still alive which folders joined or left the workspace
+  ## (workspace/didChangeWorkspaceFolders)
   for srv in servers:
     if srv.dead: continue
     var a, r = newJArray()
@@ -10,6 +12,8 @@ proc wsNotifyServers(added, removed: seq[string]) =
     srv.lspNotify("workspace/didChangeWorkspaceFolders", %*{"event": {"added": a, "removed": r}})
 
 proc wsChanged() =
+  ## after the workspace's folders changed: drops the file tree and the file list, scans the project again and rebuilds
+  ## the tree rows
   treeRoot = nil
   fileCacheValid = false
   startScan()
@@ -17,6 +21,9 @@ proc wsChanged() =
   needRender = true
 
 proc wsAddFolder(d0: string) =
+  ## adds a folder to the workspace (`~` allowed): an existing folder that is not the project and not yet in it joins
+  ## `wsRoots`, the language servers are told, the tree and file list are made again and the tree is opened; otherwise
+  ## says why not
   let d = absolutePath(expandTilde(d0.strip)).normalizedPath
   if not dirExists(d):
     error("No such folder: " & d0)
@@ -31,6 +38,7 @@ proc wsAddFolder(d0: string) =
   info("Added " & tildePath(d) & " — " & $(wsRoots.len + 1) & " folders · Workspace: save as… keeps them together")
 
 proc wsRemoveFolder(d: string) =
+  ## takes a folder out of the workspace (`wsRoots`), tells the language servers and makes the tree and file list again
   let i = wsRoots.find(d)
   if i < 0: return
   wsRoots.delete(i)
@@ -39,6 +47,9 @@ proc wsRemoveFolder(d: string) =
   info("Removed " & tildePath(d) & " from the workspace")
 
 proc wsSave(path0: string) =
+  ## saves the workspace to a file — .ned-workspace unless it ends in .code-workspace: the project's folder and the
+  ## others as a "folders" list (paths relative to the file's folder, absolute when that would climb out by three levels
+  ## or more). Other keys of an existing file stay. Becomes the current workspace file and a recent one.
   var f = absolutePath(expandTilde(path0.strip)).normalizedPath
   if not (f.endsWith(".ned-workspace") or f.endsWith(".code-workspace")): f.add ".ned-workspace"
   let folders = newJArray()
@@ -85,9 +96,11 @@ proc openWorkspace(f: string): bool =
   info("Workspace " & splitFile(f).name & ": " & $dirs.len & " folders")
   true
 
+# an action that removes the folder `d` from the workspace (made by a function so each menu row keeps its own folder)
 proc wsRemoveAct(d: string): Action = (proc() = wsRemoveFolder(d))
 
 proc cmdWsRemove() =
+  ## the menu of the workspace's other folders, a pick removing that folder; says so when only one folder is open
   if wsRoots.len == 0:
     info("Only one folder is open — Workspace: add a folder… adds another")
     return

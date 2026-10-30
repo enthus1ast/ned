@@ -12,6 +12,9 @@ proc reopenWithEncoding(b: Buffer, enc: string) =
     info("Not a file on disk — Save with encoding… sets how it is written")
     return
   proc doIt() =
+    ## reads the file from disk and decodes it as `enc` (a failed decoding is an error, except for UTF-16 where bad
+    ## bytes show as �), puts the result in the buffer as one undoable edit, takes the line-end and final-newline style
+    ## of what was read, marks the buffer as saved and restarts highlighting
     var bytes: string
     try: bytes = readFile(b.path)
     except CatchableError as e:
@@ -41,12 +44,15 @@ proc reopenWithEncoding(b: Buffer, enc: string) =
   else: doIt()
 
 proc saveWithEncoding(b: Buffer, enc: string) =
+  ## saves the file encoded as `enc`; if the save fails the buffer keeps its old encoding
   let old = b.enc
   b.enc = enc
   if b.saveBuffer(force = true): info("Saved " & b.name & " as " & encLabel(enc))
   else: b.enc = old
 
 proc cmdEncodingPick(reopen: bool) =
+  ## lists the encodings available (the present one marked) and, for the one picked, either reopens the file with it
+  ## (`reopen`) or saves the file in it
   let b = buf()
   var items: seq[(string, string, Action)]
   for e in encodingChoices():
@@ -59,6 +65,7 @@ proc cmdEncodingPick(reopen: bool) =
               " (now " & encLabel(b.enc) & ")", items)
 
 proc cmdEncodingMenu() =
+  ## the status bar's encoding command: a small menu to reopen the file with another encoding or to save it in one
   let b = buf()
   openActions("Encoding of " & b.name & ": " & encLabel(b.enc), @[
     act("Reopen with encoding…", "read the file again as another encoding", proc() = cmdEncodingPick(true)),

@@ -60,6 +60,7 @@ const
   NxRoutineKw* = ["proc", "func", "method", "iterator", "converter", "template", "macro"]
   NxRoutineKinds* = {nxProc, nxFunc, nxMethod, nxIterator, nxConverter, nxTemplate, nxMacro}
 
+# whether c can be part of an identifier (any byte of a UTF-8 character counts)
 func nxIsIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
 
 func nxDotBefore*(t: string, a: int): bool {.inline.} =
@@ -67,6 +68,8 @@ func nxDotBefore*(t: string, a: int): bool {.inline.} =
   a > 0 and t[a - 1] == '.' and not (a > 1 and t[a - 2] == '.')
 
 func nxKindWord*(k: NxKind): string =
+  ## the word Nim uses for a kind of declaration (proc, type, const …), for the labels in hovers and lists; "enum" for
+  ## an enum value, "param" for a parameter, "for" for a loop variable
   case k
   of nxProc: "proc"
   of nxFunc: "func"

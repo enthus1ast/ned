@@ -92,7 +92,9 @@ const HsSymbolChars = {'!', '#', '$', '%', '&', '*', '+', '.', '/', '<', '=', '>
 type HsScan = object
   comment: int                   # inside {- -} (they nest): how deep
 
+# whether c can start a Haskell name: a letter or _
 func hsIdentStart(c: char): bool = c in {'a'..'z', 'A'..'Z', '_'}
+# whether c can be part of a Haskell name (a ' at its end counts: foo')
 func hsIdentChar(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\''}
 
 proc hsCode(s: string, st: var HsScan): string =
@@ -100,6 +102,7 @@ proc hsCode(s: string, st: var HsScan): string =
   result = s
   var i = 0
   template blank(a, b: int) =
+    ## makes the characters a ..< b of the result spaces (up to the line's end)
     for k in a ..< min(b, s.len): result[k] = ' '
   while i < s.len:
     if st.comment > 0:
@@ -160,6 +163,7 @@ proc hsName(t: string, i: var int): string =
   t[a ..< i]
 
 proc hsSkip(t: string, i: var int) =
+  ## moves i past any spaces and tabs at it
   while i < t.len and t[i] in {' ', '\t'}: inc i
 
 proc hsTypeName(t: string, i: int): (string, int) =

@@ -21,6 +21,8 @@ const
   ImgMaxPixels* = 64 * 1024 * 1024   ## the most pixels a decoded picture may have (64 megapixels)
 
 proc imgFail(msg: string) {.noreturn, noinline.} =
+  ## stops a decoder with a sentence for a person: every problem in a picture file comes back through this, as an
+  ## ImgError
   raise newException(ImgError, msg)
 
 proc imgCheckSize(w, h: int, what: string, most = ImgMaxPixels) =
@@ -32,27 +34,38 @@ proc imgCheckSize(w, h: int, what: string, most = ImgMaxPixels) =
 
 # ── reading numbers: 0 past the end, so a short file reads as zeros and is caught by the checks after ──
 
+# the byte at i as a number, 0 outside the data (so a short file reads as zeros)
 func imgU8(d: string, i: int): int {.inline.} = (if i >= 0 and i < d.len: ord(d[i]) else: 0)
+# the 16-bit big-endian number at i
 func imgBe16(d: string, i: int): int = imgU8(d, i) shl 8 or imgU8(d, i + 1)
+# the 32-bit big-endian number at i
 func imgBe32(d: string, i: int): int = imgBe16(d, i) shl 16 or imgBe16(d, i + 2)
+# the 16-bit little-endian number at i
 func imgLe16(d: string, i: int): int = imgU8(d, i) or imgU8(d, i + 1) shl 8
+# the 32-bit little-endian number at i
 func imgLe32(d: string, i: int): int = imgLe16(d, i) or imgLe16(d, i + 2) shl 16
 func imgLe32s(d: string, i: int): int =
+  ## the 32-bit little-endian number at i, signed
   let v = imgLe32(d, i)
   if v >= 0x8000_0000: v - 0x1_0000_0000 else: v
 func imgHas(d: string, i: int, s: string): bool =
+  ## whether the bytes of s are in d at i
   if i < 0 or i + s.len > d.len: return false
   for k in 0 ..< s.len:
     if d[i + k] != s[k]: return false
   true
+# a divided by b, rounded up
 func imgCeilDiv(a, b: int): int {.inline.} = (a + b - 1) div b
+# a number held to 0 … 255
 func imgClampU8(v: int): uint8 {.inline.} = uint8(if v < 0: 0 elif v > 255: 255 else: v)
+# a number held to the range of 16 bits with a sign
 func imgClamp16(v: int): int16 {.inline.} = int16(if v < -32768: -32768 elif v > 32767: 32767 else: v)
 func imgRgba(r, g, b, a: int): uint32 {.inline.} =
   ## a pixel packed with red in the low byte, as it lies in ImgPicture.px
   uint32(r and 255) or uint32(g and 255) shl 8 or uint32(b and 255) shl 16 or uint32(a and 255) shl 24
 
 template imgPut(px: var seq[uint8], o: int, c: uint32) =
+  ## stores the packed pixel c (red in the low byte) as four bytes of px from o: red, green, blue, alpha
   px[o] = uint8(c and 255)
   px[o + 1] = uint8((c shr 8) and 255)
   px[o + 2] = uint8((c shr 16) and 255)
@@ -76,7 +89,9 @@ proc imgExifOrientation(d: string, a, b: int): int =
   let t = a + 6
   let le = imgHas(d, t, "II")
   if not le and not imgHas(d, t, "MM"): return
+  # the 16-bit number at i, in the byte order of this EXIF block
   template u16(i: int): int = (if le: imgLe16(d, i) else: imgBe16(d, i))
+  # the 32-bit number at i, in the byte order of this EXIF block
   template u32(i: int): int = (if le: imgLe32(d, i) else: imgBe32(d, i))
   if u16(t + 2) != 42: return
   let ifd = t + u32(t + 4)
@@ -186,6 +201,8 @@ const
   ImgClOrder = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
 
 proc imgZFill(z: var ImgZ) {.inline.} =
+  ## tops up the bit buffer with whole bytes of the stream to more than 56 bits; past the end it puts in zero bytes and
+  ## counts them, and fails as cut short when the stream used more of them than that
   while z.cnt <= 56:
     var b = 0'u64
     if z.pos < z.src.len:
@@ -198,6 +215,7 @@ proc imgZFill(z: var ImgZ) {.inline.} =
   if z.over * 8 > z.cnt: imgFail("The PNG file is cut short")
 
 proc imgZBits(z: var ImgZ, n: int): int {.inline.} =
+  ## takes n bits from the stream, the first sent in the lowest place
   if n == 0: return 0
   if z.cnt < n: imgZFill(z)
   result = int(z.buf and ((1'u64 shl n) - 1))
@@ -238,6 +256,8 @@ proc imgZBuild(t: var ImgZTree, lens: openArray[int]) =
     code = code shl 1
 
 proc imgZDecode(z: var ImgZ, t: ImgZTree): int {.inline.} =
+  ## the next symbol of a Huffman code: through the table of the next 10 bits when the code is that short, else one bit
+  ## at a time by the canonical code's counts; a code that fits nothing is a damaged file
   if z.cnt < 15: imgZFill(z)
   let e = t.fast[int(z.buf and 1023)]
   if e != 0:
@@ -369,6 +389,7 @@ proc imgPngPx(b: seq[uint8], r, x: int, ip: ImgPngInfo): uint32 {.inline.} =
   ## pixel x of the unfiltered row that starts at r
   let d = ip.depth
   template small(): int =
+    ## the value of the sample x of the row where samples take 1, 2 or 4 bits: cut out of the byte they lie in
     let bit = x * d
     (int(b[r + (bit shr 3)]) shr (8 - d - (bit and 7))) and ((1 shl d) - 1)
   case ip.ctype
@@ -450,6 +471,10 @@ proc imgPngUnfilter(b: var seq[uint8], start, rows, stride, bpp: int) =
     prev = cur
 
 proc imgPng(d: string): ImgPicture =
+  ## the PNG in d as a picture: reads the chunks (header, palette, transparency, the picture data joined), checks the
+  ## size before allocating anything, inflates it, undoes the filters (pass by pass for an interlaced file) and makes
+  ## RGBA pixels — in the buffer the data was inflated into for a plain file, the common kinds without a decision a
+  ## pixel. A damaged or cut-short file fails with a sentence
   var w, h, interlace = 0
   var ip = ImgPngInfo(tGrey: -1, tR: -1, tG: -1, tB: -1)
   for i in 0..255: ip.pal[i] = imgRgba(0, 0, 0, 255)
@@ -657,6 +682,7 @@ const
   ImgRedF2 = imgRedFreqs(2)
 
 func imgJExtend(v, n: int): int {.inline.} =
+  ## the signed value a JPEG sends in n bits: values below half the range are negative
   if n == 0: 0 elif v < (1 shl (n - 1)): v - (1 shl n) + 1 else: v
 
 proc imgJDefine(t: var ImgJHuff, counts: array[17, int], d: string, at: int) =
@@ -699,6 +725,8 @@ proc imgJLookups(t: var ImgJHuff) =
   t.ready = true
 
 proc imgJFill(j: var ImgJpeg) =
+  ## tops up the bit buffer with bytes of the scan data to more than 56 bits, dropping the zero after each 0xFF; at a
+  ## marker or the end it puts in zero bits (counted as padding) and notes the marker
   while j.cnt <= 56:
     var b = 0
     if j.marker == 0 and j.pos < j.n:
@@ -736,6 +764,7 @@ proc imgJDecode(j: var ImgJpeg, t: int): int {.inline.} =
   0
 
 proc imgJBits(j: var ImgJpeg, n: int): int {.inline.} =
+  ## takes n bits of the scan data
   if n <= 0: return 0
   if j.cnt < n: imgJFill(j)
   result = int(j.buf shr (64 - n))
@@ -743,6 +772,7 @@ proc imgJBits(j: var ImgJpeg, n: int): int {.inline.} =
   j.cnt -= n
 
 proc imgJReset(j: var ImgJpeg) =
+  ## starts reading a scan or an interval again: empty bit buffer, no marker, no end-of-band run, DC predictions at zero
   j.buf = 0
   j.cnt = 0
   j.pad = 0
@@ -791,6 +821,7 @@ proc imgIdct8(blk: array[64, int], dst: var seq[uint8], off, stride: int) =
   const p1 = 2                    # bits kept after the first pass
   var ws: array[64, int]
   for col in 0..7:
+    # the coefficient in row r of the column being transformed
     template inp(r: int): int = blk[r * 8 + col]
     if inp(1) == 0 and inp(2) == 0 and inp(3) == 0 and inp(4) == 0 and inp(5) == 0 and inp(6) == 0 and inp(7) == 0:
       let dc = inp(0) shl p1
@@ -909,6 +940,8 @@ proc imgIdctRed(blk: array[64, int], t: array[8, array[8, int]], f: openArray[in
       dst[off + y * stride + x] = imgClampU8(((s + 16384) shr 15) + 128)
 
 proc imgJIdct(blk: array[64, int], ac: bool, n: int, dst: var seq[uint8], off, stride: int) =
+  ## a block's dequantized coefficients as n × n pixels at dst[off], the rows stride apart: the block's mean when only
+  ## the DC is there, else the accurate 8 × 8 transform, or the reduced 4 × 4 or 2 × 2 one
   if not ac or n == 1:
     # the DC alone: the block's mean, as libjpeg rounds it
     let v = imgClampU8(((blk[0] + 4) shr 3) + 128)
@@ -971,6 +1004,8 @@ proc imgJBlock(j: var ImgJpeg, ci: int, blk: var array[64, int]): bool =
     inc k
 
 proc imgJAcFirst(j: var ImgJpeg, ci, o, ss, se, al: int) =
+  ## the first pass over the AC coefficients ss … se of one block of a progressive file: runs of zeros and sizes, each
+  ## value shifted up by al, an end-of-band run counted across the blocks that follow
   if j.eobrun > 0:
     dec j.eobrun
     return
@@ -1016,6 +1051,8 @@ proc imgJAcRefine(j: var ImgJpeg, ci, o, ss, se, al: int) =
   if o < 0 or o + 64 > j.comps[ci].coef.len: return
   let coef = cast[ptr UncheckedArray[int16]](addr j.comps[ci].coef[o])   # the block's 64, checked just above
   template refine(z: int) =
+    ## the next bit of a coefficient that is not zero already: when it is 1 and that bit is not set yet, the magnitude
+    ## grows by it
     if coef[z] != 0 and imgJBits(j, 1) == 1 and (int(coef[z]) and p1) == 0:
       coef[z] = imgClamp16(int(coef[z]) + (if coef[z] >= 0: p1 else: m1))
   var k = ss
@@ -1068,6 +1105,10 @@ proc imgJUnit(j: var ImgJpeg, ci, bx, by, ss, se, ah, al: int, blk: var array[64
   else: imgJAcRefine(j, ci, o, ss, se, al)
 
 proc imgJScan(j: var ImgJpeg, sc: seq[int], ss, se, ah, al: int) =
+  ## reads one scan of the components sc for the coefficients ss … se (and bits ah, al of a progressive file): the
+  ## blocks in the order of the MCUs, or of the component's own blocks for a scan of one. Work is charged to a budget,
+  ## restart markers are followed and a lost one skipped over, and without them damaged data ends the scan; the AC scans
+  ## of a component shown at 1/8 are not read
   let single = sc.len == 1
   let mx = if single: j.comps[sc[0]].cbw else: j.mcux
   let my = if single: j.comps[sc[0]].cbh else: j.mcuy
@@ -1149,6 +1190,10 @@ proc imgJSos(j: var ImgJpeg, d: string, a, b: int): int =
   imgJNextMarker(j)
 
 proc imgJFrame(j: var ImgJpeg, d: string, a, b: int, wantW, wantH: int) =
+  ## reads the frame header: only 8-bit pictures, the size, each component's sampling factors and tables. It picks the
+  ## scale (1, 1/2, 1/4 or 1/8) from the size wanted, works out each component's blocks and planes — falling back to one
+  ## size for all when a progressive picture would take too much memory — and allocates the planes, grey, and the
+  ## coefficient arrays of a progressive file
   if b - a < 6: imgFail("The JPEG file is damaged")
   let prec = imgU8(d, a)
   if prec != 8:
@@ -1264,6 +1309,7 @@ proc imgJUpRow(c: ImgJComp, y, ow, ux, uy: int, fancy: bool, row: var seq[int]) 
       let bias = if (y and 1) == 0: 1 else: 2
       for x in 0 ..< min(ow, dw): row[x] = (at(r0, x) * 3 + at(r1, x) + bias) shr 2
     else:
+      # the two rows blended for the 2 × 2 upsampling: three parts of the nearer, one of the other, of column i
       template cs(i: int): int = at(r0, i) * 3 + at(r1, i)
       var last = cs(0)
       var this = last
@@ -1285,6 +1331,7 @@ proc imgJUpRow(c: ImgJComp, y, ow, ux, uy: int, fancy: bool, row: var seq[int]) 
     for x in 0 ..< ow: row[x] = at(r, min(x div ux, c.pw - 1))
 
 func imgMulDiv255(a, b: int): int {.inline.} =
+  ## a × b ÷ 255 rounded, as libjpeg does it
   let t = a * b + 128
   (t + (t shr 8)) shr 8
 
@@ -1293,6 +1340,7 @@ proc imgJColourRow(rows: array[4, seq[int]], model, ow: int, px: var seq[uint8],
   ## 1 RGB, 2 YCbCr, 3 CMYK, 4 YCCK
   var o = start
   template put(r, g, b: int) =
+    ## stores one opaque pixel (colours held to 0 … 255) at o and moves o on by step
     px[o] = imgClampU8(r)
     px[o + 1] = imgClampU8(g)
     px[o + 2] = imgClampU8(b)
@@ -1334,6 +1382,9 @@ proc imgJColourRow(rows: array[4, seq[int]], model, ow: int, px: var seq[uint8],
 {.pop.}
 
 proc imgJOutput(j: var ImgJpeg): ImgPicture =
+  ## makes the picture from the decoded planes: the colour model (YCbCr for a JFIF file, else Adobe's transform, else
+  ## the component ids R, G, B; four components are CMYK or YCCK), each component's rows brought to full size, and the
+  ## EXIF orientation applied by writing each pixel straight to its turned place
   let s = j.scale
   let n = 8 div s
   let ow = imgCeilDiv(j.w, s)
@@ -1371,6 +1422,9 @@ proc imgJOutput(j: var ImgJpeg): ImgPicture =
     imgJColourRow(rows, model, ow, result.px, base + y * sy, sx)
 
 proc imgJpeg(d: string, wantW, wantH: int): ImgPicture =
+  ## the JPEG in d as a picture: goes through the segments (frame, Huffman and quantization tables, restart interval,
+  ## scans, JFIF, EXIF, Adobe), refusing arithmetic-coded, lossless and 12-bit files and more than a thousand scans;
+  ## wantW and wantH, the size it will be shown at, let a large file be decoded at 1/2, 1/4 or 1/8
   var j = ImgJpeg(adobe: -1, orient: 1)
   j.p = cast[ptr UncheckedArray[uint8]](unsafeAddr d[0])
   j.n = d.len
@@ -1445,6 +1499,7 @@ proc imgJpeg(d: string, wantW, wantH: int): ImgPicture =
 # ── GIF: the first frame on a transparent canvas, and how many frames there are ──
 
 proc imgGifTable(d: string, p, n: int): seq[uint32] =
+  ## a GIF colour table of n entries at d[p ..] as opaque pixels
   for i in 0 ..< n:
     result.add imgRgba(imgU8(d, p + 3 * i), imgU8(d, p + 3 * i + 1), imgU8(d, p + 3 * i + 2), 255)
 
@@ -1542,6 +1597,9 @@ proc imgGifLzw(src: string, minSize, fx, fy, fw, fh: int, interlaced: bool, tbl:
         o = ((fy + y) * cw + fx) * 4
 
 proc imgGif(d: string): ImgPicture =
+  ## the GIF in d as a picture: the canvas is the logical screen (made larger when the first frame does not fit), the
+  ## first frame is drawn with its own colour table or the global one and its transparent colour, and the other frames
+  ## are only counted
   if d.len < 13: imgFail("The GIF file is cut short")
   var cw = imgLe16(d, 6)
   var ch = imgLe16(d, 8)
@@ -1616,6 +1674,9 @@ proc imgGif(d: string): ImgPicture =
 # ── BMP ──
 
 proc imgBmp(d: string): ImgPicture =
+  ## the BMP in d as a picture: old and new header kinds, bit masks, palettes, 1 to 32 bits a pixel and the two
+  ## run-length kinds, rows from the top or the bottom; every row is checked to lie inside the file, and an alpha
+  ## channel that is zero everywhere is taken as none
   if d.len < 26: imgFail("The BMP file is cut short")
   let off = imgLe32(d, 10)
   let hs = imgLe32(d, 14)
@@ -1940,6 +2001,7 @@ proc imgQuantize(q: ImgPicture, most: int): (seq[uint32], seq[uint8]) =
     idx[i] = uint8(li)
   if exact: return (pal, idx)
   template key(i: int): int =
+    ## the colour of pixel i with 5 bits a channel, as one number
     (int(q.px[4 * i]) shr 3) shl 10 or (int(q.px[4 * i + 1]) shr 3) shl 5 or (int(q.px[4 * i + 2]) shr 3)
   var count = newSeq[int](32768)
   var sums = newSeq[array[3, int]](32768)
@@ -1950,11 +2012,14 @@ proc imgQuantize(q: ImgPicture, most: int): (seq[uint32], seq[uint8]) =
   var bins: seq[int]
   for k in 0 ..< 32768:
     if count[k] > 0: bins.add k
+  # channel c (0 red, 1 green, 2 blue) of such a key, 0 … 31
   template chan(k, c: int): int = (k shr (10 - 5 * c)) and 31
   # a box: its bins, its pixels, the channel it is longest in and how much a split of it is worth (the pixels
   # times that length) — worked out once, when the box is made
   type Box = tuple[lo, hi, axis, score: int]
   proc measure(lo, hi: int): Box =
+    ## a box of the histogram's bins lo ..< hi: the channel it is longest in, and what splitting it is worth (its pixels
+    ## times that length; 0 for a single bin)
     var mn = [31, 31, 31]
     var mx = [0, 0, 0]
     var pixels = 0
@@ -2025,9 +2090,11 @@ proc imgSixel*(p: ImgPicture, bg: uint32): string =
   result = newStringOfCap(w * q.h div 2 + 4096)
   result.add "\eP0;1;0q\"1;1;" & $w & ";" & $q.h
   for i, c in pal:
+    # a channel value 0 … 255 as a percentage, which sixel colour definitions use
     template pct(v: uint32): string = $((int(v and 255) * 100 + 127) div 255)
     result.add "#" & $i & ";2;" & pct(c shr 16) & ";" & pct(c shr 8) & ";" & pct(c)
   proc run(s: var string, ch: char, n: int) =
+    ## adds the sixel character n times — as `!n` and the character when n is 4 or more
     if n >= 4:
       s.add '!'
       s.add $n

@@ -17,6 +17,8 @@ var
   tipShown = false
 
 proc region(x, y, w, h: int, act: Action, tip = "", rightAct: Action = nil) =
+  ## makes a rectangle of the screen clickable for this frame: `act` on a left click, `rightAct` on a right click or
+  ## long press, `tip` as its tooltip; a later region lies over an earlier one; nothing for an empty rectangle
   if w <= 0 or h <= 0: return
   regions.add Region(x: x, y: y, w: w, h: h, act: act, rightAct: rightAct, tip: tip)
 
@@ -26,6 +28,8 @@ proc ctxRegion(x, y, w, h: int, rightAct: Action) =
   regions.add Region(x: x, y: y, w: w, h: h, rightAct: rightAct, ctxOnly: true)
 
 proc hitRegion(x, y: int, fromIdx = 0): int =
+  ## the index of the topmost region at that place for a left click, looking only at regions from `fromIdx` on (what
+  ## lies over a modal); -1 for none
   for i in countdown(regions.high, max(0, fromIdx)):
     let r = regions[i]
     if not r.ctxOnly and x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h: return i
@@ -41,6 +45,7 @@ proc hitContext(x, y: int, fromIdx = 0): int =
   -1
 
 proc hov(x, y, w: int, h = 1): bool {.inline.} =
+  ## whether the mouse pointer is over this rectangle (always false when hover effects are off)
   cfgHoverFx and mouseX >= x and mouseX < x + w and mouseY >= y and mouseY < y + h
 
 proc shadeRect(x, y, w, h: int) =
@@ -58,6 +63,8 @@ proc dropShadow(x, y, w, h: int) =
   if not cfgShadows: return
   let k = if theme.dark: 0.55 else: 0.22
   proc put(xx, yy: int, ch: uint32) =
+    ## puts one shadow cell: over a blank cell a half-block character in a darker shade of what is under it; over text
+    ## only the colours are darkened, so it stays readable
     if xx < 0 or yy < 0 or xx >= scrW or yy >= scrH: return
     let i = yy * scrW + xx
     let under = grid[i].bg
@@ -78,6 +85,7 @@ proc dropShadow(x, y, w, h: int) =
   put(x + w, y + h, 0x2598)                              # ▘
 
 func rgbDist(a, b: Rgb): int =
+  ## how far apart two colours are: the sum of the differences of their red, green and blue
   abs(int((a shr 16) and 0xFF) - int((b shr 16) and 0xFF)) + abs(int((a shr 8) and 0xFF) - int((b shr 8) and 0xFF)) +
     abs(int(a and 0xFF) - int(b and 0xFF))
 
@@ -86,6 +94,8 @@ proc seenOn(c, under: Rgb, k = 0.12): Rgb =
   if rgbDist(c, under) < 30: blend(under, theme.fg, k) else: c
 
 proc drawFrame(x, y, w, h: int, bg, border: Rgb, title = "", titleFg: Rgb = NoColor, shadow = true) =
+  ## draws a box: filled with `bg`, a rounded border in the `border` colour, the title in bold on the top edge, and
+  ## (unless `shadow` is false) a drop shadow
   fillRect(x, y, w, h, theme.fg, bg)
   for xx in x + 1 ..< x + w - 1:
     setCell(xx, y, Cell(ch: 0x2500, fg: border, bg: bg))

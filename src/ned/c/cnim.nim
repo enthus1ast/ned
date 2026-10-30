@@ -48,9 +48,12 @@ proc cnName(cx: var CnCtx, c: string): string =
   cx.used.incl cnNorm(n)
   n
 
+# a name in backticks when it is a Nim keyword (`type`, `end` …), so it can be used as an identifier
 func cnQuote(n: string): string = (if n in NimKeywords: "`" & n & "`" else: n)
 
 func cnStripQuals(t: string): string =
+  ## a C type without its qualifiers and storage words (const, volatile, restrict, extern, static, inline, register,
+  ## _Noreturn and their __ forms), whole words only
   var r = " " & t & " "
   for q in ["const", "volatile", "restrict", "__restrict", "__restrict__", "extern", "static", "inline", "__inline",
             "__inline__", "register", "_Noreturn", "__extension__"]:

@@ -34,6 +34,7 @@ proc cxSetDirsFor(path: string) =
   var defs: seq[string]
   var each: seq[(string, seq[string])]            # (a file of compile_commands.json, its own -D and -U)
   proc add(d: string) =
+    ## adds a folder to the include folders when it exists and is not there yet
     if d.len > 0 and dirExists(d) and d notin ds: ds.add d
   add parentDir(path)
   if rootDir.len > 0:
@@ -120,6 +121,7 @@ proc cxSetDirsFor(path: string) =
     if cxPredefCpp.len == 0: cxPredefCpp = cxBuiltinPredef(cpp = true)
     cxPredefSet = true
 
+# sets the #include folders for this buffer's file
 proc cxSetDirs(b: Buffer) = cxSetDirsFor(b.path)
 
 cxPrepare = cxSetDirsFor       # (the dimming of what #ifs leave out can come first, before the engine reads the file)
@@ -166,6 +168,10 @@ func cEngCallSnippet(it: CxItem, line: string, col, wordStart: int): string =
 proc cEngIncludeItems(b: Buffer, p: Pos, have: HashSet[string]): seq[CompItem]
 
 proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool =
+  ## opens the completion list at p from the engine's items (members after `.` and `->`, names in scope, call snippets
+  ## to fill in). Outside a member access, names that headers the file does not include declare are added too, and
+  ## choosing one adds the #include. False when the engine is off for this file or has nothing to offer; a member access
+  ## whose type is not known is said so only when completion was asked for by hand
   if not cEngineOn(b): return false
   var res: (seq[CxItem], bool, string)
   try: res = cxComplete(cxFileOf(b), p.line, p.col, cSystemIncludeDirs())
@@ -201,6 +207,8 @@ proc cEngComplete(b: Buffer, p: Pos, manual: bool): bool =
   true
 
 proc cEngHover(b: Buffer, p: Pos): string =
+  ## the hover text for the name at p (declaration and its documenting comment), "" when the engine is off for this file
+  ## or has nothing
   if not cEngineOn(b): return ""
   try: cxHover(cxFileOf(b), p.line, p.col)
   except CatchableError as e:
@@ -223,6 +231,8 @@ proc cEngDefTarget(b: Buffer, p: Pos): (string, int, int, string) =
   var ts = cxTargets(cxFileOf(b), p.line, p.col, jump = true)
   let cpp = cxIsCppBuf(b)
   proc projectC(): seq[string] =
+    ## the project's other C files (C++ sources too in a C++ buffer), with full paths, to look in for a body the headers
+    ## do not give
     if rootDir.len > 0:
       for f in projectFiles():
         if (f.endsWith(".c") or (cpp and cxIsCppPath(f) and not f.splitFile.ext.startsWith(".h"))) and f != b.path:
@@ -365,6 +375,8 @@ proc cEngReferenceHits(b: Buffer, p: Pos, onlyHere = false): (seq[(string, int, 
         if lent: g.lines = @[]
 
 proc cEngReferences(b: Buffer, p: Pos): bool =
+  ## shows every use of the name at p in the references list, or says why there are none; true when the engine handled
+  ## it (false when it is off for this file)
   if not cEngineOn(b): return false
   try:
     let (hits, why) = cEngReferenceHits(b, p)
@@ -472,6 +484,7 @@ proc cEngInlays(b: Buffer, lo, hi: int) =
   var code: seq[string]
   var inBlock = false
   for l in first .. last: code.add(if b.lines[l].len > 500: "" else: cxCodeOf(b.lines[l], inBlock))
+  # the code of line l (comments and strings blanked) from the window of lines read around the visible ones
   template cd(l: int): string = code[l - first]
   var hs: Table[int, seq[(int, string)]]
   for l in first .. min(hi, last):
@@ -594,6 +607,7 @@ proc cEngSymbolsOf(f: CxFile, path: string, rel = ""): seq[PickItem] =
   result.sort(proc(x, y: PickItem): int = cmp(x.line, y.line))
 
 proc cEngSymbols(b: Buffer): seq[PickItem] =
+  ## the declarations of a C file for the go-to-symbol list, as the engine reads them (empty when the engine is off)
   if not cEngineOn(b): return
   try: cEngSymbolsOf(cxFileOf(b), b.path)
   except CatchableError as e:
@@ -601,6 +615,7 @@ proc cEngSymbols(b: Buffer): seq[PickItem] =
     @[]
 
 proc cEngOutline(b: Buffer): seq[SideItem] =
+  ## the outline of a C file for the side panel, from the engine's index of the buffer (empty when the engine is off)
   if not cEngineOn(b): return
   var f: CxFile
   try: f = cxFileOf(b)
@@ -713,6 +728,11 @@ proc cFixItActions*(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
   fixes
 
 proc cTypingCheck(b: Buffer) =
+  ## the engine's own checks at once, then — when cc (c++ for C++) is installed and no check of this file runs — the
+  ## compiler on a copy of the unsaved text (-fsyntax-only, with the file's include folders and the -D of
+  ## compile_commands.json). Its warnings and errors become the file's problems, the compiler's fix-it lines their quick
+  ## fixes; the engine's checks stay on lines where the compiler says nothing. The answer is dropped if the text changed
+  ## meanwhile
   cEngChecks(b)                        # (the engine's own checks first: at once, with no compiler too)
   let cpp = cxIsCppBuf(b)
   if b.path in cTypingChecks or not haveExe(if cpp: "c++" else: "cc"): return
@@ -745,6 +765,8 @@ proc cTypingCheck(b: Buffer) =
     var noteWords = ""             # (the note they follow: what the fix does, in its words)
     var edits: seq[(Pos, Pos, string)]
     proc flush() =
+      ## gives the compiler's fix-it edits gathered so far to the problem they follow as a quick fix (named by the
+      ## note's words), then forgets them
       if edits.len > 0 and owner >= 0:
         if ds[owner].fixes == nil: ds[owner].fixes = newJArray()
         ds[owner].fixes.add cFixItJson(x, edits, noteWords, id)
@@ -808,6 +830,7 @@ proc cEngMerge(ds: var seq[Diag], mine: seq[Diag]): int =
   for d in mine:
     var taken = false
     for k in ccAt.getOrDefault(d.line):
+      # the compiler's problem number k
       template e: untyped = ds[k]
       taken = true
       if d.rule == "c-format" and d.fixes != nil and "format" in e.msg and
@@ -1049,6 +1072,8 @@ proc cEngIncludeItems(b: Buffer, p: Pos, have: HashSet[string]): seq[CompItem] =
   let fence = if cxIsCppBuf(b): "```cpp\n" else: "```c\n"
   var added: HashSet[string]
   proc add(name, incl: string, s: CxSym, rank: int, res: var seq[CompItem]) =
+    ## adds a completion item for a name that header incl declares: accepting it adds the #include; its documentation
+    ## says so, and a function comes with its call snippet. The name is noted as offered
     var it = CxItem(label: name, kind: s.kind)
     cxCallOf(it, s)
     let detail = if s.kind == cxFunc: s.text else: s.typ
@@ -1254,6 +1279,9 @@ proc cEngExtractAct(bid, at, line, a, e: int, guess: string): Action =
       info("Extracted into " & n & " — F2 renames it everywhere"))
 
 proc cEngCursorFixes(b: Buffer, ds: seq[Diag]): seq[(string, string, Action)] =
+  ## the quick fixes (Alt+Enter) the engine offers at the cursor: the #include of an unknown name (unless a compiler
+  ## problem offers it already), the missing cases of a switch, extracting a selected expression into a variable, and
+  ## inverting an if
   let f = cxFileOf(b)
   let p = b.primary.head
   let bid = b.id
@@ -1372,6 +1400,7 @@ proc cEngCppFiles(): seq[CxFile] =
     except CatchableError: discard
 
 proc cEngClassItem(g: CxFile, s: CxSym, label: string): PickItem =
+  ## a class as a list entry: its file and line with its declaration, jumping to it when chosen
   PickItem(label: label, detail: relPath(g.path) & ":" & $(s.line + 1) & " · " & s.text, icon: "T", path: g.path,
            line: s.line, col: s.col)
 

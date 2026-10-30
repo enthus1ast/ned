@@ -69,6 +69,9 @@ proc emitOneLiners(ls: seq[string], skip: seq[string]): seq[(int, int, string)] 
       if a >= 0: result.add (l, a, t[a ..< e])
 
 proc shadowLines(ls: seq[string]): seq[string] =
+  ## the text of the hidden C document for a Nim file: one line per line of the file, holding the emitted C at the very
+  ## columns it has there and nothing else; the `name` backtick placeholders become a 0 and spaces of the same width,
+  ## and one-line emits are laid in after the block ones
   result = newSeq[string](ls.len)
   for (l, c, body) in emitBlocks(ls):
     for k, t in body:
@@ -235,6 +238,8 @@ proc emitLspComplete(b: Buffer, p: Pos): bool =
   true
 
 proc emitLspHover(b: Buffer, p: Pos, auto: bool): bool =
+  ## asks clangd, through the hidden C document, for the hover at p in emitted C (the answer is shown when it arrives);
+  ## false when p is not in C or clangd has no hover to give
   if not emitIsC(b, p): return false
   let (s, sh) = emitLsp(b)
   if s == nil or s.caps == nil or s.caps{"hoverProvider"} == nil: return false
@@ -244,6 +249,8 @@ proc emitLspHover(b: Buffer, p: Pos, auto: bool): bool =
   true
 
 proc emitLspDefinition(b: Buffer, p: Pos): bool =
+  ## asks clangd, through the hidden C document, for the definition of the name at p (the answer is handled when it
+  ## arrives); false when there is no clangd for this file or it cannot do it
   let (s, sh) = emitLsp(b)
   if s == nil or s.caps == nil or s.caps{"definitionProvider"} == nil: return false
   discard s.lspRequest("textDocument/definition", %*{"textDocument": {"uri": uriFromPath(sh.path)},
@@ -260,6 +267,8 @@ proc emitSignature(b: Buffer, p: Pos): bool =
   true
 
 proc emitNimNote(b: Buffer, w: string): string =
+  ## a line for the hover on a C name w in an emit: when a Nim proc or func of this file imports that C name, "Imported
+  ## into Nim as …" with its line; empty otherwise
   for nd in nimFfiDecls(b.lines):
     if nd.cname == w and nd.kind in ["proc", "func"]:
       return "\n\nImported into Nim as `" & nd.name & "` (line " & $(nd.line + 1) & ")"

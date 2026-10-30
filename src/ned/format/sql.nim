@@ -52,6 +52,7 @@ type
     ind: int
     upper: bool
 
+# can this character be in a word: a letter, digit, `_` or `$`, or a byte of a non-ASCII character?
 func sqlIsWordChar(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '$'} or c.uint8 >= 0x80
 
 func sqlQuoteEnd(s: string, i: int, q: char, backslash: bool): int =
@@ -86,15 +87,21 @@ func sqlTemplEnd(s: string, i: int): int =
 
 
 proc sqlToks(s: string, err: var string): seq[SqlTok] =
+  ## reads the SQL text as tokens — words, numbers, strings, quoted names, parameters, templates, operators, punctuation
+  ## and comments — each with its text as written, the line breaks and the whitespace before it; err is set for an
+  ## unclosed string or comment, or a string with a backslash before a quote (where it ends depends on the dialect)
   var i = 0
   var nl = 0
   var ws = false
   template add(k: SqlKind, e: int) =
+    ## adds a token of kind k from the reading position up to e, with the line breaks and whitespace seen before it, and
+    ## moves on to e
     result.add SqlTok(kind: k, text: s[i ..< e], nl: nl, ws: ws)
     nl = 0
     ws = false
     i = e
   template fail(msg: string) =
+    ## gives up with the message and the line the reader had reached
     err = msg & " (line " & $(s[0 ..< i].count('\n') + 1) & ")"
     return
   while i < s.len:
@@ -173,9 +180,13 @@ proc sqlToks(s: string, err: var string): seq[SqlTok] =
         if s.continuesWith(op, i): e = i + 3
       add(skOp, e)
 
+# is this token of kind k with exactly this text?
 func sqlIs(t: SqlTok, k: SqlKind, text: string): bool = t.kind == k and t.text == text
+# is this token the keyword w (any case)?
 func sqlIsKw(t: SqlTok, w: string): bool = t.kw and t.up == w
+# is this token a comment, of either kind?
 func sqlComment(t: SqlTok): bool = t.kind in {skComment, skLineComment}
+# is this token an opening ( or [ ?
 func sqlOpen(t: SqlTok): bool = t.kind == skPunct and t.text in ["(", "["]
 
 proc sqlMark(t: var seq[SqlTok]) =
@@ -200,6 +211,7 @@ proc sqlMark(t: var seq[SqlTok]) =
     prev = k
 
 func sqlOperand(t: SqlTok): bool =
+  ## can this token end an operand: a word, number, string, quoted name, parameter, template or the * for all columns?
   t.kind in {skWord, skNum, skStr, skIdent, skParam, skTempl} or t.star
 
 proc sqlSep(t: seq[SqlTok], p, k: int): string =
@@ -219,6 +231,7 @@ proc sqlSep(t: seq[SqlTok], p, k: int): string =
   " "
 
 proc sqlText(f: SqlFmt, k: int): string =
+  ## the text of token k as written out: a keyword in the case chosen (upper or lower), anything else as it was
   let t = f.t[k]
   if not t.kw: t.text
   elif f.upper: t.up
@@ -253,6 +266,7 @@ proc sqlNl(f: var SqlFmt, lvl: int) =
   f.brk = false
 
 proc sqlBlank(f: var SqlFmt) =
+  ## ends the line being made and leaves an empty line after it, unless the last line is empty already
   if not f.fresh: f.sqlNl(f.lvl)
   if f.lines.len > 0 and f.lines[^1].len > 0: f.lines.add ""
 

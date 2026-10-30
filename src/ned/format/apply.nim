@@ -1,3 +1,6 @@
+# the means of applying a formatter: running an external command as a filter (text in on stdin, text out), putting its
+# result into the buffer as the smallest set of line edits with the cursors kept on their code, and working out a
+# buffer's text after a list of edits.
 proc runFilter(cmd, input, cwd: string, timeoutMs = 15000): (bool, string, string) =
   ## runs `cmd` with `input` on stdin; returns (ok, stdout, stderr)
   var p: Proc
@@ -107,8 +110,13 @@ proc setTextMinimal(b: Buffer, newText: string) =
   proc nonWs(s: string): int =
     for ch in s:
       if ch notin {' ', '\t'}: inc result
+  # is old line i one the formatter left as it was and that has code on it? Such lines mark the edges of a changed
+  # region for the cursors
   proc anchor(i: int): bool = hunkOf[i] < 0 and ol[i].strip.len > 0     # an unchanged line with code
   proc target(p: Pos): Pos =
+    ## where an old position goes in the new text: on an unchanged line, the same line (moved to its new number) and the
+    ## same character; in a changed region, the character with the same number of non-blank characters before it,
+    ## counted from the region's start, so a formatter that splits or joins lines keeps the cursor on its code
     let r = clamp(p.line, 0, ol.high)
     let atEol = p.col >= ol[r].len and ol[r].len > 0
     if hunkOf[r] < 0:
@@ -185,6 +193,7 @@ proc textWithEdits(b: Buffer, edits: seq[(Pos, Pos, string)]): string =
     off += l.len + 1
   starts[b.lines.len] = off
   proc at(p: Pos): int =
+    ## the offset in the whole text of a position, kept inside its line
     let l = clamp(p.line, 0, b.lines.high)
     starts[l] + clamp(p.col, 0, b.lines[l].len)
   var list = edits

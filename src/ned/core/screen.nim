@@ -19,6 +19,8 @@ var
   gfxDirty = false               # (a row under it drawn again this frame)
 
 proc writeAll(s: string) =
+  ## writes the whole string to the terminal (standard output), going on after an interruption or a busy output; any
+  ## other error gives up
   var off = 0
   while off < s.len:
     let n = posix.write(1.cint, unsafeAddr s[off], s.len - off)
@@ -28,6 +30,7 @@ proc writeAll(s: string) =
     off += n
 
 proc getTermSize(): (int, int) =
+  ## the terminal's columns and rows, 80 × 24 when it does not say
   var ws: IOctl_WinSize
   if ioctl(1, TIOCGWINSZ, addr ws) == 0 and ws.ws_col > 0 and ws.ws_row > 0:
     (ws.ws_col.int, ws.ws_row.int)
@@ -35,10 +38,13 @@ proc getTermSize(): (int, int) =
     (80, 24)
 
 proc mouseSeq(): string =
+  ## the escape sequence for the mouse: clicks and drags with SGR coordinates (and all movement while hover effects are
+  ## on), or the sequence that turns the mouse reporting off when ui.mouse is off
   if not cfgMouse: return MouseOffSeq
   "\e[?1000h\e[?1002h" & (if cfgHoverFx: "\e[?1003h" else: "\e[?1003l") & "\e[?1006h"
 
 proc cursorStyleSeq(): string =
+  ## the escape sequence for the cursor's shape (ui.cursorStyle): block, underline, else a bar
   case cfgCursorStyle
   of "block": "\e[2 q"
   of "underline": "\e[4 q"
@@ -47,10 +53,16 @@ proc cursorStyleSeq(): string =
 proc termCapsStart()
 proc termCapsStop()
 
+# sends the mouse reporting wanted now, after turning every kind off
 proc setMouseMode() = writeAll(MouseOffSeq & mouseSeq())
+# sends the cursor shape wanted now
 proc applyCursorStyle() = writeAll(cursorStyleSeq())
 
 proc enterRaw() =
+  ## puts the terminal into raw mode — no echo, line editing, signals or output changes, reads that return at once —
+  ## keeping the old settings to come back to, and notes whether its erase key sends ^H. It saves the title, switches to
+  ## the alternate screen, turns on bracketed paste, focus reports and the mouse, hides the cursor, asks for the
+  ## terminal's background colour and starts the terminal-capability queries
   if tcGetAttr(0, addr gOrigTerm) != 0: return
   eraseIsCtrlH = gOrigTerm.c_cc[VERASE] == '\x08'
   var t = gOrigTerm
@@ -68,6 +80,8 @@ proc enterRaw() =
   termCapsStart()               # (and what else it can do: see termcaps)
 
 proc leaveRaw() =
+  ## gives the terminal back: the pointer shape, mouse, focus reports, paste mode, colours, cursor, main screen and old
+  ## title, then its original settings (after enterRaw)
   if not gRaw: return
   if pointerShape.len > 0 and pointerShape != "default": writeAll("\e]22;default\a")   # (the arrow back)
   pointerShape = ""
@@ -85,8 +99,10 @@ proc rgbTo256(c: Rgb): int =
   let r = int((c shr 16) and 0xFF)
   let g = int((c shr 8) and 0xFF)
   let b = int(c and 0xFF)
+  # the step 0 … 5 of the colour cube that a channel value 0 … 255 falls in
   template q(v: int): int = (if v < 48: 0 elif v < 115: 1 else: (v - 35) div 40)
   let (qr, qg, qb) = (q(r), q(g), q(b))
+  # how far (r, g, b) is from the colour (x, y, z), squares weighted for the eye (green most)
   template dist(x, y, z: int): int = 2 * (r - x) * (r - x) + 4 * (g - y) * (g - y) + 3 * (b - z) * (b - z)
   let cube = 16 + 36 * qr + 6 * qg + qb
   let dc = dist(CubeLevels[qr], CubeLevels[qg], CubeLevels[qb])
@@ -95,11 +111,15 @@ proc rgbTo256(c: Rgb): int =
   if dist(gv, gv, gv) < dc: 232 + k else: cube
 
 proc gridResize() =
+  ## reads the terminal's size and sizes the cell grid to it; the picture of what the terminal shows is forgotten, so
+  ## the next frame is drawn whole
   (scrW, scrH) = getTermSize()
   grid.setLen(scrW * scrH)
   prevGrid.setLen(0)
 
 proc setCell(x, y: int, c: Cell) {.inline.} =
+  ## puts a cell in the grid (nothing outside it); when that breaks the half of a wide character, the other half becomes
+  ## a space
   if x < 0 or y < 0 or x >= scrW or y >= scrH: return
   let i = y * scrW + x
   if grid[i].ch == 0 and x > 0: grid[i-1].ch = 32           # broke a wide char's right half
@@ -108,6 +128,7 @@ proc setCell(x, y: int, c: Cell) {.inline.} =
   grid[i] = c
 
 proc fillRect(x, y, w, h: int, fg, bg: Rgb) =
+  ## fills a rectangle of the grid, cut to the screen, with spaces in the given colours
   for yy in max(0, y) ..< min(scrH, y + h):
     for xx in max(0, x) ..< min(scrW, x + w):
       grid[yy * scrW + xx] = Cell(ch: 32, fg: fg, bg: bg)
@@ -149,6 +170,8 @@ for i in 0 .. 255: numStr[i] = $i
 var ulStyled = false            # curly underlines in the problem's colour (ui.undercurl and the terminal: termcaps)
 
 proc sgrColorFast(s: var string, c: Rgb, fg: bool) {.inline.} =
+  ## adds a colour to an SGR parameter list as ";38;2;r;g;b" (true colour) or ";38;5;n" (the 256-colour palette), for
+  ## the foreground or the background (48); nothing for NoColor
   if c == NoColor: return
   if trueColor:
     s.add (if fg: ";38;2;" else: ";48;2;")
@@ -176,6 +199,7 @@ proc sgrUnderline(s: var string, at: set[Attr], added: set[Attr]) =
     s.add numStr[rgbTo256(c)]
 
 func sameCell(a, b: Cell): bool {.inline.} =
+  ## whether two cells look the same: character, colours and attributes
   a.ch == b.ch and a.fg == b.fg and a.bg == b.bg and a.at == b.at
 
 var cfgAccessible = false       # ui.accessible: ASCII for every box line and symbol, letters beside colours
@@ -241,6 +265,8 @@ proc threadCpuUs(): int =
   ts.tv_sec.int * 1_000_000 + ts.tv_nsec.int div 1000
 
 proc perfRoundStart() =
+  ## when tracing performance (NED_PERF_TRACE), notes the processor time this thread has used as a round of the main
+  ## loop starts
   if perfTraceOn: perfRoundCpu0 = threadCpuUs()
 
 template timedWork(name: string, body: untyped) =
@@ -286,6 +312,7 @@ proc noteBusy(us: int) =
 const UnknownCell = Cell(ch: 0xFFFFFFFF'u32)        # (a cell whose content on the terminal is not known: repainted)
 
 func rowHash(g: seq[Cell], base, x0, x1: int): uint64 =
+  ## a hash of cells x0 … x1 of the row that starts at base (characters and colours), to tell rows of two frames apart
   result = 1469598103934665603'u64
   for x in x0 .. x1:
     let c = g[base + x]
@@ -361,6 +388,10 @@ proc termScroll(o: var string) =
 
 proc caCursorMoved(): bool
 
+# (an erase fills with the background in use — in every terminal ned meets but GNU screen without its bce option:
+# there it would show the terminal's own background)
+let eraseKeepsBg = not (getEnv("TERM").startsWith("screen") and getEnv("TMUX").len == 0 and getEnv("STY").len > 0)
+
 proc flushScreen() =
   ## cell-level diff against what the terminal shows: unchanged rows cost one memcmp, changed rows send only the
   ## cells that differ (a run of unchanged ones is stepped over), each colour change only what changed — and a
@@ -406,6 +437,7 @@ proc flushScreen() =
     o.add $(x0 + 1)
     o.add 'H'
     var prevWide = false
+    var blankRun = 0                 # (cells after this one to erase rather than send)
     var x = x0
     while x <= x1:
       var c = grid[base + x]
@@ -421,6 +453,16 @@ proc flushScreen() =
           o.add 'C'
           x = e
           continue
+      # (a run of blank cells of one background — the rest of a short line, the space before the minimap: its first
+      # cell sent, the others erased in that background and stepped over, not sent as spaces each)
+      if eraseKeepsBg and not inkScreen and not hasWide and c.ch == 32 and c.at * SpaceShows == {} and
+         x + 12 <= x1 + 1:
+        var e = x + 1
+        while e <= x1 and grid[base + e].ch == 32 and grid[base + e].bg == grid[base + x].bg and
+              grid[base + e].at * SpaceShows == {}:
+          inc e
+        if e - x >= 12:
+          blankRun = e - x - 1
       var ch = c.ch.int
       if ch == 0:
         if prevWide:
@@ -477,6 +519,14 @@ proc flushScreen() =
       else: o.addUtf8(ch)
       prevWide = ch >= 0x1100 and cellWidth(ch.uint32) == 2
       inc x
+      if blankRun > 0:
+        o.add "\e["
+        o.add $blankRun
+        o.add "X\e["                  # (erase that many, in the background just set …)
+        o.add $blankRun
+        o.add 'C'                      # (… and past them)
+        x += blankRun
+        blankRun = 0
     copyMem(addr prevGrid[base], addr grid[base], scrW * sizeof(Cell))
   o.add "\e[0m"
   # a picture the terminal draws: sent when it is new (or the cells under it were drawn again: sixel), taken away
@@ -541,13 +591,17 @@ var
   caGlides*, caFrames*, caBytes*: int   # (Help › Performance)
 
 func caEase(t: float): float =
+  ## the cubic ease-out of a glide: fast at first, slow to arrive; t from 0 to 1
   let u = 1.0 - clamp(t, 0.0, 1.0)
   1.0 - u * u * u                  # (fast away, slow to arrive)
 
 proc caAt(t: float): (float, float) =
+  ## where the cursor is at time t of a glide: (column, row) between its start and end, eased
   let e = caEase(t)
   (caFrom[0] + (caTo[0] - caFrom[0]) * e, caFrom[1] + (caTo[1] - caFrom[1]) * e)
 
+# how far a glide has got: the time since it began over its length (ui.cursorAnimationMs, at least 20 ms), 1 or more
+# once it is over
 proc caT(): float = float((getMonoTime() - caT0).inMicroseconds) / (max(20, cfgCursorAnimMs).float * 1000.0)
 
 proc caCursorMoved(): bool =

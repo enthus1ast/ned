@@ -30,9 +30,11 @@ const
                "ismap", "nomodule", "reversed", "default", "formnovalidate", "allowfullscreen", "itemscope"]
 
 func isVoid*(t: string): bool =
+  ## true for an element that has no end tag (br, img, input …)
   let i = htmlTag(t)
   i >= 0 and HtmlTags[i][2]
 
+# can the character be in a tag or attribute name?
 func isNameChar(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '-', '_', ':', '.'} or ord(c) >= 0x80
 
 proc htmlTags*(lines: openArray[string], upto = (high(int), 0)): seq[HtmlTagAt] =
@@ -40,9 +42,12 @@ proc htmlTags*(lines: openArray[string], upto = (high(int), 0)): seq[HtmlTagAt] 
   var l = 0
   var c = 0
   var raw = ""                                     # inside <script> or <style>: until its </…>
+  # true when the reading position (l, c) is past the last line or at or past the place to stop at
   template atEnd(): bool = l > lines.high or (l == upto[0] and c >= upto[1]) or l > upto[0]
+  # the character at the reading position; a line end reads as a newline
   template ch(): char = (if c < lines[l].len: lines[l][c] else: '\n')
   template adv() =
+    ## moves the reading position one character on, to the start of the next line after the end of a line
     if c < lines[l].len: inc c
     else:
       inc l
@@ -253,10 +258,13 @@ proc htmlContext*(lines: openArray[string], line, col: int): HtmlCtx =
   result.kind = hcAttrName
 
 proc tagAttrs(tag: string): seq[string] =
+  ## the attributes particular to the element, from HtmlTagAttrs
   for (t, attrs) in HtmlTagAttrs:
     if t == tag: return attrs.splitWhitespace
 
 proc attrValues(tag, attr: string): seq[string] =
+  ## the values known for an attribute of an element — those listed for that element first, else for the attribute on
+  ## any element (but not `type` outside input)
   for (k, vals) in HtmlAttrValues:
     if k == tag & "." & attr: return vals.splitWhitespace
   if attr == "type" and tag != "input": return
@@ -264,6 +272,8 @@ proc attrValues(tag, attr: string): seq[string] =
     if k == attr: return vals.splitWhitespace
 
 proc attrDesc(tag, attr: string): string =
+  ## what the attribute is, for hover and checks: a global attribute's description, the sort of aria-, data- and on…
+  ## attributes, or that it belongs to the element; empty when it is none of them
   for (n, d) in HtmlGlobalAttrs:
     if n == attr: return d
   if attr.startsWith("aria-"): return "accessibility: what assistive technology is told about the element"
@@ -291,6 +301,8 @@ proc htmlComplete*(lines: openArray[string], line, col: int, classes: seq[string
   of hcAttrName:
     var seen: HashSet[string]
     proc add(items: var seq[WebItem], n, d: string, rank: int) =
+      ## adds the attribute n as a completion unless already listed; a yes/no attribute is inserted bare, others with
+      ## ="" and the cursor between the quotes. Rank 0 (the element's own) shows the tag's name as its detail.
       if n in seen: return
       seen.incl n
       let b = n in BoolAttrs

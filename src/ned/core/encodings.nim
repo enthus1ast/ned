@@ -88,10 +88,13 @@ func detectEncoding*(bytes: string, fallback = EncCp1252): string =
   fallback
 
 func decodeUtf16(bytes: string, le: bool, start: int): (bool, string) =
+  ## UTF-16 bytes (little or big endian) from byte start on, as UTF-8, surrogate pairs joined; false when something was
+  ## not valid (a lone surrogate, which becomes U+FFFD, or an odd byte at the end)
   var i = start
   var ok = true
   var res = newStringOfCap(bytes.len)
   template unit(k: int): int =
+    ## the 16-bit unit that starts at byte k, in the byte order being read
     (if le: bytes[k].ord or (bytes[k + 1].ord shl 8) else: (bytes[k].ord shl 8) or bytes[k + 1].ord)
   while i + 1 < bytes.len:
     var u = unit(i)
@@ -163,6 +166,7 @@ func encode*(text: string, enc: string): (bool, string, int) =
     var res = newStringOfCap(text.len * 2 + 2)
     res.add (if le: "\xFF\xFE" else: "\xFE\xFF")
     proc unit(r: var string, u: int, le: bool) =
+      ## appends one 16-bit unit to the string in the given byte order
       if le:
         r.add char(u and 0xFF)
         r.add char(u shr 8)

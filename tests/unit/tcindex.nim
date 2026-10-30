@@ -37,6 +37,7 @@ int main(int argc, char **argv) {
 """
 
 proc lineOf(ls: seq[string], t: string): int =
+  ## the number of the first line that has the text, -1 when none does
   for i, x in ls:
     if t in x: return i
   -1
@@ -155,6 +156,7 @@ suite "C engine":
     let g = cxLoad(dir / "f.c", src, "t6")
     let sl = src.splitLines
     proc labelsAt(l, c: int): seq[string] =
+      ## the labels of the completions the engine gives at line l, column c
       for it in cxComplete(g, l, c)[0]: result.add it.label
     check labelsAt(6, sl[6].find(".w") + 1) == @["at", "w"]
     check labelsAt(6, sl[6].find(".y") + 1) == @["x", "y"]
@@ -186,6 +188,7 @@ suite "C engine":
     check after
     let l = lineOf(sl, "atime.sec")
     proc labelsAt(l, c: int): seq[string] =
+      ## the labels of the completions the engine gives at line l, column c
       for it in cxComplete(g, l, c)[0]: result.add it.label
     check labelsAt(l, sl[l].find("sec")) == @["sec", "usec"]
     check labelsAt(l, sl[l].find(".v") + 1) == @["name", "v"]
@@ -205,6 +208,7 @@ suite "C engine":
       if s.name == "zwarn" and s.kind == cxFunc and s.isDef: zw = true
     check zt and zw
     proc labelsAt(l, c: int): seq[string] =
+      ## the labels of the completions the engine gives at line l, column c
       for it in cxComplete(g, l, c)[0]: result.add it.label
     let l1 = lineOf(sl, "first->l = 0")
     check labelsAt(l1, sl[l1].find("l =")) == @["l", "s"]
@@ -341,6 +345,7 @@ suite "C++":
       if g.path.endsWith("shapes.hpp"): r = g
     r
   proc labelsAt(f: CxFile, l, c: int): seq[string] =
+    ## the labels of the completions the engine gives in file f at line l, column c
     for it in cxComplete(f, l, c)[0]: result.add it.label
   proc after(ls: seq[string], line, what: string): (int, int) =
     ## the line holding `line`, and the column just past `what` on it
@@ -547,7 +552,9 @@ suite "the preprocessor's #if, worked out; declarations macros make (6.25)":
   createDir(d)
   cxDirs = @[d]
   proc names(g: CxFile): seq[string] =
+    ## the names of the file's symbols, in order
     for s in g.syms: result.add s.name
+  # the number of the first line of the source that has the text
   proc lineOf2(src, t: string): int = lineOf(src.splitLines, t)
 
   test "macros #defined before, in the file and in its headers; -D and -U; arithmetic, defined(), function-like":
@@ -573,6 +580,7 @@ suite "the preprocessor's #if, worked out; declarations macros make (6.25)":
     # what the editor dims: the branches left out (not the one not known)
     let sl = src.splitLines
     proc dimmed(l: int): bool =
+      ## is line l inside one of the file's inactive ranges, the branches the preprocessor leaves out?
       for (a, b) in g.inactive:
         if l >= a and l <= b: return true
     check dimmed(lineOf(sl, "int thing_off;")) and dimmed(lineOf(sl, "int two;")) and dimmed(lineOf(sl, "int old_api;"))
@@ -614,6 +622,7 @@ suite "the preprocessor's #if, worked out; declarations macros make (6.25)":
               "#endif\n#ifdef USE_FAST\n#define SPEED 9\n#else\n#define SPEED 1\n#endif\n#endif\n")
     writeFile(d / "inner.h", "#ifndef INNER_H\n#define INNER_H\n#include \"feat.h\"\n#endif\n")
     proc closureNames(g: CxFile): seq[string] =
+      ## the names of the symbols of the file and of every header it includes (its closure), under the macros as defined
       for h in cxClosure(g):
         for s in h.syms: result.add s.name
     let srcA = "#define USE_FAST\n#define LEVEL 3\n#include \"inner.h\"\n#if SPEED == 9\nint nine;\n#endif\n" &
@@ -746,9 +755,11 @@ void use() {
   let sl = src.splitLines
   let hl = hdr.splitLines
   proc at(t, w: string): (int, int) =
+    ## the place (line, column) of the word w on the first line that has the text t
     let l = lineOf(sl, t)
     (l, sl[l].find(w))
   proc labelsAt(l, c: int): seq[string] =
+    ## the labels of the completions the engine gives at line l, column c
     for it in cxComplete(m, l, c)[0]: result.add it.label
 
   test "go to definition and hover pick the overload by the number and the types of the arguments":
@@ -799,6 +810,7 @@ void run(const Node *cn, Node *nn) {
     let g = cxLoad(d / "ovl2.cpp", src2, "ovl2")
     let s2 = src2.splitLines
     proc firstAt(t, w: string): CxSym =
+      ## the first declaration the engine finds for the word w on the first line that has the text t
       let l = lineOf(s2, t)
       cxTargets(g, l, s2[l].find(w))[0][1]
     check firstAt("check(\"x\", OK, BAD);", "check").params[1].typ == "Err"
@@ -854,6 +866,7 @@ void run(const Node *cn, Node *nn) {
 suite "C: Lua's ways (6.28)":
   let d = getTempDir() / "ned_tcindex_628"
   createDir(d)
+  # the number of the first line of the source that has the text
   proc lineIn(src, t: string): int = lineOf(src.splitLines, t)
   writeFile(d / "api.h", "#ifndef API_H\n#define API_H\n#define MYAPI extern\n" &
             "/* Concatenates n values. */\nMYAPI void  (my_concat) (int *L, int n);\n" &
@@ -1019,6 +1032,8 @@ suite "go to type definition; C++: bases, derived classes, overrides":
     let f = cxLoad(getTempDir() / "ned_td.c", src, "td1")
     let ls = src.splitLines
     proc at(l: int, w: string): string =
+      ## the struct or enum the engine finds for the type named by the word w on line l, as 'kind name:line', empty when
+      ## it is no type of the file
       let (g, s) = cxTypeTarget(f, l, ls[l].find(w))
       if g == nil: "" else: $s.kind & " " & s.name & ":" & $s.line
     check at(4, "head") == "cxStruct list:0" and at(4, "l,") == "cxStruct list:0" and at(5, "next") == "cxStruct list:0"

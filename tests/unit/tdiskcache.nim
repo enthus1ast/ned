@@ -5,6 +5,7 @@ import std/[os, strutils, unittest, random, sets, times, algorithm, tables]
 import ../../src/ned/nim/index
 
 proc nimLib(): string =
+  ## the folder of Nim's standard library, found from the nim on PATH (the test stops when there is none)
   let nim = findExe("nim")
   doAssert nim.len > 0, "put nim on PATH"
   var exe = nim
@@ -24,6 +25,7 @@ createDir(tmp)
 nxDiskCacheDir = tmp / "cache"
 
 proc cacheFiles(): seq[string] =
+  ## the index files (.nx) now in the disk cache folder
   if dirExists(nxDiskCacheDir):
     for k, p in walkDir(nxDiskCacheDir):
       if p.endsWith(".nx"): result.add p
@@ -77,6 +79,7 @@ suite "the index on disk":
     createDir(pkg.parentDir)
     writeFile(pkg, "when defined(nedTestFlag):\n  proc on*() = discard\nelse:\n  proc off*() = discard\n")
     proc same(): bool =
+      ## does the index read through the disk cache give the same first symbol as a fresh parse of the file?
       let a = nxParseDisk(pkg)
       a.syms[0].name == nxParse(readFile(pkg).splitLines, pkg).syms[0].name
     let complete = nxDefinesComplete
@@ -218,6 +221,8 @@ suite "what macro calls make, and a file's face (6.32.3)":
     defer: removeDir(tmp)
     let p = tmp / "face.nim"
     proc face(text: string, exported = false): string =
+      ## the file's face stamp for this text: it is written to the file with a new modification time (so the cache
+      ## cannot reuse an old entry) and loaded again. The stamp only changes with what other files can see of it.
       writeFile(p, text)
       setLastModificationTime(p, getTime() + initDuration(seconds = rand(1000)))
       nxStatForget(p)

@@ -30,6 +30,7 @@ var
   plugProgress: seq[(string, string, int)]      # plugin, what it is doing, percent (-1 not known)
   plugIndents: seq[PlugIndent]                  # the plugins' looks for indentation (indent-dots, rainbow-indent …)
 
+# the key plugins' decorations of a buffer are kept under: its path, or "#" and its id when it has none
 proc plugDecorKey(b: Buffer): string = (if b.path.len > 0: b.path else: "#" & $b.id)
 
 proc plugColor(name: string): Rgb =
@@ -50,11 +51,15 @@ proc plugColor(name: string): Rgb =
     else: theme.accent
 
 proc plugSignAt(b: Buffer, line: int): (string, Rgb) =
+  ## the gutter sign a plugin put on that line of the buffer and its colour; empty when there is none (the first one
+  ## wins)
   if plugDecor.len == 0: return
   for d in plugDecor.getOrDefault(plugDecorKey(b)):
     if d.kind == 0 and d.line == line: return (d.text, plugColor(d.color))
 
 proc plugTextAfter(b: Buffer, line: int): (string, Rgb) =
+  ## the text plugins put after that line, those of several joined with two spaces, and the colour of the last; empty
+  ## when there is none
   if plugDecor.len == 0: return
   for d in plugDecor.getOrDefault(plugDecorKey(b)):
     if d.kind == 1 and d.line == line:

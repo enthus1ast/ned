@@ -35,6 +35,7 @@ type Entry* = object
   problem*: string
 
 func isName(k: string): bool =
+  ## whether k is a name a shell takes: letters, digits and _, and not starting with a digit
   k.len > 0 and k[0] notin {'0'..'9'} and k.allCharsInSet({'A'..'Z', 'a'..'z', '0'..'9', '_'})
 
 func parseEnv*(lines: seq[string]): seq[Entry] =
@@ -81,6 +82,9 @@ func parseEnv*(lines: seq[string]): seq[Entry] =
     result.add e
 
 proc check(b: Buf) =
+  ## finds the mistakes of the .env buffer and sets them as its problems: what parseEnv found on each line (with a quick
+  ## fix for spaces around = and for a value with spaces and no quotes) and a key set twice (the later line gets the
+  ## problem)
   var ps: seq[Problem]
   let es = parseEnv(b.lines)
   var seen: seq[(string, int)]
@@ -146,6 +150,8 @@ func exampleOf*(lines: seq[string]): seq[string] =
     result.add (if eq < 0: l else: l[0 .. eq])
 
 proc makeExample() =
+  ## Env: make .env.example — writes the file's keys without their values (comments kept) to .env.example next to it,
+  ## after asking when that file exists; says how many keys it holds
   let b = current()
   if b.path.len == 0:
     message("Save the file first")
@@ -159,6 +165,8 @@ proc makeExample() =
   message("Made " & dest.extractFilename & " (" & $parseEnv(b.lines).len & " keys, no values)")
 
 proc compareExample() =
+  ## Env: compare with .env.example — lists in the Output panel the keys only this file has and the keys only its
+  ## partner has (.env.example for a .env, else .env) and says in the message line how many differ
   let b = current()
   let other = b.path.parentDir / (if b.path.endsWith(".env.example"): ".env" else: ".env.example")
   if not fileExists(other):

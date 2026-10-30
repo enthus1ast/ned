@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.33](#whats-new-in-633) · [6.32.4](CHANGELOG.md#whats-new-in-6324) · [6.32](CHANGELOG.md#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [older releases](CHANGELOG.md)
+- [What's new in 6.34](#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32.4](CHANGELOG.md#whats-new-in-6324) · [6.32](CHANGELOG.md#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,42 +30,38 @@ library, and builds to one binary of about 12 MB.
 
 ---
 
-## What's new in 6.33
+## What's new in 6.34
 
-Nim 2.4 and Nim 3 side by side, and an engine that holds less.
+Nim 2.4's own reading of your code, a lighter screen, and every routine of ned explained.
 
-**Nim 2.4**
+**The compiler's answers on a saved file (Nim 2.4 and newer).** The check on save is `nim nif` in place of `nim
+check`: the same messages in about the same time — and, for each module without errors, what the compiler made of
+it, kept in ned's folder (`~/.cache/ned/nif`). From it a saved file gets its names' colours by what each one is (a
+name a macro made among them), the types after its lets and vars where the engine had none or another
+(`let a: int = answer()`, `answer` made by a macro), and Go to definition of the declaration the compiler chose (of
+`show(2.5)`, the `show` that takes a float). Nimony's reading gives a Nim 3 project the same. After an edit the
+engine's answers are back until the next save; an older Nim is checked with `nim check` as before
+(`nim.compilerNif` off does that with 2.4 too).
 
-- **Sum types**: in an `object` whose `case` has no field, each branch's name is a constructor — completion, hover
-  and Go to definition know `Leaf(3)` makes a `Node`, its fields as parameters — and `of Pair(a, b):` in a `case`
-  gives `a` and `b` the branch's field types.
-- The new operator characters `⟑ ⟇ ⩓ ⩔ ■ □ ☆` are operators for the formatter and the engine, and
-  `import b {.cyclic.}` is an import like any other.
-- A message about code given on standard input (`--stdinfile`) names the file, not `stdinfile.nim`.
-- The library names Nim 2.4 added are known for `nim.minVersion`.
+**The engine graded by the compiler.** `tests/engine/nifgrade.py` asks ned's engine for the declaration of every use
+of a module's names that the compiler's NIF answers, and compares. It found two things the engine missed: an
+import in a one-line `when` branch (`else: import std/os` — ned's own files import std/os that way) and the values
+of an enum type a module re-exports by name (`pcFile`). With both fixed, the engine agrees with the compiler on
+99.1% of 4000 uses in the formatter and 97.8% in the engine's own code; the rest are listed by the tool.
 
-**Nim 2 or Nim 3, decided by the project**
+**Which Nim, at a tap.** A tap on `✓ Nim` in the status bar says which Nim the project is and why — *Nim 3
+(nimony): ~/proj/nimony.paths is here*, *Nim 2.4.0 (PATH)* — and offers the rest: make it Nim 3 or Nim 2, decide
+from the project, install or update nimony (the status bar says *building nimony…* meanwhile), choose the Nim.
 
-- `nim.compiler` is `auto` now: a project with `nimony.args`, `nimony.paths` or `pnak.nif` (in its folder or up to
-  three above) is Nim 3 when nimony is installed, any other is Nim 2. The status bar says which; `nim` and `nimony`
-  still decide outright.
-- **Nim 3: install or update nimony** clones Nimony into `~/.local/nimony` (or brings it up to date) and builds it
-  in the Run panel; ned finds it there with nothing added to PATH.
-- **Colours from what nimony read**: once nimony has checked a saved file, each name has the colour of what nimony
-  says it is — a routine, a type, a field, a constant, a parameter … — names a macro or template made among them.
+**Less to draw on a phone.** A run of blank cells — the rest of a short line, the space before the minimap — is
+erased in its colour rather than sent as spaces: a jump to another part of a file sends 8% less to the terminal,
+a scroll 7% less. On a narrow screen, a menu item's keys no longer run over its label and the menu's frame (the
+long description some commands have is left out of menus), and the settings' long names end in `…`.
 
-**Less memory, fewer waits**
-
-- **What a file sees of its imports is shared.** Each file kept its own list of every name its imports bring —
-  system's thousands each time. Files that import the same module now share one list of what it brings: 48 files
-  of the standard library and ned see 77,881 names between them, and 10,230 are held. ned keeps what 96 files
-  see (it was 48), in less memory than before. `tests/unit/tscopes.nim` checks that every name is found as before.
-- **A file's problems** from every source are put together once after each change, not two or three times each
-  frame — with thousands of problems, that was a copy of them all at every key; the count in the panel's tab too.
-- **Fewer looks at the disk per key**: whether a file changed on disk is asked once a second at most (it was every
-  50 ms, for each file the one being typed in imports), and the git folder a file is in is remembered.
-- **C**: what the C compiler predefines (`cc -dM -E`) is kept on disk, so the first C file of a session no longer
-  waits for it, and the checks of a C file run in the engine worker, so typing does not wait for them.
+**Every routine says what it does.** Each of ned's files says what it is for, and each of its 7,300 routines —
+procs, templates, macros, iterators, local ones too — says what it does and how, in a comment: in the source, the
+plugins and the tests. `tests/docs/comments.py` keeps it so (CI runs it). A few comments that were wrong — setting
+names, menu names — are put right.
 
 ## Features
 
@@ -222,7 +218,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.33.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.34.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -277,7 +273,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.33.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.34.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

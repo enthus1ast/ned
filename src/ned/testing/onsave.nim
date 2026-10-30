@@ -145,8 +145,13 @@ type TestRunDone = proc(state: int, failed: seq[string], passed: int) {.closure.
 var saveTestWaiters: Table[string, seq[TestRunDone]]   # test file → who waits for its run (checks before a commit)
 
 proc runTestOnSave(path: string, after: TestRunDone = nil) =
+  ## compiles and runs one std/unittest file in the background (120 s at most), marking its tests as running and then
+  ## passed or failed, keeping the compiler's and tests' messages for their lines, and telling the user the outcome;
+  ## `after` is called when the run is done (state 3 at once when the folder is not trusted or nim is missing). A file
+  ## saved again during its run is run once more when it ends
   if after != nil: saveTestWaiters.mgetOrPut(path, @[]).add after
   proc notRun() =
+    ## answers everyone waiting for this test file's run with state 3 (not run) and forgets them
     for w in saveTestWaiters.getOrDefault(path): w(3, @[], 0)
     saveTestWaiters.del path
   if path in saveTestRuns:
@@ -243,6 +248,8 @@ proc runTestOnSave(path: string, after: TestRunDone = nil) =
   needRender = true
 
 proc testsOnSave(b: Buffer) =
+  ## after a save: runs the test files that belong to the saved buffer (itself, or those importing it), unless
+  ## nim.testOnSave is off
   if b == nil or cfgTestOnSave == "off": return
   for f in testsForSave(b): runTestOnSave(f)
 

@@ -16,6 +16,8 @@ import compiler/[ast, llstream, parser, idents, options, pathutils, lineinfos]
 from compiler/renderer import renderTree
 
 proc parseText(text, name: string, errors: var int): PNode =
+  ## parses a Nim text with the compiler's own parser into a statement list, with its messages silenced; the number of
+  ## syntax errors found is added to `errors`
   let conf = newConfigRef()
   conf.errorMax = high(int)
   conf.writelnHook = proc(s: string) = discard
@@ -87,6 +89,8 @@ proc grouped(parts: seq[PNode]): seq[PNode] =
       inc i
 
 proc similar(a, b: TNodeKind): bool =
+  ## may nodes of these two kinds count as the same: equal kinds, or else and elif branches in their statement and
+  ## expression forms
   a == b or (a in {nkElse, nkElseExpr} and b in {nkElse, nkElseExpr}) or
     (a in {nkElifBranch, nkElifExpr} and b in {nkElifBranch, nkElifExpr})
 
@@ -154,6 +158,9 @@ proc same(a, b: PNode, da, db: var PNode, inEmit = false): bool =
   eq
 
 proc main() =
+  ## reads the two texts (two files, or both from stdin after a "LEN_A LEN_B" header line), parses them and prints
+  ## "same" (exit 0), "different A_LINE B_LINE: the node where they part" (exit 1; also when only the second text does
+  ## not parse) or "unreadable: why" (exit 2: the first text does not parse, or the input is wrong)
   var a, b, na, nb: string
   let args = commandLineParams()
   if args == @["-"]:

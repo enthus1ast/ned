@@ -10,11 +10,15 @@ settingDef("withTime", true, "Daily log: begin each line with the time (14:03)")
 settingDef("heading", "# $date", "Daily log: the first line of a day's log ($date: the day)")
 settingDef("days", 14, "Daily log: how many days 'Daily log: open a day…' lists")
 
+# today's date, as year-month-day
 proc today(): string = localTime()[0 ..< 10]                  # "2026-10-26"
 
+# the path of a day's log inside the plugin's data folder, in a folder for its month
 func fileOf(day: string): string = day[0 ..< 7] & "/" & day & ".md"     # "2026-10/2026-10-26.md": a folder a month
 
 proc addLine() =
+  ## asks for a line and adds it to today's log, with the time in front when the setting asks; a new day's file gets its
+  ## heading first and the day is noted in days.txt, the list that 'open a day' reads
   let text = ask("Log:")
   if text.strip.len == 0: return
   let day = today()
@@ -27,6 +31,8 @@ proc addLine() =
   toast("Logged")
 
 proc openDay() =
+  ## lists the days that have a log, the latest first and as many as the days setting says, and opens the one picked as
+  ## a file from the plugin's data folder
   var days: seq[string]
   for d in readData("days.txt").splitLines:
     if d.len > 0: days.add d

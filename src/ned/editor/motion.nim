@@ -3,20 +3,26 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 func charClass(c: char): int {.inline.} =
+  ## which kind of character this is for moving by words: 0 blank, 1 word character, 2 anything else (punctuation) — a
+  ## word move runs over characters of one kind
   if c in {' ', '\t'}: 0 elif isWordByte(c): 1 else: 2
 
 func posLeft(b: Buffer, p: Pos): Pos =
+  ## one character to the left (a whole emoji sequence counts as one); at a line's start the end of the line before
   if p.col > 0: Pos(line: p.line, col: prevCluster(b.lines[p.line], p.col))   # (a whole character: 👨‍👩‍👧 too)
   elif p.line > 0: Pos(line: p.line - 1, col: b.lines[p.line - 1].len)
   else: p
 
 func posRight(b: Buffer, p: Pos): Pos =
+  ## one character to the right; at a line's end the start of the next line
   let s = b.lines[p.line]
   if p.col < s.len: Pos(line: p.line, col: nextCluster(s, p.col))
   elif p.line + 1 < b.lines.len: Pos(line: p.line + 1, col: 0)
   else: p
 
 func posWordRight(b: Buffer, p: Pos): Pos =
+  ## the end of the next word: blanks are skipped, then a run of word characters or of punctuation; at a line's end the
+  ## start of the next line
   let s = b.lines[p.line]
   var i = p.col
   if i >= s.len:
@@ -28,6 +34,8 @@ func posWordRight(b: Buffer, p: Pos): Pos =
   Pos(line: p.line, col: i)
 
 func posWordLeft(b: Buffer, p: Pos): Pos =
+  ## the start of the word to the left: blanks are skipped, then a run of one kind of character; at a line's start the
+  ## end of the line before
   if p.col == 0:
     return (if p.line > 0: Pos(line: p.line - 1, col: b.lines[p.line - 1].len) else: p)
   let s = b.lines[p.line]
@@ -39,11 +47,15 @@ func posWordLeft(b: Buffer, p: Pos): Pos =
   Pos(line: p.line, col: i)
 
 func posHome(b: Buffer, p: Pos): Pos =
+  ## where Home goes: the first non-blank character of the line, or column 0 when the cursor is already there
   let s = b.lines[p.line]
   let fnw = leadingWs(s).len
   Pos(line: p.line, col: (if p.col == fnw: 0 else: fnw))
 
 proc moveVert(b: Buffer, c: var Cursor, dy: int) =
+  ## moves a cursor's head `dy` rows down (up when negative), a soft-wrapped line counting as its rows and folded lines
+  ## being skipped. The column it started in (goalX) is kept, so passing a short line does not lose it. Past the first
+  ## or last line it goes to the start or end of the text.
   var line = c.head.line
   var segs = b.lineSegs(line)
   var sub = subRowOf(segs, c.head.col)
@@ -83,12 +95,17 @@ proc moveVert(b: Buffer, c: var Cursor, dy: int) =
   c.goalX = x
 
 proc moveAll(b: Buffer, select: bool, f: proc(b: Buffer, c: var Cursor)) =
+  ## moves every cursor with `f`; unless `select`, the anchor follows the head so nothing stays selected. Cursors that
+  ## now overlap are merged.
   for c in b.cursors.mitems:
     f(b, c)
     if not select: c.anchor = c.head
   b.normalize()
 
 proc cmdMove(kind: KeyKind, select, word: bool) =
+  ## the cursor keys (arrows, Home, End, PageUp, PageDown) on every cursor. `select` extends the selection; `word` moves
+  ## by words, and Home and End go to the start and end of the text. A selection with no `select` first collapses to its
+  ## start (left, up) or end (right, down). The page keys also scroll the view by as many rows.
   let b = buf()
   case kind
   of kLeft:

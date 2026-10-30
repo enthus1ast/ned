@@ -13,6 +13,8 @@ var
   flameZoom: seq[(string, string)]        # the boxes looked inside, from the top
 
 proc flameTree(): FlameNode =
+  ## the profiler's call stacks as a tree: each box counts the samples that went through it, and each level is ordered
+  ## with the biggest first
   result = FlameNode(name: "the whole program", count: 0)
   for (st, n) in profStacks:
     result.count += n
@@ -29,6 +31,7 @@ proc flameTree(): FlameNode =
       next.count += n
       node = next
   proc order(x: FlameNode) =
+    ## sorts a box's children by their samples, biggest first, and then theirs the same way
     x.kids.sort(proc(a, b: FlameNode): int = cmp(b.count, a.count))
     for k in x.kids: order(k)
   order(result)
@@ -50,6 +53,7 @@ proc flameNow(): FlameNode =
     result = found
 
 proc flameOwn(file: string): bool =
+  ## whether the file is the project's own code (inside the project folder and not in the Nim library)
   rootDir.len > 1 and file.startsWith(rootDir & "/") and not (nxLibDir.len > 0 and file.startsWith(nxLibDir & "/"))
 
 proc flameColor(n: FlameNode): Rgb =
@@ -65,12 +69,17 @@ proc flameAct(path: seq[(string, string)]): Action =
     needRender = true
 
 proc flameWhere(n: FlameNode): string =
+  ## the line that says what a box is: its name, its share of all the samples (and how many), and its file — lib/… for
+  ## the Nim library, else the path from the project
   let total = max(1, (if flameRoot != nil: flameRoot.count else: 1))
   n.name & " · " & formatFloat(n.count * 100 / total, ffDecimal, 1) & "% (" & $n.count & " samples)" &
     (if n.file.len > 0: " · " & (if nxLibDir.len > 0 and n.file.startsWith(nxLibDir & "/"): "lib/" &
      n.file[nxLibDir.len + 1 .. ^1] else: relPath(n.file)) else: "")
 
 proc drawFlame(b: Buffer, x0, y0, w, h: int) =
+  ## draws the flame graph in the given area: a title line, the top bar with the box looked inside (a tap goes back up
+  ## one), a row for each level of calls with boxes as wide as their share of the samples (a tap looks inside one), and
+  ## at the bottom what the box under the mouse is, or the keys
   cursorX = -1
   cursorY = -1
   if profStacks.len == 0:
@@ -93,6 +102,9 @@ proc drawFlame(b: Buffer, x0, y0, w, h: int) =
   let bottom = y0 + h - 1                                  # (the last row: what a box is)
   var under = ""                                           # (the box under the mouse pointer)
   proc draw(n: FlameNode, x: int, width: float, y: int, path: seq[(string, string)]) =
+    ## draws a box's children side by side on row `y`, across `width` columns from `x`, each as wide as its share of the
+    ## samples (those too narrow to see are left out), then theirs on the rows below. `path` is the way to the box,
+    ## which a tap on a child extends to look inside it
     if y >= bottom or width < 1.0: return
     var at = float(x)
     var other = 0.0

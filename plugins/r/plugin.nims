@@ -104,6 +104,7 @@ func rSection(s: string): (int, string) =
   (h, title)
 
 func rNameEnd(s: string, i: int): int =
+  ## where the name that starts at i ends: a `backticked` name to its closing backtick, else letters, digits, _ and .
   result = i
   if i < s.len and s[i] == '`':
     let e = s.find('`', i + 1)
@@ -219,10 +220,13 @@ proc rWords*(cmd: string): seq[string] =
   if inWord: result.add cur
 
 proc rHave(cmd: string): bool =
+  ## whether the first word of the command line is a program that can be found (a ~ is expanded) — so a server or
+  ## formatter that is set is only used when it is installed
   let w = rWords(cmd)
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 
 proc rSubDirs(d: string): seq[string] =
+  ## the folders directly inside d, as full paths
   when defined(nimscript):
     result = listDirs(d)
   else:
@@ -253,6 +257,7 @@ proc rLibraries(): seq[string] =
     for v in rSubDirs(root): result.add v & "/site-library"
 
 proc rHasPackage(name: string): bool =
+  ## whether the R package is installed: a folder of that name with a DESCRIPTION file in one of R's libraries
   for d in rLibraries():
     if fileExists(d & "/" & name & "/DESCRIPTION"): return true
 

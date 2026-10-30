@@ -54,6 +54,8 @@ proc undercurlByName(): bool =
   false
 
 proc applyUndercurl() =
+  ## decides whether curly, coloured underlines are drawn (ui.undercurl on or off, else when the terminal said it draws
+  ## them or is known to); when that changes, the screen is drawn whole again
   let was = ulStyled
   ulStyled = case cfgUndercurl
     of "on": true
@@ -64,6 +66,9 @@ proc applyUndercurl() =
     needRender = true
 
 proc applyGraphemes() =
+  ## decides whether an emoji sequence or accented letter is taken as one character (ui.graphemes on or off, else when
+  ## the terminal answered that mode 2027 is set or can be); it turns the mode on when the terminal has it reset, and
+  ## when the choice changes the cell pool is emptied and the screen drawn again
   let want = case cfgGraphemes
     of "on": true
     of "off": false
@@ -109,6 +114,7 @@ proc termCapsStop() =
   writeAll("\e[?2031l")
 
 proc tcNote(s: string) =
+  ## remembers what the terminal answered, once and at most 40 of them, for Help › Check setup
   if tcAnswers.len < 40 and s notin tcAnswers: tcAnswers.add s
 
 proc termCsiReply(priv, inter, fin: char, params: seq[int]): bool =
@@ -167,6 +173,8 @@ proc termDcsReply(body: string) =
   if tcUndercurl: applyUndercurl()
 
 proc termFocusChange(gained: bool) =
+  ## the terminal window gained or lost the focus: notes it for the main loop, and when it comes back draws the whole
+  ## screen again (an app switch on Android may have spoilt it)
   termFocused = gained
   focusNews = if gained: 1 else: 2
   if not gained: focusLostAt = getMonoTime()

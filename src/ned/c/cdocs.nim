@@ -56,6 +56,9 @@ proc cHeaderDescription(path: string): string =
     # paragraphs: a licence one goes as a whole, else its boilerplate lines
     var para: seq[string]
     proc flush() =
+      ## ends a paragraph of the comment block: drops it whole when it reads as a licence (many boilerplate lines, or a
+      ## licence phrase), else adds its lines that are not boilerplate and hold at least three letters to the
+      ## description (three lines at most)
       var hits = 0
       for l in para:
         for w in CBoilerplate:
@@ -324,6 +327,8 @@ proc cWrapperComplete(b: Buffer, p: Pos, manual: bool): bool =
   for d in nimFfiDecls(b.lines): have.incl d.cname
   var items: seq[CompItem]
   proc addFn(name: string, cp: CProto, pragma, where: string) =
+    ## adds a completion item for a C function that has no wrapper in this file yet: its label is the name, accepting it
+    ## writes the whole Nim wrapper (with {.varargs.} when the C function takes `...`)
     if name in have or name.startsWith("_") or items.len > 4000: return
     let (sig, va) = cNimSignature(cp)
     let prag = (if va: "varargs, " else: "") & pragma

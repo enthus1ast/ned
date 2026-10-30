@@ -38,9 +38,12 @@ var
   refDiskVersion = -1                            # (refVersion when written last)
 
 proc refDiskFile(): string =
+  ## the cache file holding this project's words: a text file named by a hash of the project's folder
   getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "words" / (toHex(cast[uint64](hash(rootDir))) & ".txt")
 
 proc refDiskLoad() =
+  ## reads the words saved in the last session (path, stamp, words per line); a file that is not there or is damaged
+  ## gives nothing
   refDiskRead = true
   try:
     for l in lines(refDiskFile()):
@@ -283,6 +286,7 @@ proc hasBody(b: Buffer, s: NxSym): bool =
 proc refLensDecls(b: Buffer, f: NxFile): seq[int] =
   ## the declarations that get a count: top-level routines (not forward declarations), and types
   for i in 0 ..< f.syms.len:
+    # the declaration being looked at, in place
     template s: untyped = f.syms[i]
     if s.line < 0 or s.line >= b.lines.len or s.made or s.local: continue
     if s.kind in NxRoutineKinds:
@@ -367,6 +371,8 @@ proc refLensPump(b: Buffer, budgetMs = 12) =
   if changed: needRender = true
 
 proc refLensAt(b: Buffer, line: int): (string, bool) =
+  ## the reference-count label to show beside the declaration on that line ("3 references") and whether it is an
+  ## exported one nobody uses; empty when there is none
   if not cfgRefCounts or b.id notin refLens: return ("", false)
   refLens[b.id].getOrDefault(line, ("", false))
 

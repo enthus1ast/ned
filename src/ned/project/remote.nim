@@ -38,6 +38,7 @@ proc sshRun(r: Remote, script: string, batch = true): string =
   sshCmd(r, batch) & " " & quoteShell(remoteScript(script))
 
 func remotePath(r: Remote, local: string): string =
+  ## the path on the server of a path in the local copy: the server's folder, plus what follows the copy's folder
   if local == r.mirror: r.absPath else: r.absPath & local[r.mirror.len .. ^1]
 
 proc remoteCommand(r: Remote, cmd, localCwd: string, tty = false): string =
@@ -70,6 +71,8 @@ proc saveRemotes()
 proc remoteSync(ri: int, then: proc() = nil)
 proc remoteConnect(r: Remote, then: proc() {.closure.})
 
+# the path of a flag file that exists while saves of this ned are on their way to the server; `remoteWaitPushes` waits
+# for it to go
 proc remotePushFlag(): string = privDir() / ("remote-pushing-" & $getCurrentProcessId())
 
 proc remoteWaitPushes(): string =

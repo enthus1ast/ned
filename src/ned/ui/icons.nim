@@ -157,6 +157,7 @@ proc ic(name: string): string =
     else: "•"
 
 proc langColor(path: string): Rgb =
+  ## the colour a file's icon is drawn in, from its extension (the theme's dim colour for an unknown one)
   let ext = splitFile(path).ext.toLowerAscii
   case ext
   of ".nim", ".nims", ".nimble": 0xF3D400'u32
@@ -176,6 +177,7 @@ proc langColor(path: string): Rgb =
   else: theme.dim
 
 proc fileIcon(path: string): string =
+  ## the icon of a file by its extension: a Nerd Font glyph when ui.icons is "nerd", else a blank ("ascii") or a bullet
   if cfgIcons != "nerd": return (if cfgIcons == "ascii": " " else: "•")
   let ext = splitFile(path).ext.toLowerAscii
   case ext

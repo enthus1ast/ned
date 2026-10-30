@@ -70,6 +70,7 @@ proc cmdFormatPreview() =
   openDiffView(relPath(b.path), now, "now", nil, after, "formatted (" & by & ")", b.lang)
   let dvId = buf().id
   proc back() =
+    ## closes the side-by-side preview and shows the file itself again
     # the side-by-side view closed, the file in front again
     let dv = bufById(dvId)
     if dv != nil and dv.id != id:
@@ -78,6 +79,9 @@ proc cmdFormatPreview() =
     let x = bufById(id)
     if x != nil and x.path.len > 0: discard openFile(x.path)
   proc apply(onlyChanged: bool) =
+    ## closes the preview and puts the formatted text into the file as one edit — all of it, or with onlyChanged just
+    ## the lines the person changed (since git last saw the file or since it was opened); refuses when the file changed
+    ## after the preview was made
     let x = bufById(id)
     back()
     if x == nil or not x.canEdit(): return
@@ -282,6 +286,9 @@ proc fmtAllFileAct(k: int): Action =
         if fmtAllChanges.len > 0: fmtAllReview())])
 
 proc fmtAllReview() =
+  ## opens the review of Format all once the files are looked at: a menu with Format all, one entry for each file that
+  ## would change (to show, apply or leave that one) and one that lists in the Output panel the files that were left
+  ## alone and why. Says so instead while files are still being looked at or when nothing waits
   if fmtAllOn:
     info("Still formatting: " & $(fmtAllTotal - fmtAllQueue.len) & " of " & $fmtAllTotal)
     return

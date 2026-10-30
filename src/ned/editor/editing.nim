@@ -8,6 +8,8 @@ var cfgAutoDedent* = true   # editor.autoDedent: in Nim, a closer typed alone an
                             # typed at a line's start go back to the column of what they close or belong to
 
 func pairClose(pairs: string, ch: char): char =
+  ## the closing character for the opening `ch` in a language's pairs string (opener and closer side by side,
+  ## `()[]{}""`); '\0' when `ch` opens nothing
   var i = 0
   while i + 1 < pairs.len:
     if pairs[i] == ch: return pairs[i+1]
@@ -15,6 +17,7 @@ func pairClose(pairs: string, ch: char): char =
   '\0'
 
 func isCloser(pairs: string, ch: char): bool =
+  ## whether `ch` is the closing half of one of the pairs
   var i = 1
   while i < pairs.len:
     if pairs[i] == ch: return true
@@ -22,6 +25,8 @@ func isCloser(pairs: string, ch: char): bool =
   false
 
 proc canEdit(b: Buffer): bool =
+  ## whether the buffer may be changed; for a read-only one it warns and says false (a protected library file also says
+  ## how to allow editing it)
   if b.readOnly:
     if b.libLocked:
       warn(b.name & " is part of the Nim toolchain or an installed package: read-only, so it is not changed by " &
@@ -48,6 +53,12 @@ proc insertText(b: Buffer, text: string, distribute = true) =
   b.normalize()
 
 proc typeChar(b: Buffer, ch: string) =
+  ## types a character at every cursor, as one typing undo step that starts anew at each word. A selection is wrapped
+  ## when an opening bracket or quote is typed; typing a closer that is already there steps over it; an opener adds its
+  ## closer when the next character allows and the place is not a string or comment (the language there decides the
+  ## pairs). A closer typed on a blank line goes one level out; in Nim, with editor.autoDedent, a closing bracket alone
+  ## on its line and the branch words (`of`, `elif`, `else`, `except`, `finally`) go back to the line they belong to; a
+  ## language's dedent word (`end`) typed alone goes one level out.
   if not b.canEdit(): return
   let c0 = ch[0]
   b.beginEdit(ekType)
@@ -162,6 +173,10 @@ proc shouldIndent(b: Buffer, line: int, t: string, lang: Lang = nil): bool =
   false
 
 proc newline(b: Buffer) =
+  ## Enter at every cursor: a new line with the same indentation, one level more after an opener or an indent word (by
+  ## the language there); Markdown list items and doc comments carry on with their marker (an empty list item ends the
+  ## list); between a bracket pair the line is split in three with the cursor on the indented middle one.
+  ## Whitespace-only text before the cursor and spaces after it are dropped.
   if not b.canEdit(): return
   b.beginEdit()
   for i in countdown(b.cursors.high, 0):
@@ -228,6 +243,9 @@ proc newline(b: Buffer) =
   b.normalize()
 
 proc backspace(b: Buffer, word = false) =
+  ## Backspace at every cursor: deletes the selection, or joins with the previous line at a line's start, or deletes a
+  ## word (`word`), or — in the spaces of an indentation — goes back to the previous indent stop, or deletes one
+  ## character cluster, taking an empty pair such as `()` away together
   if not b.canEdit(): return
   b.beginEdit(ekDelete)
   for i in countdown(b.cursors.high, 0):
@@ -261,6 +279,8 @@ proc backspace(b: Buffer, word = false) =
   b.normalize()
 
 proc deleteForward(b: Buffer, word = false) =
+  ## Delete at every cursor: removes the selection, or the character (or word, with `word`) after the cursor, joining
+  ## lines at a line's end
   if not b.canEdit(): return
   b.beginEdit(ekDelete)
   for i in countdown(b.cursors.high, 0):
@@ -276,6 +296,8 @@ proc deleteForward(b: Buffer, word = false) =
   b.normalize()
 
 proc selectedLines(b: Buffer): seq[int] =
+  ## the lines the cursors and selections touch, sorted, each once — a selection that ends at column 0 does not take
+  ## that last line
   var s: HashSet[int]
   for c in b.cursors:
     let (a, e) = c.range
@@ -286,11 +308,14 @@ proc selectedLines(b: Buffer): seq[int] =
   result.sort()
 
 proc lineBlocks(b: Buffer): seq[(int, int)] =
+  ## the selected lines as (first, last) blocks, neighbouring lines joined into one block
   for l in b.selectedLines():
     if result.len > 0 and result[^1][1] + 1 >= l: result[^1][1] = l
     else: result.add (l, l)
 
 proc indentLines(b: Buffer, dir: int) =
+  ## indents the selected lines one level (dir > 0, empty lines left alone) or takes one level off (a tab, or up to one
+  ## indent's spaces)
   if not b.canEdit(): return
   b.beginEdit()
   for l in b.selectedLines():
@@ -307,6 +332,8 @@ proc indentLines(b: Buffer, dir: int) =
   b.normalize()
 
 proc tabKey(b: Buffer) =
+  ## the Tab key: a selection over several lines indents those lines; otherwise a tab (or spaces up to the next indent
+  ## stop) is put in at every cursor, replacing a selection
   if not b.canEdit(): return
   for c in b.cursors:
     if c.hasSel and c.anchor.line != c.head.line:
@@ -324,6 +351,9 @@ proc tabKey(b: Buffer) =
   b.normalize()
 
 proc toggleComment(b: Buffer) =
+  ## comments the selected lines out, or in when all of them are already comments, with the line comment of the language
+  ## at the first line (so C in a Nim emit gets `//`). The marker goes at the shallowest indentation and blank lines are
+  ## left alone. A language with only block comments, or HTML, wraps each line in its start and end markers instead.
   if not b.canEdit(): return
   # the language there: C in a Nim emit gets //, HTML in a string <!-- -->, a Markdown code block its own
   let sl0 = b.selectedLines()
@@ -376,6 +406,8 @@ proc toggleComment(b: Buffer) =
   b.normalize()
 
 proc moveLines(b: Buffer, dir: int) =
+  ## moves the selected line blocks one line up (dir < 0) or down by swapping them with the line beside them; the
+  ## cursors go with them, and nothing happens at the first or last line
   if not b.canEdit(): return
   let blocks = b.lineBlocks()
   if blocks.len == 0: return
@@ -399,6 +431,8 @@ proc moveLines(b: Buffer, dir: int) =
   b.normalize()
 
 proc duplicate(b: Buffer) =
+  ## copies each selection right after itself, leaving the copy selected, or — with nothing selected — copies the
+  ## cursor's line below it, the cursor moving to the copy
   if not b.canEdit(): return
   b.beginEdit()
   for i in countdown(b.cursors.high, 0):
@@ -417,6 +451,8 @@ proc duplicate(b: Buffer) =
   b.normalize()
 
 proc deleteLines(b: Buffer) =
+  ## deletes the whole lines the cursors and selections are on (the last line takes the break before it with it);
+  ## selections are left empty
   if not b.canEdit(): return
   let blocks = b.lineBlocks()
   b.beginEdit()
@@ -434,6 +470,8 @@ proc deleteLines(b: Buffer) =
   b.normalize()
 
 func wordRangeAt(b: Buffer, p: Pos): (Pos, Pos) =
+  ## the start and end of the word at `p` — also when `p` is just after it — or an empty range at `p` when there is
+  ## none; a position outside the text gives the same position twice
   if p.line < 0 or p.line >= b.lines.len: return (p, p)     # a position from before the text changed
   let s = b.lines[p.line]
   var a = min(max(p.col, 0), s.len)
@@ -449,11 +487,14 @@ func wordRangeAt(b: Buffer, p: Pos): (Pos, Pos) =
   (Pos(line: p.line, col: a), Pos(line: p.line, col: e))
 
 func wordAt(b: Buffer, p: Pos): string =
+  ## the word at `p` ("" when there is none)
   if p.line < 0 or p.line >= b.lines.len: return ""
   let (a, e) = b.wordRangeAt(p)
   b.lines[p.line][a.col ..< e.col]
 
 proc selectLine(b: Buffer) =
+  ## makes each selection cover whole lines with their line breaks; when it already does, one more line is added (the
+  ## last line of the file is taken up to its end)
   for c in b.cursors.mitems:
     let (a, e) = c.range
     let full = c.hasSel and a.col == 0 and e.col == 0 and e.line > a.line

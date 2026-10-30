@@ -34,10 +34,14 @@ var
   sent = ""
 
 proc curStyle(): string =
+  ## the style in use: the one chosen with next style in this session, else the style setting; background when it is
+  ## none of the three
   result = if styleNow.len > 0: styleNow else: setting("style", "background")
   if result notin Styles: result = "background"
 
 proc look(): IndentStyle =
+  ## how the levels are to be drawn now, from the settings (the colours, the style, the colour of a wrong level, the
+  ## languages) — an empty style (nothing drawn) when the plugin is off
   if not on: return IndentStyle()
   var cs = setting("colors", "warn add info accent mod").splitWhitespace
   if cs.len == 0: cs = @["warn", "add", "info", "accent", "mod"]
@@ -45,12 +49,14 @@ proc look(): IndentStyle =
               langs: setting("languages", "").splitWhitespace)
 
 proc apply() =
+  ## gives ned the look of the levels, but only when it differs from the one given last
   let st = look()
   let key = $st
   if key == sent: return
   sent = key
   indentStyle(st)
 
+# keeps whether the plugin is on, and the style chosen, in the data folder for the next start
 proc save() = writeData("state", (if on: "on" else: "off") & "\n" & styleNow & "\n")
 
 command "Rainbow indent: on/off":

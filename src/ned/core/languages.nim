@@ -22,6 +22,7 @@ var
   lexOff = 0                                # where the string a nested lexer is colouring starts in the line
   embedSig = ""                             # nim.embeddedLanguages and the backend, when last applied
 
+# the set of words in a string, cut at white space (how the keyword lists below are written)
 proc ws(s: string): HashSet[string] = toHashSet(s.splitWhitespace())
 proc wsAnyCase(s: string): HashSet[string] =
   ## SQL: keywords in lower and upper case
@@ -30,6 +31,10 @@ proc wsAnyCase(s: string): HashSet[string] =
     result.incl w.toUpperAscii
 
 proc initLangs() =
+  ## defines the built-in languages (the `langs` list, plain Text last) — for each its name, id, file extensions and
+  ## names, comment and string markers, keyword, type, constant and builtin words, indentation rules and bracket pairs —
+  ## and the pseudo-languages that live only inside strings (regex, PEG, Nim format strings); the cache of embedded
+  ## languages is emptied
   let cKw = ws"""break case const continue default do else enum extern for goto if inline
     register restrict return sizeof static struct switch typedef union volatile while
     class namespace template typename public private protected virtual override new delete
@@ -307,11 +312,14 @@ proc initLangs() =
   embedLangCache.clear()
 
 proc langByName(name: string): Lang =
+  ## the language with this name (ignoring case) or id, nil when there is none
   for l in langs:
     if cmpIgnoreCase(l.name, name) == 0 or l.id == name: return l
   nil
 
 proc detectLang(path: string, firstLine: string): Lang =
+  ## the language of a file: a `#? stdtmpl` first line is Nim's template language, else its exact file name, then its
+  ## extension, then a `#!` first line (python, node, nim, lua, ruby, sh), else plain Text
   if firstLine.startsWith("#? stdtmpl") or firstLine.startsWith("#?stdtmpl"): return langByName("nimf")
   let name = extractFilename(path)
   let ext = splitFile(path).ext.toLowerAscii().strip(chars = {'.'})

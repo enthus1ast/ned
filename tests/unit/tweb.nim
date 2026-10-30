@@ -4,6 +4,7 @@
 import std/[unittest, strutils, sequtils, tables]
 import ../../src/ned/web/web
 
+# the labels of the completion items, in order
 proc labels(items: seq[WebItem]): seq[string] = items.mapIt(it.label)
 
 proc at(text: string): (seq[string], int, int) =

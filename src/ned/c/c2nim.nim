@@ -71,6 +71,8 @@ proc cWrapWith(header: string) =
   openActions("Wrapping a C header needs c2nim or futhark", items)
 
 proc wrapAct(path: string, c2nim: bool): Action =
+  ## the action of a menu item that wraps the header at `path` (with c2nim, or by ned's own C engine) — made by a proc
+  ## so that each item made in a loop keeps its own path
   (proc() = (if c2nim: cWrapWith(path) else: cWrapOwn(path)))
 
 proc cmdWrapHeader(c2nim = false) =

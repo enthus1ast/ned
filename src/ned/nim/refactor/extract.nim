@@ -228,9 +228,13 @@ proc toggleExport() =
     info(s[nameStart ..< e] & " is now exported")
   b.endEdit()
 
+# an action that opens a web address in the browser
 proc urlAct(u: string): Action = (proc() = openInBrowser(u))
 
 proc nimDocsForSymbol() =
+  ## opens the Nim documentation page of the word at the cursor: the library index when there is no word, the
+  ## documentation's index when the standard library has no such name, else the page of its module (a pick list when
+  ## several modules have it)
   let b = buf()
   let w = b.wordAt(b.primary.head)
   if w.len == 0:

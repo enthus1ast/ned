@@ -8,6 +8,9 @@ const LintHookMark = "# ned --lint pre-commit hook"
 const LintFixRules = ["var-let", "deprecated", "unused-import", "can-be-func", "import-not-required", "nim3"]
 
 proc lintUsage(prog: string): string =
+  ## the help text of the command-line linter, written with the name it was started as (ned --lint or nedls --lint): its
+  ## options, the settings and the .ned/lint.json rules file it reads, the comments that silence a line, and the exit
+  ## status
   prog & " — the Nim engine's checks over files and folders (no compiler run, no build)\n\n" &
   "Usage: " & prog & " [options] [FILE|FOLDER…]      (default: this folder)\n" &
   "  (a CSS, HTML, SQL or JavaScript file named here: ned's own checks of those languages)\n\n" &
@@ -30,6 +33,7 @@ proc lintUsage(prog: string): string =
   "Exit status: 0 nothing at --fail-on, 1 found, 2 a usage error.\n"
 
 func lintSevName(s: int): string =
+  ## the name of a severity number: 1 error, 2 warning, 3 info, anything else hint
   case s
   of 1: "error"
   of 2: "warning"
@@ -37,6 +41,8 @@ func lintSevName(s: int): string =
   else: "hint"
 
 func lintSevOf(name: string): int =
+  ## the severity number for a name given on the command line (error 1, warning 2, info 3, hint or all 4, never 0); -1
+  ## for anything else
   case name.toLowerAscii
   of "error", "errors": 1
   of "warning", "warnings", "warn": 2
@@ -169,6 +175,13 @@ proc lintFixOne(b: Buffer, d: Diag): bool =
   false
 
 proc lintMain(args: seq[string], prog = "ned --lint"): int =
+  ## ned --lint: reads the options (a usage error gives 2), sets up the engine without a screen — languages, settings,
+  ## the Nim library, the project's paths from `nim dump` — and checks the Nim files given, those of the folders (what
+  ## git does not ignore) or those staged, less the ones .ned/lint.json leaves out; a CSS, HTML, SQL or JavaScript file
+  ## named is checked by ned's own engine for it. With --fix the safe fixes are made from the bottom up and the file is
+  ## checked again (--diff shows them without writing; a requirement is added to the .nimble for each package imported
+  ## without one). The project's own checks are added, and the findings are printed sorted as text, GitHub annotations,
+  ## JSON or SARIF, with a summary line on stderr. The result is 1 when something as bad as --fail-on was found, else 0
   var inputs: seq[string]
   var format = if getEnv("GITHUB_ACTIONS") == "true": "github" else: "text"
   var showSev = 2

@@ -21,18 +21,24 @@ type Marked = object
 
 var marked = Marked(buf: -1)
 
+# whether position a comes earlier in the buffer than b
 func before(a, b: Pos): bool = a.line < b.line or (a.line == b.line and a.col < b.col)
+# whether position a is b or comes earlier
 func atOrBefore(a, b: Pos): bool = not before(b, a)
+# whether the two ranges start and stop at the same places
 func same(a, b: Range): bool = a.start.line == b.start.line and a.start.col == b.start.col and
                                a.stop.line == b.stop.line and a.stop.col == b.stop.col
 
 proc unmark() =
+  ## forgets the marked text and takes its tint and ⇄ sign off (nothing is done to it when its tab has been closed)
   if marked.buf >= 0:
     try: Buf(id: marked.buf).clearDecorations()
     except CatchableError: discard                  # (its tab was closed)
   marked = Marked(buf: -1)
 
 proc mark(b: Buf, r: Range, text: string) =
+  ## marks the range r of the buffer as the first text of an exchange (replacing any mark before): remembers where it is
+  ## and what it says, tints it and puts ⇄ in the gutter at its first line
   unmark()
   marked = Marked(buf: b.id, r: r, text: text)
   if not r.isEmpty: b.highlight(r, "accent")
@@ -92,6 +98,7 @@ proc exchange(b: Buf, r: Range, moveCursor = true) =
   if moveCursor: b.setCursor(at)
 
 proc linesRange(b: Buf, first, last: int): Range =
+  ## the range of whole lines first … last, from the start of the first to the end of the last
   rng(pos(first, 0), pos(last, b.line(last).len))
 
 command "Exchange: mark the selection (then again to swap)":
@@ -101,6 +108,7 @@ command "Exchange: mark the selection (then again to swap)":
     exchange(b, if r.isEmpty: b.linesRange(r.start.line, r.start.line) else: r)
 
 proc forget() =
+  ## Exchange: clear — forgets the marked text, or says that nothing is marked
   if marked.buf < 0: message("Exchange: nothing is marked")
   else:
     unmark()

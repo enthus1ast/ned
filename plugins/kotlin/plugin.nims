@@ -145,6 +145,7 @@ func kotlinCode(s: string, inBlock: var int, inRaw: var bool): string =
       inc i
     else: inc i
 
+# whether c can be part of a Kotlin name
 func kotlinIdent(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_'}
 
 const KotlinMods = ["public", "private", "protected", "internal", "open", "abstract", "final", "override", "sealed",

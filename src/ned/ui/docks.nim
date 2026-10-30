@@ -7,6 +7,7 @@ const
   RightViews = [svAssistant, svOutline, svTodos, svTimeline, svPlugins]
 
 proc viewIcon(v: SideView): string =
+  ## the icon on a dock view's tab button
   case v
   of svFiles: ic("files")
   of svSearch: ic("search")
@@ -20,6 +21,7 @@ proc viewIcon(v: SideView): string =
   of svPlugins: ic("gear")
 
 func viewTitle(v: SideView): string =
+  ## a dock view's title, in capitals, as shown in the dock's header (and as the tab's tooltip)
   case v
   of svFiles: "EXPLORER"
   of svSearch: "SEARCH"
@@ -34,10 +36,14 @@ func viewTitle(v: SideView): string =
 
 func sideItem(text: string, role = 0, icon = "", detail = "", action: Action = nil, path = "", line = -1,
               depth = 0, data = ""): SideItem =
+  ## makes one row of a dock list: its text, role (the colour: 0 plain, 1 accent, 2 dim, 3 error, 4 warning, 5 ok, 6
+  ## heading, 7 function, 8 type), icon, grey detail text, the action for a click, the file and line it points to, and
+  ## its indentation; `data` marks the kind of row for the keys and menus
   SideItem(text: text, role: role, icon: icon, detail: detail, action: action, path: path, line: line,
            depth: depth, data: data)
 
 proc roleColor(role: int): Rgb =
+  ## the theme colour a dock row's role is drawn in
   case role
   of 1: theme.accent
   of 2: theme.dim
@@ -51,6 +57,8 @@ proc roleColor(role: int): Rgb =
   else: theme.fg
 
 proc toolLine(name, hint: string, install: Action = nil): SideItem =
+  ## the row for a tool in the Nim panel: a green tick with its version when it is installed, else a cross with the hint
+  ## and, if there is one, a click action that installs it
   if haveExe(name):
     let v = toolVersions.getOrDefault(name)
     sideItem(name & (if v.len > 0: " " & v else: ""), 5, ic("ok"))
@@ -99,6 +107,10 @@ proc atlasItems(): seq[SideItem] =
     result.add sideItem("install atlas", 2, "+", "nimble install atlas", proc() = runNimble("install -y atlas"))
 
 proc buildProjectItems(): seq[SideItem] =
+  ## the rows of the Nim panel, in sections: the project (nimble file, new project), code intelligence (the language
+  ## server or ned's own index, nimsuggest), build and run (run, build, debug, mode, backend, compiler), nimble tasks
+  ## and dependencies, Nim tools (macro expansion, generated C, references, docs), Nim 3 (nimony), Atlas, and the
+  ## toolchain with the tools found on this machine
   loadNimbleInfo()
   let b = buf()
   let isNim = b.lang.mode == lmNim
@@ -210,9 +222,12 @@ proc buildProjectItems(): seq[SideItem] =
   result.add toolLine("rg", "pkg install ripgrep (fast search)")
   result.add toolLine("curl", "pkg install curl (AI assistant)")
 
+# the colour role of a git status letter: added or new green, deleted red, modified yellow, anything else the accent
 func gitRole(c: char): int = (if c in {'A', '?'}: 5 elif c == 'D': 3 elif c == 'M': 4 else: 1)
 
 proc gitPickRepoAct(root: string, quiet = false): Action =
+  ## the action that makes `root` the repository the git dock and git commands work on: shows its status at once from
+  ## what is known, asks for a fresh one, and says which branch it is on unless `quiet`
   result = proc() =
     gitRepo = root
     let st = GitStatusRun(pending: 0)
@@ -222,6 +237,10 @@ proc gitPickRepoAct(root: string, quiet = false): Action =
     if not quiet: info("Git: " & extractFilename(root) & (if gitBranch.len > 0: " ⎇ " & gitBranch else: ""))
 
 proc buildGitItems(): seq[SideItem] =
+  ## the rows of the git dock: without a repository, how to start one (or clone); else the repositories of the workspace
+  ## (when several), the branch, a merge or rebase in progress with its conflicted files, bisect steps, commit and the
+  ## AI helpers, the staged, changed and untracked files (parsed from `git status`), and the actions — stage all, sync,
+  ## pull, push, fetch, GitHub sign-in, branches, history, stash, worktrees, submodules, bisect, amend, undo
   let home = gitHome()
   let ri = if remotes.len > 0: remoteOf(rootDir) else: -1
   if home.len == 0:
@@ -370,6 +389,8 @@ var
   timelineBusy = false
 
 proc refreshTimeline() =
+  ## reads the current file's last 200 commits (`git log --follow`: hash, author, age, subject) in the background into
+  ## `timelineLines`; an empty list when the file is not in a repository, nothing while a read is going on
   let b = buf()
   if b.path.len == 0 or timelineBusy: return
   let root = findGitRoot(parentDir(b.path))
@@ -400,6 +421,8 @@ func commitAct(hash, path: string): Action =
                                   extractFilename(path) & " (yours)", src.lang))
 
 proc buildTimelineItems(): seq[SideItem] =
+  ## the rows of the timeline dock: one per commit that touched the current file, with its age and author, each opening
+  ## that version beside the file; a hint when there is no file, it is loading or has no commits
   let b = buf()
   if b.path.len == 0: return @[sideItem("Open a file to see its history", 2)]
   if timelinePath != b.path:
@@ -416,10 +439,13 @@ proc buildTimelineItems(): seq[SideItem] =
 # ── search view: the query lives in the dock, results grouped by file ──
 
 func collapseAct(p: string): Action =
+  ## the action of a file's heading in the search results: folds or unfolds that file's hits
   proc() =
     if p in searchCollapsed: searchCollapsed.excl p else: searchCollapsed.incl p
 
 proc buildSearchItems(): seq[SideItem] =
+  ## the rows of the search results: a heading per file with its number of hits (folded or not), and under it each hit's
+  ## text and line number; a hint while nothing has been searched, a search is running or nothing was found
   if searchHits.len == 0:
     if dockQueryRan.len == 0: return @[sideItem("Type and press Enter to search the project", 2)]
     return @[sideItem((if searchDone: "No results" else: "Searching…"), 2)]

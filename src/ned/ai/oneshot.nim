@@ -1,6 +1,8 @@
 # ── one-shot requests (commit messages, …): the reply goes to a callback, not the chat ──
 
 proc aiOneShot(prompt: string, onDone: proc(t: string) {.closure.}) =
+  ## asks the model one question outside the chat — the chat is set aside while the request is made — and gives its
+  ## whole reply to `onDone`; it says so when the assistant is busy
   if aiBusy or aiInlineMode:
     info("The assistant is busy — try again in a moment")
     return
@@ -14,6 +16,8 @@ proc aiOneShot(prompt: string, onDone: proc(t: string) {.closure.}) =
   aiMsgs = saved
 
 proc aiCommitMessage() =
+  ## asks the model for a one-line commit message for the staged changes (the unstaged ones when nothing is staged) and
+  ## offers it in the commit prompt to edit; it says so when there is no repository or no change
   if gitHome().len == 0:
     info("Not a git repository")
     return
@@ -87,6 +91,7 @@ proc aiReviewStaged() =
       needRender = true)
 
 proc aiRegenerate() =
+  ## drops the assistant's last answer, with its tool calls, and asks again from the user's last message
   if aiBusy: return
   var i = aiMsgs.high
   while i >= 0 and aiMsgs[i].role != 0: dec i
@@ -100,6 +105,7 @@ proc aiRegenerate() =
   aiRequest()
 
 proc fmtTokens(n: int): string =
+  ## a token count written short: 850, 1.2k, 15k, 1.3M
   if n >= 1_000_000: formatFloat(n.float / 1_000_000, ffDecimal, 1) & "M"
   elif n >= 10_000: $(n div 1000) & "k"
   elif n >= 1000: formatFloat(n.float / 1000, ffDecimal, 1) & "k"

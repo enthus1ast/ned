@@ -1,6 +1,9 @@
 # ── Run › Configurations, run with arguments ──
 
 proc addRunConfigFromFile() =
+  ## adds a run configuration for the current file: asks for its name and its program arguments, then puts it (its main
+  ## file, the arguments and, for Nim, the mode and backend) into the project's `run.configs` setting, replacing one of
+  ## the same name, makes it the chosen one and trusts the folder's run settings
   let b = buf()
   if b.path.len == 0:
     info("Open the file to run first")
@@ -29,6 +32,9 @@ proc addRunConfigFromFile() =
       info("Run configuration \"" & nm & "\" saved in .ned/settings.json — Alt+R runs it")))
 
 proc cmdRunConfigs() =
+  ## the Run configurations menu: the current file (no configuration), each configuration with its command (a pick makes
+  ## it the one Alt+R runs; the chosen one is ticked), adding one for this file, and opening the settings file to edit
+  ## them
   var items: seq[(string, string, Action)]
   items.add act((if activeRunConfig.len == 0: "✓ " else: "  ") & "The current file", "no configuration: Alt+R runs what you edit",
                 proc() =
@@ -49,6 +55,8 @@ proc cmdRunConfigs() =
   openActions("Run configurations", items)
 
 proc runWithArgs() =
+  ## asks for arguments (the last ones used for the file are offered) and runs the current file with them, remembering
+  ## them in `runArgsByFile`: a Nim file through `nimCmd`, any other by its language's run command
   let b = buf()
   if b.path.len == 0:
     info("Save the file first")

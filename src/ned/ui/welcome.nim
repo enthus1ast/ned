@@ -1,3 +1,5 @@
+# the welcome page shown when nothing is open — logo, start actions, recent files, toolchain status and a tip — with its
+# single-key actions; also the sticky lines (enclosing blocks) kept at the top of a scrolled file.
 const Tips = [
   "Start a comment with TODO, FIXME, BUG, HACK or NOTE: it gets its colour, and View › TODOs lists and counts them",
   "Something missing? Help › Check setup (or ned --check) lists what ned found and how to install the rest",
@@ -21,11 +23,16 @@ const Tips = [
 ]
 
 proc recentList(n: int): seq[string] =
+  ## the first n recently opened files that still exist
   for r in recentFiles:
     if result.len >= n: break
     if fileExists(r): result.add r
 
 proc drawWelcome(x0, y0, w, h: int) =
+  ## draws the welcome page centred in the area: the logo (when tall enough), the version line, the START actions and
+  ## the RECENT files (beside them when wide, below on a narrow screen), which of nim, nimble, git … are installed, and
+  ## a tip that changes every hour (wrapped once to fit). Every row is a click region and is noted in welcomeRegions;
+  ## welcomeKey handles the keys.
   welcomeRegions.setLen(0)
   let logo = @[
     "                 _ ",
@@ -73,6 +80,8 @@ proc drawWelcome(x0, y0, w, h: int) =
   discard putStr(x0 + max(0, (w - strWidth(tag)) div 2), y, truncTo(tag, w - 2), theme.dim, theme.bg, {}, x0 + w)
   y += 2
   proc row(x, yy: int, key, label, hint: string, a: Action, colW: int, rightAct: Action = nil) =
+    ## draws one row of the page — its key in an accent badge, the label, a hint at the right edge of the column — and
+    ## makes it clickable (a right click runs rightAct)
     var xx = putStr(x, yy, " " & key & " ", theme.bg, theme.accent, {aBold}, x0 + w)
     xx = putStr(xx + 1, yy, truncTo(label, colW - 6 - (if hint.len > 0: strWidth(hint) + 1 else: 0)), theme.fg,
                 theme.bg, {}, x0 + w)

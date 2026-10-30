@@ -37,6 +37,7 @@ type Routine* = object
   docAt*: int                    # JS, C, Go, Rust: the line the comment goes above (its decorators' first)
 
 func indentOf(l: string): int =
+  ## how many spaces or tabs the line starts with
   while result < l.len and l[result] in {' ', '\t'}: inc result
 
 func joinFrom(ls: seq[string], s, n: int): (string, seq[int]) =
@@ -117,11 +118,13 @@ func splitTop(s: string, seps: set[char], angle = false): seq[string] =
   if cur.strip.len > 0: result.add cur
 
 func identAt(t: string, i: int): string =
+  ## the name (letters, digits, _, non-ASCII bytes) that starts at offset i of the text; empty when there is none
   var j = i
   while j < t.len and (t[j] in {'a'..'z', 'A'..'Z', '0'..'9', '_'} or t[j].uint8 >= 0x80): inc j
   t[i ..< j]
 
 func skipSpaces(t: string, i: int): int =
+  ## the offset of the first character at or after i that is not a space, tab or line end
   result = i
   while result < t.len and t[result] in {' ', '\t', '\n', '\r'}: inc result
 
@@ -135,6 +138,9 @@ func cutAtTop(s: string, stops: set[char]): string =
 const NimWords = ["proc", "func", "method", "iterator", "template", "macro", "converter"]
 
 proc nimRoutine*(ls: seq[string], s: int): (bool, Routine) =
+  ## reads the Nim routine whose signature starts at line s (proc, func, method, iterator, template, macro or converter;
+  ## the lines after it are read too, for a signature of several): its name, the names of its parameters, whether it
+  ## gives a result, and the line and column where its signature ends (after the =); false when the line is not one
   let t = ls[s].strip
   var kw = ""
   for w in NimWords:
@@ -207,6 +213,8 @@ proc nimRoutine*(ls: seq[string], s: int): (bool, Routine) =
   (true, r)
 
 func nimHasDoc(ls: seq[string], r: Routine): bool =
+  ## whether a Nim routine has a ## comment already: after the = of its signature, or on the first line under it when
+  ## that is indented deeper than the routine
   if r.endCol >= 0 and r.endCol < ls[r.last].len and ls[r.last][r.endCol .. ^1].strip.startsWith("##"): return true
   for k in r.last + 1 ..< ls.len:
     let t = ls[k].strip
@@ -217,6 +225,9 @@ func nimHasDoc(ls: seq[string], r: Routine): bool =
 # ── Python ──
 
 proc pyRoutine*(ls: seq[string], s: int): (bool, Routine) =
+  ## reads the Python function whose def starts at line s (async too): its name, its parameters (self, cls, / and * left
+  ## out), whether it returns a value (its -> type, else a return with a value in its body) or is a generator (yield),
+  ## and where its colon is; false when the line is not a def
   var t = ls[s].strip
   if t.startsWith("async "): t = t[6 .. ^1].strip
   if not t.startsWith("def "): return
@@ -272,6 +283,7 @@ proc pyRoutine*(ls: seq[string], s: int): (bool, Routine) =
   (true, r)
 
 func pyHasDoc(ls: seq[string], r: Routine): bool =
+  ## whether a Python function has a docstring: a string right after its colon, or as the first thing of its body
   let rest = ls[r.last][r.endCol .. ^1].strip
   if rest.len > 0 and not rest.startsWith("#"):
     return rest[0] in {'"', '\''} or (rest.len > 1 and rest[0] in {'r', 'R', 'u', 'U'} and rest[1] in {'"', '\''})
@@ -305,6 +317,10 @@ func jsReturnsIn(text: string, open: int): bool =
   false
 
 proc jsRoutine*(ls: seq[string], s: int, ts: bool): (bool, Routine) =
+  ## reads the JavaScript (TypeScript when ts) routine that starts at line s: a function, a const/let/var holding a
+  ## function or an arrow function, or a method or constructor of a class — with its parameters (decorators and access
+  ## words left out, a destructured one called param0, param1 …), whether it returns a value (its type, else a return
+  ## with a value in its body), and the line above its decorators where a comment goes; false when the line is not one
   let raw = ls[s]
   var t = raw.strip
   var pre = indentOf(raw)
@@ -439,6 +455,10 @@ const CSpecifiers = ["static", "inline", "extern", "virtual", "constexpr", "cons
   "__inline", "__forceinline", "_Noreturn", "noreturn"]
 
 proc cRoutine*(ls: seq[string], s: int): (bool, Routine) =
+  ## reads the C or C++ function, method, constructor or operator whose definition or declaration starts at line s:
+  ## finds the ( after its type and name and the { or ; after it, and refuses statements, calls and anything with a = in
+  ## its tail; gives its parameters' names, whether it returns something (not void) and the line above its template line
+  ## where a comment goes; false when the line is not one
   let t = ls[s].strip
   if t.len == 0 or t[0] in {'#', '/', '*', '}', '{', '(', ')', ':', ';', '"'}: return
   let first = t.splitWhitespace()[0]
@@ -537,6 +557,8 @@ proc cRoutine*(ls: seq[string], s: int): (bool, Routine) =
 # ── Go ──
 
 proc goRoutine*(ls: seq[string], s: int): (bool, Routine) =
+  ## reads the Go function or method (a receiver is skipped) whose func starts at line s: its name, its parameters'
+  ## names (only when they have names) and whether it declares a result; false when the line is not one
   let t = ls[s].strip
   if not t.startsWith("func "): return
   let (text, starts) = joinFrom(ls, s, 30)
@@ -581,6 +603,9 @@ proc goRoutine*(ls: seq[string], s: int): (bool, Routine) =
 # ── Rust ──
 
 proc rustRoutine*(ls: seq[string], s: int): (bool, Routine) =
+  ## reads the Rust fn that starts at line s (pub, async, unsafe, extern … in front of it are skipped): its name, its
+  ## parameters (self left out) and whether it has a result other than (); the comment goes above its #[…] lines; false
+  ## when the line is not one
   var t = ls[s].strip
   var again = true
   while again:
@@ -663,6 +688,9 @@ proc findRoutine*(ls: seq[string], line: int, lang: string, below = 300): (bool,
     if ok: return (true, r)
 
 func hasDoc*(ls: seq[string], r: Routine, lang: string): bool =
+  ## whether the routine already has a doc comment: for Nim and Python by the rules of their own (## lines, a
+  ## docstring), for the others when the line above it (above its blank lines too, except in Go) ends a /** */ block or
+  ## is a /// (or in Go a //) comment
   case lang
   of "nim": return nimHasDoc(ls, r)
   of "python": return pyHasDoc(ls, r)
@@ -799,10 +827,14 @@ proc docEdit*(ls: seq[string], r: Routine, lang, ph, style, unit: string): (Edit
 # ── the command, the quick fix ──
 
 proc placeholder(): string =
+  ## the text that marks where the comment is to be written: the placeholder setting, … when it is empty
   let p = setting("placeholder", "…")
   if p.strip.len > 0: p else: "…"
 
 proc writeDoc() =
+  ## Doc: write a doc comment — finds the routine the cursor is in the signature of (else the next one below), and
+  ## unless it has a comment already inserts the generated one and selects the first placeholder to be typed over; says
+  ## so when the language is not supported or there is no routine
   let b = current()
   if not b.valid: return
   let lang = b.lang

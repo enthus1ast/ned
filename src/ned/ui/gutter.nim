@@ -1,6 +1,9 @@
 # ── gutter clicks: fold markers and run buttons ──
 
 proc gutterClick(x: int, p: Pos): bool =
+  ## a click at screen column `x` in the editor's gutter on the line of position `p`: the first column runs the line's
+  ## code lens (▶ run) or toggles a breakpoint in a Nim file, the last folds or unfolds, the git mark opens the actions
+  ## for that change, and the line numbers select the line; false when the click is not in the gutter
   let b = buf()
   let (ex, _, _, _) = editorRect
   if x >= ex + gutterW or b.isWelcome(): return false

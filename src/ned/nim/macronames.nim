@@ -11,10 +11,13 @@ var
   mnQueue: seq[string]                # files waiting their turn (one `nim check` at a time)
 
 proc mnUsable(path: string): bool =
+  ## whether macro names can be worked out for this file: the setting is on, it is a .nim file the engine (not a
+  ## language server) serves, nim is installed, no other file includes it and its folder is trusted
   cfgMacroNames and path.endsWith(".nim") and not nimUsesLsp() and haveExe("nim") and
     nxIncluderOf(path).len == 0 and codeTrusted(parentDir(path))
 
 proc mnLinesOf(path: string): seq[string] =
+  ## a file's lines: the open buffer's (unsaved text too), else the file on disk, empty if unreadable
   let i = bufIndexByPath(path)
   if i >= 0: return bufs[i].lines
   try: readFile(path).splitLines except CatchableError: @[]
@@ -111,13 +114,17 @@ proc mnForget(path: string) =
 #    with what they depend on ──
 
 proc mnDiskFile(path: string): string =
+  ## the cache file (a json file named by a hash of the path) that keeps what a source file's macro calls made
   getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "macros" / (toHex(cast[uint64](hash(path))) & ".json")
 
 proc mnNimStamp(): string =
+  ## which nim executable is in use and its stamp, so what it expanded is not used with another compiler ("" when nim is
+  ## not found)
   let exe = findExe("nim")
   if exe.len == 0: "" else: exe & "|" & nxStamp(exe)
 
 func mnTextKey(lines: openArray[string]): string =
+  ## a key for the file's text: its length and a hash of it
   let text = lines.join("\n") & "\n"
   $text.len & ":" & $hash(text)
 
@@ -138,6 +145,8 @@ proc mnDepsOf(f: NxFile, macroFiles: seq[string]): (bool, seq[(string, string)])
     result[1].add (p, nxStamp(p))
 
 proc mnStore(path, textKey, sig: string, deps: seq[(string, string)]) =
+  ## writes what a file's macro calls made to the disk cache, with the text key, the defines, the compiler's stamp, the
+  ## files it depended on (with their stamps) and the calls' signature; written whole or not at all
   var d = newJArray()
   for (p, st) in deps: d.add %*[p, st]
   let j = %*{"path": path, "text": textKey, "defs": nxDefinesKeyOf(), "nim": mnNimStamp(), "deps": d, "sig": sig,
@@ -188,6 +197,7 @@ proc mnLoad(path: string, lines: seq[string]): bool =
 var mnSigMemo: Table[string, (string, string)]   # project module → (its stamp, its top-level macro calls' lines)
 
 proc mnCallsSig(f: NxFile, lines: openArray[string]): string =
+  ## the lines of the file's top-level macro calls, joined: it changes when a call does, not when other code does
   for (l, _) in mnCalls(f, lines): result.add lines[l] & "\n"
 
 proc mnNamesKnown(f: NxFile, lines: seq[string], sc: NxScope): bool =
@@ -300,6 +310,7 @@ proc mnExpand(path: string) =
   if job != nil: job.deadlineMs = 60_000       # (a macro that never ends: stopped)
 
 proc mnNext() =
+  ## starts the next queued file's expansion when none is running (one `nim check` at a time)
   while mnRunning.len == 0 and mnQueue.len > 0:
     let p = mnQueue[0]
     mnQueue.delete(0)

@@ -7,9 +7,11 @@ var
   nbTagsLoaded = false
   nbTagsAsked: HashSet[string]                   # (a lookup under way)
 
+# the file in ned's state folder that keeps the version tags found for packages
 proc nbTagsFile(): string = stateDir() / "nimble-tags.json"
 
 proc nbTagsLoad() =
+  ## reads the saved package version tags from disk, once per session
   if nbTagsLoaded: return
   nbTagsLoaded = true
   try:
@@ -20,6 +22,7 @@ proc nbTagsLoad() =
   except CatchableError: discard
 
 proc nbTagsSave() =
+  ## writes the package version tags (and when each was read) to the state file
   var j = newJObject()
   for k, (at, ts) in nbTags: j[k] = %*{"at": at, "tags": ts}
   try: writeFile(nbTagsFile(), $j)
@@ -114,6 +117,8 @@ func nbRequiresAt(line: string, col: int): (bool, string, int) =
   (true, name, i)
 
 proc nbVersionItems(name: string): seq[CompItem] =
+  ## completion items for the versions a `requires` can name: the installed ones and the package's git tags, newest
+  ## first, each saying which it is
   let inst = nbInstalledVersions(name)
   let (_, tags) = nbTagsOf(name)
   var seen: HashSet[string]
@@ -347,6 +352,8 @@ proc nbInsertRequire(spec: string): int =
   at
 
 proc nbAskInstall(spec: string) =
+  ## after a requirement was added, asks whether to install it now (atlas install in an Atlas project, else nimble
+  ## install -d)
   if atlasIsProject():
     askConfirm("Added requires \"" & spec & "\" — install it now (atlas install)? (y/n)", proc(c: char) =
       if c in {'y', 'Y'}: atlasRun("install"))
@@ -355,6 +362,8 @@ proc nbAskInstall(spec: string) =
     if c in {'y', 'Y'}: runCommand("nimble install -d -y", nimble.dir))
 
 proc nbPickVersion(name: string) =
+  ## opens a pick list of how to require a package — newest or later, compatible with the newest, any version, exactly
+  ## one of the known ones, or the repository's head — and inserts the chosen requires line
   let inst = nbInstalledVersions(name)
   let (_, tags) = nbTagsOf(name)
   var items: seq[(string, string, Action)]
@@ -417,6 +426,8 @@ proc cmdNimbleAddDependency() =
 # ── the version ──
 
 proc nbBumpAct(bid, l, c0, c1: int, newV: string): Action =
+  ## an action that replaces the version text on that line of the buffer with newV (one undo step) and reminds the user
+  ## to tag the release in Git
   proc() =
     let tb = bufById(bid)
     if tb == nil or not tb.canEdit(): return
@@ -467,6 +478,8 @@ proc cmdNimbleLockChanges() =
     error("nimble.lock: " & e.msg)
     return
   proc show(before: string, haveBefore: bool) =
+    ## opens a Markdown scratch page of nimble.lock: what changed since the last commit (versions, other commits,
+    ## packages added and removed) when there is an earlier version, then a table of what it pins
     var md = "# nimble.lock\n\n"
     if haveBefore:
       let old = nbLockPackages(before)

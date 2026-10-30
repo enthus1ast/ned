@@ -1,18 +1,23 @@
 # ── ned 4: saved chats, change diffs, slash commands, @mentions, usage, one-shot requests ──
 
+# the folder in ned's state folder where the saved chats are kept, one .json file for each
 proc chatsDir(): string = stateDir() / "chats"
 
 proc callJson(c: AiCall): JsonNode =
+  ## a tool call as it is saved with its chat; its result is cut to 20000 characters
   %*{"id": c.id, "name": c.name, "args": c.args, "state": c.state,
      "result": (if c.result.len > 20000: c.result[0 ..< 20000] & "\n…" else: c.result),
      "isError": c.isError, "diff": c.diff, "check": c.check, "checkOut": c.checkOut}
 
 proc callFrom(j: JsonNode): AiCall =
+  ## a tool call read back from a saved chat (done, unless the file says otherwise)
   AiCall(id: j{"id"}.getStr, name: j{"name"}.getStr, args: j{"args"}.getStr, state: j{"state"}.getInt(2),
          result: j{"result"}.getStr, isError: j{"isError"}.getBool, diff: j{"diff"}.getStr,
          check: j{"check"}.getStr, checkOut: j{"checkOut"}.getStr)
 
 proc chatTitle(): string =
+  ## the chat's title: the first line of the first message the user wrote, cut to 70 characters ("chat" when there is
+  ## none)
   for m in aiMsgs:
     if m.role == 0:
       let t = (if m.shown.len > 0: m.shown else: m.text).strip.splitLines()
@@ -48,6 +53,9 @@ proc saveChat() =
   except CatchableError: discard
 
 proc loadChat(path: string) =
+  ## replaces the conversation with a saved chat, after stopping the assistant: its messages, calls, pictures that still
+  ## exist, id and token counts. A chat that stopped in the middle of a tool call gets a result message marking its open
+  ## calls "Cancelled.", so that the next request is valid. It shows the assistant dock
   try:
     let j = parseFile(path)
     aiStop()
@@ -79,9 +87,12 @@ proc loadChat(path: string) =
   except CatchableError as e:
     error("Cannot open that chat: " & e.msg)
 
+# the menu action that opens the saved chat at path `p` (made by a proc so that each menu item keeps its own path)
 proc chatAct(p: string): Action = (proc() = loadChat(p))
 
 proc cmdChatHistory() =
+  ## AI: chat history — a menu of the saved chats, newest first and this project's before the others (the one open
+  ## marked ●), and an entry to delete them all after a question
   if not dirExists(chatsDir()):
     info("No saved chats yet")
     return

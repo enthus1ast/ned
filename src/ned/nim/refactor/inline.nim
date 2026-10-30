@@ -130,6 +130,11 @@ proc rfSpecFor(fromFile, m, part: string): string =
   if part.startsWith(".") or m.startsWith(rootDir & "/"): rfImportSpec(fromFile, m) else: part
 
 proc cmdInlineProc() =
+  ## inline the proc, func or template at the cursor (its name or a call of it) when its body is one expression: every
+  ## call in the project's files that can be rewritten safely is replaced by the body with the arguments put in
+  ## (brackets unless it is simple), with the imports the body needs added to other files. Calls that cannot be (the
+  ## body uses names private to its module, an argument would run twice, calls ned cannot read) are listed to change by
+  ## hand; when none is left it offers to remove the declaration
   let b = buf()
   if b.lang.mode != lmNim or not nimEngineOn(b):
     info("Inline works on Nim, with the built-in engine")

@@ -39,6 +39,8 @@ type JLex = object
   diags: seq[WebDiag]
 
 proc jErr(x: var JLex, l, c, e: int, msg: string, sev = 1, rule = "json") =
+  ## notes a problem at line l from column c to e (at least one column wide); the same message at the same place is
+  ## noted once
   for d in x.diags:
     if d.line == l and d.col == c and d.msg == msg: return
   x.diags.add WebDiag(line: l, col: c, eline: l, ecol: max(c + 1, e), sev: sev, msg: msg, rule: rule)
@@ -74,6 +76,7 @@ proc jSkip(x: var JLex) =
     else: return
 
 proc jPeek(x: JLex): char =
+  ## the character at the reader's place, or a NUL at the end of the text
   if x.l < x.lines.len and x.c < x.lines[x.l].len: x.lines[x.l][x.c] else: '\0'
 
 proc jValue(x: var JLex, depth: int): JNode
@@ -113,6 +116,9 @@ proc jString(x: var JLex): JNode =
   x.c = k + 1
 
 proc jScalar(x: var JLex): JNode =
+  ## reads a bare word or number at the reader's place: true, false, null or a number as JSON writes it. Anything else
+  ## becomes a bad value with a problem noted, and a hint when it looks like another language's spelling (True, None,
+  ## 'single quotes', an unquoted word).
   let s = x.lines[x.l]
   var k = x.c
   while k < s.len and s[k] notin {',', '}', ']', ':', ' ', '\t', '\r', '/', '"', '{', '['}: inc k
@@ -149,6 +155,10 @@ proc jScalar(x: var JLex): JNode =
   x.c = max(k, x.c + 1)
 
 proc jValue(x: var JLex, depth: int): JNode =
+  ## reads one value (object, list, string or bare value) and gives back its tree, noting what is wrong as it goes: a
+  ## missing or extra comma, a missing colon, an unquoted key, a key twice (the last counts), an unclosed bracket,
+  ## something no value starts with. It always goes on, so one mistake does not hide the rest. Nesting past 200 levels
+  ## stops the reading.
   x.jSkip()
   if x.l >= x.lines.len:
     let l = max(0, x.lines.high)
@@ -271,15 +281,20 @@ proc jsonRead*(lines: openArray[string], comments = false): JDoc =
 # ── the schemas ──
 
 proc jSch(typ: string, desc = "", values: seq[string] = @[]): JSchema =
+  ## a schema for a value of one type (object, string, boolean … or empty for any), with its description and, if it
+  ## takes only some, the values it may have as JSON text
   JSchema(typ: typ, desc: desc, values: values)
 
 proc jObj(desc: string, props: openArray[(string, JSchema)], other: JSchema = nil): JSchema =
+  ## a schema for an object with the listed keys and, for any other key, the schema `other`
   result = JSchema(typ: "object", desc: desc, other: other)
   for (k, v) in props: result.props[k] = v
 
+# a schema for a list whose items all follow the one schema
 proc jArr(desc: string, items: JSchema): JSchema = JSchema(typ: "array", desc: desc, items: items)
 
 proc packageJsonSchema(): JSchema =
+  ## the schema of package.json: its keys with what each means and, where it is short, the values it takes
   let deps = jObj("", [], jSch("string", "the version range wanted: ^1.2.3, ~1.2, >=2, a git URL or a path"))
   let person = jSch("", "a name — \"Ada <ada@example.com> (https://ada.dev)\" — or {\"name\", \"email\", \"url\"}")
   jObj("package.json — an npm package", [
@@ -328,6 +343,7 @@ proc packageJsonSchema(): JSchema =
     ("sideEffects", jSch("", "false: every module may be left out by a bundler when unused"))])
 
 proc tsconfigSchema(): JSchema =
+  ## the schema of tsconfig.json and jsconfig.json: the project keys and the compiler options with their values
   let target = @["\"es5\"", "\"es2015\"", "\"es2016\"", "\"es2017\"", "\"es2018\"", "\"es2019\"", "\"es2020\"",
                  "\"es2021\"", "\"es2022\"", "\"es2023\"", "\"esnext\""]
   let modules = @["\"commonjs\"", "\"es2015\"", "\"es2020\"", "\"es2022\"", "\"esnext\"", "\"node16\"", "\"nodenext\"",
@@ -381,6 +397,7 @@ proc tsconfigSchema(): JSchema =
     ("compileOnSave", jSch("boolean", "editors build on save", @["true", "false"]))])
 
 proc atlasConfigSchema(): JSchema =
+  ## the schema of an Atlas project's atlas.config (and atlas.workspace)
   let pat = jObj("", [], jSch("string"))
   jObj("atlas.config — the packages of an Atlas project", [
     ("deps", jSch("string", "the folder the dependencies are cloned into (vendor, deps …)")),
@@ -396,6 +413,7 @@ proc atlasConfigSchema(): JSchema =
     ("graph", jSch("", "(written by Atlas)"))])
 
 proc atlasLockSchema(): JSchema =
+  ## the schema of atlas.lock, which pins each dependency to a commit
   jObj("atlas.lock — the exact commit of each dependency (atlas pin writes it, atlas replay uses it)", [
     ("items", jObj("each dependency: where it is and which commit", [],
                   jObj("", [("dir", jSch("string", "where it is cloned")), ("url", jSch("string", "its repository")),
@@ -409,6 +427,7 @@ proc atlasLockSchema(): JSchema =
     ("gccVersion", jSch("string")), ("clangVersion", jSch("string"))])
 
 proc nimbleLockSchema(): JSchema =
+  ## the schema of nimble.lock, the exact version of each dependency
   jObj("nimble.lock — the exact version of each dependency (nimble lock writes it)", [
     ("version", jSch("integer", "the lock file's format")),
     ("packages", jObj("each package and what it was locked to", [],
@@ -476,6 +495,8 @@ func jKeyPath*(path: seq[JNode]): string =
 # ── checks ──
 
 func jTypeOk(s: JSchema, n: JNode): bool =
+  ## does the value have the type the schema asks for? An integer may not have a fraction or exponent; a schema with no
+  ## type takes anything.
   case s.typ
   of "object": n.kind == jkObject
   of "array": n.kind == jkArray
@@ -486,6 +507,7 @@ func jTypeOk(s: JSchema, n: JNode): bool =
   else: true
 
 func jWord(t: string): string =
+  ## a schema type in words for a message: 'a list […]', 'a string "…"', 'a whole number' …
   case t
   of "object": "an object {…}"
   of "array": "a list […]"
@@ -496,11 +518,16 @@ func jWord(t: string): string =
   else: "a value"
 
 func jText(n: JNode): string =
+  ## the value as JSON text, to compare with a schema's list of values (a string with its quotes)
   case n.kind
   of jkString: "\"" & n.text & "\""
   else: n.text
 
 proc jCheck(n: JNode, s: JSchema, out0: var seq[WebDiag], what, place: string) =
+  ## checks a value against its schema and adds a warning for each difference: a deprecated key, the wrong type, a value
+  ## outside the list the key takes (with the nearest one as a hint), a key the object does not have (with the nearest
+  ## known key). It goes into the members and list items; `place` is the key path so far and `what` names the file in
+  ## the messages.
   if s == nil or n == nil or n.kind == jkBad: return
   if s.deprecated.len > 0 and n.key.len > 0:
     out0.add WebDiag(line: n.keyLine, col: n.keyCol, eline: n.keyLine, ecol: n.keyEcol, sev: 2,
@@ -714,6 +741,8 @@ type JOutlineItem* = object
   kind*: JKind
 
 proc jOutline(n: JNode, depth: int, out0: var seq[JOutlineItem]) =
+  ## adds an outline item for each member of the object or list, with its value shortened as detail, and goes into the
+  ## nested ones — to 12 levels, and not into lists of more than 50 items
   for i, k in n.kids:
     let name = if n.kind == jkArray: "[" & $i & "]" else: k.key
     let detail = case k.kind

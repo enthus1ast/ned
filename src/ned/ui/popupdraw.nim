@@ -1,6 +1,7 @@
 # ── toasts & dialogs drawing ──
 
 proc sevIcon(sev: int): (string, Rgb) =
+  ## the icon and its colour for a severity: 1 error, 2 warning, 4 ok, anything else info
   case sev
   of 1: (ic("error"), theme.err)
   of 2: (ic("warn"), theme.warn)
@@ -8,6 +9,9 @@ proc sevIcon(sev: int): (string, Rgb) =
   else: (ic("info"), theme.accent)
 
 proc drawToasts(bottom: int) =
+  ## draws the notifications as framed boxes stacked at the right edge from just above row `bottom` upwards (newest at
+  ## the bottom), each with its severity icon, wrapped text (up to 10 lines for a message, 3 for a notification), a
+  ## dismiss button and, if it has one, its action button; a click closes a message and a right click opens its menu
   if toasts.len == 0: return
   var y = bottom
   for ti in countdown(toasts.high, 0):
@@ -45,6 +49,8 @@ proc drawToasts(bottom: int) =
     dec y
 
 proc drawDialog() =
+  ## draws the top modal dialog over a shaded screen: a framed box (in the warning colour when dangerous) with its
+  ## wrapped text and buttons at the bottom right, the selected button highlighted; clicks outside are swallowed
   if dialogs.len == 0: return
   let d = dialogs[^1]
   shadeRect(0, 0, scrW, scrH)
@@ -74,7 +80,10 @@ proc drawDialog() =
   cursorX = -1
 
 proc dialogKey(k: Key) =
+  ## the keys of the top dialog: arrows and Tab choose a button, Enter uses it, Esc answers as cancel (as "no" for a
+  ## two-button yes/no), and a letter that is a button's key answers with it
   if dialogs.len == 0: return
+  # the top dialog
   template d: untyped = dialogs[^1]
   case k.kind
   of kLeft, kUp: d.sel = (d.sel - 1 + d.buttons.len) mod d.buttons.len
@@ -98,6 +107,8 @@ proc dialogKey(k: Key) =
 # ── tooltips ──
 
 proc drawTooltip() =
+  ## draws the tooltip of the click region under the pointer once it has stayed still for 650 ms, below the pointer
+  ## (above it near the bottom); none while a menu, dialog or picker is open
   if not cfgTooltips or mouseX < 0 or msSince(mouseMovedAt) < 650 or menuOpen() or dialogOpen() or
      pickKind != pickNone: return                       # a list opened over the place: no tip from what is under it
   let i = hitRegion(mouseX, mouseY)

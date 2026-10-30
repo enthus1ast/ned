@@ -39,6 +39,7 @@ proc stepLine(i: int): string =
   aiPlanSteps[i].splitLines()[0].replace("`", "")
 
 proc aiPlanTitle(i: int): string =
+  ## the label of a plan step, "Step 2/5:" and its first line cut to 70 characters
   "Step " & $(i + 1) & "/" & $aiPlanSteps.len & ": " & truncTo(stepLine(i), 70)
 
 proc aiPlanNext()
@@ -60,6 +61,7 @@ proc aiPlanUndoFrom(k: int) =
   needRender = true
 
 proc aiPlanStepAct(i: int): Action =
+  ## the menu action that, after a question, puts the files back as they were before step `i`
   result = proc() =
     askConfirm("Put the files back as they were before step " & $(i + 1) & "? (y/n)", proc(c: char) =
       if c in {'y', 'Y'}: aiPlanUndoFrom(i))
@@ -96,6 +98,8 @@ proc aiPlanMenu() =
   openActions("Plan — " & truncTo(aiPlanTask, 50) & " · " & $aiPlanAt & "/" & $aiPlanSteps.len & " done", items)
 
 proc aiPlanNext() =
+  ## does the next step of the plan: asks the assistant to do just that step, and to check it; when no step is left the
+  ## plan is finished, with a notice and a toast
   if aiPlanAt >= aiPlanSteps.len:
     aiPlanState = apNone
     aiMsgs.add AiMsg(role: 3, text: "The plan is done: " & $aiPlanSteps.len & " steps. Each one can still be undone: " &
@@ -189,6 +193,8 @@ proc aiPlanStart(task: string) =
          "change any files yet.", shownAs = "Plan: " & t)
 
 proc cmdAiPlan() =
+  ## AI: the plan — the menu of the plan when one is waiting, else a question for what to plan, and the assistant plans
+  ## it
   if aiPlanSteps.len > 0 and aiPlanState == apReady:
     aiPlanMenu()
     return

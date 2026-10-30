@@ -70,6 +70,7 @@ type
 # ── connections ──
 
 func unpercent(s: string): string =
+  ## s with its %XX escapes (as in a url) turned back into the characters they stand for
   var i = 0
   while i < s.len:
     if s[i] == '%' and i + 2 < s.len and s[i + 1] in HexDigits and s[i + 2] in HexDigits:
@@ -201,6 +202,8 @@ func splitSql(text, dialect: string, line0 = 0, col0 = 0): seq[Stmt] =
   for i, c in text:
     if c == '\n': starts.add i + 1
   template at(off: int): (int, int) =
+    ## the file's line and column of byte offset off in the text, found from where each line of the text starts (the
+    ## first line's column counts from col0)
     var lo = 0
     for k in countdown(starts.high, 0):
       if starts[k] <= off:
@@ -213,6 +216,8 @@ func splitSql(text, dialect: string, line0 = 0, col0 = 0): seq[Stmt] =
   var i = 0
   let n = text.len
   template finish(stop, after: int) =
+    ## ends the statement that began at st: its text up to stop (trailing blanks taken off) is added to the result, with
+    ## where it starts and where it ends after its delimiter; nothing for an empty one; st is reset
     let s = text[st ..< stop].strip(leading = false)
     if s.len > 0:
       let (l, c) = at(st)
@@ -280,6 +285,7 @@ func stmtAt(stmts: seq[Stmt], line, col: int): int =
     if s.stopLine == line and s.stopCol <= col: result = k
 
 func firstWord(s: string): string =
+  ## the first word of a statement in capitals (SELECT, INSERT …), after anything that is not the start of a name
   var i = 0
   while i < s.len and s[i] notin IdentStartChars: inc i
   var e = i
@@ -354,6 +360,8 @@ func isTag(l: string, numeric: bool): bool =
   true
 
 func returnsRows(s: string): bool =
+  ## whether a statement gives rows back: it starts with SELECT, WITH, VALUES, TABLE, SHOW or EXPLAIN, or has a
+  ## RETURNING
   firstWord(s) in ["SELECT", "WITH", "VALUES", "TABLE", "SHOW", "EXPLAIN"] or "RETURNING" in s.toUpperAscii
 
 func charToByte(line: string, chars: int): int =
@@ -571,13 +579,17 @@ func parseMysql(output, errors: string, stmts: seq[Stmt]): (seq[Res], string) =
 
 # ── showing the results ──
 
+# a value for one line of a table: a line end becomes ↵ and a tab a space
 func cellText(v: string): string = v.replace("\r\n", "↵").replace("\n", "↵").replace("\t", " ")
 
 func width(s: string): int =
+  ## how wide s is on the screen: its characters (not its bytes)
   for c in s:
     if (ord(c) and 0xC0) != 0x80: inc result
 
 func isNumber(v: string): bool =
+  ## whether the value is written as a number (an optional sign, digits, one dot, an exponent) — a column of such values
+  ## is right-aligned
   if v.len == 0: return false
   var i = 0
   if v[0] in {'-', '+'}: inc i
@@ -631,6 +643,8 @@ func table(r: Res, maxRows: int): string =
   lines.join("\n")
 
 func csvField(v: string): string =
+  ## a value as a CSV field: NULL is an empty field, an empty text is "", and one with a comma, quote, line end or
+  ## blanks at its ends is quoted with its quotes doubled
   if v == "NULL": ""
   elif v.len == 0: "\"\""
   elif v.contains({',', '"', '\n', '\r'}) or v.strip != v: "\"" & v.replace("\"", "\"\"") & "\""
@@ -686,13 +700,17 @@ var
   runBuf = Buf(id: -1)
   runDir = ""
 
+# the connections of the connections setting
 proc connsSetting(): seq[Conn] = connsFrom(settingIn("", "connections"))
 
 proc chosenName(): string =
+  ## the name of the connection chosen for this project (kept in chosen.json in the data folder, by project folder); ""
+  ## when none
   try: parseJson(readData("chosen.json")){projectRoot()}.getStr
   except CatchableError: ""
 
 proc keepChoice(name: string) =
+  ## remembers the connection chosen for this project in chosen.json in the data folder
   var j = newJObject()
   try:
     j = parseJson(readData("chosen.json"))
@@ -701,9 +719,12 @@ proc keepChoice(name: string) =
   j[projectRoot()] = %name
   writeData("chosen.json", j.pretty & "\n")
 
+# what to show of a connection: its url (without a password), or why it is not usable
 func shownUrl(c: Conn): string = (if c.kind.len > 0: c.url else: c.why)
 
 proc chooseConn(): (bool, Conn) =
+  ## DB: choose a connection… — lists the connections of the setting (the chosen one marked ●), remembers the pick for
+  ## the project and shows it in the status line; false when there are none or nothing was picked
   let cs = connsSetting()
   if cs.len == 0:
     warn("DB: no connections yet — plugins.db-client.connections: [{\"name\": \"dev\", \"url\": " &
@@ -755,6 +776,8 @@ func hint(kind, general: string): string =
   else: ""
 
 proc problemsOf(b: Buf, res: seq[Res]): seq[Problem] =
+  ## the errors of the results as problems of the file, for the Problems panel: at the error's line and column, over the
+  ## word there (the whole line when the column is not known)
   for r in res:
     if r.error.len == 0 or r.errLine < 0: continue
     let l = b.line(r.errLine)
@@ -769,6 +792,9 @@ proc problemsOf(b: Buf, res: seq[Res]): seq[Problem] =
     result.add Problem(range: rng(pos(r.errLine, a), pos(r.errLine, e)), severity: 1, message: r.error)
 
 proc finish(output: string, code: int) =
+  ## what happens when the client ends: reads its output and errors from the run folder, says so if the program is not
+  ## installed, parses the results, opens them in a tab (or a CSV tab for each result set), puts the errors in the
+  ## Problems panel of the file and says in the message line what was done
   running = false
   progressDone()
   if cancelled:
@@ -825,6 +851,9 @@ proc finish(output: string, code: int) =
             (if rows == 1: "1 row" else: $rows & " rows"))
 
 proc run(b: Buf, stmts: seq[Stmt]) =
+  ## runs the statements on the project's connection: writes them as one script to the data folder and starts psql or
+  ## mysql on it in the background, its output going to files there and its process number kept so the query can be
+  ## cancelled; finish handles the end
   if stmts.len == 0:
     message("DB: no SQL statement here")
     return
@@ -859,9 +888,12 @@ proc dialect(): string =
   "postgres"
 
 func sqlFile(lang, path: string): bool =
+  ## whether the file is SQL: its language, or a .sql, .psql, .pgsql or .mysql name
   lang == "sql" or path.endsWith(".sql") or path.endsWith(".psql") or path.endsWith(".pgsql") or path.endsWith(".mysql")
 
 proc runAtCursor(b: Buf) =
+  ## DB: run the statement at the cursor — runs the selection (in any file), or the statement the cursor is in or just
+  ## after (in a SQL file); says so when there is none
   if not b.valid: return
   let sel = b.selection
   if not sel.isEmpty:

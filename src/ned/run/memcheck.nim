@@ -101,6 +101,8 @@ proc memParse(lines: seq[string], dir: string): seq[MemFind] =
   ## valgrind's errors and leaks
   var i = 0
   proc frames(i: var int): seq[MemFrame] =
+    ## reads the stack-frame lines that follow from line `i` on (stopping at the first that is not one), moves `i` past
+    ## them and returns them, innermost first
     while i < lines.len:
       let (ok, f) = memFrameOf(lines[i])
       if not ok: break
@@ -187,6 +189,7 @@ proc memParse(lines: seq[string], dir: string): seq[MemFind] =
     inc i
 
 proc memLoc(f: MemFrame): string =
+  ## a frame as shown in a problem's message: file name, line (from 1) and the function's name when it has one
   extractFilename(f.path) & ":" & $(f.line + 1) & (if f.fn.len > 0: " " & f.fn else: "")
 
 proc memToDiags(fs: seq[MemFind], dir: string): Table[string, seq[Diag]] =
@@ -209,6 +212,9 @@ proc memToDiags(fs: seq[MemFind], dir: string): Table[string, seq[Diag]] =
       else: continue                                    # (nothing of yours in it: the Output panel has it)
     var msg = m.msg
     proc stack(title: string, xs: seq[MemFrame], skipAlloc: bool) =
+      ## adds a heading and up to six of the frames to the message being built (`msg`); frames without a line or file
+      ## are left out, and for a memory's origin (`skipAlloc`) the allocator's own frames before the first call of yours
+      ## are too
       var shown = 0
       var started = false
       for f in xs:

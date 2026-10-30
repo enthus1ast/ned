@@ -59,8 +59,10 @@ python3 .github/ci/pty_smoke.py ./ned && python3 .github/ci/bench.py ./ned && py
 python .github/ci/win_smoke.py ned.exe nedls.exe nedfmt.exe   # on Windows (pip install pywinpty)
 NEDBIN=./ned_debug bash tests/fuzz/batch.sh 120 mixed palette hex   # random input; no crash, no internal error
 python3 tests/docs/apiref.py --check && python3 tests/docs/links.py && python3 tests/docs/names.py  # the docs
+python3 tests/docs/comments.py                       # every file and routine says what it is
 python3 tests/memory/bufids.py                       # every table kept per open file is let go when its tab closes
 python3 tests/engine/scoreboard.py --engine E --nedls ./nedls --cdriver C --c-files … --cpp-files …  # minimum scores
+python3 tests/engine/nifgrade.py MAIN.nim --nim NIM24 --driver E   # Go to definition against Nim 2.4's own NIF
 ```
 
 A change to a setting or a command: `ned --doc-settings > docs/reference/settings.md` and
@@ -74,6 +76,9 @@ machine: under load a few timing-sensitive tests can fail, and pass alone.
 
 - Documentation lives in `docs/` (the README is an overview). Plain words: say what happens for the person using
   ned, not how it is implemented; British spelling as the rest; no marketing.
+- Every file starts with a comment saying what it is, and every routine (proc, func, method, iterator, converter,
+  template, macro — local ones too) says what it does and how: a `##` first in its body, or a `#` line above a
+  one-line one. `python3 tests/docs/comments.py` checks it (CI too); `--list` shows what is missing.
 - Comments say why, in the same plain style. Keep a change small and in the style of the code around it.
 - A release: the version in `src/ned/version.nim`, `ned.nimble`, `editors/vscode/package.json`,
   `editors/zed/extension.toml` and `editors/zed/Cargo.toml` (and the file names in the README), a

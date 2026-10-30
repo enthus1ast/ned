@@ -34,6 +34,7 @@ proc lsUriOf(path: string): string =
   uriFromPath(path)
 
 proc lsDocByPath(path: string): LsDoc =
+  ## the open document for a file path (nil when it is not open)
   for u, d in lsDocs:
     if d.b.path == path: return d
   nil
@@ -100,8 +101,10 @@ proc lsPosIn(lines: seq[string], l, c: int): JsonNode =
   %*{"line": ll, "character": lsChar(lines[ll], c)}
 
 proc lsRangeIn(lines: seq[string], l0, c0, l1, c1: int): JsonNode =
+  ## an LSP range from two byte positions in these lines
   %*{"start": lsPosIn(lines, l0, c0), "end": lsPosIn(lines, l1, c1)}
 
+# a buffer position as an LSP position
 proc lsPos(b: Buffer, p: Pos): JsonNode = lsPosIn(b.lines, p.line, p.col)
 
 proc lsToPos(b: Buffer, j: JsonNode): Pos =
@@ -145,6 +148,8 @@ proc lsNormText(t: string): string =
   t.replace("\r\n", "\n").replace('\r', '\n')
 
 proc lsMarkChanged(d: LsDoc, at: Pos) =
+  ## notes that a document was changed at `at`: unsaved, the time of the change (checks wait for a pause) and where, and
+  ## that it is the document worked on last
   let b = d.b
   b.savedSeq = -1                      # (unsaved changes: ned's buffers know it from their undo history)
   b.lspChangeAt = MonoTime()           # (no pause to wait for: the client asks when it wants an answer)
@@ -153,6 +158,9 @@ proc lsMarkChanged(d: LsDoc, at: Pos) =
   lsActive = d
 
 proc lsOpenDoc(uri, text0: string, version: int, langId: string): LsDoc =
+  ## didOpen: a ned buffer made from the client's text (a document opened before under the same uri, and a buffer an
+  ## action loaded for the same file, are dropped first); its language comes from the file name, or from the client's
+  ## language id, and the indentation and .editorconfig are read. It becomes the current buffer and the active document
   let path = lsPathOf(uri)
   if uri in lsDocs:
     let old = lsDocs[uri]
@@ -178,6 +186,8 @@ proc lsOpenDoc(uri, text0: string, version: int, langId: string): LsDoc =
   lsActive = result
 
 proc lsCloseDoc(uri: string) =
+  ## didClose: drops the document and its buffer with what ned kept for it (warm engine state, semantic colours, the
+  ## unsaved text's problems, which are checked again from the disk file)
   let d = lsDocs.getOrDefault(uri)
   if d == nil: return
   lsDocs.del uri
@@ -224,6 +234,7 @@ proc lsApplyChange(d: LsDoc, ch: JsonNode) =
 
 # ── edits ──
 
+# the line end the document's file uses
 func lsEol(b: Buffer): string = (if b != nil and b.crlf: "\r\n" else: "\n")
 
 proc lsLineEdits(old, nw: seq[string], eol = "\n"): JsonNode =

@@ -5,6 +5,8 @@
 #    (The hidden documents of embedded languages and of C in emit have their own closing: embClose, emitClose.) ──
 
 proc bufForget(id: int) =
+  ## drops everything the other parts of ned keep for the buffer with this id (colour maps, caches, hints, per-buffer
+  ## views and plans) — called when its tab closes, and by the engine worker when told a file closed
   semMaps.del id
   inactiveCache.del id
   typoAt.del id
@@ -92,5 +94,5 @@ proc projectForget() =
   nxMacroSyms.clear(); nxMacroDone.clear()
   nxTypoText.clear(); nxTypoTextBytes = 0; nxAutoCache.clear()
   cIndexes.clear(); cssFileMemo.clear(); sqlFileMemo.clear()
-  nifColorMemo.clear(); nifColorLooked.clear(); nifFileMemo.clear(); diagsMemo.clear()
+  nifForget(); diagsMemo.clear()
   inc nxGen

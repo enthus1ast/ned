@@ -133,6 +133,7 @@ func svelteJs(s: string, st: var int): string =
     inc i
 
 func svelteNameEnd(s: string, i: int): int =
+  ## where the name (letters, digits, `_` and `$`) that starts at `i` ends
   result = i
   while result < s.len and (s[result].isAlphaNumeric or s[result] in {'_', '$'}): inc result
 
@@ -260,6 +261,7 @@ func svelteSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc svelteHave(cmd: string): bool =
+  ## whether the first word of a configured command (with ~ expanded) is a program that can be found on PATH
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

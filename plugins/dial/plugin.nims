@@ -50,6 +50,7 @@ type
     words: seq[string]           ## (a word) the words it goes round
     idx: int                     ## (a word) its place among them
 
+# whether c can be part of a name: a letter, digit or _, or any byte of a non-ASCII character
 func isIdent(c: char): bool = c in IdentChars or ord(c) >= 128
 
 func runEnd(s: string, i: int, ds: set[char]): int =
@@ -88,15 +89,18 @@ func numberHits(s: string): seq[Hit] =
     inc i
 
 func allDigits(s: string, a, e: int): bool =
+  ## whether s[a ..< e] is not empty, inside s, and only digits
   if a < 0 or e > s.len or a >= e: return false
   for i in a ..< e:
     if s[i] notin Digits: return false
   true
 
 func toInt(s: string, a, e: int): int =
+  ## the number written by the digits of s[a ..< e] (they are known to be digits)
   for i in a ..< e: result = result * 10 + (ord(s[i]) - ord('0'))
 
 func daysIn(y, m: int): int =
+  ## how many days month m of year y has (February 29 in a leap year)
   case m
   of 2: (if (y mod 4 == 0 and y mod 100 != 0) or y mod 400 == 0: 29 else: 28)
   of 4, 6, 9, 11: 30
@@ -196,6 +200,8 @@ func regroup(orig, ds: string): string =
     inc n
 
 func parseDigits(ds: string, base: int): int64 =
+  ## the value of the digits ds in base 2, 8, 10 or 16; raises ValueError when there are more digits than fit in a
+  ## 64-bit number
   const maxDigits = [0, 0, 62, 0, 0, 0, 0, 0, 20, 0, 18, 0, 0, 0, 0, 0, 15]
   if ds.len > maxDigits[base]: raise newException(ValueError, "Dial: the number is too large")
   for ch in ds:
@@ -203,6 +209,7 @@ func parseDigits(ds: string, base: int): int64 =
     result = result * base + d
 
 func inBase(v: int64, base: int, upper: bool): string =
+  ## the non-negative number v written in the base (2, 8 or 16), its letters in capitals when upper
   if v == 0: return "0"
   var x = v
   while x > 0:
@@ -211,6 +218,8 @@ func inBase(v: int64, base: int, upper: bool): string =
     x = x div base
 
 func addDecimal(t: string, n: int): string =
+  ## the decimal number t (a sign, digits, _ groups) with n added: the leading zeros are kept (007 + 1 is 008), and so
+  ## are the groups of the underscores
   let neg = t.startsWith("-")
   let body = if neg: t[1 .. ^1] else: t
   let digits = body.replace("_", "")
@@ -246,6 +255,7 @@ func daysFromCivil(y0, m, d: int): int =
   era * 146097 + doe - 719468
 
 func civilFromDays(z0: int): (int, int, int) =
+  ## the year, month and day z0 days after 1970-01-01 (the opposite of daysFromCivil)
   let z = z0 + 719468
   let era = (if z >= 0: z else: z - 146096) div 146097
   let doe = z - era * 146097
@@ -257,6 +267,7 @@ func civilFromDays(z0: int): (int, int, int) =
   (yoe + era * 400 + (if m <= 2: 1 else: 0), m, d)
 
 func pad(v, w: int): string =
+  ## v written with leading zeros up to w digits
   result = $v
   if result.len < w: result = repeat('0', w - result.len) & result
 
@@ -265,6 +276,9 @@ func datePart(off: int): int =
   if off < 0: 2 elif off < 5: 0 elif off < 8: 1 else: 2
 
 func addDate(t: string, part, n: int): string =
+  ## the date t (yyyy-mm-dd or with /) with n added to its part — 0 the year (the day kept within the month), 1 the
+  ## month (rolling over into the years), 2 the day (counted on the calendar); raises ValueError for a year outside 1 …
+  ## 9999
   var (y, m, d) = (toInt(t, 0, 4), toInt(t, 5, 7), toInt(t, 8, 10))
   case part
   of 0:
@@ -294,6 +308,8 @@ func timePart(t: string, off: int): int =
   if off < 0: 1 elif off <= hw: 0 elif off <= hw + 3: 1 else: 2
 
 func addTime(t: string, part, n: int): string =
+  ## the time t (h:mm or hh:mm, with seconds or not) with n hours, minutes or seconds added (part 0, 1, 2), going round
+  ## the clock
   let (hw, secs) = timeShape(t)
   var total = toInt(t, 0, hw) * 3600 + toInt(t, hw + 1, hw + 3) * 60 + (if secs: toInt(t, hw + 4, hw + 6) else: 0)
   let unit = case part

@@ -19,13 +19,19 @@ var
   menuBarRanges: seq[(int, int, int)]     # x0, x1, index
 
 func mi(label: string, keys = "", act: Action = nil, check = -1, disabled = false): MenuItem =
+  ## a menu item: its label, the key text shown at the right, what it does, a tick state (-1 none, 0 off, 1 on) and
+  ## whether it is disabled
   MenuItem(label: label, keys: keys, act: act, check: check, disabled: disabled)
+# a separator line between menu items
 func msep(): MenuItem = MenuItem(sep: true)
+# a menu item that opens a submenu of `sub`
 func msub(label: string, sub: seq[MenuItem]): MenuItem = MenuItem(label: label, sub: sub, check: -1)
 
+# whether a menu is showing (it then takes the keys)
 proc menuOpen(): bool {.inline.} = menus.len > 0
 
 proc menuWidth(items: seq[MenuItem]): int =
+  ## the width a menu needs: its longest label and longest key text plus the margins, at most the screen's width less 2
   var lw, kw = 0
   for it in items:
     lw = max(lw, strWidth(it.label))
@@ -40,6 +46,9 @@ proc menuKeepSel(m: var MenuState) =
   m.top = clamp(m.top, 0, m.items.len - m.rows)
 
 proc openMenu(items: seq[MenuItem], x, y: int, bar = -1) =
+  ## opens a menu (or a submenu on top of the ones open) at x, y, moved to fit on the screen; the first item that can be
+  ## chosen is selected, and a menu longer than the screen scrolls. `bar` is the menu-bar entry it belongs to, -1 for a
+  ## context menu (which moves up to fit; a bar's dropdown stays under the bar)
   var w = menuWidth(items)
   var mx = clamp(x, 0, max(0, scrW - w - 1))
   var my = y
@@ -56,17 +65,22 @@ proc openMenu(items: seq[MenuItem], x, y: int, bar = -1) =
   needRender = true
 
 proc menuScroll(level, d: int) =
+  ## scrolls the menu at that level by `d` items when it is longer than its room
   if level < 0 or level >= menus.len: return
+  # the menu being scrolled
   template m: untyped = menus[level]
   if m.rows >= m.items.len: return
   m.top = clamp(m.top + d, 0, m.items.len - m.rows)
   needRender = true
 
 proc closeMenus() =
+  ## closes every open menu
   menus.setLen(0)
   needRender = true
 
 proc activateMenuItem(level, idx: int) =
+  ## uses an item of the menu at that level: a submenu opens beside it (closing any deeper one), a separator or disabled
+  ## item does nothing, else all menus close and the item's action runs
   if level >= menus.len or idx < 0 or idx >= menus[level].items.len: return
   let it = menus[level].items[idx]
   if it.sep or it.disabled: return
@@ -81,6 +95,9 @@ proc activateMenuItem(level, idx: int) =
 proc openMenuBar(i: int)
 
 proc drawMenus() =
+  ## draws the open menus, each in a frame at its place: the items with their tick, label, key text or submenu arrow,
+  ## separators, the selected or hovered item highlighted, arrows on the frame when a long menu can scroll; every item
+  ## is clickable and the frame swallows clicks between them
   for level, m in menus:
     let rows = if m.rows > 0: min(m.rows, m.items.len) else: m.items.len
     let h = rows + 2
@@ -118,7 +135,11 @@ proc drawMenus() =
       discard putStr(m.x + 3, y, it.label, fg, bg, {}, m.x + m.w - 2)
       if it.sub.len > 0: discard putStr(m.x + m.w - 3, y, "›", theme.dim, bg)
       elif it.keys.len > 0:
-        discard putStr(m.x + m.w - 2 - strWidth(it.keys), y, it.keys, theme.dim, bg, {}, m.x + m.w - 1)
+        # (only in the room the label leaves: a narrow screen's menu drew the keys over the label and the frame)
+        let room = m.w - 6 - strWidth(it.label)
+        if room >= 3:
+          let ks = if strWidth(it.keys) <= room: it.keys else: truncTo(it.keys, room)
+          discard putStr(m.x + m.w - 2 - strWidth(ks), y, ks, theme.dim, bg, {}, m.x + m.w - 1)
       let lv = level
       let idx = i
       let rx = m.x + 1
@@ -127,10 +148,16 @@ proc drawMenus() =
         region(rx, y, rw, 1, proc() = activateMenuItem(lv, idx))
 
 proc menuKey(k: Key) =
+  ## the keys of the open menus (the top one): Up, Down, Home, End and Page Up/Down move over items that can be chosen,
+  ## Enter or Right open the item or submenu, Left and Esc close a submenu (Left and Right at the top level move to the
+  ## next or previous menu-bar menu), F10 closes all, and a letter jumps to the item that starts with it (and uses it
+  ## when it is the only one)
   if menus.len == 0: return
   let lv = menus.high
+  # the top menu
   template m: untyped = menus[lv]
   proc move(d: int) =
+    ## moves the selection `d` items, wrapping round and stepping over separators and disabled items
     let n = menus[lv].items.len
     var s = menus[lv].sel
     for _ in 0 ..< n:

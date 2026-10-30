@@ -59,10 +59,13 @@ proc tiParse(s: string, over: uint32): int =
   let rgb = uint32(parseHexInt(h[0 .. 5]))
   if h.len == 8: int(tiBlend(over, rgb, float(parseHexInt(h[6 .. 7])) / 255.0)) else: int(rgb)
 
+# a colour as "#rrggbb"
 func tiHex(c: uint32): string = "#" & toHex(int(c), 6)
 
 proc tiLum(c: uint32): float =
+  ## a colour's relative luminance (WCAG), 0 for black to 1 for white
   proc ch(v: uint32): float =
+    ## one channel 0 … 255 made linear, as the luminance needs it
     let x = float(v) / 255.0
     if x <= 0.03928: x / 12.92 else: pow((x + 0.055) / 1.055, 2.4)
   0.2126 * ch((c shr 16) and 0xFF) + 0.7152 * ch((c shr 8) and 0xFF) + 0.0722 * ch(c and 0xFF)
@@ -99,6 +102,7 @@ proc tiLab(c: uint32): (float, float, float) =
   let r = lin((c shr 16) and 0xFF)
   let g = lin((c shr 8) and 0xFF)
   let b = lin(c and 0xFF)
+  # the cube-root step of the CIE L*a*b* conversion (with its straight part near black)
   proc f(t: float): float = (if t > 0.008856: pow(t, 1.0 / 3.0) else: 7.787 * t + 16.0 / 116.0)
   let x = f((r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047)
   let y = f(r * 0.2126 + g * 0.7152 + b * 0.0722)
@@ -112,6 +116,7 @@ proc tiDelta(a, b: uint32): float =
   pow((l1 - l2) * (l1 - l2) + (a1 - a2) * (a1 - a2) + (b1 - b2) * (b1 - b2), 0.5)
 
 proc tiChroma(c: uint32): float =
+  ## how colourful a colour is: its distance from grey in the a*, b* plane (0 for a grey)
   let (_, a, b) = tiLab(c)
   pow(a * a + b * b, 0.5)
 
@@ -137,6 +142,7 @@ type TiToml = object
   i, line: int
 
 proc tiTomlErr(p: TiToml, what: string) {.noreturn.} =
+  ## stops the TOML reading with a ValueError that names the line and what was expected
   raise newException(ValueError, "line " & $p.line & ": " & what)
 
 proc tiSpaces(p: var TiToml, lines = false) =
@@ -152,6 +158,7 @@ proc tiSpaces(p: var TiToml, lines = false) =
     else: break
 
 func tiUtf8(cp: int): string =
+  ## a code point as UTF-8
   if cp < 0x80: result.add char(cp)
   elif cp < 0x800:
     result.add char(0xC0 or (cp shr 6))
@@ -250,6 +257,8 @@ proc tiTomlPair(p: var TiToml, into: JsonNode) =
   tiTomlTable(into, k[0 ..< ^1])[k[^1]] = p.tiTomlValue()
 
 proc tiTomlValue(p: var TiToml): JsonNode =
+  ## the TOML value at the reading position: a string, an inline table (also over several lines) or an array, else a
+  ## bare word — true, false, a number, or any other text kept as it is
   p.tiSpaces()
   if p.i >= p.s.len: p.tiTomlErr("a value expected")
   case p.s[p.i]
@@ -409,27 +418,35 @@ proc tiFinish(c: TiColours, builtins: openArray[TiBuiltin], taken: var seq[strin
 #    "syntax": {"keyword": {"color", "font_weight"}, …}}}]} ──
 
 proc tiZedColours(t: JsonNode): TiColours =
+  ## the colours of one Zed theme in ned's colour names: from its style (editor, panel, title and status bar, players,
+  ## terminal colours) and syntax entries, the first found of several fallbacks for each, light or dark from its
+  ## appearance, the wrap guide as the ruler, and bold keywords when the keyword weight is 600 or more
   let st = t{"style"}
   let syn = st{"syntax"}
   result.ruler = -1
   result.darkKnown = t{"appearance"} != nil and t{"appearance"}.kind == JString
   result.dark = t{"appearance"}.getStr("dark") != "light"
   var over = if result.dark: 0x000000'u32 else: 0xFFFFFF'u32     # (what a colour with an alpha is laid over)
+  # a colour string of the theme as a number (an alpha laid over the editor's background), -1 when it is not one
   proc col(n: JsonNode): int = (if n != nil and n.kind == JString: tiParse(n.getStr, over) else: -1)
   proc style(keys: varargs[string]): int =
+    ## the first colour found among the style entries of these names, -1 when none
     result = -1
     for k in keys:
       result = col(st{k})
       if result >= 0: return
   proc syntax(keys: varargs[string]): int =
+    ## the first colour found among the syntax entries of these names, -1 when none
     result = -1
     for k in keys:
       result = col(syn{k}{"color"})
       if result >= 0: return
   proc player(field: string): int =
+    ## a field of the first player (the cursor's colours), -1 when there is none
     let ps = st{"players"}
     if ps != nil and ps.kind == JArray and ps.len > 0: col(ps[0]{field}) else: -1
   template put(k: string, v: int) =
+    ## records a colour under ned's name for it when one was found
     let x = v
     if x >= 0: result.have[k] = uint32(x)
   let bg = style("editor.background", "background")
@@ -533,12 +550,17 @@ proc tiHelixWalk(acc: var Table[string, JsonNode], scope: string, v: JsonNode) =
     if own: acc[scope] = v
 
 proc tiHelixColours(t: JsonNode): TiColours =
+  ## the colours of one Helix theme in ned's colour names: its scopes (ui.background, keyword, string …) looked up with
+  ## fallbacks, colours by palette name, #rrggbb or a terminal colour name; the accent is the first cursor, selection or
+  ## highlight colour with some hue; bold keywords when the keyword scope says bold
   var styles = initTable[string, JsonNode]()
   for k, v in t:
     if k notin ["palette", "inherits", "rainbow"]: tiHelixWalk(styles, k, v)
   let pal = t{"palette"}
   result.ruler = -1
   proc colour(name: string): int =
+    ## a colour of a Helix theme as a number: a palette name looked up first, then #rrggbb or one of the terminal's
+    ## colour names; -1 when it is none of them
     var n = name.strip
     if pal != nil and pal.kind == JObject and pal{n} != nil and pal[n].kind == JString: n = pal[n].getStr.strip
     if n.startsWith("#"): return tiParse(n, 0)
@@ -546,17 +568,21 @@ proc tiHelixColours(t: JsonNode): TiColours =
       if a == n: return int(c)
     -1
   proc get(scope, field: string): int =
+    ## one field of a scope's style (fg, bg, or underline for its colour) as a colour, -1 when absent; a scope given as
+    ## a plain string is its foreground
     let s = styles.getOrDefault(scope)
     if s == nil: return -1
     if s.kind == JString: return (if field == "fg": colour(s.getStr) else: -1)
     if field == "underline": return colour(s{"underline"}{"color"}.getStr(""))
     colour(s{field}.getStr(""))
   proc fg(scopes: varargs[string]): int =
+    ## the first foreground colour found among these scopes, -1 when none
     result = -1
     for s in scopes:
       result = get(s, "fg")
       if result >= 0: return
   template put(k: string, v: int) =
+    ## records a colour under ned's name for it when one was found
     let x = v
     if x >= 0: result.have[k] = uint32(x)
   put("bg", get("ui.background", "bg"))
@@ -651,6 +677,7 @@ proc tiWrite(r: var TiImport, dir: string) =
 
 when not declared(themeImportAlone):          # (the unit test includes the converting alone, without the editor)
   proc tiBuiltins(): seq[TiBuiltin] =
+    ## the built-in themes, as the converting wants them: name, dark or light, and their sixteen colours
     for t in allThemesRaw(): result.add TiBuiltin(name: t.name, dark: t.dark, base: t.base)
 
   proc tiImportPath(path: string): TiImport =
@@ -693,6 +720,7 @@ when not declared(themeImportAlone):          # (the unit test includes the conv
     info(m)
 
   proc cmdImportZedHelixTheme() =
+    ## the palette command that asks for a Zed (.json) or Helix (.toml) theme file and imports it
     askPath("Zed (.json) or Helix (.toml) theme file", getHomeDir() & "/", proc(t: string) = importZedHelixTheme(t))
 
   proc importThemeCli(args: seq[string]): int =

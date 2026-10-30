@@ -23,6 +23,12 @@ proc problemsFromText(source, text, cwd: string): int =
   needRender = true
 
 proc runUserCommand(name: string, spec: JsonNode) =
+  ## runs one of the user's commands from the commands setting (a string, or an object with run, input and output). The
+  ## placeholders $file, $dir, $root, $name, $ext, $line, $col, $word and $selection in the shell command are filled in
+  ## (quoted), and a file with changes is saved first when the command uses $file. The selection or the file goes to its
+  ## input when asked (replace output reads one by default). The output goes to the Output panel, the terminal, or — as
+  ## a job — replaces the selection or the file, is inserted at the cursor, shown in a popup or a message, or is read as
+  ## Problems; a failing command shows its output as an error
   let b = buf()
   let run = if spec.kind == JString: spec.getStr else: spec{"run"}.getStr
   if run.strip.len == 0:
@@ -83,6 +89,7 @@ proc runUserCommand(name: string, spec: JsonNode) =
       else: info(if o.strip.len > 0: o.strip else: name & ": done"))
 
 proc userCmdExists(name: string): bool =
+  ## whether the commands setting has a command of that name
   let cs = sval("commands")
   cs != nil and cs.kind == JObject and cs.hasKey(name)
 
@@ -104,6 +111,7 @@ proc setUserCmdField(name, field, value: string) =
   setSetting("commands", cs)
 
 proc userCmdOutputMenu(name: string) =
+  ## a menu of the places the output of the user's command can go; the one chosen is stored in the commands setting
   var items: seq[(string, string, Action)]
   for (o, d) in [("panel", "the Output panel (the default)"), ("replace", "replaces the selection — or the whole file"),
                  ("insert", "inserted at the cursor"), ("popup", "a popup"), ("message", "a short message"),
@@ -118,6 +126,8 @@ proc userCmdOutputMenu(name: string) =
   openActions("Where does the output of “" & name & "” go?", items)
 
 proc userCmdInputMenu(name: string) =
+  ## a menu of what the user's command can read on its input (the default, the selection, the file, nothing); the one
+  ## chosen is stored in the commands setting
   var items: seq[(string, string, Action)]
   for (o, d) in [("", "nothing (replace: the selection or the file)"), ("selection", "the selected text"),
                  ("file", "the whole file"), ("none", "nothing at all")]:
@@ -186,6 +196,8 @@ proc pipeThroughCommand(cmd: string) =
   runUserCommand("| " & pipeLast, %*{"run": pipeLast, "output": "replace"})
 
 proc cmdPipeSelection() =
+  ## Pipe through a command: asks for a shell command (the last one is offered) to put the selection, or the whole file,
+  ## through; its output takes its place
   let b = buf()
   let (a, e) = b.primary.range
   openPrompt(pPipeCmd, "Put " & (if a != e: "the selection" else: "the whole file") &

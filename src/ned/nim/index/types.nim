@@ -40,6 +40,8 @@ func nxStripMods*(t: string): string =
       changed = true
 
 proc nxBaseName*(t: string): string =
+  ## a type's own name without var/ref/ptr, generic arguments and module prefix: `var Table[string, int]` gives Table,
+  ## `os.FileInfo` gives FileInfo
   let s = nxStripMods(t)
   var e = 0
   while e < s.len and (nxIsIdent(s[e]) or s[e] == '.'): inc e
@@ -48,6 +50,7 @@ proc nxBaseName*(t: string): string =
   if d >= 0: result = result[d + 1 .. ^1]       # module.Type
 
 proc nxTypeArgs*(t: string): seq[string] =
+  ## the generic arguments written in a type, each as text: `Table[string, seq[int]]` gives string and seq[int]
   let s = nxStripMods(t)
   let b = s.find('[')
   if b < 0: return
@@ -56,6 +59,8 @@ proc nxTypeArgs*(t: string): seq[string] =
   for p in nxSplitTop(s[b + 1 ..< e], {','}): result.add p.strip
 
 proc nxTypeSyms*(sc: NxScope, name: string): seq[NxRef] =
+  ## the type declarations with this name in the scope; for `module.Type` that module's type when the scope has no plain
+  ## one
   for r in nxLookup(sc, name):
     if r.sym.kind == nxType: result.add r
   let dq = name.find('.')
@@ -145,6 +150,7 @@ proc nxFields*(sc: NxScope, typ: string, depth = 0): seq[NxRef] =
   if r.file == nil: return
   let owner = r.sym.name
   for i in 0 ..< r.file.syms.len:
+    # the declaration being looked at, in place
     template s: untyped = r.file.syms[i]
     if s.kind == nxField and s.owner == owner: result.add NxRef(file: r.file, idx: int32(i))
   let k = def.find(" of ")
@@ -181,6 +187,8 @@ proc nxAncestors*(sc: NxScope, child: string): seq[string] =
   sc.tm.anc[key] = result
 
 proc nxIsSubtype*(sc: NxScope, child, parent: string): bool =
+  ## whether child is parent or an object type derived from it, or a ref to such an object whose parent is a ref to its
+  ## base
   let anc = nxAncestors(sc, child)
   if nxNorm(nxBaseName(parent)) in anc: return true
   # Stream = ref StreamObj: a StringStream (ref StringStreamObj, an object of StreamObj) is one
@@ -308,6 +316,7 @@ proc nxUnionAlts*(sc: NxScope, t: string): seq[string] =
         if not g.unionsMade:
           g.unionsMade = true
           for i in 0 ..< g.syms.len:
+            # the declaration being looked at, in place
             template s: untyped = g.syms[i]
             if s.kind == nxType and '|' in s.typ: g.unionTypes[s.name] = i
         let k = g.unionTypes.getOrDefault(b, -1)
@@ -343,6 +352,8 @@ proc nxCompat*(sc: NxScope, paramType, generics, recv: string, depth = 0): int =
   m.compat[key] = int8(result)
 
 proc nxCompat0(sc: NxScope, paramType, generics, recv: string, depth: int): int =
+  ## the work of nxCompat, not remembered: a union on either side gives its best alternative; otherwise typedesc,
+  ## generic parameters, type classes, aliases, subtypes, containers and number widening are compared and scored 0 to 3
   var p = nxStripMods(paramType)
   if p.startsWith("type ") and recv.startsWith("typedesc["): p = "typedesc[" & p[5 .. ^1].strip & "]"   # (T: type X)
   if p.len == 0: return 1
@@ -606,6 +617,7 @@ proc nxFlat*(s: string): string =
     inc i
 
 proc nxIsGenericName*(t: string, generics: string): bool =
+  ## whether the type (modifiers stripped) is just one of the routine's generic parameter names
   let b = nxStripMods(t)
   b.len > 0 and b.find('[') < 0 and b in nxGenericNames(generics)
 
@@ -760,11 +772,14 @@ proc nxCallType*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, recv:
   var anyFits = false
   var cands: seq[(NxRef, int)]
   template hasRet(s: NxSym): bool =
+    ## whether the routine gives a value back: a result type is written, or it is {.async.} (which returns a Future)
     (s.ret.len > 0 or (s.pragmas.len > 0 and nxAsyncPragma(s.pragmas) >= 0))     # ({.async.}: a Future[void])
   for r in nxLookup(sc, name):
+    # the candidate routine, in place
     template s: untyped = r.sym
     if s.kind in NxRoutineKinds and s.kind != nxIterator and hasRet(s) and nxArgsFit(s, nargs): anyFits = true
   for r in nxLookup(sc, name):
+    # the candidate routine, in place
     template s: untyped = r.sym
     if s.kind notin NxRoutineKinds or s.kind == nxIterator or not hasRet(s): continue
     if anyFits and not nxArgsFit(s, nargs): continue
@@ -915,6 +930,7 @@ proc nxCommonRet*(sc: NxScope, name: string): string =
   ## what every overload of `name` returns, when that is one type (so a call can be typed without its receiver)
   var rets: HashSet[string]
   for r in nxLookup(sc, name):
+    # the overload being looked at, in place
     template s: untyped = r.sym
     if s.kind notin NxRoutineKinds or s.kind == nxIterator: continue
     let ret = nxAsyncResult(s.ret, s.pragmas)
@@ -1016,6 +1032,7 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
     # a type of its own (HttpHeaders, a user's tree): the iterator it has says what it yields
     let want = if itName.len > 0: itName elif slots >= 2: "pairs" else: "items"
     for r in nxLookup(sc, want):
+      # the iterator being looked at, in place
       template s: untyped = r.sym
       if s.kind != nxIterator or s.ret.len == 0 or s.params.len == 0: continue
       if nxCompatP(sc, s.params[0], s.generics, ct) < 2: continue
@@ -1089,6 +1106,7 @@ proc nxIterVarType*(f: NxFile, sc: NxScope, locals: seq[NxSym], expr: string, sl
         return (if slot < parts.len: parts[slot] else: "")
       return rt
   for r in nxLookup(sc, itName):
+    # the iterator being looked at, in place
     template s: untyped = r.sym
     if s.kind != nxIterator or s.ret.len == 0: continue
     if ct.len > 0 and s.params.len > 0 and nxCompatP(sc, s.params[0], s.generics, ct) == 0: continue
@@ -1182,6 +1200,7 @@ proc nxInjectedType(f: NxFile, sc: NxScope, before: seq[NxSym], s: NxSym, depth:
   let ri = block:
     var best = -1
     for i in 0 ..< tf.syms.len:
+      # the declaration in the template's file being looked at, in place
       template ts: untyped = tf.syms[i]
       if ts.kind == nxTemplate and ts.line < vl and vl <= ts.endLine and (best < 0 or ts.line > tf.syms[best].line):
         best = i
@@ -1204,6 +1223,10 @@ proc nxInjectedType(f: NxFile, sc: NxScope, before: seq[NxSym], s: NxSym, depth:
   nxTypeOfExpr(tf, nxScope(tf), tlocs, t[eq + 1 .. ^1].strip, vl, depth + 1)
 
 proc nxTypeOfName*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, line, depth: int): NxVal =
+  ## what a bare name is at that line: the nearest local of that name (its written type, the type of a loop variable or
+  ## an unpacked tuple element, the type its value has, one a template call declares), else a module, a type, a constant
+  ## or variable of the scope, an enum value or a routine; a template's own parameter takes the type its calls pass.
+  ## Nothing when it cannot be told
   if depth > 14: return
   for i in countdown(locals.high, 0):
     let s = locals[i]
@@ -1248,6 +1271,7 @@ proc nxTypeOfName*(f: NxFile, sc: NxScope, locals: seq[NxSym], name: string, lin
       return
   if name in sc.modules: return NxVal(module: sc.modules[name])
   for r in nxLookup(sc, name):
+    # the declaration being looked at, in place
     template s: untyped = r.sym
     case s.kind
     of nxType: return NxVal(typeName: s.name)
@@ -1365,6 +1389,7 @@ proc nxTemplateCall*(f: NxFile, sc: NxScope, locals: seq[NxSym], name, recvType,
   let el = nxElemType(recvT)
   let it = NxSym(name: "it", kind: nxLet, typ: el, line: line)
   proc opType(k: int): string =
+    ## the type of the k-th argument of a sequtils-style call, with `it` bound to the element type
     if k >= args.len or el.len == 0: return ""
     nxTypeOfExpr(f, sc, locals & @[it], args[k], line, depth + 1).typ
   case name
@@ -1464,6 +1489,10 @@ proc nxWhenIs(f: NxFile, sc: NxScope, locals: seq[NxSym], cond: string, line, de
   result = 0
 
 proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, depth: int): NxVal =
+  ## the type of an expression written as text, worked out the way the index can without a compiler: literals, names,
+  ## field access, calls and constructors, indexing and slices, operators, conversions, `if`/`case`/`when` values (the
+  ## first branch), brackets, `@[…]` and the like. Nothing (an empty type) when it cannot be told; depth stops
+  ## runaway recursion
   if depth > 16: return
   var s = e.strip
   if s.len == 0: return
@@ -1586,6 +1615,7 @@ proc nxTypeOfExpr*(f: NxFile, sc: NxScope, locals: seq[NxSym], e: string, line, 
           let rt = nxTypeOfExpr(f, sc, locals, rightE, line, depth + 1).typ
           let rr = nxResolveAlias(sc, nxStripMods(rt))
           proc width(x: string): int =
+            ## the bit width of a number type, to pick the wider of two operands (64 for anything not listed)
             case x
             of "int8", "uint8", "byte": 8
             of "int16", "uint16": 16

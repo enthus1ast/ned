@@ -45,6 +45,7 @@ type
 # ── reading the file ──
 
 func indentOf(s: string): int =
+  ## how many spaces or tabs the line starts with
   while result < s.len and s[result] in {' ', '\t'}: inc result
 
 func checkbox*(s: string): (int, bool, int) =
@@ -56,6 +57,7 @@ func checkbox*(s: string): (int, bool, int) =
   (-1, false, 0)
 
 func headingLevel(s: string): int =
+  ## the level of a Markdown heading line (how many #, when a space follows them); 0 for any other line
   var n = 0
   while n < s.len and s[n] == '#': inc n
   if n > 0 and n < s.len and s[n] == ' ': n else: 0
@@ -118,6 +120,7 @@ func cardAtLine*(cols: seq[Column], line: int): (int, int) =
 # ── changing it ──
 
 func ticked(s: string, done: bool): string =
+  ## the checklist line with its box ticked [x] (done) or empty [ ]; any other line as it is
   let (ind, _, _) = checkbox(s)
   if ind < 0: s else: s[0 ..< ind + 3] & (if done: "x" else: " ") & s[ind + 4 .. ^1]
 
@@ -152,22 +155,27 @@ func swapped*(lines: seq[string], cols: seq[Column], ci, k, by: int): (seq[strin
   (r, (if by < 0: a.first else: a.first + (b.last - b.first + 1) + mid.len))
 
 func toggled*(lines: seq[string], card: Card): seq[string] =
+  ## the file's lines with the card's box ticked if it was open, or unticked if it was done
   result = lines
   result[card.first] = ticked(lines[card.first], not card.done)
 
 # ── the file: its tab, or on disk ──
 
 proc listPath(): string =
+  ## the full path of the board's file (the file setting, from the project's folder unless it is absolute)
   let f = setting("file", "TODO.md")
   if f.isAbsolute: f else: projectRoot() / f
 
 proc listBuf(): Buf =
+  ## the open tab of the board's file; an invalid buffer when it is not open
   let p = listPath()
   for b in buffers():
     if b.path == p: return b
   Buf(id: -1)
 
 proc readList(): seq[string] =
+  ## the lines of the board's file: from its tab when it is open (with changes not saved too), else from disk; none when
+  ## there is no such file
   let b = listBuf()
   if b.valid: return b.lines
   let p = listPath()
@@ -230,6 +238,7 @@ var
   spots: seq[Spot]
   boardTab = Buf(id: -1)
 
+# s followed by spaces up to w columns
 func pad(s: string, w: int): string = s & spaces(max(0, w - width(s)))
 
 proc render*(cs: seq[Column], file: string, paneWidth: int): (string, seq[Spot]) =
@@ -272,6 +281,7 @@ proc render*(cs: seq[Column], file: string, paneWidth: int): (string, seq[Spot])
   (rows.join("\n"), sp)
 
 proc paneWidth(): int =
+  ## how many columns the active pane has for the board (less the gutter); 100 when it cannot be found
   result = 100
   try:
     for p in panes():
@@ -289,6 +299,7 @@ proc spotAt(p: Pos): (int, int) =
   best
 
 proc boardOpen(): bool =
+  ## whether the board's tab is still open
   if not boardTab.valid: return false
   for b in buffers():
     if b.id == boardTab.id: return true
@@ -334,6 +345,8 @@ proc fresh(): bool =
   true
 
 proc moveTo(ci, k, to: int, fromBoard: bool) =
+  ## moves card k of column ci to the end of column `to` in the file (ticked or unticked as the done column asks), says
+  ## so, and draws the board again with the cursor on the card; nothing happens for places that do not exist
   let ls = readList()
   cols = columnsOf(ls, setting("level", 2))
   if ci < 0 or ci >= cols.len or k < 0 or k >= cols[ci].cards.len or to < 0 or to >= cols.len or to == ci: return
@@ -344,6 +357,8 @@ proc moveTo(ci, k, to: int, fromBoard: bool) =
   refreshAll(cardAtLine(nc, at), fromBoard)
 
 proc moveBy(b: Buf, step: int) =
+  ## moves the card at the cursor to the column step places along (1 the next, -1 the one before); nothing at the first
+  ## and last columns
   let (ci, k) = cardAt(b)
   if k < 0:
     message("Kanban: put the cursor on a card")
@@ -352,6 +367,8 @@ proc moveBy(b: Buf, step: int) =
   moveTo(ci, k, ci + step, b.lang == "kanban")
 
 proc upDown(b: Buf, by: int) =
+  ## swaps the card at the cursor with the one above (by -1) or below (1) it in its column, in the file, and draws the
+  ## board again with the cursor on it
   let (ci, k) = cardAt(b)
   if k < 0:
     message("Kanban: put the cursor on a card")
@@ -364,14 +381,18 @@ proc upDown(b: Buf, by: int) =
   refreshAll(cardAtLine(columnsOf(nl, setting("level", 2)), at), b.lang == "kanban")
 
 proc goTo(ci, k: int) =
+  ## opens the board's file at the first line of card k of column ci
   if ci >= 0 and k >= 0 and ci < cols.len and k < cols[ci].cards.len:
     discard openFile(listPath(), cols[ci].cards[k].first)
 
 proc goToAt(b: Buf) =
+  ## opens the board's file at the card at the cursor
   let (ci, k) = cardAt(b)
   goTo(ci, k)
 
 proc chooseColumn(title: string, skip = -1): int =
+  ## lists the columns (with their card counts, but not column skip) to pick one; gives its place, -1 when nothing was
+  ## picked
   var items, dets: seq[string]
   var idx: seq[int]
   for i, c in cols:
@@ -383,6 +404,8 @@ proc chooseColumn(title: string, skip = -1): int =
   if i < 0: -1 else: idx[i]
 
 proc cardMenu(ci, k: int, fromBoard: bool) =
+  ## a list of what can be done with card k of column ci — move it to another column, tick or untick it, move it up or
+  ## down, go to it in the file — and does the one chosen
   if ci < 0 or ci >= cols.len or k < 0 or k >= cols[ci].cards.len: return
   let card = cols[ci].cards[k]
   var items, dets: seq[string]

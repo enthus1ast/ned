@@ -96,6 +96,7 @@ func gqlCode(s: string, triple: var bool): string =
     inc i
 
 func gqlNameEnd(s: string, i: int): int =
+  ## where the name that starts at i ends: letters, digits and _
   result = i
   while result < s.len and (s[result].isAlphaNumeric or s[result] == '_'): inc result
 
@@ -121,6 +122,8 @@ func gqlSymbols*(lines: seq[string]): seq[Symbol] =
     let col = code.len - code.strip(trailing = false).len
     var opens = ""
     template put(nm, kd, dt: string, d: int) =
+      ## adds an outline symbol (name, kind, detail, nesting depth) for the line being read, at the column where the
+      ## name is found
       result.add Symbol(name: nm, kind: kd, detail: dt, line: ln, col: max(0, s.find(nm, col)), depth: d)
     if stack.len == 0 and parens == 0:
       var (first, e) = gqlWordAt(t, 0)
@@ -191,6 +194,8 @@ func gqlSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc gqlHave(cmd: string): bool =
+  ## whether the first word of the command line is a program that can be found (a ~ is expanded) — so a server or
+  ## formatter that is set is only used when it is installed
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

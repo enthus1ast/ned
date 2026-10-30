@@ -37,6 +37,7 @@ const NifTagWords = {
   "curly": "{…} before its type is known", "expr": "statements with a value", "nifs": "NIF files"}.toTable
 
 proc nifNodesOf(b: Buffer): seq[NifNode] =
+  ## the nodes of a NIF buffer, parsed again only when the buffer changed (kept for the last 16 buffers)
   if b.id in nifMemo and nifMemo[b.id][0] == b.changeId: return nifMemo[b.id][1]
   result = nifParse(b.lines)
   if nifMemo.len > 16: nifMemo.clear()
@@ -112,6 +113,7 @@ proc nifDefinition(b: Buffer, p: Pos): bool =
   true
 
 proc nifOutlineOf(b: Buffer): seq[SideItem] =
+  ## the NIF buffer's outline for the side panel: its declarations, with an icon for routines, types and the rest
   for it in nifOutline(nifNodesOf(b)):
     let fn = it.tag in ["proc", "func", "method", "iterator", "converter", "template", "macro"]
     result.add SideItem(text: it.name, detail: it.tag, path: b.path, line: it.line, col: it.col, depth: it.depth,
@@ -156,6 +158,7 @@ proc nifFileFor(path: string): string =
   best
 
 proc nifOpenBeside(src: Buffer, nifPath: string) =
+  ## opens the NIF file read-only beside the Nim buffer and links the two, so each follows the cursor in the other
   let srcIdx = curBuf
   let v = openFile(nifPath)
   if v == nil: return
@@ -191,6 +194,8 @@ proc cmdNifView() =
     else: nifOpenBeside(x, nf))
 
 proc nifReveal(id, line: int) =
+  ## scrolls the buffer (in the current pane or in another that shows it) so that the line is in view, when it is not
+  ## already
   let b = bufById(id)
   if b == nil or line < 0 or line >= b.lines.len: return
   if b == buf():

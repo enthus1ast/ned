@@ -214,9 +214,14 @@ var
 
 # ── where things are ──
 
+# the folder of your own plugins (in ned's configuration folder)
 proc plugUserRoot(): string = configDir() / "plugins"
+# the project's plugins folder (.ned/plugins in it); empty when there is no project folder
 proc plugProjectRoot(): string = (if rootDir.len > 1: rootDir / ".ned" / "plugins" else: "")
+# where ned keeps what it makes for plugins: their library files, the compiled processes, the manifest (under the cache
+# folder)
 proc plugCacheRoot(): string = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "plugins"
+# where each plugin may keep files of its own — a folder a plugin, under the data folder
 proc plugDataRoot(): string = getEnv("XDG_DATA_HOME", getHomeDir() / ".local" / "share") / AppName / "plugins"
 
 proc plugLibDir(): string =
@@ -247,23 +252,30 @@ proc plugBundledOn(): seq[string] =
     if x.kind == JString: result.add x.getStr
 
 proc plugBundledWhat(n: string): string =
+  ## the one-line description of one of ned's own plugins by its name, empty when there is none of that name
   for (name, what, _) in PlugBundled:
     if name == n: return what
 
 proc plugLogAdd(plugin, line: string) =
+  ## adds a line to the plugins' log (a long line cut short, the log kept to its last 300 lines) and redraws the Plugins
+  ## dock when it shows the log
   plugLog.add (plugin, (if line.len > 400: line[0 ..< 400] & "…" else: line))
   if plugLog.len > 400: plugLog = plugLog[^300 .. ^1]
   if rightOpen and rightView == svPlugins: needRender = true
 
+# whether plugins are switched on at all (plugins.enabled, on unless you turn it off)
 proc plugsOn(): bool = sval("plugins.enabled").getBool(true)
 
 func plugIdOk(id: string): bool =
+  ## whether a folder name can be a plugin's id: letters, digits, - _ and . up to 64 long, not starting with a dot
   id.len > 0 and id.len <= 64 and id.allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '-', '_', '.'}) and id[0] != '.'
 
 proc plugDisabledIds(): seq[string] =
+  ## the plugins you turned off (plugins.disabled)
   for x in jitems(sval("plugins.disabled")): result.add x.getStr
 
 proc plugAloneIds(): seq[string] =
+  ## the plugins set to run in a process of their own (plugins.alone)
   for x in jitems(sval("plugins.alone")): result.add x.getStr
 
 proc plugNativeMode(): string =
@@ -274,6 +286,7 @@ proc plugNativeMode(): string =
   else: "auto"
 
 func plugVerParts(v: string): seq[int] =
+  ## a version's numbers: "6.20.1" gives 6, 20, 1 (a part counts up to its first non-digit)
   for x in v.strip.split('.'):
     var n = 0
     for c in x:
@@ -282,6 +295,7 @@ func plugVerParts(v: string): seq[int] =
     result.add n
 
 func plugVerCmp(a, b: seq[int]): int =
+  ## compares two versions given as lists of numbers (a missing number counts as 0): negative, 0 or positive as cmp does
   for i in 0 ..< max(a.len, b.len):
     let x = if i < a.len: a[i] else: 0
     let y = if i < b.len: b[i] else: 0
@@ -381,6 +395,8 @@ proc plugInfoIn(text: string): (string, string, string, string) =
   (vals[0], vals[1], vals[2], vals[3])
 
 proc plugReadInfo(p: var PlugInfo) =
+  ## fills in a plugin's version, author, homepage and licence from its source; they stay empty when the file cannot be
+  ## read
   try: (p.version, p.author, p.homepage, p.license) = plugInfoIn(readFile(p.file))
   except CatchableError: discard
 
@@ -427,6 +443,8 @@ proc plugPermsCheck() =
             proc() = plugAskPerms(pid))
 
 proc plugAllowed(plugin: string, what: PlugPerm): bool =
+  ## whether you allowed that plugin this kind of thing (running programs, changing files, the clipboard …); false for a
+  ## plugin ned does not know
   for p in plugs:
     if p.id == plugin: return what in plugGranted.getOrDefault(plugPermKey(p))
   false
@@ -493,15 +511,18 @@ proc plugDiscover() =
   plugPermsCheck()
 
 proc plugInfoOf(id: string): int =
+  ## where a plugin is in the plugs list by its id, -1 when it is not there
   for i, p in plugs:
     if p.id == id: return i
   -1
 
 proc plugHostOf(plugin: string): PlugHost =
+  ## the process a plugin runs in, nil when there is none
   for h in plugHosts:
     if plugin in h.ids: return h
   nil
 
+# how the log and the messages name a process: "plugins" for the shared one, else the plugin's own name
 proc plugLabel(h: PlugHost): string = (if h.name == PlugShared: "plugins" else: h.name)
 
 proc plugSignature(h: PlugHost): string =
@@ -587,6 +608,7 @@ proc regNth(regs: seq[PlugReg], r: PlugReg): int =
     if q.plugin == r.plugin and q.kind == r.kind and regBaseKey(q) == k: inc result
 
 proc regByKey(key: string): int =
+  ## where the registration with that key is in plugRegs, -1 when there is none
   for i, r in plugRegs:
     if regKey(r) == key: return i
   -1
@@ -674,6 +696,7 @@ proc plugAddsSummary(pid: string): string =
     of "vimMap", "operator", "textObject", "ex": inc vim
     of "view": parts.add "a view (" & r.data{"title"}.getStr & ")"
     else: discard
+  # the count with its noun: "a snippet" for one, "3 snippets" for more
   proc n(k: int, one, many: string): string = (if k == 1: "a " & one else: $k & " " & many)
   var res: seq[string]
   for l in langs: res.add "the " & l & " language"
@@ -855,9 +878,11 @@ proc plugEagerHost(h: PlugHost): bool =
     if r.kind == "event" and r.data{"event"}.getStr in ["startup", "open", "change", "beforeSave", "keys"]: return true
   false
 
+# the file a process's registrations are remembered in between sessions (in the plugins' cache folder)
 proc plugManifestFile(): string = plugCacheRoot() / "manifest.json"
 
 proc plugManifest(): JsonNode =
+  ## the remembered registrations read from the manifest file; an empty one when the file is missing or damaged
   try:
     result = parseFile(plugManifestFile())
     if result.kind != JObject or result{"hosts"} == nil or result["hosts"].kind != JObject:
@@ -865,6 +890,8 @@ proc plugManifest(): JsonNode =
   except CatchableError: result = %*{"hosts": {}}
 
 proc plugSaveManifest(h: PlugHost) =
+  ## remembers a process's registrations, and the signature they were made under, in the manifest — so the next start
+  ## knows its commands and keys before the process runs
   var a = newJArray()
   for r in h.regs: a.add %*{"plugin": r.plugin, "kind": r.kind, "cb": r.cb, "data": r.data, "nth": r.nth}
   let m = plugManifest()
@@ -887,6 +914,8 @@ proc plugLoadManifest(h: PlugHost): bool =
 # ── the processes ──
 
 proc plugSendRaw(h: PlugHost, j: JsonNode) =
+  ## puts a message for the process (as one line of JSON) in its write queue; plugFlush sends it. Nothing when the
+  ## process is not running
   if h.fdIn < 0: return
   h.wbuf.add $j & "\n"
 
@@ -907,6 +936,8 @@ proc plugFlush(h: PlugHost, block_ms = 0) =
     break
 
 proc plugStop(h: PlugHost, why = "off") =
+  ## stops a process: asks it to quit, ends it and what it started, closes its pipes, and answers the calls waiting on
+  ## it with an error. `why` is the state it is left in ("off", "failed: …")
   if h.pr.pid > 0:
     plugSendRaw(h, %*{"t": "quit"})
     plugFlush(h, 50)
@@ -941,9 +972,11 @@ proc plugQuitEvents() =
     if ev == "quit" and h != nil and h.state == "ready": discard plugCallSync(key, newJObject(), 1500)
 
 proc plugStopAll() =
+  ## stops every plugin process
   for h in plugHosts: plugStop(h)
 
 proc plugHostSource(h: PlugHost): string =
+  ## the NimScript source of a process: it imports the plugin library, then each of its plugins, and runs them
   result = "# made by ned " & Version & ": " & (if h.name == PlugShared: "your NimScript plugins (and the project's)"
                                                  else: "the plugin " & h.name) & " in one process\nimport nedplugin\n"
   for i, id in h.ids:
@@ -951,9 +984,11 @@ proc plugHostSource(h: PlugHost): string =
     if k >= 0: result.add "import " & escape(plugs[k].file) & " as nedPlug" & $i & "\n"
   result.add "nedRun()\n"
 
+# where the compiled form of a process is kept; its name has the process's signature, so a change makes a new file
 proc plugBin(h: PlugHost): string = plugCacheRoot() / "native" / ("host-" & h.sig) & ExeDot
 
 proc plugOwnerOf(path: string): string =
+  ## the plugin a file belongs to (the one whose folder holds it), empty when it is none of them
   for p in plugs:
     if path == p.dir or path.startsWith(p.dir & "/"): return p.id
   ""
@@ -1191,6 +1226,8 @@ proc plugHostDied(h: PlugHost) =
 proc plugLineOut(h: PlugHost, line: string)
 
 proc plugReadOut(h: PlugHost) =
+  ## reads what the process has written: each whole line goes to plugLineOut, and when the pipe has closed (the process
+  ## is gone) plugHostDied runs
   var tmp: array[65536, char]
   var gone = false
   while h.fdOut >= 0:
@@ -1212,6 +1249,8 @@ proc plugReadOut(h: PlugHost) =
   if gone and h.pr.pid > 0: plugHostDied(h)
 
 proc plugReadErr(h: PlugHost) =
+  ## reads the process's error output into the log, each line under the plugin it names (else the one running, else the
+  ## process), and keeps the last few lines for plugHostDied
   var tmp: array[16384, char]
   while h.fdErr >= 0:
     let n = posix.read(h.fdErr, addr tmp[0], tmp.len)
@@ -1236,6 +1275,8 @@ proc plugBufVer(b: Buffer): string = $b.changeId & ":" & $b.lines.len
 
 proc plugSendCall(h: PlugHost, cb: int, plugin: string, args: JsonNode,
                   onDone: proc(v: JsonNode, err: string) {.closure.}): int =
+  ## sends the process a call of one of its callbacks and gives the call's number; the answer goes to onDone. It also
+  ## sends the versions of the buffers the call is about, so the plugin can keep using its copy of their lines
   inc h.nextRid
   result = h.nextRid
   h.calls[result] = PlugCall(plugin: plugin, sentAt: getMonoTime(), onDone: onDone)
@@ -1252,6 +1293,7 @@ proc plugSendCall(h: PlugHost, cb: int, plugin: string, args: JsonNode,
   h.lastUse = getMonoTime()
 
 proc plugKeyHost(key: string): PlugHost =
+  ## the process a registration key belongs to, nil when none
   let i = regByKey(key)
   plugHostOf(if i >= 0: plugRegs[i].plugin else: key.split('|')[0])
 
@@ -1297,6 +1339,7 @@ proc plugWaitFor(h: PlugHost, done: proc(): bool, ms: int): bool =
       if (pf[0].revents and (POLLIN or POLLHUP or POLLERR)) != 0: plugReadOut(h)
   true
 
+# how long ned waits for a plugin's answer where it must (plugins.timeoutMs, at least 200 ms)
 proc plugTimeout(): int = max(200, sval("plugins.timeoutMs").getInt(1500))
 
 proc plugCallSync(key: string, args: JsonNode, ms: int): (bool, JsonNode, string) =
@@ -1321,6 +1364,8 @@ proc plugCallSync(key: string, args: JsonNode, ms: int): (bool, JsonNode, string
   (err.len == 0, res, err)
 
 proc plugMatches(pattern: string, b: Buffer): bool =
+  ## whether an event's pattern fits a buffer: empty or * for every one, lang:<id> for a language, else file-name globs
+  ## (a glob with a / is matched against the path in the project)
   if pattern.len == 0 or pattern == "*": return true
   if pattern.startsWith("lang:"): return b.lang != nil and cmpIgnoreCase(b.lang.id, pattern[5 .. ^1]) == 0
   if b.path.len == 0: return false
@@ -1333,9 +1378,12 @@ proc plugMatches(pattern: string, b: Buffer): bool =
   false
 
 proc plugEventArgs(b: Buffer): JsonNode =
+  ## what an event tells the plugin about a buffer: its id, path and language
   %*{"buf": b.id, "path": b.path, "lang": (if b.lang != nil: b.lang.id else: "")}
 
 proc plugFire(event: string, b: Buffer, only: PlugHost = nil) =
+  ## tells the plugins that asked for an event about a buffer whose pattern fits it (`only`: just those of one process);
+  ## nothing during a save a plugin asked for itself
   if plugEvts.len == 0 or b == nil or plugSilentSave: return
   for (ev, pat, key) in plugEvts:
     if ev == event and plugMatches(pat, b):
@@ -1354,11 +1402,14 @@ proc plugVimRange(b: Buffer, c: Cursor): (Pos, Pos) =
     result = (Pos(line: result[0].line, col: 0), Pos(line: result[1].line, col: b.lines[result[1].line].len))
 
 proc plugAnswer(h: PlugHost, id: int, v: JsonNode, err = "") =
+  ## sends a plugin the answer to its request — the value, or an error text when there is one
   if err.len > 0: plugSendRaw(h, %*{"t": "res", "id": id, "err": err})
   else: plugSendRaw(h, %*{"t": "res", "id": id, "value": (if v == nil: newJNull() else: v)})
   plugFlush(h)
 
+# a position as the plugins' JSON writes it
 proc jPos(p: Pos): JsonNode = %*{"line": p.line, "col": p.col}
+# a position from the plugins' JSON
 proc posOf(j: JsonNode): Pos = Pos(line: j{"line"}.getInt, col: j{"col"}.getInt)
 
 proc plugSetting(plugin, key: string): JsonNode =
@@ -1379,6 +1430,7 @@ proc plugMarkEdit(h: PlugHost, rid: int, b: Buffer) =
   h.calls[rid].marks.add (b.id, b.undoStack.len)
 
 proc plugDecorSet(b: Buffer, plugin: string, d: PlugDecor) =
+  ## adds a decoration (sign, text after a line, highlight) to a buffer for a plugin and redraws
   var x = d
   x.plugin = plugin
   plugDecor.mgetOrPut(plugDecorKey(b), @[]).add x
@@ -1412,6 +1464,10 @@ proc plugDataName(name: string): bool =
     ".." notin name.split('/') and not name.endsWith("/")
 
 proc plugApi(h: PlugHost, j: JsonNode) =
+  ## handles one request a plugin made of ned — the function `fn` and its arguments in j — and answers it (plugAnswer)
+  ## with a value or an error. The plugin is the one the message names among the process's own. A function that runs
+  ## programs, uses the clipboard or writes a file outside the project is refused (and logged) unless the plugin was
+  ## allowed it
   let id = j{"id"}.getInt
   let fn = j{"fn"}.getStr
   # (arguments that are not an object — a plugin's mistake, or one meaning harm — read as none)
@@ -1423,14 +1479,19 @@ proc plugApi(h: PlugHost, j: JsonNode) =
   let rid = j{"rid"}.getInt
   h.lastUse = getMonoTime()
   let b = if a.hasKey("buf"): bufById(a{"buf"}.getInt) else: nil
+  # answers this request, to the process that sent it
   template answer(v: JsonNode, err = "") = plugAnswer(h, id, v, err)
   template needBuf() =
+    ## answers with an error and leaves the request when the buffer it names is gone (closed meanwhile)
     if b == nil:
       answer(nil, "no such buffer (it was closed?)")
       return
   template rng(n: JsonNode): (Pos, Pos) =
+    ## a range from {start, stop} in the request, both ends kept inside the buffer
     (b.clampPos(posOf(n{"start"})), b.clampPos(posOf(n{"stop"})))
   template need(pp: PlugPerm) =
+    ## leaves the request, with an answer that says how to ask for it, unless the plugin was allowed this permission;
+    ## the refusal is logged
     if not plugAllowed(plugin, pp):
       plugLogAdd(plugin, "refused " & fn & ": it may not " & PlugPermShort[pp] & " (permission \"" & $pp & "\")")
       answer(nil, "not allowed: " & PlugPermShort[pp] & " — this plugin did not ask for \"" & $pp &
@@ -1976,6 +2037,8 @@ proc plugApi(h: PlugHost, j: JsonNode) =
     plugAnswer(h, id, nil, e.msg)
 
 proc plugCallDone(h: PlugHost, rid: int, v: JsonNode, err: string) =
+  ## a call came back (or failed): its edits in each buffer are made one undo step, an error is logged and shown (not
+  ## while ned waits for the plugin), and the answer goes to whoever waited for it
   if rid notin h.calls: return
   let c = h.calls[rid]
   h.calls.del rid
@@ -1990,6 +2053,8 @@ proc plugCallDone(h: PlugHost, rid: int, v: JsonNode, err: string) =
     except CatchableError as e: internalError("plugin answer", e)
 
 proc plugReady(h: PlugHost) =
+  ## the process says it is ready: what it registered is taken as final (a plugin that needs a newer ned is left out),
+  ## applied and remembered in the manifest, and the calls that waited for it are sent
   h.state = "ready"
   h.regs = h.newRegs
   h.newRegs.setLen(0)
@@ -2018,6 +2083,8 @@ proc plugReady(h: PlugHost) =
     elif x.onDone != nil: x.onDone(nil, "the plugin has no such callback now")
 
 proc plugHandle(h: PlugHost, j: JsonNode) =
+  ## one message from the process: a registration (one made later, a timer started in a command, is applied at once),
+  ## ready, a request of ned (plugApi) or the return of a call
   case j{"t"}.getStr
   of "reg":
     var r = PlugReg(plugin: j{"plugin"}.getStr, kind: j{"kind"}.getStr, cb: j{"cb"}.getInt(-1), data: j)
@@ -2037,6 +2104,8 @@ proc plugHandle(h: PlugHost, j: JsonNode) =
   else: discard
 
 proc plugLineOut(h: PlugHost, line: string) =
+  ## one line of the process's output: a line with the protocol's mark is a message and is handled; any other line is
+  ## the plugin's own printing, kept in the log under the plugin that was running
   if line.len > 0 and line[0] == PlugMark:
     var j: JsonNode
     try: j = parseJson(line[1 .. ^1])
@@ -2054,6 +2123,8 @@ proc plugLineOut(h: PlugHost, line: string) =
 # ── ned's side: what the editor calls ──
 
 proc plugOpened(b: Buffer) =
+  ## a buffer was opened: its "open" events wait in a queue until the registrations are known (nothing when plugins are
+  ## off)
   if plugsOn() and b != nil: plugOpenQ.add b.id
 
 proc plugBeforeSave(b: Buffer) =
@@ -2065,6 +2136,8 @@ proc plugBeforeSave(b: Buffer) =
       if not ok and err == "the plugins are starting": info("Plugins are starting — saved without their changes")
 
 proc plugSaved(b: Buffer) =
+  ## a buffer was saved: a plugin's language server that waited for a save of that language's files starts now, then the
+  ## plugins hear of the save
   # (a plugin's server that waits for a save of its language's files: started now)
   if b != nil and b.lang != nil and plugLspLater.len > 0:
     var key = ""
@@ -2083,6 +2156,8 @@ proc plugSaved(b: Buffer) =
   plugFire("save", b)
 
 proc plugClosed(b: Buffer) =
+  ## a buffer was closed: the plugins hear of it and what ned kept for the buffer for them (decorations, change marks,
+  ## symbols) is let go
   plugFire("close", b)
   plugDecor.del plugDecorKey(b)
   plugChangeSent.del b.id
@@ -2189,6 +2264,7 @@ proc plugCompMerge() =
     if it.label notin have: keep.add it
   compItems = keep
 
+# whether a plugin that is running gives completions for this buffer's language
 proc plugHasCompletions(b: Buffer): bool = plugProvidersFor("completion", b).len > 0
 
 proc plugComplete(b: Buffer, p: Pos) =
@@ -2265,6 +2341,8 @@ proc plugCodeActionItems(b: Buffer): seq[(string, string, Action)] =
         result.add plugFixAction(f{"title"}.getStr, "plugin " & plugin, edits, b.id)
 
 proc plugSymbolItems(b: Buffer, v: JsonNode): seq[SideItem] =
+  ## a plugin's symbols (kind, name, line, depth) as outline rows, the icon and colour by kind: functions, types,
+  ## headings, constants, the rest
   for s in jitems(v):
     let k = s{"kind"}.getStr
     let (icon, role) = case k
@@ -2306,6 +2384,8 @@ proc plugSymbolPicks(b: Buffer): seq[PickItem] =
 # ── the assistant's tools from plugins ──
 
 proc plugAiRun(name: string, args: JsonNode, done: proc(text: string, isError: bool) {.closure.}) =
+  ## runs one of the plugins' tools for the assistant: the plugin is called with the arguments and its answer goes to
+  ## `done` as text (JSON as it is written; "(done)" for none); a tool no plugin has is an error
   for t in plugAiTools:
     if t.name == name:
       plugInvoke(t.key, args, proc(v: JsonNode, err: string) =
@@ -2319,12 +2399,14 @@ proc plugAiRun(name: string, args: JsonNode, done: proc(text: string, isError: b
 # ── vim ──
 
 proc plugVimReset() =
+  ## forgets the keys typed so far of a plugin's vim mapping or operator
   plugSeq = ""
   plugOpKeys = ""
   plugOpObj = '\0'
   plugOpWait = '\0'
 
 proc plugRunOp(key: string, b: Buffer, a, e: Pos, linewise: bool) =
+  ## calls a plugin's operator with the range to work on and whether it is whole lines
   plugInvoke(key, %*{"buf": b.id, "range": {"start": jPos(a), "stop": jPos(e)}, "linewise": linewise})
 
 proc plugVimKey(b: Buffer, ch: char, visual: bool): bool =
@@ -2474,6 +2556,8 @@ proc plugPendingKeys(): (string, string) =
   (p, (if obj: "obj" elif op: "o" elif vis: "v" else: "n"))
 
 proc plugKeyHintsShown(): bool =
+  ## whether the box of what the next key does is showing: there are hints, and the keys waiting are the ones they were
+  ## given for
   if plugKeyHints.len == 0: return false
   let (k, m) = plugPendingKeys()
   k.len > 0 and m & "\t" & k == plugKeyHintsFor
@@ -2558,6 +2642,7 @@ proc plugKeysRound() =
       plugInvoke(key, %*{"keys": keys, "mode": mode})
 
 proc plugKeysDueMs(): int =
+  ## how many milliseconds until the next "keys" event is due, the largest int when no keys are waiting
   result = int.high
   if plugKeysSeen.len == 0 or plugKeysSeen.endsWith("\t"): return
   for (ev, pat, key) in plugEvts:
@@ -2565,6 +2650,7 @@ proc plugKeysDueMs(): int =
       let ms = (try: parseInt(pat) except ValueError: 400)
       result = min(result, max(0, ms - msSince(plugKeysSince)))
 
+# whether a plugin gave keys to some language
 proc plugHasLangKeys(): bool = plugLangKeys.len > 0
 
 proc plugLangKey(n: string): bool =
@@ -2589,6 +2675,8 @@ proc plugWrites(b: Buffer): bool =
   true
 
 proc plugFixAction(title, src: string, edits: JsonNode, bid: int): (string, string, Action) =
+  ## a menu entry (title, where it comes from, action) that makes a plugin's text edits in the buffer as one change, the
+  ## last edit first so the earlier positions hold
   act(title, src, proc() =
     let tb = bufById(bid)
     if tb == nil or not tb.canEdit(): return
@@ -2613,6 +2701,8 @@ proc plugFixActions(b: Buffer, l0, l1: int): seq[(string, string, Action)] =
 # ── each round of the main loop ──
 
 proc plugFds(fds: var seq[TPollfd]) =
+  ## adds the processes' pipes to the main loop's poll list: what they write, and where something waits to be sent,
+  ## whether they take it
   for h in plugHosts:
     if h.fdOut >= 0: fds.add TPollfd(fd: h.fdOut, events: POLLIN)
     if h.fdErr >= 0: fds.add TPollfd(fd: h.fdErr, events: POLLIN)
@@ -2654,6 +2744,9 @@ proc plugBoot() =
   plugRebuildRegs()
 
 proc plugHostPump(h: PlugHost, ready: HashSet[cint]) =
+  ## one round for one process: reads what it wrote, sends what waits, notices it ended, fires its "startup" event once,
+  ## gives up on calls older than a minute, and stops it after plugins.idleStopMinutes idle minutes unless it has to
+  ## keep running (it starts again when needed)
   if h.fdOut >= 0 and h.fdOut in ready: plugReadOut(h)
   if h.fdErr >= 0 and h.fdErr in ready: plugReadErr(h)
   if h.wbuf.len > 0: plugFlush(h)
@@ -2682,6 +2775,9 @@ proc plugHostPump(h: PlugHost, ready: HashSet[cint]) =
 proc plugCheckDaily()
 
 proc plugPump(ready: HashSet[cint]) =
+  ## one round of the main loop for the plugins: starts them shortly after the first frame, pumps each process, sends
+  ## the queued "open" events, runs the due timers, the "keys" and "enter" events, "change" events after a pause in
+  ## typing, asks for the file's symbols, and cancels a pick, question or dialog of a plugin that is no longer on screen
   if not plugBooted:
     if plugBootAt == MonoTime(): plugBootAt = getMonoTime()
     if msSince(plugBootAt) < 400 or not plugsOn(): return
@@ -2896,6 +2992,8 @@ proc plugTakeBack(id: string) =
   info(id & ": permissions taken back — it waits until you allow them (its menu › Allow…)")
 
 proc plugSetEnabled(id: string, on: bool) =
+  ## turns a plugin on or off (plugins.disabled) and reloads the plugins; turning one on that asks for something you
+  ## have not allowed yet asks you first, and goes on when you allow it
   if on:
     let i = plugInfoOf(id)
     if i >= 0 and (plugs[i].scan.uses - plugGranted.getOrDefault(plugPermKey(plugs[i]))) != {}:
@@ -2909,6 +3007,7 @@ proc plugSetEnabled(id: string, on: bool) =
   plugReload()
 
 proc plugSetAlone(id: string, on: bool) =
+  ## sets whether a plugin runs in a process of its own (plugins.alone) and reloads the plugins
   var al: seq[string]
   for x in plugAloneIds():
     if x != id: al.add x
@@ -3011,6 +3110,7 @@ proc plugUninstall(id: string) =
     info("Removed " & pid))
 
 proc plugUninstallAct(id: string): Action =
+  ## the action that removes a plugin (made here for each: a closure made in a loop would share the loop's variable)
   result = proc() = plugUninstall(id)
 
 proc plugSettingsOf(id: string) =
@@ -3035,6 +3135,8 @@ proc cmdPluginsAvailable() =
   openActions("ned's plugins — Enter turns one on (or removes it)", items)
 
 proc cmdPluginUninstall() =
+  ## a list of the installed plugins to pick one to remove: ned's own is turned off (it stays in AVAILABLE), one of
+  ## yours or the project's has its folder deleted
   plugDiscover()
   var items: seq[(string, string, Action)]
   for p in plugs:
@@ -3048,6 +3150,8 @@ proc cmdPluginUninstall() =
   openActions("Remove a plugin", items)
 
 proc plugNew(name0: string) =
+  ## makes a new plugin of that name in your plugins from the template (a full Nim one when it was asked for), opens its
+  ## file and reloads; a name that cannot be a plugin's is refused, and one that exists is just opened
   let full = plugNewFull
   plugNewFull = false
   let name = name0.strip.replace(" ", "-")
@@ -3138,6 +3242,8 @@ proc plugUpdate() =
     var updated, same, failed: seq[string]
     var curOut: seq[string]
     proc close() =
+      ## finishes the plugin read so far from the update's output: when it moved, keeps the commit it was at (for Roll
+      ## back), then files it as updated, already up to date or failed
       if cur.len == 0: return
       if curOut.len > 0 and curOut[0].len == 40 and curOut[0].allCharsInSet(HexDigits):
         let u = plugUpdOf(cur)
@@ -3172,27 +3278,34 @@ proc plugUpdate() =
 
 var plugUpd: JsonNode                   # (plugCacheRoot/updates.json) id → {head, remoteHead, latest, prev, prevVersion}
 
+# the file the state of updates is kept in (in the plugins' cache folder)
 proc plugUpdFile(): string = plugCacheRoot() / "updates.json"
 
 proc plugUpdState(): JsonNode =
+  ## the state of updates — for each plugin its commit, the repository's, the latest version and the one before its last
+  ## update — read from its file the first time
   if plugUpd == nil:
     plugUpd = try: parseFile(plugUpdFile()) except CatchableError: newJObject()
     if plugUpd.kind != JObject: plugUpd = newJObject()
   plugUpd
 
 proc plugUpdSave() =
+  ## writes the state of updates to its file
   try:
     createDir(plugCacheRoot())
     writeFile(plugUpdFile(), $plugUpdState())
   except CatchableError: discard
 
 proc plugUpdOf(id: string): JsonNode =
+  ## the state of updates of one plugin (an empty one is made when there is none)
   let st = plugUpdState()
   if st{id} == nil or st[id].kind != JObject: st[id] = newJObject()
   st[id]
 
+# the version a plugin is pinned at (plugins.pinned), empty when it is not pinned
 proc plugPinned(id: string): string = sval("plugins.pinned"){id}.getStr
 
+# whether a plugin is one of yours that came from git (so it can be updated)
 proc plugFromGit(p: PlugInfo): bool = not p.bundled and not p.project and dirExists(p.dir / ".git")
 
 proc plugUpdateText(p: PlugInfo): string =
@@ -3226,6 +3339,8 @@ proc plugCheckUpdates(quiet = false) =
     var cur = ""
     var lines: seq[string]
     proc close() =
+      ## files the answer for the plugin read so far: its commit, the repository's, and the version its file has there;
+      ## a check that failed goes to the log
       if cur.len == 0: return
       let sep = lines.find("--")
       let u = plugUpdOf(cur)
@@ -3322,6 +3437,8 @@ proc plugPin(id: string, on: bool) =
   info(if on: id & " is pinned at " & pins[id].getStr & ": updates leave it alone" else: id & " is updated again")
 
 proc plugBrowseShow(j: JsonNode) =
+  ## shows a list of plugins (an array, or {"plugins": […]}) to pick from: one already installed is opened, any other is
+  ## installed from its repository
   let arr = if j.kind == JArray: j elif j{"plugins"} != nil and j["plugins"].kind == JArray: j["plugins"] else: newJArray()
   var items: seq[(string, string, Action)]
   for x in arr:
@@ -3395,9 +3512,12 @@ proc plugHelp() =
   if b != nil: b.readOnly = true
 
 proc plugInvokeAction(key: string): Action =
+  ## the action that runs a plugin's command
   proc() = plugInvoke(key, newJObject())
 
 proc plugViewClick(v: PlugView, it: JsonNode): Action =
+  ## the action for a click on a row of a plugin's view: the view's click callback with the row's id, or else the row's
+  ## file opened at its line
   let ck = v.clickKey
   let id = it{"id"}.getStr
   let path = it{"path"}.getStr
@@ -3469,6 +3589,7 @@ proc plugAvailableMenu(n: string) =
              mi("Copy to my plugins (to change it)", "", proc() = plugCopyBundled(n))], mouseX, mouseY + 1)
 
 proc plugHostMenu(name: string): Action =
+  ## the menu of a plugin process in the Plugins dock: restart it, or stop it (it starts again when it is needed)
   proc() =
     var h: PlugHost = nil
     for x in plugHosts:
@@ -3481,6 +3602,9 @@ proc plugHostMenu(name: string): Action =
                  plugLogAdd(plugLabel(hh), "stopped"))], mouseX, mouseY + 1)
 
 proc buildPluginItems(): seq[SideItem] =
+  ## the rows of the Plugins dock: the processes and how they are doing, what plugins are working on, the plugins' own
+  ## views, the installed plugins each with what it registered, a note of project plugins held back, the log and ned's
+  ## own plugins that are not on
   result.add sideItem("PLUGINS", 6)
   if not plugsOn():
     result.add sideItem("off (plugins.enabled)", 2, "·", "turn on", proc() =
@@ -3615,6 +3739,7 @@ proc buildPluginItems(): seq[SideItem] =
       result.add sideItem(n, 1, "+", what, plugBundledAct(n, true), data = "avail:" & n)
 
 proc cmdPlugins() =
+  ## shows the Plugins dock
   showSide(svPlugins)
 
 proc cmdPluginCommands() =
@@ -3635,6 +3760,7 @@ proc cmdPluginCommands() =
   openActions("Plugin commands", items)
 
 proc cmdPluginToggle() =
+  ## a list of the plugins to turn one on or off
   plugDiscover()
   var items: seq[(string, string, Action)]
   for p in plugs:
@@ -3670,6 +3796,7 @@ proc cmdPluginPermissions() =
   openActions("Plugins — what each may do beyond editing", items)
 
 proc cmdPluginReloadOne() =
+  ## a list of the plugins that are on to reload one of them
   plugDiscover()
   var items: seq[(string, string, Action)]
   for p in plugs:
@@ -3710,6 +3837,7 @@ proc lspBridge(script: string): int =
   var inBuf, outBuf: string
   var tmp: array[65536, char]
   proc writeAll(fd: cint, s: string) =
+    ## writes all of s to a file descriptor, trying again after an interruption and giving up on any other error
     var off = 0
     while off < s.len:
       let n = posix.write(fd, unsafeAddr s[off], s.len - off)

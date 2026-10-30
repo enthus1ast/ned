@@ -412,34 +412,51 @@ type DiagTable = distinct Table[string, seq[Diag]]
 
 var diagGen = 0
 
+# the plain table under a DiagTable, so the standard table routines can be used on it
 template dtab(t: DiagTable): untyped = Table[string, seq[Diag]](t)
+# a new table with no files in it
 proc initDiagTable(): DiagTable = DiagTable(initTable[string, seq[Diag]]())
+# how many files have a list of problems
 proc len(t: DiagTable): int = dtab(t).len
+# whether a file has a list of problems
 proc contains(t: DiagTable, k: string): bool = dtab(t).contains(k)
+# whether a file has a list of problems (as contains)
 proc hasKey(t: DiagTable, k: string): bool = dtab(t).hasKey(k)
+# the problems of a file, an empty list when it has none
 proc getOrDefault(t: DiagTable, k: string): seq[Diag] = dtab(t).getOrDefault(k)
+# the problems of a file, read in place (no copy, no change counted); an error when it has none
 proc `[]`(t: DiagTable, k: string): lent seq[Diag] = dtab(t)[k]
 proc `[]=`(t: var DiagTable, k: string, v: sink seq[Diag]) =
+  ## sets the problems of a file, which counts as a change
   inc diagGen
   dtab(t)[k] = v
 proc mget(t: var DiagTable, k: string): var seq[Diag] =
+  ## the problems of a file to change in place (an error when it has none); counts as a change
   inc diagGen
   dtab(t)[k]
 proc mgetOrPut(t: var DiagTable, k: string, v: seq[Diag]): var seq[Diag] =
+  ## the problems of a file to change in place, setting them to v first when it has none; counts as a change
   inc diagGen
   dtab(t).mgetOrPut(k, v)
 proc del(t: var DiagTable, k: string) =
+  ## removes a file's problems, which counts as a change
   inc diagGen
   dtab(t).del k
 proc clear(t: var DiagTable) =
+  ## removes every file's problems, which counts as a change
   inc diagGen
   dtab(t).clear()
 iterator keys(t: DiagTable): string =
+  ## the files that have problems
   for k in dtab(t).keys: yield k
 iterator pairs(t: DiagTable): (string, seq[Diag]) =
+  ## each file with its problems (read only)
   for k, v in dtab(t).pairs: yield (k, v)
 iterator values(t: DiagTable): seq[Diag] =
+  ## the lists of problems, one for each file (read only)
   for v in dtab(t).values: yield v
 iterator mpairs(t: var DiagTable): tuple[key: string, val: var seq[Diag]] =
+  ## each file with its problems to change in place; a change is counted when the loop starts, whether or not it changes
+  ## anything
   inc diagGen
   for k, v in dtab(t).mpairs: yield (k, v)
