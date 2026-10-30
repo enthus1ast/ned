@@ -348,6 +348,13 @@ proc refLensPump(b: Buffer, budgetMs = 12) =
         lens[s.line] = ("references…", false)
         changed = true
       break
+    if refCounts.len > 20_000:
+      # (keyed by the declaration's line: each edit that moved one made a new key — the old versions' go)
+      var old: seq[string]
+      for k, v in refCounts:
+        if v[1] != refVersion: old.add k
+      for k in old: refCounts.del k
+      if refCounts.len > 20_000: refCounts.clear()
     refCounts[key] = (n, refVersion)
     let label = if n == -3: "references…" elif n < 0: "5000+ references" elif n == 0: "no references"
                 elif n == 1: "1 reference"

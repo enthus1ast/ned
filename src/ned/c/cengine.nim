@@ -778,15 +778,18 @@ var cEngChecked: Table[int, (int, string)]      # buffer id → (the change its 
 proc cEngMerge(ds: var seq[Diag], mine: seq[Diag]): int =
   ## the engine's problems among the compiler's: where the compiler says something on the same line, its words
   ## stay — and a format's fix goes with them (gcc's -Wformat has none); the number added
+  var ccAt: Table[int, seq[int]]             # (the compiler's by line: thousands of each looked at every one)
+  for k in 0 ..< ds.len:
+    if ds[k].src == "cc": ccAt.mgetOrPut(ds[k].line, @[]).add k
   for d in mine:
     var taken = false
-    for e in ds.mitems:
-      if e.src == "cc" and e.line == d.line:
-        taken = true
-        if d.rule == "c-format" and d.fixes != nil and "format" in e.msg and
-           (e.fixes == nil or e.fixes.len == 0 or e.fixes[0]{"ned"}.getBool):
-          e.fixes = d.fixes
-          break
+    for k in ccAt.getOrDefault(d.line):
+      template e: untyped = ds[k]
+      taken = true
+      if d.rule == "c-format" and d.fixes != nil and "format" in e.msg and
+         (e.fixes == nil or e.fixes.len == 0 or e.fixes[0]{"ned"}.getBool):
+        e.fixes = d.fixes
+        break
     if not taken:
       ds.add d
       inc result
@@ -854,6 +857,8 @@ const CxStdHeaders = ["stdio.h", "stdlib.h", "string.h", "math.h", "ctype.h", "s
   "stdatomic.h", "threads.h", "complex.h", "tgmath.h", "uchar.h", "wctype.h", "iso646.h", "stdalign.h",
   "stdnoreturn.h"]
 
+const CxIndexCode = NedVersion & " " & CompileDate & " " & CompileTime   # (the C index's reading: this build's)
+
 var cxStdIdx: (bool, seq[string], Table[string, (int, CxSym)])   # (made, the headers as #include names them, names)
 
 proc cxStdIndex() =
@@ -867,8 +872,32 @@ proc cxStdIndex() =
     if hp.len > 0:
       paths.add hp
       cxStdIdx[1].add "<" & h & ">"
+  # (kept on disk with the headers' times and the C index's own code: the next session reads it instead of the
+  # standard headers — a few hundred million instructions, the first time a C file is checked)
+  var key = CxIndexCode & "\n" & dirs.join("\n")
+  for p in paths: key.add "\n" & p & "|" & nxStamp(p)
+  let cf = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "c-std-index.bin"
+  try:
+    let s = readFile(cf)
+    let k = s.find('\0')
+    if k > 0 and s[0 ..< k] == key:
+      var rows: seq[(string, int, CxSym)]
+      if nxDecode(s[k + 1 .. ^1], rows):
+        for (n, i, sy) in rows: cxStdIdx[2][n] = (i, sy)
+        return
+  except CatchableError: discard
   try: cxStdIdx[2] = cxHeaderNames(paths, closure = true)
-  except CatchableError as e: internalError("C engine", e)
+  except CatchableError as e:
+    internalError("C engine", e)
+    return
+  var rows: seq[(string, int, CxSym)]
+  for n, v in cxStdIdx[2]: rows.add (n, v[0], v[1])
+  try:
+    createDir(parentDir(cf))
+    let tmp = cf & ".tmp" & $getCurrentProcessId()
+    writeFile(tmp, key & "\0" & nxEncode(rows))
+    moveFile(tmp, cf)
+  except CatchableError: discard
 
 proc cxHeaderOf(name: string): string =
   ## the standard header that declares `name` (a function, type, macro or variable), as `<h>`, or ""

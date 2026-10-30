@@ -18,6 +18,7 @@ proc nxTypoDist*(a, b: string): int =
   d[n][m]
 
 var nxTypoText*: Table[string, (string, string)]     # path → (stamp, its text in lower case without underscores)
+var nxTypoTextBytes* = 0               # (their sizes added up)
 
 proc nxTypoWrittenIn*(sc: NxScope, nw: string): bool =
   ## does any file the scope draws on have the word in it (anywhere: a `when` branch ned left out, a template)?
@@ -35,6 +36,10 @@ proc nxTypoWrittenIn*(sc: NxScope, nw: string): bool =
         txt = (if nxBufferLines != nil and nxBufferStamp(p).len > 0: nxBufferLines(p).join("\n") else: readFile(p))
         txt = txt.toLowerAscii.replace("_", "")
       except CatchableError: txt = ""
+      nxTypoTextBytes += txt.len
+      if nxTypoTextBytes > 16_000_000:       # (the text of every file looked through, in every project of a long
+        nxTypoText.clear()                   # session: at most this much, made again as asked)
+        nxTypoTextBytes = txt.len
       nxTypoText[p] = (st, txt)
     if r.file == sc.own: continue
     var k = txt.find(w)

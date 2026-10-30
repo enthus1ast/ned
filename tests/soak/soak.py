@@ -2,7 +2,8 @@
 """A long editing session, for the leaks and the faults that only show after hours. ned edits a copy of its own
 source (src/ and ned.nimble) in a private tmux server: it opens files, types code, asks for completions, undoes and
 redoes, finds, formats, saves, selects, copies and pastes, scrolls and closes tabs — picked at random, a few a
-second (and now and then it closes all the tabs but one, as a person would). Meanwhile this script watches:
+second; now and then it closes all the tabs but one, as a person would, and goes to a second project (the UI tests'
+demo, with a C file) and back. Meanwhile this script watches:
 
   memory    ned's resident memory and its engine worker's (Linux: /proc), sampled every --sample seconds
   errors    "Internal error" on the screen, and ned's errors.log (its state folder is the run's own)
@@ -59,6 +60,21 @@ subprocess.run(['git', 'init', '-q', proj], capture_output=True)
 subprocess.run(['git', '-C', proj, 'add', '.'], capture_output=True)
 subprocess.run(['git', '-C', proj, '-c', 'user.email=soak@ned', '-c', 'user.name=soak', 'commit', '-qm', 'start'],
                capture_output=True)
+# a second project — the UI tests' demo, with a C file — that the session goes to and back from now and then (what ned
+# keeps about a project must go when another is opened: 6.32.4)
+proj2 = os.path.join(root, 'proj2')
+shutil.copytree(os.path.join(REPO, 'tests', 'ui', 'fixtures', 'demo'), proj2)
+open(os.path.join(proj2, 'src', 'calc.c'), 'w').write(
+    '#include <stdio.h>\n#include <string.h>\n\nstatic int twice(int x) { return 2 * x; }\n\n'
+    'int main(void) {\n  printf("%d %zu\\n", twice(21), strlen("soak"));\n  return 0;\n}\n')
+for d in (proj2,):
+    subprocess.run(['git', 'init', '-q', d], capture_output=True)
+    subprocess.run(['git', '-C', d, 'add', '.'], capture_output=True)
+    subprocess.run(['git', '-C', d, '-c', 'user.email=soak@ned', '-c', 'user.name=soak', 'commit', '-qm', 'start'],
+                   capture_output=True)
+FILES2 = sorted(os.path.relpath(os.path.join(d, f), proj2) for d, _, fs in os.walk(os.path.join(proj2, 'src'))
+                for f in fs if f.endswith(('.nim', '.c')))
+here = [proj]                       # (the project open now)
 FILES = sorted(os.path.relpath(os.path.join(d, f), proj) for d, _, fs in os.walk(os.path.join(proj, 'src'))
                for f in fs if f.endswith('.nim'))
 cfg, state = os.path.join(root, 'cfg'), os.path.join(root, 'state')
@@ -105,7 +121,7 @@ WORDS = ['let total = 0', 'echo "soak"', 'var items: seq[string]', 'proc soakHel
          'if total > 3: inc total', 'discard items.len', 'for i in 0 ..< 3: echo i', '# a comment about nothing']
 def esc(): keys('Escape', 'Escape')
 def open_file():
-    f = rnd.choice(FILES)
+    f = rnd.choice(FILES if here[0] == proj else FILES2)
     keys('C-p'); time.sleep(0.3)
     text(os.path.basename(f)[:-4]); time.sleep(0.5)
     keys('Enter'); time.sleep(0.6)
@@ -143,7 +159,16 @@ def close_others():
     esc()
 def revert_all():
     # (now and then the project goes back to how it started: the files do not grow for hours)
-    save(); subprocess.run(['git', '-C', proj, 'checkout', '-q', '--', '.'], capture_output=True); time.sleep(1)
+    save()
+    for d in (proj, proj2): subprocess.run(['git', '-C', d, 'checkout', '-q', '--', '.'], capture_output=True)
+    time.sleep(1)
+def switch_project():
+    # File › open folder by path: the other project (the prompt starts with this one's folder and a `/`)
+    other = proj2 if here[0] == proj else proj
+    close_others()
+    keys('C-e'); time.sleep(0.3); text('File: open folder by path'); time.sleep(0.4); keys('Enter'); time.sleep(0.4)
+    text('../' + os.path.basename(other)); keys('Enter'); time.sleep(2); esc()
+    here[0] = other
 
 ACTIONS = [(open_file, 8), (type_code, 20), (complete, 10), (undo_redo, 10), (save, 8), (find, 8), (scroll, 15),
            (select_copy_paste, 6), (palette, 5), (close_tab, 4)]
@@ -173,6 +198,7 @@ while time.monotonic() < end:
     actions += 1
     if actions % 25 == 0: esc()
     if actions % 60 == 0: close_others()
+    if actions % 150 == 0: switch_project()
     if time.monotonic() - last_revert > 600:
         revert_all(); last_revert = time.monotonic()
     s = screen()

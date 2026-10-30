@@ -1400,6 +1400,7 @@ proc nxInferAuto*(fp: NxFile, s: NxSym, depth: int): string =
   if depth > 6 or fp == nil: return ""
   let key = fp.path & ":" & $s.line & ":" & fp.stamp
   if key in nxAutoCache: return nxAutoCache[key]
+  if nxAutoCache.len > 20_000: nxAutoCache.clear()     # (keyed by the file's version: each edit made new keys)
   nxAutoCache[key] = ""                                # (a routine that calls itself: no answer, no loop)
   var ls: seq[string]
   try:

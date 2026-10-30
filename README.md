@@ -21,7 +21,7 @@ library, and builds to one binary of about 12 MB.
 
 ## Contents
 
-- [What's new in 6.32.3](#whats-new-in-6323) · [6.32.2](#whats-new-in-6322) · [6.32.1](#whats-new-in-6321) · [6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
+- [What's new in 6.32.4](#whats-new-in-6324) · [6.32.3](#whats-new-in-6323) · [6.32.2](#whats-new-in-6322) · [6.32.1](#whats-new-in-6321) · [6.32](#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [6.30](CHANGELOG.md#whats-new-in-630) · [6.29](CHANGELOG.md#whats-new-in-629) · [6.28](CHANGELOG.md#whats-new-in-628) · [6.27](CHANGELOG.md#whats-new-in-627) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -29,6 +29,27 @@ library, and builds to one binary of about 12 MB.
 - [Contributing](#contributing)
 
 ---
+
+## What's new in 6.32.4
+
+Memory that keeps growing as you edit, open files and go from project to project — looked for everywhere:
+
+- **Opening another folder** left everything kept about the last project's open tabs (the engine's colours, checks,
+  hints … of each) and about the project itself: the words of every file, the compiler's answers, the names macros
+  make, indexes of C headers and stylesheets. They go now (and come back from the disk when that project is opened
+  again).
+- **nedls** kept what it worked out for every file a client ever closed: it lets it go on close, as ned does.
+- Fourteen more things kept per open file, let go when its tab closes (a diff, a merge, a notebook, the engine
+  worker's counts …) — and a check, `tests/memory/bufids.py`, that finds any such table not let go.
+- Things kept by a file's version or a line number made a new entry at every edit: the reference counts, the result
+  types of `auto` routines; the text of every file the typo check looked through, and a plugin's copy of every file
+  it read, piled up — each has a bound now.
+- **The C standard headers' index** is kept on disk: the first check of a C file in a session no longer reads them
+  all (a few hundred million instructions); and the engine's problems among the compiler's are matched by line, not
+  each against each.
+
+The soak test now goes to a second project (with a C file) and back during its session, and closes the tabs now and
+then, as a person would.
 
 ## What's new in 6.32.3
 
@@ -366,7 +387,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.32.3_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.32.4_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -421,7 +442,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.32.3-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.32.4-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

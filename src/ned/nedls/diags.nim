@@ -130,6 +130,11 @@ proc lsProblemsOf(path: string): JsonNode =
   let m = lsDiskMemo.getOrDefault(path)
   if m[0] == lsDiskGen and m[1] != nil: return m[1]
   result = lsDiagnosticsOf(path)
+  if lsDiskMemo.len > 2000:                  # (the problems of files not open, each kept: the out-of-date ones go)
+    var old: seq[string]
+    for k, v in lsDiskMemo:
+      if v[0] != lsDiskGen: old.add k
+    for k in old: lsDiskMemo.del k
   lsDiskMemo[path] = (lsDiskGen, result)
 
 proc lsDiagPaths(): seq[string] =

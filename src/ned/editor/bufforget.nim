@@ -64,3 +64,32 @@ proc bufForget(id: int) =
   mdFollow.del id
   mdPreviewCache.del id
   viewHead.del id
+  # (6.32.4: those tests/memory/bufids.py found — kept per buffer and let go only on some paths)
+  multiBufs.del id
+  commitBufs.del id
+  rebaseBufs.del id
+  sigPlans.del id
+  nbBuild.del id
+  mergeViews.excl id
+  diffViews.del id
+  flameViews.excl id
+  graphBufs.excl id
+  nxWarm.excl id
+  nxPreloaded.excl id
+  wkRefsVer.del id
+
+proc projectForget() =
+  ## another folder opened: what was kept about the last project's files goes (each is made again for the new one, or
+  ## read back from the disk when that project is opened again) — opening project after project made ned keep all of
+  ## them: the words of every file, the compiler's answers, the names macros make, header and stylesheet indexes
+  refWordId.clear(); refFilesOf.setLen(0); refFileId.clear(); refFilePath.setLen(0); refFileInfo.setLen(0)
+  refCounts.clear(); refJobs.clear(); refFiles.setLen(0)
+  refScanPos = 0; refComplete = false; refDisk.clear(); refDiskRead = false; refDiskVersion = -1
+  inc refVersion
+  orAsked.clear(); orMem.clear(); orMemAt.clear(); orNotAsked.clear()
+  mnDone.clear(); mnDiskTried.clear(); mnSigMemo.clear(); mnQueue.setLen(0)
+  for p in nxMacroSyms.keys: nxFiles.del p
+  nxMacroSyms.clear(); nxMacroDone.clear()
+  nxTypoText.clear(); nxTypoTextBytes = 0; nxAutoCache.clear()
+  cIndexes.clear(); cssFileMemo.clear(); sqlFileMemo.clear()
+  inc nxGen
