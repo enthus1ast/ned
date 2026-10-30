@@ -511,7 +511,9 @@ proc initSettingDefs() =
        "JavaScript, as the backend), sql\"…\", re\"…\", peg\"…\", fmt\"…\" and &\"…\", parseJson(\"…\"), and " &
        "triple-quoted strings that start with an HTML tag or SQL. Mark any other string with #[html]# " &
        "(#[c]#, #[sql]#, #[css]# …) just before it")
-  defS("Nim", "nim.compiler", %"nim", "Compiler used for Alt+R", @["nim", "nimony"])
+  defS("Nim", "nim.compiler", %"auto", "Nim 2 (nim) or Nim 3 (nimony) for checks, Alt+R and the engine's reading; " &
+       "auto: Nim 3 when the project has nimony.args, nimony.paths or pnak.nif and nimony is installed",
+       @["auto", "nim", "nimony"])
   defS("Nim", "nim.ciNedRepository", %"", "Where a CI workflow made by Nim › add a CI workflow builds ned from, for " &
        "its lint and format check (https://… or git@…; asked the first time)")
   defS("Nim", "nim.toolchain", %"auto", "The Nim this project builds with — for every tool ned starts (nim, nimble, " &

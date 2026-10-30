@@ -262,7 +262,8 @@ proc drawStatusBar() =
   right.add (b.lang.name, theme.dim, Action(proc() = cmdLanguages()), "Select language mode")
   if b.lang.mode == lmNim and b.path.len > 0:
     var nm: seq[string]
-    if cfgNimCompiler == "nimony": nm.add (if nim3On(): "Nim 3" else: "nimony (not found)")
+    if nim3On(): nm.add "Nim 3"
+    elif cfgNimCompiler == "nimony": nm.add "nimony (not found)"
     if cfgNimTarget != "c": nm.add cfgNimTarget
     if cfgNimMode != "debug": nm.add cfgNimMode
     if nm.len > 0: right.add (nm.join("·"), theme.accent, Action(proc() = openMenuBar(4)), "Build settings")

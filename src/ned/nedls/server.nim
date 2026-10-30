@@ -243,6 +243,7 @@ proc lsFilesChanged(params: JsonNode) =
     let p = lsPathOf(ch{"uri"}.getStr)
     let typ = ch{"type"}.getInt
     if p.len == 0: continue
+    nxStatForget(p)                                      # (its stamp read again now, not up to a second later)
     let name = extractFilename(p)
     if typ in [1, 3]:
       fileCacheValid = false                             # (the project's file list)

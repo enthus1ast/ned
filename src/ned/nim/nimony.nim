@@ -8,9 +8,13 @@ var
   nim3Asked: HashSet[string]          # files of a Nim 2 project being ported: their porting problems shown, and
                                       # nimony checks them (on save, the assistant's edits)
 
+var nimonyLookedAt: MonoTime
+
 proc nimonyFind() =
   let path = getEnv("PATH")
-  if nimonyMemo[0] == path: return
+  # (not found: looked for again after 10 s — *Nim 3: install or update Nimony* may have just built it)
+  if nimonyMemo[0] == path and (nimonyMemo[1].len > 0 or msSince(nimonyLookedAt) < 10_000): return
+  nimonyLookedAt = getMonoTime()
   var exe = findExe("nimony")
   if exe.len == 0:
     for c in [getHomeDir() / "nimony" / "bin" / "nimony", getHomeDir() / "src" / "nimony" / "bin" / "nimony",
@@ -51,9 +55,31 @@ proc nimonyVersion(): string =
   nimonyVer = (e, v)
   v
 
+var nim3Seen: (string, bool, MonoTime)   # (the folder, whether it is a Nim 3 project, when looked at)
+
+proc nim3Project(dir: string): bool =
+  ## does the project say it is Nim 3: nimony's own configuration (nimony.args, nimony.paths) or pnak's (pnak.nif),
+  ## in its folder or one above? (Looked at again after 5 s)
+  if dir.len == 0: return false
+  if nim3Seen[0] == dir and msSince(nim3Seen[2]) < 5000: return nim3Seen[1]
+  var d = dir
+  var found = false
+  for _ in 0 .. 3:
+    for n in ["nimony.args", "nimony.paths", "pnak.nif"]:
+      if fileExists(d / n): found = true
+    let up = parentDir(d)
+    if found or up.len == 0 or up == d: break
+    d = up
+  nim3Seen = (dir, found, getMonoTime())
+  found
+
 proc nim3On(): bool =
-  ## is the project Nim 3 — built with nimony, which is installed?
-  cfgNimCompiler == "nimony" and nimonyRoot().len > 0
+  ## is the project Nim 3 — built with nimony (said so, or nim.compiler "auto" and the project has nimony's or pnak's
+  ## files), which is installed?
+  case cfgNimCompiler
+  of "nimony": nimonyRoot().len > 0
+  of "auto": nim3Project(rootDir) and nimonyRoot().len > 0
+  else: false
 
 func nimonyKey(s: string): string =
   ## a short name for a path (FNV-1a)

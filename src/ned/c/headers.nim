@@ -63,6 +63,15 @@ proc cSystemIncludeDirs(): seq[string] =
     else: cSysDirsFrom("")
     cSysDirs
   else:
+    if wkWorkerMode:
+      # (the engine worker: asked at once — no key waits for it here, and its jobs are not run; with only the usual
+      # folders a system header's own includes were missing: <string.h> unread whole, never "not used")
+      cSysDirsDone = true
+      if cc.len > 0:
+        let (_, o, e) = runFilter("echo | " & cc & " -E -Wp,-v -x c - 2>&1", "", getCurrentDir(), 5000)
+        cSysDirsFrom(o & "\n" & e)
+      else: cSysDirsFrom("")
+      return cSysDirs
     if cc.len == 0:
       cSysDirsDone = true
       cSysDirsFrom("")

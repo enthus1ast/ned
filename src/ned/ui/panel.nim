@@ -8,8 +8,12 @@ proc termHeaderChip(): (string, Rgb)
 proc terminalKey(k: Key)
 proc openTerminal()
 
+var problemCountsMemo = (-1, 0, 0)     # (diagGen, errors, warnings): made again only when a problem list changed
+
 proc problemCounts(): (int, int) =
-  ## errors and warnings from the compiler and language servers (Nim's follow-on errors not counted)
+  ## errors and warnings from the compiler and language servers (Nim's follow-on errors not counted) — kept until a
+  ## problem list changes (it is asked for every frame, and a project can have thousands)
+  if problemCountsMemo[0] == diagGen: return (problemCountsMemo[1], problemCountsMemo[2])
   var paths: HashSet[string]
   for p in diagsLsp.keys: paths.incl p
   for p in diagsBuild.keys: paths.incl p
@@ -17,20 +21,12 @@ proc problemCounts(): (int, int) =
   for p in diagsEmit.keys: paths.incl p
   for p in diagsWeb.keys: paths.incl p
   for p in diagsExt.keys: paths.incl p
-  template has(t: Table[string, seq[Diag]], p: string): bool = p in t and t[p].len > 0
   for p in paths:
-    if p.endsWith(".nim") or p.endsWith(".nims") or (diagsLsp.has(p) and diagsBuild.has(p)) or diagsEmit.has(p):
-      var ds = lspAndBuildDiags(p)
-      if p.endsWith(".nim") or p.endsWith(".nims"): dropNimFollowOns(ds)
-      for d in ds:
-        if d.sev == 1: inc result[0] elif d.sev == 2: inc result[1]
-    else:
-      # (nothing to leave out: counted where they are, not copied — it is done for every frame, and a file can have
-      # thousands)
-      for t in [addr diagsLsp, addr diagsBuild, addr diagsFfi, addr diagsTest, addr diagsExt, addr diagsWeb]:
-        if p in t[]:
-          for d in t[][p]:
-            if d.sev == 1: inc result[0] elif d.sev == 2: inc result[1]
+    var ds = lspAndBuildDiags(p)
+    if p.endsWith(".nim") or p.endsWith(".nims"): dropNimFollowOns(ds)
+    for d in ds:
+      if d.sev == 1: inc result[0] elif d.sev == 2: inc result[1]
+  problemCountsMemo = (diagGen, result[0], result[1])
 
 proc rebuildProblems() =
   var lines: seq[PanelLine]

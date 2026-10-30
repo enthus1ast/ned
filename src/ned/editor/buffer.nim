@@ -73,9 +73,9 @@ proc shiftSeq[T](s: var seq[T], at, delta: int) =
     for i in at ..< s.len - d: s[i] = move s[i + d]
     s.setLen(s.len - d)
 
-proc shiftDiagTable(t: var Table[string, seq[Diag]], path: string, a, c, dl: int) =
+proc shiftDiagTable(t: var DiagTable, path: string, a, c, dl: int) =
   if path notin t: return
-  for d in t[path].mitems:
+  for d in t.mget(path).mitems:
     if d.line > c:
       d.line += dl
       d.eline += dl

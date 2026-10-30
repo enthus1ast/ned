@@ -92,4 +92,5 @@ proc projectForget() =
   nxMacroSyms.clear(); nxMacroDone.clear()
   nxTypoText.clear(); nxTypoTextBytes = 0; nxAutoCache.clear()
   cIndexes.clear(); cssFileMemo.clear(); sqlFileMemo.clear()
+  nifColorMemo.clear(); nifColorLooked.clear(); nifFileMemo.clear(); diagsMemo.clear()
   inc nxGen

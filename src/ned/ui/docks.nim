@@ -161,8 +161,9 @@ proc buildProjectItems(): seq[SideItem] =
       of "js": "objc"
       else: "c"))
   if nimonyExe().len > 0:
-    result.add sideItem("Compiler: " & cfgNimCompiler & (if nim3On(): " (Nim 3)" else: ""), 0, "◇", "nim / nimony",
-                        proc() = setNimCompiler(if cfgNimCompiler == "nim": "nimony" else: "nim"))
+    result.add sideItem("Compiler: " & cfgNimCompiler & (if nim3On(): " (Nim 3)" elif cfgNimCompiler == "auto": " (Nim 2)" else: ""),
+                        0, "◇", "auto / nim / nimony",
+                        proc() = setNimCompiler(if cfgNimCompiler == "auto": "nim" elif cfgNimCompiler == "nim": "nimony" else: "auto"))
   if haveExe("nimble") and nimble.file.len > 0:
     result.add sideItem("NIMBLE", 6)
     for (l, d, a) in nimbleTaskActions():

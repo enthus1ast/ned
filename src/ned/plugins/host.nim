@@ -2770,13 +2770,14 @@ proc plugForget(ids: seq[string]) =
     for d in plugDecor[k]:
       if d.plugin notin ids: keepD.add d
     if keepD.len > 0: plugDecor[k] = keepD else: plugDecor.del k
-  var keepX: Table[string, seq[Diag]]
+  var keepX = initDiagTable()
   for p, ds in diagsExt:
     var k: seq[Diag]
     for d in ds:
       if not (d.src.startsWith("plugin ") and d.src[7 .. ^1] in ids): k.add d
     if k.len > 0: keepX[p] = k
   diagsExt = keepX
+  inc diagGen
   rebuildProblems()
 
 proc plugReload() =

@@ -13,6 +13,8 @@ type
     inact*: bool           # a `when` branch left out here (its body: start + 1 .. the last line before the pop)
     start*: int
     chain*: int            # (keepInactive) the conditions of the left-out branches it is in: index into `chains`
+    sum*: bool             # an object's `case` without a discriminator: a sum type (Nim 2.4, Nimony)
+    branches*: seq[int]    # (a sum type's `of A, B:`) the branch constructors it declares: its fields are theirs
 
 func nxTightSlash(s: string): string =
   ## `std / [os, strutils]`, `basic / versions`: the path without the spaces around its `/` (not in a "string")
@@ -871,8 +873,23 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       if w0 in ["when", "elif", "else"] and opensBlock:
         whenBranch(bkObjTransparent)
         continue
+      let inSum = oi >= 0 and stack[oi].sum         # (the `case` frame ends at its first `of`: kept on the object)
+      var branchSyms: seq[int]
+      if w0 == "of" and inSum:
+        # a sum type's branch: `of AddOpr, SubOpr:` — each name constructs one (`AddOpr(a: x, b: y)`), its fields
+        # are the branch's (a routine of the type's, made by the declaration: their parameters follow)
+        let c = nxFindTop(t, ':')
+        let names = (if c > 0: t[2 ..< c] else: t[2 .. ^1]).split(',')
+        for nm0 in names:
+          let nm = nm0.strip
+          if nm.len == 0 or not nxIsIdent(nm[0]) or not nm.allCharsInSet(IdentChars): continue
+          let exp = oi >= 0 and stack[oi].sym >= 0 and stack[oi].sym < f.syms.len and f.syms[stack[oi].sym].exported
+          addSym(NxSym(name: nm, kind: nxProc, ret: owner, owner: owner, made: true, exported: exp,
+                       doc: "(a branch of the sum type `" & owner & "`: `" & nm & "(…)` makes one, `of " & nm &
+                            "(…)` in a `case` matches it)"))
+          branchSyms.add f.syms.high
       if w0 == "of" and opensBlock:
-        stack.add NxFrame(ind: ind, kind: bkObjTransparent, sym: -1)
+        stack.add NxFrame(ind: ind, kind: bkObjTransparent, sym: -1, branches: branchSyms)
         continue
       var line2 = t
       if w0 == "case":
@@ -886,13 +903,19 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
         let (w1, _) = nxName(line2, 0)
         if line2.len == 0 or w1 in ["discard", "nil"]: continue
       elif w0 in ["proc", "func", "discard", "nil"]: continue
+      # (a field of a sum type's branch is a parameter of its constructors too)
+      let owners = if branchSyms.len > 0: branchSyms elif k >= 0: stack[k].branches else: @[]
       for p in nxParseParams(line2):
         let pn = p.name.strip
         let nm = pn.strip(chars = {'*', ' ', '`'})
         if nm.len == 0 or not nxIsIdent(nm[0]): continue
         addSym(NxSym(name: nm, kind: nxField, line: startLine, col: nxWordCol(raw, nm), owner: owner,
                      typ: nxTypeText(p.typ), value: p.default, exported: pn.endsWith("*")))
-      if w0 == "case": stack.add NxFrame(ind: ind, kind: bkObjTransparent, sym: -1)
+        for b in owners:
+          if b < f.syms.len: f.syms[b].params.add NxParam(name: nm, typ: nxTypeText(p.typ), default: p.default)
+      if w0 == "case":
+        if line2.len == 0 and oi >= 0: stack[oi].sum = true
+        stack.add NxFrame(ind: ind, kind: bkObjTransparent, sym: -1)
     of bkEnum:
       let exp = stack[k].sym >= 0 and f.syms[stack[k].sym].exported
       enumValues(t, stack[k].owner, exp)

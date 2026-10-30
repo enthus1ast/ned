@@ -44,6 +44,26 @@ proc runNimble(args: string) =
     return
   runCommand("nimble " & args, nimbleDir())
 
+proc cmdInstallNimony() =
+  ## Nim 3: nimony's code cloned into ~/.local/nimony (or brought up to date there) and built with hastur, its own
+  ## builder, in the Run panel — ned finds it there, without a change to PATH
+  if not haveExe("git") or not haveExe("nim"):
+    error("Installing nimony needs git and nim (Termux: pkg install git nim)")
+    return
+  let dir = getHomeDir() / ".local" / "nimony"
+  try: createDir(parentDir(dir))
+  except CatchableError: discard
+  let get = if dirExists(dir / ".git"): "git -C " & quoteShell(dir) & " pull --ff-only"
+            else: "git clone --depth 1 https://github.com/nim-lang/nimony " & quoteShell(dir)
+  info("Building nimony in " & tildePath(dir) & " — a few minutes; the Run panel shows how it goes")
+  runCommand(get & " && cd " & quoteShell(dir) & " && nim c -r src/hastur/hastur build all", getHomeDir(),
+             proc(code: int) =
+               nimonyMemo = ("\x00", "", "")             # (looked for again: in ~/.local/nimony now)
+               if code == 0 and nimonyExe().len > 0:
+                 info("nimony is ready: " & tildePath(nimonyExe()) & " — a project with nimony.args, nimony.paths or " &
+                      "pnak.nif is Nim 3 now (nim.compiler: auto)")
+               elif code != 0: error("Building nimony stopped (exit " & $code & ") — the Run panel says why"))
+
 proc runAtlas(args: string) =
   if not haveExe("atlas"):
     error("atlas not found — build it with: nimble install atlas")

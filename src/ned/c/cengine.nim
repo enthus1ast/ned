@@ -84,14 +84,36 @@ proc cxSetDirsFor(path: string) =
     # the compilers' predefined macros, once a session: the #if branches their target decides (__x86_64__,
     # __linux__, _WIN32, __STDC_VERSION__ …) — C's and C++'s; without a compiler, what ned knows of its platform
     proc predefOf(cmds: openArray[string], lang: string): Table[string, string] =
+      # (kept on disk by the compiler program and its time: the next session has them without running it — two
+      # compiler runs, before the first C file's #ifs could be dimmed)
+      let keep = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "c-predefined.json"
+      var kept = newJObject()
+      try: kept = parseFile(keep)
+      except CatchableError: discard
       for cc in cmds:
-        if not haveExe(cc): continue
+        let exe = findExe(cc)
+        if exe.len == 0: continue
+        let key = exe & "|" & nxStamp(exe) & "|" & lang
+        if kept.kind == JObject and kept{key} != nil and kept{key}.kind == JObject and kept{key}.len > 0:
+          for k, v in kept[key]: result[k] = v.getStr
+          return
         let (ok, o, _) = runFilter(cc & " -dM -E -x " & lang & " -", "", getCurrentDir(), 5000)
         if not ok: continue
         for l in o.splitLines:
           let p = l.splitWhitespace(2)
           if p.len >= 2 and p[0] == "#define": result[p[1]] = (if p.len > 2: p[2] else: "")
-        if result.len > 0: return
+        if result.len > 0:
+          if kept.kind != JObject: kept = newJObject()
+          var j = newJObject()
+          for k, v in result: j[k] = %v
+          kept[key] = j
+          try:
+            createDir(parentDir(keep))
+            let tmp = keep & ".tmp" & $getCurrentProcessId()
+            writeFile(tmp, $kept)
+            moveFile(tmp, keep)
+          except CatchableError: discard
+          return
     cxPredef = predefOf(["cc", "clang", "gcc"], "c")
     if cxPredef.len == 0: cxPredef = cxBuiltinPredef(cpp = false)
     cxPredefCpp = predefOf(["c++", "clang++", "g++"], "c++")
@@ -772,6 +794,8 @@ proc cTypingCheck(b: Buffer) =
 #    its fields ordered by size, printf and scanf formats against their arguments — at once, with no compiler ──
 
 import cchecks
+proc cEngFound(b: Buffer): seq[CkProblem]
+proc cEngChecksApply(b: Buffer, found: seq[CkProblem])
 
 var cEngChecked: Table[int, (int, string)]      # buffer id → (the change its checks were made for, which checks)
 
@@ -801,16 +825,26 @@ proc cEngChecks(b: Buffer) =
   let key = $cxChecks & "/" & $cSysDirsDone          # (the compiler's folders arrived: a header now read whole)
   if cEngChecked.getOrDefault(b.id) == (b.changeId, key): return
   cEngChecked[b.id] = (b.changeId, key)
+  # (the engine worker reads the file and checks it, on another core: a big file's reading held up the keys after
+  # a pause in the typing — its answer comes to cEngChecksApply)
+  if not wkWorkerMode and wkCChecks(b): return
   var found: seq[CkProblem]
-  try:
-    let f = cxFileOf(b)
-    var others: seq[seq[string]]                 # (the other open C files: a brace list there fills a struct too)
-    for x in bufs:
-      if x != b and x.lang != nil and x.lang.id in ["c", "cpp"] and others.len < 20: others.add x.lines
-    found = ckChecks(f, cxChecks.includes, cxChecks.padding, cxChecks.formats, others)
+  try: found = cEngFound(b)
   except CatchableError as e:
     internalError("C engine checks", e)
     return
+  cEngChecksApply(b, found)
+
+proc cEngFound(b: Buffer): seq[CkProblem] =
+  ## what the engine's checks find in a C buffer (here, or in the engine worker)
+  let f = cxFileOf(b)
+  var others: seq[seq[string]]                 # (the other open C files: a brace list there fills a struct too)
+  for x in bufs:
+    if x != b and x.lang != nil and x.lang.id in ["c", "cpp"] and others.len < 20: others.add x.lines
+  ckChecks(f, cxChecks.includes, cxChecks.padding, cxChecks.formats, others)
+
+proc cEngChecksApply(b: Buffer, found: seq[CkProblem]) =
+  ## the engine's problems among the compiler's, with their fixes
   var mine: seq[Diag]
   for p in found:
     var d = Diag(line: p.line, col: p.col, eline: p.eline, ecol: p.ecol, sev: p.sev, msg: p.msg, src: "ned",

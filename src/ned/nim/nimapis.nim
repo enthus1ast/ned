@@ -26,4 +26,6 @@ const NimApiSteps* = [
    "pure/parseopt: CliMode"),
   ("2.2.10", "2.2.12", "",
    "system: TypeOfModifiers"),
+  ("2.2.12", "2.4.0", "nre2",
+   "pure/collections/deques: toDequeSink\npure/htmlparser: htmlMaxDepth\npure/typetraits: canFormCycles\npure/xmlparser: xmlMaxDepth\nsystem: GC_getPreventThreadFromCollectProc GC_setPreventThreadFromCollectProc PreventThreadFromCollectProc RwLock acquireRead acquireWrite beginStore completeStore deinitRwLock endStore initRwLock nimStrAtMutV3 nimStrAtV3 nimStrPutV3 readRawData readRawDataStable releaseRead releaseWrite withReadLock withWriteLock yrcMutatorLock\nwrappers/openssl: SSL_get_verify_mode X509_check_ip_asc"),
 ]
