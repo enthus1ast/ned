@@ -37,6 +37,7 @@ type
     code*: seq[string]          # its lines, the block's indentation taken off
 
 func indentOf(s: string): int =
+  ## how many spaces or tabs the line starts with
   while result < s.len and s[result] in {' ', '\t'}: inc result
 
 func routines*(lines: seq[string]): seq[Routine] =
@@ -237,6 +238,10 @@ proc projectOf(path: string): string =
   projectRoot()
 
 proc makeTests(whole: bool) =
+  ## writes the runnableExamples of the file's routines (all of them when whole, else those of the routine at the
+  ## cursor) as tests: each example a block (or a std/unittest test) named after its routine, in tests/t<module>.nim of
+  ## the project, which is opened, merged with what was there (the routine's older blocks replaced) and saved; says how
+  ## many examples and how to run them
   let b = current()
   let path = b.path
   if not path.endsWith(".nim"):

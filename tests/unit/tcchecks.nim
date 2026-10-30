@@ -9,9 +9,12 @@ createDir(d)
 cxDirs = @[d]
 
 proc hash0(s: string): int =
+  ## a small hash of the text (24 bits), to make the cache key of a test file differ when its text does
   for c in s: result = (result * 31 + ord(c)) and 0xffffff
+# reads the C source as a file of the test folder, its cache key made from its name, length and hash
 proc load(name, src: string): CxFile = cxLoad(d / name, src, "ck:" & name & ":" & $src.len & ":" & $src.hash0)
 proc rules(ps: seq[CkProblem]): seq[string] =
+  ## each problem as a line of text — its rule, its line number and its message — to compare with what is expected
   for p in ps: result.add p.rule & " " & $(p.line + 1) & " " & p.msg
 proc apply(src: string, fx: CkFix): string =
   ## the text with a fix's edits made (from the last one back)

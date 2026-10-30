@@ -9,6 +9,8 @@ var
   nxDiskCacheTidied* = false            # (old entries removed once a session)
 
 proc nxLayoutOf[T](x: T): string =
+  ## a text naming each field of x and its type, used in the cache's parser key so a change to the declarations' layout
+  ## makes old entries unreadable
   for n, v in fieldPairs(x): result.add n & ":" & $typeof(v) & ";"
 
 func nxSrcUp(p: string): string =
@@ -26,6 +28,7 @@ const NxCacheParser = block:
 const NxCacheMagic = "NEDX1"
 
 proc nxCacheDir(): string =
+  ## the folder the index cache lives in: the test override if set, else ned/index under XDG_CACHE_HOME (or ~/.cache)
   if nxDiskCacheDir.len > 0: return nxDiskCacheDir
   getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "ned" / "index"
 
@@ -34,6 +37,8 @@ proc nxCacheDirOf*(): string = nxCacheDir()     ## where the index cache is (ned
 var nxDkMemo: (int, Hash, bool, string)   # (how many, their hash, complete, the key): asked for each file read
 
 proc nxDefinesKey(): string =
+  ## the defines the index is using, sorted and joined, with whether the list is complete or guessed — part of a cache
+  ## entry's key. The last answer is remembered, as it is asked for on every file read
   var hx: Hash = 0
   for d in nxDefines: hx = hx xor hash(d)
   if nxDkMemo[3].len > 0 and nxDkMemo[0] == nxDefines.len and nxDkMemo[1] == hx and nxDkMemo[2] == nxDefinesComplete:
@@ -63,16 +68,22 @@ func nxPut(s: var string, x: int64) =
     s.add char((u and 0x7f) or 0x80)
     u = u shr 7
   s.add char(u)
+# writes a bool as one byte
 func nxPut(s: var string, x: bool) = s.add char(ord(x))
+# writes a smaller integer as the 64-bit one
 proc nxPut[T: int | int8 | int16 | int32](s: var string, x: T) = nxPut(s, int64(x))
+# writes an enum value as its ordinal
 proc nxPut[T: enum](s: var string, x: T) = nxPut(s, int64(ord(x)))
 func nxPut(s: var string, x: string) =
+  ## writes a string as its length, then its bytes
   nxPut(s, int64(x.len))
   s.add x
 proc nxPut[T](s: var string, x: seq[T])
 proc nxPut[T: tuple | object](s: var string, x: T) =
+  ## writes each field of a tuple or object, one after the other
   for v in fields(x): nxPut(s, v)
 proc nxPut[T](s: var string, x: seq[T]) =
+  ## writes a seq as its length, then its elements
   nxPut(s, int64(x.len))
   for v in x: nxPut(s, v)
 
@@ -81,9 +92,11 @@ type NxReader = object
   p: int
 
 func nxNeed(r: var NxReader, n: int64) =
+  ## raises when fewer than n bytes are left to read (the cache entry is cut short or its length is nonsense)
   if n < 0 or n > int64(r.s.len - r.p): raise newException(ValueError, "index cache: cut short")
 
 func nxGet(r: var NxReader, x: var int64) =
+  ## reads a zigzag varint written by nxPut; raises when it is cut short or longer than 64 bits
   var u = 0'u64
   var sh = 0
   while true:
@@ -96,20 +109,24 @@ func nxGet(r: var NxReader, x: var int64) =
     sh += 7
   x = cast[int64](u shr 1) xor -cast[int64](u and 1)
 func nxGet(r: var NxReader, x: var bool) =
+  ## reads a bool from one byte
   r.nxNeed(1)
   x = r.s[r.p] != '\0'
   inc r.p
 proc nxGet[T: int | int8 | int16 | int32](r: var NxReader, x: var T) =
+  ## reads an integer and raises when it does not fit the type
   var v: int64
   nxGet(r, v)
   if v < int64(low(T)) or v > int64(high(T)): raise newException(ValueError, "index cache: number out of range")
   x = T(v)
 proc nxGet[T: enum](r: var NxReader, x: var T) =
+  ## reads an enum value and raises when its ordinal is outside the enum
   var v: int64
   nxGet(r, v)
   if v < int64(ord(low(T))) or v > int64(ord(high(T))): raise newException(ValueError, "index cache: bad kind")
   x = T(v)
 func nxGet(r: var NxReader, x: var string) =
+  ## reads a length-prefixed string; raises when the length passes the end
   var n: int64
   nxGet(r, n)
   r.nxNeed(n)
@@ -117,8 +134,10 @@ func nxGet(r: var NxReader, x: var string) =
   r.p += int(n)
 proc nxGet[T](r: var NxReader, x: var seq[T])
 proc nxGet[T: tuple | object](r: var NxReader, x: var T) =
+  ## reads each field of a tuple or object in the order nxPut wrote them
   for v in fields(x): nxGet(r, v)
 proc nxGet[T](r: var NxReader, x: var seq[T]) =
+  ## reads a seq: its length (checked against the bytes left, each element takes one at least), then the elements
   var n: int64
   nxGet(r, n)
   r.nxNeed(n)                      # (every element takes a byte at least)
@@ -132,9 +151,12 @@ proc nxCacheBytes*(f: NxFile): string =
     else: nxPut(result, v)
 
 proc nxCacheFile(path: string): string =
+  ## the cache file of a source file: the cache folder plus a hash of the path and the defines, with the extension .nx
   nxCacheDir() / toHex(cast[uint64](hash(path & "\0" & nxDefinesKey()))) & ".nx"
 
 proc nxCacheHeader(path, text: string): string =
+  ## the lines that start a cache file: magic, the parser's key, the defines, the source text's length and hash, and the
+  ## path. An entry is read only when all of it matches
   NxCacheMagic & "\n" & NxCacheParser & "\n" & nxDefinesKey() & "\n" & $text.len & ":" & $hash(text) & "\n" & path & "\n"
 
 proc nxCacheRead*(path, text: string): NxFile =

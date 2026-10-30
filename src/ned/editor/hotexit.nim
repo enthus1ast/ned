@@ -1,8 +1,11 @@
 # ── hot exit (files.hotExit): quitting keeps the unsaved edits without asking; they come back, still unsaved, the
 #    next time ned opens the folder — the files and the untitled tabs, each where its cursor was ──
 
+# the file that keeps this folder's unsaved edits between runs: in ned's state folder, named by a hash of the project
+# folder
 proc hotExitFile(): string = stateDir() / "hotexit" / (fnv(if rootDir.len > 0: rootDir else: "/") & ".json")
 
+# whether the files.hotExit setting is on (it is, by default)
 proc hotExitOn(): bool = sval("files.hotExit").getBool(true)
 
 proc hotExitSave(): bool =

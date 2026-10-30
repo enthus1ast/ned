@@ -14,8 +14,11 @@ var
   tsLast: proc() {.closure.} = nil       # the finder last opened (Telescope: resume)
   tsLastTitle = ""
 
+# a preview that shows a file, at the line when one is given
 proc tsFile(path: string, line = -1): TsPreview = TsPreview(path: path, line: line)
+# a preview that shows the given text, coloured as the named language
 proc tsText(text: string, lang = ""): TsPreview = TsPreview(text: text, lang: lang)
+# a preview made of a command's output (a git diff by default), run the first time it is shown
 proc tsCmd(cmd: string, lang = "Diff"): TsPreview = TsPreview(cmd: cmd, lang: lang)
 
 proc tsOpen(title: string, entries: seq[TsEntry], again: proc() {.closure.} = nil) =
@@ -36,6 +39,7 @@ proc tsOpen(title: string, entries: seq[TsEntry], again: proc() {.closure.} = ni
     tsLastQuery = ""
 
 proc tsGoTo(path: string, line, col: int): Action =
+  ## the action that records a jump, opens the file and centres the window on the line and column (when a line is given)
   (proc() =
     pushJump()
     let b = openFile(path)
@@ -76,12 +80,14 @@ proc tsPreviewText(idx: int): Buffer =
 # ── the finders ──
 
 proc tsRecent() =
+  ## the Recent files finder: the recently opened files that still exist, each previewed
   var es: seq[TsEntry]
   for p in recentFiles:
     if fileExists(p): es.add TsEntry(label: relPath(p), act: tsGoTo(p, -1, 0), pv: tsFile(p))
   tsOpen("Recent files", es, tsRecent)
 
 proc tsWordAtCursor(): string =
+  ## the text selected on one line, else the word under the primary cursor; empty when there is none
   let b = buf()
   let (a, e) = b.primary.range
   if a != e and a.line == e.line: return b.getText(a, e)
@@ -150,6 +156,8 @@ proc tsGrep(q: string) =
                 " with “" & q & "”")
 
 proc tsLiveGrep(initial = "") =
+  ## opens the Live grep finder with no entries and no filtering: tsLive runs tsGrep on what is typed. With an initial
+  ## text it is typed already and searched at once. Resume reopens it with the last query.
   tsOpen("Live grep — type at least 2 characters", @[])
   tsNoFilter = true
   tsLive = proc(q: string) = tsGrep(q)
@@ -176,6 +184,7 @@ proc tsSettings() =
                    act: (proc() = openSettingsUi(key)), pv: tsText(t))
   tsOpen("Settings — Enter opens it in the Settings panel", es, tsSettings)
 
+# the action that runs command number i, counting the use (which the palette's order follows)
 proc tsCmdAct(i: int): Action = (proc() =
   cmdUses[commands[i].name] = cmdUses.getOrDefault(commands[i].name) + 1
   commands[i].action())
@@ -191,6 +200,8 @@ proc tsKeys() =
   tsOpen("Keys — Enter runs the command", es, tsKeys)
 
 proc tsProblems() =
+  ## the Problems finder: the problems of every file that have a place, marked ✗ error, ▲ warning or · hint; says so
+  ## when there are none
   rebuildProblems()
   var es: seq[TsEntry]
   for pl in panelStore[pkProblems]:
@@ -207,6 +218,8 @@ proc tsProblems() =
   tsOpen("Problems", es, tsProblems)
 
 proc tsGitStatus() =
+  ## the Git: changed files finder: each line of git status (a rename by its new name), previewed with its diff against
+  ## HEAD, or the file itself when it is untracked
   let root = gitHome()
   if root.len == 0:
     info("Not a git repository")
@@ -227,12 +240,15 @@ proc tsGitStatus() =
     return
   tsOpen("Git: changed files — the diff beside each", es, tsGitStatus)
 
+# the action that shows a commit (git show with its stat and patch) in an output tab
 proc tsShowCommitAct(h, subject: string): Action = (proc() =
   let root = gitHome()
   toolOutput("commit " & h[0 ..< min(8, h.len)] & " " & subject, "git --no-pager show --no-color --stat -p " & h, root,
              proc(o: string): string = o, langByName("Diff")))
 
 proc tsGitLog(file = "") =
+  ## the Git: commits finder: the last 400 commits, each with its change beside it — only those that touched the file,
+  ## following renames, when one is given
   let root = gitHome()
   if root.len == 0:
     info("Not a git repository")
@@ -255,9 +271,12 @@ proc tsGitLog(file = "") =
   if file.len > 0: tsOpen("Git: commits of " & rel, es, proc() = tsGitLog(file))
   else: tsOpen("Git: commits — the change beside each", es, proc() = tsGitLog())
 
+# the action that checks out the branch
 proc tsCheckoutAct(br: string): Action = (proc() = gitRun(@["checkout", br], "On " & br))
 
 proc tsGitBranches() =
+  ## the Git: branches finder: local and remote branches (the current one marked ●) with the date and subject of the
+  ## last commit and a log graph beside; Enter checks one out
   let root = gitHome()
   if root.len == 0:
     info("Not a git repository")
@@ -271,9 +290,11 @@ proc tsGitBranches() =
                    pv: tsCmd("git --no-pager log --no-color --oneline --graph -n 40 " & quoteShell(f[1]), "Text"))
   tsOpen("Git: branches — Enter checks one out", es, tsGitBranches)
 
+# the action that applies the stash (a name like stash@{0}) — it stays in the list
 proc tsStashAct(n: string): Action = (proc() = gitRun(@["stash", "apply", n], "Applied " & n))
 
 proc tsGitStash() =
+  ## the Git: stashes finder: each stash with its patch beside it; Enter applies one
   if gitHome().len == 0:
     info("Not a git repository")
     return
@@ -292,6 +313,8 @@ proc tsGitStash() =
 var tsNimModules: Table[string, string]       # a standard library module → its file
 
 proc tsNimLib(): Table[string, string] =
+  ## the modules of Nim's standard library (name → file), read once from the library folder and its usual subfolders;
+  ## modules under std/ are named with that prefix. Empty when Nim's library is not found.
   if tsNimModules.len > 0: return tsNimModules
   let lib = nimLibDir()
   if lib.len == 0: return
@@ -306,6 +329,7 @@ proc tsNimLib(): Table[string, string] =
     except OSError: discard
   tsNimModules
 
+# the action that adds `import m` to the file in front when it is an editable Nim file, else says to open one
 proc tsImportAct(m: string): Action = (proc() =
   let b = buf()
   if b.lang != nil and b.lang.mode == lmNim and b.canEdit():
@@ -314,6 +338,7 @@ proc tsImportAct(m: string): Action = (proc() =
   else: info("Not a Nim file: open one to add the import"))
 
 proc tsNimModulesPick() =
+  ## the finder of the standard library's modules by name, each previewed from its first line; Enter opens one
   let mods = tsNimLib()
   if mods.len == 0:
     info("Nim's library was not found (is nim on PATH?)")
@@ -343,6 +368,8 @@ proc tsDeclLine(path, name: string): int =
   except CatchableError: discard
   -1
 
+# the action that opens the module and goes to the line that declares the exported name (the top of the file when it is
+# not found)
 proc tsNimNameAct(path, name: string): Action = (proc() =
   let l = tsDeclLine(path, name)
   tsGoTo(path, l, 0)())
@@ -392,6 +419,8 @@ proc tsNimble() =
   tsOpen("Nim: nimble packages installed", es, tsNimble)
 
 proc tsTodos() =
+  ## the TODOs finder: the tagged comments found in the project (TODO, FIXME …), each with its place and the file at
+  ## that line
   var es: seq[TsEntry]
   for t in todoCollect(false):
     let tag = if t.tag >= 0 and t.tag < todoTags.len: todoTags[t.tag].word else: "TODO"
@@ -402,6 +431,7 @@ proc tsTodos() =
     return
   tsOpen("TODOs", es, tsTodos)
 
+# the action that shows terminal ti in the panel and types the command into it again
 proc tsRunInTermAct(ti: int, cmd: string): Action = (proc() =
   if ti >= 0 and ti < terms.len:
     curTerm = ti
@@ -441,6 +471,7 @@ proc tsPlugins() =
   tsOpen("Plugins — Enter turns one of ned's on", es, tsPlugins)
 
 proc tsBookmarks() =
+  ## the Bookmarks finder: the marked lines of the open files, and those saved for files not open now
   var es: seq[TsEntry]
   for b in bufs:
     if b.path.len == 0: continue
@@ -520,6 +551,7 @@ proc tsLines() =
                    pv: (if b.path.len > 0: tsFile(b.path, i) else: tsText("")))
   tsOpen("Lines of " & b.name & " — Enter goes there", es, tsLines)
 
+# the action that gives pane i the focus
 proc tsPaneAct(i: int): Action = (proc() = (if splitOn: focusPane(i)))
 
 proc tsPanes() =
@@ -568,6 +600,7 @@ proc telescope() =
   ## the finders
   var es: seq[TsEntry]
   proc add(label, detail: string, act: Action, help: string) =
+    ## adds a finder to the list, its help text as the preview beside it
     es.add TsEntry(label: label, detail: detail, act: act, pv: tsText(label & "\n\n" & help))
   add("Files", "Ctrl+P", proc() = cmdFindFile(), "The project's files, the open and recent ones first. :line, @symbol, " &
       "#project symbol and >command work in it too.\n\nIn every finder of places — files, lines, symbols, problems: " &

@@ -65,6 +65,8 @@ proc wkExe(): string =
   if fileExists("/proc/self/exe"): "/proc/self/exe" else: getAppFilename()
 
 proc wkFlush() =
+  ## writes as much as the pipe takes of what waits to be sent to the worker, without blocking; the worker is marked
+  ## dead if the write fails, and the buffer is cut back once sent
   let w = wkp
   if w == nil or w.dead or w.wpos >= w.wbuf.len: return
   while w.wpos < w.wbuf.len:
@@ -82,6 +84,7 @@ proc wkFlush() =
     w.wpos = 0
 
 proc wkSend(j: JsonNode) =
+  ## queues a message (one JSON object and a newline) for the worker and tries to send it at once
   if wkp == nil or wkp.dead: return
   wkp.wbuf.add $j
   wkp.wbuf.add '\n'
@@ -108,6 +111,7 @@ proc wkStop(why = "") =
   for id in w.checksFly.keys: typoAt.del id
 
 proc wkSettingsJson(): JsonNode =
+  ## a copy of the settings as JSON, to send to the worker
   result = if settingsJ != nil: settingsJ.copy else: newJObject()
 
 proc wkStart(): bool =
@@ -351,6 +355,8 @@ proc wkFolderChanged() =
 # ── in the editor: the answers ──
 
 func wkDiagJson(d: Diag): JsonNode =
+  ## a problem as JSON for the worker's answer: position, severity, message, rule and source, with what its quick fixes
+  ## are made from
   result = %*{"l": d.line, "c": d.col, "el": d.eline, "ec": d.ecol, "s": d.sev, "m": d.msg, "r": d.rule, "src": d.src}
   # (what its quick fixes are made from: Nim 3's edits, a server's code and words)
   if d.code != nil: result["code"] = d.code
@@ -358,11 +364,14 @@ func wkDiagJson(d: Diag): JsonNode =
   if d.raw.len > 0: result["raw"] = %d.raw
 
 func wkDiagOf(j: JsonNode): Diag =
+  ## a problem read back from the JSON wkDiagJson made
   Diag(line: j{"l"}.getInt, col: j{"c"}.getInt, eline: j{"el"}.getInt, ecol: j{"ec"}.getInt, sev: j{"s"}.getInt,
        msg: j{"m"}.getStr, rule: j{"r"}.getStr, src: j{"src"}.getStr("ned"), code: j{"code"}, fixes: j{"fx"},
        raw: j{"raw"}.getStr)
 
 proc wkHintsAnswer(j: JsonNode) =
+  ## the worker's type and parameter hints for one chunk of lines: put into the buffer's inlays when they are for the
+  ## text and settings it has now (else dropped); marks the hints as complete once the visible chunks are in
   let b = bufById(j{"id"}.getInt)
   if b == nil or b.id notin ihStates: return
   let st = addr ihStates[b.id]
@@ -396,6 +405,8 @@ proc wkHintsAnswer(j: JsonNode) =
   if changed: needRender = true
 
 proc wkChecksAnswer(j: JsonNode) =
+  ## the worker's misspelled names and engine problems for a buffer, applied if they are for the text as it is now; also
+  ## notes how long it took and what the worker holds in memory
   let b = bufById(j{"id"}.getInt)
   if b == nil: return
   if wkp != nil: wkp.checksFly.del b.id
@@ -411,6 +422,8 @@ proc wkChecksAnswer(j: JsonNode) =
   engineTyposApply(b, found, mine, j{"on"}.getBool)
 
 proc wkRefsAnswer(j: JsonNode) =
+  ## the worker's reference counts for the declarations in a range of lines, put into the buffer's counts (the lines of
+  ## the range replaced) when they are for the text as it is now
   let b = bufById(j{"id"}.getInt)
   if b == nil or j{"v"}.getInt != b.changeId: return
   var lens = if wkRefsVer.getOrDefault(b.id, -1) == b.changeId: refLens.getOrDefault(b.id) else: initTable[int, (string, bool)]()
@@ -426,6 +439,7 @@ proc wkRefsAnswer(j: JsonNode) =
   wkRefsVer[b.id] = b.changeId
 
 proc wkWebAnswer(j: JsonNode) =
+  ## the worker's problems for a web file (HTML, CSS …), applied if they are for the text as it is now
   let b = bufById(j{"id"}.getInt)
   if b == nil or j{"v"}.getInt != b.changeId: return
   var ds: seq[Diag]
@@ -433,6 +447,8 @@ proc wkWebAnswer(j: JsonNode) =
   webChecksApply(b, ds)
 
 proc wkAnswer(line: string) =
+  ## handles one line the worker wrote: hints, checks, reference counts, web and C checks go to their handlers; a resync
+  ## makes the next send of that text a whole one and asks for what was asked again; an error is noted
   var j: JsonNode
   try: j = parseJson(line)
   except CatchableError: return
@@ -507,6 +523,8 @@ proc wkRead(ready: HashSet[cint]) =
     wkStop()
 
 proc wkFds(fds: var seq[TPollfd]) =
+  ## adds the worker's pipes to the main loop's poll list: its answers and errors to read, and its input when something
+  ## waits to be written
   if wkp == nil or wkp.dead: return
   fds.add TPollfd(fd: wkp.outFd, events: POLLIN)
   if wkp.errFd >= 0: fds.add TPollfd(fd: wkp.errFd, events: POLLIN)
@@ -541,6 +559,8 @@ var
   wkQuit = false
 
 proc wkWrite(j: JsonNode) =
+  ## (in the worker) writes an answer to the editor as a line of JSON, retrying on interrupts; if the editor is gone the
+  ## worker is told to quit
   var s = $j
   s.add '\n'
   var off = 0
@@ -553,11 +573,13 @@ proc wkWrite(j: JsonNode) =
       return
 
 proc wkDoc(id: int): Buffer =
+  ## (in the worker) the buffer holding the file the editor sent under that id, nil if none
   for x in bufs:
     if x.id == id and x.path.len > 0: return x
   nil
 
 proc wkApplySettings(j: JsonNode) =
+  ## (in the worker) takes the editor's settings and toolchain, and forgets what was worked out under the old ones
   if j{"s"} != nil and j["s"].kind == JObject:
     settingsJ = j["s"]
     applySettings()
@@ -568,6 +590,10 @@ proc wkApplySettings(j: JsonNode) =
   typosLast.clear()
 
 proc wkHandle(line: string) =
+  ## (in the worker) acts on one message from the editor: init, settings, macros, dump and packages set up its view of
+  ## the project; doc, edits and close keep its copies of the files in step (a mismatch asks for a resync); hints,
+  ## checks, cchecks, web and refs queue work, replacing a queued task of the same kind for the file; verify and text
+  ## let the editor check its copy; quit stops it
   var j: JsonNode
   try: j = parseJson(line)
   except CatchableError: return
@@ -742,6 +768,8 @@ proc wkDrain(wait: bool) =
   if start > 0: wkInBuf = wkInBuf[start .. ^1]
 
 proc wkRunHints(t: WkTask) =
+  ## (in the worker) works out the type, parameter and raises hints for one chunk of lines and sends them back with the
+  ## key and how long it took; nothing if the text has changed
   let b = wkDoc(t.id)
   if b == nil or b.changeId != t.v: return
   curBuf = bufs.find(b)
@@ -771,6 +799,8 @@ proc wkRunHints(t: WkTask) =
   wkWrite(%*{"op": "hints", "id": t.id, "key": t.key, "c": t.chunk, "l": ls, "ms": int(msSince(t0))})
 
 proc wkRunChecks(t: WkTask) =
+  ## (in the worker) works out the misspelled names around the screen and the engine's checks of the file, and sends
+  ## them back with how long it took and what the worker holds in memory; nothing if the text has changed
   let b = wkDoc(t.id)
   if b == nil or b.changeId != t.v: return
   curBuf = bufs.find(b)
@@ -802,6 +832,7 @@ proc wkRunChecks(t: WkTask) =
 var wkScanAt: MonoTime              # (the worker's list of the project's files: made again every 30 s)
 
 proc wkEnsureScan() =
+  ## (in the worker) makes sure the list of the project's files is fresh (scanned again after 30 seconds)
   if not fileCacheValid or msSince(wkScanAt) > 30_000:
     fileCacheValid = false
     startScan()
@@ -811,6 +842,7 @@ proc wkEnsureScan() =
     refFilesAt = getMonoTime()
 
 proc wkRunWeb(t: WkTask) =
+  ## (in the worker) checks a web file against the servers the editor named and sends the problems back
   let b = wkDoc(t.id)
   if b == nil or b.changeId != t.v: return
   curBuf = bufs.find(b)

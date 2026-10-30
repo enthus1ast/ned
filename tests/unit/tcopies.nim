@@ -51,6 +51,8 @@ proc loops(w: ref Wrap, o: Obj): int =
 """
 
 proc expand(src: string, names: seq[string]): string =
+  ## runs the compiler on the source in a folder of its own (exported, so nothing is dropped) with --expandArc for the
+  ## named routines, and gives back what it printed
   let dir = getTempDir() / "ned-tcopies-" & $getCurrentProcessId()
   createDir(dir)
   writeFile(dir / "m.nim", "{.push exportc.}\n" & src)
@@ -61,6 +63,8 @@ proc expand(src: string, names: seq[string]): string =
   o
 
 proc routines(src: string): seq[ArcRoutine] =
+  ## each top-level proc of the source as an ArcRoutine: its name, first and last line (up to the next line that is not
+  ## blank or indented) and the names of its parameters other than sink ones
   let ls = src.splitLines
   for i, l in ls:
     if l.startsWith("proc "):
@@ -79,6 +83,8 @@ suite "expandArc → the source":
   let out0 = expand(Src, @["keep", "f", "g", "h", "moved", "lit", "loops"])
   let got = arcCopies(out0, lines, routines(Src))
   proc at(l: int, what: string): bool =
+    ## is there a copy found on line l that marks exactly this text? When not, the copies found are shown with the
+    ## failure.
     for c in got:
       if c.line == l and lines[l][c.col ..< c.ecol] == what: return true
     checkpoint "copies: " & $got

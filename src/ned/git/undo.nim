@@ -82,6 +82,8 @@ proc gitUndoTo(root: string, steps: seq[GitStep], k: int) =
   let what = stepWords(s0)
   let mode = if onlyCommits: "--soft" else: "--keep"
   proc doIt() =
+    ## moves the branch back to the state before the step with `git reset` — --soft (the undone commits' changes stay
+    ## staged) when only commits are undone, else --keep (uncommitted work kept) — and reports it
     gitShell("git reset " & mode & " " & tgt,
              "Undid " & what & (if onlyCommits: " — its changes are staged" else: " — your uncommitted work is kept"),
              nil, root)

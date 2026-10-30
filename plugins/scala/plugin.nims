@@ -150,6 +150,8 @@ func scalaCode(s: string, nest: var int, triple: var bool): string =
     inc i
 
 func scalaIdentEnd(s: string, i: int): int =
+  ## where the Scala name that starts at `i` ends: a `backtick name`, a run of letters, digits and underscores, or —
+  ## when there is no such name — an operator's name (`+`, `::`)
   result = i
   if i < s.len and s[i] == '`':
     let e = s.find('`', i + 1)
@@ -162,6 +164,7 @@ func scalaIdentEnd(s: string, i: int): int =
       inc result
 
 func scalaWord(w: string): string =
+  ## the word (letters, digits, underscores) at the start of `w`, empty when it starts with anything else
   var e = 0
   while e < w.len and (w[e].isAlphaNumeric or w[e] == '_'): inc e
   w[0 ..< e]
@@ -235,6 +238,8 @@ func scalaSymbols*(lines: seq[string]): seq[Symbol] =
     var container = false
     var hasBody = false                # a def, val or var whose body goes on below (`=` at the end)
     template put(nm, kd, dt: string) =
+      ## adds a symbol for this line (its name, kind and detail, its column found in the line) unless the line is inside
+      ## a def's body
       if not inCode:
         result.add Symbol(name: nm, kind: kd, detail: dt, line: ln, col: max(0, s.find(nm, col)), depth: depth)
     case first
@@ -312,6 +317,7 @@ func scalaSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc scalaHave(cmd: string): bool =
+  ## whether the first word of a configured command (with ~ expanded) is a program that can be found on PATH
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

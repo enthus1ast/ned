@@ -6,6 +6,9 @@ import std/algorithm
 requiresNed(">= 6.31")
 
 proc findAll(b: Buf) =
+  ## asks for a regular expression, finds every match in the whole text with one request, and lists each as
+  ## path:line:column: text in the Output panel; a pattern that is not a regular expression is reported with ned's
+  ## reason
   let pattern = ask("Find (a regular expression):")
   if pattern.len == 0: return
   let text = b.text
@@ -26,6 +29,8 @@ proc findAll(b: Buf) =
   message($rows.len & " matches")
 
 proc replaceIn(b: Buf) =
+  ## asks for a pattern and a replacement ($0 for the match, $1 … $9 for its groups) and replaces the matches in the
+  ## selection — or in the whole file when nothing is selected — saying how many it changed
   let sel = b.selection
   let r = if sel.isEmpty: rng(pos(0, 0), pos(b.lineCount - 1, b.line(b.lineCount - 1).len)) else: sel
   let pattern = ask("Replace (a regular expression):")

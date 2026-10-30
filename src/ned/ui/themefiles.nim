@@ -64,6 +64,8 @@ proc refreshThemeChoices() =
     if i >= 0: setDefs[i].opts = allThemeNames() & (if key == "theme": @["auto"] else: @[])
 
 proc reloadThemes() =
+  ## forgets the cached themes and reads them again (a theme file added or changed), applies the current theme and
+  ## redraws the whole screen
   themeCache.setLen(0)
   refreshThemeChoices()
   applyTheme(cfgThemeName)
@@ -71,6 +73,7 @@ proc reloadThemes() =
   needRender = true
   info("Themes reloaded")
 
+# the colour as #rrggbb
 func hexOf(c: Rgb): string = "#" & toHex(int(c), 6)
 
 proc themeJson(t: Theme): JsonNode =
@@ -92,6 +95,8 @@ func themeSlug(s: string): string =
   if result.len == 0: result = "my-theme"
 
 proc saveThemeFile(j: JsonNode): string =
+  ## writes a theme (JSON) into the themes folder as <name>.json, the name made a safe file name, and gives back the
+  ## path
   let name = themeSlug(j{"name"}.getStr)
   createDir(themesDir())
   result = themesDir() / (name & ".json")
@@ -103,6 +108,7 @@ proc saveThemeFile(j: JsonNode): string =
 
 const TermuxMark = "# written by ned"
 
+# the file where Termux reads its terminal colours
 proc termuxColorsFile(): string = getHomeDir() / ".termux" / "colors.properties"
 
 proc termuxColorsText(t: Theme): string =
@@ -140,6 +146,8 @@ proc themeFollowers() =
   if sBool("theme.termuxColors") and isTermux(): discard termuxWriteColors(quiet = true)
 
 proc cmdTermuxColors() =
+  ## writes the theme's colours into Termux (only in Termux), and — unless theme.termuxColors already keeps it matching
+  ## — offers in a message to keep doing so
   if not isTermux():
     info("This is for Termux (Android): it writes ~/.termux/colors.properties from the theme — this is not Termux")
     return
@@ -211,12 +219,14 @@ proc vscodeTheme(j: JsonNode, fallbackName: string): JsonNode =
   ## a VS Code colour theme → ned's theme file
   let c = j{"colors"}
   proc pick(keys: openArray[string]): string =
+    ## the value of the first of these colour keys that the VS Code theme sets, else an empty string
     if c == nil or c.kind != JObject: return ""
     for k in keys:
       if c{k} != nil and c{k}.kind == JString and c{k}.getStr.len > 0: return c{k}.getStr
     ""
   var cs = newJObject()
   proc put(k, v: string) =
+    ## sets ned's colour k to v in the theme being built, unless v is empty
     if v.len > 0: cs[k] = %v
   put("bg", pick(["editor.background"]))
   put("fg", pick(["editor.foreground", "foreground"]))
@@ -289,6 +299,9 @@ proc base16Theme(text, fallbackName: string): JsonNode =
   %*{"name": name, "colors": cs}
 
 proc importTheme(path: string) =
+  ## turns a theme file into one of ned's: a base16 scheme, a VS Code colour theme (comments and trailing commas
+  ## allowed) or a theme already in ned's format. It is saved in the themes folder under its name (with -imported added
+  ## if that is taken), then applied and made the theme setting.
   let p = absolutePath(expandTilde(path))
   var text = ""
   try: text = readFile(p)
@@ -341,12 +354,15 @@ const ThemeEditKeys = ["fg", "bg", "comment", "keyword", "type", "string", "numb
                        "property", "accent", "selection", "error", "warning", "ok", "titleBar", "dock", "statusBar", "ruler"]
 
 proc themeKeyColor(t: Theme, k: string): Rgb =
+  ## the theme's colour for one key of the theme editor: a syntax or base colour, a chrome colour (title bar, dock,
+  ## status bar), else the ruler's
   let i = ThemeKeys.find(k)
   if i >= 0: return t.base[i]
   let j = ChromeKeys.find(k)
   if j >= 0: return (if t.hasChrome: t.chromeCols[j] else: [t.titleBg, t.dockBg, t.statusBg][j])
   t.ruler
 
+# true for a key that is a background (text is read on it) rather than a foreground colour
 func themeKeyIsBack(k: string): bool = k in ["bg", "selection", "titleBar", "dock", "statusBar"]
 
 proc themeContrast(t: Theme, k: string): (float, float, string) =
@@ -417,6 +433,8 @@ proc themeSetColor(k: string, c: Rgb) =
   cmdThemeEditor(k)
 
 proc themeKeyMenu(k: string) =
+  ## the menu for one colour of the theme editor: type a new value, make it readable (when its contrast is too low),
+  ## lighter, darker, as in the theme this is a copy of, or back to the list. Each change goes through themeSetColor.
   let c = themeKeyColor(theme, k)
   let (r, want, what) = themeContrast(theme, k)
   var items: seq[(string, string, Action)]
@@ -442,6 +460,7 @@ proc themeKeyMenu(k: string) =
   pickSwatches = @[]
 
 proc themeKeyAct(k: string): Action =
+  ## the action that opens the menu of colour k (a proc of its own so each row of a loop gets its own key)
   result = proc() = themeKeyMenu(k)
 
 proc cmdThemeEditor(at = "") =

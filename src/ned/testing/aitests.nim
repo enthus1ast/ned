@@ -61,6 +61,8 @@ proc aiTestsVerify(srcPath, testPath, spec, focus, code: string, attempt: int, c
     let outp = stripAnsi(j.output)
     let k = outp.find("NED_TESTS_RUN")
     proc drop(why: string) =
+      ## gives up on the AI's test file: deletes it (and the tests folder, if ned made it for this and it is empty),
+      ## clears the busy flag and shows `why` as an error
       try:
         removeFile(testPath)
         let d = parentDir(testPath)
@@ -156,6 +158,9 @@ proc aiTestsVerify(srcPath, testPath, spec, focus, code: string, attempt: int, c
     aiTestsBusy = false
 
 proc aiTestsAsk(srcPath, testPath, spec, focus: string, attempt: int, prevCode, prevErr: string) =
+  ## asks the model for a std/unittest file for the module (its first 60,000 characters; only the exported proc `focus`
+  ## when given), with the previous file and its compiler errors on a retry; the ```nim block of the reply goes to
+  ## aiTestsVerify
   var src = ""
   try: src = readFile(srcPath)
   except CatchableError: return

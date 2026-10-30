@@ -22,6 +22,8 @@ when isMainModule:
   var cache: Table[string, (NxFile, seq[string])]
   var dumped = false
   proc load(path: string): (NxFile, seq[string]) =
+    ## the engine's reading of a file and its lines, each file read once and kept. The first time, it also asks `nim
+    ## dump` which symbols are defined, as ned does for a project, so code under `when` is resolved the same way.
     if not dumped:
       # as ned does for a project: the symbols `nim dump` says are defined
       dumped = true

@@ -5,6 +5,7 @@ import std/[os, sets, strutils, tables, unittest]
 import ../../src/ned/format/formatters
 
 proc nimFmt(s: string): string =
+  ## the Nim text formatted; the test fails if the formatter reports an error
   var err = ""
   result = fFormat(s, err)
   checkpoint err
@@ -844,6 +845,7 @@ suite "YAML and TOML":
 
 suite "NimScript: .nimble and .nims (6.19)":
   proc scriptFmt(s: string): string =
+    ## the text formatted as NimScript (a .nimble or .nims file) rather than as a program
     FmtScript = true
     defer: FmtScript = false
     nimFmt(s)
@@ -952,6 +954,8 @@ suite "Nim: fixes (6.21)":
 
 suite "Nim: 6.23":
   proc alignFmt(s: string): string =
+    ## the text formatted with nim.format.alignComments on, so the trailing comments of following lines meet in one
+    ## column
     FmtAlignComments = true
     defer: FmtAlignComments = false
     nimFmt(s)

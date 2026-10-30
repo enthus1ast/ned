@@ -201,6 +201,8 @@ proc gitWorktrees() =
   var path, br = ""
   var main = ""
   proc addOne(p, b: string) =
+    ## adds the menu entry for one worktree (path p, branch b): the current one is marked, and picking it offers to open
+    ## it, add it to the workspace, or remove it (not the main one or the one in use)
     if p.len == 0: return
     if main.len == 0: main = p
     let here = (ri < 0 and p == root) or (ri >= 0 and p == remotes[ri].absPath)
@@ -229,6 +231,8 @@ proc gitWorktrees() =
     let (ok2, bo, _) = runFilter("git for-each-ref --format='%(refname:short)' refs/heads", "", root, 8000)
     var bs: seq[(string, string, Action)]
     proc mk(branch: string, isNew: bool) =
+      ## asks for a folder (named after the branch, beside this one) and makes a worktree there on that branch, a new
+      ## one when isNew; then offers to open it
       askText("Folder for it", parentDir(base) / extractFilename(base) & "-" & branch.replace('/', '-'), proc(t: string) =
         let p = t.strip
         if p.len == 0: return

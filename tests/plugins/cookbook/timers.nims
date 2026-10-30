@@ -33,6 +33,8 @@ discard every(30_000) do ():
   told = still                                # (… and said again when they change again)
 
 proc remind() =
+  ## asks what to be reminded of and in how many minutes, replaces any reminder already set, and starts a one-off timer
+  ## that shows the reminder in a toast when it ends
   let what = ask("Remind you of what?", "a break")
   if what.len == 0: return
   let mins = (try: parseInt(ask("In how many minutes?", "25")) except ValueError: 0)

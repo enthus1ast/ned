@@ -38,6 +38,7 @@ var emitIdxCache: Table[int, (int, CIndex)]               # buffer id → (its c
 var emitFileIdx: Table[string, (times.Time, CIndex)]      # other files, by mtime
 
 proc emitIndexOf(path: string, lines: seq[string]): CIndex =
+  ## the C index of what the lines emit (everything but the emitted C blanked out first), not kept anywhere
   cIndexOf(emitCode(lines), path)
 
 proc emitIndex(b: Buffer): CIndex =
@@ -48,6 +49,8 @@ proc emitIndex(b: Buffer): CIndex =
   emitIdxCache[b.id] = (b.changeId, result)
 
 proc emitIndexOfFile(path: string): CIndex =
+  ## the index of the C a Nim file emits: from its open buffer when it is open, else read from disk (files over 4 MB are
+  ## skipped) and kept in a table by modification time; an empty index when the file cannot be read
   let bi = bufIndexByPath(path)
   if bi >= 0: return emitIndex(bufs[bi])
   try:
@@ -157,6 +160,8 @@ proc emitCxxComplete(b: Buffer, p: Pos, manual: bool): bool =
   true
 
 func cKindIcon(kind: string): int =
+  ## the completion-item kind (the language server protocol's number, which picks the icon) for a C declaration kind:
+  ## function, macro, type or variable
   case kind
   of "function": 3
   of "macro": 21
@@ -284,6 +289,8 @@ proc emitNimTargetsIn(w: var EmitWork, src: seq[string], f: NxFile, l, s, e: int
     return (rs, locals)
 
 proc emitNimTargets(lines: seq[string], f: NxFile, l, s, e: int): (seq[NxRef], seq[NxSym]) =
+  ## what the `name` at line l, columns s ..< e of an emit names in Nim, building the blanked-out working copy of the
+  ## file first — for a caller that has no copy of its own
   var w = emitWork(lines)
   emitNimTargetsIn(w, lines, f, l, s, e)
 

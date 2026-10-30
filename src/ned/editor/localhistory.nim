@@ -1,5 +1,6 @@
 # ── local history: every save keeps the previous version (File › Local history) ──
 
+# the folder in ned's state folder that keeps the earlier versions of a file, named by a hash of its path
 proc historyDir(path: string): string = stateDir() / "history" / fnv(path)
 
 proc snapshotHistory(path: string) =
@@ -37,6 +38,7 @@ proc historyVersions(path: string): seq[(int64, string)] =
   result.sort(proc(x, y: (int64, string)): int = cmp(y[0], x[0]))
 
 proc agoText(ms: int64): string =
+  ## how long ago a time (unix milliseconds) was, in words: `12s ago`, `5 min ago`, `3 h ago`, `2 days ago`
   let s = max(0'i64, (epochTime() * 1000).int64 - ms) div 1000
   if s < 60: $s & "s ago"
   elif s < 3600: $(s div 60) & " min ago"

@@ -19,6 +19,7 @@ func fieldBulletByte(text: string, k: int): int =
   i
 
 func fieldRunes(text: string, a, b: int): int =
+  ## how many characters lie between bytes `a` and `b` of the text
   var i = a
   while i < b and i < text.len:
     i = nextRune(text, i)
@@ -30,6 +31,8 @@ proc fieldByteAt(text: string, bi, x0, x: int, secret: bool): int =
   colAtVis(text, visColOf(text, bi) + max(0, x - x0))
 
 proc fieldPress(tp: ptr string, cp: ptr int, x0, bi: int, secret: bool) =
+  ## a mouse press in a field: places the cursor under the pointer; a second press close by within 450 ms selects the
+  ## word, a third everything; remembers the field so that a drag goes on selecting in it
   let idx = clamp(fieldByteAt(tp[], bi, x0, mouseX, secret), 0, tp[].len)
   if msSince(fieldClickAt) < 450 and abs(mouseX - fieldClickX) <= 1 and fieldDragText == tp: inc fieldClicks
   else: fieldClicks = 1
@@ -57,6 +60,8 @@ proc fieldPress(tp: ptr string, cp: ptr int, x0, bi: int, secret: bool) =
   needRender = true
 
 proc fieldDragTo(x: int) =
+  ## moves the cursor of the field being dragged in to the character under screen column `x` (the other end of the
+  ## selection stays where the press was)
   if fieldDragText == nil or fieldDragCur == nil: return
   fieldDragCur[] = clamp(fieldByteAt(fieldDragText[], fieldDragBi, fieldDragX, x, fieldDragSecret), 0,
                          fieldDragText[].len)

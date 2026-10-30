@@ -150,6 +150,10 @@ proc typingCheckNimony(b: Buffer) =
     needRender = true)
 
 proc typingCheck(b: Buffer) =
+  ## has the compiler check the buffer's unsaved text after a pause in typing (one check per file at a time): nimony in
+  ## a Nim 3 project; else `nim check -` on a private copy (for an included file, inside the module that includes it),
+  ## run in the file's folder. When it ends — and the text has not changed meanwhile — the problems and the unused-name
+  ## hints found for the file replace the build ones
   if b.path in typingChecks: return
   if nim3On():
     b.typingCheckNimony()
@@ -233,6 +237,8 @@ proc recheckBuildErrors(saved: Buffer) =
   for (p, lid) in todo: runCheckPath(p, lid, keepExamples = p != saved.path)
 
 proc findGitRoot(start: string): string =
+  ## the folder holding the .git of a path, looked for upwards (up to 40 levels); for a remote folder, its local mirror
+  ## when the server has a repository; "" when there is none
   if remotes.len > 0:
     # a remote folder's local copy: its repository is on the server (git runs there), when it has one
     let ri = remoteOf(start)

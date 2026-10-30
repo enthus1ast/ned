@@ -5,6 +5,7 @@ import nedplugin
 requiresNed(">= 6.31")
 
 func words(lines: seq[string]): int =
+  ## the number of words in the lines (runs of text between whitespace)
   for l in lines: result += l.splitWhitespace.len
 
 proc showCounts(b: Buf) =

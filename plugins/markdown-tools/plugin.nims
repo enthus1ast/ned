@@ -37,6 +37,7 @@ type Heading = object
   anchor: string                 # GitHub's: #on-termux
 
 func indentOf(l: string): int =
+  ## how many spaces the line starts with
   while result < l.len and l[result] == ' ': inc result
 
 func fenceOf(l: string): string =
@@ -63,6 +64,7 @@ func atx(l: string): (int, string) =
   (n, t)
 
 func isListItem(l: string): bool =
+  ## whether the line starts a list item: a -, * or + and a space, or a number with a . or )
   let t = l.strip(trailing = false)
   if t.len >= 2 and t[0] in {'-', '*', '+'} and t[1] == ' ': return true
   var k = 0
@@ -169,6 +171,7 @@ proc headings(lines: seq[string]): seq[Heading] =
     inc i
   var seen = initTable[string, int]()      # (as GitHub counts them: a second "intro" is intro-1)
   proc anchorFor(t: string): string =
+    ## the anchor of a heading's text as GitHub makes it; a text seen before gets -1, -2 … after it, counted in `seen`
     let base = slug(t)
     result = base
     while result in seen:
@@ -200,6 +203,8 @@ func markerOf(l: string): string =
   if w in ["toc", "tocstop", "/toc"]: w else: ""
 
 func levelRange(spec: string): (int, int) =
+  ## the heading levels the contents lists, from a setting such as "2..3" or "2" (kept within 1 … 6); 1 … 6 when it is
+  ## not a number
   let p = spec.split("..")
   try:
     if p.len == 2: (max(1, parseInt(p[0].strip)), min(6, parseInt(p[1].strip)))
@@ -261,9 +266,12 @@ proc updateToc(b: Buf, insert: bool): string =
   "Table of contents: " & $items.len & " headings"
 
 func isMarkdown(path, lang: string): bool =
+  ## whether the file is Markdown: its language, or a .md, .markdown or .mdx name
   lang == "markdown" or path.endsWith(".md") or path.endsWith(".markdown") or path.endsWith(".mdx")
 
 proc toc(b: Buf) =
+  ## Markdown: table of contents — updates the contents between the <!-- toc --> markers, or puts a new one in at the
+  ## cursor, and says what it did
   if not isMarkdown(b.path, b.lang):
     message("Markdown: table of contents — this is not a Markdown file")
     return
@@ -284,6 +292,8 @@ type Item = object
   content: int                   # where its text starts
 
 func itemOf(l: string): Item =
+  ## reads a line as a list item (a bullet, or a number followed by . or )): where its marker starts, whether it is
+  ## numbered, its number and where it ends, and where its text starts; the indent is -1 when the line is not one
   result.indent = -1
   let i = indentOf(l)
   if i >= l.len: return
@@ -337,6 +347,8 @@ proc listBlock(lines: seq[string], at: int): (int, int) =
   (first, last)
 
 proc renumber(b: Buf) =
+  ## Markdown: renumber this list — numbers the items of the numbered list at the cursor 1. 2. 3. …, each list inside it
+  ## counting from its own first number; says how many it changed or that the cursor is not in a numbered list
   let lines = b.lines
   let (a, e) = listBlock(lines, b.cursor.line)
   var ordered = false
@@ -387,6 +399,8 @@ func toggledBox(l: string): string =
   else: l[0 ..< c] & "[ ] " & rest
 
 proc toggleBox(b: Buf) =
+  ## Markdown: toggle the checkbox — ticks or unticks the box on the cursor's line (on each selected line), giving a
+  ## list item or line without one a box; keeps the cursor on the same text
   let s = b.selection
   var first = s.start.line
   var last = s.stop.line
@@ -449,6 +463,7 @@ func linkAt(l: string, col: int): (int, int, int) =
   (-1, -1, -1)
 
 func looksLikeUrl(s: string): bool =
+  ## whether the text can be a link address: one word starting with http://, https://, mailto:, ./, ../ or #
   let t = s.strip
   t.len > 0 and ' ' notin t and '\n' notin t and
     (t.startsWith("http://") or t.startsWith("https://") or t.startsWith("mailto:") or t.startsWith("./") or
@@ -471,6 +486,7 @@ proc styled(b: Buf, m: string, visual: bool) =
   let after = b.line(s.stop.line)[s.stop.col .. ^1]
   let sameLine = s.start.line == s.stop.line
   proc done(r: Range) =
+    ## leaves the selection on r (in visual mode) or the cursor at its start
     if visual: b.select(r)
     else: b.setCursor(r.start)
   for k in marks(m):

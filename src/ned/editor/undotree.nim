@@ -65,6 +65,8 @@ proc undoSummary(g: UndoGroup): string =
   if g.ops.len > 1: result.add " and " & $(g.ops.len - 1) & " more"
 
 proc undoAgo(g: UndoGroup): string =
+  ## how long ago an undo step was made, as "12 s ago", "5 min ago", "3 h ago" or "2 d ago"; empty for a step restored
+  ## from an earlier session, which has no time
   if g.time == MonoTime(): return ""
   let s = msSince(g.time) div 1000
   if s < 60: $s & " s ago"
@@ -157,6 +159,8 @@ proc cmdUndoHistory() =
   undoPickStates.setLen(0)
   let bid = b.id
   proc go(seqId: int): proc() {.closure.} =
+    ## the action that takes the buffer to the state step seqId made, looked up again by buffer id when it runs; says
+    ## when the edits left behind became a branch, and warns if the history no longer matches the text
     result = proc() =
       for x in bufs:
         if x.id == bid:

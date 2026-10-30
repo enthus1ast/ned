@@ -80,6 +80,7 @@ func diagramSymbols*(lines: seq[string], first = 0): seq[Symbol] =
 symbols("mermaid") do (b: Buf) -> seq[Symbol]:
   diagramSymbols(b.lines)
 
+# s as one word for a shell command line, in single quotes (a quote inside it written '\'')
 func q(s: string): string = "'" & s.replace("'", "'\\''") & "'"
 
 func blockAt*(lines: seq[string], line: int): (int, int) =
@@ -94,6 +95,8 @@ func blockAt*(lines: seq[string], line: int): (int, int) =
   (-1, -1)
 
 proc diagramText(b: Buf): string =
+  ## the diagram to draw: in a Markdown file the ```mermaid block the cursor is in ("" when it is in none), in any other
+  ## file the whole text
   if b.lang == "markdown" or b.path.endsWith(".md"):
     let (a, e) = blockAt(b.lines, b.cursor.line)
     if a < 0: return ""
@@ -101,6 +104,9 @@ proc diagramText(b: Buf): string =
   b.text
 
 proc render(beside: bool) =
+  ## makes the picture of the diagram with mmdc (mermaid-cli) in the format and theme of the settings: opens it in a tab
+  ## when beside is false, or saves it next to the file (named after it) and says where; warns when mmdc is missing or
+  ## fails, showing its words in the Output panel
   let b = current()
   let text = diagramText(b)
   if text.strip.len == 0:

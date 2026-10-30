@@ -15,12 +15,16 @@ type
 var diffViews: Table[int, DiffView]
 
 proc diffRight(v: DiffView): seq[string] =
+  ## the lines of the diff's right side: the live buffer's when it follows one, else the fixed text
   if v.src != 0:
     let s = bufById(v.src)
     if s != nil: return s.lines
   v.right
 
 proc diffRows(v: DiffView) =
+  ## builds the rows of the side-by-side view from a line diff of the two sides: unchanged lines side by side, and each
+  ## run of changes paired line by line (a pair is a changed row, a lone line a removed or added one with a filler
+  ## opposite); built again only when the followed buffer has changed since
   let s = if v.src != 0: bufById(v.src) else: nil
   let ch = if s != nil: s.changeId else: 0
   if v.built and v.at == ch: return
@@ -56,6 +60,8 @@ func diffSpan(x, y: string): (int, int, int) =
   (p, ex, ey)
 
 proc drawDiffSide(text: string, num, numW, x, y, w: int, lang: Lang, bg, hiBg: Rgb, ha, he: int) =
+  ## draws one side of one diff row: the line number (blank for a filler), then the text in syntax colours on `bg`, with
+  ## the characters from `ha` to `he` (the changed words) on the stronger `hiBg`; cut at the width
   fillRect(x, y, w, 1, theme.fg, bg)
   discard putStr(x, y, (if num >= 0: align($(num + 1), numW) else: spaces(numW)), theme.gutter, bg)
   var toks: seq[TokKind]
@@ -79,6 +85,10 @@ proc drawDiffSide(text: string, num, numW, x, y, w: int, lang: Lang, bg, hiBg: R
 proc diffRevertAt(v: DiffView, ri: int)
 
 proc drawDiffView(b: Buffer, x0, y0, w, h: int) =
+  ## draws a diff tab: a header with the two titles, the number of changes and the keys, then the rows from the top line
+  ## — removed lines tinted red on the left, added green on the right, filler hatching opposite them, a revert button on
+  ## the divider at the start of each change (when the right side is a live buffer) and an arrow on the cursor's row.
+  ## The buffer holds one empty line per row, so the cursor, scrolling and keys work as in any buffer
   let v = diffViews[b.id]
   v.diffRows()
   let n = max(1, v.rows.len)

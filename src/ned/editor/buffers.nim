@@ -1,14 +1,21 @@
+# the open buffers: finding one by id or path, the jump history, centring the view on a position and opening a file in a
+# tab; it also declares the tables behind the special tabs (multibuffer, commit message, rebase plan, change-signature
+# plan)
 proc bufById(id: int): Buffer =
+  ## the open buffer with this id, or nil — ids stay the same when tabs move, unlike indexes
   for b in bufs:
     if b.id == id: return b
   nil
 
 proc bufIndexByPath(path: string): int =
+  ## the tab index of the buffer that has this file open, or -1
   for i, b in bufs:
     if b.path == path: return i
   -1
 
 proc pushJump() =
+  ## notes the cursor's place in the file (up to 100 places are kept) so that Jump back can return to it; a new jump
+  ## empties the forward history. Buffers without a file are not noted.
   let b = buf()
   if b.path.len == 0: return
   jumpStack.add (b.path, b.primary.head)
@@ -16,6 +23,8 @@ proc pushJump() =
   fwdStack.setLen(0)                    # a new jump: nothing to go forward to
 
 proc centerOn(b: Buffer, p: Pos) =
+  ## puts the only cursor at `p` and scrolls so that its line is a third of the way down the text area; also notes the
+  ## line, so that the screen lights it up for a moment when that setting is on
   if cfgJumpHl and gRaw:
     landBuf = b.id                      # (the line it lands on lights up for a moment: ui.jumpHighlight)
     landLine = p.line
@@ -44,6 +53,11 @@ proc openWorkspace(f: string): bool
 proc isLibraryFile(path: string): bool
 
 proc openFile(path: string, line = -1, col = -1): Buffer =
+  ## opens a file in a tab and makes it current, reusing the tab if it is open already. A workspace file opens the
+  ## workspace and a folder becomes the project folder (both give nil). A new tab replaces an untouched Welcome or empty
+  ## tab; a remote file, or a library file when those are protected, is read-only. A new tab gets the language server,
+  ## git marks, crash recovery and the plugins' hook, and a toast offers the merge editor when it holds conflict
+  ## markers. With `line` the cursor goes there; the file joins the recent list and the editor gets the focus.
   let full = absolutePath(path).normalizedPath
   if (full.endsWith(".ned-workspace") or full.endsWith(".code-workspace")) and fileExists(full) and line < 0:
     discard openWorkspace(full)
@@ -158,5 +172,6 @@ proc mbHeaderAt(b: Buffer, line: int): (bool, string, int) =
   (true, (if rel.isAbsolute: rel else: rootDir / rel), n - 1)
 
 proc mbOpen(path: string, line: int) =
+  ## opens a file and centres it on a (0-based) line — where a multibuffer's section header leads
   let ob = openFile(path)
   if ob != nil: ob.centerOn(ob.clampPos(Pos(line: line, col: 0)))

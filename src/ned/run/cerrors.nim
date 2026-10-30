@@ -3,6 +3,8 @@
 var genCLines = initTable[string, (times.Time, seq[string])]()   # generated C files read, with their mtime
 
 func isNimGenC(path: string): bool =
+  ## true for the name of a C, C++ or Objective-C file Nim generated (ending in .nim.c, .nim.cpp or .nim.m), whose
+  ## errors are mapped back to the Nim source
   let n = extractFilename(path)
   n.endsWith(".nim.c") or n.endsWith(".nim.cpp") or n.endsWith(".nim.m")
 

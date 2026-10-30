@@ -3,6 +3,9 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 func detectIndent(b: Buffer) =
+  ## works out how the file is indented from its first 2000 lines: tabs when more lines start with a tab than with
+  ## spaces, else the step between one line's indentation and the previous one's (2 to 8) that comes up most. Without a
+  ## clue the language's own default is used.
   var tabs, spaced = 0
   var counts: array[9, int]
   var prev = 0
@@ -29,6 +32,8 @@ func detectIndent(b: Buffer) =
     b.indent = if b.lang.useTabs: "\t" else: spaces(max(1, b.lang.indentWidth))
 
 proc fileStamp(path: string): (int64, int64) =
+  ## (last-modified time in milliseconds, size in bytes) of a file — compared later to tell that it changed on disk; (0,
+  ## -1) when it cannot be read
   try:
     let fi = getFileInfo(path)
     (fi.lastWriteTime.toUnix * 1000 + fi.lastWriteTime.nanosecond div 1_000_000, fi.size.int64)
@@ -55,6 +60,7 @@ proc applyEditorConfig(b: Buffer) =
     t[k] = v.toLowerAscii
     if k in EcKnown: b.ecInfo.add (k, v, f)
   proc num(v: string): int =
+    ## a .editorconfig value as a number, 0 when it is not one
     try: parseInt(v) except ValueError: 0
   let style = t.getOrDefault("indent_style")
   let sizeS = t.getOrDefault("indent_size")
@@ -119,6 +125,10 @@ proc encodeFile(text, enc: string): (bool, string, int) =
     (ok, o, -1)
 
 proc setContent(b: Buffer, content: string) =
+  ## makes `content` the buffer's text. It counts the line ends in one pass to decide CRLF or LF (and mixed), whether
+  ## there is a final newline and whether the text is big or has a long line enough to need large-file mode. The lines
+  ## are split, highlighting state and git marks start over, and the undo history is dropped, since it belonged to the
+  ## old text; the cursors and the scroll position are kept inside the new text.
   # one pass to count line ends; the text is split without a copy unless it has CRLF line ends
   b.nesHas = false
   b.wkLogFrom = -1
@@ -240,10 +250,12 @@ proc setContentStream(b: Buffer, path: string): bool =
 # ── a binary file: the hex editor holds its bytes (editor/hexedit.nim) ──
 
 proc hexOpen(b: Buffer, content: sink string) =
+  ## turns the buffer into a hex editor holding `content` as its bytes (the text is left as one empty line)
   b.hex = HexState(data: content, anchor: -1, perRow: 16, rows: 20)
   b.lines = @[""]
 
 proc hexInfo(b: Buffer): BinInfo =
+  ## what the hex editor's bytes are — format, sections, symbols — read from the file's headers the first time and kept
   if not b.hex.infoMade:
     b.hex.infoMade = true
     b.hex.info = binParse(b.hex.data)
@@ -256,6 +268,12 @@ proc readUndo(b: Buffer)
 proc writeUndo(b: Buffer)
 
 proc loadFile(b: Buffer, path: string): bool =
+  ## reads a file into the buffer (false: it could not be read). A file bigger than the viewer limit goes to the
+  ## large-file viewer; a text file of 8 MB or more is read straight into lines. The encoding is found from a byte-order
+  ## mark or by trying UTF-8 and then the files.encoding fallback (iconv for the rest), and a file with NUL bytes opens
+  ## in the hex editor. Large-file mode and mixed line ends are announced. A file that does not exist gives an empty
+  ## buffer for it. Last, the language, indentation (guessed, then .editorconfig), saved bookmarks and cursor place, and
+  ## the undo history from last time are set.
   b.path = absolutePath(path).normalizedPath
   if fileExists(b.path):
     var content: string

@@ -46,6 +46,7 @@ func numAt(s: string, i: var int): float =
   try: parseFloat(s[a ..< i]) except ValueError: -1
 
 func skipSpaces(s: string, i: var int) =
+  ## moves i past any spaces at it
   while i < s.len and s[i] == ' ': inc i
 
 func benchyRow*(line: string): (bool, Result) =
@@ -195,6 +196,8 @@ func jsonItems(j: JsonNode): seq[JsonNode] =
   if j != nil and j.kind == JArray: j.getElems else: @[]
 
 proc loadRun(path: string): (seq[Result], string) =
+  ## the results of the file's last run and the time it was made, read from the plugin's data folder; both empty when
+  ## nothing was saved or it cannot be read
   try:
     let j = parseJson(readData(keyOf(path)))
     for x in jsonItems(j{"results"}):
@@ -204,6 +207,8 @@ proc loadRun(path: string): (seq[Result], string) =
   except CatchableError: discard
 
 proc saveRun(path: string, rs: seq[Result], stamp: string, previous: seq[Result], previousStamp: string) =
+  ## writes this run's results and time to the file's JSON in the data folder, together with the run before it (what
+  ## this one was compared with), so the table can be shown again
   var a = newJArray()
   for r in rs: a.add %*{"name": r.name, "min": r.minMs, "avg": r.avgMs, "sd": r.sdMs, "runs": r.runs}
   var p = newJArray()
@@ -232,6 +237,9 @@ proc mark(b: Buf, rs, last: seq[Result], threshold: int) =
 var running = false
 
 proc runBench() =
+  ## Bench: run this file — saves the .nim file, runs it with the `command` setting in the background, and when it ends
+  ## puts the output in the Output panel, reads the benchmarks out of it, compares them with the last saved run, marks
+  ## the lines, opens the table in a tab and saves the run; a failed run with no benchmark in it is only reported
   let b = current()
   let path = b.path
   if path.len == 0 or not path.endsWith(".nim"):
@@ -273,6 +281,8 @@ proc runBench() =
             (if last.len > 0: ", compared with the last run" else: " — the next run is compared with this one"))
 
 proc showLast() =
+  ## Bench: show the last results — opens the table of the file's last saved run (beside the run before it) in a tab,
+  ## without running anything
   let b = current()
   let path = b.path
   try:

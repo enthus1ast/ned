@@ -28,7 +28,9 @@ const DataDirectives = [".string", ".ascii", ".asciz", ".byte", ".short", ".valu
                         ".int", ".quad", ".xword", ".zero", ".octa", ".float", ".double", ".2byte", ".4byte",
                         ".8byte", ".dc.a", ".skip", ".space", ".base64"]
 
+# whether a character can start a name (a label, symbol or mnemonic) in assembly: a letter, `_`, `.` or `$`
 func asmNameStart(c: char): bool = c in {'A'..'Z', 'a'..'z', '_', '.', '$'}
+# whether a character can continue such a name: the starting ones, digits and `@` (as in `memcpy@PLT`)
 func asmNameChar(c: char): bool = c in {'A'..'Z', 'a'..'z', '0'..'9', '_', '.', '$', '@'}
 
 proc quoted(s: string): seq[string] =
@@ -508,11 +510,13 @@ const ArmCond = [("eq", "equal"), ("ne", "not equal"), ("cs", "carry set (unsign
   ("gt", "signed >"), ("le", "signed <="), ("al", "always")]
 
 proc docIn(tab: openArray[(string, string)], m: string): string =
+  ## the text a table of (mnemonic, explanation) pairs has for `m`, "" when it has none
   for (k, v) in tab:
     if k == m: return v
   ""
 
 proc condIn(tab: openArray[(string, string)], c: string): string =
+  ## the words a table of (condition code, meaning) pairs has for `c` (`ne` → not equal), "" when it has none
   for (k, v) in tab:
     if k == c: return v
   ""

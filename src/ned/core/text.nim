@@ -6,6 +6,7 @@ import std/[json, tables]
 var tabW* = 4                  # the tab width in use: the buffer being drawn or edited
 
 func runeLen*(c: char): int {.inline.} =
+  ## how many bytes the UTF-8 character that starts with this byte takes (1 for a plain or invalid first byte)
   let b = c.uint8
   if b < 0x80: 1
   elif (b and 0xE0) == 0xC0: 2
@@ -29,15 +30,18 @@ func runeAt*(s: string, i: int): (int, int) =
          ((s[i+2].uint8.int and 0x3F) shl 6) or (s[i+3].uint8.int and 0x3F), 4)
 
 func nextRune*(s: string, i: int): int {.inline.} =
+  ## where the character after the one at byte i starts (the end of the string at the end)
   if i >= s.len: s.len else: i + runeAt(s, i)[1]
 
 func prevRune*(s: string, i: int): int =
+  ## where the character before byte i starts: back over at most three continuation bytes (0 at the start)
   if i <= 0: return 0
   var j = i - 1
   while j > 0 and (s[j].uint8 and 0xC0) == 0x80 and i - j < 4: dec j
   j
 
 func addUtf8*(s: var string, cp: int) =
+  ## adds a code point to the string as UTF-8
   if cp < 0x80: s.add chr(cp)
   elif cp < 0x800:
     s.add chr(0xC0 or (cp shr 6)); s.add chr(0x80 or (cp and 0x3F))
@@ -162,6 +166,7 @@ func zeroKind(cp: int): int8 =
   0
 
 func isWide(cp: int): bool =
+  ## whether a code point is East Asian wide or an emoji shown as one (two columns), by a binary search of WideRanges
   var lo = 0
   var hi = int(WideRanges.high)
   while lo <= hi:
@@ -172,6 +177,8 @@ func isWide(cp: int): bool =
   false
 
 func runeWidth*(cp: int): int =
+  ## how many columns a code point takes: 1 below U+0300 and for the CJK ideographs, 0 for a mark or format character, 2
+  ## for a wide one, else 1
   if cp < 0x300: return 1
   if cp >= 0x4E00 and cp <= 0x9FFF: return 2          # (CJK ideographs: the common case)
   if zeroKind(cp) != 0: return 0
@@ -189,6 +196,7 @@ func isPictographic*(cp: int): bool =
   (cp >= 0x1F000 and cp <= 0x1FAFF) or (cp >= 0x2190 and cp <= 0x2BFF) or
     cp in [0xA9, 0xAE, 0x203C, 0x2049, 0x2122, 0x2139, 0x3030, 0x303D, 0x3297, 0x3299]
 
+# whether a code point is a regional indicator (the halves of a flag)
 func isRegional(cp: int): bool {.inline.} = cp >= 0x1F1E6 and cp <= 0x1F1FF
 
 func unitAt*(s: string, i: int, full: bool): (int, int) =
@@ -295,6 +303,7 @@ proc cellOf*(s: string, i, n: int): uint32 =
     cellPoolIds[t] = result
 
 proc cellWidth*(ch: uint32): int {.inline.} =
+  ## how many columns a cell's content takes: the code point's width, or the width kept for a character in the pool
   if ch < PoolBase: runeWidth(ch.int)
   elif int(ch - PoolBase) < cellPoolW.len: cellPoolW[int(ch - PoolBase)]
   else: 1
@@ -334,6 +343,7 @@ proc visColFrom*(s: string, col, start, startVc: int): int =
     result += w
     i += n
 
+# the visual column of byte `col` of a string, tabs expanded to the tab width and wide characters counted
 proc visColOf*(s: string, col: int): int = visColFrom(s, col, 0, 0)
 
 proc colAtVis*(s: string, target: int, start = 0, startVc = 0): int =
@@ -349,26 +359,32 @@ proc colAtVis*(s: string, target: int, start = 0, startVc = 0): int =
     i += n
   s.len
 
+# the display width of a string, in columns
 proc strWidth*(s: string): int = visColOf(s, s.len)
 
 func isWordByte*(c: char): bool {.inline.} =
+  ## whether a byte can be part of a word: a letter, a digit, an underscore, or a byte of a non-ASCII character
   c in {'a'..'z', 'A'..'Z', '0'..'9', '_'} or c.uint8 >= 0x80
 
 func isIdentStart*(c: char): bool {.inline.} =
+  ## whether a byte can start an identifier: a letter, an underscore, or a byte of a non-ASCII character
   c in {'a'..'z', 'A'..'Z', '_'} or c.uint8 >= 0x80
 
 func startsAt*(s, sub: string, i: int): bool {.inline.} =
+  ## whether `sub` is in s at index i (false for an empty `sub` or one that runs past the end)
   if sub.len == 0 or i + sub.len > s.len: return false
   for k in 0..<sub.len:
     if s[i+k] != sub[k]: return false
   true
 
 func leadingWs*(s: string): string =
+  ## the spaces and tabs a string starts with
   var i = 0
   while i < s.len and s[i] in {' ', '\t'}: inc i
   s[0..<i]
 
 func isBlank*(s: string): bool =
+  ## whether a string is empty or only spaces and tabs
   for c in s:
     if c notin {' ', '\t'}: return false
   true

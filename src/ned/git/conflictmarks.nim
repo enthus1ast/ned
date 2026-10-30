@@ -1,3 +1,5 @@
+# finding the merge conflicts of a buffer (the <<<<<<< ======= >>>>>>> blocks), and the forward declarations and shared
+# debugger state that code included earlier in ned.nim needs before their definitions come.
 type Conflict = tuple[start, base, mid, stop: int]    # <<<<<<< · ||||||| (or -1) · ======= · >>>>>>>
 
 var conflictCache: Table[int, (int, seq[Conflict])]
@@ -102,6 +104,9 @@ var
 var conflictScanAt: Table[int, MonoTime]
 
 proc conflictsOf(b: Buffer): seq[Conflict] =
+  ## the conflict blocks in the buffer, each as the lines of its <<<<<<<, ||||||| (-1 when there is no common-ancestor
+  ## part), ======= and >>>>>>> marks; kept until the text changes (a big file is scanned again at most once a second
+  ## while typing)
   let c = conflictCache.getOrDefault(b.id, (-1, @[]))
   if c[0] == b.changeId: return c[1]
   # a big file: scanned again at most once a second while you type (markers rarely change)
@@ -119,6 +124,7 @@ proc conflictsOf(b: Buffer): seq[Conflict] =
   conflictCache[b.id] = (b.changeId, result)
 
 proc conflictAt(b: Buffer, line: int): int =
+  ## the index of the conflict block that holds this line, or -1
   for i, c in b.conflictsOf():
     if line >= c.start and line <= c.stop: return i
   -1

@@ -22,10 +22,12 @@ const
   KeyframeAt = ["keyframes", "-webkit-keyframes", "-moz-keyframes"]
 
 proc cssPropNames*(): seq[string] =
+  ## the names of all the CSS properties ned knows
   for p in CssProps: result.add p[0]
 
 var propNamesMemo: seq[string]
 proc propNames(): seq[string] =
+  ## cssPropNames, made once and kept (for the spelling suggestions)
   if propNamesMemo.len == 0: propNamesMemo = cssPropNames()
   propNamesMemo
 
@@ -61,6 +63,9 @@ type CssScan = object
   funcs: seq[string]           # the functions whose ( are open, innermost last
 
 proc scanTo(lines: openArray[string], line, col: int): CssScan =
+  ## reads the document from its start to the cursor and gives back the state there: in a comment or a string, the open
+  ## blocks (rules, declarations, keyframes), the text since the last { } or ; and the functions whose parenthesis is
+  ## open. Braces and semicolons inside parentheses do not count.
   var q = '\0'
   for l in 0 .. min(line, lines.high):
     let s = lines[l]
@@ -174,6 +179,8 @@ proc cssContext*(lines: openArray[string], line, col: int): CssCtx =
   result.kind = if bk == bkKeyframes: ccNone else: ccSelector
 
 proc propDesc(i: int): string =
+  ## the help text of property number i of CssProps: what it does, then its keywords and the kinds of value it also
+  ## takes
   let p = CssProps[i]
   result = p[3]
   if p[1].len > 0: result.add "\n\nValues: " & p[1].replace(" ", ", ")
@@ -197,6 +204,9 @@ proc customProps*(lines: openArray[string]): seq[string] =
       i = s.find("--", max(e, i + 2))
 
 proc valueItems(prop: string): seq[WebItem] =
+  ## the completions for a property's value: its own keywords first, the CSS-wide keywords, colour names when it takes
+  ## colours (or the property is unknown), and the functions that fit it (var and calc for all; rgb, url, gradients,
+  ## transforms, filters … by what the property takes)
   let i = cssProp(prop)
   var kinds = ""
   if i >= 0:
@@ -385,6 +395,9 @@ proc cssChecks*(lines: openArray[string], strict = true): seq[WebDiag] =
   var paren = 0
   var lastDecl = (-1, -1, -1)                  # the last declaration ended by a line end: (line, its end, block depth)
   proc finishDecl(ds: var seq[WebDiag], seg: string, at: (int, int), bk: BlockKind) =
+    ## checks one declaration (seg, starting at the place `at`) when it ends: a property name that does not exist (with
+    ## the nearest known one as a hint), or — for a property that takes keywords only — a single word that is not one of
+    ## them. Vendor-prefixed, custom, SCSS and nested-selector text is left alone.
     if bk != bkDecls or looksSelector(seg): return
     let c = seg.find(':')
     if c <= 0: return

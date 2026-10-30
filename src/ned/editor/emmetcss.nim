@@ -46,11 +46,15 @@ const CssDefaults = [("box-sizing", "border-box"), ("transition", "all 0.2s ease
 const CssUnitless = ["z-index", "opacity", "line-height", "font-weight", "flex", "flex-grow", "flex-shrink", "order"]
 
 func emmetCssProp(abbr: string): string =
+  ## the CSS property an Emmet abbreviation stands for (`mt` → margin-top), or "" when it is not one of the known
+  ## abbreviations
   for (a, p) in EmmetCssAbbrevs:
     if a == abbr: return p
   ""
 
 proc cssKeyword(prop, k: string): string =
+  ## the keyword value that the short form `k` stands for in the property `prop` (`c` in flex-direction → column), or ""
+  ## when there is none
   for (p, kws) in CssKeywords:
     if p == prop:
       for kv in kws.split('|'):

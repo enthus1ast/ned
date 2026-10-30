@@ -14,6 +14,9 @@ proc lspPullDiags(s: LspServer, b: Buffer) =
   discard s.lspRequest("textDocument/diagnostic", p, LspReq(kind: lrPullDiag, bufId: b.id, extra: b.path))
 
 proc handlePullDiags(s: LspServer, req: LspReq, res: JsonNode) =
+  ## the answer to a pull diagnostics request: remembers its result id for the next request, and when the report is a
+  ## full one sets the file's problems from it (those of a hidden document of code in a Nim string or emit go onto the
+  ## Nim file's lines); an "unchanged" report leaves them as they are
   if res == nil or res.kind != JObject: return
   let rid = res{"resultId"}.getStr
   if rid.len > 0: s.pullIds[req.extra] = rid
@@ -33,6 +36,8 @@ type DocLink = object
 var docLinks: Table[int, (int, seq[DocLink])]   # buffer id → (the version they were found in, the links)
 
 proc lspLinksAsk(s: LspServer, b: Buffer) =
+  ## asks the server for the file's links, when it offers them and the file is not very long; the answer comes to
+  ## handleLinks
   if s == nil or s.caps == nil or s.caps.kind != JObject or s.caps{"documentLinkProvider"} == nil or
      b.path.len == 0 or b.lines.len > 20000: return
   discard s.lspRequest("textDocument/documentLink", %*{"textDocument": b.docId},
@@ -41,6 +46,8 @@ proc lspLinksAsk(s: LspServer, b: Buffer) =
 proc openLinkTarget(target: string)
 
 proc handleLinks(s: LspServer, req: LspReq, res: JsonNode) =
+  ## keeps the links the server found for the buffer (with the version they belong to), to be underlined; or, for the
+  ## answer to a resolve request, opens the target the server worked out
   if req.extra == "resolve":
     # a link whose target the server works out only when it is opened
     if res != nil and res.kind == JObject and res{"target"}.getStr.len > 0: openLinkTarget(res{"target"}.getStr)
@@ -133,12 +140,15 @@ proc openLinkAt(b: Buffer, p: Pos): bool =
   false
 
 proc cmdOpenLink() =
+  ## the command that opens the link under the cursor
   let b = buf()
   if not openLinkAt(b, b.primary.head): info("No link at the cursor")
 
 # ── formatting as you type: the server's on-type formatting, after the characters it asks for ──
 
 proc formatOnTypeAsk(b: Buffer, ch: string) =
+  ## after a character is typed, asks the server to format as you type (editor.formatOnType) if that character is one of
+  ## its trigger characters; only with a single cursor
   if not cfgFormatOnType or b.path.len == 0 or b.cursors.len > 1: return
   let s0 = lspFor(b, false)
   if s0 == nil or not s0.ready or s0.caps == nil or s0.caps.kind != JObject: return
@@ -155,6 +165,8 @@ proc formatOnTypeAsk(b: Buffer, ch: string) =
     LspReq(kind: lrOnType, bufId: b.id, version: b.changeId))
 
 proc handleOnType(s: LspServer, req: LspReq, res: JsonNode) =
+  ## applies the server's on-type formatting edits, unless the buffer was changed since the request (the edits would
+  ## land in the wrong place)
   let b = bufById(req.bufId)
   if b == nil or b.changeId != req.version: return     # (typed on since: its edits would land in the wrong place)
   if res != nil and res.kind == JArray and res.len > 0:

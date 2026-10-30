@@ -17,6 +17,11 @@ var
   panelMax = false
 
 proc computeLayout() =
+  ## works out where every part of the screen goes for this frame from the screen size, the settings and what is open,
+  ## and stores it in `lay`: the title and status bars (hidden in zen mode or on a tiny screen), the touch keys row, the
+  ## left and right docks (full-width overlays below 70 columns, a floating right dock when there is no room beside the
+  ## editor), the editor column, the bottom panel's height, and the tab bar, breadcrumbs and text area down the editor
+  ## column
   var L: Layout
   L.overlay = scrW < 70
   L.titleY = if cfgTitleBar and scrH >= 14 and not zenMode: 0 else: -1

@@ -24,6 +24,9 @@ func nxTightSlash(s: string): string =
   while "/ " in result: result = result.replace("/ ", "/")
 
 proc nxParseImports*(f: NxFile, rest: string, line: int, kw: string) =
+  ## reads what follows `import`, `include`, `from` or `export` on a line into f: `from x import a, b` (with its `only`
+  ## list), `import x except a`, `import a as b`, `std/[os, strutils]` split into one import each, and Nim 3's
+  ## parenthesised paths with a {.cyclic.} pragma. `export` adds to f.exports
   var r = nxTightSlash(rest.strip)
   if kw == "export":
     for p in nxSplitTop(r, {','}):
@@ -89,6 +92,8 @@ var nxDefines*: HashSet[string]       # what `defined(x)` is true for (the platf
 var nxDefinesComplete* = false        # nxDefines came from `nim dump`: a name not in it is not defined
 
 proc nxInitDefines*() =
+  ## fills nxDefines with what `defined(…)` is true for before `nim dump` has told: the memory-management and
+  ## language-feature names of a current Nim, and the operating system and CPU ned itself is built for
   # (not nimPreviewSlimSystem: without it, system brings syncio's readFile, stdin, open … as the compiler does)
   for d in ["nimV2", "gcDestructors", "gcOrc", "nimSeqsV2", "nimHasAlignOf",
             "nimHasNoReturnError", "nimHasCursor", "nimHasSinkInference", "nimHasEffectsOf", "nimHasTopDownInference",
@@ -155,6 +160,7 @@ proc nxWhen*(cond: string): int =
   var p = 0
   proc orExpr(): int
   proc atom(): int =
+    ## one operand of a `when` condition: 1, 0 or -1 (unknown), a `not` of one, or a bracketed condition
     if p >= toks.len: return -1
     let t = toks[p]
     inc p
@@ -171,12 +177,14 @@ proc nxWhen*(cond: string): int =
       v
     else: -1
   proc andExpr(): int =
+    ## atoms joined by `and`: false if either is false, true only if all are, else unknown
     result = atom()
     while p < toks.len and toks[p] == "and":
       inc p
       let r = atom()
       result = if result == 0 or r == 0: 0 elif result == 1 and r == 1: 1 else: -1
   proc orExpr(): int =
+    ## and-groups joined by `or`: true if either is true, false only if all are, else unknown
     result = andExpr()
     while p < toks.len and toks[p] == "or":
       inc p
@@ -202,6 +210,8 @@ func nxGoesOn(t: string): bool =
     t.endsWith(" or") or t.endsWith(" and") or t.endsWith("|") or t.endsWith("(") or t.endsWith("[")
 
 func nxBalance(t: string): int =
+  ## how many more brackets a line opens than it closes, not counting those inside a string (negative when it closes
+  ## more)
   var q = false
   for ch in t:
     if ch == '"': q = not q
@@ -488,6 +498,8 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
   var localDepth = 0         # > 0: inside a routine's body (a type declared there is a local one)
   var curInact = -1          # (keepInactive) the left-out branches the current statement is in: index into `chains`
   template addSym(s0: NxSym) =
+    ## adds a declaration to the file: marks it local inside a routine, finds its real line and column from its name in
+    ## the lines read so far, and attaches the doc comment waiting for it
     f.syms.add s0
     if localDepth > 0: f.syms[^1].local = true
     let (pl, pc) = nxLocate(lines, f.syms[^1].name, startLine, i - 1, posFrom)
@@ -501,6 +513,8 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       trailDoc = f.syms.high
 
   template enumValues(textT: string, ownerT: string, expT: bool) =
+    ## adds an enum value for each comma-separated entry of textT (`a = 1, b {.deprecated.}`), owned by the enum, with
+    ## its `= value` as written
     for v in nxSplitTop(textT, {','}):
       let vv = nxStripPragma(v.strip)[0].strip
       if vv.len == 0: continue
@@ -589,6 +603,38 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
       stack.add NxFrame(ind: ind, kind: (if keepInactive: transparentKind else: bkOther), sym: -1, inact: true,
                         start: startLine, chain: chain)
     else: stack.add NxFrame(ind: ind, kind: transparentKind, sym: -1)
+
+  template whenInline() =
+    ## `when defined(windows): import a` and `else: import b`, each on one line: the import of the branch that
+    ## applies (each, when that cannot be told) — such a line was passed over, and with it the module it imports
+    ## (ned's own files bring std/os that way)
+    let colon = nxFindTop(rest, ':')
+    if colon >= 0:
+      let body = rest[colon + 1 .. ^1].strip
+      var kw = ""
+      for k in ["import", "include", "export", "from"]:
+        if body.startsWith(k & " "): kw = k
+      if kw.len > 0:
+        let cond = rest[0 ..< colon].strip
+        var v = -1
+        if w0 == "when":
+          v = nxWhen(cond)
+          if v < 0: v = nxConstWhen(f, cond)
+          whenTaken[ind] = (if v == 1: 1 elif v == 0: 0 else: -1)
+          whenFirst[ind] = cond
+        elif w0 == "elif":
+          let prev = whenTaken.getOrDefault(ind, -1)
+          if prev == 1: v = 0
+          else:
+            v = nxWhen(cond)
+            if v < 0: v = nxConstWhen(f, cond)
+            if v == 1 and prev == 0: whenTaken[ind] = 1
+            elif v == -1: whenTaken[ind] = -1
+        else:
+          let prev = whenTaken.getOrDefault(ind, -1)
+          v = if prev == 1: 0 elif prev == 0: 1 else: -1
+        if v != 0 and (kw != "from" or " import " in body):
+          nxParseImports(f, body[kw.len .. ^1], startLine, kw)
 
   template varMember(mtT: string, kkT: NxKind) =
     ## a*, b {.pragma.}: T = value   /   (x, y) = value
@@ -813,6 +859,8 @@ proc nxParse*(lines: openArray[string], path: string, keepInactive = false): NxF
           if opensBlock: stack.add NxFrame(ind: ind, kind: bkOther, sym: -1)
       elif w0 in ["when", "elif", "else"] and opensBlock:
         whenBranch(bkTransparent)
+      elif w0 in ["when", "elif", "else"]:
+        whenInline()
       elif w0 == "since" and t.endsWith(":") and rest.strip.startsWith("("):
         # since (1, 3, 5): the standard library's declarations for Nim versions from then on (all of them here)
         stack.add NxFrame(ind: ind, kind: bkTransparent, sym: -1)

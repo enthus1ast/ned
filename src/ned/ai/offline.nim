@@ -32,6 +32,7 @@ func localModelFits(mb: int): int =
     if mb == 0 or need <= mb: result = i
 
 proc ollamaUrl(): string =
+  ## the address of the Ollama server: ai.localUrl without a closing `/`, else http://127.0.0.1:11434
   result = sStr("ai.localUrl").strip(leading = false, chars = {'/'})
   if result.len == 0: result = "http://127.0.0.1:11434"
 
@@ -106,15 +107,19 @@ proc ollamaPullTick() =
   except CatchableError: discard
 
 proc ollamaInstallCmd(): string =
+  ## the command that installs Ollama here: pkg on Termux, brew on macOS, Ollama's install script elsewhere
   if isTermux(): "pkg install ollama"
   elif defined(macosx): "brew install ollama"
   else: "curl -fsSL https://ollama.com/install.sh | sh"
 
 proc pullAct(model: string): Action =
+  ## the action that downloads the model through Ollama (made by a proc so that each menu item keeps its own model)
   result = proc() = ollamaPull(model)
 proc startPullAct(model: string): Action =
+  ## the action that starts the Ollama server and then downloads the model
   result = proc() = ollamaStart(pullAct(model))
 proc useAct(model: string): Action =
+  ## the action that sets ned to use a model Ollama has already
   result = proc() = useOllamaModel(model)
 
 proc cmdAiOffline() =

@@ -31,6 +31,8 @@ func camel(w: string): string =
     else: result.add c
 
 proc changeCase(b: Buf) =
+  ## offers the word at the cursor in five forms (UPPER, lower, Capitalised, snake_case, camelCase) in a pick list and
+  ## replaces the word with the one chosen; nothing happens on Esc
   let c = b.cursor
   let r = wordRange(b.line(c.line), c.line, c.col)
   if r.isEmpty:
@@ -43,6 +45,8 @@ proc changeCase(b: Buf) =
   if i >= 0: b.replace(r, forms[i])
 
 proc replaceEverywhere(b: Buf) =
+  ## asks for a new word for the one at the cursor, finds every place the file has it as a whole word, asks to confirm
+  ## the count, then replaces them from the last backwards so the earlier places keep their columns
   let w = b.wordAt(b.cursor)
   if w.len == 0:
     message("No word at the cursor")

@@ -44,6 +44,8 @@ proc pins(): seq[Pin] =
     if x{"path"}.getStr.len > 0: result.add Pin(path: x{"path"}.getStr, line: max(0, x{"line"}.getInt))
 
 proc save(ps: seq[Pin]) =
+  ## makes ps the list of this project, writes every project's lists to harpoon.json in the data folder and redraws the
+  ## Harpoon view
   load()
   var a = newJArray()
   for p in ps: a.add %*{"path": p.path, "line": p.line}
@@ -51,8 +53,10 @@ proc save(ps: seq[Pin]) =
   writeData("harpoon.json", store.pretty & "\n")       # (its own data folder: no permission needed)
   refreshView("Harpoon")
 
+# how many files the list holds, from the size setting (at least 1)
 proc listSize(): int = max(1, setting("size", 4))
 
+# a count with its noun, the noun with an s unless the count is 1: "4 files"
 func plural(n: int, word: string): string = $n & " " & word & (if n == 1: "" else: "s")
 
 proc relPath(path: string): string =
@@ -61,9 +65,11 @@ proc relPath(path: string): string =
   if root.len > 0 and path.startsWith(root & "/"): path[root.len + 1 .. ^1] else: path
 
 proc absPath(p: string): string =
+  ## the full path of a pinned file: as it is when it is absolute, else from the project's folder
   if p.isAbsolute: p else: projectRoot() / p
 
 func indexOf(ps: seq[Pin], rel: string): int =
+  ## the place in the list of the file with this path (as pinned), -1 when it is not there
   for i, p in ps:
     if p.path == rel: return i
   -1
@@ -94,6 +100,8 @@ proc remember(b: Buf) =
       save(ps)
 
 proc addThis() =
+  ## Harpoon: add this file — puts the file of the current tab at the end of the list with the cursor's line; says so
+  ## when the tab is not a file, the file is in the list already (its line is updated) or the list is full
   let b = current()
   let f = currentFile()
   if f.len == 0:
@@ -150,6 +158,7 @@ proc pickFile(title: string): int =
   pick(title, items, details)
 
 proc removeAt(i: int) =
+  ## takes the i-th file (from 0) out of the list and says so
   var ps = pins()
   if i < 0 or i >= ps.len: return
   let f = ps[i].path
@@ -158,6 +167,7 @@ proc removeAt(i: int) =
   message("Harpoon: " & extractFilename(f) & " is out of the list")
 
 proc moveUp(i: int) =
+  ## swaps the i-th file (from 0) with the one before it; says so when it is the first already
   var ps = pins()
   if i < 0 or i >= ps.len: return
   if i == 0:
@@ -168,6 +178,7 @@ proc moveUp(i: int) =
   message("Harpoon: " & extractFilename(ps[i - 1].path) & " is number " & $i & " now")
 
 proc clearList() =
+  ## Harpoon: clear the list — after asking, takes every file out of this project's list
   if pins().len == 0:
     message("Harpoon: the list is empty already")
   elif confirm("Take every file out of Harpoon's list for this project?"):

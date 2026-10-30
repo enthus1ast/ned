@@ -40,6 +40,8 @@ const CovSkipDirs = ["tests", "test", "examples", "example", "benchmarks", "benc
                      "nimbledeps", "nimcache", "vendor", ".nimble", "pkgs", "pkgs2", ".git"]
 
 proc covFileLines(p: string): seq[string] =
+  ## a file's lines: from its open buffer when it is open, else read from disk (nothing for a file over 8 MB or one that
+  ## cannot be read)
   let i = bufIndexByPath(p)
   if i >= 0: return bufs[i].lines
   try:
@@ -69,6 +71,8 @@ proc nimCovTestFiles(): seq[string] =
   result.sort()
 
 proc covIsTestFile(p: string, tests: seq[string]): bool =
+  ## whether `p` is a test file rather than code under test: one of this run's test programs, anything under tests/ or
+  ## test/, or a testament test
   if p in tests: return true
   let rel = if p.startsWith(rootDir & "/"): p[rootDir.len + 1 .. ^1] else: p
   rel.startsWith("tests/") or rel.startsWith("test/") or isTestamentTest(p)
@@ -135,10 +139,13 @@ proc covToolFor(r: NimCovRun, flavor, ver, cwd: string): bool =
 proc ncNext(r: NimCovRun)
 
 proc ncStop(r: NimCovRun, why: string, tell = true) =
+  ## ends a coverage run: makes it no longer the current one, writes `why` into the Output panel with a stop mark, and
+  ## shows it as a message too unless `tell` is false
   if nimCovRun == r: nimCovRun = nil
   addPanelLine(PanelLine(text: "■ " & why, sev: 2, line: -1))
   if tell: info(why)
 
+# whether the job ended because it was stopped (a signal's exit code), not because it failed
 func ncKilled(j: Job): bool = j.code in [130, 137, 143]     # (Stop, another run: SIGTERM / SIGKILL / SIGINT)
 
 proc ncGcov(r: NimCovRun, test, dir, exe, cwd: string) =
@@ -269,6 +276,8 @@ proc ncCompileC(r: NimCovRun, test, dir, name: string) =
   var batch: seq[string]
   let par = clamp(covJobs(), 1, 6)
   proc flush() =
+    ## ends the current batch of background C compiles in the build script: a `wait` for each, setting the failure flag
+    ## if one failed, then starts a new batch (so at most `par` compiles run at once)
     for p in batch: script.add "wait $" & p & " || f=1\n"
     batch.setLen(0)
   for it in jitems(recipe{"compile"}):
@@ -463,6 +472,8 @@ proc ncFinish(r: NimCovRun) =
   covPanel()
 
 proc ncNext(r: NimCovRun) =
+  ## moves a coverage run on to the next test file in its queue, building it; when the queue is empty, finishes the run
+  ## with the totals
   if nimCovRun != r: return
   if r.queue.len == 0:
     ncFinish(r)
@@ -657,6 +668,9 @@ proc covPanel() =
   needRender = true
 
 proc covSummary(what: string, j: Job) =
+  ## after coverage is loaded from `what`: counts the lines that ran against all lines with data and says so in a
+  ## message (the percentage and how to read the line numbers); with no data it says so and shows the job's output in
+  ## the panel
   covWhat = what
   covUnreached.clear()
   covNotBuilt.setLen(0)
@@ -675,6 +689,8 @@ proc covSummary(what: string, j: Job) =
   needRender = true
 
 proc lcovFiles(dir: string): seq[string] =
+  ## the lcov files that exist in `dir` at the places coverage tools usually write them (coverage/lcov.info, lcov.info
+  ## …)
   for f in ["coverage/lcov.info", "lcov.info", "coverage.lcov", "target/lcov.info", "target/llvm-cov/lcov.info",
             "coverage/lcov/lcov.info", "tests/lcov.info"]:
     if fileExists(dir / f): result.add dir / f

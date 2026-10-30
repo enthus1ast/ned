@@ -234,6 +234,7 @@ proc cmdMacroView() =
   mvExpand(b, views.high)
 
 proc mvHideAll() =
+  ## the command that hides every macro expansion shown in the current file (says so when none is)
   let b = buf()
   if b.id notin macroViews:
     info("No expansion shown")
@@ -280,12 +281,15 @@ proc mvPump() =
         if macroViews[id][k].due and not macroViews[id][k].busy: mvExpand(b, k)
 
 proc mvGoto(path: string, line, col: int): Action =
+  ## an action that records the jump, opens the file and puts that place in view — what a click on a name in generated
+  ## code does
   (proc() =
     pushJump()
     let ob = openFile(path)
     if ob != nil: ob.centerOn(ob.clampPos(Pos(line: line, col: col))))
 
 proc mvHideAt(bid, line: int): Action =
+  ## an action that removes the expansion shown under that line of the buffer — what a click on the view's header does
   (proc() =
     if bid notin macroViews: return
     var views = macroViews[bid]

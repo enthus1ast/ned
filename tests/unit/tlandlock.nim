@@ -29,18 +29,21 @@ when defined(linux) or defined(android):
     if WIFEXITED(st): WEXITSTATUS(st).int else: 200 + WTERMSIG(st).int
 
   proc canWrite(p: string): bool =
+    ## can this process write the file p? (false when the write is refused)
     try:
       writeFile(p, "x")
       true
     except CatchableError: false
 
   proc canRead(p: string): bool =
+    ## can this process read the file p? (false when the read is refused)
     try:
       discard readFile(p)
       true
     except CatchableError: false
 
   proc canConnect(port: int): bool =
+    ## can this process open a TCP connection to the port on 127.0.0.1?
     let s = createNativeSocket(nativesockets.AF_INET, nativesockets.SOCK_STREAM, nativesockets.IPPROTO_TCP)
     var a: Sockaddr_in
     a.sin_family = TSa_Family(posix.AF_INET)

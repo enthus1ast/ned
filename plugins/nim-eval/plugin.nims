@@ -22,6 +22,7 @@ const Keywords = ["let", "var", "const", "proc", "func", "iterator", "template",
                   "echo", "for", "while", "if", "when", "case", "block", "discard", "assert", "doAssert", "return",
                   "include", "export", "method", "converter", "try", "raise", "defer", "yield", "static", "using"]
 
+# s as one word for a shell command line, in single quotes (a quote inside it written '\'')
 func q(s: string): string = "'" & s.replace("'", "'\\''") & "'"
 
 func isExpression*(code: string): bool =
@@ -65,6 +66,9 @@ proc programOf*(fileLines: seq[string], code: string): (string, int) =
   (head.join("\n") & (if head.len > 0: "\n" else: "") & body & "\n", head.len)
 
 proc evaluate(script: bool) =
+  ## runs the selection (else the cursor's line) with nim r, or nim e when script, as a program of its own in the data
+  ## folder; the first line of its output goes after the code as a → note, an error is shown on the selection's line it
+  ## names (✗), and all the output goes to the Output panel
   let b = current()
   var r = b.selection
   if r.isEmpty: r = b.lineRange(b.cursor.line)

@@ -37,6 +37,8 @@ const NimPrimitives = ["int", "int8", "int16", "int32", "int64", "uint", "uint8"
   "Positive"]
 
 func nimIsPointer(t: string): bool =
+  ## whether a Nim type is a pointer to C: ptr, var, ref, pointer, cstring, cstringArray, a proc type or an
+  ## UncheckedArray
   let x = t.strip
   x.startsWith("ptr ") or x.startsWith("var ") or x == "pointer" or x == "cstring" or x == "cstringArray" or
     x.startsWith("ref ") or x.startsWith("proc") or x.startsWith("ptr[") or x.startsWith("UncheckedArray")
@@ -99,6 +101,8 @@ proc ffiCheckDecls(path: string, lines: seq[string], decls: seq[NimFfi]): seq[Di
     let (cp, _) = if d.header.len > 0: cDeclFor(d.header, d.cname, dirs, here) else: ffiCDecl(d, path, lines, false)
     if cp.kind.len == 0: continue
     template warn(at0, e0: Pos, why, use: string) =
+      ## adds a warning to the result for the range at0 ..< e0: the reason, " — use …" when a fix is given, and where
+      ## the C declaration is (file:line: its text)
       result.add Diag(line: at0.line, col: at0.col, eline: e0.line, ecol: e0.col, sev: 2,
                       msg: why & (if use.len > 0: " — use " & use else: "") & "  (" & extractFilename(cp.path) & ":" &
                            $(cp.line + 1) & ": " & cp.text & ")", src: "C header")

@@ -1,3 +1,5 @@
+# the Nim file's outline for the side panel and the Ctrl+T symbol list, built from the engine's declarations (a
+# heuristic outline when the engine fails), plus a .nimble's or config.nims' tasks.
 proc heuristicOutline(b: Buffer): seq[SideItem]
 
 proc engineOutline(b: Buffer): seq[SideItem] =

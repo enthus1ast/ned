@@ -20,6 +20,7 @@ func n3Word(s: string, k: int, w: string): bool =
     (k + w.len >= s.len or s[k + w.len] notin IdentChars)
 
 iterator n3WordsAt(s, w: string): int =
+  ## the positions in s where w stands as a whole word
   var k = s.find(w)
   while k >= 0:
     if n3Word(s, k, w): yield k
@@ -31,6 +32,7 @@ func n3SkipSp(s: string, k: int): int =
   while result < s.len and s[result] in {' ', '\t'}: inc result
 
 func n3IdentEnd(s: string, k: int): int =
+  ## the index just after the identifier that starts at k
   result = k
   while result < s.len and s[result] in IdentChars: inc result
 
@@ -44,6 +46,11 @@ proc n3OwnType(sc: NxScope, name: string): bool =
   false
 
 proc nim3Checks(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
+  ## adds the Nim 3 porting problems of a file to res, line by line over its code (strings and comments left out):
+  ## `except X as e`, newException, {.async.} and await, an unlabelled break out of a block, x.isNil, iterating an enum,
+  ## a template without parentheses, cast[cstring]; then each name written other than as declared (names are
+  ## case-sensitive in Nim 3, at most 200 are said). Where the change is mechanical the problem carries the edits for
+  ## the quick fix
   let sc = try: nxScope(f) except CatchableError: nil
   var inPragma = false
   for l, c in code:
@@ -169,6 +176,7 @@ proc nim3Checks(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
   if sc != nil:
     var spell: Table[string, seq[string]]           # (Nim 2's identity of a name → how its declarations write it)
     template learn(nm: string) =
+      ## remembers one way a name is written in a declaration, under the name's Nim 2 identity
       if nm.len > 1 and nm[0] in IdentStartChars:
         let k = nxNorm(nm)
         if k notin spell: spell[k] = @[nm]
@@ -246,9 +254,12 @@ proc n3Eval(e: string, vals: Table[string, BiggestInt], names: N3Names = nil): N
       inc i
     else: return (false, 0)                         # (s.len, a[i], "…": not worked out here)
   var p = 0
+  # the next token, "" at the end
   proc peek(): string = (if p < toks.len: toks[p] else: "")
   proc expr(): N3Val
   proc primary(): N3Val =
+    ## one operand: a bracketed expression, a minus or `not`, true/false, a number, a parameter's value or a name the
+    ## callback knows; anything else is not known
     let t = peek()
     inc p
     if t == "(":
@@ -273,6 +284,7 @@ proc n3Eval(e: string, vals: Table[string, BiggestInt], names: N3Names = nil): N
     elif names != nil and t.len > 0 and t[0] in IdentStartChars and peek() notin ["(", ".", "["]: result = names(t)
     else: result = (false, 0)
   proc term(): N3Val =
+    ## operands joined by *, div and mod (not known on a division by zero)
     result = primary()
     while peek() in ["*", "div", "mod"]:
       let op = peek()
@@ -281,6 +293,7 @@ proc n3Eval(e: string, vals: Table[string, BiggestInt], names: N3Names = nil): N
       if not (result.known and r.known) or (op != "*" and r.v == 0): result.known = false
       else: result.v = (if op == "*": result.v * r.v elif op == "div": result.v div r.v else: result.v mod r.v)
   proc sum(): N3Val =
+    ## terms joined by + and -
     result = term()
     while peek() in ["+", "-"]:
       let op = peek()
@@ -288,6 +301,7 @@ proc n3Eval(e: string, vals: Table[string, BiggestInt], names: N3Names = nil): N
       let r = term()
       result = (result.known and r.known, (if op == "+": result.v + r.v else: result.v - r.v))
   proc cmp(): N3Val =
+    ## a comparison of two sums (<, <=, >, >=, ==, !=), as 1 or 0
     result = sum()
     if peek() in ["<", "<=", ">", ">=", "==", "!="]:
       let op = peek()
@@ -302,6 +316,7 @@ proc n3Eval(e: string, vals: Table[string, BiggestInt], names: N3Names = nil): N
                else: result.v != r.v
       result = (result.known and r.known, BiggestInt(ok))
   proc conj(): N3Val =
+    ## comparisons joined by `and`; a false side decides it even when the other is not known
     result = cmp()
     while peek() == "and":
       inc p
@@ -310,6 +325,7 @@ proc n3Eval(e: string, vals: Table[string, BiggestInt], names: N3Names = nil): N
       if (result.known and result.v == 0) or (r.known and r.v == 0): result = (true, 0)
       else: result = (result.known and r.known, 1)
   proc expr(): N3Val =
+    ## conjunctions joined by `or`; a true side decides it even when the other is not known
     result = conj()
     while peek() == "or":
       inc p

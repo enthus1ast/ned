@@ -12,6 +12,8 @@ type LxLang = enum lxNim, lxC, lxWeb, lxOther
 var lxCheckedAt: Table[int, int]        # buffer id → the change ned's own checks last looked at
 
 proc lxLangOf(d: LsDoc): LxLang =
+  ## which of ned's engines answers for the document: Nim, C and C++, the web languages (JavaScript, HTML, CSS, SQL,
+  ## JSON …) or none of them
   if d == nil or d.b.lang == nil or d.b.lang.mode == lmNim: return lxNim
   let id = d.b.lang.id
   if id in ["c", "cpp"]: lxC
@@ -69,6 +71,8 @@ proc lxCompItems(d: LsDoc, p: Pos): JsonNode =
   %*{"isIncomplete": compShown.len > n, "items": items}
 
 proc lxCompletion(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/completion for C, C++ and the web languages, from ned's own completion; for C only the triggers that
+  ## make sense (`->`, `::`, the quote or bracket of an #include); no items for any other language
   result = %*{"isIncomplete": false, "items": []}
   let b = d.b
   let p = lsToPos(b, params{"position"})
@@ -94,6 +98,8 @@ proc lxCompletion(d: LsDoc, params: JsonNode): JsonNode =
 # ── hover, signature help ──
 
 proc lxHover(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/hover for C, C++ and the web languages, and for pnak lockfiles and NIF files; null when there is
+  ## nothing to say
   let b = d.b
   let p = lsToPos(b, params{"position"})
   lsFocus(d, p)
@@ -129,6 +135,8 @@ func lxParamSpans(lbl: string): seq[(int, int)] =
       s = i + 1
 
 proc lxSignatureHelp(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/signatureHelp for C and C++ (ned's C engine): the one signature, with its parameters' spans and the
+  ## one being typed active; null elsewhere
   if lxLangOf(d) != lxC: return newJNull()
   let b = d.b
   let p = lsToPos(b, params{"position"})
@@ -148,6 +156,8 @@ proc lxSignatureHelp(d: LsDoc, params: JsonNode): JsonNode =
 # ── definition, references, highlights, rename ──
 
 proc lxDefinitions(d: LsDoc, p: Pos): seq[(string, int, int)] =
+  ## where the name at the position is defined, by the engine of the document's language: C and C++ through the
+  ## #includes, JavaScript in the file or the module it imports from, a pnak lockfile's package (its .nimble)
   let b = d.b
   case lxLangOf(d)
   of lxC:
@@ -175,6 +185,7 @@ proc lxDefinitions(d: LsDoc, p: Pos): seq[(string, int, int)] =
           except CatchableError: discard
 
 proc lxDefinition(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/definition (and declaration) for the other languages: lxDefinitions as locations
   result = newJArray()
   let p = lsToPos(d.b, params{"position"})
   lsFocus(d, p)
@@ -212,6 +223,7 @@ proc lxCxxItem(g: CxFile, s: CxSym): JsonNode =
      "data": {"cxx": true, "path": path, "line": s.line, "col": s.col}}
 
 proc lxPrepareTypeHierarchy(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/prepareTypeHierarchy for C++: the class at the position as the root item; null otherwise
   result = newJNull()
   let b = d.b
   if lxLangOf(d) != lxC or not cEngineOn(b) or not cxIsCppBuf(b): return
@@ -270,6 +282,8 @@ proc lxRefHits(d: LsDoc, p: Pos, rename = false): seq[(string, int, int)] =
   else: discard
 
 proc lxReferences(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/references for C, C++ and JavaScript, as ned's Find references lists them; the declaration left out
+  ## when the client does not want it
   result = newJArray()
   let p = lsToPos(d.b, params{"position"})
   lsFocus(d, p)
@@ -285,6 +299,8 @@ proc lxReferences(d: LsDoc, params: JsonNode): JsonNode =
     result.add lsLocation(h[0], h[1], h[2])
 
 proc lxHighlights(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/documentHighlight for C, C++ and JavaScript: the uses of what the name at the position names, in this
+  ## file
   result = newJArray()
   let b = d.b
   let p = lsToPos(b, params{"position"})
@@ -303,6 +319,8 @@ proc lxHighlights(d: LsDoc, params: JsonNode): JsonNode =
   else: discard
 
 proc lxPrepareRename(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/prepareRename: the name's range and placeholder, or an error when there is no name or ned finds no
+  ## declaration of it
   let b = d.b
   let p = lsToPos(b, params{"position"})
   lsFocus(d, p)
@@ -314,6 +332,8 @@ proc lxPrepareRename(d: LsDoc, params: JsonNode): JsonNode =
   %*{"range": lsRangeIn(b.lines, a.line, a.col, e.line, e.col), "placeholder": w}
 
 proc lxRename(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/rename for C, C++ and JavaScript: checks the new name (a name, not a keyword) and that the declaration
+  ## is in the project, then gives a text edit for every place found, grouped by file
   let b = d.b
   let p = lsToPos(b, params{"position"})
   lsFocus(d, p)
@@ -349,6 +369,8 @@ proc lxRename(d: LsDoc, params: JsonNode): JsonNode =
 # ── symbols ──
 
 func lxSymKind(it: SideItem, lang: string): int =
+  ## the LSP symbol kind for an outline item, from its icon and depth: a function (a method when nested), a class or
+  ## struct, a Markdown heading or macro, an object, an array, a property, a field or a variable
   case it.icon
   of "ƒ": (if it.depth > 0: 6 else: 12)            # a method, a function
   of "T": (if lang in ["c", "cpp"] and not it.detail.startsWith("class"): 23 else: 5)
@@ -359,6 +381,8 @@ func lxSymKind(it: SideItem, lang: string): int =
   else: (if it.depth > 0: 8 else: 13)                # a field, a variable
 
 proc lxOutline(d: LsDoc): seq[SideItem] =
+  ## the document's outline from the engine for its language: C's, JSON's, JavaScript's, a pnak lockfile's or NIF's,
+  ## else a guess from the text's shape
   let b = d.b
   case lxLangOf(d)
   of lxC: cEngOutline(b)
@@ -372,6 +396,8 @@ proc lxOutline(d: LsDoc): seq[SideItem] =
     else: heuristicOutline(b)
 
 proc lxDocumentSymbol(d: LsDoc): JsonNode =
+  ## textDocument/documentSymbol for the other languages: the outline as symbols, each with a range up to the line
+  ## before the next item at its depth or above, nested by depth (a flat list when the client takes no nesting)
   result = newJArray()
   let b = d.b
   if b.lines.len == 0: return
@@ -387,6 +413,8 @@ proc lxDocumentSymbol(d: LsDoc): JsonNode =
         break
     ends[i] = e
   proc symJson(i: int): JsonNode =
+    ## outline item i as a DocumentSymbol: its name and kind, its range and the range of its name (an identifier, or a
+    ## quoted JSON key)
     let it = items[i]
     let l = clamp(it.line, 0, b.lines.high)
     let s = b.lines[l]
@@ -490,6 +518,8 @@ proc lxLinkedEditing(d: LsDoc, params: JsonNode): JsonNode =
 # ── parameter names, quick fixes, links ──
 
 proc lxInlayHints(d: LsDoc, params: JsonNode): JsonNode =
+  ## textDocument/inlayHint for C and C++: the parameter names ned's C engine shows before arguments on the range's
+  ## lines, as LSP parameter hints
   result = newJArray()
   let b = d.b
   if lxLangOf(d) != lxC or not cEngineOn(b) or not cfgInlayHints: return
@@ -563,6 +593,7 @@ proc lxDocumentLinks(d: LsDoc): JsonNode =
   if b.path.len == 0: return
   let dir = parentDir(b.path)
   template link(l, a, e: int, target: string) =
+    ## adds a document link for columns a..e of line l when the target file exists
     if target.len > 0 and fileExists(target):
       result.add %*{"range": lsRangeIn(b.lines, l, a, l, e), "target": lsUriOf(target)}
   let lang = if b.lang != nil: b.lang.id else: ""

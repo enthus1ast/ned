@@ -8,6 +8,7 @@ var
   depPending = 0
   depStarted: MonoTime
 
+# nimble's folder: NIMBLE_DIR, else ~/.nimble
 proc nimbleHome(): string = getEnv("NIMBLE_DIR", getHomeDir() / ".nimble")
 
 proc splitRequire(r: string): (string, string, string) =
@@ -27,6 +28,7 @@ proc splitRequire(r: string): (string, string, string) =
   (name, op, (if ws.len > 0: ws[0] else: ""))
 
 proc verParts(v: string): seq[int] =
+  ## a version as its dot-separated numbers (the digits at the start of each part)
   for x in v.split('.'):
     var n = 0
     for c in x:
@@ -35,6 +37,7 @@ proc verParts(v: string): seq[int] =
     result.add n
 
 proc verCmp(a, b: string): int =
+  ## compares two versions number by number (a missing number counts as 0): negative, zero or positive
   let x = verParts(a)
   let y = verParts(b)
   for i in 0 ..< max(x.len, y.len):
@@ -54,6 +57,7 @@ func tagVersion(tag: string): string =
   t
 
 proc packageListFiles(): seq[string] =
+  ## the package list files to read: nimble's packages_*.json, then ned's own copy in its state folder
   let nd = nimbleHome()
   try:
     for kind, p in walkDir(nd):
@@ -99,6 +103,7 @@ proc installedVersion(name: string): string =
     except OSError: discard
 
 proc depNewer(d: DepRow): bool =
+  ## whether a newer version than the one required is out (never for a requirement pinned with #)
   d.latest.len > 0 and d.op != "#" and (d.want.len == 0 or verCmp(d.latest, d.want) > 0)
 
 proc nimbleBump(rows: seq[DepRow]) =
@@ -167,6 +172,7 @@ proc depShow() =
               (if newer.len == 0: "all up to date" else: $newer.len & " with a newer version"), items)
 
 proc depDone() =
+  ## one lookup has finished; when it was the last, the results are shown
   dec depPending
   if depPending == 0: depShow()
 
@@ -199,6 +205,9 @@ proc depFetch(i: int) =
     depDone()
 
 proc cmdNimbleOutdated(fetched = false) =
+  ## looks up the newest version of each requirement of the project's .nimble: finds each repository in nimble's package
+  ## list (fetching the list with curl first if there is none) and asks git for its tags, all at once; then shows the
+  ## results. A repeat while one is under way only says so
   loadNimbleInfo(true)
   if nimble.file.len == 0:
     error("No .nimble file in this project")

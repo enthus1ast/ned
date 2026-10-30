@@ -5,6 +5,7 @@
 import std/[os, strutils, monotimes, times, tables]
 import ../../src/ned/nim/index
 
+# the milliseconds since t0
 proc ms(t0: MonoTime): float = float((getMonoTime() - t0).inMicroseconds) / 1000.0
 
 proc rssMB(): float =

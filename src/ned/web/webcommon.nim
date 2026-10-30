@@ -27,6 +27,7 @@ const
   KStruct* = 22
   KConst* = 21
 
+# can the character be in a CSS name (letters, digits, _ and -, or any non-ASCII byte)?
 func isCssIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '-'} or ord(c) >= 0x80
 
 func webFamily*(id: string): string =
@@ -76,9 +77,11 @@ proc closest*(w: string, names: openArray[string], limit = 2): string =
       result = n
   if best > limit or best >= w.len: result = ""     # (two letters off a three-letter word: not a misspelling)
 
+# true when the place (l1, c1) comes before (l2, c2) in the text
 func posLess*(l1, c1, l2, c2: int): bool {.inline.} = l1 < l2 or (l1 == l2 and c1 < c2)
 
 proc sortDiags*(ds: var seq[WebDiag]) =
+  ## puts the problems in the order of the text: by line, then column
   ds.sort(proc(x, y: WebDiag): int = cmp((x.line, x.col), (y.line, y.col)))
 
 func lineCol*(starts: seq[int], off: int): (int, int) =

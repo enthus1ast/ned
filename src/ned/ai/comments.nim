@@ -6,9 +6,11 @@
 #    nothing changes without you. ai.commentCommands turns AI! and AI? off ──
 
 proc aiCommentPrefix(b: Buffer): string =
+  ## the file's line-comment marker (// or #), empty when its language has none
   if b.lang == nil: "" else: b.lang.lineComment
 
 proc aiIsComment(b: Buffer, l: int): bool =
+  ## whether line `l` starts (after its indentation) with the line-comment marker
   let p = b.aiCommentPrefix
   p.len > 0 and l >= 0 and l < b.lines.len and b.lines[l].strip(trailing = false).startsWith(p)
 
@@ -40,11 +42,15 @@ proc aiCheckThenShow(b: Buffer, before: seq[string], newText, title, why: string
   let ch = b.changeId
   let after = newText.split('\n')
   proc show(note: string) =
+    ## opens the side-by-side view of the file before and after the assistant's version, and a menu with the numbers of
+    ## lines added and removed and the compiler's verdict (`note`): Take it puts the new text in the file, if it has not
+    ## changed since, as one undo step; Leave it changes nothing. Both close the view
     let x = bufById(id)
     if x == nil: return
     openDiffView(relPath(x.path), before, "now", nil, after, why & note, x.lang)
     let dvId = buf().id
     proc back() =
+      ## closes the side-by-side view and goes back to the file
       let dv = bufById(dvId)
       if dv != nil and dv.id != id:
         let k = bufs.find(dv)

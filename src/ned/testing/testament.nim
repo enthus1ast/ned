@@ -11,6 +11,7 @@ func testamentSpecLine(lines: seq[string]): int =
   -1
 
 proc isTestamentTest(path: string): bool =
+  ## whether the file was scanned as a testament test (it has an entry named testament)
   for e in testEntries:
     if e.path == path and e.name == TestamentName: return true
   false
@@ -112,6 +113,9 @@ type TtRun = ref object         # ned's own testament runner: the files still to
   root: string
 
 proc ttNext(r: TtRun) =
+  ## ned's own testament runner, one file at a time: compiles the next file of the queue and, unless its spec only
+  ## expects a compile or a rejection, runs it, then judges the result against the spec and writes PASS, FAIL or SKIP to
+  ## the Output panel; when the queue is empty it writes the tally and shows a message
   if r.queue.len == 0:
     addPanelLine(PanelLine(text: (if r.bad == 0: "✓ " else: "✗ ") & $r.ok & " passed, " & $r.bad & " failed",
                            sev: (if r.bad == 0: 4 else: 1), line: -1))
@@ -127,6 +131,9 @@ proc ttNext(r: TtRun) =
   let compile = "nim c --hints:off --warnings:off --colors:off -d:testing --nimcache:" &
                 quoteShell(privDir() / "tt_cache" / splitFile(f).name) & " -o:" & quoteShell(exe) & " " & quoteShell(f)
   proc finish(compiled: bool, compileOut, runOut: string, code: int) =
+    ## records one file's result: judges it against its spec, marks the test passed, failed or skipped, writes the
+    ## result line (and the reason, with the compiler's output when it did not compile) to the panel, and goes on to the
+    ## next file
     let (pass, why) = testamentJudge(spec, compiled, compileOut, runOut, code)
     testStatus[testKey(f, TestamentName)] = (if why == "disabled": 4 elif pass: 1 else: 2)
     if pass: inc r.ok else: inc r.bad
@@ -200,10 +207,13 @@ proc hasturExe(): string =
   findExe("hastur")
 
 proc hasturTestFile(path: string): bool =
+  ## whether the file is a hastur test of a Nim 3 project: a .nim file under tests/ with a .output or .msgs file beside
+  ## it
   nim3On() and path.endsWith(".nim") and ("tests" & DirSep) in path and
     (fileExists(path.changeFileExt("output")) or fileExists(path.changeFileExt("msgs")))
 
 proc isHasturTest(path: string): bool =
+  ## whether the file was scanned as a hastur test (it has an entry named hastur)
   for e in testEntries:
     if e.path == path and e.name == HasturName: return true
   false
@@ -249,6 +259,8 @@ proc runHasturFiles(files: seq[string]) =
     needRender = true
 
 proc scanTestFile(path: string, lines: seq[string]): seq[TestEntry] =
+  ## the tests of a file, from its text: for a Nim file a testament or hastur entry when it is one, then its `suite` and
+  ## `test` blocks (each test with the suite it is under); other languages go to scanOtherTests
   if not path.endsWith(".nim"): return scanOtherTests(path, lines)
   let sl = testamentSpecLine(lines)
   if sl >= 0 and ("tests" & DirSep) in path:
@@ -273,6 +285,8 @@ proc scanTestFile(path: string, lines: seq[string]): seq[TestEntry] =
     if tn.len > 0: result.add TestEntry(path: path, name: tn, suite: suite, line: i)
 
 proc rescanTests() =
+  ## builds the list of tests again: picks the project's test files by language and naming rules (and the file now open
+  ## if it is a test file), reads them from their buffers or from disk (files over 2 MB skipped), and scans each
   testEntries.setLen(0)
   var files: seq[string]
   for rel in projectFiles():
@@ -309,6 +323,8 @@ proc rescanTests() =
   needRender = true
 
 proc parseTestOutput(path, output: string) =
+  ## sets the status of a file's tests from a run's output: the `[OK]`, `[FAILED]` and `[SKIPPED]` lines of std/unittest
+  ## (other languages go to parseOtherTestOutput)
   if not path.endsWith(".nim"):
     parseOtherTestOutput(path, output)
     return
@@ -320,6 +336,9 @@ proc parseTestOutput(path, output: string) =
         testStatus[testKey(path, name)] = st
 
 proc runTests(path: string, filter = "") =
+  ## runs a test file, or one test or suite of it named by `filter`, by the right runner (other languages, testament,
+  ## hastur, else `nim c -r` with the name as argument) after saving all files; the tests show as running, and when the
+  ## job ends their results are read from its output and a message tells how many failed or passed
   if testLangOf(path) in ["py", "go", "rs", "php", "cs", "jvm"]:
     runOtherTests(path, filter)
     return

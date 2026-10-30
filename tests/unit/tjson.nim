@@ -4,6 +4,7 @@ import std/[unittest, strutils, json]
 import ../../src/ned/web/jsonengine, ../../src/ned/web/webcommon
 
 proc msgs(ds: seq[WebDiag]): seq[string] =
+  ## each problem as 'line:column message', counted from 1, to compare with what is expected
   for d in ds: result.add $(d.line + 1) & ":" & $(d.col + 1) & " " & d.msg
 
 suite "reading":

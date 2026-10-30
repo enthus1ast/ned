@@ -5,9 +5,12 @@
 proc drawFrame(x, y, w, h: int, bg, border: Rgb, title = "", titleFg: Rgb = NoColor, shadow = true)
 
 proc drawBox(x, y, w, h: int, title = "") =
+  ## a framed box in the menu colours with a title, as popups and pickers use
   drawFrame(x, y, w, h, theme.menuBg, theme.border, title)
 
 proc putHl(x, y: int, s: string, hl: seq[int], fg, hlFg, bg: Rgb, maxX: int, at: set[Attr] = {}): int =
+  ## writes text with some characters marked: the characters whose byte offsets are in `hl` (matched letters) in `hlFg`
+  ## and bold, the rest in `fg`; stops at column `maxX` and returns the column after the last one written
   var x = x
   var i = 0
   var k = 0
@@ -22,6 +25,8 @@ proc putHl(x, y: int, s: string, hl: seq[int], fg, hlFg, bg: Rgb, maxX: int, at:
   x
 
 proc wrapText(s: string, width: int): seq[string] =
+  ## breaks text into lines no wider than `width` columns, at spaces (a word longer than a line is cut); existing line
+  ## breaks are kept
   for para in s.splitLines:
     if strWidth(para) <= width:
       result.add para

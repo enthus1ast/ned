@@ -9,6 +9,9 @@ var
   copyMs: Table[string, int]              # path → how long the last one took (ms)
 
 proc copiesUsable(b: Buffer): bool =
+  ## whether the copies check may run for this buffer: nim.showCopies is on, it is a saved .nim module (not an included
+  ## file, not huge) with the Nim engine and the compiler at hand, its folder is trusted (the compiler runs the folder's
+  ## config.nims and macros — asks once if not) and the last run did not take over 30 s
   if not cfgShowCopies or b.lang == nil or b.lang.mode != lmNim or b.path.len == 0 or not b.path.endsWith(".nim") or
      b.largeOn or b.lines.len > 30_000 or not nimEngineOn(b) or not haveExe("nim"):
     return false
@@ -19,6 +22,8 @@ proc copiesUsable(b: Buffer): bool =
   nxIncluderOf(b.path).len == 0                        # (a file another one includes is no module of its own)
 
 proc copyRoutines(b: Buffer): seq[ArcRoutine] =
+  ## the file's procs, funcs, methods and converters as the routines the compiler is asked to expand: their lines, and
+  ## the parameters that are not `sink`
   let f = nxFileFor(b)
   if f == nil: return
   for s in f.syms:
@@ -29,6 +34,8 @@ proc copyRoutines(b: Buffer): seq[ArcRoutine] =
     result.add ArcRoutine(name: s.name, line: s.line, endLine: max(s.line, s.endLine), params: ps)
 
 func copyWhy(c: ArcCopy): string =
+  ## the Markdown note for a copy mark: what is copied and why (a borrowed parameter kept, a `sink` call, a loop's
+  ## iterator or variable, a closure's capture, a value used again), and how to avoid it
   let src = "`" & c.src & "`"
   let callee = if c.callee.len > 0: "`" & c.callee & "`" else: "this call"
   case c.kind

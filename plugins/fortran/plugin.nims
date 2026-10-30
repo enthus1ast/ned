@@ -131,6 +131,7 @@ func fortranCode(s: string): string =
       if i < s.len: result[i] = ' '
     inc i
 
+# whether c can be part of a Fortran name
 func fortranIdent(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_'}
 
 func fortranWords(code: string): seq[(string, int)] =

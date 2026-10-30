@@ -3,6 +3,9 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 proc openPrompt(kind: PromptKind, label: string, initial = "") =
+  ## opens the one-line prompt of that kind with its label and starting text (the cursor at its end), closing completion
+  ## and hover; for the find prompts it also remembers where the cursors were, starts counting matches and selects the
+  ## starting text so typing replaces it
   fieldSelClear()                    # (a selection of the prompt before — the find box's — is not this one's)
   closeComp()
   hoverOpen = false
@@ -20,11 +23,14 @@ proc openPrompt(kind: PromptKind, label: string, initial = "") =
   needRender = true
 
 proc closePrompt() =
+  ## closes the prompt and drops the selection in its field
   if fieldOwns(promptText): fieldSelClear()
   promptKind = pNone
   needRender = true
 
 proc addHist(kind: PromptKind, t: string) =
+  ## remembers `t` as the newest entry of that prompt kind's history (an older equal entry is dropped, at most 50 kept),
+  ## for the Up and Down keys
   if t.len == 0: return
   var h = promptHist.getOrDefault(kind)
   let i = h.find(t)
@@ -34,6 +40,9 @@ proc addHist(kind: PromptKind, t: string) =
   promptHist[kind] = h
 
 proc completePath(t: string): string =
+  ## Tab completion of a typed path: extends it to the longest common start of the names in its folder that begin with
+  ## what was typed (a folder gets a trailing /), listing up to 8 candidates in a message when there are several; the
+  ## path unchanged when nothing matches
   let full = expandTilde(t)
   let base = if full.isAbsolute: full else: rootDir / full
   let (dir, prefix) = if t.endsWith("/"): (base, "") else: (parentDir(base), extractFilename(base))
@@ -65,6 +74,7 @@ proc submitSetting(t: string)
 proc nimbleAddDep(pkg: string)
 
 proc tildePath(p: string): string =
+  ## the path with the home folder written as ~
   let h = getHomeDir().strip(leading = false, chars = {'/'})
   if p == h: "~" elif p.startsWith(h & "/"): "~" & p[h.len .. ^1] else: p
 

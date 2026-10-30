@@ -11,6 +11,8 @@ type NxPurity* = object
   cut*: bool                   # (not known) it ran out of time: asking again may tell
 
 proc nxFxCtx(limit, ms: int): NxRsCtx =
+  ## a fresh context for the raises walk in side-effect mode (fx), with a step limit and a deadline ms milliseconds from
+  ## now
   result = NxRsCtx(limit: limit, deadline: getMonoTime() + initDuration(milliseconds = ms), cycleAt: high(int),
                    fx: true)
   result.deps.add initHashSet[string]()
@@ -97,6 +99,8 @@ type NxFuncFile = object       # what the hint looks at once for a whole file
   sc: NxScope
 
 proc nxFuncFileOf(c: var NxRsCtx, f: NxFile, lines: seq[string]): NxFuncFile =
+  ## what the "can be a func" hint needs to know of a whole file: its scope, the line ranges of its routines, and the
+  ## names of routines declared ahead (forward) here or in another file of the same module
   result.sc = nxRsScope(c, f)
   for s in f.syms:
     if s.kind notin NxRoutineKinds or s.made: continue
@@ -111,6 +115,8 @@ proc nxFuncFileOf(c: var NxRsCtx, f: NxFile, lines: seq[string]): NxFuncFile =
       if t.kind in NxRoutineKinds and not t.made and t.endLine <= t.line: result.ahead.incl nxNorm(t.name)
 
 proc nxFuncHintableIn(ff: NxFuncFile, f: NxFile, lines: seq[string], s: NxSym): bool =
+  ## whether the hint may be given for proc s: a plain module-level proc with a real body, only pragmas a func may have,
+  ## no forward declaration of it (here or in the module's other files), not inside another routine and not generic
   if s.kind != nxProc or s.made or s.local or s.name.len == 0 or s.name[0] == '=': return false
   if s.endLine >= lines.len or s.line >= lines.len: return false
   for (n, _) in nxLayPragmas(s.pragmas):
@@ -155,6 +161,7 @@ proc nxFuncHints*(f: NxFile, lines: seq[string], ms = 2000, keep: proc(s: NxSym)
   var c = nxFxCtx(4000, ms)
   let ff = nxFuncFileOf(c, f, lines)
   for i in 0 ..< f.syms.len:
+    # the symbol being looked at in the loop
     template s: untyped = f.syms[i]
     if s.kind != nxProc or s.made or s.local: continue
     if keep != nil and not keep(s): continue

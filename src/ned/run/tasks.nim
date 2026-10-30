@@ -4,9 +4,12 @@
 type ProjTask = object
   name, cmd, cwd, source, detail: string
 
+# what tells one task from another and marks it as recently run: its folder, source and name
 func taskKey(t: ProjTask): string = t.cwd & "|" & t.source & "|" & t.name
 
 proc hasTaskFile(d: string): bool =
+  ## true when the folder has a file that defines tasks: a Makefile, package.json, justfile, Cargo.toml, go.mod,
+  ## Taskfile or .nimble file
   for f in ["Makefile", "makefile", "GNUmakefile", "package.json", "justfile", "Justfile", ".justfile", "Cargo.toml",
             "go.mod", "Taskfile.yml", "Taskfile.yaml"]:
     if fileExists(d / f): return true
@@ -37,6 +40,8 @@ proc makeTargets(path, dir: string): seq[ProjTask] =
       if result.len >= 150: return
 
 proc npmScripts(path, dir: string): seq[ProjTask] =
+  ## the scripts of a package.json as tasks, run with the package manager the folder's lock file shows (pnpm, yarn, bun,
+  ## else npm); the detail is the script's command
   var j: JsonNode
   try: j = parseFile(path)
   except CatchableError: return
@@ -50,6 +55,8 @@ proc npmScripts(path, dir: string): seq[ProjTask] =
     result.add ProjTask(name: k, cmd: pm & " run " & quoteShell(k), cwd: dir, source: pm, detail: v.getStr)
 
 proc justRecipes(path, dir: string): seq[ProjTask] =
+  ## the recipes of a justfile as tasks: a comment line above a recipe is its detail; private ones (underscore,
+  ## `[private]`), settings, aliases and assignments are left out
   var text = ""
   try: text = readFile(path)
   except CatchableError: return
@@ -79,6 +86,8 @@ proc justRecipes(path, dir: string): seq[ProjTask] =
     doc = ""
 
 proc taskfileTasks(path, dir: string): seq[ProjTask] =
+  ## the tasks of a Taskfile.yml: the names two spaces in under `tasks:`, with a `desc:` line below one as its detail
+  ## (read as lines, not as YAML)
   var text = ""
   try: text = readFile(path)
   except CatchableError: return
@@ -148,6 +157,8 @@ proc projectTasks(): seq[ProjTask] =
       result.add ProjTask(name: c{"name"}.getStr, cmd: cmd, cwd: cwd, source: "run", detail: cmd)
 
 proc runTask(t: ProjTask) =
+  ## runs a task in the Output panel: moves it to the front of the recently run list (30 kept), remembers it for F4
+  ## (`lastTask`) and runs its command in its folder
   let k = taskKey(t)
   let i = taskRecent.find(k)
   if i >= 0: taskRecent.delete(i)
@@ -157,6 +168,8 @@ proc runTask(t: ProjTask) =
   runCommand(t.cmd, t.cwd)
 
 proc cmdRunTask() =
+  ## the Run a task menu: the project's tasks, those run recently first, a pick running that task; says what files
+  ## define tasks when it finds none
   let ts = projectTasks()
   if ts.len == 0:
     info("No tasks found: a Makefile, package.json, justfile, Taskfile, Cargo.toml, go.mod or .nimble file has them " &

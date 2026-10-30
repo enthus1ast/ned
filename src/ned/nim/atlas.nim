@@ -23,6 +23,8 @@ proc atlasCfgPath(root: string): string =
   ""
 
 proc atlasConfig(root: string): JsonNode =
+  ## the project's atlas.config parsed as JSON (an empty object when there is none or it does not parse), kept until the
+  ## file's modification time changes
   let p = atlasCfgPath(root)
   if p.len == 0: return newJObject()
   try:
@@ -34,6 +36,8 @@ proc atlasConfig(root: string): JsonNode =
   except CatchableError: newJObject()
 
 proc atlasDepsDir(root: string): string =
+  ## the folder atlas puts the dependencies in: atlas.config's "deps" (from the project folder when relative), else
+  ## deps/
   let d = atlasConfig(root){"deps"}.getStr
   if d.len == 0: root / "deps" elif d.isAbsolute: d else: root / d
 
@@ -184,6 +188,7 @@ proc atlasEnvs(root = rootDir): seq[(string, string)] =
 # ── running atlas: the Output panel; its errors on the .nimble ──
 
 proc atlasNeeds(): bool =
+  ## whether atlas is installed; if not, asks whether to build it with nimble and says false
   if haveExe("atlas"): return true
   askConfirm("atlas is not installed — build it with nimble (nimble install atlas)? (y/n)", proc(c: char) =
     if c == 'y': runCommand("nimble install -y atlas", rootDir))
@@ -285,6 +290,7 @@ proc atlasDepMenu(d: AtlasDep) =
   openActions(dep.name & " " & dep.version & (if dep.desc.len > 0: " — " & truncTo(dep.desc, 50) else: ""), items)
 
 proc cmdAtlasUpdateOne() =
+  ## "Atlas: update which dependency": a list of the dependencies in deps/, each updated with `atlas update`
   let ds = atlasDeps(force = true)
   if ds.len == 0:
     info("No dependencies in " & tildePath(atlasDepsDir(rootDir)) & " — Atlas: install")
@@ -373,6 +379,8 @@ proc cmdAtlasLink() =
   openForm(f)
 
 proc cmdAtlasUnlink() =
+  ## "Atlas: unlink which project": a list of the projects linked in, each unlinked with `atlas unlink`; says so when
+  ## none is linked
   var items: seq[(string, string, Action)]
   for d in atlasDeps(force = true):
     if d.linked:
@@ -436,6 +444,7 @@ proc cmdAtlasTasks() =
     openActions("Atlas: run a task (atlas-run)", items))
 
 proc cmdAtlasDepTree() =
+  ## shows the dependency tree (`atlas deps --tree`) in the output view, without atlas's notices
   if not atlasNeeds(): return
   toolOutput("Atlas: dependency tree", "atlas --colors:off deps --tree 2>&1", rootDir,
              proc(o: string): string =
@@ -445,6 +454,7 @@ proc cmdAtlasDepTree() =
                keep.join("\n"), langByName("Text"))
 
 proc cmdAtlasInit() =
+  ## after asking, makes the project folder an Atlas project: `atlas init`, then `atlas install`
   askConfirm("Make " & tildePath(rootDir) & " an Atlas project — its dependencies in deps/ (atlas init, then " &
              "atlas install)? (y/n)", proc(c: char) =
     if c == 'y': atlasRun("init", proc(code: int) =
@@ -492,6 +502,7 @@ const AtlasConfigKeys = [
   ("graph", "(atlas's own) the last dependency graph")]
 
 proc atlasConfigHover(b: Buffer, p: Pos): string =
+  ## the hover text for a key of atlas.config under the mouse (what the setting does), "" elsewhere or in other files
   if b.path.len == 0 or extractFilename(b.path) != "atlas.config" or p.line > b.lines.high: return ""
   let l = b.lines[p.line]
   for (k, doc) in AtlasConfigKeys:

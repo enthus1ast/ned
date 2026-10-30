@@ -93,6 +93,7 @@ var
   cSigHintsAt: Table[int, (int, int, int)]           # buffer id → (changeId, first, last line) they were made for
   cfgPasteFmt = "indent"       # editor.formatOnPaste: indent | format | off
   cfgNimCompiler = "auto"      # auto | nim | nimony
+  cfgNimNif = true             # Nim 2.4 or newer: `nim nif` on save, its NIF read (nim.compilerNif)
   # nimsuggest pool, tools, side panel
   nimSugs: seq[NimSug]
   exeCache = initTable[string, string]()
@@ -548,6 +549,7 @@ var
   dragNode: PaneNode     # … and its split: the index is checked against it
 
 proc paneLeaves(n: PaneNode, acc: var seq[PaneNode]) =
+  ## adds the leaves (the panes) of the layout tree below n to acc, left to right and top to bottom
   if n == nil: return
   if n.leaf: acc.add n
   else:
@@ -555,12 +557,14 @@ proc paneLeaves(n: PaneNode, acc: var seq[PaneNode]) =
     paneLeaves(n.b, acc)
 
 proc leafOf(n: PaneNode, i: int): PaneNode =
+  ## the leaf of the layout that holds pane number i, nil when there is none
   if n == nil: return nil
   if n.leaf: return (if n.pane == i: n else: nil)
   result = leafOf(n.a, i)
   if result == nil: result = leafOf(n.b, i)
 
 proc parentOf(n, child: PaneNode): PaneNode =
+  ## the split of the layout that has `child` as one of its two parts, nil when there is none
   if n == nil or n.leaf: return nil
   if n.a == child or n.b == child: return n
   result = parentOf(n.a, child)
@@ -585,9 +589,13 @@ proc panesShowing(id: int): seq[int] =
   for i in 0 ..< panes.len:
     if i != activePane and panes[i].bufId == id: result.add i
 
+# the lines of the bottom panel's current tab
 template panelLines: untyped = panelStore[panelKind]
+# the selected line of the bottom panel's current tab
 template panelSel: untyped = panelSelA[panelKind]
+# how far the bottom panel's current tab is scrolled
 template panelScroll: untyped = panelScrollA[panelKind]
+# the title of the bottom panel's current tab
 template panelTitle: untyped = panelTitles[panelKind]
 
 var lineTints: Table[int, Table[int, (Rgb, float)]]   # buffer id → its lines tinted: (colour, how much) — Compiler

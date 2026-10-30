@@ -1,9 +1,12 @@
 # ── change signature ──
 
 func rfParamText(p: NxParam): string =
+  ## a parameter written as `name: type = default`
   p.name & (if p.typ.len > 0: ": " & p.typ else: "") & (if p.default.len > 0: " = " & p.default else: "")
 
 proc cmdChangeSignature() =
+  ## opens a scratch page listing the parameters of the routine at the cursor, one per line with `← old name`, and its
+  ## return type, to edit; saving it (Ctrl+S) changes the declaration and every call. Not for routines that take varargs
   let b = buf()
   if b.lang.mode != lmNim or not nimEngineOn(b):
     info("Change signature works on Nim, with the built-in engine")
@@ -115,6 +118,10 @@ proc rfHeaderEdits(lines: seq[string], path: string, l, c: int, newParams: seq[N
   true
 
 proc doSignatureFromBuffer(b: Buffer): bool =
+  ## reads the edited page back (new, renamed, dropped and reordered parameters, defaults, values for the calls to pass,
+  ## the return type) and rewrites the declaration, forward declarations and every call the engine finds. Uses of a
+  ## renamed parameter in the body follow; calls and uses ned cannot rewrite safely are listed to change by hand. False,
+  ## with an error shown, when the page is wrong
   let plan0 = sigPlans[b.id]
   var oldParams: seq[NxParam]
   for p in plan0.params: oldParams.add NxParam(name: p.name, typ: p.typ, default: p.default)
@@ -156,6 +163,7 @@ proc doSignatureFromBuffer(b: Buffer): bool =
   if f == nil: return false
   var si = -1
   for i in 0 ..< f.syms.len:
+    # the declaration being looked at, in place
     template s: untyped = f.syms[i]
     if s.line == plan.line and s.name == plan.name: si = i
   if si < 0:

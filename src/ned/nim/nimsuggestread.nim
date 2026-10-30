@@ -1,4 +1,11 @@
+# reading nimsuggest's answers: its output is split into replies, and each reply is turned into what the request asked
+# for — completion, go to definition, hover, signature help, references, rename, live checks, outline, macro expansion
+# or inlay hints.
 proc nsHandle(s: NimSug, r: NsReq, lines: seq[string]) =
+  ## acts on nimsuggest's answer (its tab-separated lines) to request r: fills the completion list, jumps to the
+  ## definition, shows a hover or signature, lists references or the places a rename touches, stores the checks'
+  ## problems and unused hints, the outline or the inlay hints, or opens a macro expansion in a scratch tab. An answer
+  ## for a cursor that has since moved is dropped
   if r.kind == nsInlay:
     # Type<TAB>line<TAB>col<TAB>label<TAB>paddingLeft<TAB>paddingRight<TAB>…
     let b = bufById(r.bufId)
@@ -210,6 +217,8 @@ proc nsHandle(s: NimSug, r: NsReq, lines: seq[string]) =
   needRender = true
 
 proc nsRead(s: NimSug) =
+  ## reads what nimsuggest has written without blocking and cuts it into lines; an empty line ends a reply, which goes
+  ## to nsHandle for the request in flight, and the next waiting request is sent. End of output marks the process dead
   var tmp: array[65536, char]
   while true:
     let n = posix.read(s.pr.outFd, addr tmp[0], tmp.len)
@@ -245,6 +254,8 @@ proc nsRead(s: NimSug) =
   if start > 0: s.rbuf = s.rbuf[start .. ^1]
 
 proc nsStatus(b: Buffer): string =
+  ## the status bar text for the buffer's nimsuggest: indexing until its first answer, then busy or idle; empty when
+  ## none is running
   let s = nsGet(b, false)
   if s == nil: return ""
   if not s.warmed and s.inflight.len > 0: "nimsuggest: indexing…"
@@ -252,5 +263,6 @@ proc nsStatus(b: Buffer): string =
   else: "nimsuggest"
 
 proc nsShutdown() =
+  ## stops every nimsuggest process (when ned quits)
   for s in nimSugs: nsKill(s)
   nimSugs.setLen(0)

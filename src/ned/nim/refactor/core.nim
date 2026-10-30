@@ -219,6 +219,7 @@ proc rfByHand(title: string, places: seq[(string, int, int, string)]) =
   openActions(title, items)
 
 proc rfLinesOf(path: string): seq[string] =
+  ## a file's lines for a refactoring: the open buffer's (unsaved text too), else from disk, empty if unreadable
   let bi = bufIndexByPath(path)
   if bi >= 0: return bufs[bi].lines
   try: readFile(path).splitLines except CatchableError: @[]

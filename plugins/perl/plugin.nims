@@ -194,10 +194,13 @@ func perlSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc perlHave(cmd: string): bool =
+  ## whether the first word of the command line is a program that can be found (a ~ is expanded) — so a server or
+  ## formatter that is set is only used when it is installed
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 
 proc perlSubDirs(d: string): seq[string] =
+  ## the folders directly inside d, as full paths
   when defined(nimscript):
     result = listDirs(d)
   else:

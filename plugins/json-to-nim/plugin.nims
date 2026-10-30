@@ -49,6 +49,7 @@ type
 
 # ── names ──
 
+# whether c is a letter or digit, or a byte of a non-ASCII character (underscore is not counted)
 func isIdentByte(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9'} or c.uint8 >= 0x80
 
 func isNimName(s: string): bool =
@@ -71,6 +72,7 @@ func words(s: string): seq[string] =
   if w.len > 0: result.add w
 
 func capital(w: string): string =
+  ## w with its first letter in capitals and the rest as it is
   if w.len == 0: "" else: toUpperAscii(w[0]) & w[1 .. ^1]
 
 func pascal(s: string): string =
@@ -108,6 +110,7 @@ func sameName(a, b: string): bool =
 # ── the shapes ──
 
 proc clone(s: Shape): Shape =
+  ## a copy of the shape (its element, field and key lists are shared, not copied)
   Shape(kind: s.kind, nullable: s.nullable, elem: s.elem, keys: s.keys, fields: s.fields, present: s.present,
         count: s.count, hint: s.hint)
 
@@ -147,6 +150,9 @@ proc merge(a, b: Shape): Shape =
     result = Shape(kind: skAny, nullable: nul)
 
 proc infer(n: JsonNode, hint: string): Shape =
+  ## the shape of a JSON value: scalars by their kind, an array by all its elements merged, an object by its keys and
+  ## the shapes of their values — an object with two or more keys and none of them a Nim name is a map when its values
+  ## have one shape; hint is the key the value came from
   case n.kind
   of JNull: result = Shape(kind: skNull, nullable: true, hint: hint)
   of JBool: result = Shape(kind: skBool)
@@ -262,6 +268,9 @@ func fieldName(key: string, taken: seq[string]): string =
   n
 
 proc typeSection(g: var Gen, root: Shape, rootName: string): tuple[code: string, renames: seq[string]] =
+  ## the `type` section for the root shape: an object type for each object shape (the root first, named rootName; types
+  ## an object needs are added to the list as it is written), its fields aligned with a comment for a key that was
+  ## renamed or is not in every object; also gives the lines of a renameHook for each type with renamed keys
   var lines = @["type"]
   var hooks: seq[string]
   if root.kind != skObject or root.keys.len == 0:
@@ -341,6 +350,7 @@ proc parsed(text: string, err: var string): JsonNode =
     err = e.msg
     result = nil
 
+# whether the path is a Nim source file
 func isNimPath(p: string): bool = p.endsWith(".nim") or p.endsWith(".nims") or p.endsWith(".nimble")
 
 proc importsOf(lines: seq[string]): string =
@@ -363,6 +373,7 @@ proc projectJsonFile(): string =
   if i < 0: "" else: files[i]
 
 proc readProjectFile(rel: string): string =
+  ## the text of a file given from the project's folder (or absolute); "" when it is not there
   let p = if rel.isAbsolute: rel else: projectRoot() / rel
   if not fileExists(p): return ""
   readFile(p)
@@ -389,6 +400,9 @@ proc typesTab(name, code: string): string =
   title
 
 proc toNimTypes() =
+  ## JSON → Nim types — takes the JSON from the selection, else the clipboard, else the .json file of the current tab
+  ## (in a Nim file: a project .json file to pick), and writes the types: at the cursor in a .nim file when they are not
+  ## from the selection, otherwise in a tab; warns when it is not JSON or is an empty object
   let b = current()
   if not b.valid:
     message("JSON → Nim types: open a file first")

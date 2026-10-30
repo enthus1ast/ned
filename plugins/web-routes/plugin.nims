@@ -48,9 +48,11 @@ type
 # ── reading a file ──
 
 func indentOf(s: string): int =
+  ## the number of spaces and tabs at the start of the line
   while result < s.len and s[result] in {' ', '\t'}: inc result
 
 func identAt(s: string, i: int): string =
+  ## the name (letters, digits and `_`) that starts at `i`, empty when there is none
   var e = i
   while e < s.len and s[e] in {'a'..'z', 'A'..'Z', '0'..'9', '_'}: inc e
   s[i ..< e]
@@ -264,6 +266,8 @@ proc nimFiles(root: string, limit: int): seq[string] =
   result.sort()
 
 func joinPrefix(prefix, path: string): string =
+  ## a route's path put under a prefix, with one `/` between them (the prefix alone for the path /); a regular
+  ## expression path is left as it is
   if prefix.len == 0 or path.startsWith("re"): return path
   if path == "/": return prefix
   prefix.strip(leading = false, chars = {'/'}) & "/" & path.strip(trailing = false, chars = {'/'})
@@ -321,17 +325,22 @@ var
   cached = false
 
 proc routes(): seq[Route] =
+  ## the project's routes, read once and kept until something clears the cache (a listing, a save of a .nim file)
   if not cached:
     cache = readProject()
     cached = true
   cache
 
+# how a route is listed: its method in a column of six, then its path
 func label(r: Route): string = alignLeft(r.meth, 6) & " " & r.path
 
 func whereOf(r: Route): string =
+  ## where a route is written: its handler (Prologue) and file:line
   (if r.handler.len > 0: r.handler & " — " else: "") & r.file & ":" & $(r.line + 1)
 
 func table*(rs: seq[Route]): string =
+  ## the routes as a Markdown page with a table of method, path, handler and place (the line numbers from 1), or a note
+  ## on what is read when there are none
   result = "# Web routes\n\n"
   if rs.len == 0:
     return result & "No routes found: Jester's `routes:` blocks and Prologue's `addRoute`, `get`, `post` … and " &
@@ -342,9 +351,12 @@ func table*(rs: seq[Route]): string =
                (if r.handler.len > 0: "`" & r.handler & "`" else: "(its block)") & " | " & r.file & ":" &
                $(r.line + 1) & " |\n"
 
+# opens the file at the route's handler — Jester's block, or the proc Prologue calls
 proc go(r: Route) = discard openFile(r.goFile, r.goLine)
 
 proc listRoutes() =
+  ## Web routes: list — reads the project again and lets the person pick a route, sorted by path and method with its
+  ## framework and place beside it; the one picked is opened at its handler
   cached = false
   let rs = routes()
   if rs.len == 0:

@@ -15,10 +15,13 @@ type MdBlock = object
   lines: seq[string]         # code
 
 func mdIsRule(t: string): bool =
+  ## whether a line is a horizontal rule: three or more `-`, `*` or `_` (spaces between allowed) and nothing else
   let x = t.replace(" ", "")
   x.len >= 3 and (x.allCharsInSet({'-'}) or x.allCharsInSet({'*'}) or x.allCharsInSet({'_'}))
 
 func mdTableCells(t: string): seq[string] =
+  ## the cells of a table row: the text between `|` bars (the outer ones optional), trimmed; `\|` and a bar inside
+  ## backticks stay part of the cell
   var s = t.strip
   if s.startsWith("|"): s = s[1 .. ^1]
   if s.endsWith("|") and not s.endsWith("\\|"): s = s[0 ..< s.high]
@@ -39,6 +42,8 @@ func mdTableCells(t: string): seq[string] =
   result.add cur.strip
 
 func mdIsTableSep(t: string): bool =
+  ## whether a line is a table's separator row under the header (`|---|:--:|`): cells of at least a dash, with colons
+  ## for alignment, three dashes in all
   let s = t.strip
   if '|' notin s and '-' notin s: return false
   if not s.allCharsInSet({'|', '-', ':', ' '}) or s.count('-') < 3: return false
@@ -61,6 +66,8 @@ proc mdBlocks(text: string): seq[MdBlock] =
   var para: seq[string]
   var paraAt = -1
   proc flush(res: var seq[MdBlock]) =
+    ## ends the paragraph being collected: adds it to the blocks as one text (lines joined by a space, or by a line
+    ## break after two trailing spaces or a backslash)
     if para.len > 0:
       var t = ""
       for k, p in para:
@@ -199,8 +206,10 @@ proc mdInline(s: string, fg, bg: Rgb): seq[ChatSpan] =
   var cur = ""
   var bold, ital, strike = false
   template attrs(): set[Attr] =
+    ## the text attributes for the bold, italic and strike-through switches now on
     (if bold: {aBold} else: {}) + (if ital: {aItalic} else: {}) + (if strike: {aStrike} else: {})
   proc flush(res: var seq[ChatSpan]) =
+    ## adds the plain text collected so far as a span in the current attributes and starts collecting again
     if cur.len > 0:
       res.add ChatSpan(t: cur, fg: fg, bg: bg, at: attrs())
       cur = ""
@@ -318,6 +327,7 @@ proc mdWrap(spans: seq[ChatSpan], width: int, bg: Rgb, indent, firstIndent: int,
   var col = firstIndent
   if col > 0: line.spans.add span(spaces(col), theme.fg, bg)
   proc newRow(res: var seq[ChatLine]) =
+    ## ends the row being built and starts the next one with the quote bars and the hanging indent
     res.add line
     line = ChatLine(bg: bg, src: src, spans: prefix)
     if indent > 0: line.spans.add span(spaces(indent), theme.fg, bg)
@@ -357,12 +367,15 @@ proc mdWrap(spans: seq[ChatSpan], width: int, bg: Rgb, indent, firstIndent: int,
   result.add line
 
 func mapSpans(sp: seq[ChatSpan], add: set[Attr]): seq[ChatSpan] =
+  ## the spans with the attributes `add` added to each
   for x in sp:
     var y = x
     y.at = y.at + add
     result.add y
 
 proc mdLineCode(code: seq[string], lang: string, width: int, src: int): seq[ChatLine] =
+  ## a code block as rows on the code background: the language's name first (when given), then each line coloured with
+  ## the syntax colours of that language (tabs as four spaces); each row knows its source line
   let l0 = if lang.len > 0: langByName(lang) else: nil
   let l = if l0 != nil and l0.name != "Text": l0 elif lang.len > 0: detectLang("x." & lang, "") else: langByName("Text")
   if lang.len > 0:
@@ -478,6 +491,7 @@ proc mdRender(text: string, width: int, bg: Rgb, baseDir: string): seq[ChatLine]
       var widths = want
       let avail = max(ncol * 4, width - 2 - (ncol + 1) - ncol * 2)
       proc sum(xs: seq[int]): int =
+        ## the total of the numbers
         for x in xs: result += x
       while sum(widths) > avail:
         var k = 0
@@ -487,6 +501,8 @@ proc mdRender(text: string, width: int, bg: Rgb, baseDir: string): seq[ChatLine]
         dec widths[k]
       let bc = theme.border
       proc rule(l, m, r: string): ChatLine =
+        ## a horizontal border row of the table in box-drawing characters: `l` at the left end, `m` between columns, `r`
+        ## at the right end
         var t = " " & l
         for ci in 0 ..< ncol:
           t.add repeat("─", widths[ci] + 2)

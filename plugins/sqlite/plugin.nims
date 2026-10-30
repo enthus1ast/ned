@@ -27,8 +27,10 @@ var
   cacheFor = ""
   outTab = Buf(id: -1)
 
+# the text quoted for the shell, in single quotes (a quote inside it written as '\'')
 func q(s: string): string = "'" & s.replace("'", "'\\''") & "'"
 
+# the sqlite3 program to run, from the plugin's `program` setting
 proc prog(): string = setting("program", "sqlite3")
 
 proc remembered(): string =
@@ -39,6 +41,8 @@ proc remembered(): string =
   except CatchableError: discard
 
 proc remember(p: string) =
+  ## keeps the database file as the project's in databases.json in the plugin's data folder (one entry for each project
+  ## root), to be found again next time
   var j = newJObject()
   try: j = parseJson(readData("databases.json"))
   except CatchableError: discard
@@ -47,6 +51,8 @@ proc remember(p: string) =
   writeData("databases.json", j.pretty & "\n")
 
 proc database(): string =
+  ## the database queries run on: the one opened in this session, else the one remembered for the project ("" when there
+  ## is none)
   if dbPath.len == 0: dbPath = remembered()
   dbPath
 
@@ -100,11 +106,15 @@ proc showRows(title, text: string) =
   outTab.markSaved()
 
 proc needDb(): bool =
+  ## whether a database is open; when none is, it warns where to open one and says false
   if database().len > 0: return true
   warn("Open a database first (SQLite: open a database…)")
   false
 
 proc openDb() =
+  ## asks which database to use: a pick from the .db, .sqlite and .sqlite3 files of the project (from git, else a find
+  ## four folders deep) or a path typed in, a relative one taken from the project root. It makes it the one in use,
+  ## remembers it, clears the table cache and refreshes the dock view
   var found: seq[string]
   let (o, code) = shell("git ls-files --cached --others --exclude-standard 2>/dev/null || find . -maxdepth 4 -type f")
   if code == 0:
@@ -157,6 +167,10 @@ proc sqlInString(b: Buf): string =
   ""
 
 proc runAtCursor() =
+  ## runs the SQL at the cursor on the database and shows the rows in the sqlite tab: the selection, else the statement
+  ## the cursor is in (a .sql file) or the string it is in (any other file). A statement that changes the database
+  ## (CREATE, DROP, ALTER, INSERT, UPDATE, DELETE, REPLACE) clears the table cache and refreshes the dock; a failure is
+  ## also a warning with sqlite3's first line
   if not needDb(): return
   let b = current()
   var sql = ""
@@ -179,6 +193,7 @@ proc runAtCursor() =
   if code != 0: warn("sqlite3: " & o.strip.splitLines[0])
 
 proc showTable(name: string) =
+  ## shows the first rows of the table (as many as plugins.sqlite.rows) in the sqlite tab
   if not needDb(): return
   let (o, _) = runSql("SELECT * FROM \"" & name.replace("\"", "\"\"") & "\" LIMIT " & $setting("rows", 200) & ";")
   showRows("SELECT * FROM " & name, o)
@@ -204,6 +219,9 @@ command "SQLite: the schema":
     showRows(".schema", o)
 
 proc dockItems(): seq[ViewItem] =
+  ## the rows of the SQLITE view in the Plugins dock: the database's file name, under it each table (with its number of
+  ## columns) and under each table its columns, a primary key marked with a star and the type with its flags in the
+  ## detail
   if database().len == 0:
     return @[ViewItem(text: "no database open", detail: "SQLite: open a database…", icon: "·", color: "hint")]
   result.add ViewItem(text: database().split('/')[^1], detail: database(), icon: "▣", color: "accent")
@@ -214,6 +232,7 @@ proc dockItems(): seq[ViewItem] =
                           detail: (typ & (if pk: " · primary key" else: "") & (if nn: " · not null" else: "")).strip)
 
 proc dockClick(id: string) =
+  ## a tap on a table in the dock view (its id starts with `t:`) shows that table's rows
   if id.startsWith("t:"): showTable(id[2 .. ^1])
 
 view("SQLite", dockItems, dockClick)

@@ -1,3 +1,6 @@
+# Nim: run with ned's line profiler — a small module (kept in this file as text) is imported into the program, which
+# samples where it is about every millisecond and writes the counts when it ends; ned reads them back into a panel of
+# the procs that took the most time and a share beside each line.
 const NedLineProf = """# ned's line profiler, imported into the program being profiled (--import): about every millisecond it notes
 # where the program is — the line running (self) and every line and proc on the stack (total) — and writes the
 # counts when the program ends. The sampling itself allocates nothing: it can run inside the allocator.

@@ -140,6 +140,7 @@ proc nimBenchmark() =
         if fileExists(exe): removeFile(exe)
       except CatchableError: discard
       proc fmtNs(x: float): string =
+        ## a time in nanoseconds written with the unit that fits: ns, µs, ms or s
         if x < 1000: formatFloat(x, ffDecimal, 1) & " ns"
         elif x < 1e6: formatFloat(x / 1e3, ffDecimal, 2) & " µs"
         elif x < 1e9: formatFloat(x / 1e6, ffDecimal, 2) & " ms"

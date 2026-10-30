@@ -4,11 +4,14 @@
 var paneTermSeq = 0
 
 proc paneTermIndex(id: int): int =
+  ## the place in `terms` of the terminal that belongs to the pane tab with that id (-1: none)
   for i, t in terms:
     if t.paneId == id: return i
   -1
 
 proc paneViewBuf(title: string, kind, arg: int): Buffer =
+  ## a new read-only tab that stands for a pane view (kind 1 a terminal, 2 the assistant, 3 the bottom panel; `arg`
+  ## which terminal) instead of text
   result = newBuffer()
   result.title = title
   result.readOnly = true
@@ -83,6 +86,8 @@ proc paneTermKey(k: Key): bool =
   true
 
 proc paneFocusAct(bid: int): Action =
+  ## the action that makes the pane showing that buffer the active one and, for the assistant and the panel, gives it
+  ## the keyboard
   (proc() =
     for i in 0 ..< panes.len:
       let id = if i == activePane: buf().id else: panes[i].bufId

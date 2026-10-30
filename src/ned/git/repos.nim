@@ -30,6 +30,8 @@ var
   bisectSubj = ""                 #   its subject
 
 proc gitBisecting(root: string): bool =
+  ## whether this repository is in the middle of a bisect: the one ned started (bisectRoot), or any local one with a
+  ## BISECT_LOG in its git folder
   root.len > 0 and (bisectRoot == root or (remotes.len == 0 or remoteOf(root) < 0) and
                     fileExists(gitDirOf(root) / "BISECT_LOG"))
 
@@ -76,6 +78,7 @@ proc gitHome(): string =
     if rs.len > 0: result = rs[0]
 
 proc gitRepoInfo(root: string): GitRepoInfo =
+  ## the last status read for this repository from gitRepos (an empty record when it is not there)
   for r in gitRepos:
     if r.root == root: return r
 
@@ -84,6 +87,8 @@ proc gitOk(root: string): bool =
   root.len > 0 and (haveExe("git") or (remotes.len > 0 and remoteOf(root) >= 0))
 
 proc readBranch() =
+  ## sets gitBranch for the repository git commands act on: a remote folder's from its last status, else from .git/HEAD
+  ## — the branch name, or the first seven letters of the commit when HEAD is detached
   gitBranch = ""
   let g = gitHome()
   if g.len == 0: return
@@ -96,6 +101,9 @@ proc readBranch() =
   except CatchableError: discard
 
 proc refreshGit(b: Buffer) =
+  ## reads what git knows of the buffer's file for the change marks in the gutter: the indexed version (kept as the base
+  ## for exact marks while typing and for "Revert change"), and, when there is no base to be had (a new file), the marks
+  ## from `git diff -U0`'s hunks. Two background jobs; the buffer is found again by id when they finish
   if b.path.len == 0 or not fileExists(b.path) or b.viewer != nil: return
   if not gitOk(findGitRoot(parentDir(b.path))): return
   b.inGit = true
@@ -127,6 +135,8 @@ proc refreshGit(b: Buffer) =
       let f = line.splitWhitespace()
       if f.len < 3: continue
       proc rng(x: string): (int, int) =
+        ## reads a hunk range such as "-12,3" or "+7" as (first line, number of lines), the count being 1 when it is
+        ## left out
         let p = x[1 .. ^1].split(',')
         (parseInt(p[0]), (if p.len > 1: parseInt(p[1]) else: 1))
       try:

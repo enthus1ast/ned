@@ -1,6 +1,9 @@
 # ── the assistant's changes of one run, file by file, as side-by-side diffs (r undoes one change) ──
 
 proc aiReviewCheckpoint(id: int) =
+  ## shows what one run of the assistant changed: a menu of the files (lines added and removed, "new file") that each
+  ## open as a side-by-side diff of the old text and the file now, in which r undoes a change, and an entry that undoes
+  ## the whole run after a question; with a single file its diff opens at once
   let ci = aiCpIndex(id)
   if ci < 0:
     info("Those changes were already undone")
@@ -44,6 +47,8 @@ proc aiReviewCheckpoint(id: int) =
   openActions("The assistant's changes — " & truncTo(cp.prompt.replace('\n', ' '), 40) & " (" & cp.at & ")", items)
 
 proc cmdAiReview() =
+  ## AI: review the assistant's changes — the run to review when there are several (newest first, with the time and the
+  ## prompt), else that run's changes at once; it says so when it has changed nothing
   if aiCheckpoints.len == 0:
     info("The assistant has not changed any files in this session")
     return

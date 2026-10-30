@@ -17,6 +17,7 @@ proc unique(names: openArray[string]): seq[string] =
     if n in seen: result.add n
     seen.incl n
 
+# is the text free of upper-case letters?
 proc isLower(s: string): bool = s == s.toLowerAscii
 
 suite "CSS":

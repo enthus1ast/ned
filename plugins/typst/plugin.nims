@@ -111,6 +111,7 @@ func typstCode(s: string, inBlock: var bool): string =
       inc i
     else: inc i
 
+# whether the character can be in a Typst name: a letter, a digit, `_` or `-`
 func typstIdentChar(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '-'}
 
 func typstSymbols*(lines: seq[string]): seq[Symbol] =

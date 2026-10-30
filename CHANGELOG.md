@@ -1,6 +1,43 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-633). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-634). Older releases:
+
+## What's new in 6.33
+
+Nim 2.4 and Nim 3 side by side, and an engine that holds less.
+
+**Nim 2.4**
+
+- **Sum types**: in an `object` whose `case` has no field, each branch's name is a constructor — completion, hover
+  and Go to definition know `Leaf(3)` makes a `Node`, its fields as parameters — and `of Pair(a, b):` in a `case`
+  gives `a` and `b` the branch's field types.
+- The new operator characters `⟑ ⟇ ⩓ ⩔ ■ □ ☆` are operators for the formatter and the engine, and
+  `import b {.cyclic.}` is an import like any other.
+- A message about code given on standard input (`--stdinfile`) names the file, not `stdinfile.nim`.
+- The library names Nim 2.4 added are known for `nim.minVersion`.
+
+**Nim 2 or Nim 3, decided by the project**
+
+- `nim.compiler` is `auto` now: a project with `nimony.args`, `nimony.paths` or `pnak.nif` (in its folder or up to
+  three above) is Nim 3 when nimony is installed, any other is Nim 2. The status bar says which; `nim` and `nimony`
+  still decide outright.
+- **Nim 3: install or update nimony** clones Nimony into `~/.local/nimony` (or brings it up to date) and builds it
+  in the Run panel; ned finds it there with nothing added to PATH.
+- **Colours from what nimony read**: once nimony has checked a saved file, each name has the colour of what nimony
+  says it is — a routine, a type, a field, a constant, a parameter … — names a macro or template made among them.
+
+**Less memory, fewer waits**
+
+- **What a file sees of its imports is shared.** Each file kept its own list of every name its imports bring —
+  system's thousands each time. Files that import the same module now share one list of what it brings: 48 files
+  of the standard library and ned see 77,881 names between them, and 10,230 are held. ned keeps what 96 files
+  see (it was 48), in less memory than before. `tests/unit/tscopes.nim` checks that every name is found as before.
+- **A file's problems** from every source are put together once after each change, not two or three times each
+  frame — with thousands of problems, that was a copy of them all at every key; the count in the panel's tab too.
+- **Fewer looks at the disk per key**: whether a file changed on disk is asked once a second at most (it was every
+  50 ms, for each file the one being typed in imports), and the git folder a file is in is remembered.
+- **C**: what the C compiler predefines (`cc -dM -E`) is kept on disk, so the first C file of a session no longer
+  waits for it, and the checks of a C file run in the engine worker, so typing does not wait for them.
 
 ## What's new in 6.32.4
 

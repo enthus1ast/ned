@@ -15,7 +15,9 @@ var
   orNextAt = MonoTime()                   # (one run at most every 8 s)
   orRuns, orAnswered = 0                  # (Help › Performance: runs, questions answered)
 
+# the folder the compiler's answers are kept in
 proc orDir(): string = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "oracle"
+# the answers file of a source file: a json file named by a hash of its path
 proc orFile(path: string): string = orDir() / ($(hash(path) and 0x7FFFFFFF) & ".json")
 var orCtxMemo: Table[string, (MonoTime, string)]
 
@@ -42,6 +44,8 @@ proc orCtx(path: string): string =
   orCtxMemo[path] = (now, result)
 
 proc orKey(path, lineText: string, col: int): string =
+  ## the key an answer is kept under: a hash of the line's text, the column, and the file's context (orCtx) — it changes
+  ## when the line does, not when other lines do
   $(hash(lineText) and 0xFFFFFFF) & ":" & $col & ":" & orCtx(path)
 
 proc orTable(path: string): Table[string, seq[string]] =
@@ -74,6 +78,7 @@ proc orAnswer(path, lineText: string, col: int): seq[string] =
   orTable(path).getOrDefault(orKey(path, lineText, col))
 
 func orField(l: string, i: int): string =
+  ## field i of a tab-separated nimsuggest line (empty when there are fewer)
   let p = l.split('\t')
   if i < p.len: p[i] else: ""
 

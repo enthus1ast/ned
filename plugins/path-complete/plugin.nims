@@ -20,6 +20,7 @@ settingDef("maxEntries", 100, "Path completion: how many names of a folder it of
 
 type Ctx = enum cxNone, cxString, cxImport, cxLink, cxComment
 
+# whether c is a letter, digit, _ or a byte of a non-ASCII character — what ned counts as the word being typed
 func isWordCh(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_'} or c.uint8 >= 0x80
 
 func stringBefore(upto: string): (bool, int) =
@@ -76,9 +77,12 @@ func inComment(upto, cm: string): (Ctx, string) =
   (cxNone, "")
 
 func looksLikePath(p: string): bool =
+  ## whether the text typed can be a path: it starts with ./, ../, ~/ or /, or has a / in it
   p.startsWith("./") or p.startsWith("../") or p.startsWith("~/") or p.startsWith("/") or '/' in p
 
+# a Markdown link's path with %20 turned back into spaces
 func decoded(s: string): string = s.replace("%20", " ")
+# a name with its spaces written %20, for a Markdown link
 func encoded(s: string): string = s.replace(" ", "%20")
 
 proc entries(dir: string): seq[(string, bool)] =

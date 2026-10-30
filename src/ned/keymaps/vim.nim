@@ -19,6 +19,9 @@ var
   vimSurRange: (Pos, Pos)          # (vim-surround: what ys{motion} goes around, until its character)
 
 proc vimModeName(): string =
+  ## the mode shown in the status bar for the keymap in use: NORMAL / INSERT / VISUAL / V-LINE / REPLACE for vim (with
+  ## the count and operator typed so far), NOR / SEL / INS for helix, the pending prefix or Mark for emacs, "" for the
+  ## default keymap
   if cfgKeymap == "helix":
     return (case hxMode
             of hxInsert: "INS"
@@ -34,6 +37,8 @@ proc vimModeName(): string =
   of vmReplace: "REPLACE"
 
 proc vimShape() =
+  ## sets the terminal's cursor shape for the mode — the user's own in insert mode, a steady block in normal and visual,
+  ## an underline in replace — writing the escape sequence only when it changes
   if not gRaw: return
   let want = if cfgKeymap == "helix": (if hxMode == hxInsert: cursorStyleSeq() else: "\e[2 q")
              elif not cfgVim or vimMode in {vmInsert}: cursorStyleSeq() elif vimMode == vmReplace: "\e[4 q" else: "\e[2 q"
@@ -64,20 +69,27 @@ proc mergeUndo(b: Buffer, mark: int) =
       inc k
 
 proc vimSetMode(m: VimMode) =
+  ## changes the vim mode; entering insert or replace marks where the undo stack stood, so what is typed there undoes as
+  ## one step (see mergeUndo), and sets the cursor's shape
   if m in {vmInsert, vmReplace} and vimUndoMark < 0: vimUndoMark = buf().undoStack.len
   vimMode = m
   vimShape()
   needRender = true
 
 proc vimMouseClick() =
+  ## a mouse click while selecting in visual mode ends it, back to normal mode
   if cfgVim and vimMode in {vmVisual, vmVLine}: vimSetMode(vmNormal)
 
 proc clampNormal(b: Buffer, p: Pos): Pos =
+  ## the position kept inside the buffer and, as in vim's normal mode, on a character of its line — not past the last
+  ## one
   result = b.clampPos(p)
   let n = b.lines[result.line].len
   if n > 0 and result.col >= n: result.col = n - 1
 
 proc vimYank(text: string, linewise: bool) =
+  ## puts text in vim's unnamed register (and whether it was whole lines); with vim.useSystemClipboard on, the system
+  ## clipboard and ned's own as well
   vimReg = text
   vimRegLine = linewise
   if cfgVimClipboard:
@@ -87,6 +99,8 @@ proc vimYank(text: string, linewise: bool) =
 
 
 proc nextWordStart(b: Buffer, p: Pos, big: bool): Pos =
+  ## vim's w / W: leaves the run of characters of the same class (any non-blank for a WORD) under the position, skips
+  ## blanks and line breaks, and stops at the next word's start — or on an empty line
   var l = p.line
   var c = p.col
   let s0 = b.lines[l]
@@ -103,6 +117,8 @@ proc nextWordStart(b: Buffer, p: Pos, big: bool): Pos =
     if b.lines[l].len == 0: return Pos(line: l, col: 0)
 
 func prevWordStart(b: Buffer, p: Pos, big: bool): Pos =
+  ## vim's b / B: back over blanks and line ends, then to the first character of the word (WORD) found; an empty line
+  ## counts as a stop
   var l = p.line
   var c = min(p.col, b.lines[l].len) - 1
   while true:
@@ -118,6 +134,7 @@ func prevWordStart(b: Buffer, p: Pos, big: bool): Pos =
     if b.lines[l].len == 0: return Pos(line: l, col: 0)
 
 proc wordEnd(b: Buffer, p: Pos, big: bool): Pos =
+  ## vim's e / E: the last character of the next word (WORD) after the position, over blanks and line breaks
   var l = p.line
   var c = p.col + 1
   while true:
@@ -131,15 +148,20 @@ proc wordEnd(b: Buffer, p: Pos, big: bool): Pos =
     inc l
     c = 0
 
+# the position of the first character of the line that is not a space or tab (the line's end for a blank line)
 func firstNonBlank(b: Buffer, l: int): Pos = Pos(line: l, col: leadingWs(b.lines[l]).len)
 
 proc paragraphMove(b: Buffer, p: Pos, d: int): Pos =
+  ## vim's } and { (d is 1 or -1): over the blank lines and then the text lines in that direction to the start of the
+  ## next blank run, or to the buffer's first or last line
   var l = p.line + d
   while l > 0 and l < b.lines.high and isBlank(b.lines[l]): l += d
   while l > 0 and l < b.lines.high and not isBlank(b.lines[l]): l += d
   Pos(line: clamp(l, 0, b.lines.high), col: 0)
 
 func findChar(b: Buffer, p: Pos, cmd, ch: char): (bool, Pos) =
+  ## vim's f, t, F and T on the cursor's line: (found, where the cursor goes) — t and T stop one short of the character,
+  ## and when already next to it look for the one after
   let s = b.lines[p.line]
   let col = min(p.col, s.len)          # (a cursor past the end of a line that got shorter)
   case cmd
@@ -329,6 +351,8 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
     (true, oa, Pos(line: closeP.line, col: closeP.col + 1))
 
 proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
+  ## does a vim operator on a range: y (yank), d and c (delete, c then enters insert mode), > and < (indent), ~ gu gU
+  ## (case) and gc (comment); a linewise range is widened to whole lines, and d / c also fill the unnamed register
   var a = b.clampPos(a0)            # "one past the selection" may lie past the end of the line
   var e = b.clampPos(e0)
   if e < a: swap(a, e)
@@ -380,6 +404,9 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
   else: discard
 
 proc vimPaste(b: Buffer, after: bool, count: int) =
+  ## vim's p and P: puts the unnamed register (the system clipboard instead when vim.useSystemClipboard is on and it holds
+  ## something else) `count` times after or before the cursor — whole lines below or above the line, else in the text —
+  ## and leaves the cursor as vim does
   var text = vimReg
   var linewise = vimRegLine
   if cfgVimClipboard:

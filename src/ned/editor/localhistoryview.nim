@@ -1,6 +1,9 @@
 # ── local history ──
 
 proc historyAct(id: int, file: string, ms: int64): Action =
+  ## the action for one version in the local history list: opens a diff (that version, then now) of the buffer with this
+  ## id in a scratch tab, and offers a "Restore it" button in a toast that puts the old text back as an edit that can be
+  ## undone
   result = proc() =
     let b = bufById(id)
     if b == nil: return
@@ -23,6 +26,8 @@ proc historyAct(id: int, file: string, ms: int64): Action =
         info("Restored the version from " & agoText(ms) & " — Ctrl+S saves it, Ctrl+Z undoes"), 30000)
 
 proc cmdLocalHistory() =
+  ## palette command: lists the versions kept of the current file, newest first, each with how long ago it was and (for
+  ## the 25 newest) how many lines differ from the text now; picking one shows what changed
   let b = buf()
   if b.path.len == 0 or b.title.len > 0:
     info("Local history is kept for files on disk")
@@ -43,6 +48,7 @@ proc cmdLocalHistory() =
     items.add act(agoText(ms) & "   " & t, detail, historyAct(b.id, f, ms))
   openActions("Local history · " & b.name, items)
 
+# an action that opens folder `d` as the project
 proc folderAct(d: string): Action = (proc() = openFolder(d))
 
 proc cmdRecentProjects() =

@@ -90,6 +90,8 @@ proc rwTypesToWrite(b: Buffer): seq[(Pos, string)] =
     result.add (Pos(line: l, col: c), ty)
 
 proc rwWriteTypes(bid: int, at: int, ws: seq[(Pos, string)]): Action =
+  ## an action that writes each type (`: type`) after its name, from the last to the first so the positions stay right,
+  ## as one edit; it does nothing if the buffer changed since the fix was offered
   result = proc() =
     let b = bufById(bid)
     if b == nil or not b.canEdit() or b.changeId != at: return
@@ -436,6 +438,8 @@ proc rwInvertIf(b: Buffer): (int, int, seq[string]) =
   (l0, last, outl)
 
 proc rwReplaceAct(bid, at: int, pa, pe: Pos, nt: string): Action =
+  ## an action that replaces the text between two positions with nt as one edit; it does nothing if the buffer changed
+  ## since the fix was offered
   result = proc() =
     let x = bufById(bid)
     if x == nil or not x.canEdit() or x.changeId != at: return
@@ -444,6 +448,8 @@ proc rwReplaceAct(bid, at: int, pa, pe: Pos, nt: string): Action =
     x.endEdit()
 
 proc rwReplaceLines(bid, at, l0, l1: int, outl: seq[string]): Action =
+  ## an action that replaces whole lines l0 to l1 with the given lines as one edit; it does nothing if the buffer
+  ## changed since the fix was offered
   result = proc() =
     let b = bufById(bid)
     if b == nil or not b.canEdit() or b.changeId != at or l1 >= b.lines.len: return
@@ -492,6 +498,8 @@ proc rwIntLiteral(b: Buffer): (Pos, Pos, uint64, string, int) =
   (Pos(line: p.line, col: a), Pos(line: p.line, col: e), v, suffix, base)
 
 func rwInBase(v: uint64, base: int): string =
+  ## a number written in base 10, 16 (0x…), 8 (0o…) or 2 (0b…, with underscores between groups of four digits when
+  ## longer than a byte)
   if base == 10: return $v
   const ds = "0123456789ABCDEF"
   var x = v

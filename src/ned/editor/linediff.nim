@@ -6,6 +6,9 @@ type DiffOp = object
   aLine, bLine: int   # 0-based line in a / b (-1 when absent)
 
 proc lineDiff(a, b: seq[string]): seq[DiffOp] =
+  ## the line-by-line difference between `a` and `b` as a sequence of same, removed and added lines, each with its line
+  ## number on either side. The shared first and last lines are cut off, then Myers' algorithm finds the shortest edit
+  ## of the rest; when it would need more than 2000 changes the whole middle is reported as removed and then added.
   var pre = 0
   while pre < a.len and pre < b.len and a[pre] == b[pre]: inc pre
   var suf = 0
@@ -73,17 +76,22 @@ proc lineDiff(a, b: seq[string]): seq[DiffOp] =
     result.add DiffOp(kind: ' ', text: a[a.len - suf + i], aLine: a.len - suf + i, bLine: b.len - suf + i)
 
 proc textLines(t: string): seq[string] =
+  ## a text as lines for comparing: split at line feeds, the empty piece after a final line feed dropped, carriage
+  ## returns removed
   result = t.split('\n')
   if result.len > 1 and result[^1].len == 0: result.setLen(result.len - 1)
   for x in result.mitems:
     if x.len > 0 and x[^1] == '\r': x.setLen(x.len - 1)
 
 func diffStats(ops: seq[DiffOp]): (int, int) =
+  ## how many lines the diff adds and how many it removes, as (added, removed)
   for o in ops:
     if o.kind == '+': inc result[0]
     elif o.kind == '-': inc result[1]
 
 proc unifiedDiff(a, b: seq[string], nameA, nameB: string, ctx = 3): string =
+  ## the differences as `diff -u` text, with `ctx` lines of context around each change (nearby changes share one hunk);
+  ## "" when the two are the same
   let ops = lineDiff(a, b)
   var changed = false
   for o in ops:

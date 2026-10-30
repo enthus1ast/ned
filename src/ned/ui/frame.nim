@@ -1,4 +1,7 @@
+# drawing one whole frame of the screen — the order everything is drawn in — and the terminal's pointer shape and window
+# title that follow it
 proc showLoading(msg: string) =
+  ## shows a message as a popup and draws a frame at once, for a task that blocks the main loop for a while
   popupMsg(msg, 0)
   render()
 
@@ -43,6 +46,11 @@ proc termTitle() =
     writeAll("\e]2;" & clean & "\a")
 
 proc render() =
+  ## draws a frame: clears the cell grid and the click regions, works out the layout, and draws the tab bar, breadcrumbs
+  ## (or split panes), the editor (zen column or normal, with the minimap), the bottom panel, both docks, the title and
+  ## status bars, then what lies over them — completion, hover, find widget, prompt, picker, help, toasts, drag shading,
+  ## forms, menus, dialogs, tooltip — decides where the screen cursor shows, and sends the changed cells to the
+  ## terminal, followed by the pointer shape and window title; a message instead when the window is too small
   let renderT0 = getMonoTime()
   if cellPool.len > 50_000:
     resetCellPool()                 # (characters of several code points pile up: start the pool again)

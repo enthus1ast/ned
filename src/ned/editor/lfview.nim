@@ -84,6 +84,8 @@ proc lfLineOf(v: LfView, off: int64): int =
     p += chunk.len
 
 proc lfSetLines(b: Buffer, lines: seq[string]) =
+  ## makes `lines` the buffer's text (the viewer's window of the file; one empty line if there are none) and resets what
+  ## depended on the old text: highlighting state, git marks and the undo history
   b.lines = if lines.len > 0: lines else: @[""]
   b.hlStart = newSeq[LexSt](b.lines.len + 1)
   b.hlValid = 0
@@ -245,6 +247,8 @@ proc lfPump() =
   if b.viewer != nil: lfFollow(b)
 
 proc lfBusy(): bool =
+  ## whether any large-file viewer still has background work — its index is not finished or a search is running — so the
+  ## main loop keeps coming back
   for b in bufs:
     if b.viewer != nil and (not b.viewer.done or b.viewer.findBusy): return true
   false
@@ -271,6 +275,7 @@ proc lfOpen(b: Buffer, path: string, size: int64): bool =
   true
 
 proc lfClose(b: Buffer) =
+  ## closes the viewer's file and takes the viewer off the buffer
   if b.viewer != nil:
     try: close(b.viewer.f)
     except CatchableError: discard

@@ -1,12 +1,14 @@
 # ── run configurations ("run.configs"): the project's ways to run, one of them chosen for Alt+R / ▶ ──
 
 proc runConfigs(): seq[JsonNode] =
+  ## the run configurations from the `run.configs` setting: its entries that are objects with a name
   let n = settingNode("run.configs")
   if n != nil and n.kind == JArray:
     for c in n:
       if c.kind == JObject and c{"name"}.getStr.len > 0: result.add c
 
 proc runConfigNamed(name: string): JsonNode =
+  ## the run configuration of that name, or nil when there is none
   for c in runConfigs():
     if c{"name"}.getStr == name: return c
 
@@ -46,6 +48,8 @@ proc runConfigCmd(c: JsonNode, build: bool): (string, string) =
   (env & cmd, cwd.normalizedPath)
 
 proc runWithConfig(c: JsonNode, build = false) =
+  ## saves all files, then runs (or builds) a configuration's command in its folder; warns when it has no "main" or
+  ## "command"
   discard saveAll()
   let (cmd, cwd) = runConfigCmd(c, build)
   if cmd.len == 0:
@@ -54,6 +58,10 @@ proc runWithConfig(c: JsonNode, build = false) =
   runCommand(cmd, cwd)
 
 proc runCurrent(build = false) =
+  ## what Alt+R (or Build) does: runs the chosen run configuration when there is one (forgetting it if it was removed
+  ## from the settings); otherwise the current file by its language's run or build command — a Nim file through
+  ## `nimCmd`, a Rust project with cargo, C with make or cmake for a build, Python from the project's virtual
+  ## environment when it has one, HTML in the browser. With nothing known to run, it asks for a command.
   if activeRunConfig.len > 0:
     let c = runConfigNamed(activeRunConfig)
     if c != nil:

@@ -148,6 +148,9 @@ proc wordAt*(params: JsonNode): string =
   s[a ..< e]
 
 proc applyChange(uri: string, ch: JsonNode) =
+  ## applies one entry of a didChange notification's contentChanges to `docs[uri]`: with no range the entry is the whole
+  ## new text; with a range, its text replaces what lies between the range's start and end (columns turned into byte
+  ## offsets with `byteCol`), and the lines are joined again.
   if ch{"range"} == nil:
     docs[uri] = ch{"text"}.getStr
     return
@@ -167,6 +170,12 @@ proc applyChange(uri: string, ch: JsonNode) =
   docs[uri] = res.join("\n")
 
 proc handle(j: JsonNode, caps: JsonNode) =
+  ## deals with one message from the client. A request (it has an id and a method) is answered: initialize notes whether
+  ## the client offered UTF-8 positions, answers with `caps` plus the default textDocumentSync and calls an
+  ## `onRequest("initialize")` callback; shutdown only remembers it; any other method runs its `onRequest` callback and
+  ## sends the result, or an error with the exception's message (-32603), or "not supported" (-32601) when there is
+  ## none. A notification: exit quits (code 0 after a shutdown, else 1); didOpen, didChange and didClose update `docs`
+  ## and `docVersion`; then the `onNotification` callback runs, an exception in it going to the client's log.
   let meth = j{"method"}.getStr
   let params = j{"params"}
   if j.hasKey("id") and meth.len > 0:

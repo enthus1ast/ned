@@ -1,4 +1,8 @@
+# zen mode: the editor alone, with the docks, panel and bars hidden, and only a quiet line of position info and messages
+# at the bottom.
 func wordCount(b: Buffer): int =
+  ## the number of words in the buffer (runs of text between spaces and tabs, over all its lines); -1 when it has more
+  ## than 200000 lines
   if b.lines.len > 200_000: return -1
   for l in b.lines:
     var inWord = false
@@ -42,6 +46,9 @@ proc drawZenInfo(b: Buffer) =
   region(x, y, strWidth(info), 1, proc() = toggleZen(), "Leave zen mode (Alt+Z)")
 
 proc toggleZen() =
+  ## turns zen mode on or off. On, it remembers which of the left dock, right dock and panel were open and closes them;
+  ## off, it puts them back. Every buffer's last-change mark is reset so the window is scrolled to the cursor again
+  ## under the new size.
   zenMode = not zenMode
   if zenMode:
     zenSaved = (treeOpen, rightOpen, panelOpen)

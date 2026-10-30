@@ -344,6 +344,8 @@ proc ckPadding*(f: CxFile, extraTexts: seq[seq[string]] = @[]): seq[CkProblem] =
     let (ok, size, _, _) = cxRecordLayout(files, tag, false)
     if not ok: continue
     proc layout(us: seq[CkUnit]): int =
+      ## the size in bytes the struct would have with its fields in this order: each one at the next multiple of its
+      ## alignment, and the whole rounded up to the largest alignment
       var off = 0
       var al = 1
       for u in us:
@@ -428,6 +430,8 @@ proc ckCallArgs(lines: seq[string], line, open: int): (bool, seq[CkArg]) =
   var l = line
   var i = open
   proc finish(r: var seq[CkArg], c: var CkArg, l, i: int) =
+    ## ends the argument being read at line `l`, column `i`: its text is trimmed, it is added to `r`, and an empty one
+    ## is started for the next
     c.text = c.text.strip
     c.eline = l
     c.ecol = i
@@ -660,6 +664,7 @@ proc ckArgType(f: CxFile, files: seq[CxFile], a: string, line: int): (CkTy, stri
   of "long double": (tyLongDouble, "a long double")
   else: (tyUnknown, "")
 
+# whether a printf conversion letter is one that takes an integer (d i o u x X)
 func ckIntConv(c: char): bool = c in {'d', 'i', 'o', 'u', 'x', 'X'}
 
 func ckTakes(c: CkConv): string =
@@ -679,6 +684,7 @@ func ckTakes(c: CkConv): string =
   of 's': "a string"
   of 'p': "a pointer"
   else: "something else"
+# whether a printf conversion letter is one that takes a floating-point number
 func ckFloatConv(c: char): bool = c in {'f', 'F', 'e', 'E', 'g', 'G', 'a', 'A'}
 
 proc ckCall(f: CxFile, files: seq[CxFile], name: string, fi: int, scan: bool, args: seq[CkArg], line, col: int):
@@ -693,6 +699,8 @@ proc ckCall(f: CxFile, files: seq[CxFile], name: string, fi: int, scan: bool, ar
   for c in convs: want += c.stars + (if c.noArg: 0 else: 1)
   let given = args.len - fi - 1
   proc where(a: CkArg): (int, int, int, int) =
+    ## where to mark an argument, as line, column, end line, end column — one that runs over several lines is marked to
+    ## the end of its first line
     (a.line, a.col, a.line, (if a.eline == a.line: a.ecol else: f.lines[a.line].len))
   if given < want:
     var missing = ""
@@ -955,6 +963,7 @@ func ckPosOf(t: CkText, off: int): (int, int) =
   while k > 0 and t.starts[k] > off: dec k
   (t.first + k, off - t.starts[k])
 
+# the offset in `t.code` of a column on a line (the opposite of ckPosOf)
 func ckOffOf(t: CkText, line, col: int): int = t.starts[line - t.first] + col
 
 func ckMatch(code: string, i: int): int =
@@ -968,10 +977,12 @@ func ckMatch(code: string, i: int): int =
   -1
 
 func ckSkipWs(code: string, i: int): int =
+  ## the offset of the first character from `i` on that is not white space (the end of the text when there is none)
   result = i
   while result < code.len and code[result] in Whitespace: inc result
 
 func ckWordAt(code: string, i: int, w: string): bool =
+  ## whether the word `w` stands at `i` in the code as a whole word, not as part of a longer name
   code.continuesWith(w, i) and (i == 0 or code[i - 1] notin IdentChars) and
     (i + w.len >= code.len or code[i + w.len] notin IdentChars)
 
@@ -1000,6 +1011,7 @@ func ckIndentUnit(lines: seq[string]): string =
   spaces(best)
 
 func ckLeading(t: string): string =
+  ## the spaces and tabs a line starts with
   var n = 0
   while n < t.len and t[n] in {' ', '\t'}: inc n
   t[0 ..< n]
@@ -1205,6 +1217,8 @@ const CkArith = ["int", "unsigned", "long", "unsigned long", "long long", "unsig
                  "long double"]        ## (the usual arithmetic conversions: the later one wins)
 
 func ckArithRank(t: string): int =
+  ## where a type comes in the usual arithmetic conversions, the later one winning: 0 for int and anything smaller, then
+  ## unsigned, the long types, float, double and long double; -1 for a type not in that list (a typedef such as size_t)
   case t
   of "char", "signed char", "unsigned char", "short", "short int", "unsigned short", "_Bool", "bool", "signed",
      "signed int", "int": 0

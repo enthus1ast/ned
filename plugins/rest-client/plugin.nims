@@ -63,6 +63,7 @@ type
 
 var responses: Table[string, Resp]  # the named requests' last responses
 
+# whether the (stripped) line is a # or // comment
 func isComment(t: string): bool = t.startsWith("#") or t.startsWith("//")
 
 func parts(lines: seq[string]): seq[(int, int, string)] =
@@ -77,6 +78,9 @@ func parts(lines: seq[string]): seq[(int, int, string)] =
   result.add (a, lines.len, title)
 
 func parseReq(lines: seq[string], a, e: int, title: string): Req =
+  ## reads the request in lines a ..< e: its @name from a comment, then the request line (a method left out is GET; a
+  ## trailing HTTP/1.1 is dropped; lines starting with ? or & go on the address), the headers up to a blank line, and
+  ## the body (or a `< file` that holds it); the request's line is -1 when the part has none
   result = Req(title: title, line: -1)
   var i = a
   while i < e:                   # (before the request line: blank lines, comments, variables)
@@ -143,6 +147,8 @@ func httpLines(lines: seq[string], md: bool): seq[string] =
     else: result.add (if inside: l else: "###")
 
 func reqAt(lines: seq[string], line: int): Req =
+  ## the request of the part the line is in (the ### line above it counts as in it); a request with line -1 when there
+  ## is none
   for (a, e, title) in parts(lines):
     if line >= a - 1 and line < e: return parseReq(lines, a, e, title)
   Req(line: -1)
@@ -177,6 +183,7 @@ func jsonPath(j: JsonNode, path: string): JsonNode =
   n
 
 proc dotenv(dir, key: string): string =
+  ## the value of KEY in the .env file in dir, without quotes; raises ValueError when there is no file or no such key
   let f = dir / ".env"
   if not fileExists(f): raise newException(ValueError, "no .env file beside this one (for {{$dotenv " & key & "}})")
   for l in readFile(f).splitLines:
@@ -185,6 +192,7 @@ proc dotenv(dir, key: string): string =
   raise newException(ValueError, "the .env file has no " & key)
 
 proc guid(): string =
+  ## a new GUID, from the system's (/proc, uuidgen, or 16 random bytes made into a version 4 one)
   let (o, _) = sh("cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || " &
                   "od -An -N16 -tx1 /dev/urandom | tr -d ' \\n'")
   var g = o.strip.toLowerAscii
@@ -192,6 +200,7 @@ proc guid(): string =
     g = g[0 .. 7] & "-" & g[8 .. 11] & "-4" & g[13 .. 15] & "-a" & g[17 .. 19] & "-" & g[20 .. 31]
   g
 
+# n with a zero in front when it has one digit
 func two(n: int): string = align($n, 2, '0')
 
 func utc(t: int, rfc1123: bool): string =
@@ -334,6 +343,7 @@ var
   made: Table[string, Buf]         # the response tabs: their title → the tab
 
 func sizeText(n: int): string =
+  ## a size in words: bytes, or KB with one decimal from 1024 on
   if n < 1024: $n & " bytes"
   else:
     let k = n * 10 div 1024
@@ -424,6 +434,9 @@ proc finish(output: string, code: int) =
   message("REST: " & statusLine.splitWhitespace[1 .. ^1].join(" ") & " in " & $ms & " ms")
 
 proc send(b: Buf) =
+  ## REST: send the request at the cursor — builds a curl command (method, headers, body or body file, timeout,
+  ## redirects, certificate check by the settings) and runs it in the background, writing the body, headers and exit
+  ## code to files in the data folder and keeping curl's process number for cancel; finish shows the response
   if running:
     message("REST: a request is still running (REST: cancel the request)")
     return
@@ -459,6 +472,7 @@ proc send(b: Buf) =
              finish, d)
 
 proc cancel() =
+  ## REST: cancel the request — ends the curl that is running; says so when none is
   if not running:
     message("REST: no request is running")
     return
@@ -466,6 +480,8 @@ proc cancel() =
   if fileExists(runDir / "pid.out"): discard sh("kill " & readFile(runDir / "pid.out").strip & " 2>/dev/null")
 
 proc copyCurl(b: Buf) =
+  ## REST: copy as curl — puts the request at the cursor on the clipboard as a curl command and shows its first 80
+  ## characters
   let h = here(b)
   if not h.ok:
     warn("REST: " & h.why)

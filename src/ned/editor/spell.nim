@@ -15,9 +15,12 @@ var
   spellIdents: Table[int, (int, HashSet[string])]   # buffer → (changeId, the names its code uses)
   spellIdentsAt: Table[int, MonoTime]
 
+# the folder ned downloads dictionaries into (under the XDG data folder)
 proc spellDataDir(): string = getEnv("XDG_DATA_HOME", getHomeDir() / ".local" / "share") / AppName / "dictionaries"
 
 proc spellReset() =
+  ## forgets the loaded dictionary and the names collected from code, so the next check loads it again (after the
+  ## language or dictionary changed)
   spellLoaded = false
   spellWords.clear()
   spellIdents.clear()
@@ -40,6 +43,8 @@ proc spellCandidates(): seq[string] =
       result.add f
 
 proc parseAffCond(c: string): seq[(bool, set[char])] =
+  ## reads the condition of a hunspell affix rule (such as `[^aeiou]y`) into one element per letter: (negated, its
+  ## characters), where a dot is (true, {}) — any character
   var i = 0
   while i < c.len:
     if c[i] == '[':
@@ -62,6 +67,8 @@ proc parseAffCond(c: string): seq[(bool, set[char])] =
       inc i
 
 func affCondOk(w: string, cond: seq[(bool, set[char])], atEnd: bool): bool =
+  ## does the word satisfy an affix condition? The condition is tested against its last letters for a suffix and its
+  ## first letters for a prefix
   if cond.len > w.len: return false
   let off = if atEnd: w.len - cond.len else: 0
   for k, (neg, cs) in cond:
@@ -105,6 +112,8 @@ proc loadSpellDict() =
           if w.len == 4 and w[0] in ["SFX", "PFX"] and w[2] == "Y": crossOk.incl w[1]
       except CatchableError: discard
       proc flagsOf(fl: string): seq[string] =
+        ## splits a dictionary entry's flag field into single flags following the .aff file's FLAG mode: one character
+        ## each, two characters each (long) or numbers separated by commas
         case flagMode
         of "long":
           var i = 0
@@ -164,6 +173,8 @@ proc loadSpellDict() =
   except CatchableError: discard
 
 proc spellOn(b: Buffer): bool =
+  ## is spell check active for this buffer? Never for binary or very large files; always (unless off) for Markdown and
+  ## commit messages; for other code only when editor.spellCheck is "on", and not for data and plain-text modes
   if cfgSpell == "off" or b.binary or b.largeOn or b.lang == nil: return false
   if b.lang.mode == lmMarkdown or b.title == "COMMIT_EDITMSG" or b.path.endsWith("COMMIT_EDITMSG"): return true
   cfgSpell == "on" and b.lang.mode notin {lmPlain, lmJson, lmYaml, lmToml, lmMake, lmDiff, lmCss}
@@ -195,6 +206,9 @@ proc spellIdentsOf(b: Buffer): HashSet[string] =
   hs
 
 proc spellKnown(w: string): bool =
+  ## is the word in the dictionary (any case), ignored this session, or a known word with a possessive 's? With a plain
+  ## word list, which has stems only, the common English endings (-s, -ed, -ing, -ly, -er, -ness …) and doubled final
+  ## letters are also tried
   let low = w.toLowerAscii
   if low in spellWords or low in spellIgnored: return true
   var x = low
@@ -285,6 +299,7 @@ proc spellSuggest(w: string, n = 6): seq[string] =
     if result.len >= n: break
 
 proc spellAddWord(w: string) =
+  ## adds a word to the user's own dictionary file (one lower-case word a line, written safely) and to the loaded words
   let low = w.toLowerAscii
   try:
     createDir(configDir())

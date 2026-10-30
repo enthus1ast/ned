@@ -19,6 +19,7 @@ proc lsBufFor(path: string): Buffer =
   result.lang = langByName("Nim")
 
 proc lsFileFor(b: Buffer): NxFile =
+  ## the engine's index of the buffer's file: the open document's live one, else the file loaded from disk
   if lsDocByPath(b.path) != nil: nxFileFor(b) else: nxLoad(b.path)
 
 proc lsSymItem(path: string, lines: seq[string], s: NxSym): JsonNode =
@@ -73,6 +74,9 @@ proc lsDeclAt(d: LsDoc, p: Pos, kinds: set[NxKind]): (string, Buffer, NxFile, in
 # ── the call hierarchy ──
 
 proc lsPrepareCallHierarchy(params: JsonNode): JsonNode =
+  ## textDocument/prepareCallHierarchy: the routine at the position — the one whose name is there, one the name refers
+  ## to, else the routine around the cursor — as the item the client then asks incoming and outgoing calls of; null when
+  ## there is none
   let d = lsDocOf(params)
   result = newJNull()
   if not lsEngineOn(d): return
@@ -89,6 +93,8 @@ proc lsPrepareCallHierarchy(params: JsonNode): JsonNode =
   result = %*[lsSymItem(path, tb.lines, tf.syms[i])]
 
 proc lsIncomingCalls(params: JsonNode): JsonNode =
+  ## callHierarchy/incomingCalls: the routines that call the item's routine, each with the places of the calls
+  ## (nimCallers over the project's files); the module's top level is listed as a module when it calls it
   result = newJArray()
   let (b, f, i) = lsItemSym(params{"item"})
   if f == nil or i < 0: return
@@ -115,6 +121,7 @@ proc lsIncomingCalls(params: JsonNode): JsonNode =
   if nxRefsCut: lsShowMessage(2, RefsCutMsg)
 
 proc lsOutgoingCalls(params: JsonNode): JsonNode =
+  ## callHierarchy/outgoingCalls: the routines the item's routine calls (nimCallees), each with the places in its body
   result = newJArray()
   let (b, f, i) = lsItemSym(params{"item"})
   if f == nil or i < 0: return
@@ -141,6 +148,8 @@ proc lsBaseOf(s: NxSym): string =
   t[k + 4 ..< e].split('.')[^1]
 
 proc lsPrepareTypeHierarchy(params: JsonNode): JsonNode =
+  ## textDocument/prepareTypeHierarchy: the type declared at, or named at, the position as the item the supertypes and
+  ## subtypes are asked of; null when there is none
   let d = lsDocOf(params)
   result = newJNull()
   if not lsEngineOn(d): return
@@ -151,6 +160,8 @@ proc lsPrepareTypeHierarchy(params: JsonNode): JsonNode =
   result = %*[lsSymItem(path, tb.lines, tf.syms[i])]
 
 proc lsSupertypes(params: JsonNode): JsonNode =
+  ## typeHierarchy/supertypes: the type the item's object type is made of (`object of Base`), when it is declared where
+  ## the engine can find it
   result = newJArray()
   let (b, f, i) = lsItemSym(params{"item"})
   if f == nil or i < 0: return
@@ -164,6 +175,7 @@ proc lsSupertypes(params: JsonNode): JsonNode =
     break
 
 proc lsSubtypes(params: JsonNode): JsonNode =
+  ## typeHierarchy/subtypes: the object types in the project's Nim files that are made of the item's type
   result = newJArray()
   let (_, f, i) = lsItemSym(params{"item"})
   if f == nil or i < 0: return
@@ -198,6 +210,9 @@ proc lsImplementation(params: JsonNode): JsonNode =
 # ── selection ranges ──
 
 proc lsSelectionRanges(params: JsonNode): JsonNode =
+  ## textDocument/selectionRange: for each position, the chain of ever larger pieces of code around it — the editor's
+  ## Expand selection, each step the smallest candidate that holds the one before — as nested ranges, the largest
+  ## outermost
   let d = lsDocOf(params)
   result = newJArray()
   let b = d.b
@@ -235,6 +250,8 @@ proc lsSelectionRanges(params: JsonNode): JsonNode =
 # ── code lenses: ▶ run what is on a line ──
 
 func lsLensTitle(line: string): string =
+  ## the title of the code lens on a line, by what the line starts with: a test, a suite, `when isMainModule`,
+  ## runnableExamples, a testament block, a `# %%` cell
   let t = line.strip
   if t.startsWith("test ") or t.startsWith("test\""): "▶ Run the test"
   elif t.startsWith("suite "): "▶ Run the suite"
@@ -245,6 +262,8 @@ func lsLensTitle(line: string): string =
   else: "▶ Run"
 
 proc lsCodeLens(params: JsonNode): JsonNode =
+  ## textDocument/codeLens: a run lens on each line the editor puts one on (lensAt), as a command nedls.run with the
+  ## document and line; whether to show them is the client's say, not ned's setting
   let d = lsDocOf(params)
   result = newJArray()
   let b = d.b
@@ -344,6 +363,8 @@ proc lsDocumentLinks(params: JsonNode): JsonNode =
 # ── a module renamed or moved: the imports that name it ──
 
 proc lsWillRenameFiles(params: JsonNode): JsonNode =
+  ## workspace/willRenameFiles: when .nim files are renamed or moved, the workspace edit that fixes the imports naming
+  ## them (importEditsForMove); a message lists the imports it could not change; null when nothing changes
   result = newJNull()
   lsEnsureFiles()
   var changes: seq[(string, seq[string], seq[string])]

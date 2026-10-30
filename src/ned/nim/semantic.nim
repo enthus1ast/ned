@@ -38,6 +38,8 @@ var semLastMs = 0.0                     # how long the last rebuild took
 var semImportsMade: seq[SemImports]     # (the last few made: another file of the program sees the same)
 
 func semKindOfSym(k: NxKind): TokKind =
+  ## the colour (token kind) for a kind of declaration: routines, templates and macros, types, constants and enum
+  ## values, fields; plain text for the rest
   case k
   of nxProc, nxFunc, nxMethod, nxIterator, nxConverter: tkFunc
   of nxTemplate, nxMacro: tkPreproc
@@ -47,6 +49,8 @@ func semKindOfSym(k: NxKind): TokKind =
   else: tkText
 
 proc semAdd(kinds: var Table[string, TokKind], fields, calls, macros: var HashSet[string], s: NxSym) =
+  ## records a declaration in the colour tables: its name is noted as a field, as a routine that can be called (and as a
+  ## template or macro), and its colour is kept if the name has none yet
   let n = nxNorm(s.name)
   case s.kind
   of nxField: fields.incl n
@@ -58,6 +62,7 @@ proc semAdd(kinds: var Table[string, TokKind], fields, calls, macros: var HashSe
   if k != tkText and n notin kinds: kinds[n] = k
 
 func semMix(h: var uint64, s: string) =
+  ## mixes a string into a running 64-bit hash (FNV-1a, then a separator byte)
   for c in s: h = (h xor uint64(ord(c))) * 0x100000001b3'u64
   h = (h xor 0xff'u64) * 0x100000001b3'u64
 
@@ -195,10 +200,13 @@ proc semMapFor(b: Buffer): SemMap =
   semLastMs = float((getMonoTime() - t0).inMicroseconds) / 1000.0
 
 proc semKind(m: SemMap, w: string): TokKind =
+  ## the colour of a name: from this file's declarations, else from what the rest of the scope declares; plain text if
+  ## neither knows it
   result = m.kinds.getOrDefault(w, tkText)
   if result == tkText and m.imp != nil: result = m.imp.kinds.getOrDefault(w, tkText)
 
 template impHas(m: SemMap, field: untyped, w: string): bool =
+  ## whether the rest of the scope (once it is made) has the name in the given set
   m.imp != nil and w in m.imp.field
 
 proc semParamsAt(m: SemMap, line: int): seq[string] =

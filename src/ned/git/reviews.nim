@@ -22,6 +22,8 @@ const ReviewQuery = "query($owner:String!,$repo:String!,$n:Int!){repository(owne
   "comments(first:30){nodes{databaseId author{login} body url}}}}}}}"
 
 proc reviewThreadsAt(path: string, line: int): seq[ReviewThread] =
+  ## the loaded review threads that are about this line (0-based) of this file; the file's path is made relative to the
+  ## repository the threads were loaded for
   if reviewThreads.len == 0 or reviewRoot.len == 0 or not path.startsWith(reviewRoot & "/"): return
   let rel = path[reviewRoot.len + 1 .. ^1]
   for t in reviewThreads:
@@ -117,6 +119,8 @@ proc reviewsAfterPush(root: string) =
   if reviewThreads.len > 0 and root == reviewRoot: reviewsLoad(root, quiet = true)
 
 proc reviewReply(t: ReviewThread) =
+  ## asks for a text and posts it as a reply to the thread's first comment (`gh api` on the pull request's comments),
+  ## then loads the threads again
   let (owner, name) = reviewRepo
   let root = reviewRoot
   let id = t.firstId
@@ -131,6 +135,7 @@ proc reviewReply(t: ReviewThread) =
       else: error("GitHub did not take the reply")))
 
 proc reviewResolve(t: ReviewThread, resolve: bool) =
+  ## marks the thread resolved, or open again, with GitHub's GraphQL mutation (through gh), then loads the threads again
   let root = reviewRoot
   let m = if resolve: "resolveReviewThread" else: "unresolveReviewThread"
   let q = "mutation($id:ID!){" & m & "(input:{threadId:$id}){thread{isResolved}}}"
@@ -142,6 +147,7 @@ proc reviewResolve(t: ReviewThread, resolve: bool) =
     else: error("GitHub did not change the thread"))
 
 proc reviewThreadMenu(t: ReviewThread) =
+  ## the menu for one thread: go to its line, reply, resolve or open it again, and open its first comment on GitHub
   let root = reviewRoot
   var items: seq[(string, string, Action)]
   items.add act("Go to it", t.rel & (if t.line >= 0: ":" & $(t.line + 1) else: ""), proc() =
@@ -155,6 +161,7 @@ proc reviewThreadMenu(t: ReviewThread) =
   openActions((if t.comments.len > 0: t.comments[0][0] & ": " & t.comments[0][1].strip.splitLines()[0] else: "Review"), items)
 
 proc threadAct(t: ReviewThread): Action =
+  ## an action that opens the thread's menu — a procedure of its own so each list item keeps its own thread
   result = proc() = reviewThreadMenu(t)
 
 proc cmdReviewComments() =

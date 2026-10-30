@@ -24,6 +24,9 @@ proc resolveConflict(b: Buffer, ci: int, choice: string) =
   info("Conflict resolved (" & choice & ")" & (if left > 0: " — " & $left & " left" else: " — none left"))
 
 proc cmdConflict(choice: string) =
+  ## the commands that deal with the conflict at the cursor: ours, theirs or both resolve it (resolveConflict); next
+  ## goes to the following conflict (wrapping round). With the cursor outside a conflict it moves to the next one after
+  ## it, or says there are none
   let b = buf()
   let ci = b.conflictAt(b.primary.head.line)
   if ci < 0:

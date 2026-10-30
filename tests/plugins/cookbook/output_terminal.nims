@@ -14,6 +14,8 @@ proc projectFiles(): seq[string] =
     if f.len > 0: result.add (if f.startsWith("./"): f[2 .. ^1] else: f)
 
 proc listTodos() =
+  ## greps the project's files for TODO and FIXME, fifty files at a time with the progress shown after each, and lists
+  ## the lines (file:line:text) in the Output panel, where a click goes to the line; says how many it found
   let files = projectFiles()
   var found: seq[string]
   var i = 0

@@ -30,12 +30,14 @@ var
   sent = ""                      # (the look last given to ned: sent again only when it changes)
 
 proc look(): IndentStyle =
+  ## how the dots are to be drawn now, from the settings — an empty style (nothing drawn) when the plugin is off
   if not on: return IndentStyle()
   IndentStyle(dot: setting("char", "·"), dotColor: setting("color", "guide"), tab: setting("tabs", "→"),
               blankLines: setting("blankLines", true), lineEnd: (if setting("lineEnd", false): "¬" else: ""),
               langs: setting("languages", "").splitWhitespace)
 
 proc apply() =
+  ## gives ned the look of the dots, but only when it differs from the one given last
   let st = look()
   let key = $st
   if key == sent: return
@@ -43,6 +45,8 @@ proc apply() =
   indentStyle(st)
 
 proc toggle() =
+  ## Indent dots: on/off — switches the dots, keeps the state in the data folder for the next start, gives ned the new
+  ## look and says which it is
   on = not on
   writeData("state", (if on: "on" else: "off") & "\n")
   apply()

@@ -28,6 +28,8 @@ const AiPicMax = 5_000_000              # (the most the providers take, per pict
 var aiPicCache: Table[string, (int64, string)]   # picture → (when it changed, its base64): each turn sends them all
 
 proc aiPicMime(path: string): string =
+  ## the MIME type of a picture the assistant can take, from its file extension (PNG, JPEG, GIF, WebP); empty for any
+  ## other file
   case splitFile(path).ext.toLowerAscii
   of ".png": "image/png"
   of ".jpg", ".jpeg": "image/jpeg"
@@ -128,6 +130,8 @@ var
   aiPlanCps: seq[int]     # each step's restore point (a checkpoint id; -1: the step changed no files)
 
 proc aiProviderBase(): string =
+  ## the address the requests go to: ai.base when it is set (without a closing `/`, and without `/v1` for Anthropic, to
+  ## which ned adds its own path), else the provider's usual one (empty for an unknown provider)
   if cfgAiBase.len > 0:
     result = cfgAiBase.strip.strip(chars = {'/'})
     # ned adds /v1/messages for Anthropic itself; a base URL copied with /v1 must not double it
@@ -145,6 +149,8 @@ proc aiProviderBase(): string =
   else: ""
 
 proc aiKeyEnvName(): string =
+  ## the name of the environment variable that holds the API key: ai.keyEnv when set, else the provider's usual one
+  ## (AI_API_KEY for the others)
   if cfgAiKeyEnv.len > 0: return cfgAiKeyEnv
   case cfgAiProvider
   of "anthropic": "ANTHROPIC_API_KEY"
@@ -157,9 +163,12 @@ proc aiKeyEnvName(): string =
   else: "AI_API_KEY"
 
 proc aiKey(): string =
+  ## the API key: the one in the settings, else the one in the environment variable
   if cfgAiKey.len > 0: cfgAiKey else: getEnv(aiKeyEnvName())
 
 proc aiModel(): string =
+  ## the model to ask: the fast model while fast mode is on and one is set, else ai.model, else the provider's default
+  ## (empty when there is none)
   if aiFastOn and cfgAiFastModel.len > 0: return cfgAiFastModel
   if cfgAiModel.len > 0: return cfgAiModel
   case cfgAiProvider
@@ -168,9 +177,12 @@ proc aiModel(): string =
   of "ollama": "qwen2.5-coder"
   else: ""
 
+# whether the assistant is busy with a request
 proc aiRunning(): bool = aiBusy
 
 proc aiStatus(): string =
+  ## what the assistant is doing, for the status bar: its phase ("thinking…" when it has none) while it works,
+  ## "editing…" during an inline edit, else empty
   if aiBusy: (if aiPhase.len > 0: aiPhase else: "thinking…")
   elif aiInlineMode: "editing…"
   else: ""

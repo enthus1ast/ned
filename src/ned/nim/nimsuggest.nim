@@ -22,6 +22,8 @@ proc procRssMB(pid: int): int =
   except CatchableError: discard
 
 proc nsKill(s: NimSug) =
+  ## stops a nimsuggest process: tells it to quit, kills it if it does not, waits briefly and closes its pipes; it is
+  ## marked dead
   if s.dead: return
   s.dead = true
   if s.pr.inFd >= 0: discard posix.write(s.pr.inFd, cstring("quit\n"), 5)
@@ -30,6 +32,9 @@ proc nsKill(s: NimSug) =
   closeProc(s.pr)
 
 proc nsGet(b: Buffer, start = true): NimSug =
+  ## the nimsuggest process serving the buffer's project; unless start is false, one is started when there is none (at
+  ## most two run, the oldest is stopped, and the protocol version is asked once). nil when nimsuggest cannot be used
+  ## for the buffer
   if not nsUsable(b): return nil
   let proj = nimProjectFile(b)
   for s in nimSugs:
@@ -80,10 +85,12 @@ proc nsDirtyFile(b: Buffer): string =
   b.nsDirtyPath
 
 proc nsLoc(b: Buffer, p: Pos): string =
+  ## a position as nimsuggest wants it: file (with the dirty copy for unsaved text) : line : column
   let d = nsDirtyFile(b)
   b.path & (if d.len > 0: ";" & d else: "") & ":" & $(p.line + 1) & ":" & $p.col
 
 proc nsWrite(s: NimSug, cmd: string) =
+  ## writes a command line to nimsuggest's input, retrying on interrupts; the process is marked dead if the write fails
   let line = cmd & "\n"
   var off = 0
   while off < line.len and s.pr.inFd >= 0:
@@ -95,6 +102,7 @@ proc nsWrite(s: NimSug, cmd: string) =
       break
 
 proc nsPump(s: NimSug) =
+  ## sends the next waiting request when none is in flight (nimsuggest answers one at a time)
   if s.dead or s.inflight.len > 0 or s.waiting.len == 0: return
   let r = s.waiting[0]
   s.waiting.delete(0)
@@ -149,6 +157,7 @@ func skIcon(sk: string): int =
   else: 1
 
 func skWord(sk: string): string =
+  ## the word for a nimsuggest symbol kind (skProc gives proc, skEnumField gives enum …)
   case sk
   of "skProc": "proc"
   of "skFunc": "func"

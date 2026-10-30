@@ -1,3 +1,5 @@
+# what the prompts do when answered, and their keys: the commands that start from a prompt or a folder (editing a
+# theme's colours, opening a folder, moving a file) and the Enter and key handling for every kind of prompt
 proc cmdEditThemeColours() =
   ## the current theme as a file of its own to change: ~/.config/ned/themes/<name>-mine.json
   var j = themeJson(theme)
@@ -37,6 +39,11 @@ proc movePath(src, dest: string, what = "Moved to ") =
   except CatchableError as e: error(e.msg)
 
 proc submitPrompt() =
+  ## Enter in a prompt: remembers the text in the prompt's history and does what that kind of prompt is for — find,
+  ## replace (asks for the new text, then goes through the matches), go to line, save as, run a command, project search,
+  ## new file or folder, rename, language-server rename, new project, Atlas and nimble commands, git commit, plugin
+  ## prompts, Vim commands and searches, open folder, AI edit, a setting, breakpoint conditions, user commands and
+  ## debugger watches; most close the prompt first
   let kind = promptKind
   let t = promptText
   addHist(kind, t)
@@ -139,6 +146,8 @@ proc submitPrompt() =
     if t.strip.len > 0:
       let m = t.strip
       proc commitNow() =
+        ## makes the commit with the typed message after the pre-commit checks: when nothing is staged asks first
+        ## whether to commit all changed files (new files left out)
         # (git.checksBeforeCommit as for the message box: formatted, the tests passing — or why not, and the choice)
         if gitStaged() == 0:
           askConfirm("Nothing is staged — commit all changed files? (new files are left out) (y/n)", proc(c: char) =
@@ -247,6 +256,10 @@ proc submitPrompt() =
   closePrompt()
 
 proc promptKey(k: Key) =
+  ## the keys of the open prompt: Esc closes, Enter answers (Shift+Enter steps back in a find), Up and Down walk the
+  ## prompt's history (or step through matches in a find), Tab completes paths, F3 and Ctrl+F step through matches,
+  ## Alt+C, W and R toggle case, whole word and regex in find prompts, Ctrl+R turns find into replace; other keys edit
+  ## the text, and a find prompt updates its matches as you type
   let kind = promptKind
   let isFind = kind in {pFind, pReplaceFind, pVimSearch}
   case k.kind

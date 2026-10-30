@@ -2,6 +2,10 @@
 #    their shape) ──
 
 proc cmdProjectSymbols() =
+  ## Go to symbol in project: collects the declarations of every project file into a picker — Nim files from ned's index
+  ## (with fields, enum values and NimScript tasks), C and C++ files from the C engine, other code files by the shape of
+  ## their lines (heuristicSymbols), open buffers read from memory rather than disk. Plain-data files and files that are
+  ## too big are skipped, and the scan stops after about 2.5 seconds or 200,000 entries
   let t0 = getMonoTime()
   var items: seq[PickItem]
   let useIndex = cfgNimIde != "off" and not nimUsesLsp()

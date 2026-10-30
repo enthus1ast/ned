@@ -8,6 +8,8 @@ type AiTestFix = object
   attempt: int
 
 proc fileTextNow(p: string): string =
+  ## a file's text as it is now: from its open buffer (with a final newline unless the buffer has none) when it is open,
+  ## else read from disk ("" when it cannot be read)
   let bi = bufIndexByPath(p)
   if bi >= 0: return bufs[bi].lines.join("\n") & (if bufs[bi].noEol: "" else: "\n")
   try: readFile(p) except CatchableError: ""
@@ -132,6 +134,10 @@ proc aiFixTestCheck(fx: AiTestFix, reply: string) =
       error("The AI could not make " & fx.name & " pass — nothing was changed (" & failure.splitLines()[0] & ")"))
 
 proc aiFixTestAsk(fx: AiTestFix, prevReply, prevFailure: string) =
+  ## asks the model to fix the failing test: the test's code, the compiler's or test's messages for it, and the
+  ## project's modules it imports (whole when up to 600 lines, at most three) go in the prompt, with the SEARCH/REPLACE
+  ## format for the answer; after a failed first try the previous answer and its failure go in too. The reply goes to
+  ## aiFixTestCheck
   let tl = fileTextNow(fx.test).splitLines
   let (a, e) = testBlock(tl, fx.name)
   if a < 0:
@@ -190,6 +196,8 @@ proc failingTestAt(b: Buffer, line: int): string =
   ""
 
 proc cmdAiFixTest() =
+  ## the command that asks the AI to fix a failing test: the failed test at the cursor, else the file's first failed
+  ## test; a message when there is none
   let b = buf()
   var name = failingTestAt(b, b.primary.head.line)
   if name.len == 0:

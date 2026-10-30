@@ -64,6 +64,8 @@ proc extractVariable(direct = false) =
     inc l
   let bid = b.id
   proc doIt(name: string, all: bool) =
+    ## makes the extraction: the selection (and, when all is set, its other copies in the block) is replaced by the
+    ## name, and the declaration is put on a new line above the statement, in one undo step
     let bb = bufById(bid)
     if bb == nil: return
     bb.beginEdit()
@@ -295,6 +297,8 @@ proc nimEvaluate() =
   let (sa, se) = b.primary.range
   var expr = if sa != se and sa.line == se.line: b.getText(sa, se).strip else: b.wordAt(b.primary.head)
   proc run(ex: string) =
+    ## saves the file and has the compiler work the expression out: a private copy with a `static: echo` of it added is
+    ## checked, and the value from the output is shown in a dialog (with Copy); a compile error is reported instead
     if not saveForTool(b): return
     var ls = b.lines
     ls.add "static: echo \"NEDEVAL\\t\", repr(" & ex & ")"

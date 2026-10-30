@@ -31,10 +31,13 @@ var ce: CeState
 const CePalette = [Rgb(0xE06C75), Rgb(0xD19A66), Rgb(0xE5C07B), Rgb(0x98C379), Rgb(0x56B6C2), Rgb(0x61AFEF),
                    Rgb(0xC678DD), Rgb(0xFF79C6), Rgb(0x8BE9FD), Rgb(0xB5E853), Rgb(0xF5A97F), Rgb(0x7AA2F7)]
 
+# whether this buffer is the Compiler Explorer's assembly view
 proc ceIsView(b: Buffer): bool = b != nil and ce.viewBufId > 0 and b.id == ce.viewBufId
 
+# the text of the setting compilerExplorer.<k>
 proc ceOpt(k: string): string = sStr("compilerExplorer." & k)
 
+# whether ned runs in Termux (Android)
 proc ceTermux(): bool = getEnv("PREFIX").contains("com.termux")
 
 proc ceCompiler(): string =
@@ -65,6 +68,7 @@ proc ceCross(): bool =
                                         else: hostCPU)
 
 proc ceTargetLabel(t: string): string =
+  ## a target processor's name as the toolbar shows it (x86_64 → x86-64)
   case t
   of "x86_64": "x86-64"
   of "arm64": "ARM64"
@@ -72,9 +76,11 @@ proc ceTargetLabel(t: string): string =
   of "i386": "x86 (32-bit)"
   else: t
 
+# whether the target is an x86 processor — the Intel/AT&T syntax choice only means something then
 proc ceX86(): bool = ceTarget() in ["x86_64", "i386"]
 
 proc ceInstallHint(what: string): string =
+  ## how to install what is missing on this system: objdump (binutils) when `what` is "objdump", else a C compiler
   if ceTermux(): (if what == "objdump": "pkg install binutils" else: "pkg install clang")
   elif defined(macosx): "xcode-select --install"
   elif defined(windows): "MinGW (gcc) or LLVM (clang)"
@@ -105,11 +111,13 @@ proc ceZigWrapper(): string =
   except CatchableError: discard
 
 proc ceFilters(): AsmFilters =
+  ## the assembly filters the settings ask for, as the reader of the assembly takes them
   AsmFilters(labels: sBool("compilerExplorer.filterLabels"), library: sBool("compilerExplorer.filterLibrary"),
              directives: sBool("compilerExplorer.filterDirectives"), comments: sBool("compilerExplorer.filterComments"),
              demangle: sBool("compilerExplorer.demangle"))
 
 proc ceOptionsText(): string =
+  ## the compiler options for the file's language: the Nim options, or the C/C++ options
   if ce.lang == "nim": ceOpt("options") else: ceOpt("cOptions")
 
 proc ceCcShown(): string =
@@ -233,6 +241,8 @@ proc ceWriteCopy(src: Buffer, keepAll = false): bool =
 #    objdump) — the C compiler's command as Nim wrote it in the nimcache's .json ──
 
 proc ceNimCcFlags(cc: string): string =
+  ## the flags that tell Nim which C compiler to use: --cc:<cc>, or for another processor (and for zig) clang replaced
+  ## by the zig wrapper script as compiler and linker, with --os:linux and --cpu: for the target
   if ceCross() or cc == "zig":
     let w = quoteShell(ceZigWrapper())
     result = " --cc:clang --clang.exe:" & w & " --clang.linkerexe:" & w
@@ -243,9 +253,13 @@ proc ceNimCcFlags(cc: string): string =
   else: result = " --cc:" & cc
 
 proc ceCcExe(cc: string): string =
+  ## the program that compiles C and C++ files: the zig wrapper script (quoted) for another processor or zig, else the
+  ## compiler itself
   if ceCross() or cc == "zig": quoteShell(ceZigWrapper()) else: cc
 
 proc ceAsmFlags(binary: bool): string =
+  ## the extra C compiler flags for the output wanted: no unwind tables; for an object file (binary) DWARF 4 line
+  ## information, for assembly on x86 Intel syntax unless AT&T is chosen
   result = " -fno-asynchronous-unwind-tables"
   if binary: result.add " -gdwarf-4"
   elif ceX86() and ceOpt("syntax") != "att": result.add " -masm=intel"
@@ -302,6 +316,9 @@ proc ceBuild(src: Buffer, opts: string, done: proc(ok: bool, r: AsmResult, err: 
   let filters = ceFilters()
   let outS = shadow / ".ce-out" & (if binary: ".o" else: ".s")
   proc stage2(cmd: string) =
+    ## the second step of a build: runs the C compiler's command in the private folder (for the binary output followed
+    ## by objdump disassembling the object) as a background job, then reads the assembly it wrote — or objdump's listing
+    ## — and gives it to `done`; a failure gives the compiler's messages, without the private folder's path in them
     let full = if binary: cmd & " && " & od & " -d -r -l --no-show-raw-insn" &
                           (if ceX86() and ceOpt("syntax") != "att": " -M intel" else: "") & " " & quoteShell(outS)
                else: cmd
@@ -327,6 +344,9 @@ proc ceBuild(src: Buffer, opts: string, done: proc(ok: bool, r: AsmResult, err: 
               quoteShell(copy) & " 2>&1"
     let srcId = src.id
     proc nimStage(keep: bool) =
+      ## the first step for a Nim file: runs `nim c --compileOnly` on the copy so that Nim writes its C files and the C
+      ## compiler commands; the command for the file's own module goes (rewritten) to stage2. When the build with the
+      ## keep-all line fails, it is tried again without that line (`keep` false) before an error is reported.
       discard startJob(jkTool, cmd, shadow, proc(j: Job) =
         if j.code != 0:
           let sb = bufById(srcId)
@@ -356,6 +376,8 @@ proc ceBuild(src: Buffer, opts: string, done: proc(ok: bool, r: AsmResult, err: 
 # ── the view ──
 
 proc ceViewLines(): seq[string] =
+  ## the lines of the view: first the description of what compiled it, then either the failed compilation's messages or
+  ## a status line (time, lines shown, how many were filtered, why it may be empty) and the assembly
   result.add "; " & ceDescribe()
   if ce.failed:
     result.add "; <Compilation failed>  (Enter on the first line: options)"
@@ -523,6 +545,7 @@ proc ceOpenView(src: Buffer) =
   needRender = true
 
 proc ceClose() =
+  ## ends Compiler Explorer: the colours of the source and the view are taken off and its state is reset
   lineTints.del ce.srcBufId
   lineTints.del ce.viewBufId
   ce = CeState(hotSrc: -1)
@@ -566,6 +589,8 @@ proc cmdCompilerExplorer() =
        "assembly (or Enter on its first line) sets it up")
 
 proc cmdCeToggleRun() =
+  ## toolbar command: turns the setting that runs the program after each compile on or off; turning it on opens the
+  ## Output panel and runs the program now if the view has a good compile
   let on = not sBool("compilerExplorer.execute")
   setSetting("compilerExplorer.execute", %on)
   if on:
@@ -577,6 +602,8 @@ proc cmdCeToggleRun() =
                                 else: "the program no longer runs"))
 
 proc ceSet(key: string, val: JsonNode) =
+  ## changes a Compiler Explorer setting; with a view open the source counts as not yet compiled (the pump compiles it
+  ## again at once), the view's first line is rewritten, and a new compiler or target has its version looked up
   setSetting("compilerExplorer." & key, val)
   if key in ["compiler", "target"]: ceVersions(ceCompiler())
   if ce.viewBufId > 0:
@@ -671,6 +698,8 @@ proc cmdCeCompare() =
 # ── following the cursor and the mouse ──
 
 proc ceSrcOfView(line: int): int =
+  ## the source line (0-based) that a line of the view came from, or -1 for the header lines, a failed compile and
+  ## instructions with no line
   let i = line - ce.header
   if ce.failed or i < 0 or i >= ce.res.lines.len: -1 else: ce.res.lines[i].src
 
@@ -744,9 +773,12 @@ proc ceSetAct(key, val: string): Action =
   result = proc() = ceSet(key, %val)
 
 proc ceToggleAct(key: string): Action =
+  ## an action that flips the yes/no setting compilerExplorer.<key> — made here so each menu item keeps its own key
   result = proc() = ceSet(key, %(not sBool("compilerExplorer." & key)))
 
 proc ceMenu(key: string, opts: seq[(string, string)], x, y: int) =
+  ## opens a menu under the toolbar button at x, y with the (value, label) choices of a setting; the present one is
+  ## ticked, picking one sets it
   var items: seq[MenuItem]
   let cur = ceOpt(key)
   for (val, label) in opts:
@@ -754,6 +786,8 @@ proc ceMenu(key: string, opts: seq[(string, string)], x, y: int) =
   openMenu(items, x, y + 1)
 
 proc ceFilterMenu(x, y: int) =
+  ## opens the Filters menu under its toolbar button: one ticked item for each filter (and for compiling every proc),
+  ## which a click flips
   var items: seq[MenuItem]
   for (k, label) in [("filterLabels", "Unused labels"), ("filterLibrary", "Library functions"),
                      ("filterDirectives", "Directives"), ("filterComments", "Comments"),
@@ -775,6 +809,8 @@ proc ceDrawHeader(b: Buffer, i, x, y, w: int) =
     region(x, y, max(1, w - 2), 1, proc() = focusPane(pi), "", proc() = ctxOpen(paneHeaderMenu(pi)))
   xx = button(xx, y, "⚙", proc() = cmdCeOptions(), "Compiler Explorer: every setting", theme.accent, bg) + 1
   template item(label: string, act: Action, tip: string) =
+    ## adds one button to the toolbar, followed by a thin divider, and moves the drawing position on — only when it
+    ## still fits before the right end
     if xx + strWidth(label) < lim:
       xx = button(xx, y, label, act, tip, theme.fg, bg) + 1
       discard putStr(xx - 1, y, "│", blend(theme.dim, bg, 0.4), bg)

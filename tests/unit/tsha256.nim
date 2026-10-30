@@ -12,6 +12,7 @@ proc sumTool(): string =
   else: ""
 
 proc systemHash(path: string): string =
+  ## the SHA-256 of the file as the system's own program prints it, to compare ned's with
   let (o, code) = execCmdEx(sumTool() & " " & quoteShell(path))
   doAssert code == 0, o
   o.split(' ')[0].strip

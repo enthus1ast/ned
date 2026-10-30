@@ -13,6 +13,8 @@ var
   astExpand = ""
 
 func astDedent(lines: seq[string]): string =
+  ## the lines joined with the smallest indentation of the non-blank ones taken off, so a nested block parses as
+  ## top-level code
   var ind = high(int)
   for l in lines:
     if l.strip.len > 0: ind = min(ind, l.len - l.strip(trailing = false).len)
@@ -51,6 +53,7 @@ proc astCallAt(b: Buffer): (string, int, bool) =
   ("", -1, false)
 
 proc astBuffer(): Buffer =
+  ## the read-only buffer the AST view is shown in, made when it is not there yet
   for x in bufs:
     if x.title == AstTitle: return x
   result = newBuffer()
@@ -74,6 +77,10 @@ proc astShow(open = false) =
   needRender = true
 
 proc astRefresh(force = false) =
+  ## makes the view again when the text, the lines shown or the call at the cursor changed (or `force`): writes the
+  ## shown code and a small script to ned's private folder and runs `nim e`, which parses the code with parseStmt and
+  ## prints its treeRepr — no project code runs — and, for a template or macro at the cursor, adds what it expands to
+  ## (the engine for a template, the compiler for a macro). The view is updated as each part arrives
   let b = bufById(astSrc)
   if b == nil or b.lang == nil or b.lang.mode != lmNim:
     astOn = false
@@ -172,6 +179,8 @@ proc astPump() =
 var docPvSrc = -1                 # the Nim buffer whose docs are previewed (-1: none)
 
 proc docPvText(b: Buffer): string =
+  ## the Markdown of the docs preview: the module's doc comment, then each exported declaration with its signature and
+  ## doc comment, and the last run of its runnableExamples (passed, failed, running, or not run)
   let f = try: nxFileFor(b) except CatchableError: nil
   if f == nil: return "# " & b.name & "\n\n(the engine cannot read it)\n"
   result = "# " & nxModuleName(b.path) & "\n\n"

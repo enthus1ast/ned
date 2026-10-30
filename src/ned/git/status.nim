@@ -105,6 +105,9 @@ proc gitStatusDone(st: GitStatusRun) =
   needRender = true
 
 proc gitStatusJob(st: GitStatusRun, root: string) =
+  ## starts `git status --porcelain=v1 -b` for one repository (for a remote folder also reading its merge / rebase state
+  ## on the server) and keeps its output in the run; when the last repository of the run has answered — or could not
+  ## start — gitStatusDone reads them all
   # a remote folder's merge / rebase state is read on the server too (there is no .git here to look at)
   let probe = if remotes.len > 0 and remoteOf(root) >= 0:
                 "; g=$(git rev-parse --git-dir) && for f in MERGE_HEAD:merge rebase-merge:rebase rebase-apply:rebase " &
@@ -136,6 +139,7 @@ proc refreshGitStatus() =
   for r in roots: gitStatusJob(st, r)
 
 proc gitDiffView(path: string, staged: bool) =
+  ## shows `git diff` of one file (the staged changes when `staged`) in the output view, as a diff
   let root = gitHome()
   if root.len == 0: return
   let cmd = "git --no-pager diff --no-color " & (if staged: "--cached " else: "") & "-- " & quoteShell(path)

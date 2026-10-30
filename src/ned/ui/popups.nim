@@ -1,4 +1,8 @@
+# the popups drawn over the editor: the completion list with its documentation, the hover box, the picker (command
+# palette, files, symbols …) with its preview, the key-bindings help and the signature help
 proc compIcon(kind: int): (string, Rgb) =
+  ## the letter and colour that mark a completion item by its language-server kind: ƒ functions and methods, v variables
+  ## and fields, T types, m modules, c constants, k keywords, s snippets, w plain words
   case kind
   of 2, 3, 4: ("ƒ", theme.syn[tkFunc])
   of 5, 6, 10: ("v", theme.syn[tkProperty])
@@ -11,6 +15,10 @@ proc compIcon(kind: int): (string, Rgb) =
   else: ("•", theme.dim)
 
 proc drawCompletion() =
+  ## draws the completion list under the cursor (above it when there is no room): up to 8 rows with an icon, the label
+  ## with the typed letters highlighted and a detail, and a counter when there are more; then the selected item's
+  ## documentation, asked once from the language server when it has none yet, beside the list or in a strip above or
+  ## below it on a narrow screen, scrollable with Ctrl+Up/Down
   if cursorX < 0 or compShown.len == 0: return
   if not compValid():
     closeComp()
@@ -119,6 +127,8 @@ proc drawCompletion() =
     discard putStr(docX + docW - strWidth(more), docY + docH - 1, more, theme.dim, dbg, {}, docX + docW)
 
 proc drawHover() =
+  ## draws the hover box with the rendered Markdown of `hoverMd` above the cursor (below it when there is no room), at
+  ## most 84 columns wide and scrollable when it is longer than its room
   if hoverMd.len == 0: return
   let maxW = min(scrW - 4, 84)
   var lines = markdownLines(hoverMd, maxW - 2, theme.popupBg, compact = true)
@@ -202,6 +212,9 @@ proc pickPreviewBuffer(path: string): Buffer =
   b
 
 proc drawPickPreview(x, y, w, h: int) =
+  ## draws the preview box beside or under the picker for the selected item: a Telescope finder's text (wrapped when it
+  ## is prose, as lines when code or a command's output), else the item's file around its line with the line highlighted
+  ## (a message when it is not a text file)
   let (path, line, open) = pickPreviewTarget()
   if path.len == 0 and open == nil and tsActive and pickSel >= 0 and pickSel < pickShown.len:
     # a Telescope item's text: a commit, a setting's description, a command's output
@@ -250,6 +263,11 @@ proc drawPickPreview(x, y, w, h: int) =
     if b.lines[l].len <= 4000: drawCodeLine(b, l, x + 2 + numW, yy, x + w - 1, bg)
 
 proc drawPicker() =
+  ## draws the picker box: the query field with the count of shown and all items, the list with the selected row
+  ## highlighted (matched letters marked, icons, a theme's colours or a colour swatch where the picker has them, a
+  ## file's name before its folder, the detail at the right), the buttons and key hints under it when there is room, and
+  ## the preview beside it on a wide screen or under it on a tall one; quick fixes appear in a box next to the line they
+  ## fix. Registers the rows and field for the mouse
   var pw = min(scrW - 2, 96)
   var px = (scrW - pw) div 2
   var py = if scrH > 24: 2 else: 1
@@ -584,6 +602,8 @@ proc helpRows(w: int): seq[(int, string, string)] =
       result.add ((if keyed: 1 else: 2), (if i == 0: key else: ""), part)
 
 proc drawHelp() =
+  ## draws the key-bindings help, a box almost as big as the screen, scrolled by `helpScroll`: headings, keys in one
+  ## column and their descriptions in another
   let w = min(scrW - 2, 110)
   let h = scrH - 2
   let x = (scrW - w) div 2
@@ -607,6 +627,8 @@ proc drawHelp() =
   cursorX = -1
 
 proc drawSignature() =
+  ## draws the signature help over the cursor's line (below it when there is no room): the signature with the parameter
+  ## being typed highlighted and underlined, a note after it, and the documentation under it when completion is not open
   if not (sigOpen and focus == fEditor and promptKind == pNone and cursorY >= 0 and buf().primary.head.line == sigLine):
     return
   # the signature with the parameter being typed highlighted, its documentation under it

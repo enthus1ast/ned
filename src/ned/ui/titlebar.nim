@@ -1,10 +1,15 @@
 # ── title bar ──
 
 proc projectName(): string =
+  ## the project's name for the title bar: the nimble package's when the folder is its own, else the folder's name
   if nimble.name.len > 0 and nimble.dir == rootDir: nimble.name
   else: extractFilename(rootDir)
 
 proc drawTitleBar() =
+  ## draws the title bar. Its buttons on the right are laid out first (run or stop, the docks and panel, the assistant,
+  ## settings) so the rest knows the room left. Then, from the left: the menu button, the menu names (when there is
+  ## room), the project and git branch (with ahead and behind counts and a sync button) and a centred search box that
+  ## opens the file finder. Each part has a tip; the whole bar has a right-click menu.
   let y = lay.titleY
   if y < 0: return
   fillRect(0, y, scrW, 1, theme.titleFg, theme.titleBg)

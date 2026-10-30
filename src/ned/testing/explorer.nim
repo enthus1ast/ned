@@ -1,4 +1,9 @@
+# the test explorer: running every test of the project, the list of tests with their status in the side panel, and the
+# run buttons (code lenses) shown on test lines in the editor
 proc runAllTests() =
+  ## runs every test of the project the way its kind of project does it: the hastur files of a Nim 3 project; the Cargo,
+  ## Go, PHP, JVM, .NET or Python runner when there is no nimble file (the results are read back from its output for
+  ## every test file); else `nimble test`, testament specs, or each std/unittest file with `nim c -r`
   loadNimbleInfo()
   if nim3On():
     # a Nim 3 project: its hastur tests (not `nimble test`, which is Nim 2's)
@@ -94,6 +99,8 @@ proc runAllTests() =
   runCommand(cmd, rootDir)
 
 func testAct(p, n: string, line: int, isS: bool): Action =
+  ## the action for a test's row: opens its file and centres on the test's line, then runs the test (name `n`) or, for a
+  ## suite or file row, the whole file
   proc() =
     if line >= 0:
       let b = openFile(p)
@@ -101,6 +108,9 @@ func testAct(p, n: string, line: int, isS: bool): Action =
     if not isS: runTests(p, n) else: runTests(p)
 
 proc buildTestItems(): seq[SideItem] =
+  ## the rows of the test list in the side panel: one per test file, then its suites and tests, each with an icon for
+  ## its last result (passed, failed, running, skipped, not run) and its line; with no tests found, a hint and a button
+  ## that creates tests/test1.nim
   if not testScanned: rescanTests()
   if testEntries.len == 0:
     return @[sideItem("No tests found", 2), sideItem("std/unittest `test \"name\":` blocks in tests/ are listed here", 2),

@@ -35,6 +35,8 @@ proc cLex(text: string, ok: var bool): seq[CTok] =
   var col = 0
   var lineStart = true            # nothing but whitespace so far on this line
   template adv(n: int) =
+    ## steps the reading position over n characters, keeping the line and column and whether only blanks have been seen
+    ## on the line so far
     for _ in 0 ..< n:
       if text[i] == '\n':
         inc line
@@ -304,6 +306,10 @@ proc cTypeNames(toks: seq[CTok]): HashSet[string] =
       elif last.len > 0: result.incl last
 
 proc cInfoOf(toks: seq[CTok], cpp: bool): CInfo =
+  ## works out what the tokens are, for the styles that need it (see CInfo): each token's neighbours that are not
+  ## comments, the partner of every bracket, the kind of every `{` (function, control statement, struct, enum,
+  ## initialiser, namespace, plain block), and the role of `*`, `&`, `:` and `(` — binary or unary or a declarator's, a
+  ## cast's parenthesis, the colon of a case label, a control statement's closing parenthesis, a ternary's `?` and `:`
   let n = toks.len
   result.prevC = newSeq[int](n)
   result.nextC = newSeq[int](n)
@@ -326,8 +332,11 @@ proc cInfoOf(toks: seq[CTok], cpp: bool): CInfo =
   # brackets, and each `{`'s kind (a forward pass: what is around it)
   let types = cTypeNames(toks)
   var stack: seq[int]
+  # the token before token k that is not a comment (-1: none)
   template P(k: int): int = result.prevC[k]
+  # the text of token k, empty for no token (-1)
   template txt(k: int): string = (if k >= 0: toks[k].text else: "")
+  # is this word a type: one of C's type keywords and common library types, or a name the file itself uses as a type
   proc isTypeWord(s: string): bool = s in CTypeWords or s in types
   for k in 0 ..< n:
     let t = toks[k]
@@ -664,6 +673,8 @@ func cSepStyled(toks: seq[CTok], info: CInfo, ia, ib: int, ws: string, st: CStyl
 # ── lines left as they are: `// clang-format off` … `on`, and (in a style) what `#if 0` leaves out ──
 
 proc cFrozen(lines: openArray[string], ifZero: bool): seq[bool] =
+  ## which lines the formatter must leave exactly as they are: those between `// clang-format off` and `// clang-format
+  ## on` and, when ifZero, the lines inside an `#if 0` up to its #else, #elif or #endif (nested #if blocks counted)
   result = newSeq[bool](lines.len)
   var off = false
   var zeroDepth = 0             # (inside `#if 0`: the #if nesting from it)
@@ -704,6 +715,7 @@ proc cStructure(text: string, toks: seq[CTok], info: CInfo, st: CStyle): string 
   var lineStart = @[0]
   for i, c in text:
     if c == '\n': lineStart.add i + 1
+  # the offset of a token in the whole text
   proc offOf(t: CTok): int = lineStart[min(t.line, lineStart.high)] + t.col
   var brk = newSeq[bool](n)          # a line break before the token
   var blanks = newSeq[int](n)        # empty lines before it
@@ -717,6 +729,8 @@ proc cStructure(text: string, toks: seq[CTok], info: CInfo, st: CStyle): string 
     brk[k] = nl > 0
     blanks[k] = max(0, nl - 1)
   template force(k: int, v = true) =
+    ## sets whether a line break stands before token k and marks it as one the style insists on, so that the joining of
+    ## lines further on leaves it alone
     if k > 0 and k < n:
       brk[k] = v
       forced[k] = true
@@ -781,6 +795,8 @@ proc cStructure(text: string, toks: seq[CTok], info: CInfo, st: CStyle): string 
   if st.breakBinary >= 0 and st.name != "keep":
     let bin = cBinary(toks, false)
     proc isBinOp(k: int): bool =
+      ## is token k a binary operator that a line may be broken at: arithmetic, logical and comparison operators and a
+      ## `*` or `&` used as binary, but not a ternary's `?`
       let t = toks[k]
       t.kind == ckPunct and (bin[k] and t.text notin ["?"] or t.text in ["&&", "||", "==", "!=", "<=", ">="] or
                              (t.text in ["*", "&"] and info.role[k] == 1))
@@ -1188,6 +1204,9 @@ proc cReindent(text: string, st: CStyle, cpp: bool): (string, string) =
   var ppDone = newSeq[bool](toks.len)  # (styled) a continued directive formatted whole
   var blanks = 0
   template push(ch: char, col: int, last, sw: bool, cb = false, gb = false) =
+    ## opens a bracket: pushes it on the stack of open brackets with what the reindenting needs about it — its column,
+    ## whether it ended its line, whether it is a switch's or a case block's brace, the indentation of its line, and a
+    ## brace on a line of its own
     stack.add ch
     openCol.add col
     openLast.add last
@@ -1196,6 +1215,7 @@ proc cReindent(text: string, st: CStyle, cpp: bool): (string, string) =
     openInd.add lineInd
     gnuBrace.add gb
   template pop() =
+    ## closes the innermost open bracket: drops all that push recorded for it
     stack.setLen(stack.len - 1)
     openCol.setLen(openCol.len - 1)
     openLast.setLen(openLast.len - 1)
@@ -1658,6 +1678,11 @@ proc cPostWrap(text: string, st: CStyle, cpp: bool): (string, bool) =
   (res.join("\n"), changed)
 
 proc cPost(text: string, st: CStyle, cpp: bool): string =
+  ## pass 3, what looks across lines, on the reindented text: lines over the column limit are wrapped (and indented
+  ## again, up to three rounds, until nothing moves), then, as the style asks, the values of consecutive #defines, the
+  ## `=` of consecutive assignments, the names of consecutive declarations and the trailing comments of consecutive
+  ## lines are lined up at one column, and indentation is turned into tabs. Lines inside block comments, strings, macros
+  ## continued with a backslash and `clang-format off` regions are not touched
   var text = text
   if st.colLimit > 0:
     # (wrapped, then indented again — the way a second run would — until it holds)
@@ -1794,6 +1819,8 @@ proc cPost(text: string, st: CStyle, cpp: bool): string =
     var prevLine = -2
     var prevClosed = false
     template flush() =
+      ## ends a run of consecutive lines with trailing comments: when it holds two or more, their comments are moved to
+      ## the common column, then the run is cleared
       if run.len >= 2:
         for (li, cc, ce) in run:
           lines[li] = lines[li][0 ..< ce] & spaces(max(1, minC - ce)) & lines[li][cc .. ^1]

@@ -93,6 +93,7 @@ func zigCode(s: string): string =
     inc i
 
 func identEnd(s: string, i: int): int =
+  ## where the name (letters, digits and `_`) that starts at `i` ends
   result = i
   while result < s.len and (s[result].isAlphaNumeric or s[result] == '_'): inc result
 
@@ -159,6 +160,7 @@ func zigSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc zigHave(cmd: string): bool =
+  ## whether the first word of a configured command (with ~ expanded) is a program that can be found on PATH
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

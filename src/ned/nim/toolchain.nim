@@ -45,6 +45,7 @@ proc tcVersionOf(top: string): seq[int] =
     except CatchableError: discard
 
 proc tcVerText(v: seq[int]): string =
+  ## a version as text, its numbers joined by dots
   var p: seq[string]
   for x in v: p.add $x
   p.join(".")
@@ -112,6 +113,8 @@ proc tcProjectNeeds(): string =
   parts.join(" & ")
 
 proc tcWarnOnce(key, msg: string, act: proc() = nil, label = "") =
+  ## shows a warning once per key: a toast with a button (label, running act) when an action is given, else a plain
+  ## warning
   if key in tcWarned: return
   tcWarned.incl key
   if act != nil: toast(msg, 2, label, act, 15000) else: warn(msg)
@@ -216,6 +219,8 @@ proc cmdChooseProjectNim() =
   let pathTop = tcTopOfExe(pathNim)
   let need = tcProjectNeeds()
   proc mark(v: seq[int]): string =
+    ## for a pick-list entry: whether a Nim version meets what the project's .nimble asks (a tick or a cross with the
+    ## requirement), empty when it asks nothing
     if need.len == 0 or v.len == 0: "" elif nxSatisfies(tcVerText(v), need): "  ✓ meets " & need else: "  ✗ not " & need
   if pathNim.len > 0:
     let v = tcVersionOf(pathTop)

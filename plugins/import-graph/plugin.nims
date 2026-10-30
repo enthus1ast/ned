@@ -57,6 +57,7 @@ type
     path*: string                # from the project's folder
     imps*: seq[Imp]
 
+# a count with its noun, the noun with an s unless the count is 1: "4 modules"
 func plural(n: int, word: string): string = $n & " " & word & (if n == 1: "" else: "s")
 
 func at(s, sub: string, start = 0): int =
@@ -191,6 +192,8 @@ proc searchRoots*(root: string): seq[string] =
   ## src, the .nimble's srcDir, the --path of config.nims and nim.cfg
   result = @[""]
   proc add(result: var seq[string], root, v: string) =
+    ## adds the folder v (relative to the project, or absolute) to the list of search folders as a path from the
+    ## project's folder; a folder outside the project, or one already in the list, is left out
     var d = normalizedPath(if v.isAbsolute: v else: root / v)
     if d == root: d = ""
     elif d.startsWith(root & "/"): d = d[root.len + 1 .. ^1]
@@ -220,6 +223,7 @@ proc searchRoots*(root: string): seq[string] =
         if v.len > 0 and '$' notin v: add(result, root, v)
 
 func dirOf(rel: string): string =
+  ## the folder part of a path from the project's folder ("" for a file in the folder itself)
   let k = rel.rfind('/')
   if k < 0: "" else: rel[0 ..< k]
 
@@ -308,12 +312,16 @@ proc readModules*(root: string): (seq[Module], bool) =
   (ms, whole)
 
 proc notWhole(n: int) =
+  ## warns that only the first n files were read (NimScript reads a limited amount) and how to have all of them read
   warn("Imports: only the first " & plural(n, "file") & " were read — NimScript reads so much at most; let the " &
        "plugin run programs (find and awk read them all): Plugins dock › import-graph")
 
 # ── the graph ──
 
 proc mermaid*(ms: seq[Module], external: bool, direction: string): string =
+  ## the modules as the text of a Mermaid flowchart (direction LR, RL, TD, TB or BT; LR if it is anything else): a box
+  ## for each module, an arrow for each import (a dotted one for an include), and — when external — the standard
+  ## library's modules and the nimble packages in boxes of their own
   var ids = initTable[string, string]()
   var lines = @["flowchart " & (if direction.toUpperAscii in ["LR", "RL", "TD", "TB", "BT"]: direction.toUpperAscii
                                 else: "LR")]
@@ -363,6 +371,9 @@ proc tree*(ms: seq[Module], external: bool): string =
   var res: seq[string]
   var shown = initHashSet[string]()
   proc walk(i: int, prefix: string, onPath: var seq[string]) =
+    ## adds the lines of the module ms[i]'s children to the tree — the project modules it imports (a cycle marked "a
+    ## cycle", one already shown "(above)"), then its standard library and package imports as one line each; goes into
+    ## each new child, with the prefix of the tree's branches
     let m = ms[i]
     var kids: seq[(string, string)]                     # (its path, what the tree shows)
     var seenKid: seq[string]
@@ -408,6 +419,8 @@ proc tree*(ms: seq[Module], external: bool): string =
   res.join("\n")
 
 proc graphNow() =
+  ## Imports: graph of this project's modules — reads the project's modules and opens Imports.md in a tab: how many
+  ## modules and imports there are, the Mermaid flowchart and the tree of text
   let root = projectRoot()
   if root.len == 0 or not dirExists(root):
     message("Imports: open a project's folder first")
@@ -443,6 +456,8 @@ proc graphNow() =
   else: notWhole(ms.len)
 
 proc whoImports() =
+  ## Imports: who imports this file — lists the project's modules that import or include the current .nim file, with the
+  ## line; the one picked is opened at that line
   let b = current()
   let root = projectRoot()
   let p = if b.valid: b.path else: ""

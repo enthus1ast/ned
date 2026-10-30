@@ -1,3 +1,5 @@
+# the quick-fix list (Alt+Enter) for Nim and for the other languages: the fixes for the problems at the cursor, the
+# refactorings the cursor's word allows, and the actions that silence a lint rule on a line or for the project.
 proc lintIgnoreLineAct(id, line: int, rule: string): Action
 proc lintRuleOffAct(path, rule: string): Action
 

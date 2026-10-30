@@ -21,11 +21,14 @@ func quotedName(t: string, kw: string): string =
   if e < 0: return ""
   s[q + 1 ..< e]
 
+# the key of a test in `testStatus` and the other per-test tables
 func testKey(path, name: string): string = path & "::" & name
 
 # ── tests in other languages: pytest, go test, cargo test (▶ in the gutter, the test explorer) ──
 
 func testLangOf(path: string): string =
+  ## which test language a file is by its name: py, go (`_test.go`), rs, nim, php, cs or jvm (.kt, .java); "" for
+  ## anything else
   if path.endsWith(".py"): "py"
   elif path.endsWith("_test.go"): "go"
   elif path.endsWith(".rs"): "rs"
@@ -62,6 +65,9 @@ func testAttrLine(lang, t: string): bool =
   else: false
 
 proc scanOtherTests(path: string, lines: seq[string]): seq[TestEntry] =
+  ## the tests of a non-Nim file, found from its text: Python `def test…` functions and methods of `class Test…` suites,
+  ## Go `func Test…(*testing.T)`, Rust `#[test]` functions, and C#, Java/Kotlin or PHP methods marked as tests (PHP also
+  ## any `function test…`)
   case testLangOf(path)
   of "py":
     var cls = ""
@@ -309,6 +315,9 @@ func otherTestAt(b: Buffer, l: int): (string, bool) =
   ("", false)
 
 proc runOtherTests(path, filter: string) =
+  ## runs a non-Nim test file (or one test of it, or a suite) with its language's runner, after saving all files: the
+  ## tests show as running, then passed or failed from the command's output, and a message tells how many failed or
+  ## passed; an error when the runner is not installed
   let (cmd, cwd) = otherTestCmd(path, filter)
   if cmd.len == 0: return
   let tool = cmd.firstWord

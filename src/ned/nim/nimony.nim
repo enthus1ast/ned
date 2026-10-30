@@ -11,6 +11,9 @@ var
 var nimonyLookedAt: MonoTime
 
 proc nimonyFind() =
+  ## finds the nimony program (on PATH, else in ~/nimony, ~/src/nimony or ~/.local/nimony) and its checkout (the folder
+  ## holding lib/std/system.nim), and remembers them while PATH is the same; when none is found it looks again only
+  ## after 10 seconds
   let path = getEnv("PATH")
   # (not found: looked for again after 10 s — *Nim 3: install or update Nimony* may have just built it)
   if nimonyMemo[0] == path and (nimonyMemo[1].len > 0 or msSince(nimonyLookedAt) < 10_000): return
@@ -32,6 +35,7 @@ proc nimonyFind() =
   nimonyMemo = (path, exe, root)
 
 proc nimonyExe(): string =
+  ## the nimony program, "" when it is not installed
   nimonyFind()
   nimonyMemo[1]
 
@@ -73,6 +77,20 @@ proc nim3Project(dir: string): bool =
   nim3Seen = (dir, found, getMonoTime())
   found
 
+proc nim3Why(dir: string): string =
+  ## the file that makes a project Nim 3 for nim.compiler "auto" — nimony.args, nimony.paths or pnak.nif in its folder
+  ## or up to three above — "" when there is none
+  var d = dir
+  for _ in 0 .. 3:
+    for n in ["nimony.args", "nimony.paths", "pnak.nif"]:
+      if fileExists(d / n): return d / n
+    let up = parentDir(d)
+    if up.len == 0 or up == d: break
+    d = up
+  ""
+
+var nimonyBuilding = false              # (Nim 3: install or update nimony is running: the status bar says so)
+
 proc nim3On(): bool =
   ## is the project Nim 3 — built with nimony (said so, or nim.compiler "auto" and the project has nimony's or pnak's
   ## files), which is installed?
@@ -92,9 +110,11 @@ proc nimonyCache(): string =
   privDir() / "nimony" / ("cache-" & nimonyKey(if rootDir.len > 0: rootDir else: getCurrentDir()))
 
 proc nimonyArgs(): string =
+  ## the arguments every nimony run gets: its build files go to ned's own folder
   "--nimcache:" & quoteShell(nimonyCache())
 
 proc nimonyCheckCmd(path: string): string =
+  ## the shell command that has nimony check a file, errors and all on the output
   quoteShell(nimonyExe()) & " check " & nimonyArgs() & " " & quoteShell(path) & " 2>&1"
 
 proc nimonyCopyText(lines: openArray[string], dir: string): string =

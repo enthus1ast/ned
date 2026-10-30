@@ -46,8 +46,10 @@ var
   selBefore = false              # (the timer) text was selected at its last look
   last = Paste(buf: -1)
 
+# how many copies the history keeps, from the size setting (at least 1)
 proc maxSize(): int = max(1, setting("size", 30))
 
+# whether the history is kept in the plugin's data folder (the keepOnDisk setting) and not only in memory
 proc onDisk(): bool = setting("keepOnDisk", false)
 
 proc load() =
@@ -62,6 +64,7 @@ proc load() =
   except CatchableError: discard
 
 proc store() =
+  ## writes the history to ring.json in the plugin's data folder, when keepOnDisk is on
   if onDisk(): writeData("ring.json", $(%*{"ring": ring}) & "\n")
 
 func remembered(r: seq[string], s: string, size: int): seq[string] =
@@ -87,6 +90,7 @@ proc capture() =
 # ── showing an entry on one line ──
 
 func runes(s: string): int =
+  ## the number of characters of the UTF-8 text (its bytes that are not continuation bytes)
   for c in s:
     if (ord(c) and 0xC0) != 0x80: inc result
 
@@ -125,6 +129,8 @@ proc putAt(b: Buf, r: Range, s: string, idx: int) =
   last = Paste(buf: b.id, at: r.start, text: s, idx: idx)
 
 proc pasteFromHistory() =
+  ## Yank ring: paste from history — reads the clipboard once more, lists the copies newest first (each on one line with
+  ## its number of lines and characters) and puts the one picked in at the cursor, over the selection when there is one
   let b = current()
   if not b.valid:
     message("Yank ring: open a file first")
@@ -143,6 +149,7 @@ proc pasteFromHistory() =
   let sel = b.selection
   putAt(b, (if sel.isEmpty: rng(b.cursor, b.cursor) else: sel), ring[k], k)
 
+# whether `a` is at or before `b` in the text
 func before(a, b: Pos): bool = a.line < b.line or (a.line == b.line and a.col <= b.col)
 
 proc pastedHere(b: Buf): (bool, Range, int) =
@@ -166,6 +173,9 @@ proc pastedHere(b: Buf): (bool, Range, int) =
   (false, noRange(), -1)
 
 proc pasteBefore() =
+  ## Yank ring: paste the one before — swaps the text just pasted for the next older copy of the history (round to the
+  ## newest after the oldest), and says which one of how many it is; it says what to do first when no paste is found
+  ## before the cursor or there is only one copy
   let b = current()
   if not b.valid: return
   capture()

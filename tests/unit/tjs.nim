@@ -4,9 +4,11 @@
 import std/[unittest, strutils, sequtils]
 import ../../src/ned/web/[jsengine, jsdata, webcommon]
 
+# the labels of the completion items, in order
 proc labels(items: seq[WebItem]): seq[string] = items.mapIt(it.label)
 
 proc item(items: seq[WebItem], label: string): WebItem =
+  ## the item with this label; an empty one with rank -1 when none has it
   for x in items:
     if x.label == label: return x
   WebItem(rank: -1)
@@ -23,23 +25,29 @@ proc at(text: string): (seq[string], int, int) =
   doAssert false, "no | in the text"
 
 proc complete(text: string): seq[WebItem] =
+  ## the completions the engine offers at the | in the text
   let (ls, l, c) = at(text)
   jsComplete(ls, l, c)[1]
 
 proc hover(text: string): string =
+  ## the hover text of the name at the | in the text
   let (ls, l, c) = at(text)
   jsHover(ls, l, c)
 
 proc definition(text: string): (int, int) =
+  ## the place (line, column) where the name at the | is declared
   let (ls, l, c) = at(text)
   jsDefinition(ls, l, c)
 
 proc inCode(text: string): bool =
+  ## is the | in code, not in a string, a comment, a regular expression or a template's text?
   let (ls, l, c) = at(text)
   jsInCode(ls, l, c)
 
+# the problems the engine finds in the text (as a piece of a page when fragment is set)
 proc checks(text: string, fragment = false): seq[WebDiag] = jsChecks(text.split('\n'), fragment)
 
+# the rule names of the problems, in order
 proc rules(ds: seq[WebDiag]): seq[string] = ds.mapIt(it.rule)
 
 suite "JS data":

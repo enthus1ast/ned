@@ -1,5 +1,12 @@
+# the list of the command palette: every command with its name and the key (or the words) shown beside it, and the
+# Markdown page of them that `ned --doc-commands` writes
 proc initCommands() =
+  ## makes the list of commands the palette (Ctrl+E) searches, the key menus use and the documentation is made from:
+  ## first the ones added elsewhere (initCommandsV4), the user's own commands and macros, then those below, each with
+  ## its name, the key shown for it and what it does
   template add(n, k: string, body: untyped) =
+    ## adds a command with the name `n`, the key text `k` (shown in the palette; it does not bind the key) and `body` as
+    ## what it does
     commands.add Command(name: n, keys: k, action: proc() = body)
   initCommandsV4()
   refreshUserCommands()

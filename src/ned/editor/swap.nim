@@ -2,6 +2,7 @@
 # One file per (path, ned process): <hash(path)>-<pid>.json. A session only ever writes or deletes its
 # own files, so a crashed session's edits stay until you restore or discard them.
 
+# the folder of the recovery (swap) files, inside ned's state folder
 proc swapDir(): string = stateDir() / "swap"
 
 var
@@ -24,6 +25,8 @@ proc privDir(): string =
   ## ~/.local/state/ned/tmp. Never a fixed name in the shared /tmp.
   if privDirCache.len > 0 and dirExists(privDirCache): return privDirCache
   proc mine(d: string): bool =
+    ## makes the folder d (mode 0700) and says whether it is really yours: a folder, not a link, owned by this user,
+    ## with no rights for group or others
     try:
       createDir(d)
       setFilePermissions(d, {fpUserRead, fpUserWrite, fpUserExec})
@@ -61,9 +64,14 @@ proc privSweep() =
 
 var undoWritten: Table[int, int]        # buffer id → the undo step last written
 
+# the file where the undo history of the file at this path is kept
 proc undoFile(path: string): string = stateDir() / "undo" / fnv(path) & ".json"
 
 proc writeUndo(b: Buffer) =
+  ## keeps a saved file's undo history for the next time it is opened: the last 300 undo and redo steps (about 4 MB of
+  ## text at most) and 20 undo-tree branches, as JSON together with a hash of the text, so readUndo only brings it back
+  ## while the file is unchanged. Skipped for buffers with no file, titled or binary ones, ones with unsaved edits and
+  ## huge ones; an empty history removes the file
   if not cfgPersistentUndo or b.path.len == 0 or b.title.len > 0 or b.binary or b.dirty: return
   if b.lines.len > 200_000: return             # (huge files: hashing them on every save costs too much)
   if undoWritten.getOrDefault(b.id, -1) == b.topSeq() and b.undoStack.len > 0: return
@@ -72,11 +80,15 @@ proc writeUndo(b: Buffer) =
   if b.undoStack.len == 0 and b.redoStack.len == 0 and b.undoBranches.len == 0:
     removeFile(f)
     return
+  # a position as JSON: [line, column]
   proc pos(p: Pos): JsonNode = %[p.line, p.col]
   proc curs(cs: seq[Cursor]): JsonNode =
+    ## cursors as JSON: a list of [anchor line, anchor column, head line, head column]
     result = newJArray()
     for c in cs: result.add %[c.anchor.line, c.anchor.col, c.head.line, c.head.col]
   proc groups(gs: seq[UndoGroup]): JsonNode =
+    ## the last 300 undo groups as JSON — each with its edits (position, old text, new text), the cursors before and
+    ## after, its kind and sequence number — stopping when the texts add up to 4 MB
     result = newJArray()
     var size = 0
     for g in gs[max(0, gs.len - 300) .. ^1]:
@@ -100,6 +112,9 @@ proc writeUndo(b: Buffer) =
   except IOError, OSError: discard
 
 proc readUndo(b: Buffer) =
+  ## restores the undo history stored by writeUndo when it belongs to this file and the file's text is still the one it
+  ## was stored for (else it is ignored); the numbering of undo steps carries on after it, and the buffer counts as
+  ## saved
   if not cfgPersistentUndo or b.path.len == 0 or b.lines.len > 200_000: return
   let f = undoFile(b.path)
   if not fileExists(f): return
@@ -107,11 +122,14 @@ proc readUndo(b: Buffer) =
   try: j = parseFile(f)
   except CatchableError: return
   if j{"path"}.getStr != b.path or j{"hash"}.getStr != fnv(b.lines.join("\n")): return     # changed elsewhere
+  # a position back from its JSON [line, column]
   proc posOf(n: JsonNode): Pos = Pos(line: n[0].getInt, col: n[1].getInt)
   proc cursOf(n: JsonNode): seq[Cursor] =
+    ## cursors back from their JSON form
     for c in jitems(n):
       result.add Cursor(anchor: Pos(line: c[0].getInt, col: c[1].getInt), head: Pos(line: c[2].getInt, col: c[3].getInt), goalX: -1)
   proc groupsOf(n: JsonNode): seq[UndoGroup] =
+    ## undo groups back from their JSON form
     for g in jitems(n):
       var ug = UndoGroup(kind: g{"k"}.getInt, seqId: g{"s"}.getInt, before: cursOf(g{"b"}), after: cursOf(g{"a"}))
       for o in jitems(g{"o"}): ug.ops.add EditOp(a: posOf(o[0]), oldText: o[1].getStr, newText: o[2].getStr)
@@ -150,9 +168,13 @@ proc procStart(pid: int): string =
 var myStart = ""
 
 proc swapKey(b: Buffer): string =
+  ## the name a buffer's recovery file starts with: a hash of its path, or `untitled` and its number for a buffer with
+  ## no file
   if b.path.len > 0: fnv(b.path) else: "untitled" & $b.id
 
 proc swapPath(b: Buffer): string =
+  ## this session's recovery file for the buffer: the key, a dash and the process id, so sessions never touch each
+  ## other's files
   swapDir() / swapKey(b) & "-" & $getCurrentProcessId() & ".json"
 
 # ── a recovery file is flushed to storage (fsync) and put in place by a thread of its own: on a phone's flash an
@@ -171,6 +193,8 @@ var
   swapTmpN = 0
 
 proc swapThreadMain() {.thread.} =
+  ## the recovery-file thread: does its jobs in the order given — stop; flush the written temp file to storage, close it
+  ## and rename it over the recovery file; remove a recovery file
   while true:
     let j = swapChan.recv()
     case j.kind
@@ -182,6 +206,8 @@ proc swapThreadMain() {.thread.} =
     else: discard posix.unlink(j.dest.cstring)
 
 proc swapThreadStart(): bool =
+  ## starts the recovery-file thread if it is not running; false when it cannot be started, and the caller then writes
+  ## the file itself
   if swapThrOn: return true
   try:
     swapChan.open()
@@ -229,6 +255,10 @@ proc swapWriteAsync(dest, content: string): bool =
   true
 
 proc writeSwap(b: Buffer, force = false) =
+  ## writes the buffer's unsaved text to its recovery file (JSON with the path, process id and start time, time, text
+  ## and line ending; mode 0600), or removes the file when the buffer is unchanged. Not for binary, titled or read-only
+  ## buffers, or over 300,000 lines; a big file at most every 20 seconds. Normally the thread flushes it; `force` (a
+  ## crash or a signal) lets the thread finish and writes it here at once
   if b.binary or b.title.len > 0 or b.readOnly: return
   if not b.dirty:
     removeSwap(b)

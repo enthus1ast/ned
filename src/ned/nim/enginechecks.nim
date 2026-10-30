@@ -99,6 +99,7 @@ func ecCodeOnly(s: string, inTriple: var bool, inComment: var int): string =
     inc i
 
 func ecIndent(s: string): int =
+  ## how many spaces the line starts with
   var k = 0
   while k < s.len and s[k] == ' ': inc k
   k
@@ -229,10 +230,15 @@ proc ecSwitches(b: Buffer, code: seq[string], res: var seq[Diag]) =
   ## the one meant
   if not nxIsScript(b.path): return
   proc fixOf(title: string, edits: seq[(int, int, int, int, string)]): JsonNode =
+    ## a quick fix as the problem carries it: its title and its edits (start line and column, end line and column, the
+    ## new text)
     var js = newJArray()
     for (l0, c0, l1, c1, t) in edits: js.add %*[l0, c0, l1, c1, t]
     %*{"nedfix": title, "edits": js}
   proc check(l, at: int, name: string, res: var seq[Diag]) =
+    ## checks the compiler switch `name` written at line `l`, column `at`: `gc` and `newruntime` are old (--mm is the
+    ## fix), `threads:on` is the default now (the line can go), and a name the compiler does not have is reported with
+    ## the nearest real switch as the fix
     # (switches the compiler still takes but says otherwise now — and the line the default made needless)
     let raw = b.lines[l]
     let ln = name.toLowerAscii
@@ -714,6 +720,7 @@ func ecWordsOf(s: string): seq[(int, int)] =
       i = e
     else: inc i
 
+# whether the routine has the {.async.} pragma
 func ecIsAsync(s: NxSym): bool = "async" in s.pragmas
 
 proc ecAsync(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
@@ -729,6 +736,7 @@ proc ecAsync(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]) =
   if sc == nil: return
   let skip = ecSkipLines(f, sc, code)
   proc futureCall(name: string): bool =
+    ## whether `name` is a routine that gives a Future — every declaration it can mean is {.async.} or returns a Future
     let refs = nxLookup(sc, name)
     if refs.len == 0: return false
     for r in refs:
@@ -1725,6 +1733,9 @@ proc ecUnusedImports(f: NxFile, b: Buffer, code: seq[string], res: var seq[Diag]
     var others: HashSet[string] = initHashSet[string]()                 # what the other imports' declarations name
     var othersMade = false
     template reachable(bt: string): bool =
+      ## whether a value of this type can be in the code without its name written: a type of the imported module itself
+      ## only when another import's declarations mention it (a proc returns one, an object holds one), any other type
+      ## always
       # can a value of this type be here without its name written? (x's own type: only if another import's
       # declarations mention it — its procs return one, its objects hold one)
       if nxNorm(bt) notin own: true
@@ -1876,6 +1887,7 @@ proc ecMutatingCall(f: NxFile, b: Buffer, l, col: int, argIdx: int): bool =
   except CatchableError: return true
   if rs.len == 0: return true
   for r in rs:
+    # the declaration being looked at in the loop
     template sy: untyped = r.sym
     if sy.kind notin {nxProc, nxFunc, nxMethod, nxIterator, nxConverter}: return true
     for i, p in sy.params:
@@ -2303,6 +2315,7 @@ proc ecVersion(v: string): seq[int] =
     except ValueError: return @[]
 
 func ecVerLess(a, b: seq[int]): bool =
+  ## whether version a is older than b (compared number by number; a missing number counts as 0)
   for i in 0 ..< max(a.len, b.len):
     let x = if i < a.len: a[i] else: 0
     let y = if i < b.len: b[i] else: 0
@@ -2393,6 +2406,8 @@ var ecApiNew: Table[string, int]          # "module\tname" (normalized) → the 
 var ecModNew: Table[string, int]          # a module's name → the release step that added it
 
 proc ecApiLoad() =
+  ## reads the table of Nim releases (NimApiSteps) once: which release added each module and each name, for the checks
+  ## of what is too new for the package
   if ecApiNew.len > 0: return
   for i, st in NimApiSteps:
     for m in st[2].splitWhitespace: ecModNew[m] = i
@@ -2442,6 +2457,7 @@ proc ecVersionGuarded(code: seq[string]): seq[bool] =
     i = if guarded: e + 1 else: i + 1
 
 proc ecVerText(v: seq[int]): string =
+  ## a version written out: its numbers with dots between
   var vs: seq[string]
   for x in v: vs.add $x
   vs.join(".")
@@ -2478,6 +2494,7 @@ proc ecDeprecatedAndNewer(f: NxFile, b: Buffer, code: seq[string], res: var seq[
   var notDep: HashSet[string]            # (a name with one declaration that is not deprecated: an overload may be meant)
   for r in sc.refs:
     if r.file == nil: continue
+    # the declaration being looked at in the loop
     template sy: untyped = r.sym
     if "deprecated" in sy.pragmas and r.file.path != f.path: depNames.incl nxNorm(sy.name)
     elif "deprecated" notin sy.pragmas: notDep.incl nxNorm(sy.name)
@@ -2526,6 +2543,7 @@ proc ecDeprecatedAndNewer(f: NxFile, b: Buffer, code: seq[string], res: var seq[
     var step = -1                        # (else the latest release step that added one of them)
     var depMsg = ""
     for r in rs:
+      # the declaration being looked at in the loop
       template sy: untyped = r.sym
       if r.file.path == f.path and sy.line == l: return                 # (its own declaration)
       let (has, msg) = ecPragmaArg(sy.pragmas, "deprecated")
@@ -2774,6 +2792,8 @@ proc engineChecksFor(b: Buffer): seq[Diag] =
   # (inside a `when` branch the engine leaves out, nothing is checked; a rule .ned/lint.json turns off is not looked for)
   let lc = lintCfgFor(f.path)
   template on(rule: string): bool =
+    ## whether the rule is to be checked: its severity (from the project's .ned/lint.json, else the default) is not off
+    ## and is within the level asked for
     (let sv = lc.sev.getOrDefault(rule, nedRuleSev(rule)); sv != 0 and sv <= ecWantSev)
   let live = bufById(b.id) == b
   let port3 = nim3On() or b.path in nim3Asked       # (Nim 3's porting problems: in a Nim 3 project, or asked for)

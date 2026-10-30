@@ -197,6 +197,8 @@ proc gitLoginNeeded(args, root, output: string) =
   githubSignInMenu(root, args, why)
 
 proc cmdGithubSignIn() =
+  ## the command "Git: sign in to GitHub": offers the sign-in ways for the current repository's remote; with no
+  ## repository open it just reports the GitHub CLI's account, or starts the CLI's sign-in when it is not signed in
   let root = gitHome()
   if root.len == 0:
     if haveExe("gh") and ghSignedIn(): info("The GitHub CLI is signed in" & (if ghAccount.len > 0: " as @" & ghAccount else: ""))

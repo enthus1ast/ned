@@ -25,6 +25,7 @@ proc replPrepare(langId, code: string, bracketed: bool): string =
     for l in lines.mitems:
       l = if l.len >= common: l[common .. ^1] else: l.strip(trailing = false)
   let blocky = langId in ["python", "nim"]
+  # the width of a line's leading whitespace
   proc indOf(l: string): int = l.len - l.strip(trailing = false).len
   let lastInd = indOf(lines[^1])
   let opensBlock = lines[^1].strip.endsWith(":") or (langId == "nim" and lines[^1].strip.endsWith("="))
@@ -62,6 +63,8 @@ proc replReady(t: Term): bool =
   x.len > 0 and x[^1] in {'>', ':', '$', '#', '%', '?'}
 
 proc replFlush(t: Term) =
+  ## types the code queued for a REPL tab into it once the REPL is ready (each piece through replPrepare); does nothing
+  ## while the queue is empty, the tab ended or the prompt has not shown yet
   if t.replQ.len == 0 or t.dead or t.fd < 0 or not t.replReady(): return
   let q = t.replQ
   t.replQ.setLen(0)

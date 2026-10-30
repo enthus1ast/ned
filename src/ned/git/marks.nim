@@ -30,6 +30,9 @@ proc updateGitMarks(b: Buffer) =
   needRender = true
 
 proc gitHunks(b: Buffer): seq[GitHunk] =
+  ## the file's changes against its git version as hunks: the lines each now takes in the buffer (newStart up to, not
+  ## including, newEnd; equal for deleted lines, and then the line they sat before) and the old lines it replaced. Empty
+  ## when the file has no git version
   if not b.gitHasBase: return
   let ops = lineDiff(b.gitBase, b.lines)
   var i = 0
@@ -52,6 +55,8 @@ proc gitHunks(b: Buffer): seq[GitHunk] =
     i = j
 
 proc hunkAtCursor(b: Buffer): int =
+  ## the number of the change the cursor's line is in, or -1; a deletion counts for the line it sat before and for the
+  ## one above
   let hs = b.gitHunks()
   let l = b.primary.head.line
   for k, h in hs:
@@ -60,6 +65,8 @@ proc hunkAtCursor(b: Buffer): int =
   -1
 
 proc gotoHunk(d: int) =
+  ## moves to the next change (d above 0) or the previous one, going round at the ends, and says which one of how many
+  ## it is
   let b = buf()
   if not b.gitHasBase:
     info("No git changes to step through here")
@@ -86,6 +93,8 @@ proc gotoHunk(d: int) =
   info("Change " & $(pick + 1) & " of " & $hs.len & "  ·  F7 next · Shift+F7 previous · palette › Git: revert this change")
 
 proc showHunk() =
+  ## shows what the change under the cursor replaced, in a hover: old lines after a minus, new lines after a plus. In
+  ## the changes view the change is found in the diff of the file the line belongs to
   let b = buf()
   if b.id in gcViews:
     # (the changes view: what the change replaced, from its file's diff)
@@ -154,6 +163,8 @@ proc stageHunk() =
     refreshGitStatus())
 
 proc unstageFile() =
+  ## takes the file out of git's index (git reset), then brings its marks and the Git status up to date; keeps the name
+  ## first, as the tab may be closed before git answers
   let b = buf()
   if b.path.len == 0: return
   let id = b.id
@@ -175,6 +186,8 @@ proc hunkActions() =
                           act("Show the change", "", proc() = showHunk())])
 
 proc revertHunk() =
+  ## puts the committed lines back in place of the change at the cursor, as one edit that Ctrl+Z undoes: an added change
+  ## is removed, a deleted one is put back, with the ends of the file taken care of
   if gcActHere("revert"): return
   let b = buf()
   if not b.canEdit(): return
@@ -217,6 +230,8 @@ var
   blameAllBusy: HashSet[string]
 
 proc blameAllKey(path: string): string =
+  ## says which version of the file's blame this is: the file's time of change and that of the repository's HEAD log put
+  ## together, so a change to either makes a new one. Empty when the file cannot be read
   try:
     var key = $getLastModificationTime(path).toUnixFloat
     let g = findGitRoot(parentDir(path))
@@ -226,6 +241,8 @@ proc blameAllKey(path: string): string =
   except CatchableError: ""
 
 proc parseBlameAll(o: string, key: string): BlameAll =
+  ## reads the output of git blame --porcelain for a whole file: each line's commit (an index in commits) and each
+  ## commit's author, summary and time; lines not committed yet get an empty author
   result.key = key
   result.at = getMonoTime()
   var byHash: Table[string, int]
@@ -256,11 +273,17 @@ proc parseBlameAll(o: string, key: string): BlameAll =
     elif ln.startsWith("summary "): result.commits[cur][1] = ln[8 .. ^1]
 
 proc blameLineText(ba: BlameAll, l: int): string =
+  ## the blame text for line l (from 0): author, how long ago and summary, or `You · not committed`; empty when the line
+  ## is out of range
   if l < 0 or l >= ba.lineCommit.len: return ""
   let c = ba.commits[ba.lineCommit[l]]
   if c[0].len == 0: "You · not committed" else: c[0] & ", " & agoText(c[2] * 1000) & " · " & c[1]
 
 proc requestBlame(b: Buffer) =
+  ## asks for the blame of the cursor's line, for the status bar. Unsaved lines are answered without git (`You · not
+  ## committed` for added or changed ones, nothing for the rest); then from the whole-file blame if it is less than a
+  ## minute old, which is started in the background for local files of up to 20000 lines; meanwhile git is asked about
+  ## just this line, no more often than every 350 ms
   if not cfgBlame or b.path.len == 0 or not b.inGit or b.binary: return
   let l = b.primary.head.line
   let key = b.path & ":" & $l & ":" & $b.changeId

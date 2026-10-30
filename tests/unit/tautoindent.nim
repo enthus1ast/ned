@@ -4,6 +4,7 @@
 import std/[strutils, unittest]
 import ../../src/ned/editor/autoindent
 
+# the text as a list of lines
 proc ls(s: string): seq[string] = s.split('\n')
 
 suite "a branch word typed at the start of a line":

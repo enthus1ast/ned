@@ -88,6 +88,8 @@ proc tourProgressFrom*(s: string): TourProgress =
   except CatchableError: discard
 
 proc tourProgressJson*(p: TourProgress): string =
+  ## the progress as indented JSON for the progress file: the lesson you were at, the lessons done and the hash of the
+  ## lesson each copy was made from
   var made = newJObject()
   for (f, h) in p.made: made[f] = %h
   pretty(%*{"at": p.at, "done": p.done, "made": made})
@@ -99,6 +101,7 @@ func tourMadeFrom*(p: TourProgress, file: string): string =
   ""
 
 proc tourSetMade*(p: var TourProgress, file, h: string) =
+  ## notes that the copy `file` was made from the lesson with hash h, replacing what was noted before
   for m in p.made.mitems:
     if m[0] == file:
       m[1] = h

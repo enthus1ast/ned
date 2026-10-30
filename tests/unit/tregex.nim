@@ -5,6 +5,8 @@ import std/unittest
 import ../../src/ned/editor/regex
 
 proc find(pat, s: string, icase = false): (bool, seq[int]) =
+  ## compiles the pattern (the test fails if its syntax is wrong) and searches the text from its start: whether it
+  ## matched, and the positions of the capture groups
   let re = compileRegex(pat, icase)
   check re.err.len == 0
   var caps: seq[int]

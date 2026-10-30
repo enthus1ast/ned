@@ -1,4 +1,7 @@
+# the GitHub commands, through the gh command line tool: pull requests, issues and Actions runs as menus, and the CI
+# status of the current branch shown in the status bar.
 proc ghReady(): bool =
+  ## can the GitHub commands run: gh must be installed and the folder be a git repository; says what is missing when not
   if not haveExe("gh"):
     warn("This needs the GitHub CLI: " & installHint("gh", "gh") & ", then gh auth login")
     return false
@@ -33,6 +36,8 @@ proc ciRefresh() =
     needRender = true)
 
 proc ghPullRequests() =
+  ## GitHub › Pull requests: lists the open pull requests (up to 50, with branch, author and draft state); picking one
+  ## offers to check it out, show its changes or its checks, read it with its comments, or open it in the browser
   if not ghReady(): return
   let root = gitHome()
   info("Asking GitHub for the pull requests…")
@@ -73,6 +78,8 @@ proc ghPullRequests() =
     else: openActions("Pull requests", items))
 
 proc ghIssues() =
+  ## GitHub › Issues: lists the open issues (up to 50, with their labels); picking one offers to read it with its
+  ## comments or open it in the browser
   if not ghReady(): return
   let root = gitHome()
   info("Asking GitHub for the issues…")
@@ -98,6 +105,8 @@ proc ghIssues() =
     else: openActions("Issues", items))
 
 proc ghRuns() =
+  ## GitHub › Actions: lists the latest 15 workflow runs with a mark for their state (running, passed, skipped, failed);
+  ## picking one opens it in the browser. Also refreshes the status bar's CI mark
   if not ghReady(): return
   let root = gitHome()
   discard startJob(jkTool, "gh run list --limit 15 --json displayTitle,status,conclusion,headBranch,url,createdAt,workflowName 2>&1",
@@ -121,6 +130,8 @@ proc ghRuns() =
     else: openActions("GitHub Actions — pick one to open it", items))
 
 proc ghMenu() =
+  ## the GitHub menu: pull requests, issues, Actions runs, the review comments of this branch's pull request, and
+  ## creating a pull request
   openActions("GitHub", @[
     act("Pull requests", "check out, see changes and checks, open", proc() = ghPullRequests()),
     act("Issues", "read, open", proc() = ghIssues()),

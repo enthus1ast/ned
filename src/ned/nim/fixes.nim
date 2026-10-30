@@ -21,17 +21,22 @@ proc qApply(b: Buffer, edits: seq[QEdit], what: string) =
   needRender = true
 
 proc qAct(b: Buffer, edits: seq[QEdit], what: string): Action =
+  ## the action that applies a fix's edits to the buffer and says `what` was done (the buffer is looked up again when it
+  ## runs, as its tab may be gone by then)
   let id = b.id
   result = proc() =
     let x = bufById(id)
     if x != nil: qApply(x, edits, what)
 
 func qNumType(t: string): bool =
+  ## whether the type is a whole-number one: int and uint with their sizes, byte, Natural, Positive, the C types such as
+  ## cint, and char
   t in ["int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "byte", "Natural",
         "Positive", "cint", "cuint", "clong", "culong", "csize_t", "cshort", "cushort", "clonglong", "culonglong",
         "BiggestInt", "char"]
 
 func qFloatType(t: string): bool =
+  ## whether the type is a floating-point one: float, float32, float64, cfloat, cdouble, BiggestFloat
   t in ["float", "float32", "float64", "cfloat", "cdouble", "BiggestFloat"]
 
 func qNormType(t: string): string =
@@ -140,6 +145,8 @@ proc qFields(path: string, line: int): seq[string] =
       if nm.validIdentifier and nm notin result: result.add nm
 
 proc qClosest(name: string, cands: seq[string], maxN = 3): seq[string] =
+  ## up to `maxN` of the candidates that are a typo away from `name` (not the name itself), closest first — for "did you
+  ## mean". One change is allowed for a name of three letters or fewer, two for most, three for long names
   let low = name.toLowerAscii
   var scored: seq[(int, string)]
   for c in cands:
@@ -183,6 +190,8 @@ func qTopStmt(b: Buffer, line: int): int =
     dec result
 
 func qArgType(e: string): string =
+  ## the type to give a new parameter for an argument as written in the call: string, char, bool, int or float for a
+  ## literal, seq[auto] for @[…], else auto
   let t = e.strip
   if t.len == 0: return "auto"
   if t[0] == '"': return "string"
@@ -194,6 +203,8 @@ func qArgType(e: string): string =
   "auto"
 
 proc qExportAct(path: string, line, col: int, name: string): Action =
+  ## the action that puts a `*` after the name declared at line:col of the file (opened if it is not), so that it is
+  ## exported — left unsaved, and says so
   result = proc() =
     let x = loadBuffer(path)
     if x == nil: return
@@ -737,6 +748,8 @@ proc nimFixEdits(b: Buffer, kind: string, edits: var seq[QEdit], imports: var se
   n
 
 proc nimFixAllAct(b: Buffer, n: int, edits: seq[QEdit], imports: seq[string]): Action =
+  ## the action that applies the edits of a fix-all (sorted; where two want the same or overlapping spots the first
+  ## wins, so each place changes once), removes the imports they leave unused, and says that `n` problems were fixed
   let id = b.id
   let imps = imports
   var es = edits

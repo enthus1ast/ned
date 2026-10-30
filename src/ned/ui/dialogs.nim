@@ -12,6 +12,9 @@ type Toast = object
 var toasts: seq[Toast]
 
 proc toast(text: string, sev = 3, actLabel = "", act: Action = nil, ttl = 0) =
+  ## shows a notification (severity 1 error, 2 warning, 3 info, 4 ok) in the corner, with an optional button running
+  ## `act`; the same text again only extends the first one's time, at most four are kept (when notifications are on),
+  ## and it goes after `ttl` ms (by default 9 s for an error, 12 s with a button, else 5 s)
   if not cfgToasts: return
   let text = capMsg(text)
   for t in toasts.mitems:
@@ -49,6 +52,7 @@ proc popupMsg(s: string, sev: int) =
   needRender = true
 
 proc pruneToasts(): bool =
+  ## drops the notifications whose time is up, except while the mouse is over them; true when any was dropped
   var keep: seq[Toast]
   for t in toasts:
     if msSince(t.at) < t.ttl or hov(scrW - 54, 0, 54, scrH): keep.add t
@@ -67,15 +71,20 @@ type Dialog = object
 var
   dialogs: seq[Dialog]
 
+# whether a modal dialog is showing (it then gets the keys)
 proc dialogOpen(): bool {.inline.} = dialogs.len > 0
 
 proc openDialog(title, body: string, buttons: seq[(string, char)], onKey: proc(c: char) {.closure.},
                 defaultSel = 0, danger = false) =
+  ## opens a modal dialog on top of the others: a title, a body and buttons (each a label and the key it stands for);
+  ## `onKey` is called with the key of the button chosen, `defaultSel` is the button selected at first and `danger`
+  ## draws it as a warning
   dialogs.add Dialog(title: title, body: body, buttons: buttons, sel: clamp(defaultSel, 0, max(0, buttons.high)),
                      onKey: onKey, danger: danger)
   needRender = true
 
 proc closeDialog(c: char) =
+  ## closes the top dialog and tells its callback which key (button) ended it
   if dialogs.len == 0: return
   let d = dialogs.pop()
   needRender = true
@@ -115,6 +124,9 @@ proc parseConfirm(message: string): (string, seq[(string, char)]) =
   (body, buttons)
 
 proc askConfirm(message: string, action: proc(c: char) {.closure.}) =
+  ## asks a question in a dialog, the buttons made from the message's own "(y)es (n)o" hints by parseConfirm; a message
+  ## about unsaved changes is titled that way with Save / Don't save buttons, and one starting with Delete or Discard is
+  ## shown as a warning. `action` gets the key of the button chosen
   let (body, buttons0) = parseConfirm(message)
   var title = "Confirm"
   var buttons = buttons0

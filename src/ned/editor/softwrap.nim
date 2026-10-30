@@ -19,6 +19,8 @@ type VcMarks = object
 var vcMarks: Table[int, VcMarks]       # buffer id → its long lines' marks
 
 proc vcBuild(s: string): seq[(int, int)] =
+  ## the marks of one very long line: (byte offset, visual column) pairs at character boundaries about every 16 KB, the
+  ## first being (0, 0). Plain ASCII is counted eight bytes at a time
   result = @[(0, 0)]
   var i = 0
   var vc = 0
@@ -36,6 +38,8 @@ proc vcBuild(s: string): seq[(int, int)] =
     i += n
 
 proc vcMarksOf(b: Buffer, line: int): seq[(int, int)] =
+  ## the marks of a long line, built once and kept per buffer; all of a buffer's marks are dropped when its text, the
+  ## tab width or the grapheme-joining setting changed
   if b.id notin vcMarks or vcMarks[b.id].change != b.changeId or vcMarks[b.id].tab != tabW or
      vcMarks[b.id].joined != graphemes:
     vcMarks[b.id] = VcMarks(change: b.changeId, tab: tabW, joined: graphemes)
@@ -106,6 +110,8 @@ proc wrapSegs(s: string, width: int, extra: seq[(int, int)] = @[]): seq[int] =
     i += n
 
 func subRowOf(segs: seq[int], col: int): int =
+  ## the screen row within a wrapped line (0 for the first) that the byte column falls on, given the byte offsets where
+  ## its rows start
   result = 0
   for k in 1 ..< segs.len:
     if segs[k] <= col: result = k else: break
@@ -135,6 +141,8 @@ proc segCount(b: Buffer, line: int): int =
   (if not cfgWrap: 1 else: b.lineSegs(line).len) + b.vrowCount(line)
 
 proc stepBack(b: Buffer, line, sub, n: int): (int, int) =
+  ## the (line, wrapped row) that is n screen rows above the given one, counting the rows of wrapped lines and skipping
+  ## folded lines; stops at the top of the buffer
   var l = clamp(line, 0, b.lines.high)
   var s = if l == line: sub else: 0
   var k = n
@@ -148,6 +156,8 @@ proc stepBack(b: Buffer, line, sub, n: int): (int, int) =
   (l, s)
 
 proc rowDist(b: Buffer, l1, s1, l2, s2, limit: int): int =
+  ## how many screen rows lie between (line l1, row s1) and (l2, s2); -1 when the second is above the first, and it
+  ## stops adding once the count passes `limit` so it stays quick on a long file
   if l1 == l2: return s2 - s1
   if l2 < l1: return -1
   var r = b.segCount(l1) - s1
@@ -159,6 +169,9 @@ proc rowDist(b: Buffer, l1, s1, l2, s2, limit: int): int =
   r + s2
 
 proc ensureVisible(b: Buffer) =
+  ## scrolls the view just enough to show the main cursor with the scroll-off margin of rows around it, moving the first
+  ## visible line and row; without wrapping it also scrolls sideways to keep the cursor's column in view, with wrapping
+  ## the sideways scroll is reset
   let h = max(1, textH)
   let c = b.cursors[b.prim].head
   let sub = if cfgWrap: subRowOf(b.lineSegs(c.line), c.col) else: 0
@@ -180,6 +193,8 @@ proc ensureVisible(b: Buffer) =
     b.leftCol = 0
 
 proc scrollBy(b: Buffer, rows: int) =
+  ## scrolls the view by screen rows (positive is down), through wrapped rows and over folds, without moving the cursor;
+  ## remembers the cursor and text as they are so the next draw does not scroll back to the cursor
   if b.topLine > b.lines.high or b.topLine < 0:     # the text shrank under a stale scroll position
     b.topLine = clamp(b.topLine, 0, b.lines.high)
     b.topSub = 0

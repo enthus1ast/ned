@@ -26,6 +26,7 @@ var
   ctlKey = ""                      # what each request must carry (in remote-PID.key beside the socket)
   ctlClients: seq[CtlClient]
 
+# the path of the control socket of the ned with that process id, in ned's private folder
 proc ctlSockName(pid: int): string = privDir() / ("remote-" & $pid & ".sock")
 
 proc ctlNewKey(): string =
@@ -71,6 +72,7 @@ proc ctlSweep() =
   except CatchableError: discard
 
 proc sockAddr(path: string, a: var Sockaddr_un): bool =
+  ## fills in a Unix socket address for the path; false when the path is too long for one
   if path.len >= a.sun_path.len: return false        # (too long a name for a socket)
   zeroMem(addr a, sizeof(a))
   a.sun_family = TSa_Family(AF_UNIX)
@@ -103,6 +105,8 @@ proc ctlListen() =
   putEnv("NED_SOCKET", path)
 
 proc ctlSend(c: CtlClient, j: JsonNode) =
+  ## writes one JSON answer and a line end to the client, waiting a little (up to about five seconds in all) when its
+  ## socket is full; it gives up when the client is gone
   let s = $j & "\n"
   var off = 0
   var tries = 0
@@ -119,6 +123,7 @@ proc ctlSend(c: CtlClient, j: JsonNode) =
     break
 
 proc ctlDrop(c: CtlClient) =
+  ## closes the client's connection
   if c.fd >= 0:
     discard posix.close(c.fd)
     c.fd = -1
@@ -139,6 +144,8 @@ proc openTextBuffer(text: string, title = "") =
   focus = fEditor
 
 proc ctlGet(what: string): JsonNode =
+  ## what `--remote-get` asks for about the current tab: its file, the cursor's line and column (from 1), the selection,
+  ## the word at the cursor, the project's root, the paths of the open files or the whole text; null for anything else
   let b = buf()
   case what
   of "file": %b.path
@@ -158,6 +165,11 @@ proc ctlGet(what: string): JsonNode =
   else: newJNull()
 
 proc ctlHandle(c: CtlClient, line: string) =
+  ## answers one request line from a client. A request without the key written beside the socket is refused and its
+  ## connection closed. Otherwise: info (pid, root, version, files), open (files, at a line and column, or a folder of
+  ## the project shown in the file tree; with wait the answer is "waiting" and "done" follows when the tabs are closed),
+  ## text (a new tab from a pipe), command (a palette command by name), message (shown in the status line), problems (a
+  ## build's output sent to the Problems panel) and get
   var j: JsonNode
   try: j = parseJson(line)
   except CatchableError:
@@ -255,6 +267,7 @@ proc ctlHandle(c: CtlClient, line: string) =
     c.ctlSend(%*{"error": "unknown request \"" & j{"cmd"}.getStr & "\""})
 
 proc ctlFds(fds: var seq[TPollfd]) =
+  ## adds the listening socket and the clients' connections to the list the main loop waits on
   if ctlFd >= 0: fds.add TPollfd(fd: ctlFd, events: POLLIN)
   for c in ctlClients:
     if c.fd >= 0: fds.add TPollfd(fd: c.fd, events: POLLIN)
@@ -326,6 +339,7 @@ proc ctlClose() =
 # ── the other side: `ned` talking to the ned that is running ──
 
 proc ctlConnect(path: string): cint =
+  ## connects to the socket of a running ned: its file descriptor, -1 when that fails
   var a: Sockaddr_un
   if path.len == 0 or not sockAddr(path, a): return -1
   let fd = posix.socket(AF_UNIX, SOCK_STREAM, 0)

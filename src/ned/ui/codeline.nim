@@ -1,3 +1,5 @@
+# drawing one line of code in its syntax colours, without the cursor or selection, for places that show a line out of
+# the editor (sticky headers, previews)
 proc drawCodeLine(b: Buffer, l, x0, y, maxX: int, bg: Rgb, skipVc = 0) =
   ## one syntax-coloured line, no selection/cursor decorations (sticky headers, previews)
   let s = b.lines[l]

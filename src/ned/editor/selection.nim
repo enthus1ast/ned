@@ -8,6 +8,7 @@ var selStack: seq[seq[Cursor]]
 #    comments above it), the file. By the text's brackets, quotes and indentation: every language ──
 
 func prevPos(b: Buffer, p: Pos): Pos =
+  ## the position one character before p (the end of the line above at a line start); line -1 at the start of the buffer
   if p.col > 0: Pos(line: p.line, col: p.col - 1)
   elif p.line > 0: Pos(line: p.line - 1, col: max(0, b.lines[p.line - 1].len))
   else: Pos(line: -1)
@@ -23,6 +24,7 @@ proc enclosingPair(b: Buffer, a, e: Pos, obj: char): (bool, Pos, Pos) =
     p = b.prevPos(x)
 
 func selIndent(s: string): int =
+  ## the number of leading spaces and tabs of a line
   var i = 0
   while i < s.len and s[i] in {' ', '\t'}: inc i
   i
@@ -102,6 +104,11 @@ proc statementRange(b: Buffer, l0, l1: int): (int, int) =
   (s, e)
 
 proc structuralCands(b: Buffer, a, e: Pos): seq[(Pos, Pos)] =
+  ## the pieces of code around a..e, found from brackets, quotes and indentation so that it works for every language:
+  ## the steps of a member chain (name, its call brackets, what is before and after a dot), what each kind of enclosing
+  ## bracket holds and the bracket pair itself, each argument between commas, the statement over its continuation lines,
+  ## the value after its `=`, then the enclosing blocks — each alone and with its header — up to the top-level
+  ## declaration with the comments above it
   let la = a.line
   # a member chain, a step at a time: a name, its call (name(…) / name[…]), what comes before its dot, .d after
   block chain:
@@ -304,6 +311,7 @@ proc expandSelection() =
   b.setSingle(best[1], best[0])
 
 proc shrinkSelection() =
+  ## undoes the last expandSelection: restores the cursors saved before it grew
   if selStack.len == 0: return
   let b = buf()
   b.cursors = selStack.pop()

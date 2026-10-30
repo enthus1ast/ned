@@ -44,6 +44,9 @@ proc clipSet(text: string) =
     except CatchableError: discard
 
 proc clipGet(): string =
+  ## the text on the system clipboard, read with the first helper there is (Termux:API, pbpaste, wl-paste, xclip,
+  ## PowerShell under WSL, the Windows clipboard itself) — "" when there is none. A helper that does not answer in time
+  ## is given up for the rest of the run with a warning. Windows line ends become \n.
   when defined(windows): return winClipGet()
   if sysClipBroken: return ""
   var cmd = ""
@@ -65,6 +68,10 @@ proc clipGet(): string =
   if ok: o.replace("\r\n", "\n") else: ""
 
 proc copySel(cut: bool) =
+  ## copies (or cuts) the selection. With nothing selected it takes the cursors' whole lines, each line once (line
+  ## mode); otherwise each cursor's selected text. The pieces are kept in clipParts, so pasting with as many cursors
+  ## gives each its own, and the joined text goes to the system clipboard. Cutting removes the text, and a message says
+  ## how much was copied.
   let b = buf()
   var lineMode = true
   for c in b.cursors:
@@ -105,6 +112,7 @@ proc pasteLayout(b: Buffer, text: string, at: Pos, lineMode = false): string =
   if b.lang == nil or b.lang.mode in {lmPlain, lmMarkdown, lmDiff, lmMake}: return
   let w = b.indentW()
   proc cols(s: string): int =
+    ## the width in columns of a line's leading whitespace, a tab going on to the next multiple of the indent width
     for ch in s:
       if ch == ' ': inc result
       elif ch == '\t': result = (result div w + 1) * w
@@ -141,6 +149,7 @@ proc pasteLayout(b: Buffer, text: string, at: Pos, lineMode = false): string =
     stripFirst = true
   else: target = cols(line)
   proc indentStr(n: int): string =
+    ## the indentation for `n` columns: spaces, or tabs and then spaces when the buffer indents with tabs
     if b.indent == "\t": repeat('\t', n div w) & spaces(n mod w) else: spaces(n)
   var inString = false
   var outp: seq[string]
@@ -166,6 +175,9 @@ proc pasteFinish(b: Buffer, l0: int) =
     if last > l0: discard b.formatLineRange(l0, last, quiet = true)
 
 proc paste() =
+  ## pastes the clipboard. When the system clipboard holds something other than ned's last copy, that text is used (as
+  ## one piece). Whole lines copied in line mode go in front of each cursor's line (one piece per cursor when the
+  ## numbers match); anything else replaces the selections, re-indented by pasteLayout and formatted by pasteFinish.
   let b = buf()
   if not b.canEdit(): return
   var text = if clipLineMode: clipParts.join("") else: clipParts.join("\n")

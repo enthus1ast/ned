@@ -4,6 +4,8 @@
 const SyncFile = "ned-settings.json"
 
 func secretName(k: string): bool =
+  ## whether a settings key looks like a secret (an API key, token, password, authorization), so that it never goes into
+  ## a bundle
   let l = k.toLowerAscii
   l in ["ai.apikey", "apikey", "api_key", "authorization"] or "token" in l or "secret" in l or "password" in l or
     "apikey" in l or "api_key" in l or l.endsWith(".key") or l == "key"
@@ -23,6 +25,8 @@ proc scrubSecrets(j: JsonNode, inEnv = false): JsonNode =
   else: result = j.copy
 
 proc syncBundle(): JsonNode =
+  ## this device's settings bundle as JSON: ned's version, when and from which host, the settings the user set (secrets
+  ## scrubbed), the theme files, the spelling words and the saved keyboard macros
   var themes = newJObject()
   try:
     for kind, f in walkDir(themesDir()):
@@ -110,6 +114,8 @@ proc syncApply(bundle: JsonNode): string =
   ""
 
 proc syncExport(path: string) =
+  ## writes this device's bundle to a file the owner alone can read and says so (API keys, tokens and MCP env values are
+  ## left out); a failure is shown as an error
   let f = path.expandTilde
   try:
     writeFileSafe(f, syncBundle().pretty & "\n", 0o600)
@@ -117,6 +123,8 @@ proc syncExport(path: string) =
   except CatchableError as e: error("Could not export: " & e.msg)
 
 proc syncImport(path: string) =
+  ## reads a bundle from a file and applies it (syncApply), saying that the old settings file is kept as
+  ## config.json.bak-sync, or why it could not
   let f = path.expandTilde
   var j: JsonNode
   try: j = parseJson(readFile(f))
@@ -127,6 +135,7 @@ proc syncImport(path: string) =
   if why.len > 0: error("Could not import: " & why)
   else: info("Settings imported from " & tildePath(f) & " — the old file is config.json.bak-sync")
 
+# the folder where the settings repository is cloned, under ned's state folder
 proc syncDir(): string = stateDir() / "settings-sync"
 
 proc syncRepoOk(url: string): bool =
@@ -141,6 +150,9 @@ proc syncRepoOk(url: string): bool =
   url.len > 0
 
 proc syncGit(push: bool) =
+  ## one-way sync with the settings git repository (sync.repository, asked for when empty): push writes the bundle and
+  ## pushes it as one commit on top of the remote's, otherwise the remote's bundle is fetched and applied here. git runs
+  ## as a background job, and the outcome is told in the message line
   let url = sStr("sync.repository").strip
   if url.len == 0:
     askText("Your settings repository (a private git repository you can push to)", "", proc(t: string) =
@@ -194,6 +206,7 @@ proc syncGit(push: bool) =
 #    sync (a key changed on both: this device's kept, and you are told); your plugins listed (installed on the
 #    other device when you say so — each asks its permissions there); on start and on quit when sync.auto says ──
 
+# where the bundle both devices had at the last sync is kept — the base of the three-way merge
 proc syncBasePath(): string = stateDir() / "settings-sync-base.json"
 
 proc syncExcluded(): HashSet[string] =
@@ -237,6 +250,7 @@ proc syncOffered(): OrderedTable[string, string] =
   except CatchableError: discard
 
 proc syncOfferedSave(t: OrderedTable[string, string]) =
+  ## remembers which of the other device's plugins have been offered here
   var j = newJObject()
   for k, v in t: j[k] = %v
   try: writeFileSafe(syncOfferedPath(), j.pretty & "\n", 0o600)
@@ -261,6 +275,7 @@ proc syncBundleNow(): JsonNode =
   result["plugins"] = ps
 
 func syncSame(a, b: JsonNode): bool =
+  ## whether two JSON values are the same (both absent, or both present and written alike)
   (a == nil and b == nil) or (a != nil and b != nil and $a == $b)
 
 proc syncMergeObj(base, mine, theirs: JsonNode, conflicts: var seq[string], what: string): JsonNode =
@@ -290,6 +305,7 @@ proc syncMergeSet(base, mine, theirs: JsonNode, key: string): JsonNode =
   ## lists (words; plugins by name): what either has, without what one of them removed since
   proc keyOf(x: JsonNode): string = (if key.len > 0: x{key}.getStr else: x.getStr)
   proc names(j: JsonNode): HashSet[string] =
+    ## the keys of the items of a list (the item itself when it is a string)
     for x in jitems(j): result.incl keyOf(x)
   let b0 = names(base)
   let m = names(mine)
@@ -305,6 +321,8 @@ proc syncMergeSet(base, mine, theirs: JsonNode, key: string): JsonNode =
       result.add x
 
 proc syncMerge(base, mine, theirs: JsonNode): (JsonNode, seq[string]) =
+  ## the merge of two bundles against the base they both had: settings, themes and macros key by key, spelling words and
+  ## plugins as sets. It gives the merged bundle and the keys changed on both sides, where this device's value is kept
   var conflicts: seq[string]
   var r = %*{"ned": Version, "exported": $now(), "from": mine{"from"}.getStr}
   r["settings"] = syncMergeObj(base{"settings"}, mine{"settings"}, theirs{"settings"}, conflicts, "")
@@ -476,6 +494,8 @@ proc syncBoth(quiet = false) =
     if not quiet: error("Could not start git")
 
 proc syncChangedSinceBase(): bool =
+  ## whether this device's bundle differs from the one at the last sync in settings, themes, macros, words or plugins
+  ## (true too when there is no base)
   try:
     if not fileExists(syncBasePath()): return true
     let base = parseJson(readFile(syncBasePath()))

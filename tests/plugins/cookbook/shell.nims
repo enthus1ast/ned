@@ -12,6 +12,8 @@ proc gitAllowed(): bool =
   if not result: warn("git-line may not run programs: Plugins dock › git-line › Allow…")
 
 proc blame(b: Buf) =
+  ## runs git blame for the cursor's line, waiting for it, and shows who last changed that line and why (the commit
+  ## summary) in a message; says when the file is not saved or git fails
   if not gitAllowed(): return
   let p = b.path
   if p.len == 0:
@@ -31,6 +33,8 @@ proc blame(b: Buf) =
   message("Line " & n & ": " & author & " — " & summary & (if b.dirty: " (as saved)" else: ""))
 
 proc fetch() =
+  ## starts a git fetch in the background, with a note in the status bar while it runs, and reports in a toast or a
+  ## warning when it is done
   if not gitAllowed(): return
   status("⟳ git fetch")
   # shellAsync: the plugin goes on; the callback runs when git is done

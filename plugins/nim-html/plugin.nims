@@ -301,6 +301,7 @@ func attrName*(k: string): string =
   if ok: k else: nimStr(k)
 
 func indentOf(l: string): int =
+  ## how many spaces or tabs the line starts with
   while result < l.len and l[result] in {' ', '\t'}: inc result
 
 # ── the tree all three conversions make ──
@@ -316,6 +317,7 @@ type
     raw: bool                    # hkText: as it is (pre, script, style): no spaces collapsed
     kids: seq[HNode]
 
+# a new element node with that tag and nothing in it yet
 func elem(tag: string): HNode = HNode(kind: hkElement, tag: tag)
 
 proc tidy(kids: seq[HNode]): seq[HNode] =
@@ -367,6 +369,9 @@ proc headOf(n: HNode, notes: var seq[string]): string =
   tag & (if args.len > 0: "(" & args.join(", ") & ")" else: "")
 
 proc emit(n: HNode, ind, unit: string, res: var seq[string]) =
+  ## adds the Karax lines of a node to res at the indentation ind: a text as `text …`, a comment as # lines, an element
+  ## as its tag line with its children under it (indented by unit) — a lone short text child goes on the tag's own line
+  ## after a colon
   case n.kind
   of hkText, hkExpr: res.add ind & "text " & textCode(n)
   of hkComment:
@@ -403,6 +408,8 @@ proc wrapped*(nodes: seq[HNode], unit: string): seq[string] =
     for n in ns: emit(n, unit, unit, result)
 
 func usesStyle(nodes: seq[HNode]): bool =
+  ## whether any element in the tree (children too) has a style attribute written as a string — which becomes style =
+  ## "…".toCss and needs karax/vstyles
   for n in nodes:
     if n.kind == hkElement:
       for (k, v) in n.attrs:
@@ -423,6 +430,7 @@ const Entities = {"amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "
   "shy": "\xC2\xAD", "ensp": "\xE2\x80\x82", "emsp": "\xE2\x80\x83", "thinsp": "\xE2\x80\x89"}.toTable
 
 func utf8(cp: int): string =
+  ## the UTF-8 bytes of a code point
   if cp < 0x80: $chr(cp)
   elif cp < 0x800: $chr(0xC0 or (cp shr 6)) & $chr(0x80 or (cp and 0x3F))
   elif cp < 0x10000:
@@ -480,6 +488,8 @@ proc parseHtml*(s: string): seq[HNode] =
   var i = 0
   var text = ""
   proc flush(text: var string, stack: seq[HNode]) =
+    ## adds the text read so far to the open element (the top of the stack) as a text node, its character references
+    ## decoded and kept as it is inside pre, and clears it
     if text.len > 0:
       stack[^1].kids.add HNode(kind: hkText, text: decode(text), raw: stack[^1].tag == "pre")
       text = ""
@@ -590,6 +600,9 @@ func implied(parent: string): string =
 const EmmetStop = {'.', '#', '[', '{', '*', '>', '+', '^', '(', ')'}
 
 proc emmetElement(s: string, i: var int, parent: string): ENode =
+  ## reads one Emmet element at i: a tag name (taken from the parent when there is only a class, id or attribute — li in
+  ## a list, td in a row …), then any number of .class, #id, [attributes] and {text}; i is moved past it; raises
+  ## ValueError for a name missing or a bracket not closed
   result = ENode(count: 1)
   var j = i
   while j < s.len and s[j] in {'a'..'z', 'A'..'Z', '0'..'9', '-', ':', '_'}: inc j
@@ -645,6 +658,8 @@ proc emmetElement(s: string, i: var int, parent: string): ENode =
       raise newException(ValueError, "a tag's name (column " & $(i + 1) & ")")
 
 proc emmetList(s: string, i: var int, parent: string, inGroup: bool): seq[ENode] =
+  ## reads the Emmet elements joined by > (child), + (sibling) and ^ (up a level), with (groups) and *n repeats, until
+  ## the end of the text or the ) that closes the group; raises ValueError with what is wrong and where
   let root = ENode(group: true, tag: parent)
   var stack = @[root]
   var last: ENode = nil
@@ -704,6 +719,9 @@ func numbered(s: string, n: int): string =
       inc i
 
 proc expand(n: ENode, idx: int): seq[HNode] =
+  ## the HTML nodes an Emmet node stands for: its repeats written out (a $ in names and text is the copy's number), its
+  ## id, classes and attributes, the attributes Emmet gives a, img, input, link, form and label when they have none, its
+  ## text and its children
   for k in 1 .. n.count:
     let ix = if n.count > 1: k else: idx
     if n.group:
@@ -779,6 +797,8 @@ type
     a, b: int                    # where it is in the source
 
 func unescape(s: string): string =
+  ## the text of a Nim string literal with its backslash escapes (\n \t \r \\ \" \' \xHH \uHHHH) turned into the
+  ## characters
   var i = 0
   while i < s.len:
     if s[i] == '\\' and i + 1 < s.len:
@@ -805,6 +825,9 @@ func unescape(s: string): string =
     inc i
 
 func tokens(s: string): seq[Tok] =
+  ## splits Nim source into the tokens htmlgen calls are made of: names (a backticked one without its backticks;
+  ## htmlgen.h1 starts at htmlgen), strings (plain, raw and triple-quoted), brackets, commas, = and &, other operators,
+  ## with where each is; comments are skipped and a tkEnd closes the list
   var i = 0
   var qual = -1
   while i < s.len:
@@ -886,9 +909,11 @@ type GenParser = object
   t: seq[Tok]
   i: int
 
+# the token k places after the current one (the last one, the end, when there are not so many)
 func peek(p: GenParser, k = 0): Tok = p.t[min(p.i + k, p.t.high)]
 
 func isTagCall(p: GenParser): bool =
+  ## whether the next tokens are the call of a std/htmlgen tag: its name and an opening bracket
   p.peek.kind == tkIdent and p.peek.text in HtmlgenTags and p.peek(1).kind == tkLPar
 
 proc skipExpr(p: var GenParser): (int, int) =
@@ -912,6 +937,9 @@ proc skipExpr(p: var GenParser): (int, int) =
 proc genChild(p: var GenParser): seq[HNode]
 
 proc genCall(p: var GenParser): HNode =
+  ## reads a htmlgen tag call tag(a = "…", child, …) as an element: name = value pairs are its attributes (a string
+  ## value becomes a string, any other expression stays Nim code), the rest its children; raises ValueError when the
+  ## bracket is not closed
   result = elem(p.peek.text)
   p.i += 2                                               # the tag and its (
   while p.peek.kind notin {tkRPar, tkEnd}:
@@ -988,6 +1016,7 @@ proc htmlgenCallAt*(lines: seq[string], line, col: int): (Pos, Pos) =
   let (best, bestEnd) = if around[0] >= 0: around else: onLine
   if best < 0: return
   proc toPos(o: int): Pos =
+    ## the buffer position of offset o in the text that was joined from the lines
     var k = starts.high
     while k > 0 and starts[k] > o: dec k
     pos(first + k, o - starts[k])
@@ -1051,12 +1080,16 @@ func openCall*(lines: seq[string], k, col: int): (string, int) =
   ("", -1)
 
 func tagNames(): seq[string] =
+  ## the names of Karax's tags (without backticks)
   for (k, _, _) in Tags: result.add k.strip(chars = {'`'})
 
 func isKaraxTag(name: string): bool =
+  ## whether Karax has a tag of this name
   name in tagNames() or name in OtherTags
 
 proc tagDoc(name: string): string =
+  ## the hover text for a Karax tag or word (text, verbatim …): its name, the HTML element and what it is; "" for
+  ## anything else
   for (k, h, what) in Tags:
     if k.strip(chars = {'`'}) == name:
       return "**" & k & "** — `<" & h & ">`: " & what
@@ -1066,6 +1099,7 @@ proc tagDoc(name: string): string =
   ""
 
 proc attrDoc(name: string): string =
+  ## the hover text for an attribute: what it is; an on… name is described as an event proc; "" for any other
   for (k, _, what) in Attrs:
     if k.strip(chars = {'`'}) == name: return "**" & k & "** — " & what
   if name.startsWith("on"): return "**" & name & "** — Karax: a proc called on the " & name[2 .. ^1] & " event"
@@ -1181,6 +1215,8 @@ proc placeLines(b: Buf, r: Range, rel: seq[string]): Pos =
   pos(lastLine, out0[^1].len)
 
 proc emmetToKarax() =
+  ## Nim HTML: Emmet to Karax — replaces the Emmet abbreviation on the cursor's line with Karax's DSL at the line's
+  ## indentation, the cursor in the first empty "" or () to fill; warns when the line is not an abbreviation
   let b = current()
   if not b.valid: return
   let ln = b.cursor.line
@@ -1204,6 +1240,8 @@ proc emmetToKarax() =
   b.setCursor(pos(ln + lines.high, lines[^1].len))
 
 func tabName(path: string): string =
+  ## the name for the tab of the Karax code made from a file: the file's name with .nim in place of its extension
+  ## (page.nim when the tab has no file)
   if path.len == 0: return "page.nim"
   let n = extractFilename(path)
   let d = n.rfind('.')
@@ -1223,6 +1261,9 @@ proc toTab(b: Buf, nodes: seq[HNode], what: string) =
   message("Karax's DSL for " & what & " is in " & name)
 
 proc htmlToKarax() =
+  ## Nim HTML: HTML to Karax — converts the selected HTML (the whole file when none is selected) to Karax's DSL: in
+  ## place in a .nim file (a buildHtml(…) with its import added unless the selection is inside a buildHtml block),
+  ## otherwise in a new tab
   let b = current()
   if not b.valid: return
   let sel = b.selection
@@ -1253,6 +1294,9 @@ proc htmlToKarax() =
           "(import karax/vstyles)" else: ""))
 
 proc htmlgenToKarax() =
+  ## Nim HTML: htmlgen to Karax — converts the selected std/htmlgen call, or the outermost one around the cursor or
+  ## starting on its line, into Karax's DSL in its place (a buildHtml(…) with its import added unless it is inside a
+  ## buildHtml block)
   let b = current()
   if not b.valid: return
   var r = b.selection

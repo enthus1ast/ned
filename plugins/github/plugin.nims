@@ -58,6 +58,7 @@ func ghWhy*(o: string, code: int): string =
     if t.len > 0: return t
   "gh stopped (" & $code & ")"
 
+# the date part (the first ten characters, yyyy-mm-dd) of a timestamp gh gives
 func when10(s: string): string = (if s.len >= 10: s[0 ..< 10] else: s)
 
 proc page*(j: JsonNode, isPr: bool): string =
@@ -105,6 +106,7 @@ proc gh(args: string, what: string, then: proc(o: string)) =
     else: warn("GitHub: " & what & " — " & ghWhy(o, code))
 
 proc noGh(): bool =
+  ## true, with a message saying how to install it, when the gh program is not on PATH
   if findExe("gh").len > 0: return false
   message("GitHub: gh is not installed (Termux: pkg install gh — then gh auth login)")
   true
@@ -127,6 +129,8 @@ const
   Mark = "\x1e issues"
 
 proc readAll() =
+  ## reads the open pull requests and issues in the background (one shell command, the two JSON lists split at a marker
+  ## line), keeps them for the dock and redraws it; does nothing while a read is going; without gh makes the dock say so
   if state == 1: return
   if findExe("gh").len == 0:
     problem = "gh is not installed (pkg install gh)"
@@ -152,12 +156,15 @@ proc readAll() =
     refreshView(View)
 
 proc again() =
+  ## forgets what was read and reads the pull requests and issues again
   state = 0
   readAll()
 
 # ── what to do with one ──
 
 proc readIt(it: Item) =
+  ## opens the pull request or issue as a Markdown page in a tab (its description, reviews and comments), read with gh
+  ## view in the background
   let kind = if it.isPr: "pr" else: "issue"
   let fields = if it.isPr: "number,title,body,author,state,headRefName,baseRefName,url,comments,reviews,labels," &
                            "additions,deletions,changedFiles"
@@ -167,6 +174,8 @@ proc readIt(it: Item) =
     except CatchableError: warn("GitHub: gh's answer could not be read: " & o.strip.splitLines[0])
 
 proc comment(it: Item) =
+  ## asks for a line of text and adds it as a comment on the pull request or issue with gh (the text passed in a file in
+  ## the data folder, so quotes and line ends are safe)
   let kind = if it.isPr: "pr" else: "issue"
   let text = ask("Comment on #" & $it.number & " (one line; a longer one in the browser):")
   if text.strip.len == 0: return
@@ -175,6 +184,8 @@ proc comment(it: Item) =
     toast("GitHub: commented on #" & $it.number)
 
 proc prActions(it: Item) =
+  ## a list of what can be done with the pull request — read it, its diff in a tab, check it out, its checks in a tab,
+  ## comment on it, open it in the browser, merge it (in the terminal, after asking) — and does the one chosen
   let n = $it.number
   let i = pick("#" & n & " " & it.title & " — @" & it.author,
                ["Read it", "Its diff", "Check it out", "Its checks", "Comment on it…", "Open it in the browser",
@@ -201,6 +212,8 @@ proc prActions(it: Item) =
   else: discard
 
 proc issueActions(it: Item) =
+  ## a list of what can be done with the issue — read it, comment on it, close it (after asking; the dock is read
+  ## again), open it in the browser — and does the one chosen
   let n = $it.number
   let i = pick("#" & n & " " & it.title & " — @" & it.author,
                ["Read it", "Comment on it…", "Close it", "Open it in the browser"],
@@ -219,6 +232,8 @@ proc issueActions(it: Item) =
   else: discard
 
 proc choose(isPr: bool) =
+  ## reads the open pull requests (or issues) now with gh, lists them to pick from (with author, branch or labels) and
+  ## opens the actions for the one picked; says so when gh fails or there are none
   if noGh(): return
   let kind = if isPr: "pr" else: "issue"
   let (o, code) = shell("gh " & kind & " list --limit " & $setting("limit", 30) & " --json " &

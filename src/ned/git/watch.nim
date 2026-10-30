@@ -22,6 +22,8 @@ var
   gitWatchRuns = 0                       # (git status runs it caused: perf report)
 
 proc gitWatchAdd(dir: string): bool {.discardable.} =
+  ## adds a folder to the inotify watch (for creating, deleting, renaming and writing files in it); false when it is
+  ## watched already, is not a folder, the watch limit is reached, the watching is not running or the system refuses
   when defined(linux) or defined(android):
     if gitWatchFd < 0 or dir in gitWatchDirs or gitWatchDirs.len >= GitWatchMax or not dirExists(dir): return false
     # created, deleted, renamed, written and closed: what changes git's answer (not every read)
@@ -71,6 +73,7 @@ proc gitWatchStart() =
       if b.path.startsWith(root & "/"): gitWatchAdd(parentDir(b.path))
 
 proc gitWatchFds(fds: var seq[TPollfd]) =
+  ## adds the watch's inotify descriptor to the set the main loop waits on, when the watching is running
   if gitWatchFd >= 0: fds.add TPollfd(fd: gitWatchFd, events: POLLIN)
 
 proc gitWatchPump(ready: HashSet[cint]) =

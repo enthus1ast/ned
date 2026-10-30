@@ -130,6 +130,8 @@ func cStylePreset*(name: string): CStyle =
   else: discard
 
 func cBraceWrap(v: string): int =
+  ## a clang-format brace-wrapping value (true or false) as the style's brace setting: 2 — the brace on a line of its
+  ## own, 1 — at the end of the line, 0 — anything else, left as written
   case v.toLowerAscii
   of "true": 2
   of "false": 1

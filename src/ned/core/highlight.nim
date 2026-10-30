@@ -24,6 +24,8 @@ proc embedId(langId: string, ends: EmbedEnd, tag = "", fmt = false): int =
   embeds.high
 
 proc embedLang(id: string): Lang =
+  ## the language of an embedded-language id (as embedId keeps them): the pseudo-languages for regex, peg and strformat,
+  ## else a language by name; nil when there is none. Found ones are remembered
   if id.len == 0: return nil
   result = embedLangCache.getOrDefault(id)
   if result != nil: return
@@ -48,7 +50,10 @@ proc langForWord(w: string): Lang =
     if l != nil and l.id != "plaintext": result = l
   if result != nil and result.id == "plaintext": result = nil
 
+# the number of the embedding (see embedId) the line state is inside, 0 for none
 func stTop(st: LexSt): int {.inline.} = int((st shr 8) and 0xFF)
+# the line state seen from inside the outermost embedding: the inner language's own state, with the embeddings further
+# in moved up one place
 func stInner(st: LexSt): LexSt {.inline.} = ((st shr 16) shl 8) or (st and 0xFF)
 func stWrap(id: int, inner: LexSt): LexSt =
   ## inside embedding `id`, with the inner language in state `inner`
@@ -56,6 +61,7 @@ func stWrap(id: int, inner: LexSt): LexSt =
   (inner and 0xFF) or ((inner shr 8) shl 16) or (LexSt(id) shl 8)
 
 func findNoCase(s, pat: string, start: int): int =
+  ## where `pat` (in lower case) is in s from start on, ignoring case; -1 when it is not
   for i in start .. s.len - pat.len:
     var ok = true
     for k in 0 ..< pat.len:
@@ -98,6 +104,9 @@ const NimEmbedNames = [("sql", "sql"), ("re", "regex"), ("rex", "regex"), ("peg"
                        ("parseXml", "html"), ("parseHtml", "html")]
 
 proc nimEmbedName(w: string): string =
+  ## the language a word written before a Nim string stands for (sql"…", re"…", fmt"…"): the user's
+  ## nim.embeddedLanguages first, then the built-in list; "-" for a word that is known to be nothing special, so the
+  ## string stays plain
   if w in cfgEmbedded: return cfgEmbedded[w]
   for (k, v) in NimEmbedNames:
     if k == w: return v
@@ -138,9 +147,12 @@ proc nimStringLang(s: string, i: int, emitCtx: bool): string =
   ""
 
 proc nimEmbedLang(name: string): Lang =
+  ## the language for a name from nimStringLang, nil for none or "-" (a plain string)
   if name.len == 0 or name == "-": nil else: langForWord(name)
 
+# the HTML language, for the text inside a Nim string or a Markdown block
 proc htmlLang(): Lang = embedLang("html")
+# the Nim language, for the expressions inside a strformat string
 proc nimLang(): Lang = embedLang("nim")
 
 proc lexRegex(peg: bool, s: string, toks: var seq[TokKind]) =
@@ -148,6 +160,7 @@ proc lexRegex(peg: bool, s: string, toks: var seq[TokKind]) =
   let n = s.len
   var i = 0
   template mark(a, b: int, k: TokKind) =
+    ## colours the bytes a ..< b of the line (kept inside it) as one kind of token
     for q in max(a, 0) ..< min(b, n): toks[q] = k
   while i < n:
     let c = s[i]
@@ -276,8 +289,12 @@ proc addForeign(a, e: int, holes: seq[(int, int)]) =
   if e > x: lexForeign.add (x, e)
 
 proc lexMarkdown(s: string, st: uint8, toks: var seq[TokKind]): LexSt =
+  ## colours one line of Markdown by what it starts with — a code fence (a fence that names a known language embeds that
+  ## language until the closing fence), a heading, a quote, a rule, a list marker — then its `code`, **bold**,
+  ## [links](…) and <http…> addresses. It gives the state the next line starts in: inside a fence or not
   let t = s.strip(trailing = false)
   template markAll(k: TokKind) =
+    ## colours the whole line as one kind of token
     for q in 0..<s.len: toks[q] = k
   if st == stFence:
     markAll(tkCode)
@@ -349,6 +366,10 @@ proc lexMarkdown(s: string, st: uint8, toks: var seq[TokKind]): LexSt =
   stNormal
 
 proc lexHtml(s: string, st: uint8, toks: var seq[TokKind], at = 0): LexSt =
+  ## colours one line of HTML or XML from byte `at`: comments (which may run over lines), tags, attributes, strings and
+  ## entities. The text of <script> and <style> is coloured as JavaScript, TypeScript, JSON or CSS — on this line when
+  ## the closing tag is on it, else as an embedded language whose state goes on with the next lines. It gives the state
+  ## the next line starts in
   var i = at
   var state = st
   let n = s.len

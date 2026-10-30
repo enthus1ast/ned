@@ -1,3 +1,6 @@
+# the assistant's tools: which calls need the user's approval, the tools that read, search, list, edit and write files
+# and report problems, the checkpoints AI: undo goes back to, and the loop that runs a step's calls, checks the edited
+# files and sends the results back to the model
 proc toolKind(name: string): int =
   ## 0 read-only, 1 edits files, 2 runs commands (an MCP server's tool counts as a command; a plugin's too, unless
   ## it said it only reads)
@@ -25,6 +28,9 @@ proc outsideProject(c: AiCall): bool =
   false
 
 proc needsApproval(c: AiCall): bool =
+  ## whether the call must wait for the user's yes: never in the planning step (a call that changes anything is refused
+  ## at once), always for a path outside the project, never for a tool allowed for the session, else by the kind of tool
+  ## and ai.autoApprove (a read asks only for "none", an edit unless "edits" or "all", a command unless "all")
   if aiPlanState == apPlanning and toolKind(c.name) != 0: return false   # (refused at once: see runCall)
   if outsideProject(c): return true            # never silently, whatever ai.autoApprove says
   if c.name in aiAlwaysAllow: return false
@@ -34,6 +40,7 @@ proc needsApproval(c: AiCall): bool =
   else: cfgAiApprove != "all"
 
 proc absProjectPath(p: string): string =
+  ## the path a tool was given as an absolute, normalised one: ~ expanded, a relative path taken from the project folder
   let q = expandTilde(p.strip)
   if q.isAbsolute: q.normalizedPath else: (rootDir / q).normalizedPath
 
@@ -48,6 +55,7 @@ proc bufferFor(path: string): Buffer =
   b
 
 func posAt(text: string, off: int): Pos =
+  ## the line and column of a byte offset in the text
   var line = 0
   var ls = 0
   for i in 0 ..< min(off, text.len):
@@ -86,6 +94,9 @@ proc aiRedactBody(body: JsonNode) =
   if sBool("ai.redactSecrets"): discard redactSecretsJson(body, aiSecretTab)
 
 proc toolReadFile(j: JsonNode): (string, bool) =
+  ## the read_file tool: the file's lines numbered, from its open tab when it has one (a file over 4 MB is refused), 800
+  ## from start_line or up to end_line, with a note of how many more there are; a file of secrets is not sent. It gives
+  ## the text and whether it is an error
   let path = absProjectPath(j{"path"}.getStr)
   if aiSecretFile(path): return (AiSecretNote, true)
   var lines: seq[string]
@@ -107,6 +118,7 @@ proc toolReadFile(j: JsonNode): (string, bool) =
   (o, false)
 
 proc toolListFiles(j: JsonNode): (string, bool) =
+  ## the list_files tool: the project's files whose path contains the filter (any case), 400 at most
   let f = j{"filter"}.getStr.toLowerAscii
   var o: seq[string]
   for p in projectFiles():
@@ -116,6 +128,9 @@ proc toolListFiles(j: JsonNode): (string, bool) =
   ((if o.len == 0: "no files match" else: o.join("\n") & (if o.len >= 400: "\n… (more; refine the filter)" else: "")), false)
 
 proc toolSearch(j: JsonNode): (string, bool) =
+  ## the search tool: the lines of the project's files that contain the query, as file:line: text — case matters only
+  ## when the query has capitals; files under `path`; secret files and ones over 2 MB are skipped; open tabs are
+  ## searched as they are; it stops at 150 matches or after three seconds
   let q = j{"query"}.getStr
   if q.len == 0: return ("empty query", true)
   let sub = j{"path"}.getStr
@@ -153,6 +168,7 @@ var
 proc aiReviewCheckpoint(id: int)
 
 proc aiCpIndex(id: int): int =
+  ## where the checkpoint with that id is in the list (-1: it is gone, as the oldest are dropped)
   for i, cp in aiCheckpoints:
     if cp.id == id: return i
   -1
@@ -176,6 +192,9 @@ proc aiRemember(path: string) =
   else: aiCheckpoints[aiRunCp].files[path] = (false, "")
 
 proc aiUndoCheckpoint(id: int) =
+  ## puts back what one of the assistant's runs changed: a file it made is closed and deleted (on the server too, for a
+  ## remote folder), any other gets its old text — saved from its tab, or written to disk — and the checkpoint is
+  ## dropped
   let ci = aiCpIndex(id)
   if ci < 0:
     info("Those changes were already undone")
@@ -227,6 +246,10 @@ proc cmdAiUndo() =
   openActions("Undo the assistant's changes", items)
 
 proc toolEditFile(j: JsonNode): (string, bool) =
+  ## the edit_file tool: old_text, which must occur exactly once, is replaced by new_text; an empty old_text appends
+  ## new_text (and makes the file when there is none). The change is one undo step in the file's tab, which is then
+  ## saved; the answer counts the lines added and removed, and says when the file could not be saved. The old text is
+  ## remembered first, for AI: undo
   let path = absProjectPath(j{"path"}.getStr)
   aiRemember(path)
   let oldT = j{"old_text"}.getStr
@@ -267,6 +290,9 @@ proc toolEditFile(j: JsonNode): (string, bool) =
    false)
 
 proc toolWriteFile(j: JsonNode): (string, bool) =
+  ## the write_file tool: the file's whole text replaced by the content — in its tab, saved, when it is open, else
+  ## written to disk, with the file tree and the file list brought up to date. The old text is remembered first, for AI:
+  ## undo
   let path = absProjectPath(j{"path"}.getStr)
   aiRemember(path)
   let content = j{"content"}.getStr
@@ -291,6 +317,8 @@ proc toolWriteFile(j: JsonNode): (string, bool) =
   except CatchableError as e: (e.msg, true)
 
 proc toolDiagnostics(j: JsonNode): (string, bool) =
+  ## the get_diagnostics tool: the problems the language server and the last build found, for one file or for all, one
+  ## to a line as path:line:col: severity: message
   let p = j{"path"}.getStr
   var o: seq[string]
   var paths: seq[string]
@@ -321,6 +349,7 @@ func utf8Cut(s: string, at: int): int =
   while result > 0 and result < s.len and (ord(s[result]) and 0xC0) == 0x80: dec result
 
 proc aiLastUser(): int =
+  ## the index of the user's latest message in the chat (-1: none)
   for i in countdown(aiMsgs.high, 0):
     if aiMsgs[i].role == 0: return i
   -1
@@ -336,6 +365,8 @@ proc aiSentResult(mi: int, c: AiCall, lastUser: int): string =
     "if you need them) …\n" & c.result[b .. ^1]
 
 proc finishCall(mi, ci: int, res: string, isErr: bool) =
+  ## records the result of one tool call and marks it done; a result over 30000 characters is cut in the middle (its
+  ## start and end are kept), and the screen is redrawn
   if mi >= aiMsgs.len or ci >= aiMsgs[mi].calls.len: return
   var r = res
   if r.len > 30000: r = r[0 ..< utf8Cut(r, 15000)] & "\n… (output truncated) …\n" & r[utf8Cut(r, r.len - 14000) .. ^1]
@@ -346,6 +377,10 @@ proc finishCall(mi, ci: int, res: string, isErr: bool) =
   needRender = true
 
 proc runCall(mi, ci: int) =
+  ## runs one tool call of a message: a call that changes anything is refused in the planning step and a file edit
+  ## outside the project is not allowed; the file tools answer at once, run_command is a job (on the server for a remote
+  ## folder, whose changes are brought back before the assistant goes on), and plugin and MCP tools answer when they are
+  ## done — those go on with aiContinue themselves
   let c = aiMsgs[mi].calls[ci]
   var j: JsonNode
   try: j = parseJson(if c.args.strip.len == 0: "{}" else: c.args)
@@ -385,6 +420,8 @@ proc runCall(mi, ci: int) =
     let where = if ri >= 0: " (on " & remotes[ri].host & ")" else: ""
     var inline = true
     proc start() =
+      ## starts the command as a job; when it ends its exit code and output are the call's result and the agent goes on
+      ## (after a sync with the server for a remote folder); if it cannot be started the call fails
       aiCmdJob = startJob(jkTool, run, cwd, proc(jb: Job) =
         aiCmdJob = nil
         let o = stripAnsi(jb.output)
@@ -484,6 +521,9 @@ proc aiEditCheck(mi: int): bool =
   aiPhase = "checking the edits"
   needRender = true
   proc finish() =
+    ## when the last checker has ended: puts each edited file's verdict on its last edit call — "no errors", or the
+    ## errors (25 at most, those in other files on the last edit of all) with a request to fix them — says how many
+    ## errors the assistant was told of, and goes on; it does nothing when the chat has moved on meanwhile
     if gen != aiCheckGen or msgIdx != aiMsgs.high or aiMsgs[msgIdx].role != 1: return
     var total = 0
     for p, es in errs: total += es.len
@@ -498,6 +538,7 @@ proc aiEditCheck(mi: int): bool =
         for q, es in errs:
           if q notin last:
             for e in es: other.add relPath(q) & ":" & e
+      # the tool call being filled in
       template c: untyped = aiMsgs[msgIdx].calls[ci]
       if mine.len == 0 and other.len == 0:
         c.check = (if failed.len > 0: "" else: "ok")
@@ -586,6 +627,8 @@ proc aiContinue() =
   aiRequest()
 
 proc approveCall(mi, ci: int, allow: bool, always = false) =
+  ## the user's answer to a call that waits: allowed (and, with `always`, allowed for the rest of the session) it is
+  ## run, denied it is finished with an error saying so; then the agent goes on
   if mi >= aiMsgs.len or ci >= aiMsgs[mi].calls.len: return
   if aiMsgs[mi].calls[ci].state != 0: return
   if allow:

@@ -6,12 +6,14 @@ import std/[os, strutils, unittest, sequtils]
 import ../../src/ned/nim/index
 
 proc realOf(p: string): string =
+  ## the path a symbolic link points to; any other path as it is
   result = p
   try:
     if symlinkExists(p): result = expandFilename(p)
   except OSError: discard
 
 proc nimLib(): string =
+  ## the folder of Nim's standard library next to the nim on PATH (the test stops when there is none)
   let nim = findExe("nim")
   doAssert nim.len > 0, "put nim on PATH"
   let prefix = nim.realOf.parentDir.parentDir
@@ -34,6 +36,7 @@ proc fixture(text: string, name = ""): (NxFile, seq[string]) =
   (nxLoad(p), text.split('\n'))
 
 proc colOf(ls: seq[string], line: int, word: string, nth = 0): int =
+  ## the column of the nth (from 0) place of the word on the line; the test fails when it is not there
   var k = -1
   for _ in 0 .. nth: k = ls[line].find(word, k + 1)
   doAssert k >= 0, word & " not on line " & $line
@@ -51,6 +54,7 @@ proc applied(plan: NxPlan, path: string): seq[string] =
   nxApplyEdits(before, plan.edits.filterIt(it.path == path))
 
 proc notesText(plan: NxPlan): string =
+  ## the plan's notes as lines of 'line: reason' (the line counted from 1)
   for x in plan.notes: result.add $(x.line + 1) & ": " & x.why & "\n"
 
 suite "references and overloads (6.32)":

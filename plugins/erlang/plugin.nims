@@ -117,6 +117,7 @@ func erlCode(s: string, triple: var bool): string =
     inc i
 
 func erlAtomEnd(s: string, i: int): int =
+  ## where the atom that starts at i ends: letters, digits, _ and @
   result = i
   while result < s.len and (s[result].isAlphaNumeric or s[result] in {'_', '@'}): inc result
 
@@ -203,6 +204,8 @@ func erlSymbols*(lines: seq[string]): seq[Symbol] =
 # ── the tools ──
 
 proc erlHave(cmd: string): bool =
+  ## whether the first word of the command line is a program that can be found (a ~ is expanded) — so a server or
+  ## formatter that is set is only used when it is installed
   let w = cmd.splitWhitespace()
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 

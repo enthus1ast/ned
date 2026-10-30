@@ -182,6 +182,8 @@ proc plugScanText(name, text: string, sc: var PlugScan) =
   for (w, l, _) in words:
     if l in importLines and plugIdentNorm(w) == "macros": importsMacros = true
   template mark(p: PlugPerm, w: string, l: int) =
+    ## notes that the plugin uses the permission: "shell" also marks it as running programs itself; the first sighting
+    ## of each permission is kept in `seen` with the file, line and name
     if p == ppShell: sc.ownShell = true
     if p notin sc.uses:
       sc.uses.incl p
@@ -256,9 +258,12 @@ proc plugScanDir(dir: string): PlugScan =
   except CatchableError: discard
 
 proc plugScanSource(name, text: string): PlugScan =
+  ## the permissions a single source text asks for, with `name` as the file shown in `seen` (the same scan `plugScanDir`
+  ## makes of each file)
   plugScanText(name, text, result)
 
 func plugPermsList(ps: set[PlugPerm]): string =
+  ## the permissions' short names, in a row and separated by commas, as the toasts and the Plugins dock say them
   var xs: seq[string]
   for p in ps: xs.add PlugPermShort[p]
   xs.join(", ")
@@ -269,9 +274,12 @@ var
   plugGrantedLoaded = false
   plugGrantedNew = false                  # (no file yet: the plugins on before 6.26 keep what they use)
 
+# the file where what you allowed is kept, in ned's state folder
 proc plugPermFile(): string = stateDir() / "plugin-permissions.json"
 
 proc plugGrantLoad() =
+  ## reads the saved grants into `plugGranted` once; with no file yet it sets `plugGrantedNew`, so the plugins that are
+  ## on keep what they use
   if plugGrantedLoaded: return
   plugGrantedLoaded = true
   plugGranted.clear()
@@ -289,6 +297,8 @@ proc plugGrantLoad() =
   except CatchableError: discard
 
 proc plugGrantSave() =
+  ## writes `plugGranted` to the permissions file (as a list of permission names for each plugin, readable by you alone)
+  ## and clears `plugGrantedNew`; a failure to write is ignored
   var g = newJObject()
   for k, s in plugGranted:
     var a = newJArray()

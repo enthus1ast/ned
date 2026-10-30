@@ -1,4 +1,10 @@
+# going to places and asking about code: go to line, the jump list and closed tabs, next problem, go to symbol,
+# definition, type definition, implementations, type hierarchy, hover and rename — each tries ned's own engines first
+# and then the language server
 proc gotoLineText(t: string) =
+  ## Go to line: `42`, `42:5` (line and column) or `+10` / `-10` relative to the cursor's line; the old place goes on
+  ## the jump list. In the large-file viewer the number is the file's own line, wherever it is. Anything else is an
+  ## error.
   let b = buf()
   var s = t.strip
   if s.startsWith(":"): s = s[1 .. ^1]
@@ -18,6 +24,8 @@ proc gotoLineText(t: string) =
     error("Not a line number: " & s)
 
 proc jumpBack() =
+  ## goes back to the last place on the jump list (opening its file if needed), keeping where it was so Jump forward can
+  ## return
   if jumpStack.len == 0:
     info("Jump list is empty")
     return
@@ -28,6 +36,7 @@ proc jumpBack() =
   if b != nil: b.centerOn(b.clampPos(p))
 
 proc jumpForward() =
+  ## undoes a Jump back: goes to the place it came from, keeping the present one on the jump list
   if fwdStack.len == 0:
     info("Nothing to go forward to")
     return
@@ -38,6 +47,7 @@ proc jumpForward() =
   if b != nil: b.centerOn(b.clampPos(p))
 
 proc reopenClosedTab() =
+  ## reopens the file of the tab closed last (skipping files that are gone or already open), at the cursor place it had
   while closedTabs.len > 0:
     let (path, p) = closedTabs.pop()
     if not fileExists(path) or bufIndexByPath(path) >= 0: continue
@@ -47,6 +57,8 @@ proc reopenClosedTab() =
   info("No closed tabs to reopen")
 
 proc gotoDiag(dir: int) =
+  ## goes to the next (dir > 0) or previous problem of the whole project, from every source, ordered by file and
+  ## position and wrapping round at the ends; its message is shown in the status line
   var all: seq[(string, Diag)]
   var paths: HashSet[string]
   for path in diagsLsp.keys: paths.incl path
@@ -66,6 +78,7 @@ proc gotoDiag(dir: int) =
     if result == 0: result = cmp(x[1].line * 100000 + x[1].col, y[1].line * 100000 + y[1].col))
   let b = buf()
   let here = (b.path, b.primary.head)
+  # the position of a problem as (file, line and column in one number), for comparing
   proc key(x: (string, Diag)): (string, int) = (x[0], x[1].line * 100000 + x[1].col)
   let hk = (here[0], here[1].line * 100000 + here[1].col)
   var idx = -1
@@ -88,6 +101,9 @@ proc gotoDiag(dir: int) =
   setMsg((if d.sev == 1: "Error: " elif d.sev == 2: "Warning: " else: "") & diagText(d, path) & fixHint(d), d.sev)
 
 proc heuristicSymbols(b: Buffer): seq[PickItem] =
+  ## the file's symbols for the symbol list when no engine or server knows the language, found from the shape of the
+  ## lines: Markdown headings, lines starting with the language's definition or class words, the fields of a Nim `type`,
+  ## and top-level functions of C and JavaScript
   var inType = false
   for l, s in b.lines:
     let t = s.strip(trailing = false)
@@ -142,6 +158,9 @@ proc heuristicSymbols(b: Buffer): seq[PickItem] =
       if e > k: result.add PickItem(label: t[k ..< e], icon: "ƒ", path: b.path, line: l, col: k)
 
 proc cmdSymbols() =
+  ## Go to symbol: opens the picker with the file's symbols from the first source that has any — the Nim index, ned's C
+  ## engine, a plugin, the language server (asked, and the picker opens when it answers) — else those found by
+  ## heuristicSymbols
   let b = buf()
   if nimEngineOn(b):
     var items: seq[PickItem]
@@ -269,6 +288,7 @@ proc nimSubtypes(sc: NxScope, name: string): seq[(NxRef, int)] =
     var next: seq[string]
     for g in files:
       for i in 0 ..< g.syms.len:
+        # the symbol being looked at: number `i` of file `g`
         template sy: untyped = g.syms[i]
         if sy.kind != nxType: continue
         let k = sy.typ.find(" of ")
@@ -281,6 +301,7 @@ proc nimSubtypes(sc: NxScope, name: string): seq[(NxRef, int)] =
           # (and the ref type made for it: CircleRef = ref CircleObj)
           for h in files:
             for j in 0 ..< h.syms.len:
+              # the symbol being looked at: number `j` of file `h`
               template sz: untyped = h.syms[j]
               if sz.kind == nxType and nxNorm(nxBaseName(nxStripMods(sz.typ))) == nxNorm(sy.name) and
                  sz.typ.startsWith("ref ") and nxNorm(sz.name) notin seen:
@@ -290,6 +311,8 @@ proc nimSubtypes(sc: NxScope, name: string): seq[(NxRef, int)] =
     frontier = next
 
 proc nimTypeItem(t: NxRef, label: string): PickItem =
+  ## a picker row for a type: the given label, then its file and line and its definition text, jumping to where it is
+  ## declared
   PickItem(label: label, detail: nimShownPath(t.file.path) & ":" & $(t.sym.line + 1) &
                           (if t.sym.typ.len > 0: " · " & t.sym.typ else: ""), icon: "T",
            path: t.file.path, line: t.sym.line, col: t.sym.col)
@@ -369,6 +392,7 @@ proc nimImplementations(b: Buffer): bool =
         let g = nxLoad(path)
         if g == nil: continue
         for i in 0 ..< g.syms.len:
+          # the symbol being looked at: number `i` of file `g`
           template sy: untyped = g.syms[i]
           if sy.kind == nxMethod and nxNorm(sy.name) == nxNorm(s0.name) and sy.params.len > 0 and
              nxNorm(nxBaseName(nxStripMods(sy.params[0].typ))) in family:
@@ -392,6 +416,7 @@ proc nimImplementations(b: Buffer): bool =
   true
 
 proc cmdTypeDefinition() =
+  ## Go to type definition: asks the Nim index, then ned's C engine, then the language server (if it offers it)
   let b = buf()
   if nimEngineOn(b) and nimTypeDefinition(b): return
   if cEngineOn(b) and cEngTypeDefinition(b): return             # C: ned's own engine
@@ -403,6 +428,9 @@ proc cmdTypeDefinition() =
   else: info("No type definition here" & (if s == nil and b.lang.mode != lmNim: " (it needs a language server)" else: ""))
 
 proc cmdImplementation() =
+  ## Go to implementation: asks the Nim index (a method's versions for the types that inherit, the types that inherit
+  ## from a type or satisfy a concept), then ned's C++ engine, then the language server; Nim without any answer lists
+  ## where the name is used
   let b = buf()
   let s = lspReady(b)
   if nimEngineOn(b) and nimImplementations(b): return
@@ -415,6 +443,8 @@ proc cmdImplementation() =
   else: info("The language server does not find implementations" & (if s == nil: " (none is running)" else: ""))
 
 proc cmdTypeHierarchy() =
+  ## shows the type hierarchy at the cursor — what the type inherits from and what inherits from it — from the Nim
+  ## index, ned's C++ engine or a language server that offers it
   let b = buf()
   if nimEngineOn(b) and nimTypeHierarchy(b): return
   if cEngineOn(b) and cEngTypeHierarchy(b): return          # C++: ned's own engine
@@ -465,6 +495,10 @@ proc lspExtras(b: Buffer) =
           "position": s.lspPos(b, h)}, LspReq(kind: lrHighlight, bufId: b.id, pos: h))
 
 proc cmdDefinition() =
+  ## Go to definition (F12). The special places are tried first, each taking only what it knows: a Compiler Explorer
+  ## view, a multibuffer, links, header and importc strings, .nimble packages, NIF, emit blocks, ned's C and JavaScript
+  ## engines. Then Nim's index, nimsuggest or the compiler, then the language server. Last resort: lines that define the
+  ## word in this file and then in the project's files of the same language; one hit jumps there, several open a picker.
   if ceIsView(buf()) and ceDefinition(buf()): return     # (Compiler Explorer: a label, a function of the file)
   if mbDefinition(): return                              # (a multibuffer: looked up in the file of the piece)
   let b = buf()
@@ -478,6 +512,7 @@ proc cmdDefinition() =
   if b.lang.mode == lmNim and emitGoto(b, b.primary.head): return          # in an emit: the C (or Nim) side
   if b.lang.mode == lmNim and cGotoFromDecl(b, b.primary.head): return     # an importc declaration: C's
   if nimEngineOn(b) and b.wordAt(b.primary.head).len > 0:
+    if nimNifDefinition(b, b.primary.head): return              # (the saved file: the compiler's own reading)
     if engineDefinition(b, b.primary.head): return
     if nsUsable(b) and nsRequest(b, nsDef, b.primary.head): return
     if compilerAnswer(b, nsDef, b.primary.head): return        # (nimsuggest off: the compiler, once)
@@ -565,6 +600,11 @@ proc prettyNimError(msg: string): string =
     result.add "  " & $(cands.len - 1) & " other candidate" & (if cands.len > 2: "s" else: "") & ": " & names.join(" · ")
 
 proc cmdHover(auto = false) =
+  ## shows what the cursor is on in a hover box (`auto`: it came up from the mouse resting, so empty answers and hints
+  ## are kept quiet). The text comes from the first source that has any — assembly, package and NIF files, a selected
+  ## Nim expression's type, ned's engines, the language server or nimsuggest (asked, and shown when they answer) and
+  ## Nim's docs — with the problems and review comments of the line in front. A stopped debugger shows the variable's
+  ## value.
   let b = buf()
   let p = b.primary.head
   let plugAsked = plugHover(b, p, auto)            # (a plugin's text: under ned's own, or alone, when it comes)
@@ -699,6 +739,8 @@ proc cmdHover(auto = false) =
     info("Nothing to show here" & (if lspFor(b, false) == nil and not nsUsable(b): " (no language server)" else: ""))
 
 proc cmdRename() =
+  ## Rename: asks for the new name when the language server, the Nim index, the C engine or the JavaScript engine can
+  ## rename the symbol; otherwise it selects every occurrence of the word, to be changed by typing
   let b = buf()
   let s = lspReady(b)
   let w = b.wordAt(b.primary.head)

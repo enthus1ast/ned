@@ -71,6 +71,7 @@ proc surroundLines(b: Buffer, header, footer: string, l0, l1: int) =
       let w = leadingWs(b.lines[l])
       if not found or w.len < ind.len: ind = w
       found = true
+  # escapes `$` in the person's own text so the snippet that inserts it does not take it for a placeholder
   func esc(s: string): string = s.replace("$", "\\$")
   # (a Markdown fence or a C #if: the lines stay where they are; any other block: one level in)
   let step = if header.startsWith("```") or header.startsWith("#if"): "" else: b.indent
@@ -133,6 +134,8 @@ proc surroundBlocks(lang: string): seq[(string, string, string, string)] =
   else: @[]
 
 proc cmdSurroundTag(b: Buffer, ranges: seq[(Pos, Pos)], lines = false) =
+  ## asks for a tag name (attributes allowed, `div` offered) and puts <tag> … </tag> around the ranges, or, with
+  ## `lines`, around the whole lines of the first range as a block
   askText("Tag (with attributes if you like)", "div", proc(t: string) =
     if t.strip.len == 0: return
     let (op, cl) = tagPair(t)
@@ -148,9 +151,11 @@ proc surPairAct(c: char, ranges: seq[(Pos, Pos)]): proc() {.closure.} =
     buf().surroundRanges(op, cl, ranges)
 
 proc surSameAct(o: string, ranges: seq[(Pos, Pos)]): proc() {.closure.} =
+  ## the action that puts the same text, such as `**`, before and after each range
   result = proc() = buf().surroundRanges(o, o, ranges)
 
 proc surLinesAct(h, f: string, l0, l1: int): proc() {.closure.} =
+  ## the action that puts lines l0..l1 inside a block with header h and footer f
   result = proc() = buf().surroundLines(h, f, l0, l1)
 
 proc cmdSurround() =
@@ -280,6 +285,7 @@ proc changeSurrounding(b: Buffer, op, cl: string, which = '\0'): bool =
   true
 
 proc surChangeAct(c: char): proc() {.closure.} =
+  ## the action that changes the pair around the cursor to the pair that key c stands for
   result = proc() =
     let (op, cl) = surroundPair(c)
     discard buf().changeSurrounding(op, cl)
@@ -291,6 +297,8 @@ proc changeSurroundingToTag(which = '\0') =
     discard buf().changeSurrounding(op, cl, which))
 
 proc cmdChangeSurrounding() =
+  ## Edit › Surround › Change the pair around…: a menu of the pairs (brackets, quotes, backticks, a tag) to turn the innermost pair
+  ## around the cursor into; its title shows the opening text of the pair that is there now
   let b = buf()
   let ps = b.surroundingPairs(b.primary.head)
   if ps.len == 0:
@@ -308,6 +316,7 @@ proc cmdChangeSurrounding() =
   for it in items: search.add it[1]
   openActions("Change " & truncTo(was, 20) & " … to", items, search)
 
+# Edit › Surround › Delete the pair around: takes away the innermost pair around the cursor
 proc cmdDeleteSurrounding() = discard buf().deleteSurrounding()
 
 proc vimSurroundChar(b: Buffer, ch: char, ranges: seq[(Pos, Pos)], lines = false) =

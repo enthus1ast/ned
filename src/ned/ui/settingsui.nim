@@ -5,6 +5,8 @@ var
   settingNoUi = false     # the value prompt came from outside the settings list (e.g. "Type a model id…")
 
 func settingLabel(d: SetDef): string =
+  ## the setting's name for the quick list: its category, then the key (without its group) split into words, e.g.
+  ## 'Editor › Tab size'
   var name = d.key
   let dot = name.find('.')
   if dot >= 0: name = name[dot + 1 .. ^1]
@@ -15,6 +17,8 @@ func settingLabel(d: SetDef): string =
   d.cat & " › " & pretty
 
 proc settingValueText(d: SetDef): string =
+  ## the setting's current value as short text for lists and messages — ✓ on / · off for switches, '(default)' for an
+  ## empty string, dots for the API key, the number of items for a list or object
   let v = sval(d.key)
   case v.kind
   of JBool: (if v.getBool: "✓ on" else: "· off")
@@ -32,6 +36,9 @@ proc reopenSettings() =
 proc cmdEditUserCommands()
 
 proc editSetting(d: SetDef) =
+  ## changes one setting from the quick list: a switch is flipped, a choice opens a menu of its options, a number or
+  ## text opens the value prompt, and a list or object goes to its own editor (keys, commands, ruler columns) or to the
+  ## settings file at its line
   let key = d.key
   case d.kind
   of skBool:
@@ -68,6 +75,8 @@ proc editSetting(d: SetDef) =
         break
 
 proc submitSetting(t: string) =
+  ## the value prompt's answer for the setting being edited (settingKey): a number is checked, the value is stored, the
+  ## new value is shown, and the list opens again unless the prompt came from elsewhere
   let i = setIndex.getOrDefault(settingKey, -1)
   if i < 0: return
   let d = setDefs[i]
@@ -175,6 +184,8 @@ proc openSettingsUi(filter = "") =
   openSettingsList(filter)
 
 proc openSettingsList(filter = "") =
+  ## the quick list of settings: the settings file and 'reset all' first, then every setting (only those whose key
+  ## starts with the filter, when one is given) with its value; the search also looks at the category and description
   initSettingDefs()
   settingNoUi = false
   settingsFilter = filter

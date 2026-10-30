@@ -92,12 +92,15 @@ proc aiResolveConflicts() =
             "nothing else: no explanation, no ``` fences.\n\n<file path=\"" & rel & "\">\n" & b.allText & "\n</file>"
   info("The assistant is resolving " & $n & " conflict" & (if n == 1: "" else: "s") & " in " & b.name & "…")
   proc show(res, checkNote: string) =
+    ## shows the resolution `res` side by side with the file as it was and offers to take it or leave it; the note is
+    ## added to the title (what the compiler found)
     let x = bufById(id)
     if x == nil: return
     let after = res.split('\n')
     openDiffView(rel, before, "with the conflicts", nil, after, "resolved by the assistant" & checkNote, x.lang)
     let dvId = buf().id
     proc back() =
+      ## closes the side-by-side view and shows the file itself again
       let dv = bufById(dvId)
       if dv != nil and dv.id != id:
         let k = bufs.find(dv)

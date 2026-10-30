@@ -53,50 +53,69 @@ type
 
 var forms: seq[Form]
 
+# whether a form is showing (it then takes the keys)
 proc formOpen(): bool {.inline.} = forms.len > 0
 
+# a new empty form with a title and an optional intro text; fields and buttons are added, then openForm shows it
 proc newForm(title: string, intro = ""): Form = Form(title: title, intro: intro, sbX: -1, shownFocus: -2)
 
 proc addField(f: Form, ff: FormField): FormField {.discardable.} =
+  ## adds a field to the form's end and gives it back
   f.fields.add ff
   ff
 
 proc addCheck(f: Form, key, label: string, on: bool, help = ""): FormField {.discardable.} =
+  ## adds a check box (ticked when `on`); `key` names it for formChecked, `help` shows under the form while it has the
+  ## focus
   f.addField FormField(kind: ffCheck, key: key, label: label, on: on, help: help)
 
 proc addChoice(f: Form, key, label: string, opts: seq[string], value: string, help = "",
             labels: seq[string] = @[]): FormField {.discardable.} =
+  ## adds a choice (a drop-down list) of the values `opts` with `value` selected; `labels` are how the values show, when
+  ## not as they are
   f.addField FormField(kind: ffChoice, key: key, label: label, opts: opts, optLabels: labels, sel: max(0, opts.find(value)),
                   help: help)
 
 proc addText(f: Form, key, label, text: string, placeholder = "", help = "", secret = false): FormField {.discardable.} =
+  ## adds a one-line text field with the cursor at the end; `secret` shows bullets instead of the text
   f.addField FormField(kind: ffText, key: key, label: label, text: text, cur: text.len, placeholder: placeholder,
                   help: help, secret: secret)
 
 proc addNumber(f: Form, key, label: string, n: int, help = ""): FormField {.discardable.} =
+  ## adds a number field (a text field that takes digits and −, with − and + buttons beside it)
   f.addField FormField(kind: ffNumber, key: key, label: label, text: $n, cur: len($n), help: help)
 
+# adds a line (or wrapped lines) of dim text that takes no focus
 proc addNote(f: Form, text: string): FormField {.discardable.} = f.addField FormField(kind: ffLabel, label: text)
+# adds a heading with a rule after it that takes no focus
 proc addHeader(f: Form, text: string): FormField {.discardable.} = f.addField FormField(kind: ffHeader, label: text)
 proc addLink(f: Form, label: string, act: Action, help = ""): FormField {.discardable.} =
+  ## adds a link drawn as a button that runs `act` when used
   f.addField FormField(kind: ffAction, label: label, act: act, help: help)
 
 proc addButton(f: Form, label, id: string, primary = false, danger = false, left = false) =
+  ## adds a button at the bottom, answering with its `id`: the primary one is the default (Enter), a danger one is drawn
+  ## as a warning, `left` puts it on the left of the row
   f.buttons.add FormButton(label: label, id: id, primary: primary, danger: danger, left: left)
 
 proc formField(f: Form, key: string): FormField =
+  ## the field with that key; an empty label field when there is none, so a wrong key does no harm
   for ff in f.fields:
     if ff.key == key: return ff
   FormField(kind: ffLabel)            # (no such field: an empty one, so a typo cannot crash)
 
+# whether the check box with that key is ticked
 proc formChecked(f: Form, key: string): bool = f.formField(key).on
 proc formValue(f: Form, key: string): string =
+  ## the value of the field with that key as text: the selected option of a choice, "true" or "false" for a check box,
+  ## else the field's text
   let ff = f.formField(key)
   case ff.kind
   of ffChoice: (if ff.sel >= 0 and ff.sel < ff.opts.len: ff.opts[ff.sel] else: "")
   of ffCheck: $ff.on
   else: ff.text
 
+# whether Tab can stop on the field: not notes and headings, nor disabled fields
 func focusable(ff: FormField): bool = ff.kind notin {ffLabel, ffHeader} and not ff.disabled
 
 proc formVisible(f: Form): seq[int] =
@@ -138,6 +157,8 @@ proc formFix(f: Form) =
     f.focus = fl[0]
 
 proc openForm(f: Form) =
+  ## shows the form on top (adding Cancel and OK buttons if it has none), focus on its first field, closing completion
+  ## and hover popups
   if f.buttons.len == 0:
     f.addButton("Cancel", "cancel")
     f.addButton("OK", "ok", primary = true)
@@ -149,6 +170,7 @@ proc openForm(f: Form) =
   needRender = true
 
 proc closeForm() =
+  ## closes the topmost form
   if forms.len == 0: return
   discard forms.pop()
   needRender = true
@@ -161,12 +183,14 @@ proc formPress(f: Form, id: string) =
   needRender = true
 
 proc formCancel(f: Form) =
+  ## Esc: presses the form's "cancel" button
   var id = "cancel"
   for b in f.buttons:
     if b.id == "cancel": id = "cancel"
   f.formPress(id)
 
 proc formPrimary(f: Form) =
+  ## the default button (Enter): the primary one, else the last
   for b in f.buttons:
     if b.primary:
       f.formPress(b.id)
@@ -174,6 +198,7 @@ proc formPrimary(f: Form) =
   if f.buttons.len > 0: f.formPress(f.buttons[^1].id)
 
 proc formChanged(f: Form, ff: FormField) =
+  ## a field's value changed: calls its onChange handler and redraws
   if ff.onChange != nil: ff.onChange(ff)
   needRender = true
 
@@ -208,6 +233,7 @@ proc formActivate(f: Form, i: int, x = -1, y = -1) =
   needRender = true
 
 proc formMoveFocus(f: Form, d: int) =
+  ## moves the focus `d` places along the focus list (fields that take it, then the buttons), wrapping round at the ends
   let fl = f.formFocusList
   if fl.len == 0: return
   var k = fl.find(f.focus)
@@ -217,6 +243,7 @@ proc formMoveFocus(f: Form, d: int) =
   needRender = true
 
 proc formScroll(d: int) =
+  ## scrolls the top form's content by `d` rows, within its range
   if forms.len == 0: return
   let f = forms[^1]
   f.scroll = clamp(f.scroll + d, 0, max(0, f.contentRows - f.contentH))
@@ -233,6 +260,7 @@ proc formScrollTo(y: int) =
   needRender = true
 
 proc formValueOf(ff: FormField): string =
+  ## a field's value as text, as formValue gives it, for comparing with its default
   case ff.kind
   of ffChoice: (if ff.sel >= 0 and ff.sel < ff.opts.len: ff.opts[ff.sel] else: "")
   of ffCheck: $ff.on
@@ -257,12 +285,16 @@ proc boxEdges(x, y, w: int, under, edge: Rgb) =
   if x + w < scrW: setCell(x + w, y, Cell(ch: 0x258F, fg: edge, bg: under))
 
 proc formLabelW(f: Form, vis: seq[int], areaW: int): int =
+  ## the width of the label column: the longest label of the shown text, number and choice fields plus 4, kept between
+  ## 10 and two fifths of the area
   for i in vis:
     if i >= 0 and f.fields[i].kind in {ffText, ffNumber, ffChoice}:
       result = max(result, strWidth(f.fields[i].label) + 4)
   result = clamp(result, 10, max(10, areaW * 2 div 5))
 
 proc formRowsOf(f: Form, i, areaW, lw: int): int =
+  ## how many screen rows field `i` takes (a note as many as its wrapped lines; a field whose box would be too narrow
+  ## next to its label goes on a second row; a group's name in a search result, a negative index, one)
   if i < 0: return 1
   let ff = f.fields[i]
   case ff.kind
@@ -283,6 +315,7 @@ proc drawFormField(f: Form, i, ax, ry, n, areaW, lw, bodyTop, bodyBot: int): (st
   let focused = i == f.focus and f.zone == 0
   let fg = if ff.disabled: theme.dim else: theme.fg
   let rowH = (if n == 2: 2 else: 1)
+  # whether screen row `yy` lies in the form's scrolling body
   template inView(yy: int): bool = yy >= bodyTop and yy < bodyBot
   let rowBg = if focused: blend(bg, theme.accent, 0.10)
               elif ff.kind notin {ffHeader, ffLabel} and hov(ax - 1, ry, areaW + 1, rowH): blend(bg, theme.fg, 0.05)
@@ -338,8 +371,8 @@ proc drawFormField(f: Form, i, ax, ry, n, areaW, lw, bodyTop, bodyBot: int): (st
   of ffText, ffNumber, ffChoice:
     let two = n == 2
     if inView(ry):
-      discard putStr(ax + 1, ry, ff.label, (if focused: theme.accent else: fg), rowBg, (if focused: {aBold} else: {}),
-                     ax + (if two: areaW else: lw - 2))
+      discard putStr(ax + 1, ry, truncTo(ff.label, (if two: areaW else: lw - 2) - 1), (if focused: theme.accent else: fg),
+                     rowBg, (if focused: {aBold} else: {}), ax + (if two: areaW else: lw - 2))
       capture idx:
         region(ax - 1, ry, (if two: areaW else: lw), 1, proc() =
           f.zone = 0
@@ -381,6 +414,8 @@ proc drawFormField(f: Form, i, ax, ry, n, areaW, lw, bodyTop, bodyBot: int): (st
         if ff.kind == ffNumber and not ff.disabled:
           let sb = seenOn(theme.btnBg, rowBg, 0.14)
           proc step(d: int) =
+            ## adds `d` to the number field's value (0 if it is not a number), gives the field the focus and reports the
+            ## change
             var v = 0
             try: v = parseInt(ff.text.strip)
             except ValueError: v = 0
@@ -395,6 +430,10 @@ proc drawFormField(f: Form, i, ax, ry, n, areaW, lw, bodyTop, bodyBot: int): (st
   if i == f.focus and f.zone == 0 and result[0].len == 0: result[0] = f.fields[i].help
 
 proc drawForm() =
+  ## draws the topmost form as a modal box over a shaded screen: the frame with title, the intro, for a form with groups
+  ## the search box and side list of groups (a narrow screen gets arrows instead), the fields scrolled so the focused
+  ## one shows with a scroll bar, a line of help for the focused field or the error, and the buttons; works out the
+  ## cursor place and registers the mouse regions
   if forms.len == 0: return
   let f = forms[^1]
   f.formFix()
@@ -466,8 +505,9 @@ proc drawForm() =
                   else: bg
       fillRect(x + 1, yy, sideW, 1, theme.fg, rowBg)
       if selected: discard putStr(x + 1, yy, "▍", theme.accent, rowBg)
-      discard putStr(x + 3, yy, g, (if selected: theme.fg else: theme.dim), rowBg, (if selected: {aBold} else: {}),
-                     x + sideW)
+      # (a name longer than the column ends in … — "Compiler Explore" read as a word)
+      discard putStr(x + 3, yy, truncTo(g, sideW - 3), (if selected: theme.fg else: theme.dim), rowBg,
+                     (if selected: {aBold} else: {}), x + sideW)
       let k = gi
       capture k:
         region(x + 1, yy, sideW, 1, proc() =
@@ -575,6 +615,10 @@ proc drawForm() =
   elif f.zone == 0 and f.focus >= f.fields.len: cursorX = -1
 
 proc formKey(k: Key) =
+  ## the keys of the top form: Esc cancels; Tab, Shift+Tab and the arrows move between fields and buttons, Page Up/Down
+  ## scroll, Enter uses a link or the default button; Space ticks a box, opens a choice or uses a link, Left/Right
+  ## change a choice; other keys edit a text or number field; with groups, the search box and the side list also take
+  ## keys
   if forms.len == 0: return
   let f = forms[^1]
   f.formFix()

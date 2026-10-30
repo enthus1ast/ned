@@ -60,6 +60,7 @@ proc drawTouchBar() =
   # last first)
   let langFrom = max(0, keys.len - langN)
   proc rowW(ks: seq[(string, Key, string)]): int =
+    ## the width of a row of touch keys: each label's width plus three columns around it
     for (l, _, _) in ks: result += strWidth(l) + 3
   var drop = langFrom - 1
   while rowW(keys) > scrW and drop >= 0 and langN > 0:
@@ -106,6 +107,8 @@ proc progressShown(): (bool, float) =
   (true, f)
 
 proc progressAnimating(): bool =
+  ## true while the bar shows a moving band — a job that cannot say how far it is has run for 400 ms — so the screen
+  ## keeps being redrawn
   progWas and cfgProgressBar and progressNow()[1] < 0 and msSince(progSince) >= 400
 
 proc progressStarting(): bool =
@@ -131,6 +134,9 @@ proc termProgress() =
   writeAll("\e]9;4;" & want & "\a")
 
 proc drawProgressTint(y: int, bg: Rgb) =
+  ## colours the status bar's background with the accent as the job goes: from the left up to the fraction done, or a
+  ## band moving across when the progress is unknown. Only cells that still have the plain background are tinted, so the
+  ## text and buttons keep their colours.
   let (on, f) = progressShown()
   if not on: return
   let tint = blend(bg, theme.accent, 0.38)
@@ -146,6 +152,11 @@ proc drawProgressTint(y: int, bg: Rgb) =
     if grid[y * scrW + x].bg == bg: grid[y * scrW + x].bg = tint
 
 proc drawStatusBar() =
+  ## draws the status bar. On the left: the vim mode, macro recording, problem counts, run configuration, CI result,
+  ## urgent TODOs, language server or Nim engine, warnings (wrong Nim, untrusted folder, read-only, large file),
+  ## terminal, running job and plugins' items. On the right: position, indentation, encoding, line endings, language,
+  ## build settings, Telescope, Markdown preview and the assistant. When the width is short the least important
+  ## right-hand items go first and the message gets the room left; each part has a tip and a right-click menu.
   let y = lay.statusY
   if y < 0: return
   let bg = theme.statusBg
@@ -204,8 +215,10 @@ proc drawStatusBar() =
     let tip = if b.lang.mode == lmNim and nim3On(): "Language intelligence · Nim 3: nimony in " & tildePath(nimonyRoot())
               elif b.lang.mode == lmNim and nimToolchainLine().len > 0: "Language intelligence · " & nimToolchainLine()
               else: "Language intelligence"
-    x = button(x, y, " " & lsTxt & " ", proc() = showSide(svProject), tip, theme.dim, bg,
-               rightAct = proc() = ctxOpen(statusLsMenu()))
+    if b.lang.mode == lmNim and nimonyBuilding: lsTxt.add " · building nimony…"
+    # (a Nim file: a tap says which Nim and why, and offers the others — on a tablet there is no right click)
+    let tap: Action = if b.lang.mode == lmNim: (proc() = ctxOpen(statusLsMenu())) else: (proc() = showSide(svProject))
+    x = button(x, y, " " & lsTxt & " ", tap, tip, theme.dim, bg, rightAct = proc() = ctxOpen(statusLsMenu()))
   if b.lang.mode == lmNim and tcProblem.len > 0 and scrW >= 60 and not nim3On():
     # (the Nim in use is not what the project's .nimble asks for)
     x = button(x, y, " " & (if cfgAccessible: "[!]" else: "⚠") & " Nim " & tcVerText(tcVer) & ": " & tcProblem & " ",
@@ -299,6 +312,7 @@ proc drawStatusBar() =
   var keep: seq[bool]
   for _ in right: keep.add true
   proc total(): int =
+    ## the width the right-hand items still kept would take, with a column of space each side
     for i, r in right:
       if keep[i]: result += strWidth(r[0]) + 2
   let showMsg = msg.len > 0 and msSince(msgTime) < 6000

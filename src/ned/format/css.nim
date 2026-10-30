@@ -35,6 +35,7 @@ proc fmtCss*(s: string, indent = 2, lineComments = false): (string, string) =
   var i = 0
   var nls = 0
   proc lineOut(o: var string, d: int, text: string) =
+    ## adds one line to the output: the text indented d levels, then a line break
     for _ in 0 ..< d: o.add ind
     o.add text
     o.add "\n"
@@ -91,9 +92,13 @@ proc fmtCss*(s: string, indent = 2, lineComments = false): (string, string) =
       result.add c
       inc j
   proc blank(o: var string) =
+    ## adds the blank line the source had before the next item, but never right after a `{` or another blank line
     if blankBefore and o.len > 0 and not o.endsWith("{\n") and not o.endsWith("\n\n"): o.add "\n"
     blankBefore = false
   proc flushDecl(o: var string) =
+    ## writes out the declaration read so far as one line ending in `;`: whitespace squeezed, `property: value` with one
+    ## space after the colon and after each comma in the value; text that does not look like a property is written as it
+    ## is with the `;`
     let d = squashWs(cur)
     cur = ""
     if d.len == 0: return

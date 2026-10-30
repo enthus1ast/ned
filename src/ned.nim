@@ -52,6 +52,8 @@ var
   startRss: seq[(string, float)]   # (when, resident memory in MB)
 
 proc smark(name: string) =
+  ## with --startup-time, notes a step of starting up and how many milliseconds have passed since the program started;
+  ## otherwise it does nothing
   if startTrace: startMarks.add (name, float((getMonoTime() - startT0).inMicroseconds) / 1000.0)
 
 proc rssMB(): float =
@@ -227,6 +229,7 @@ include ned/ui/contextmenus
 include ned/editor/decompile
 include ned/editor/cexplorer
 include ned/nim/nifview
+include ned/nim/nimnif
 include ned/nim/nifcolors
 include ned/nim/pnak
 include ned/nim/astview

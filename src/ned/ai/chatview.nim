@@ -1,5 +1,6 @@
 # ── chat rendering ──
 
+# a piece of chat text with its colours and attributes
 func span(t: string, fg: Rgb, bg: Rgb = NoColor, at: set[Attr] = {}): ChatSpan = ChatSpan(t: t, fg: fg, bg: bg, at: at)
 
 proc wrapSpans(spans: seq[ChatSpan], width: int, bg: Rgb, indent = 0, firstIndent = -1): seq[ChatLine] =
@@ -44,6 +45,7 @@ proc inlineSpans(s: string, fg, bg: Rgb): seq[ChatSpan] =
   var bold = false
   var ital = false
   proc flush(res: var seq[ChatSpan]) =
+    ## adds the text collected so far as a span (bold in the main colour, italic when it is on) and starts a new one
     if cur.len > 0:
       res.add ChatSpan(t: cur, fg: (if bold: theme.fg else: fg), bg: bg,
                        at: (if bold: {aBold} else: {}) + (if ital: {aItalic} else: {}))
@@ -91,6 +93,7 @@ proc applyCodeToFile(path, code: string) =
     bb.setTextMinimal(nl.join("\n"))
     info("Applied — review, then Ctrl+S (Ctrl+Z undoes)"), 30000)
 
+# the spaces and tabs at the start of the line, as written
 func indentOf(s: string): string = s[0 ..< s.len - s.strip(trailing = false).len]
 
 func opensBlock(b: Buffer, s: string): bool =
@@ -259,6 +262,10 @@ proc markdownLines(text: string, width: int, bg: Rgb, compact = false): seq[Chat
       prevBullet = bullet
     text = outp.join("\n")
   proc emitCode(res: var seq[ChatLine]) =
+    ## writes the code block collected so far as chat lines: a header with the language (not in popups), then each line
+    ## coloured by that language's lexer, a line too long for the width wrapped at a space or comma, never cut off. The
+    ## header carries the code for the Copy and Insert buttons and, when the fence names a file of the project, that
+    ## file for Apply; the collected code is then cleared
     let code = codeBuf.join("\n")
     let l = if lang != nil: lang else: langByName("Text")
     var hdrIdx = -1
@@ -359,6 +366,8 @@ proc markdownLines(text: string, width: int, bg: Rgb, compact = false): seq[Chat
   if inCode: emitCode(result)
 
 proc callSummary(c: AiCall): string =
+  ## a tool call in a few words for the chat: read src/a.nim:1-40, a command with a $, the server and tool of an MCP or
+  ## plugin call with its arguments cut short
   var j: JsonNode
   try: j = parseJson(if c.args.strip.len == 0: "{}" else: c.args)
   except CatchableError: j = newJObject()
@@ -377,6 +386,11 @@ proc callSummary(c: AiCall): string =
     else: c.name
 
 proc buildChat(width: int): seq[ChatLine] =
+  ## the whole chat as lines for the width. With no messages: the welcome with five prompts to tap and a note when there
+  ## is no API key. Otherwise each message in turn — yours with its pictures, the assistant's as Markdown, each tool
+  ## call on a line with its state and check result (a tap shows or hides its details), the approval card of a call that
+  ## waits (the command, or the diff, with Allow, Always and Deny), notices — then a spinner while it works, or
+  ## Regenerate and Copy reply after the last answer
   let bg = theme.dockBg
   if aiMsgs.len == 0:
     result.add ChatLine(bg: bg)
@@ -584,10 +598,13 @@ var
   aiUsageShownBelow = ""
 
 proc aiScroll(d: int) =
+  ## scrolls the chat by `d` rows towards the newest (negative: back up), never past the newest
   aiScrollOff = max(0, aiScrollOff - d)
   needRender = true
 
 proc toggleAiFast() =
+  ## switches between the ai.model and the ai.fastModel, and says which is in use; it asks to set ai.fastModel first
+  ## when there is none
   if cfgAiFastModel.len == 0:
     info("Set \"ai.fastModel\" first (palette › AI: settings…) — e.g. a mini / haiku model")
     return
@@ -596,6 +613,11 @@ proc toggleAiFast() =
   needRender = true
 
 proc drawAssistant(x0, y0, w, h: int) =
+  ## draws the assistant dock in its rectangle: the top row of buttons (model, agent or chat, history, fast or smart)
+  ## with the tokens and cost used, the chat (built again only when something it shows has changed; scrolled, lines that
+  ## act get a tap and a hover colour, pictures drawn as half blocks, code blocks with Copy, Insert and Apply buttons),
+  ## the input box that grows up to six rows with its cursor, the send or stop button, and the hint row (matching
+  ## /commands, @mentions, pictures that go along)
   let bg = theme.dockBg
   fillRect(x0, y0, w, h, theme.fg, bg)
   # model line
@@ -750,6 +772,8 @@ proc aiAttachPicture() =
   var found: seq[(int64, string)]
   var seen: HashSet[string]
   proc add(p: string) =
+    ## adds a picture file to the list to choose from, with its modification time, unless it is there already or is not
+    ## a picture the assistant takes
     if p in seen or aiPicMime(p).len == 0: return
     seen.incl p
     let t = try: getLastModificationTime(p).toUnix except CatchableError: 0'i64
@@ -789,6 +813,8 @@ proc aiAttachPicture() =
   if found.len == 0:
     info("No pictures in the project, nor in the usual screenshot folders — type @ and a picture's path")
     return
+  # the action that puts @ and the path of the picture (from the project, else with ~) into the message and gives the
+  # assistant dock the focus
   proc pick(p: string): Action = (proc() =
     let m = "@" & (if p.startsWith(rootDir & "/"): relPath(p) else: tildePath(p)) & " "
     aiInput.insert(m, min(aiInputCur, aiInput.len))
@@ -805,6 +831,7 @@ proc aiAttachPicture() =
   openActions("Attach a picture to the message", items)
 
 func mentionInsertAct(m: string): Action =
+  ## the action that puts the mention and a space into the message at the cursor
   proc() =
     let t = m & " "
     aiInput.insert(t, aiInputCur)
@@ -812,6 +839,8 @@ func mentionInsertAct(m: string): Action =
     showSide(svAssistant)
 
 proc pendingApproval(): (int, int) =
+  ## the message and call number of the first call of the last message that waits for the user's approval; (-1, -1) when
+  ## none does
   if aiMsgs.len == 0: return (-1, -1)
   let mi = aiMsgs.high
   if aiMsgs[mi].role != 1: return (-1, -1)
@@ -820,6 +849,11 @@ proc pendingApproval(): (int, int) =
   (-1, -1)
 
 proc assistantKey(k: Key) =
+  ## a key typed in the assistant dock: y, n or a answer a call that waits for approval (when the message box is empty);
+  ## Enter sends (Alt or Shift+Enter: a new line); Esc stops the assistant, else goes back to the editor; Up and Down go
+  ## through the earlier messages, or scroll; PgUp and PgDn scroll; Tab completes a /command or @mention, else moves to
+  ## another dock view; Ctrl+L starts a new chat; @ offers what to attach; a pasted path of a picture is attached;
+  ## anything else edits the message
   let (pm, pc) = pendingApproval()
   if pm >= 0 and k.kind == kChar and k.mods == {} and aiInput.len == 0 and k.ch in [ord('y'), ord('n'), ord('a')]:
     approveCall(pm, pc, k.ch != ord('n'), k.ch == ord('a'))

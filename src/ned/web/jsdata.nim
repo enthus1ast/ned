@@ -747,9 +747,11 @@ const
   ]
 
 func globalIndex(): Table[string, int] =
+  ## the table from each name in JsGlobals to its place in that list (built when compiling)
   for i, g in JsGlobals: result[g.name] = i
 
 func memberIndex(): Table[string, seq[int]] =
+  ## the table from an owner (Math, document …) to the places in JsMembers of its members (built when compiling)
   for i, m in JsMembers: result.mgetOrPut(m.owner, @[]).add i
 
 const

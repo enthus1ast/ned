@@ -13,6 +13,7 @@ proc gone(text, secret: string): bool =
   let r = redactSecrets(text)
   secret notin r and SecretMark in r
 
+# is the text left whole by the redaction, because nothing in it is a secret?
 proc kept(text: string): bool = redactSecrets(text) == text
 
 suite "secrets: found and replaced":

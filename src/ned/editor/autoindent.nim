@@ -13,6 +13,7 @@ func aiLeading*(s: string): int =
   while result < s.len and s[result] in {' ', '\t'}: inc result
 
 func aiFirstWord(s: string): string =
+  ## the identifier a line starts with, after its indentation ("" when it starts with anything else)
   var i = aiLeading(s)
   while i < s.len and s[i] in IdentChars:
     result.add s[i]

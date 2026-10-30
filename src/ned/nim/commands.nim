@@ -1,3 +1,6 @@
+# the commands for Nim work: unused exports, expanding templates and macros, the ARC view and the generated C, call
+# hierarchy, peek definition and references, find references, imports that follow a moved file, a new project, the
+# nimble tasks, nimony, and the build mode, backend and compiler settings.
 proc gotoAct(path: string, line, col: int): Action =
   ## open the file at line:col. (A closure made in a loop has to come from a proc like this one: closures made
   ## right in a loop's body share its variables, so they would all go to the last place.)
@@ -21,6 +24,7 @@ proc cmdUnusedExports() =
     let f = nxLoad(p)
     if f == nil: continue
     for i in 0 ..< f.syms.len:
+      # the symbol being looked at in the loop
       template s: untyped = f.syms[i]
       if not s.exported or s.kind notin NxRoutineKinds + {nxType, nxConst}: continue
       if msSince(t0) > 20_000 or termSignal != 0:
@@ -35,10 +39,12 @@ proc cmdUnusedExports() =
   openActions("Exported, used nowhere in the project (" & $items.len & ")" & (if cut: " — stopped after 20 s" else: ""), items)
 
 proc nimbleDir(): string =
+  ## the folder nimble runs in: the one with the project's .nimble file, else the project root
   loadNimbleInfo()
   if nimble.dir.len > 0: nimble.dir else: rootDir
 
 proc runNimble(args: string) =
+  ## runs `nimble args` in the Run panel, in the folder with the .nimble file; says so when nimble is not installed
   if not haveExe("nimble"):
     error("nimble not found (Termux: pkg install nim)")
     return
@@ -56,8 +62,11 @@ proc cmdInstallNimony() =
   let get = if dirExists(dir / ".git"): "git -C " & quoteShell(dir) & " pull --ff-only"
             else: "git clone --depth 1 https://github.com/nim-lang/nimony " & quoteShell(dir)
   info("Building nimony in " & tildePath(dir) & " — a few minutes; the Run panel shows how it goes")
+  nimonyBuilding = true
+  needRender = true
   runCommand(get & " && cd " & quoteShell(dir) & " && nim c -r src/hastur/hastur build all", getHomeDir(),
              proc(code: int) =
+               nimonyBuilding = false
                nimonyMemo = ("\x00", "", "")             # (looked for again: in ~/.local/nimony now)
                if code == 0 and nimonyExe().len > 0:
                  info("nimony is ready: " & tildePath(nimonyExe()) & " — a project with nimony.args, nimony.paths or " &
@@ -65,12 +74,15 @@ proc cmdInstallNimony() =
                elif code != 0: error("Building nimony stopped (exit " & $code & ") — the Run panel says why"))
 
 proc runAtlas(args: string) =
+  ## runs `atlas args` in the Run panel, in the project root; says how to build atlas when it is not installed
   if not haveExe("atlas"):
     error("atlas not found — build it with: nimble install atlas")
     return
   runCommand("atlas " & args, rootDir)
 
 proc saveForTool(b: Buffer): bool =
+  ## gets the file ready for a tool that reads it from disk: saves unsaved changes first. False (with a note to save the
+  ## file first) when it has no path yet
   if b.path.len == 0:
     info("Save the file first")
     return false
@@ -124,6 +136,8 @@ proc expandMacroJob(b: Buffer, name: string, line: int, done: proc(at: int, code
     done(blocks[pick][0], blocks[pick][1], ""))
 
 proc compilerExpandMacro(b: Buffer, name: string, line: int) =
+  ## asks the compiler how the macro call `name` on (or above) `line` expands, and shows the answer in a tab of its own
+  ## — or says why there is none
   info("Expanding " & name & " (nim check --expandMacro)…")
   expandMacroJob(b, name, line, proc(at: int, code, err: string) =
     if err.len > 0:
@@ -133,6 +147,10 @@ proc compilerExpandMacro(b: Buffer, name: string, line: int) =
                         ", as the compiler expands it\n" & code & "\n", langByName("Nim")))
 
 proc cmdExpandMacro(level = "all") =
+  ## the command that shows the template or macro call under the cursor written out. The language server does it when
+  ## there is one (`level` says how many steps, "all" for every one); else ned's own engine writes a template out at
+  ## once and asks the compiler for a macro; else nimsuggest. Says so when the cursor is not on a call or none of them
+  ## can
   let b = buf()
   if b.lang.mode != lmNim:
     info("Macro expansion is for Nim files")
@@ -188,6 +206,8 @@ proc toolOutput(title, cmd, cwd: string, extract: proc(o: string): string, lang:
       error(if first.len > 0: first[^1] else: "no output"))
 
 proc cmdExpandArc() =
+  ## the command that shows the ARC/ORC view of the proc around the cursor: the =copy, =sink, =destroy and wasMoved
+  ## calls the compiler puts in (`nim c --compileOnly --expandArc` on the project file, after saving)
   let b = buf()
   if b.lang.mode != lmNim or not saveForTool(b): return
   let name = enclosingProc(b)
@@ -213,6 +233,8 @@ proc cmdExpandArc() =
     langByName("Nim"))
 
 proc cmdShowC() =
+  ## the command that shows the C (or C++, with the cpp backend) the compiler makes for the file: `--compileOnly` into a
+  ## cache in ned's private folder, then the file made for this module opened read-only
   let b = buf()
   if b.lang.mode != lmNim or not saveForTool(b): return
   let proj = nimProjectFile(b)
@@ -310,6 +332,7 @@ proc cmdCallHierarchy() =
   var name = b.wordAt(b.primary.head)
   var ri = -1
   for i in 0 ..< f.syms.len:
+    # the symbol being looked at in the loop
     template sy: untyped = f.syms[i]
     if sy.kind in NxRoutineKinds and sy.line == b.primary.head.line and sy.name == name: ri = i
   if ri < 0 and name.len == 0:
@@ -534,6 +557,9 @@ proc cmdPeekReferences() =
   showHover(md)
 
 proc cmdReferences() =
+  ## the command that lists every use of the name under the cursor in the Search panel. C, JavaScript and Nim are
+  ## answered by ned's own engines; where the Nim engine cannot tell which symbol it is, it asks nimsuggest, then (Nim
+  ## 3) nimony's usages, then the language server, and last a text search of the project for the word
   let b = buf()
   if cEngineOn(b) and cEngReferences(b, b.primary.head): return       # C: ned's own engine
   if webReferences(b, b.primary.head): return                          # JavaScript: ned's own engine
@@ -634,6 +660,7 @@ proc createNimProject(name0: string, where = "", kind = "bin", desc = "", licens
   info("Created Nim project " & name & " — Alt+R runs it, Alt+E opens the Nim panel")
   dir
 
+# the action that runs one nimble task (a proc of its own, so each task in a loop keeps its own name)
 proc nimbleAct(task: string): Action = (proc() = runNimble(task))
 
 proc nimbleAtLeast(major, minor: int): bool =
@@ -644,6 +671,8 @@ proc nimbleAtLeast(major, minor: int): bool =
   except ValueError: false
 
 proc nimbleTaskActions(): seq[(string, string, proc() {.closure.})] =
+  ## the nimble tasks as list entries: build, run, test, install deps, check and refresh packages, then the project's
+  ## own tasks from its .nimble (with their descriptions)
   loadNimbleInfo()
   result.add act("build", "nimble build", proc() = runNimble("build"))
   result.add act("run", "nimble run", proc() = runNimble("run"))
@@ -658,12 +687,15 @@ proc nimbleTaskActions(): seq[(string, string, proc() {.closure.})] =
     result.add act(t, (if d.len > 0: d else: "nimble " & t), nimbleAct(t))
 
 proc cmdNimbleTasks() =
+  ## the command that lists the project's nimble tasks to run; says so when nimble is not installed
   if not haveExe("nimble"):
     error("nimble not found (Termux: pkg install nim)")
     return
   openActions("Nimble" & (if nimble.name.len > 0: " — " & nimble.name else: ""), nimbleTaskActions())
 
 proc cmdNimony(run: bool) =
+  ## the commands that compile and run the file with nimony (Nim 3's compiler), or only check it, with the project's
+  ## nimony arguments, after saving; says where to get nimony when it is not found
   let b = buf()
   if b.lang.mode != lmNim or not saveForTool(b): return
   if nimonyExe().len == 0:
@@ -674,14 +706,17 @@ proc cmdNimony(run: bool) =
              parentDir(b.path))
 
 proc setNimMode(m: string) =
+  ## changes the Nim build mode and keeps it in the settings (nim.buildMode)
   cfgNimMode = m
   info("Nim build mode: " & m)
   setSetting("nim.buildMode", %m)
 proc setNimTarget(t: string) =
+  ## changes the Nim backend (C or C++) and keeps it in the settings (nim.backend)
   cfgNimTarget = t
   info("Nim backend: " & t)
   setSetting("nim.backend", %t)
 proc setNimCompiler(c: string) =
+  ## changes the compiler used to run the file and keeps it in the settings (nim.compiler)
   cfgNimCompiler = c
   info("Compiler for Alt+R: " & c)
   setSetting("nim.compiler", %c)

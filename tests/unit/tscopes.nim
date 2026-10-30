@@ -6,6 +6,7 @@ import std/[os, strutils, unittest, algorithm, sets, times]
 import ../../src/ned/nim/index
 
 proc nimLib(): string =
+  ## the folder of Nim's standard library next to the nim on PATH (the test stops when there is none)
   var exe = findExe("nim")
   doAssert exe.len > 0, "put nim on PATH"
   try:

@@ -17,9 +17,12 @@ var
   picBlocks: Table[string, seq[seq[(uint32, uint32)]]]           # (a path and size) → its cells
   picKittyId = 7300                 # (the kitty pictures' numbers)
 
+# whether a file name ends in one of the picture extensions ned shows as pictures
 proc isPicturePath(path: string): bool = splitFile(path).ext.toLowerAscii in PicExts
 
 proc picTime(path: string): int64 =
+  ## a stamp for the picture file's version — its modification time in milliseconds with a bit of its size — that the
+  ## caches compare to see that the file changed; -1 when it cannot be read
   try: getLastModificationTime(path).toUnix * 1000 + getFileSize(path) mod 1000
   except CatchableError: -1
 
@@ -94,6 +97,8 @@ proc mdPicRows(path: string, cols: int): int =
   clamp(int(ih.float * c.float / iw.float / 2.0 + 0.5), 1, 30)
 
 proc mdPicRow(path: string, cols, rows, k: int): seq[(Rgb, Rgb)] =
+  ## row `k` of a picture in the Markdown preview, as (upper pixel, lower pixel) colours for each cell: the picture is
+  ## made at most `cols` wide and `rows` tall, keeping its shape
   let (iw, ih) = picSize(path)
   if iw <= 0: return
   var c = min(cols, max(8, iw))
@@ -127,6 +132,9 @@ proc picOpen(b: Buffer) =
        " — + and − zoom, 0 fits, arrows move, Tab: its bytes (hex)")
 
 proc drawPicture(b: Buffer, x0, y0, w, h: int) =
+  ## draws the picture view in a rectangle: a top line with the name, format, size and zoom, then the picture fitted to
+  ## the room, zoomed and panned, in cells of two pixels each (▀). When the terminal draws pictures itself and the
+  ## picture is unzoomed and unpanned, a request for the terminal to draw it sharper over the cells is made as well.
   var pv = picViews.getOrDefault(b.id, PicView(zoom: 1.0))
   cursorX = -1
   cursorY = -1
@@ -246,6 +254,8 @@ proc picKey(b: Buffer, k: Key): bool =
   true
 
 proc cmdPictureToggle() =
+  ## palette command: for a picture file, switches between the picture and its bytes in the hex editor (a picture file
+  ## open as bytes gets its picture view)
   let b = buf()
   if b.id notin picViews:
     if b.path.len > 0 and isPicturePath(b.path) and b.hex != nil:

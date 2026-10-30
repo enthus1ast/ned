@@ -2,6 +2,10 @@
 
 
 proc treeMenu(n: TreeNode): seq[MenuItem] =
+  ## the file tree's menu for a node (nil: the project row): new file and folder in its folder; for a node also open (to
+  ## the side), add to .gitignore, rename, delete (after asking), copy path, open in the browser, ask the AI, search in
+  ## the folder, open as the project, format the folder; and for everything git init when there is no repository, show
+  ## hidden files, refresh and collapse all
   let dir = if n == nil: rootDir elif n.isDir: n.path else: parentDir(n.path)
   let pre = if dir == rootDir: "" else: relPath(dir) & "/"
   result = @[mi("New file…", "n", proc() = openPrompt(pNewFile, "New file", pre)),
@@ -55,6 +59,7 @@ proc treeMenu(n: TreeNode): seq[MenuItem] =
   if n == nil: result.add mi("Open another folder…", "", proc() = cmdOpenFolder())
   result.add mi("Collapse all", "", proc() =
     proc coll(t: TreeNode) =
+      ## folds every folder below `t`
       for c in t.children:
         if c.isDir:
           c.expanded = false
@@ -63,6 +68,10 @@ proc treeMenu(n: TreeNode): seq[MenuItem] =
     flattenTree())
 
 proc drawTree(x0, y0, w, h: int) =
+  ## draws the file tree: the project row, then the rows from the scroll position with indent guides, a chevron or file
+  ## icon, the name, and at the right the tag-comment count, the git letter (or the problem count), an unsaved dot, and
+  ## colours by problems and git status; keeps the selected row in view; a click opens the file or unfolds the folder, a
+  ## right click opens its menu
   let bg0 = theme.dockBg
   let showTags = cfgTodoHl and todoTags.len > 0
   if showTags: todoRefreshCache()

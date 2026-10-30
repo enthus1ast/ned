@@ -41,15 +41,18 @@ type
     compat*: Table[string, int8]           # (parameter type, generics, argument type) → nxCompat's answer
 
 func len*(r: NxRefs): int =
+  ## how many names the scope holds: its own and those of every layer
   result = r.own.len
   for l in r.layers: result += l.refs.len
 
 iterator items*(r: NxRefs): NxRef =
+  ## every name of the scope, its own first, then each layer's in order
   for x in r.own: yield x
   for l in r.layers:
     for x in l.refs: yield x
 
 proc `[]`*(r: NxRefs, i: int): NxRef =
+  ## the i-th name of the scope, counting its own and then the layers' as one list; raises when i is past the end
   if i < r.own.len: return r.own[i]
   var k = i - r.own.len
   for l in r.layers:
@@ -57,6 +60,7 @@ proc `[]`*(r: NxRefs, i: int): NxRef =
     k -= l.refs.len
   raise newException(IndexDefect, "index " & $i & " not in the scope's " & $r.len & " names")
 
+# adds a name to the scope's own
 proc add*(r: var NxRefs, x: NxRef) {.inline.} = r.own.add x
 
 var
@@ -77,6 +81,7 @@ var
   nxBufferLines*: proc(path: string): seq[string] = nil
 
 proc tm*(sc: NxScope): NxTypeMemo {.inline.} =
+  ## what the scope has worked out about types, made empty on first use
   if sc.memo == nil: sc.memo = NxTypeMemo()
   sc.memo
 
@@ -115,6 +120,7 @@ func nxNameHash*(s: string): uint32 =
   ## the hash a scope keeps a name under (its normalized form's, as nxNorm makes it — without making it: a scope of
   ## ten thousand names made as many strings)
   var h = 2166136261'u32
+  # adds a character to the running hash (FNV-1a)
   template mix(c: char) = h = (h xor uint32(ord(c))) * 16777619'u32
   {.cast(noSideEffect).}:
     let exact = nxExact
@@ -153,6 +159,7 @@ proc nxStatForget*(path = "") =
   if path.len == 0: nxStatSeen.clear() else: nxStatSeen.del path
 
 proc nxCurStamp*(path: string): string =
+  ## the stamp of a file as the editor sees it: the open buffer's when the file is open, else the one on disk
   if nxBufferStamp != nil:
     let s = nxBufferStamp(path)
     if s.len > 0: return s
@@ -173,6 +180,7 @@ var
   nxDropped* = 0                       # files dropped to stay within the budget, so far
 
 func nxStrBytes(s: string): int {.inline.} =
+  ## about how many bytes a string takes in memory (its capacity, the header, rounded up to 16)
   if s.len == 0: 0 else: (s.capacity + 9 + 15) and not 15
 
 func nxFileSize*(f: NxFile): int =
@@ -266,6 +274,7 @@ proc nxVersionKey*(dirName: string): seq[int] =
     except ValueError: result.add 0
 
 func nxVerLess*(a, b: seq[int]): bool =
+  ## whether version a is older than b, comparing number by number (a missing one counts as 0)
   for i in 0 ..< max(a.len, b.len):
     let x = if i < a.len: a[i] else: 0
     let y = if i < b.len: b[i] else: 0
@@ -452,6 +461,10 @@ func nxNewer(a, b: NxInstalled): bool =
   nxVerLess(b.key, a.key)
 
 proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraPkgRoots: seq[string] = @[]) =
+  ## tells the index where Nim's library is and which folders imports are looked for in: the compiler's search paths and
+  ## the standard library's own subfolders that exist, and every nimble package version installed under the lazy and
+  ## extra roots (the newest of each is kept in nxPkgDirs). Everything cached about modules, projects and scopes is
+  ## dropped and the generation moves on
   nxLibDir = libDir
   nxPkgRoots = lazyPaths & extraPkgRoots
   nxSearchPaths.setLen(0)
@@ -653,6 +666,7 @@ proc nxComputeProject(root: string): NxProject =
   var chosen: Table[string, int]              # package (lower case) → index in deps
   let res = result
   proc take(d: NxDep) =
+    ## records the version chosen for a package, once: the first source to name it wins, and Nim itself is skipped
     let k = d.name.toLowerAscii
     if k.len == 0 or k == "nim" or k in chosen: return
     chosen[k] = res.deps.len
@@ -726,6 +740,9 @@ proc nxComputeProject(root: string): NxProject =
   result.key = if result.deps.len == 0 and result.paths.len == 0: "" else: $hash(result.dirs.join("\n"))
 
 proc nxProjectStamp(root: string): string =
+  ## a string that changes when anything deciding which package versions a project builds with changes: its .nimble,
+  ## nimble.lock, nimble.paths, nim.cfg, whether nimbledeps and deps exist, the toolchain generation and the paths its
+  ## config gave
   result = nxStamp(nxNimbleIn(root)) & "|" & nxStamp(root / "nimble.lock") & "|" & nxStamp(root / "nimble.paths") & "|" &
            $dirExists(root / "nimbledeps") & $dirExists(root / "deps") & "|" & nxStamp(root / "nim.cfg") & "|" &
            $nxGen & "|" &
@@ -795,6 +812,10 @@ proc nxResolve*(fromPath, spec0: string): string =
   nxResolveMemo[(fromPath, spec0)] = (result, root, pkg, proj)
 
 proc nxResolve0(fromPath, spec0: string, proj: NxProject): string =
+  ## the file an import written in fromPath names, "" when none: the compiler's $nim/$lib/$home variables, then (as the
+  ## compiler looks) the importing file's folder, the project's package paths, the search paths, the project's packages
+  ## and the newest installed ones (also their src folder), the package the file is in, and ned's plugin library. `std/`
+  ## and `pkg/` restrict where it looks. Answers are kept
   var spec = spec0.strip(chars = {'"', ' '})
   if spec.len == 0: return ""
   if spec[0] == '$':
@@ -824,6 +845,7 @@ proc nxResolve0(fromPath, spec0: string, proj: NxProject): string =
   if not spec.endsWith(".nim"): spec.add ".nim"
   var found = ""
   template try1(p: string) =
+    ## takes the file at p as the answer if none is found yet and it exists
     if found.len == 0:
       let q = p
       if fileExists(q): found = normalizedPath(q)
@@ -851,6 +873,7 @@ proc nxResolve0(fromPath, spec0: string, proj: NxProject): string =
   found
 
 func nxModuleName*(spec: string): string =
+  ## the name an import spec gives a module: without quotes, folders and the .nim ending
   var s = spec.strip(chars = {'"', ' '})
   if s.endsWith(".nim"): s.setLen(s.len - 4)
   let k = s.rfind('/')
@@ -878,6 +901,7 @@ proc nxExports*(path: string, depth: int, seen: var HashSet[string], res: var se
   parts.add nxIncluded(f)
   for g in parts:
     for i in 0 ..< g.syms.len:
+      # the declaration being looked at
       template s: untyped = g.syms[i]
       if s.exported: res.add NxRef(file: g, idx: int32(i))
   if f.exports.len == 0: return
@@ -902,8 +926,11 @@ proc nxExports*(path: string, depth: int, seen: var HashSet[string], res: var se
         let g = nxLoad(p)
         if g == nil: continue
         for i in 0 ..< g.syms.len:
+          # the declaration being looked at
           template s: untyped = g.syms[i]
-          if s.exported and s.name == only: res.add NxRef(file: g, idx: int32(i))
+          # (an enum type re-exported by its name brings its values: `export PathComponent` gives pcFile too)
+          if (s.exported and s.name == only) or (s.kind == nxEnumVal and s.exported and s.owner == only):
+            res.add NxRef(file: g, idx: int32(i))
 
 var
   nxIncFiles*: Table[string, (string, seq[string])]          # a file → (its stamp, the files it `include`s)
@@ -1016,6 +1043,8 @@ proc nxIndexNames(sc: NxScope) =
 proc nxDefinesKey(): string
 
 func nxBloomHas(l: NxLayer, h: uint32): bool {.inline.} =
+  ## whether the layer may have a name with this hash (its bloom filter has the bit set): a no is certain, a yes may be
+  ## wrong
   let bit = int(h and 4095)
   (l.bloom[bit shr 6] and (1'u64 shl (bit and 63))) != 0
 
@@ -1038,6 +1067,7 @@ proc nxLayerOf(refs: sink seq[NxRef]): NxLayer =
   nxSortByHash(result.byHash)
 
 proc nxLayerFresh(l: NxLayer): bool =
+  ## whether none of the files a layer's names come from has changed since the layer was made
   for (p, st) in l.deps:
     if nxCurStamp(p) != st: return false
   true
@@ -1072,6 +1102,7 @@ proc nxLayerForget(paths: HashSet[string]) =
   for k in dead: nxLayers.del k
 
 proc nxLayerKey(key0: string): string =
+  ## the key a layer is kept under: its own key plus the index generation, the library folder and the defines
   key0 & "|" & $nxGen & "|" & nxLibDir & "|" & nxDefinesKey()
 
 proc nxLayerCached(key0, owner: string): NxLayer =
@@ -1084,6 +1115,7 @@ proc nxLayerCached(key0, owner: string): NxLayer =
   nil
 
 proc nxLayerKeep(key0: string, l: NxLayer) =
+  ## keeps a layer for other scopes to share, and marks it as just used
   l.key = nxLayerKey(key0)
   inc nxLayerTick
   l.used = nxLayerTick
@@ -1480,6 +1512,8 @@ proc nxScope*(f: NxFile): NxScope =
     let nimble = nxIsNimbleFile(f.path)
     sysKey = "sys|" & sys & "|" & $script & "|" & $nimble & "|" & (if nimble: parentDir(f.path) else: "")
     proc sysRefs(seen: var HashSet[string]): seq[NxRef] =
+      ## the names system brings into every module: its exports, less the NimScript API for a file that is not a script
+      ## (a .nimble gets nimble's own versions of some of it, plus nimble's API and strutils), all marked as from system
       nxExports(sys, 0, seen, result)
       # system's NimScript part (exec, thisDir, switch …): a NimScript file's only — and a .nimble sees nimble's
       # own versions of some, its other API and strutils, as nimble's wrapper gives them (nxNimbleApiPath)
@@ -1523,6 +1557,8 @@ proc nxScope*(f: NxFile): NxScope =
     result.modules[nxModuleName(if im.alias.len > 0: im.alias else: im.spec)] = p
     let (only, excepts) = (im.only, im.excepts)
     proc impRefs(seen: var HashSet[string]): seq[NxRef] =
+      ## the names one import brings in: the module's exports, cut down to the `only` list or without the `except` ones,
+      ## marked as from an import
       var got: seq[NxRef]
       nxExports(p, 0, seen, got)
       for r in got:
@@ -1568,9 +1604,13 @@ proc nxIgnoresStyle*(f: NxFile): bool =
   nxStyleFree[f.path] = (f.stamp, result)
 
 proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
+  ## every declaration in the scope with this name (matched the way Nim matches identifiers): a binary search on the
+  ## name's hash in the scope's own names and in each layer that may have it. A Nim 3 module that asks for
+  ## style-insensitive names finds them by Nim 2's rule when nothing matched
   let n = nxNorm(name)
   let h = nxNameHash(name)
   template look(refs, byHash: untyped) =
+    ## adds to the result the names of a sorted hash list that are really this name (the same hash may be another name)
     var lo = 0
     var hi = byHash.len
     while lo < hi:                             # the first entry with this hash
@@ -1589,6 +1629,7 @@ proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
     for r in sc.refs:
       if nxNorm2(r.file.syms[r.idx].name) == n2: result.add r
 
+# the declaration a reference points to
 func sym*(r: NxRef): lent NxSym {.inline.} = r.file.syms[r.idx]     # (lent: `r.sym.kind` copies nothing)
 
 var
@@ -1637,6 +1678,7 @@ proc nxAt*(f: NxFile, lines: openArray[string], line: int): NxFile =
   # code), then those of the branches around them, then the file's, then the rest
   var mine, around, others: seq[NxSym]
   for k in 0 ..< full.syms.len:
+    # the declaration being sorted into a branch's group
     template s: untyped = full.syms[k]
     let b = if k < full.symBranch.len: full.symBranch[k] else: -1'i32
     if b < 0: g.syms.add s

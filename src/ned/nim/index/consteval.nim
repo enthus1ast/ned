@@ -19,6 +19,8 @@ const
                 "culonglong", "BiggestUInt"]
 
 proc nxCtRender*(v: NxCt): string =
+  ## a compile-time value written as Nim source for a hover: strings quoted and escaped, chars in quotes, a too-big
+  ## integer as written, "" for ctNone
   case v.kind
   of ctNone: ""
   of ctInt: (if v.big.len > 0: v.big else: $v.i)
@@ -41,7 +43,9 @@ proc nxCtRender*(v: NxCt): string =
     else: "'\\x" & toHex(v.i, 2) & "'"
   of ctEnum: v.s
 
+# a plain integer value
 proc ctInt(i: BiggestInt): NxCt = NxCt(kind: ctInt, i: i)
+# a bool value (kept as 0 or 1 in `i`)
 proc ctBool(b: bool): NxCt = NxCt(kind: ctBool, i: (if b: 1 else: 0))
 
 proc nxIntTypeRange(t: string): (bool, BiggestInt, BiggestInt, int, string) =
@@ -263,9 +267,12 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
   var failed = false
   var errMsg = ""
   proc bad(): NxCt =
+    ## marks the evaluation as failed (the expression cannot be worked out) and gives back the empty value
     failed = true
     NxCt()
   proc overflow(typ: string): NxCt =
+    ## fails the evaluation with the compiler's over- or underflow message for typ (int when empty), naming the range
+    ## the type holds
     let (_, lo, hi, _, _) = nxIntTypeRange(if typ.len > 0: typ else: "int")
     errMsg = "over- or underflow: " & (if typ.len > 0: typ else: "int") & " holds " & $lo & " .. " & $hi
     bad()
@@ -290,6 +297,8 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
     (true, (if sa >= sb: ta else: tb))
 
   proc parseNum(t: string): NxCt =
+    ## a number token as a value: strips underscores and the type suffix (`'u8`, `i64`, `f32` …), reads hex, binary,
+    ## octal, decimal or float, keeps one beyond int64 as written and fits the rest to its type; fails on bad text
     var n = t.replace("_", "")
     var suffix = ""
     let q = n.find('\'')
@@ -326,8 +335,11 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
       return fit(NxCt(kind: ctInt, i: parseBiggestInt(n), typ: typ))
     except ValueError: return bad()
 
+  # a number value as a float, to compare or mix an int with a float
   proc num(v: NxCt): float = (if v.kind == ctFloat: v.f else: float(v.i))
+  # whether the value is an int or float that fits (not one beyond int64)
   proc isNum(v: NxCt): bool = v.kind in {ctInt, ctFloat} and v.big.len == 0
+  # whether the value has an ordinal number in `i` (an int, char, bool or enum value that fits)
   proc ordinal(v: NxCt): bool = v.kind in {ctInt, ctChar, ctBool, ctEnum} and v.big.len == 0
 
   proc expr(minPrec: int): NxCt
@@ -346,6 +358,10 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
     parts.join("")
 
   proc call(name: string, args: seq[NxCt], raw: string): NxCt =
+    ## the value of a call to a built-in the evaluator knows. defined, declared, high, low and sizeof work on the
+    ## argument as written (raw); the rest (ord, chr, len, abs, min, max, succ, pred, $, the integer, float, char and
+    ## bool conversions, toUpperAscii, toLowerAscii, repeat) on evaluated arguments. Anything else, or an argument not
+    ## known, fails
     case name
     of "defined":
       return case nxWhen("defined(" & raw & ")")
@@ -468,6 +484,8 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
     call(name, args, raw)
 
   proc primary(): NxCt =
+    ## one operand: a parenthesised expression, a sign, `not` or `$` with its operand, a string, char or number literal,
+    ## a call or a name (also int8.high), then any postfix `.fn(…)` calls and a `[i]` index into a string
     if p >= toks.len: return bad()
     let t = toks[p]
     inc p
@@ -541,6 +559,8 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
       else: break
 
   proc prec(op: string): int =
+    ## an operator's binding strength as Nim ranks it (and, or/xor, comparisons, &, + -, * div …), -1 when the token is
+    ## not a binary operator
     case op
     of "and": 4
     of "or", "xor": 3
@@ -551,6 +571,9 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
     else: -1
 
   proc binary(op: string, a, b: NxCt): NxCt =
+    ## a op b for known values: string concatenation, boolean and bitwise and/or/xor, comparisons, `in` on strings, and
+    ## arithmetic with overflow checks and the result typed as the wider operand. `and`/`or` with one side unknown still
+    ## give an answer when the other side decides it
     if op in ["and", "or"] and (a.kind == ctNone or b.kind == ctNone):
       # (a defined(x) ned cannot tell: `defined(x) or true` is true, `defined(x) and false` false, else unknown)
       let k = if a.kind == ctNone: b else: a
@@ -651,6 +674,8 @@ proc nxCtEval*(f: NxFile, e: string, depth = 0): NxCt =
     else: bad()
 
   proc expr(minPrec: int): NxCt =
+    ## precedence climbing: an operand, then operators of at least minPrec binding strength, each applied to the operand
+    ## on its right
     result = primary()
     while not failed and p < toks.len:
       let op = toks[p]
@@ -699,6 +724,7 @@ proc nxInactiveWhen*(f: NxFile, lines: openArray[string]): seq[(int, int)] =
         inStr[k] = st.inTriple
         discard nxLexRuns(lines[k], st, false)
       break
+  # whether line k starts inside a triple-quoted string
   template inString(k: int): bool = inStr.len > 0 and inStr[k]
   var i = 0
   while i < lines.len:
@@ -712,6 +738,8 @@ proc nxInactiveWhen*(f: NxFile, lines: openArray[string]): seq[(int, int)] =
       inc i
       continue
     template header(l0, kw: int): (string, int) =
+      ## the condition text of the `when`/`elif` on line l0 (keyword kw characters in), joined over the lines it
+      ## continues on, and the line the header ends on
       # the condition of the `when`/`elif` on line l0, and the line its header ends on — a condition may go on over
       # the lines below (`when defined(macosx) or⏎ defined(freebsd):`)
       let hl = nxWhenHeaderEnd(lines, l0)

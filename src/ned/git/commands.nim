@@ -18,6 +18,8 @@ proc gitShell(cmd, okMsg: string, then: proc() = nil, inRepo = "") =
     remoteGitAfter(root))
 
 proc gitAsk(label, initial: string, cb: proc(t: string)) =
+  ## asks for a line of text in the prompt bar (with the given label and starting text) and gives it to cb when it is
+  ## entered
   gitPromptCb = cb
   openPrompt(pGitInput, label, initial)
 
@@ -73,6 +75,7 @@ proc gitSync() =
   gitNet("pull --rebase", "Pulled", proc() = gitNet("push", "Synced — pulled and pushed"))
 
 proc gitStaged(): int =
+  ## how many files have something staged, from the last git status
   for l in gitStatusLines:
     if l.len > 3 and not l.startsWith("## ") and l[0] notin {' ', '?'}: inc result
 
@@ -89,10 +92,13 @@ proc gitCommitPrompt() =
 # branches
 
 proc gitSwitch(name: string) =
+  ## switches branch (`git switch`) after saving all files, then reads the branch name again
   discard saveAll()
   gitShell("git switch " & quoteShell(name), "On branch " & name, proc() = readBranch())
 
 proc branchMenu(name: string, current: string) =
+  ## the menu of one local branch: switch to it, merge it into the current branch, rename it, delete it (only when
+  ## merged, or even if not — both ask first)
   let n = name
   openActions(n, @[
     act("Switch to it", "git switch", proc() = gitSwitch(n)),
@@ -108,6 +114,9 @@ proc branchMenu(name: string, current: string) =
         if c in {'y', 'Y'}: gitShell("git branch -D " & quoteShell(n), "Deleted " & n)))])
 
 proc cmdBranches() =
+  ## Git › Branches: lists the local branches (with their upstream and when they last changed, the current one marked)
+  ## and the remote branches that have no local one, with New branch… and Fetch on top; picking a local branch opens its
+  ## menu, a remote one switches to a local branch that follows it
   let root = gitHome()
   if root.len == 0:
     info("Not a git repository")
@@ -143,11 +152,15 @@ proc cmdBranches() =
 # commit box
 
 proc gitCommitBox(amend: bool) =
+  ## Git › Commit (or Amend): opens a tab for the commit message, with instructions in `#` lines and the number of
+  ## staged files; for an amend it starts from the last commit's message. Ctrl+S in that tab commits it
+  ## (doCommitFromBuffer)
   let root = gitHome()
   if root.len == 0:
     info("Not a git repository")
     return
   proc open(msg: string) =
+    ## opens the message tab with this starting message
     let n = gitStaged()
     let text = msg & "\n\n# Write the message above — the first line is the summary. Ctrl+S commits" &
                (if amend: " (replacing the last commit)" else: "") & ", Ctrl+W cancels.\n" &
@@ -165,6 +178,10 @@ proc gitCommitBox(amend: bool) =
   else: open("")
 
 proc doCommitFromBuffer(b: Buffer): bool =
+  ## saving the commit message tab: takes the lines that do not start with `#` as the message (refusing an empty one),
+  ## writes it to a temporary file and runs `git commit -F` (with --amend when amending) — after the commit checks,
+  ## asking first if git has no identity for the person yet; with nothing staged it asks whether to commit all changed
+  ## files (`-a`). The message tab closes when the commit is made
   var msg: seq[string]
   for l in b.lines:
     if not l.startsWith("#"): msg.add l
@@ -180,6 +197,8 @@ proc doCommitFromBuffer(b: Buffer): bool =
   b.savedSeq = b.topSeq()
   let id = b.id
   proc go(all: bool) =
+    ## runs the commit checks (git.checksBeforeCommit) and then the commit, with -a when `all`; the message tab stays
+    ## open if the checks stop it
     # (the checks first — git.checksBeforeCommit: the message stays open when they stop the commit)
     precommitChecks((if croot.len > 0: croot else: gitHome()), all, proc() =
       let cb = bufById(id)
@@ -190,6 +209,8 @@ proc doCommitFromBuffer(b: Buffer): bool =
       gitShell("git commit" & (if amend: " --amend" else: "") & (if all: " -a" else: "") & " -F " & quoteShell(tmp),
                (if amend: "Amended the last commit" else: "Committed"), nil, croot))
   proc decide() =
+    ## if nothing is staged (and this is not an amend), asks whether to commit all changed files; otherwise commits what
+    ## is staged
     var stagedN = 0
     for l in (if croot.len > 0 and croot != gitHome(): gitRepoInfo(croot).lines else: gitStatusLines):
       if l.len > 3 and not l.startsWith("## ") and l[0] notin {' ', '?'}: inc stagedN
@@ -216,6 +237,8 @@ proc gitShowLines(root, spec: string, cb: proc(ls: seq[string])) =
     cb(ls))
 
 proc gitOpenChangeDiff(rel: string, staged: bool) =
+  ## opens a side-by-side diff of a changed file: HEAD against the index for a staged change, the index (or last commit)
+  ## against the file as it is in the editor for an unstaged one
   let root = gitHome()
   if root.len == 0: return
   let full = root / rel
@@ -285,6 +308,7 @@ proc stageSelectedLines() =
 # history
 
 proc commitFileDiff(root, hash, path: string) =
+  ## opens a side-by-side diff of one file of a commit: its text in the commit's parent against its text in the commit
   let h = hash
   let p = path
   gitShowLines(root, h & "^:" & p, proc(before: seq[string]) =
@@ -293,6 +317,8 @@ proc commitFileDiff(root, hash, path: string) =
                    detectLang(root / p, ""))))
 
 proc commitMenu(hash, subject: string) =
+  ## the menu of a commit: its files (each opens its diff), copy the hash, the whole commit as text, create a branch
+  ## there, cherry-pick it onto this branch or revert it (the last two ask first)
   let root = gitHome()
   if root.len == 0: return
   let h = hash
@@ -322,6 +348,8 @@ proc commitMenu(hash, subject: string) =
     openActions(h & "  " & subject, items))
 
 proc gitLogView() =
+  ## Git › History: lists the last 400 commits (branch and tag names shown, author and age), and picking one opens its
+  ## menu
   let root = gitHome()
   if root.len == 0:
     info("Not a git repository")
@@ -342,6 +370,8 @@ proc gitLogView() =
 # stash
 
 proc gitStashMenu() =
+  ## Git › Stash: lists the stashes and offers to stash the changes (with or without new files); picking a stash offers
+  ## apply, pop, show and drop (which asks first)
   let root = gitHome()
   if root.len == 0: return
   discard startJob(jkGit, "git stash list", root, proc(j: Job) =
@@ -370,6 +400,8 @@ proc gitStashMenu() =
 # merge / rebase in progress
 
 proc gitState(): string =
+  ## which operation is in progress in the repository — merge, rebase, cherry-pick or revert — from git's marker files
+  ## in .git (or from the server for a remote folder), else an empty string
   let root = gitHome()
   if root.len == 0: return ""
   if remotes.len > 0 and remoteOf(root) >= 0: return gitRepoInfo(root).state     # read on the server
@@ -381,6 +413,7 @@ proc gitState(): string =
   else: ""
 
 proc gitContinue() =
+  ## Git › Continue: saves all files and continues the merge or rebase in progress (`git <operation> --continue`)
   let s = gitState()
   if s.len == 0:
     info("No merge or rebase in progress")
@@ -389,6 +422,8 @@ proc gitContinue() =
   gitShell("GIT_EDITOR=true git " & s & " --continue", s & " continued")
 
 proc gitAbort() =
+  ## Git › Abort: after a confirmation, abandons the merge or rebase in progress and goes back to how things were before
+  ## it
   let s = gitState()
   if s.len == 0:
     info("No merge or rebase in progress")
@@ -399,6 +434,8 @@ proc gitAbort() =
 # blame
 
 proc gitBlame() =
+  ## Git › Blame: shows `git blame` of the file in a tab of its own — a short hash, date and author before each line, in
+  ## the file's language; Enter on a line shows its commit
   let b = buf()
   if b.path.len == 0: return
   let root = findGitRoot(parentDir(b.path))
@@ -433,6 +470,7 @@ proc gitBlame() =
 # extras
 
 proc gitIgnore(path: string) =
+  ## adds a file or folder to the .gitignore at the top of its repository, as a path from there
   let root = findGitRoot(parentDir(path))
   if root.len == 0: return
   var rel = "/" & relativePath(path, root).replace('\\', '/')

@@ -47,6 +47,8 @@ proc ffiTypeAct(id: int, at, e: Pos, typ: string): Action =
     ffiCheck(b)
 
 proc ffiVarargsAct(id, line: int): Action =
+  ## the quick fix "Add {.varargs.}": puts `varargs, ` at the start of the first pragma ({.) found on the wrapper's line
+  ## or the eight after it, then checks the file's wrappers against their C declarations again
   result = proc() =
     let b = bufById(id)
     if b == nil: return

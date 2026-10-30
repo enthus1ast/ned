@@ -34,6 +34,8 @@ var
   mcpWaitReq = false               # a request waits for the servers to list their tools
 
 proc mcpFlush(s: McpServer) =
+  ## writes as much of the server's waiting output as its pipe takes now (the pipe never blocks), keeps the rest for the
+  ## next time; a failed write marks the server dead
   var off = 0
   while off < s.wbuf.len:
     let n = posix.write(s.inFd, addr s.wbuf[off], s.wbuf.len - off)
@@ -45,19 +47,25 @@ proc mcpFlush(s: McpServer) =
   if off > 0: s.wbuf = s.wbuf[off .. ^1]
 
 proc mcpSend(s: McpServer, j: JsonNode) =
+  ## queues one JSON message for the server — one line, as MCP over stdio wants — and writes what it can
   if s.dead: return
   s.wbuf.add $j & "\n"                      # MCP over stdio: one JSON message per line
   s.mcpFlush()
 
 proc mcpRequest(s: McpServer, meth: string, params: JsonNode, cb: McpCb) =
+  ## sends a JSON-RPC request with a new id and keeps `cb` to call with the result or the error when the answer comes
+  ## (or when the server stops, or does not answer)
   inc s.nextId
   s.pending[s.nextId] = (cb, getMonoTime())
   s.mcpSend(%*{"jsonrpc": "2.0", "id": s.nextId, "method": meth, "params": params})
 
 proc mcpNotify(s: McpServer, meth: string, params: JsonNode) =
+  ## sends a JSON-RPC notification, which has no id and gets no answer
   s.mcpSend(%*{"jsonrpc": "2.0", "method": meth, "params": params})
 
 proc mcpListTools(s: McpServer, cursor = "") =
+  ## asks the server for its tools, page by page, and keeps their names, descriptions and input schemas; when the list
+  ## is complete the server is "ready", and an error marks it failed
   if cursor.len == 0: s.tools.setLen(0)
   let params = if cursor.len > 0: %*{"cursor": cursor} else: newJObject()
   s.mcpRequest("tools/list", params, proc(res: JsonNode, err: string) =
@@ -77,6 +85,7 @@ proc mcpListTools(s: McpServer, cursor = "") =
       needRender = true)
 
 proc mcpListResources(s: McpServer, cursor = "") =
+  ## asks the server for the resources it offers, page by page (an error is ignored)
   if cursor.len == 0: s.resources.setLen(0)
   let params = if cursor.len > 0: %*{"cursor": cursor} else: newJObject()
   s.mcpRequest("resources/list", params, proc(res: JsonNode, err: string) =
@@ -90,6 +99,8 @@ proc mcpListResources(s: McpServer, cursor = "") =
     needRender = true)
 
 proc mcpListPrompts(s: McpServer, cursor = "") =
+  ## asks the server for its prompt templates and their arguments, page by page (an error is ignored); they become
+  ## /server:name commands
   if cursor.len == 0: s.prompts.setLen(0)
   let params = if cursor.len > 0: %*{"cursor": cursor} else: newJObject()
   s.mcpRequest("prompts/list", params, proc(res: JsonNode, err: string) =
@@ -105,6 +116,9 @@ proc mcpListPrompts(s: McpServer, cursor = "") =
     needRender = true)
 
 proc mcpHandle(s: McpServer, j: JsonNode) =
+  ## one message from the server: an answer calls the callback of the request with that id; a request from the server is
+  ## answered (ping, roots/list with the project folder, anything else "not supported"); a notice that its tools,
+  ## resources or prompts changed asks for them again
   if j.kind != JObject: return
   if j.hasKey("id") and (j.hasKey("result") or j.hasKey("error")) and not j.hasKey("method"):
     let id = j["id"].getInt
@@ -127,6 +141,8 @@ proc mcpHandle(s: McpServer, j: JsonNode) =
   elif meth == "notifications/prompts/list_changed": s.mcpListPrompts()
 
 proc mcpRead(s: McpServer) =
+  ## reads what the server has written to its output, all that is there, and handles each complete line that is JSON;
+  ## the end of the output means the server has died
   var tmp: array[65536, char]
   while true:
     let n = posix.read(s.outFd, addr tmp[0], tmp.len)
@@ -148,6 +164,8 @@ proc mcpRead(s: McpServer) =
     except CatchableError: discard
 
 proc mcpReadErr(s: McpServer) =
+  ## reads the server's error output into a short list of its last lines (each cut to 300 characters, about 40 kept),
+  ## shown when it fails
   var tmp: array[16384, char]
   while true:
     let n = posix.read(s.errFd, addr tmp[0], tmp.len)
@@ -216,6 +234,7 @@ proc mcpStart(name: string, spec: JsonNode) =
     else: s.mcpListTools())
 
 proc mcpStopAll() =
+  ## stops all MCP servers: asks each process group to end, waits a moment, closes the pipes and forgets the servers
   for s in mcpServers:
     s.state = "stopped"
     if s.pr.pid > 0:
@@ -240,20 +259,24 @@ proc mcpStartAll() =
     if sp.kind == JObject and not sp{"disabled"}.getBool(false): mcpStart(name, sp)
 
 proc mcpStarting(): bool =
+  ## whether a server is still starting up and has been for less than 20 seconds, so that a request waits for its tools
   for s in mcpServers:
     if s.state == "starting" and not s.dead and msSince(s.startedAt) < 20_000: return true
 
 func mcpSafe(s: string): string =
+  ## the name with every character that is not a letter, digit, `_` or `-` turned into `_`, as tool names require
   for c in s:
     result.add (if c.isAlphaNumeric or c in {'_', '-'}: c else: '_')
 
 func mcpToolName(server, tool: string): string =
+  ## the name the model sees for a server's tool: mcp__server__tool, 64 characters at most
   result = "mcp__" & mcpSafe(server) & "__" & mcpSafe(tool)
   if result.len > 64: result = result[0 ..< 64]
 
 const McpReadRes = "\x01read_resource"     # (ned's own tool for a server's resources)
 
 func mcpHasTool(s: McpServer, name: string): bool =
+  ## whether the server has a tool of that name
   for t in s.tools:
     if t.name == name: return true
   false
@@ -280,6 +303,8 @@ proc mcpTools(): seq[(string, string, JsonNode)] =
     result.add (t.name, "[" & t.plugin & " plugin] " & t.desc, t.schema)
 
 proc mcpFind(full: string): (McpServer, string) =
+  ## the server and the tool's own name (or the read-resource marker) for a name the model used; nil when no server has
+  ## it
   for s in mcpServers:
     for t in s.tools:
       if mcpToolName(s.name, t.name) == full: return (s, t.name)
@@ -296,11 +321,14 @@ proc mcpResourceText(res: JsonNode): string =
   result.strip(leading = false)
 
 proc mcpServerNamed(name: string): McpServer =
+  ## the server with that name that is still alive, nil when there is none
   for s in mcpServers:
     if s.name == name and not s.dead: return s
   nil
 
 proc mcpResultText(res: JsonNode): string =
+  ## the text of a tool call's result: each text part, images and audio as a note with their size, a resource by its
+  ## text or address, a link by its address, or the structured result as JSON when there is no other
   for c in jitems(res{"content"}):
     case c{"type"}.getStr
     of "text": result.add c{"text"}.getStr & "\n"
@@ -347,6 +375,8 @@ proc mcpPump(ready: HashSet[cint]) =
   mcpServers = keep
 
 proc mcpFds(fds: var seq[TPollfd]) =
+  ## adds the servers' pipes to the list the main loop waits on: their output and error output for reading, and their
+  ## input when there is something to write
   for s in mcpServers:
     if s.dead or s.outFd < 0: continue
     fds.add TPollfd(fd: s.outFd, events: POLLIN)
@@ -354,6 +384,9 @@ proc mcpFds(fds: var seq[TPollfd]) =
     if s.wbuf.len > 0: fds.add TPollfd(fd: s.inFd, events: POLLOUT)
 
 proc cmdMcpServers() =
+  ## AI: MCP servers — starts the servers if they are not, and lists them with their state and the numbers of tools,
+  ## resources and prompts; choosing one shows its command, tools, resources, prompts and last error lines, and there is
+  ## an entry to restart them all. With none set it says how to add one in ai.mcpServers
   mcpStartAll()
   let spec = settingNode("ai.mcpServers")
   if mcpServers.len == 0:

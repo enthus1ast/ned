@@ -128,6 +128,8 @@ func jlCode(s: string, inTriple: var bool, nest: var int): string =
     inc i
 
 func nameEnd(s: string, i: int): int =
+  ## where the name that starts at i ends: letters, digits, _, ! (a function that changes its argument), . (a qualified
+  ## name) and non-ASCII characters
   result = i
   while result < s.len and (s[result].isAlphaNumeric or s[result] in {'_', '!', '.'} or ord(s[result]) >= 128):
     inc result
@@ -235,6 +237,8 @@ proc jlWords*(cmd: string): seq[string] =
   if inWord: result.add cur
 
 proc jlHave(cmd: string): bool =
+  ## whether the first word of the command line is a program that can be found (a ~ is expanded) — so a server or
+  ## formatter that is set is only used when it is installed
   let w = jlWords(cmd)
   w.len > 0 and findExe(expandTilde(w[0])).len > 0
 
@@ -245,6 +249,7 @@ proc jlDepots(): seq[string] =
   if result.len == 0: result.add expandTilde("~/.julia")
 
 proc jlHasPackage(name: string): bool =
+  ## whether the Julia package is installed in one of the depots (a folder of that name under packages/)
   for d in jlDepots():
     if dirExists(d & "/packages/" & name): return true
 

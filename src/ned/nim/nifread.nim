@@ -17,54 +17,60 @@ type
     parent*: int               # (-1: the top)
 
 func b62(c: char): int =
+  ## the value of one base-62 digit (0-9, A-Z, a-z) used by NIF's line information
   if c <= '9': ord(c) - ord('0')
   elif c <= 'Z': ord(c) - ord('A') + 10
   else: ord(c) - ord('a') + 36
 
 const B62 = {'0'..'9', 'A'..'Z', 'a'..'z'}
 
-proc nifParse*(lines: openArray[string]): seq[NifNode] =
-  ## every node and atom of a NIF text, in order
+type NifInfo = object                  # one `@col,line,file` as written: not yet made absolute
+  has: bool
+  nums: array[2, int]
+  file: string
+
+proc nifReadInfo(s: string, c: var int): NifInfo =
+  ## the line information at `c` (`@col,line,file`, base 62, `~` negative), read past — `has` false when there is none
+  if c >= s.len or s[c] notin {'@', '~'}: return
+  result.has = true
+  if s[c] == '@': inc c
+  for k in 0 .. 1:
+    var neg = false
+    if c < s.len and s[c] == '~':
+      neg = true
+      inc c
+    var v = 0
+    while c < s.len and s[c] in B62:
+      # (a word that is no number — not NIF, or cut — stays a big one, not an overflow)
+      if v < 1_000_000_000: v = v * 62 + b62(s[c])
+      inc c
+    result.nums[k] = if neg: -v else: v
+    if k == 0 and c < s.len and s[c] == ',': inc c
+    elif k == 0: break
+  if c < s.len and s[c] == ',':
+    inc c
+    let a = c
+    while c < s.len and s[c] notin {' ', '\t', '(', ')', '[', ']', '"', '\'', '#'}: inc c
+    result.file = s[a ..< c]
+
+proc nifPlace(n: var NifNode, r: NifInfo, parent: NifNode, hasParent: bool) =
+  ## where a node comes from in the source: its own line information (with a file: where in it, from line 1;
+  ## without: relative to its parent's place), or its parent's place when it has none
+  if not r.has:
+    if hasParent: (n.file, n.sline, n.scol) = (parent.file, parent.sline, parent.scol)
+    else: (n.sline, n.scol) = (-1, -1)
+  elif r.file.len > 0: (n.file, n.sline, n.scol) = (r.file, r.nums[1] - 1, r.nums[0])
+  elif hasParent and parent.sline >= 0:
+    (n.file, n.sline, n.scol) = (parent.file, parent.sline + r.nums[1], parent.scol + r.nums[0])
+  else: (n.sline, n.scol) = (r.nums[1] - 1, r.nums[0])
+
+proc nifParse*(lines: openArray[string], before = false): seq[NifNode] =
+  ## every node and atom of a NIF text, in order. Nimony writes a token's line information right after it; Nim 2.4's
+  ## `nim nif` writes it after the token before (after a `)` too) — `before` reads it that way
   var stack: seq[int]
   var l = 0
   var c = 0
-  proc info(lines: openArray[string], l: int, c: var int, n: var NifNode, parent: NifNode, hasParent: bool) =
-    ## the line information after a tag or an atom: `@col,line,file` (base 62, `~` negative; without a file,
-    ## relative to the parent's place)
-    let s = lines[l]
-    if c >= s.len or s[c] notin {'@', '~'}:
-      if hasParent: (n.file, n.sline, n.scol) = (parent.file, parent.sline, parent.scol)
-      else: (n.sline, n.scol) = (-1, -1)
-      return
-    if s[c] == '@': inc c
-    var nums = [0, 0]
-    var given = [false, false]
-    for k in 0 .. 1:
-      var neg = false
-      if c < s.len and s[c] == '~':
-        neg = true
-        inc c
-      var v = 0
-      while c < s.len and s[c] in B62:
-        # (a word that is no number — not NIF, or cut — stays a big one, not an overflow)
-        if v < 1_000_000_000: v = v * 62 + b62(s[c])
-        given[k] = true
-        inc c
-      nums[k] = if neg: -v else: v
-      if k == 0 and c < s.len and s[c] == ',': inc c
-      elif k == 0: break
-    var file = ""
-    if c < s.len and s[c] == ',':
-      inc c
-      let a = c
-      while c < s.len and s[c] notin {' ', '\t', '(', ')', '[', ']', '"', '\'', '#'}: inc c
-      file = s[a ..< c]
-    if file.len > 0:
-      (n.file, n.sline, n.scol) = (file, nums[1] - 1, nums[0])     # (a file of its own: where in it, from line 1)
-    elif hasParent and parent.sline >= 0:
-      (n.file, n.sline, n.scol) = (parent.file, parent.sline + nums[1], parent.scol + nums[0])
-    else:
-      (n.sline, n.scol) = (nums[1] - 1, nums[0])
+  var pending: NifInfo                 # (before: what the next token's place is)
   while l < lines.len:
     let s = lines[l]
     if c >= s.len:
@@ -94,7 +100,11 @@ proc nifParse*(lines: openArray[string]): seq[NifNode] =
       let a = c
       while c < s.len and s[c] notin {' ', '\t', '(', ')', '@', '~', '#', '"', '\''}: inc c
       n.tag = s[a ..< c]
-      info(lines, l, c, n, parentN, parentI >= 0)
+      let r = nifReadInfo(s, c)
+      if before:
+        nifPlace(n, pending, parentN, parentI >= 0)
+        pending = r
+      else: nifPlace(n, r, parentN, parentI >= 0)
       result.add n
       stack.add result.high
     of ')':
@@ -103,6 +113,8 @@ proc nifParse*(lines: openArray[string]): seq[NifNode] =
         result[i].eline = l
         result[i].ecol = c + 1
       inc c
+      let r = nifReadInfo(s, c)          # (Nim 2.4's: the next token's place)
+      if before: pending = r
     else:
       var n = NifNode(line: l, col: c, depth: stack.len, parent: parentI)
       if ch == '"' or ch == '\'':
@@ -114,10 +126,17 @@ proc nifParse*(lines: openArray[string]): seq[NifNode] =
           n.isDef = true
           inc c
         while c < s.len and s[c] notin {' ', '\t', '(', ')', '@', '~', '#', '"'}: inc c
+        if c == n.col:
+          inc c                            # (a character no token starts with: passed over)
+          continue
       n.atom = s[n.col + (if n.isDef: 1 else: 0) ..< min(c, s.len)]
       n.eline = l
       n.ecol = min(c, s.len)
-      info(lines, l, c, n, parentN, parentI >= 0)
+      let r = nifReadInfo(s, c)
+      if before:
+        nifPlace(n, pending, parentN, parentI >= 0)
+        pending = r
+      else: nifPlace(n, r, parentN, parentI >= 0)
       result.add n
   for i in 0 ..< result.len:
     if result[i].tag.len > 0 and result[i].eline < result[i].line:

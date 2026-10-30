@@ -46,11 +46,15 @@ const ReDigit* = {'0'..'9'}
 const ReSpace* = {' ', '\t', '\n', '\r', '\f', '\v'}
 
 proc reErr*(ps: var ReParser, msg: string) =
+  ## records a pattern error with the position it was found at; only the first error of a pattern is kept
   if ps.re.err.len == 0: ps.re.err = msg & " at " & $ps.i
 
+# the character as it is compared: lower-cased when the match ignores case
 func reFold*(c: char, icase: bool): char {.inline.} = (if icase: toLowerAscii(c) else: c)
 
 func reAddClass*(ps: var ReParser, bits: set[char], neg: bool, cps: seq[(int, int)] = @[]): int =
+  ## adds a character class (ASCII members, non-ASCII code point ranges, negated or not) to the regex's class table and
+  ## gives back its index; when ignoring case, each letter in the set brings its other case in too
   var b = bits
   if ps.icase:
     for c in 'a'..'z':
@@ -90,6 +94,8 @@ func reEscapeSet*(c: char): (bool, set[char], bool) =
   else: (false, {}, false)
 
 func reEscapeChar*(ps: var ReParser, c: char): char =
+  ## the character an escape stands for, with c the letter after the backslash: \t \n \r \f \v \0 and \xHH (which reads
+  ## two more hex digits from the pattern); any other escaped character stands for itself
   case c
   of 't': '\t'
   of 'n': '\n'
@@ -108,6 +114,9 @@ func reEscapeChar*(ps: var ReParser, c: char): char =
   else: c
 
 proc reParseClass*(ps: var ReParser): ReNode =
+  ## parses a bracket class after its '[': an optional ^, single characters, ranges, \d \w \s and their negations, POSIX
+  ## names such as [:alpha:] and non-ASCII characters (kept as code point ranges); a ']' first in the class is a member.
+  ## Reports a missing ] or a backwards range as an error
   # after '['
   var neg = false
   var bits: set[char]
@@ -179,6 +188,9 @@ proc reParseClass*(ps: var ReParser): ReNode =
   ReNode(kind: rnClass, cls: reAddClass(ps, bits, neg, cps))
 
 proc reParseAtom*(ps: var ReParser): ReNode =
+  ## parses one item of a pattern: a dot, ^, $, a bracket class, a group — capturing, or non-capturing with (?:…) — a
+  ## backslash escape (\b \B, \d \w \s …, or a literal) or a plain character; a repeat sign with nothing before it is an
+  ## error
   let c = ps.p[ps.i]
   inc ps.i
   case c
@@ -216,6 +228,7 @@ proc reParseAtom*(ps: var ReParser): ReNode =
   else: ReNode(kind: rnLit, c: c)
 
 func reParseNum*(ps: var ReParser): int =
+  ## reads the decimal number at the parser's position, capped at 1000; -1 when there is no digit
   result = -1
   while ps.i < ps.p.len and ps.p[ps.i] in ReDigit:
     result = max(0, result) * 10 + (ord(ps.p[ps.i]) - ord('0'))
@@ -223,6 +236,8 @@ func reParseNum*(ps: var ReParser): int =
     inc ps.i
 
 proc reParseRepeat*(ps: var ReParser): ReNode =
+  ## parses an atom followed by any repeat signs: * + ? or {n} {n,} {n,m}, each optionally lazy with a trailing ?. A
+  ## brace that does not form a valid count is left as a literal '{'; repeating ^, $ or \b has no effect
   var atom = reParseAtom(ps)
   while ps.i < ps.p.len:
     let c = ps.p[ps.i]
@@ -254,12 +269,14 @@ proc reParseRepeat*(ps: var ReParser): ReNode =
   atom
 
 proc reParseCat*(ps: var ReParser): ReNode =
+  ## parses a sequence of repeated atoms up to the next | or ), stopping at the first error
   result = ReNode(kind: rnCat)
   while ps.i < ps.p.len and ps.p[ps.i] notin {'|', ')'}:
     result.kids.add reParseRepeat(ps)
     if ps.re.err.len > 0: return
 
 proc reParseAlt*(ps: var ReParser): ReNode =
+  ## parses alternatives separated by |; the top of the grammar, and what a parenthesised group parses inside itself
   let first = reParseCat(ps)
   if ps.i >= ps.p.len or ps.p[ps.i] != '|': return first
   result = ReNode(kind: rnAlt, kids: @[first])
@@ -268,10 +285,13 @@ proc reParseAlt*(ps: var ReParser): ReNode =
     result.kids.add reParseCat(ps)
 
 func reEmit*(re: var Regex, op: ReOp, c = '\0', x = 0, y = 0): int =
+  ## appends one instruction to the program and gives back its index
   re.prog.add ReInst(op: op, c: c, x: x, y: y)
   re.prog.high
 
 func reCanEmpty*(n: ReNode): bool =
+  ## can this part of the pattern match without consuming any character? the compiler uses it to guard loops such as
+  ## (a*)* against going round forever
   case n.kind
   of rnLit, rnAny, rnClass: false
   of rnBol, rnEol, rnWordB, rnNotWordB, rnEmpty: true
@@ -287,6 +307,10 @@ func reCanEmpty*(n: ReNode): bool =
   of rnGroup: reCanEmpty(n.kids[0])
 
 func reCompile*(re: var Regex, n: ReNode) =
+  ## turns the parsed tree into VM instructions: a repeat is its body copied lo times and then either a split loop
+  ## (unbounded) or hi-lo optional copies, an alternation a chain of splits and jumps, a capturing group a pair of save
+  ## instructions. A loop whose body can match nothing gets a progress mark and a check so it stops. A program over
+  ## 20,000 instructions is an error
   if re.prog.len > 20000:
     if re.err.len == 0: re.err = "pattern too large"
     return
@@ -344,6 +368,8 @@ func reCompile*(re: var Regex, n: ReNode) =
         else: (re.prog[sp].x, re.prog[sp].y) = (after, sp + 1)
 
 proc compileRegex*(pattern: string, icase = false): Regex =
+  ## parses and compiles a pattern into a Regex; on a bad pattern the Regex has its err text set and no program. Notes
+  ## the first literal byte of the pattern, so the search can skip quickly to places a match could start
   result.icase = icase
   result.firstLit = -1
   if pattern.len == 0:
@@ -361,6 +387,7 @@ proc compileRegex*(pattern: string, icase = false): Regex =
   if result.prog.len > 1 and result.prog[1].op == roChar and not icase: result.firstLit = ord(result.prog[1].c)
 
 func utf8Len*(c: char): int {.inline.} =
+  ## the length in bytes of the UTF-8 character that starts with this byte (a continuation byte counts as 1)
   let b = ord(c)
   if b < 0xC0: 1 elif b < 0xE0: 2 elif b < 0xF0: 3 else: 4
 
@@ -460,6 +487,7 @@ proc reExpand*(tmpl: string, s: string, caps: seq[int], ncap = high(int)): strin
   ## replacement text: $0 / $& whole match, $1…$9 and ${12} groups, \n \t, $$ → $
   var i = 0
   proc grp(k: int): string =
+    ## the text of capture group k, or an empty string when it did not take part in the match or does not exist
     if k < ncap and 2 * k + 1 < caps.len and caps[2 * k] >= 0 and caps[2 * k + 1] >= caps[2 * k] and
        caps[2 * k + 1] <= s.len: s[caps[2 * k] ..< caps[2 * k + 1]]
     else: ""
@@ -504,6 +532,8 @@ var
   reCache*: Regex
 
 proc cachedRegex*(q: string, caseSens: bool): ptr Regex =
+  ## the compiled regex for a pattern and case setting, kept until the next different one is asked for, so searching
+  ## line after line with the same pattern compiles it once
   let key = (if caseSens: "1" else: "0") & q
   if key != reCacheKey:
     reCache = compileRegex(q, not caseSens)

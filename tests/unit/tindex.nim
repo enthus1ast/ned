@@ -5,6 +5,7 @@ import std/[os, strutils, unittest, sequtils]
 import ../../src/ned/nim/index
 
 proc realOf(p: string): string =
+  ## the path a symbolic link points to; any other path as it is
   result = p
   try:
     if symlinkExists(p): result = expandFilename(p)
@@ -34,11 +35,13 @@ proc fixture(text: string): (NxFile, seq[string]) =
   (nxLoad(p), text.split('\n'))
 
 proc colOf(ls: seq[string], line: int, word: string, nth = 0): int =
+  ## the column of the nth (from 0) place of the word on the line; the test fails when it is not there
   var k = -1
   for _ in 0 .. nth: k = ls[line].find(word, k + 1)
   doAssert k >= 0, word & " not on line " & $line
   k
 
+# the labels of the completion's items, in order
 proc labels(c: NxCompletion): seq[string] = c.items.mapIt(it.label)
 
 suite "declarations":
@@ -141,6 +144,7 @@ suite "definitions and types":
   test "typedesc receivers, numbers next to other types, newException, @(…)":
     let (f, ls) = fixture("type Color = enum red, green\nlet q: int32 = 3\nlet z = 0\n")
     let sc = nxScope(f)
+    # the type the engine gives the expression e in the file just made
     template ty(e: string): string = nxTypeOfExpr(f, sc, @[], e, 2, 0).typ
     check ty("float32.high") == "float32"
     check ty("Color.low") == "Color"
@@ -168,6 +172,7 @@ suite "compile-time values":
                         "const Name = \"ned\"\nconst Big = K * K * 4 + 3 div 2\nconst Hi = high(int8)\n" &
                         "const Up = Name.toUpperAscii & $K\nconst IsWin = defined(windows)\nconst Top = high(Level)\n" &
                         "when defined(linux) and K > 1000:\n  discard\n")
+  # the compile-time value of the expression e in the file, as text
   proc ev(e: string): string = nxCtRender(nxCtEval(f, e))
   test "numbers: shl, and, not, div, constants in constants":
     check ev("K") == "1024"
@@ -505,6 +510,7 @@ proc first(c: NxCompletion): seq[string] =
     if it.rank < 0 and it.label notin result: result.add it.label
 
 proc rankOf(c: NxCompletion, label: string): int =
+  ## the best (lowest) rank the label has among the completion's items; the largest number when it is not offered
   result = high(int)
   for it in c.items:
     if it.label == label: result = min(result, it.rank)
@@ -589,6 +595,7 @@ proc typeAt(f: NxFile, ls: seq[string], line: int, name: string): string =
   nxTypeOfName(f, nxScope(f), nxLocals(f, ls, line, ls[line].len), name, line, 0).typ
 
 proc exprAt(f: NxFile, ls: seq[string], line: int, e: string): string =
+  ## the type of the expression e as the code on that line sees it, with the locals there
   nxTypeOfExpr(f, nxScope(f), nxLocals(f, ls, line, ls[line].len), e, line, 0).typ
 
 const ChronosLike = "type\n  Future*[T] = ref object of RootObj\n  InternalRaisesFuture*[T, E] = ref object of Future[T]\n" &
@@ -715,6 +722,8 @@ suite "Nim 3 (Nimony)":
 
 suite "NimScript: config.nims and a .nimble (6.19)":
   proc scriptFixture(name, text: string): (NxFile, seq[string]) =
+    ## a NimScript file (config.nims, a .nimble) of that name with that text in a folder of its own, loaded by the
+    ## index, with its lines
     let m = dir / ("ns" & $getCurrentProcessId() & "_" & $n)
     inc n
     createDir(m)
@@ -756,6 +765,7 @@ suite "concepts at a call (6.20)":
 
 suite "NimScript, plugins and doc comments (6.22)":
   proc scriptAt(name, text: string): (NxFile, seq[string]) =
+    ## a NimScript file of that name with that text in a folder of its own, loaded by the index, with its lines
     let m = dir / ("s622_" & $n)
     inc n
     createDir(m)
@@ -885,5 +895,13 @@ suite "Nim 2.4 (6.33)":
     let (f, _) = fixture("import std/strutils {.cyclic.}\nproc `☆`(x, y: int): int = x * y\n")
     check f.imports.len == 1 and f.imports[0].spec == "std/strutils"
     check f.syms.anyIt(it.name == "☆")
+  test "an import in a one-line when branch: the branch that applies (found by nifgrade.py: std/os in ned's files)":
+    let (f, _) = fixture("when defined(windows): import std/strutils\nelse: import std/os\n" &
+                         "when not defined(windows): import std/times\n")
+    check f.imports.anyIt(it.spec == "std/os") and f.imports.anyIt(it.spec == "std/times")
+    check not f.imports.anyIt(it.spec == "std/strutils")
+  test "an enum type exported by its name brings its values (std/os: PathComponent and pcFile)":
+    let (f, ls) = fixture("import std/os\nlet k = pcFile\n")
+    check nxDefinition(f, ls, 1, 9).len == 1
 
 removeDir(dir)

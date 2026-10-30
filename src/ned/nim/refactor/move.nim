@@ -1,6 +1,10 @@
 # ── move a top-level declaration to another module ──
 
 proc rfMoveTo(d: NxRef, target: string) =
+  ## moves a top-level proc, template, type and the like (with the comments above it) to the end of another module,
+  ## creating the module if need be: imports the moved code needs go with it, it is exported when others use it, and the
+  ## modules that use it import the target. Refuses (with the reason) when the moved code uses names left in its own
+  ## module, or the two modules would import each other
   let s = d.sym
   let src = d.file.path
   let srcLines = rfLinesOf(src)
@@ -106,6 +110,8 @@ proc rfMoveTo(d: NxRef, target: string) =
        " — Ctrl+S saves each")
 
 proc cmdMoveToModule() =
+  ## asks where to move the declaration at the cursor — a new module (a path is asked) or one of the project's files —
+  ## and moves it
   let b = buf()
   if b.lang.mode != lmNim or not nimEngineOn(b) or b.path.len == 0:
     info("Moving works on Nim files, with the built-in engine")

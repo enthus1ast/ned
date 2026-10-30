@@ -14,6 +14,9 @@ proc capMsg(s: string): string =
   s[0 ..< cut] & "…"
 
 proc setMsg(s: string, sev = 0) =
+  ## shows a message in the message line (severity 0 information, 1 error, 2 warning), after cutting it with capMsg; it
+  ## is kept in the log of the last 100 messages. When the messages setting is "popup" (and toasts are on) it appears as
+  ## a popup instead and the message line is cleared
   let s = capMsg(s)
   if s.len > 0:
     msgLog.add (times.now().format("HH:mm:ss"), sev, s)
@@ -28,6 +31,9 @@ proc setMsg(s: string, sev = 0) =
   msgTime = getMonoTime()
   needRender = true
 
+# shows an information message
 proc info(s: string) = setMsg(s, 0)
+# shows a warning
 proc warn(s: string) = setMsg(s, 2)
+# shows an error
 proc error(s: string) = setMsg(s, 1)

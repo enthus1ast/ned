@@ -5,6 +5,8 @@ import nedplugin
 requiresNed(">= 6.31")
 
 proc wordPlaces() =
+  ## collects, from every open file, each line that has the word at the cursor with a line either side, and opens them
+  ## together in one multibuffer
   let b = current()
   let w = b.wordAt(b.cursor)
   if w.len == 0:
@@ -40,6 +42,8 @@ proc testBeside() =
   if splitPane(show = t) < 0: message("No room for another pane")
 
 proc fileHere() =
+  ## opens the real file, at the real line and column, behind the cursor's place in a multibuffer; says so when the
+  ## cursor is not in a piece of one
   let b = current()
   let (path, at) = b.placeInFile(b.cursor)
   if path.len == 0:

@@ -1,3 +1,6 @@
+# drawing the editor's text area: the lines with their syntax colours, gutter, selections, matches, problems, guides,
+# hints, sticky headers, scroll bar and the headers of multibuffer pieces, plus the helpers for ligatures, graph lines
+# and rendered docs
 proc mbDiags(b: Buffer): seq[Diag] =
   ## a multibuffer's lines show the problems of the files they come from
   let secs = multiBufs.getOrDefault(b.id)
@@ -44,6 +47,7 @@ proc graphLineColors(s: string): seq[Rgb] =
     for k in dot ..< s.len: result[k] = theme.dim
 
 func graphHashAt(s: string): string =
+  ## the commit hash on a branch-graph line (the 7 or more hex digits after the lane characters), "" when there is none
   var i = 0
   while i < s.len and s[i] in {'*', '|', '/', '\\', '_', ' ', '-', '.'}: inc i
   var e = i
@@ -139,6 +143,12 @@ proc drawPlugIndent(b: Buffer, st: PlugIndent, line, y, tx0, baseVc, limX, unit:
     grid[i] = c
 
 proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
+  ## draws one buffer into the rectangle: first hands off the special views (a terminal or assistant pane, the merge
+  ## editor, diff, picture, hex, flame graph, Markdown preview, welcome page); otherwise sets the gutter and text width,
+  ## scrolls to the cursor, then goes line by line from the top line — lexing, applying semantic colours, then per cell
+  ## the syntax colour, matches, selection, brackets, problem underlines, TODO badges, hints, ligatures and guides — and
+  ## the gutter signs (breakpoint, problem, bookmark, fold, line number, git change); afterwards rulers, the jump
+  ## labels, sticky headers, the scroll bar with its marks and the multibuffer piece headers
   if b.paneView != 0:                  # (6.32: a terminal, the assistant — in a pane)
     drawPaneView(b, x0, y0, w, h, active)
     return
@@ -176,7 +186,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     drawMdPreview(b, x0, y0, w, h)
     return
   let sem = semMapFor(b)
-  let nifCols = nifColorsFor(b)        # (Nim 3: nimony's own reading of the saved file, over the engine's colours)
+  let nifCols = nifColorsOn(b)         # (the compiler's reading of the saved file — Nim 2.4's NIF, or nimony's —
+                                       # over the engine's colours)
   let lsem = lspSemFor(b)
   let csem = if lsem.len == 0: cEngSemMap(b, make = false) else: nil     # (C: ned's engine, without a server's)
   let isMb = b.id in multiBufs
@@ -218,7 +229,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
         b.topLine = fs
         b.topSub = 0
   inlayShown.clear()
-  let showInlays = (cfgInlayHints or b.lang.mode == lmCsv) and b.inlays.len > 0
+  let showInlays = (cfgInlayHints or b.lang.mode == lmCsv) and (b.inlays.len > 0 or nifCols)
   if not cfgWrap and b.vrows.len == 0: b.topSub = 0
   else: b.topSub = clamp(b.topSub, 0, b.segCount(b.topLine) - 1)   # (rows under a line count too)
   let ph = b.primary.head
@@ -252,6 +263,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       while focB < b.lines.high and not isBlank(b.lines[focB + 1]): inc focB
   let primSel = b.primary.hasSel
   let dsRef = if isMb: (var r = new seq[Diag]; r[] = b.mbDiags(); r) else: diagsShared(b.path)
+  # the problem list being drawn (a multibuffer's gathered from its pieces' files)
   template ds: untyped = dsRef[]
   # the problems that can be on the lines drawn (without folds, no line below topLine + the rows: a file with
   # thousands of them made each frame look at every one for every line drawn — 10 ms a frame at 5 000)
@@ -290,6 +302,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
   # the active indent guide: the one of the block the cursor is in, a little brighter (like VS Code)
   var agCol, agA, agB = -1
   if cfgGuides and unit > 0 and b.lines.len < 200_000 and ph.line < b.lines.len:
+    # the width in screen columns of a line's indentation
     proc indOf(l: int): int = visColOf(b.lines[l], leadingWs(b.lines[l]).len)
     var ci = -1
     if not isBlank(b.lines[ph.line]): ci = indOf(ph.line)
@@ -361,6 +374,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
           if ui == 0: break
       dec ivA
   template rulerRow(yy: int) =
+    ## draws the ruler marks on screen row `yy`, in the cells at the ruler columns that are still empty so no text is
+    ## hidden
     for r in rcols:
       let rx = rulerX0 + r
       if rx >= tx0 and rx < tx0 + textW:
@@ -380,7 +395,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       let foreign = lexForeign
       let lexed = if foreign.len > 0: toks else: @[]
       if sem != nil: applySem(s, toks, sem, line)
-      if nifCols != nil: applyNifColors(s, toks, nifCols, line)
+      if nifCols: applyNifColors(b, s, toks, line)
       if b.lang.mode == lmNim and s.len < 4000 and '"' in s and ("header" in s or "importc" in s or "dynlib" in s):
         pragmaStrColors(s, toks)
       if lsem.len > 0 and line in lsem:
@@ -447,6 +462,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     var worst = 0
     var lineDiag = -1
     for di in dsNear:
+      # the problem at index `di` of the list
       template d: untyped = ds[di]
       if d.line <= line and line <= max(d.line, d.eline):
         var a = if d.line == line: d.col else: 0
@@ -491,7 +507,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
                colourSwatches(b.lang, s, toks) else: @[]
     var swBg: seq[(int, int, Rgb)]       # swatches with no room on the row: the colour behind the text instead
     var overlays: seq[(int, string)]     # type hints over the spaces before a lined-up `=`
-    if (showInlays and line in b.inlays) or sw.len > 0 or (nesSug.buf == b.id and nesSug.at.line == line) or
+    if (showInlays and (line in b.inlays or (nifCols and nifHasHints(b, line)))) or sw.len > 0 or (nesSug.buf == b.id and nesSug.at.line == line) or
        (cfgCSigHints and b.id in cSigHints and line in cSigHints[b.id]) or
        (cfgShowCopies and b.id in copyMarks and line in copyMarks[b.id]) or
        (showInlays and b.lang.mode == lmNim and s.len < 400 and '=' in s):     # (a run lined up on `=` with hints)
@@ -1023,6 +1039,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       discard button(bx, y, " ✕ ", mbHeaderAct(b.id, line, 2), "This piece out of the multibuffer", theme.dim, hbg)
 
 proc spansWidth(cl: ChatLine): int =
+  ## the width in screen columns of a rendered line's pieces together
   for sp in cl.spans: result += strWidth(sp.t)
 
 proc drawDocLines(lines: seq[ChatLine], x, y, w, h, scroll: int, bg: Rgb) =

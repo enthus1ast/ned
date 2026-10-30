@@ -1,11 +1,15 @@
 # ── crash recovery ──
 
 proc applyRecovered(b: Buffer, text: string) =
+  ## puts the recovered text into the buffer as one edit (changing only the lines that differ) and writes the swap file
+  ## again, so the restored edits are safe at once; they still have to be saved
   b.setTextMinimal(text)
   writeSwap(b)
   info("Restored the unsaved edits of " & b.name & " — review them, then Ctrl+S")
 
 proc recoverAct(path, text, file: string): Action =
+  ## the action that restores one recovery file: opens its file (or a new untitled buffer when it had no path), deletes
+  ## the recovery file first, then applies the saved text
   result = proc() =
     var b: Buffer
     if path.len > 0: b = openFile(path)
@@ -48,6 +52,8 @@ proc offerRecovery(b: Buffer) =
         "also in File › Recover unsaved edits", 2, "Restore", recoverAct(b.path, best{"text"}.getStr, bestFile), 120000)
 
 proc cmdRecoverFiles() =
+  ## File › Recover unsaved edits: lists every recovery file left behind (file name, line count, age) as a menu of
+  ## actions, with a last entry that deletes all of them after a confirmation
   let left = swapsLeftBehind()
   if left.len == 0:
     info("Nothing to recover")
@@ -72,6 +78,8 @@ proc cmdRecoverFiles() =
   openActions("Recover unsaved edits", items)
 
 proc checkRecoveryAtStart() =
+  ## at start-up, shows a toast with a Recover… button when recovery files exist for files that are not open — edits
+  ## from a session that ended unexpectedly
   var others = 0
   for j in swapsLeftBehind():
     let path = j{"path"}.getStr

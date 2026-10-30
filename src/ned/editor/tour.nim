@@ -10,15 +10,19 @@ var
   tourLoaded = false
   tourSeen = -1                       # (the notebook's outputs last looked at: its nbVersion)
 
+# the folder in ned's state folder where the person's copies of the lessons and the progress file are
 proc tourDir(): string = absolutePath(stateDir() / "tour").normalizedPath
 
 proc tourLoad() =
+  ## reads the saved progress (where you were, the lessons done) once; with no progress file the tour starts at the
+  ## first lesson
   if tourLoaded: return
   tourLoaded = true
   try: tourProg = tourProgressFrom(readFile(tourDir() / "progress.json"))
   except CatchableError: discard      # (none yet: the tour starts at the first lesson)
 
 proc tourSave() =
+  ## writes the progress file (safely) after it changed; a failure only warns
   try:
     createDir(tourDir())
     writeFileSafe0(tourDir() / "progress.json", tourProgressJson(tourProg))
@@ -91,6 +95,7 @@ proc tourCurrent(): int =
   clamp(tourProg.at, 0, TourLessons.high)
 
 proc tourNext() =
+  ## opens the lesson after the current one, or says it was the last
   let i = tourCurrent()
   if i >= TourLessons.high:
     info("That was the last lesson of the Nim tour. Help › Nim tour › All the lessons lists them all")
@@ -130,16 +135,19 @@ proc cmdNimTour() =
   tourOpen(tourProg.at)
 
 proc cmdNimTourNext() =
+  ## Help › Nim tour › Next lesson: first notes a lesson just finished (so it counts as done), then opens the next one
   tourPump()
   tourNext()
 
 proc cmdNimTourPrev() =
+  ## Help › Nim tour › Previous lesson: opens the lesson before the current one
   let i = tourCurrent()
   if i <= 0:
     info("This is the first lesson of the Nim tour")
     return
   tourOpen(i - 1)
 
+# the action that opens lesson i (a procedure of its own, as items made in a loop must not share the loop's variable)
 proc tourOpenAct(i: int): proc() {.closure.} = (proc() = tourOpen(i))
 
 proc cmdNimTourIndex() =
@@ -157,6 +165,8 @@ proc cmdNimTourIndex() =
   pickSel = max(0, pickShown.find(tourCurrent()))
 
 proc tourReset(i: int) =
+  ## brings lesson i back as ned has it: the copy is written again and an open tab is reloaded as an edit (Ctrl+Z gets
+  ## the person's version back) with the answer folded; the lesson's done mark stays
   let (file, text) = TourLessons[i]
   let p = tourDir() / file
   try:
@@ -179,6 +189,8 @@ proc tourReset(i: int) =
   info("Lesson " & $(i + 1) & " is as it was — Ctrl+Z brings your version back")
 
 proc cmdNimTourReset() =
+  ## Help › Nim tour › Reset this lesson: after a confirmation, brings the lesson in the current tab back as it was;
+  ## says so if the tab is not a lesson
   let i = tourLessonOf(buf())
   if i < 0:
     info("Open a lesson of the Nim tour first (Help › Nim tour)")

@@ -1,4 +1,8 @@
+# the completion popup: the list for the word being typed (from the language server, nimsuggest, ned's own engines,
+# snippets and the words of the file), filtering it as typing goes on, deciding after each key whether to open or close
+# it, and putting the chosen item in the text
 proc closeComp() =
+  ## closes the completion popup and forgets the list it showed (the items themselves stay)
   compOpen = false
   compShown.setLen(0)
 
@@ -10,12 +14,15 @@ proc compValid(): bool =
   true
 
 proc compPrefix(): string =
+  ## what has been typed of the word being completed — from where the completion started to the cursor — to filter the
+  ## list by; "\0" when the cursor has left that line or moved back before the start
   let b = buf()
   let p = b.primary.head
   if p.line != compLine or p.col < compStartCol: return "\0"
   b.lines[p.line][compStartCol ..< p.col]
 
 proc compRecentKey(it: CompItem): string =
+  ## the key an item's choice is remembered by: the file's language and the item's label
   let b = buf()
   (if b != nil and b.lang != nil: b.lang.id else: "") & ":" & it.label
 
@@ -27,6 +34,11 @@ proc compRecentBonus(it: CompItem): int =
   max(0, 24 - (compRecentN - at))
 
 proc refilterComp() =
+  ## makes the shown list from all the items for the word typed so far: first the plugins' items are merged in, then
+  ## each item is scored by fuzzy match (a prefix match, a nearer rank and a recent choice raise it) and the sorted list
+  ## is shown, the first item selected. An item that equals the word already typed is left out unless it is a postfix
+  ## template, so Tab does not lengthen a finished word. With nothing typed after a dot the language server's own order
+  ## is used, recent choices first. The popup closes when the cursor has left the word or nothing matches.
   plugCompMerge()                               # (a plugin's completions, when they came for this word)
   let pre = compPrefix()
   if pre == "\0":
@@ -76,6 +88,9 @@ proc refilterComp() =
   needRender = true
 
 proc collectWords(b: Buffer): seq[string] =
+  ## the fallback candidates when no engine answers: the words of three to 64 characters in the 4000 lines around the
+  ## cursor (not the word being typed) and the language's keywords. A byte budget keeps a huge file or line from
+  ## stalling a keystroke, and a very long line is read only near the cursor.
   let p = b.primary.head
   let (ws, we) = b.wordRangeAt(p)
   let own = b.lines[p.line][ws.col ..< we.col]
@@ -108,12 +123,19 @@ proc collectWords(b: Buffer): seq[string] =
   for w in seen: result.add w
 
 proc requestCompletion(b: Buffer, s: LspServer) =
+  ## asks the language server for completions at the cursor; the answer is matched to the buffer, position and text
+  ## version when it comes
   let p = b.primary.head
   discard s.lspRequest("textDocument/completion", %*{"textDocument": b.docId,
     "position": s.lspPos(b, p), "context": {"triggerKind": 1}},
     LspReq(kind: lrCompletion, bufId: b.id, pos: p, version: b.lspVersion))
 
 proc startCompletion(manual: bool) =
+  ## opens completion for the word at the cursor (`manual`: asked for with the key, not typed). The special sources are
+  ## tried in turn and the first that takes the place answers by itself — .nimble versions and package names, plugins,
+  ## pragma strings, C wrappers, C in an emit, languages embedded in strings, ned's own web and C engines, the Nim
+  ## index. Otherwise the language server or nimsuggest is asked, and when two letters are typed, it was asked for or
+  ## nothing could be asked, the snippets and the words of the file fill the list.
   let b = buf()
   let p = b.primary.head
   let ws = b.wordStart(p)
@@ -147,6 +169,11 @@ proc startCompletion(manual: bool) =
     if manual and not compOpen and not asked: info("No completions")
 
 proc afterType(ch: int) =
+  ## what to do after a character was typed. Signature help is asked for after `(` and `,` (and closed after `)` or on
+  ## another line), and HTML closes its tag after `>`. Then, with automatic completion on (and not while a macro runs),
+  ## the popup is opened, narrowed or closed: a word's first or second letter, or a trigger character such as `.`, opens
+  ## it; each further letter of the word narrows it; anything else, and strings and comments, close it. The branches for
+  ## .nimble files, C #include lines, ned's CSS/HTML/SQL engine, the C engine and the Nim index follow their own rules.
   let b = buf()
   let p = b.primary.head
   if ch == ord(')') or p.line != sigLine: sigOpen = false
@@ -303,6 +330,10 @@ proc callSnippet(b: Buffer, it: CompItem): string =
   name & "(" & ps.join(", ") & ")$0"
 
 proc acceptComp() =
+  ## puts the selected item in the text. The choice is remembered (the last 600, the older half forgotten when full) to
+  ## rank it higher next time. A Nim routine may become a call with its parameters as snippet placeholders. A snippet is
+  ## expanded in place of the word (or of the receiver, for a postfix template); other text replaces the word at every
+  ## cursor. An item that needs an import or a C #include gets that added too.
   if not compOpen or compShown.len == 0: return
   if not compValid():
     closeComp()

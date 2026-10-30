@@ -6,12 +6,15 @@ func csvCell(s: string, f: (int, int)): string =
   if result.len >= 2 and result[0] == '"' and result[^1] == '"': result = result[1 ..< ^1].replace("\"\"", "\"")
 
 func csvNum(v: string): (bool, float) =
+  ## reads a CSV value as a number: (true, its value), or (false, 0) when it is empty or not one — underscores are
+  ## ignored
   let t = v.strip.replace("_", "")
   if t.len == 0: return (false, 0.0)
   try: (true, parseFloat(t))
   except ValueError: (false, 0.0)
 
 proc csvColumnAt(b: Buffer): int =
+  ## the number (from 0) of the column the cursor is in, on its own line; 0 when it is in none
   let p = b.primary.head
   let s = b.lines[p.line]
   for i, f in csvFields(s, csvSepOf(b.lang, s)):
@@ -124,6 +127,7 @@ proc cmdCsvSummary() =
   let hs = csvFields(b.lines[0], csvSepOf(b.lang, b.lines[0]))
   let name = if first == 1 and col < hs.len: csvCell(b.lines[0], hs[col]) else: "column " & $(col + 1)
   proc num(x: float): string =
+    ## a number for the summary: whole values without decimals, others with up to three decimals and no trailing zeros
     if abs(x) < 1e15 and x == float(int64(x)): $int64(x) else: formatFloat(x, ffDecimal, 3).strip(leading = false, chars = {'0'}).strip(leading = false, chars = {'.'})
   var ls = @[PanelLine(text: "COLUMN " & $(col + 1) & " — " & name, sev: 5, line: -1),
              PanelLine(text: "  rows " & $n & (if empty > 0: " · empty " & $empty else: "") & " · different values " & $counts.len, line: -1)]

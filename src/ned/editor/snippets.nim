@@ -131,11 +131,14 @@ proc snippetList(langId: string): seq[(string, string, string)] =
       if not dup: result.add (k, d, body)
 
 proc snippetFor(b: Buffer, key: string): string =
+  ## the body of the snippet with this prefix for the buffer's language, or an empty string when there is none
   for (k, d, body) in snippetList(b.lang.id):
     if k == key: return body
   ""
 
 proc snippetItems(b: Buffer, prefix: string): seq[CompItem] =
+  ## the snippets whose prefix starts with the typed text, as completion list items (kind snippet) that carry their body
+  ## so accepting one expands it
   if prefix.len == 0: return
   let lp = prefix.toLowerAscii
   for (k, d, body) in snippetList(b.lang.id):
@@ -143,6 +146,9 @@ proc snippetItems(b: Buffer, prefix: string): seq[CompItem] =
       result.add CompItem(label: k, insert: k, filter: k, sortText: k, kind: 15, detail: d, snippet: body)
 
 proc activateStop(b: Buffer, idx: int) =
+  ## moves the cursors onto the placeholders of an expanded snippet that have this number, one cursor each, so equal
+  ## numbers are edited together; stop 0 (the final position) also ends the snippet. Does nothing when no placeholder
+  ## has that number
   var cs: seq[Cursor]
   for i, st in b.stops:
     if b.stopIds[i] == idx: cs.add Cursor(anchor: st.anchor, head: st.head, goalX: -1)

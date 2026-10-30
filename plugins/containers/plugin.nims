@@ -35,6 +35,8 @@ type
   Image* = object
     repo*, tag*, id*, size*, created*: string
 
+# whether the container is running: its state says so, or its status starts with Up (the words differ between docker and
+# podman)
 func running*(c: Container): bool = c.state.toLowerAscii == "running" or c.status.startsWith("Up")
 
 func refName*(i: Image): string =
@@ -43,6 +45,8 @@ func refName*(i: Image): string =
   else: i.id
 
 func parseContainers*(o: string): seq[Container] =
+  ## the containers in the output of ps with PsFormat: a tab-separated line each (id, name, image, state, status, and
+  ## the ports when given); lines with fewer than five fields are skipped
   for l in o.splitLines:
     let f = l.split('\t')
     if f.len >= 5:
@@ -50,6 +54,8 @@ func parseContainers*(o: string): seq[Container] =
                            status: f[4].strip, ports: (if f.len > 5: f[5].strip else: ""))
 
 func parseImages*(o: string): seq[Image] =
+  ## the images in the output of images with ImagesFormat: a tab-separated line each (repository, tag, id, size, and the
+  ## age when given); lines with fewer than four fields are skipped
   for l in o.splitLines:
     let f = l.split('\t')
     if f.len >= 4:
@@ -71,6 +77,7 @@ proc cli(): string =
   ""
 
 proc noCli(): bool =
+  ## true, with a message saying so, when no program to run is found (neither docker nor podman, nor the one set)
   if cli().len > 0: return false
   message("Containers: neither docker nor podman is installed (plugins.containers.cli names another program)")
   true
@@ -84,6 +91,8 @@ var
   state = 0                      # 0 not read · 1 being read · 2 read
 
 proc readAll() =
+  ## reads the containers and images in the background (one shell command, the two lists split at a marker line), keeps
+  ## them for the dock and redraws it; does nothing while a read is going; with no program, makes the dock say so
   let c = cli()
   if c.len == 0:
     problem = "neither docker nor podman is installed"
@@ -104,6 +113,7 @@ proc readAll() =
     refreshView(View)
 
 proc again() =
+  ## forgets what was read and reads the containers and images again
   state = 0
   readAll()
 
@@ -123,15 +133,19 @@ proc inBackground(cmd, what: string, after: proc(o: string) = nil) =
     again()
 
 proc showLogs(c: Container) =
+  ## opens the last lines of the container's log (the logLines setting) in a tab, read in the background
   let n = setting("logLines", 200)
   inBackground(cli() & " logs --tail " & $n & " " & quoteShell(c.id), "the logs of " & c.name) do (o: string):
     discard newTab("logs: " & c.name, (if o.strip.len == 0: "(nothing logged)" else: o), "plaintext")
 
 proc inspect(id, name: string) =
+  ## opens the JSON that inspect gives for a container or image in a tab, read in the background
   inBackground(cli() & " inspect " & quoteShell(id), "inspect " & name) do (o: string):
     discard newTab("inspect: " & name, o, "json")
 
 proc containerActions(c: Container) =
+  ## a list of what can be done with the container — logs, follow the logs, stop and restart and a shell if it is
+  ## running, start if not, inspect, remove (asked first) — and does the one chosen
   let x = cli()
   var items = @["Its logs", "Follow its logs (in the terminal)"]
   var dets = @["the last " & $setting("logLines", 200) & " lines", "logs -f"]
@@ -162,6 +176,8 @@ proc containerActions(c: Container) =
   else: discard
 
 proc imageActions(im: Image) =
+  ## a list of what can be done with the image — run it in the terminal (the options asked first, a command for it after
+  ## --), inspect, remove (asked first) — and does the one chosen
   let x = cli()
   let i = pick(im.refName & " — " & im.size & (if im.created.len > 0: " · " & im.created else: ""),
                ["Run it (in the terminal)", "Inspect it", "Remove it"], ["run …", "its JSON in a tab", "rmi"])
@@ -193,6 +209,8 @@ proc listNow(): bool =
   true
 
 proc chooseContainer(then: proc(c: Container)) =
+  ## reads the containers now, lets one be picked (running ones marked ●, stopped ○, with their image and status) and
+  ## hands it to `then`; says so when there are none
   if noCli() or not listNow(): return
   if containers.len == 0:
     message("Containers: there are none (" & cli() & " ps -a lists none)")

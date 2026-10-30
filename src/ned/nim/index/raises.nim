@@ -75,6 +75,7 @@ const NxFxMark* = "side effect"   ## (fx) the "exception" a side effect is
 
 var nxRaisesCache: Table[string, (NxRaises, seq[(string, string)])]   # routine → what it raises, the files read
 
+# the lines of the file the body being read is in
 template lines(w: NxRsBody): untyped = w.lr.lines
 
 const
@@ -113,6 +114,7 @@ type NxRsUnitTab = object
 var nxRsUnitTabs: Table[string, NxRsUnitTab]
 
 proc nxRsOpenFile(path: string): bool =
+  ## whether the editor has this file open (so its text can differ from the disk's and its routines are cached by unit)
   nxBufferStamp != nil and path.len > 0 and nxBufferStamp(path).len > 0
 
 proc nxRsUnitTabOf(path, st: string): bool =
@@ -168,6 +170,7 @@ proc nxRsUnit(c: var NxRsCtx, f: NxFile, line: int): string =
   nxRsUnitTabs[f.path].byLine.getOrDefault(line)
 
 proc nxRsDep(c: var NxRsCtx, path: string) =
+  ## notes that the routine being worked out read this file (or unit): its cached answer is dropped when that changes
   if c.deps.len > 0: c.deps[^1].incl path
 
 proc nxRsScope(c: var NxRsCtx, f: NxFile): NxScope =
@@ -202,6 +205,7 @@ proc nxRsPushRaises(f: NxFile, lines: seq[string], line: int): (bool, string) =
     var stack: seq[(bool, string)]
     var marks: seq[(int, bool, string)]
     proc top(): (bool, string) =
+      ## the innermost {.push.} on the stack that carries a raises list: (true, its list), else (false, "")
       for k in countdown(stack.high, 0):
         if stack[k][0]: return stack[k]
     for l in 0 ..< lines.len:
@@ -255,6 +259,7 @@ proc nxRsBuiltinType(t0: string): bool =
 proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxRaises
 proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, exc: var seq[NxExc]): bool
 
+# the answer "not known", with what stopped the engine
 func nxRsFail(why: string): NxRaises = NxRaises(known: false, why: why)
 
 func nxFxImpure(why: string): NxRaises =
@@ -262,6 +267,7 @@ func nxFxImpure(why: string): NxRaises =
   NxRaises(known: true, excs: @[NxExc(name: NxFxMark)], why: why)
 
 func nxFxHas*(excs: seq[NxExc]): bool =
+  ## whether the list holds the side-effect mark (side-effect mode: the routine has a side effect)
   for e in excs:
     if e.name == NxFxMark: return true
 
@@ -334,6 +340,7 @@ proc nxRsCandidates(c: var NxRsCtx, refs: seq[NxRef], callPath: string, callLine
       echo "CANDS ", ds.join(" ")
 
 proc nxRsMerge(dst: var seq[NxExc], r: NxRaises) =
+  ## adds the exceptions of r to dst, once each
   for e in r.excs: nxRsAdd(dst, e)
 
 proc nxRsMergeAt(dst: var seq[NxExc], r: NxRaises, path: string, line, col: int, what: string) =
@@ -344,6 +351,7 @@ proc nxRsMergeAt(dst: var seq[NxExc], r: NxRaises, path: string, line, col: int,
     nxRsAdd(dst, e)
 
 func nxRsAt(e: NxExc, path: string, line, col: int, what: string): NxExc =
+  ## the exception e marked as coming in at that place of the body, and starting there (no routine called to follow)
   result = e
   result.at = NxExcAt(path: path, line: line, col: col, what: what)
   result.via = NxVia()
@@ -411,6 +419,7 @@ proc nxRsNominal(sc: NxScope, t0: string): bool =
     d.startsWith("ptr object")
 
 func nxRsSame(a, b: string): bool =
+  ## whether two type names are the same type once C aliases and system's aliases are resolved, ignoring style
   let x = nxRsCanon(a)
   x.len > 0 and nxNorm(x) == nxNorm(nxRsCanon(b))
 
@@ -793,6 +802,7 @@ proc nxRsIdentKind(c: var NxRsCtx, w: var NxRsBody, line, a, e: int): NxRaises =
         if r.sym.kind == nxField:
           # (a field's proc type can go on below: its pragmas on the next line)
           let flr = nxLayLinesRef(r.file.path)
+          # the lines of the file the field is declared in
           template fl: untyped = flr.lines
           var l = r.sym.line + 1
           while l < fl.len and l <= r.sym.line + 4:
@@ -1697,6 +1707,7 @@ proc nxRsGenericParams(sc: NxScope, s: NxSym): seq[string] =
 proc nxRsAnalyse(c: var NxRsCtx, r: NxRef, lr: NxLinesRef): NxRaises =
   ## what the body of routine `r` raises
   template s: untyped = r.sym
+  # the lines of the routine's file
   template lines: untyped = lr.lines
   let (bl, bc) = nxRsBodyStart(lines, s)
   if bl < 0: return nxRsFail("no body")
@@ -1789,6 +1800,7 @@ proc nxFxForwardElsewhere(c: var NxRsCtx, target: NxRef, callPath: string): int 
       if g == nil: continue
       let gl = nxLayLinesRef(p)
       for j in 0 ..< g.syms.len:
+        # the declaration being checked
         template s: untyped = g.syms[j]
         if s.kind in NxRoutineKinds and not s.made and s.endLine <= s.line and nxIsForward(gl.lines, s):
           t.mgetOrPut(nxNorm(s.name), @[]).add (p, j)
@@ -1821,6 +1833,7 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
   let ru = nxRsUnit(c, r.file, s.line)
   nxRsDep(c, if ru.len > 0: ru else: r.file.path)
   let lr = nxLayLinesRef(r.file.path)
+  # the lines of the routine's file
   template lines: untyped = lr.lines
   let prag = s.pragmas
   if c.fx:

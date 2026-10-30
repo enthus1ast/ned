@@ -26,6 +26,7 @@ const
   sha256H0: array[8, uint32] = [0x6a09e667'u32, 0xbb67ae85'u32, 0x3c6ef372'u32, 0xa54ff53a'u32, 0x510e527f'u32,
                                 0x9b05688c'u32, 0x1f83d9ab'u32, 0x5be0cd19'u32]
 
+# a 32-bit number rotated right by n bits
 func sha256Rotr(x: uint32, n: int): uint32 {.inline.} = (x shr n) or (x shl (32 - n))
 
 proc sha256Block(c: var Sha256Ctx, p: ptr UncheckedArray[byte]) =
@@ -70,6 +71,7 @@ proc sha256Block(c: var Sha256Ctx, p: ptr UncheckedArray[byte]) =
   c.h[7] += h
 
 func sha256Init*(): Sha256Ctx =
+  ## a new hash: the starting state of SHA-256
   result.h = sha256H0
 
 proc sha256Update*(c: var Sha256Ctx, data: pointer, len: int) =
@@ -94,6 +96,7 @@ proc sha256Update*(c: var Sha256Ctx, data: pointer, len: int) =
     c.bufLen = len - i
 
 proc sha256Update*(c: var Sha256Ctx, s: string) =
+  ## feeds the bytes of a string into the hash (the same as the pointer and length form)
   if s.len > 0: sha256Update(c, unsafeAddr s[0], s.len)
 
 proc sha256Final*(c: var Sha256Ctx): array[32, byte] =

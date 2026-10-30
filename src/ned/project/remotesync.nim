@@ -1,6 +1,12 @@
+# remote folders over SSH, the working part: the saved list of them, the shared ssh connection, copying the server's
+# files to the local copy (the first pull, the automatic sync, the changes git makes) and each save, delete, move or new
+# folder back to the server, and the Remote menu.
+# the file in the state folder where the list of opened remote folders is kept
 proc remotesFile(): string = stateDir() / "remote" / "remotes.json"
 
 proc saveRemotes() =
+  ## writes the list of remote folders (host, paths, local copy, git flag, when last copied) as JSON to `remotesFile`,
+  ## readable by you alone; a failure to write is ignored
   let j = newJArray()
   for r in remotes: j.add %*{"host": r.host, "path": r.path, "absPath": r.absPath, "mirror": r.mirror, "git": r.git,
                              "pulledAt": r.pulledAt}
@@ -22,6 +28,7 @@ proc loadRemotes() =
   except CatchableError: discard
 
 func remoteSafe(s: string): string =
+  ## a name fit for a folder: everything but letters, digits, - _ and . becomes _
   for c in s:
     result.add (if c.isAlphaNumeric or c in {'-', '_', '.'}: c else: '_')
 
@@ -433,9 +440,12 @@ proc remoteOpen(spec: string) =
     saveRemotes()
     remotePull(ri, true))
 
+# the index of the remote folder whose local copy is the project's folder, or -1 when the project is not one
 proc remoteHere(): int = (if remotes.len > 0: remoteOf(rootDir) else: -1)
 
 proc cmdRemoteMenu() =
+  ## the Remote (SSH) menu: open a folder over SSH (asks for user@host:/path), and — when the project is a remote folder
+  ## — pull its latest files, open a terminal on the server, or end the shared ssh connection
   let ri = remoteHere()
   var items: seq[(string, string, Action)]
   items.add act("Open a folder over SSH…", "user@host:/path · host:~/project", proc() =

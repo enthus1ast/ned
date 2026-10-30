@@ -68,6 +68,10 @@ proc mergeCurrent(b: Buffer): int =
   cs.high
 
 proc drawMergeSide(side: MergeSide, cur, x0, y0, w, h: int, title, label: string, accent: Rgb, accept: Action) =
+  ## draws one side of the merge editor (ours or theirs) in the box x0, y0, w by h: a heading with the side's name, its
+  ## label and, if accept is set, an Accept button; below it the side's lines with numbers and syntax colours. Conflicts
+  ## are tinted (the current one, cur, stronger) and the pane is scrolled to show it, and `⋯` stands where this side has
+  ## no line
   let hb = theme.crumbBg
   fillRect(x0, y0, w, 1, theme.fg, hb)
   var x = putStr(x0 + 1, y0, title, accent, hb, {aBold})
@@ -100,6 +104,8 @@ proc drawMergeSide(side: MergeSide, cur, x0, y0, w, h: int, title, label: string
     drawCodeLine(tb, l, x0 + numW + 1, y, x0 + w, bg)
 
 proc mergeGo(d: int) =
+  ## moves the cursor to the start of the next conflict (d above 0) or the previous one, going round at the ends; when
+  ## the cursor is between conflicts, `next` is the one below it
   let b = buf()
   let cs = b.conflictsOf()
   if cs.len == 0: return
@@ -109,6 +115,8 @@ proc mergeGo(d: int) =
   b.centerOn(Pos(line: cs[i].start, col: 0))
 
 proc mergeAccept(choice: string) =
+  ## settles the conflict the panes show with choice (ours, theirs or both) and moves on to the one now in its place, if
+  ## any is left
   let b = buf()
   let i = b.mergeCurrent()
   if i < 0: return
@@ -120,11 +128,15 @@ proc mergeAccept(choice: string) =
     b.centerOn(Pos(line: cs[n].start, col: 0))
 
 proc mergeClose(b: Buffer) =
+  ## leaves the merge editor of this file and forgets the sides it kept
   mergeViews.excl b.id
   mergeCache.del b.id
   needRender = true
 
 proc drawMergeView(b: Buffer, x0, y0, w, h: int, active: bool) =
+  ## draws the merge editor: ours and theirs side by side above (two fifths of the height), then a bar with how many
+  ## conflicts are left and the buttons (Previous, Next, Accept both; Save and stage when none is left; Close), and
+  ## under it the file itself, editable as usual
   let (os, ts, oLab, tLab) = mergeSidesFor(b)
   let cur = b.mergeCurrent()
   let topH = max(6, (h - 1) * 2 div 5)
@@ -162,6 +174,8 @@ proc drawMergeView(b: Buffer, x0, y0, w, h: int, active: bool) =
   finally: mergeInner = false
 
 proc cmdMergeEditor() =
+  ## turns the merge editor on for the current file, or off if it is on; says so when the file has no conflicts, and
+  ## goes to the first one when the cursor is not in a conflict
   let b = buf()
   if b.id in mergeViews:
     b.mergeClose()

@@ -33,7 +33,9 @@ func width(s: string): int =
   for c in s:
     if (ord(c) and 0xC0) != 0x80: inc result
 
+# s followed by fill characters up to w screen columns (unchanged when it is already that wide)
 func padRight(s: string, w: int, fill = ' '): string = s & repeat(fill, max(0, w - width(s)))
+# s with spaces in front of it up to w screen columns
 func padLeft(s: string, w: int): string = repeat(' ', max(0, w - width(s))) & s
 
 func codeMask(s, cm: string, charLit, keepComment: bool): string =
@@ -170,6 +172,9 @@ proc parseAnswer(answer: string): (string, bool) =
   (d, all or d in [",", "|"])
 
 proc alignCommand(answer: string) =
+  ## the command behind every Align entry: takes the delimiter typed (or fixed by the entry), finds the selected lines
+  ## or the paragraph around the cursor, and aligns them on it; says so in the message line when there is nothing to
+  ## align
   let b = current()
   if not b.valid or answer.strip.len == 0: return
   let (first, last) = linesToAlign(b)

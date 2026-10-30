@@ -54,6 +54,7 @@ func lsWsKey(s: string): string =
     if ch notin {'_', ' '}: result.add toLowerAscii(ch)
 
 func lsWsIsNim(path: string): bool =
+  ## whether the path is a Nim source, NimScript or nimble file
   path.endsWith(".nim") or path.endsWith(".nims") or path.endsWith(".nimble")
 
 func lsWsRecv(typ: string): string =
@@ -71,6 +72,9 @@ proc lsWsStamp(path: string): string =
   if d != nil: "d" & $d.b.id & ":" & $d.b.changeId else: nxStamp(path)
 
 proc lsWsSymAt(lines: seq[string], name: string, kind, l, c: int, container: string, depr: bool): LsWsSym =
+  ## one workspace symbol: its match key, and the columns of its name (to the end of the word, or of a quoted JSON key)
+  ## in the client's encoding, worked out from the file's line; when the line is not known the columns are the name's
+  ## length from c
   result = LsWsSym(name: name, key: lsWsKey(name), container: container, line: max(0, l).int32,
                    kind: kind.int8, deprecated: depr)
   if l >= 0 and l < lines.len:
@@ -171,6 +175,8 @@ proc lsWsMakeDeps() =
   var deps: seq[string]
   var seen: HashSet[string]
   template add(p: string) =
+    ## adds a module to the dependencies once, unless it is empty or is one of the project's own files already in the
+    ## table
     if p.len > 0 and p notin seen and (p notin lsWs or lsWs[p].dep):
       seen.incl p
       deps.add p
@@ -283,6 +289,8 @@ proc lsLintAgain(path: string) =
   ## again (the change may have made or mended theirs)
   if not lsWsPulling or not lsLintOn or not lsLintQueued: return
   template again(p: string) =
+    ## queues the file to be checked again, forgetting its last result so that it is checked even if its text is the
+    ## same
     if p.len > 0:
       if p in lsLintDiags: lsLintDiags[p][0] = ""         # (checked again even when its own text is the same)
       if p notin lsLintQueue: lsLintQueue.add p
@@ -340,6 +348,7 @@ proc lsWsNextMs(): int =
 # ── matching ──
 
 func lsWsSubseq(q, key: string): bool =
+  ## whether the query's letters are in the key in order, not necessarily next to each other
   var j = 0
   for ch in key:
     if j < q.len and ch == q[j]:
@@ -430,6 +439,7 @@ proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
   var hits: seq[Hit]
   var cmemo: Table[string, int]            # container → how well it fits (asked once each)
   proc fits(c: string): int =
+    ## how well a container fits the part of the query before the dot, worked out once for each container
     result = cmemo.getOrDefault(c, -1)
     if result < 0:
       result = lsWsContainerMatch(cq, c)
@@ -438,6 +448,7 @@ proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
     if f.dep and not deps: continue
     let inModule = if cq.len > 0: fits(f.module) else: 0
     for i in 0 ..< f.syms.len:
+      # the symbol being looked at
       template s: untyped = f.syms[i]
       var ct = 0
       if cq.len > 0:
@@ -467,6 +478,7 @@ proc lsWorkspaceSymbol(params: JsonNode): JsonNode =
   var uris: Table[string, string]
   for k in 0 ..< min(hits.len, LsWsLimit):
     let f = hits[k].f
+    # the symbol of the hit being written
     template s: untyped = f.syms[hits[k].i]
     var u = uris.getOrDefault(f.path)
     if u.len == 0:

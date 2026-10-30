@@ -3,6 +3,8 @@
 
 
 proc dapWrite(data: string) =
+  ## writes all of `data` to the debug adapter — its TCP socket when ned connected to one, else the adapter's standard
+  ## input; waits and retries when the pipe is full, gives up on any other error
   let fd = if dapSock >= 0: dapSock else: dbgProc.inFd
   if fd < 0: return
   var off = 0
@@ -13,10 +15,13 @@ proc dapWrite(data: string) =
     else: break
 
 proc dapSend(j: JsonNode) =
+  ## sends one DAP message: the JSON text behind a `Content-Length` header, as the protocol frames it
   let body = $j
   dapWrite("Content-Length: " & $body.len & "\r\n\r\n" & body)
 
 proc dapRequest(cmd: string, args: JsonNode, cb: DapCb = nil) =
+  ## sends a DAP request with the next sequence number; `cb` (when given) is kept in dapPending and called with the
+  ## response's body, success flag and message when the adapter answers
   inc dapSeq
   if cb != nil: dapPending[dapSeq] = cb
   dapSend(%*{"seq": dapSeq, "type": "request", "command": cmd, "arguments": args})
@@ -61,6 +66,8 @@ proc dapLogEmulate(path: string, ln: int) =
   vals.setLen(exprs.len)
   let at = extractFilename(path) & ":" & $(ln + 1)
   proc finish() =
+    ## prints the logpoint's text with the evaluated values put in, marks the program running again and tells the
+    ## adapter to continue
     var o = ""
     var k = 0
     for (isExpr, t) in parts:
@@ -162,6 +169,11 @@ proc dapRefresh() =
 proc tcpConnect(port: int): cint
 
 proc dapHandle(j: JsonNode) =
+  ## acts on one message from the adapter. A response calls the callback of the request it answers (a failure nobody
+  ## waits for is shown as an error). Events: `initialized` sends the breakpoints and ends the configuration, `stopped`
+  ## sets the state line and refreshes the stack, `terminated` ends the session; `continued`, `output` and `exited`
+  ## update the state and the output. js-debug's `startDebugging` request opens the child session on a second
+  ## connection; other requests are refused. The panel is redrawn after.
   case j{"type"}.getStr
   of "response":
     let rs = j{"request_seq"}.getInt
@@ -307,6 +319,8 @@ proc dapDrainParent() =
     dapParentSock = -1
 
 proc tcpConnect(port: int): cint =
+  ## a socket connected to 127.0.0.1 on `port` (for adapters that listen there instead of using stdin/stdout), or -1
+  ## when the connection fails
   let fd = posix.socket(AF_INET, SOCK_STREAM, 0)
   if fd.cint < 0: return -1
   var a: Sockaddr_in
@@ -319,6 +333,8 @@ proc tcpConnect(port: int): cint =
   fd.cint
 
 proc cargoPackageName(root: string): string =
+  ## the package name in the `[package]` table of the Cargo.toml in `root` ("" when there is none) — the name of the
+  ## program cargo builds into target/debug
   try:
     var inPkg = false
     for l in readFile(root / "Cargo.toml").splitLines:
@@ -352,11 +368,13 @@ proc lldbDapExe(): string =
   ""
 
 proc codelldbExe(): string =
+  ## where the codelldb adapter is: on the PATH, else in Mason's bin folder or ~/.local/bin — "" when it is not found
   if haveExe("codelldb"): return "codelldb"
   for p in [getHomeDir() / ".local/share/nvim/mason/bin/codelldb", getHomeDir() / ".local/bin/codelldb"]:
     if fileExists(p): return p
   ""
 
+# the folder ned's install command unpacks vscode-js-debug into: js-debug under the user's data folder
 proc jsDebugDir(): string = getEnv("XDG_DATA_HOME", getHomeDir() / ".local" / "share") / "js-debug"
 
 proc jsDebugCmd(): seq[string] =
@@ -373,6 +391,8 @@ const JsDebugInstall = "mkdir -p ~/.local/share && curl -fsSL \"$(curl -fsSL " &
   "| head -1)\" | tar xz -C ~/.local/share"
 
 proc nodeMajor(): int =
+  ## the major version of the installed node (0 when it is missing or its version cannot be read) — decides how
+  ## TypeScript is run when debugging
   let v = versionOf("node")
   try: parseInt(v.split('.')[0]) except ValueError: 0
 
@@ -426,6 +446,8 @@ proc dapPresets(b: Buffer): seq[JsonNode] =
   else: discard
 
 proc dapExeFound(ad: JsonNode): bool =
+  ## whether the program an adapter starts is there: its command's first word is on the PATH or a file; gdb must also be
+  ## new enough for DAP, js-debug-adapter must be on the PATH and a `node script.js` command needs the script to exist
   let c = ad{"command"}
   if c == nil or c.kind != JArray or c.len == 0: return false
   let x = c[0].getStr
@@ -450,10 +472,13 @@ proc dapAdapterFor(b: Buffer): JsonNode =
   ps[0]
 
 proc dapSubst(s: string, b: Buffer, port: int, exe, cargoExe, root: string): string =
+  ## puts the file's values into an adapter setting: $file, $dir (its folder), $root, $cargoexe, $exe (the program built
+  ## for debugging) and $port
   s.replace("$file", b.path).replace("$dir", parentDir(b.path)).replace("$root", root).replace("$cargoexe", cargoExe)
    .replace("$exe", exe).replace("$port", $port)
 
 proc dapSubstJ(n: JsonNode, b: Buffer, port: int, exe, cargoExe, root: string): JsonNode =
+  ## a copy of a JSON value with dapSubst applied to every string in it, however deep
   case n.kind
   of JString: %dapSubst(n.getStr, b, port, exe, cargoExe, root)
   of JArray:
@@ -467,6 +492,10 @@ proc dapSubstJ(n: JsonNode, b: Buffer, port: int, exe, cargoExe, root: string): 
   else: n
 
 proc dapLaunch(b: Buffer, ad: JsonNode, port: int, exe, cargoExe, root: string) =
+  ## starts the adapter program (leaving the debuginfod question out of gdb's environment while it starts), connects to
+  ## its port when it listens on one, and sends `initialize` and then the launch (or attach) request with the file's
+  ## values filled in. When the adapter is not installed or gdb is too old the Debug panel says so and what to do
+  ## instead. Failures end the session with a message; the panel is redrawn.
   var cmd: seq[string]
   for x in jitems(dapSubstJ(ad{"command"}, b, port, exe, cargoExe, root)): cmd.add x.getStr
   if cmd.len == 0 or not ad.dapExeFound:
@@ -607,10 +636,14 @@ proc dapCheckReport(b: Buffer): string =
              " · Debug: install the debugger… runs its install command in the terminal.\n"
 
 proc cmdDebugCheck() =
+  ## palette command: opens a scratch buffer with the report on which debugger F5 will use for the current file and
+  ## whether it is installed
   let b = buf()
   discard openScratch("Debugger check", dapCheckReport(b), langByName("Text"))
 
 proc cmdDebugChoose() =
+  ## palette command: lists the debuggers known for the current file's language, plus "ned's choice"; picking one writes
+  ## it to the `debug.adapters` setting for that language (ned's choice removes the entry)
   let b = buf()
   let ps = dapPresets(b)
   if ps.len == 0:
@@ -641,6 +674,9 @@ proc cmdDebugChoose() =
   openActions("Debugger for " & b.lang.name, items)
 
 proc cmdDebugInstall() =
+  ## palette command: lists the install commands of the debuggers for the current file's language and runs the chosen
+  ## one in the terminal; debuggers that have to be downloaded by hand are left out, and when none is left the check
+  ## report is shown instead
   let b = buf()
   let ps = dapPresets(b)
   var items: seq[(string, string, Action)]
@@ -659,6 +695,8 @@ proc cmdDebugInstall() =
   openActions("Install a debugger for " & b.lang.name & " (runs in the terminal)", items)
 
 proc dapStop() =
+  ## ends a DAP session: asks the adapter to disconnect and stop the program if it was launched (js-debug's first
+  ## session too), closes the sockets and clears the session's tables
   if dapLaunched: dapRequest("disconnect", %*{"terminateDebuggee": true})
   if dapSock >= 0:
     discard posix.close(dapSock)

@@ -50,10 +50,12 @@ proc entries(dir: string, hidden: bool): seq[string] =
     if hidden or not f.startsWith("."): result.add f
 
 proc makeDir(d: string) =
+  ## makes the folder, with the folders above it (by NimScript's own call under nim e, by the standard library compiled)
   when defined(nimscript): mkDir(d)
   else: createDir(d)
 
 proc moveIt(a, b: string, isDir: bool) =
+  ## moves the file or folder a to b, making b's parent folder first
   makeDir(parentDir(b))
   when defined(nimscript):
     if isDir: mvDir(a, b) else: mvFile(a, b)
@@ -61,6 +63,7 @@ proc moveIt(a, b: string, isDir: bool) =
     if isDir: moveDir(a, b) else: moveFile(a, b)
 
 proc removeIt(p: string, isDir: bool) =
+  ## deletes the file, or the folder with all that is in it
   when defined(nimscript):
     if isDir: rmDir(p) else: rmFile(p)
   else:
@@ -68,6 +71,7 @@ proc removeIt(p: string, isDir: bool) =
 
 # ── the tab ──
 
+# the home folder without a / at its end
 proc home(): string = getHomeDir().strip(leading = false, chars = {'/'})
 
 proc titleOf(dir: string): string =
@@ -83,11 +87,16 @@ proc dirOf(b: Buf): string =
   if t.len > 1: t = t.strip(leading = false, chars = {'/'})
   t
 
+# whether the tab is one of this plugin's folder tabs: not a file, in the oil language, with a title that names a folder
+# that exists
 proc ours(b: Buf): bool = b.valid and b.path.len == 0 and b.lang.toLowerAscii == "oil" and dirExists(b.dirOf)
 
+# the folder deleted files are moved to (in the plugin's data folder)
 proc trashDir(): string = dataDir() / "trash"
 
 proc marks(b: Buf, lines: seq[string]) =
+  ## decorates the listing: ▸ in the gutter beside each folder, and in the trash folder a note after each name saying
+  ## where the file came from (from the .where file)
   b.clearDecorations()
   let inTrash = b.dirOf == trashDir()
   var whence: Table[string, string]
@@ -101,6 +110,8 @@ proc marks(b: Buf, lines: seq[string]) =
       b.virtualText(i, "from " & whence[l.strip(leading = false, chars = {'/'})])
 
 proc show(b: Buf, dir: string) =
+  ## fills the tab with the folder's listing, remembers it as what saving compares with, names the tab after the folder,
+  ## marks it saved and puts the cursor on the first line
   let lines = entries(dir, showHidden.getOrDefault(b.id, setting("hidden", false)))
   listed[b.id] = lines
   b.setText(lines.join("\n"))
@@ -110,6 +121,8 @@ proc show(b: Buf, dir: string) =
   b.marks(lines)
 
 proc openDir(dir: string, from_name = "") =
+  ## opens a tab listing the folder (the one already open for it if there is one) with the cursor on the name from_name;
+  ## warns when there is no such folder
   if not dirExists(dir):
     warn("No folder " & dir)
     return
@@ -138,6 +151,7 @@ proc folderOfCurrent(): (string, string) =
   (projectRoot(), "")
 
 proc openUnder(b: Buf) =
+  ## opens the folder (in this tab) or the file named on the cursor's line; says so when the name is not there yet
   if not b.ours:
     message("Not a folder's tab — \"Oil: edit this file's folder as text\" opens one")
     return
@@ -150,6 +164,7 @@ proc openUnder(b: Buf) =
   else: message(name & " is not there yet — save to make it")
 
 proc up(b: Buf) =
+  ## shows the folder above in this tab, with the cursor on the folder it came from
   if not b.ours: return
   let d = b.dirOf
   if d == "/" or parentDir(d) == d: return
@@ -217,6 +232,7 @@ proc plan(old, now: seq[string]): seq[Change] =
   var i, j = 0
   var gone, added: seq[string]
   proc flush(res: var seq[Change]) =
+    ## turns the lines gone and added since the last kept line into changes (pairUp) and starts a new run
     pairUp(gone, added, res)
     gone.setLen(0)
     added.setLen(0)
@@ -243,10 +259,14 @@ proc plan(old, now: seq[string]): seq[Change] =
   result = keep
 
 proc full(dir, name: string): string =
+  ## the full path a name in the tab stands for: as it is when it starts with /, from the home folder for ~/, else from
+  ## the tab's folder
   let n = name.strip(leading = false, chars = {'/'})
   if n.startsWith("/"): n elif n.startsWith("~/"): home() & n[1 .. ^1] else: normalizedPath(dir / n)
 
 proc describe(c: Change): string =
+  ## the change in words for the question before saving: Rename a → b, Delete (to the trash, or gone for good), Make (a
+  ## folder)
   case c.kind
   of "rename": "Rename " & c.a & " → " & c.b
   of "delete": "Delete " & c.a & (if setting("trash", true): " (to the trash)" else: " (gone for good)")
@@ -269,6 +289,8 @@ proc check(dir: string, cs: seq[Change], now: seq[string]): string =
   ""
 
 proc toTrash(p: string, isDir: bool) =
+  ## moves the file or folder into the trash folder (under a numbered name if that one is taken) and adds a line to the
+  ## .where file there saying where it came from
   let t = trashDir()
   makeDir(t)
   var name = extractFilename(p)
@@ -282,6 +304,9 @@ proc toTrash(p: string, isDir: bool) =
   writeFile(w, before & name & "\t" & p & "\n")
 
 proc apply(b: Buf) =
+  ## what saving a folder tab does: compares its lines with the listing, checks the changes, lists them and asks, then
+  ## makes them — deletes and creates first, renames last by way of temporary names (so a → b with b → a works) — shows
+  ## the folder again and says how many were made or what failed
   let dir = b.dirOf
   var now: seq[string]                 # (an emptied line kept, as "": it says where a name went)
   var lines = b.lines

@@ -66,6 +66,9 @@ proc replShow() =
   needRender = true
 
 proc replSend(lang: Lang, code: string): bool =
+  ## queues `code` for the language's REPL tab (opened or restarted as needed), types it in as soon as the REPL shows
+  ## its prompt, and shows the terminal panel; false (with an error message saying how to set one) when the language has
+  ## no REPL
   if lang == nil: return false
   let t = replTerm(lang)
   if t == nil:
@@ -86,6 +89,7 @@ proc replMarker(s: string): bool =
   false
 
 proc replHasCells(b: Buffer): bool =
+  ## whether the file has a `# %%` cell marker among its first 20,000 lines
   for i in 0 ..< min(b.lines.len, 20_000):
     if replMarker(b.lines[i]): return true
   false
@@ -108,6 +112,8 @@ proc replStatementAt(b: Buffer, line: int): (int, int) =
   var e = a
   var depth = 0
   proc bal(s: string): int =
+    ## how many more brackets a line opens than closes, leaving out quoted text and (for languages with # comments) the
+    ## comment
     var q = '\0'
     for c in s:
       if q != '\0':
@@ -171,12 +177,14 @@ proc replSendSelOrStatement() =
     b.ensureVisible()
 
 proc replSendCell(b: Buffer, line: int) =
+  ## sends the `# %%` cell around `line` to the REPL, without moving the cursor
   let (a, e) = replCellAt(b, line)
   var code: seq[string]
   for k in a .. e: code.add b.lines[k]
   discard replSend(b.lang, code.join("\n"))
 
 proc replSendFile() =
+  ## sends the whole file to the REPL, leaving the `# %%` marker lines out
   let b = buf()
   var code: seq[string]
   for l in b.lines:
@@ -210,6 +218,8 @@ proc replSendProc() =
   discard replSend(b.lang, code.join("\n"))
 
 proc replOpen(lang: Lang, restart = false) =
+  ## shows the language's REPL in the terminal panel with the keyboard in the panel (started first, or restarted when
+  ## asked); an error message when there is no REPL to run
   let t = replTerm(lang, restart)
   if t == nil:
     error("No REPL for " & lang.name & " — set one in settings › repl.commands")
@@ -219,6 +229,7 @@ proc replOpen(lang: Lang, restart = false) =
   if lang.id == "nim" and not haveExe("inim"): info("nim secret is a basic REPL — nimble install inim gives a nicer one")
 
 proc nimRepl() =
+  ## opens the Nim REPL (inim, else `nim secret`); an error message when neither nim nor inim is installed
   if not haveExe("nim") and not haveExe("inim"):
     error("nim is not installed")
     return

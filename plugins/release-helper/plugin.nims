@@ -22,8 +22,10 @@ settingDef("tagPrefix", "v", "Release: tag it — what goes before the version i
 settingDef("push", true, "Release: tag it — offer to push the tag to origin too (in the terminal)")
 settingDef("changelog", "CHANGELOG.md", "Release: add a CHANGELOG entry — the file, from the project's folder")
 
+# s as one word for a shell command line, in single quotes (a quote inside it written '\'')
 func q(s: string): string = "'" & s.replace("'", "'\\''") & "'"
 
+# a count with its noun, the noun with an s unless the count is 1: "3 commits"
 func plural(n: int, word: string): string = $n & " " & word & (if n == 1: "" else: "s")
 
 # ── versions ──
@@ -107,6 +109,7 @@ proc currentVersion(root: string): (string, string) =
   if i < 0: return (f, "")
   (f, ls[i][a ..< e])
 
+# the path from the project's folder when the file is in it, else as it is
 func rel(root, p: string): string = (if p.startsWith(root & "/"): p[root.len + 1 .. ^1] else: p)
 
 proc setVersion(path, old, new: string, nimble: bool): bool =
@@ -120,6 +123,9 @@ proc setVersion(path, old, new: string, nimble: bool): bool =
   true
 
 proc bumpNow() =
+  ## Release: bump the version — offers the next patch, minor or major version (or one typed) after the .nimble file's,
+  ## then writes it into the .nimble file and every src/**/version.nim, in ned and saved, and goes back to the file that
+  ## was open
   let root = projectRoot()
   let (nimble, v) = currentVersion(root)
   if nimble.len == 0:
@@ -152,6 +158,7 @@ proc bumpNow() =
 
 # ── the CHANGELOG ──
 
+# runs git with the arguments in the project's folder, its errors in the output too
 proc git(args: string): tuple[output: string, code: int] = shell("git " & args & " 2>&1")
 
 func sectionAt*(lines: seq[string], version: string): int =
@@ -195,6 +202,9 @@ func withEntry*(lines: seq[string], heading: string, items: seq[string]): (seq[s
   (ls[0 ..< at] & section & ls[at .. ^1] & @[""], at)
 
 proc changelogNow() =
+  ## Release: add a CHANGELOG entry — puts a section for the version, dated today, with a line for each commit since the
+  ## last tag (merges left out), at the top of the CHANGELOG in its tab for you to edit and save; if it has a section
+  ## for the version already, goes to it
   let root = projectRoot()
   let (_, v) = currentVersion(root)
   if v.len == 0:
@@ -236,6 +246,9 @@ proc changelogNow() =
 # ── the tag ──
 
 proc tagNow() =
+  ## Release: tag it — shows in the Output panel the git tag command (its message the CHANGELOG's section for the
+  ## version) and the push of the tag, with a warning for uncommitted files, then asks whether to run the tag, run it
+  ## and push in the terminal, or cancel; warns when the tag exists already
   let root = projectRoot()
   let (_, v) = currentVersion(root)
   if v.len == 0:

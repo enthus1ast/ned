@@ -72,6 +72,8 @@ proc lsMayWant(only: JsonNode, prefix: string): bool =
   false
 
 proc lsRefactorKind(title: string): string =
+  ## the LSP kind of one of ned's refactorings, from its title: "Inline …" is refactor.inline, "Extract …"
+  ## refactor.extract, anything else refactor.rewrite
   if title.startsWith("Inline "): "refactor.inline"
   elif title.startsWith("Extract "): "refactor.extract"
   else: "refactor.rewrite"
@@ -148,6 +150,9 @@ proc lsEditOf(d: LsDoc, a, e: Pos, act: Action): JsonNode =
   lsWorkspaceEdit(lsDryRun(act))
 
 proc lsCodeActions(params: JsonNode): JsonNode =
+  ## textDocument/codeAction: the actions for the asked range, as LSP code actions. A command goes as it is; a quick fix
+  ## has its edit worked out at once (one that changes nothing is left out), and so does every action when the client
+  ## cannot resolve; the others carry the document, version and range for codeAction/resolve
   let d = lsDocOf(params)
   result = newJArray()
   if not lsEngineOn(d) or d.b.path.len == 0: return
@@ -212,6 +217,8 @@ proc lsApplyText(d: LsDoc, a, e: Pos, text, label: string) =
 # ── Fix with AI ──
 
 proc lsProgressStart(title, msg: string) =
+  ## starts a progress in the client for the AI fix, when the client shows progress: asks it to create a token, and
+  ## sends "begin" when it agrees and the fix is still running
   lsAi.token = ""
   lsAi.shown = false
   if not lsProgress: return
@@ -225,6 +232,7 @@ proc lsProgressStart(title, msg: string) =
       lsAi.shown = true)
 
 proc lsProgressSay(msg: string) =
+  ## a new message for the AI fix's progress in the client, when it is being shown
   if lsAi.shown: lsNotify("$/progress", %*{"token": lsAi.token, "value": {"kind": "report", "message": msg}})
 
 proc lsAiDone(msg: string, typ: int) =
@@ -242,6 +250,9 @@ proc lsAiValid(): bool =
 proc lsAiAsk()
 
 proc lsAiChecked(code: string, bad: seq[string]) =
+  ## what `nim check` said of the model's answer: if it compiles, the client is asked to apply it; if not, the model is
+  ## asked once more with the first errors; if it still does not compile, the user is offered Apply anyway or Leave it
+  ## (or just told, when the client has no buttons). Nothing is applied if the file changed meanwhile
   if not lsAi.running: return
   if not lsAiValid():
     lsAiDone("Fix with AI: the file changed meanwhile — ask again", 2)
@@ -291,6 +302,7 @@ proc lsAiAnswer(text: string) =
   if not started: lsAiDone("Fix with AI: no copy of the file could be written to check the answer", 1)
 
 proc lsAiFailed(why: string) =
+  ## the request to the model failed: ends the AI fix with the reason
   if lsAi.running: lsAiDone("Fix with AI: " & why, 1)
 
 proc lsAiRetry() =
@@ -303,6 +315,9 @@ proc lsAiRetry() =
   lsAiAsk()
 
 proc lsAiAsk() =
+  ## asks the model to rewrite the code around the problem (the prompt tells the problem, and on the second try the
+  ## first answer and what nim check said of it); the answer goes to lsAiAnswer, and a refused parameter to lsAiRetry.
+  ## Ends the fix when no model is set up
   let b = lsAi.d.b
   let instr = aiFixInstr(b, lsAi.diag, lsAi.attempt, lsAi.prev, lsAi.prevErr)
   let job = aiFastAsk(LsAiSystem, aiInlinePrompt(b, lsAi.a, lsAi.e, instr), 8000, lsAiAnswer, lsAiRetry,
@@ -366,6 +381,8 @@ proc lsRuleOff(args: JsonNode) =
   lsShowMessage(3, rule & " is off for this project (.ned/lint.json)")
 
 proc lsExecuteCommand(params: JsonNode): JsonNode =
+  ## workspace/executeCommand: carries out the commands nedls lists — a lint rule turned off for the project, Fix with
+  ## AI, a Run code lens — and answers with an invalid-params error for any other
   result = newJNull()
   let args = params{"arguments"}
   case params{"command"}.getStr

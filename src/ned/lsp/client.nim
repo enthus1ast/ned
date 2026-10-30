@@ -3,6 +3,8 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 proc lspFlush(s: LspServer) =
+  ## writes what is queued for the server (wbuf) to its stdin without blocking: the part that did not fit stays queued
+  ## for the next time; a write error marks the server dead
   var off = 0
   while off < s.wbuf.len:
     let n = posix.write(s.inFd, addr s.wbuf[off], s.wbuf.len - off)
@@ -44,6 +46,8 @@ proc lspMapStr(s: LspServer, x: string, toServer: bool): string =
       result = uriFromPath(m[4] & pathFromUri(x))     # (outside the folder: a file to fetch when it is opened)
 
 proc lspMapJson(s: LspServer, j: JsonNode, toServer: bool) =
+  ## changes, in place, every string of a JSON message (and the file keys of a workspace edit's `changes`) between the
+  ## local copy's paths and the remote server's, in the direction `toServer` says; see lspMapStr
   case j.kind
   of JString: j.str = s.lspMapStr(j.str, toServer)
   of JArray:
@@ -60,6 +64,8 @@ proc lspMapJson(s: LspServer, j: JsonNode, toServer: bool) =
   else: discard
 
 proc lspSend(s: LspServer, j: JsonNode) =
+  ## frames a JSON-RPC message with its Content-Length header, queues it for the server and writes what it can; for a
+  ## remote folder's server the paths are mapped first (on a copy)
   if s.dead: return
   var body: string
   if s.remoteMap.len > 0:
@@ -71,18 +77,24 @@ proc lspSend(s: LspServer, j: JsonNode) =
   s.lspFlush()
 
 proc lspRequest(s: LspServer, meth: string, params: JsonNode, req: LspReq): int =
+  ## sends a request under a new id and keeps `req` in the server's pending table, which the reply is matched with
+  ## (lspHandle); gives back the id
   inc s.nextId
   s.pending[s.nextId] = req
   s.lspSend(%*{"jsonrpc": "2.0", "id": s.nextId, "method": meth, "params": params})
   s.nextId
 
 proc lspNotify(s: LspServer, meth: string, params: JsonNode) =
+  ## sends a notification (a message that takes no answer)
   s.lspSend(%*{"jsonrpc": "2.0", "method": meth, "params": params})
 
 proc lspReply(s: LspServer, id: JsonNode, res: JsonNode) =
+  ## answers a request the server made, with the same id
   s.lspSend(%*{"jsonrpc": "2.0", "id": id, "result": res})
 
 func toU16(s: string, col: int): int =
+  ## a byte column of a UTF-8 line as the number of UTF-16 code units before it (a character beyond the basic plane
+  ## counts two) — the unit servers count in unless they agreed to UTF-8
   var i = 0
   while i < col and i < s.len:
     let (cp, n) = runeAt(s, i)
@@ -90,6 +102,8 @@ func toU16(s: string, col: int): int =
     i += n
 
 func fromU16(s: string, u: int): int =
+  ## the reverse of toU16: the byte column in the line that is `u` UTF-16 code units in (the line's end when it is
+  ## shorter)
   var i = 0
   var k = 0
   while i < s.len and k < u:
@@ -99,18 +113,23 @@ func fromU16(s: string, u: int): int =
   i
 
 proc lspPos(s: LspServer, b: Buffer, p: Pos): JsonNode =
+  ## a buffer position as an LSP position in the server's character unit (bytes if it agreed to UTF-8, else UTF-16); a
+  ## position past the end of the buffer is the end of the last line
   # a position past the end (the text got shorter since it was worked out) is the end of the last line
   let l = clamp(p.line, 0, b.lines.high)
   let c = if l < p.line: b.lines[l].len else: max(0, p.col)
   %*{"line": l, "character": (if s.utf8: c else: toU16(b.lines[l], c))}
 
 proc fromLspPos(s: LspServer, b: Buffer, j: JsonNode): Pos =
+  ## an LSP position (line and character, in the server's unit) as a position in the buffer, kept inside the text; the
+  ## start of the buffer when there is none
   if j == nil: return Pos()
   let l = clamp(j{"line"}.getInt, 0, b.lines.high)
   let ch = j{"character"}.getInt
   let c = if s.utf8: min(ch, b.lines[l].len) else: fromU16(b.lines[l], ch)
   b.clampPos(Pos(line: l, col: c))
 
+# the buffer's file as an LSP text document identifier
 proc docId(b: Buffer): JsonNode = %*{"uri": uriFromPath(b.path)}
 
 proc isTermux(): bool
@@ -289,6 +308,10 @@ proc bgServerStartOk(): bool =
   true
 
 proc lspFor(b: Buffer, start = true): LspServer =
+  ## the main language server of the buffer's language: the one running, else (when `start`) the first of the candidates
+  ## — yours, the language's own, on the remote folder's server first — that starts; nil for a file without a path, a
+  ## huge file, a language ned's own engine answers, a Nim folder not trusted yet or a language whose servers failed
+  ## (then, once, a toast on how to install one)
   if b.path.len == 0 or b.lines.len > 40000 or b.largeOn: return nil   # huge files: keep typing instant
   let id = b.lang.id
   if id == "nim" and not nimUsesLsp(): return nil
@@ -382,6 +405,7 @@ proc lspMoreSync(b: Buffer, start = false) =
       lspPullDiags(s, b)
 
 proc lspMoreSaved(b: Buffer) =
+  ## tells the second servers that have the buffer that it was saved, and asks them for their problems again
   for s in lspMoreFor(b, false):
     if s.ready and not s.dead and b.id in s.docVer:
       lspMoreSync(b)
@@ -389,6 +413,7 @@ proc lspMoreSaved(b: Buffer) =
       lspPullDiags(s, b)
 
 proc lspMoreClosed(b: Buffer) =
+  ## tells the second servers that have the buffer that it was closed, and forgets the version they had
   for s in lspMoreFor(b, false):
     if s.ready and not s.dead and b.id in s.docVer:
       s.lspNotify("textDocument/didClose", %*{"textDocument": b.docId})
@@ -399,6 +424,9 @@ var lspHoldAttach = initTable[int, MonoTime]()   # buffer id → open it once ni
 var nimCfgWaitUntil: MonoTime   # a fresh nimlangserver pulls its settings first: files open after that
 
 proc lspAttach(b: Buffer) =
+  ## opens the buffer on its main language server (didOpen with the whole text) once that is ready, then asks for the
+  ## file's problems and links; for Nim it first waits for nimlangserver's settings, and for a new project hands it the
+  ## project mapping, so the file does not get a nimsuggest of its own
   let s = lspFor(b)                      # (the main server first: a second one is never the main one again)
   lspMoreSync(b, start = true)
   if s == nil or not s.ready or b.lspOpen: return
@@ -426,6 +454,9 @@ proc lspAttach(b: Buffer) =
   lspLinksAsk(s, b)
 
 proc lspSync(b: Buffer) =
+  ## brings the servers up to date with the buffer: a second server's copy, then the main server's — the file opened if
+  ## it is not yet, else, when it changed, a didChange with the whole text under a new version — and asks again for the
+  ## problems and links
   if b.lspMore: lspMoreSync(b)
   let s = lspFor(b, false)
   if s == nil or not s.ready:
@@ -443,6 +474,8 @@ proc lspSync(b: Buffer) =
   lspLinksAsk(s, b)
 
 proc lspDidSave(b: Buffer) =
+  ## tells the servers that have the buffer that it was saved (the main server first gets its latest text) and asks for
+  ## their problems again
   if b.lspMore: lspMoreSaved(b)
   let s = lspFor(b, false)
   if s == nil or not s.ready or not b.lspOpen: return
@@ -451,6 +484,7 @@ proc lspDidSave(b: Buffer) =
   lspPullDiags(s, b)
 
 proc lspDidClose(b: Buffer) =
+  ## tells the servers that have the buffer that it was closed
   if b.lspMore: lspMoreClosed(b)
   let s = lspFor(b, false)
   if s == nil or not s.ready or not b.lspOpen: return
@@ -458,6 +492,8 @@ proc lspDidClose(b: Buffer) =
   b.lspOpen = false
 
 proc lspReady(b: Buffer): LspServer =
+  ## the buffer's main server when it is running and ready, after it has been sent the buffer's latest text — what a
+  ## request needs first; nil otherwise (no server is started)
   let s = lspFor(b, false)
   if s != nil and s.ready and not s.dead:
     lspSync(b)
@@ -465,6 +501,7 @@ proc lspReady(b: Buffer): LspServer =
   nil
 
 func stripSnippet(s: string): string =
+  ## the plain text of an LSP snippet: \x becomes x, $1 and ${1} go, ${1:text} becomes its text (nested ones too)
   var i = 0
   while i < s.len:
     if s[i] == '\\' and i + 1 < s.len:
@@ -519,6 +556,8 @@ func dropMdImages(s: string): string =
     inc i
 
 proc markupText(c: JsonNode): string =
+  ## the text of LSP documentation in any of its forms — a string, a {kind, value} markup or an array of them (joined by
+  ## a rule) — without images
   if c == nil: return ""
   case c.kind
   of JString: dropMdImages(c.getStr)
@@ -532,11 +571,15 @@ proc markupText(c: JsonNode): string =
 proc refilterComp()
 
 func wordStart(b: Buffer, p: Pos): int =
+  ## the column where the word that ends at the position begins
   let s = b.lines[p.line]
   result = p.col
   while result > 0 and isWordByte(s[result - 1]): dec result
 
 proc handleCompletion(req: LspReq, res: JsonNode) =
+  ## the answer to a completion request becomes the completion list (up to 800 items; snippets turned to plain text, the
+  ## server's detail and documentation put together) and is filtered by what has been typed since. It is dropped when
+  ## the buffer is not the one asked, or the cursor left the line or typed something that is not a word character
   let b = buf()
   if b.id != req.bufId or res == nil: return
   let items = if res.kind == JArray: res elif res.kind == JObject: res{"items"} else: nil
@@ -580,6 +623,7 @@ var
   callName = ""
 
 func semKindOf(t: string): TokKind =
+  ## the highlight kind ned gives an LSP semantic token type (anything not listed stays plain text)
   case t
   of "function", "method", "decorator": tkFunc
   of "macro": tkPreproc
@@ -605,6 +649,8 @@ proc lspSemFor(b: Buffer): Table[int, seq[(int, int, TokKind)]] =
                        LspReq(kind: lrSemTokens, bufId: b.id, version: b.changeId))
 
 proc callItemOf(it: JsonNode, arrow: string): PickItem =
+  ## a call hierarchy item as a row of the picker: the arrow (← called by, → calls) and name, its file and line, and the
+  ## cursor place to go to
   let path = pathFromUri(it{"uri"}.getStr)
   let st = it{"selectionRange", "start"}
   PickItem(label: arrow & " " & it{"name"}.getStr, detail: relPath(path) & ":" & $(st{"line"}.getInt + 1) &
@@ -612,12 +658,16 @@ proc callItemOf(it: JsonNode, arrow: string): PickItem =
            icon: "ƒ", path: path, line: st{"line"}.getInt, col: st{"character"}.getInt)
 
 proc callDone() =
+  ## one of the call hierarchy requests (incoming, outgoing) has answered; when the last has, the collected calls open
+  ## in the picker, or ned says there are none
   dec callWaiting
   if callWaiting > 0: return
   if callItems.len == 0: info("No calls to or from " & callName)
   else: openPicker(pickSymbol, "Call hierarchy — " & callName & "  (← called by · → calls)", callItems)
 
 proc handleDefinition(s: LspServer, res: JsonNode) =
+  ## the answer to go to definition: opens the first location's file at the place (pushing the jump so Back returns), or
+  ## says none was found
   var loc = res
   if loc != nil and loc.kind == JArray:
     if loc.len == 0:
@@ -666,6 +716,8 @@ var
   typeHier: tuple[name: string, items: seq[PickItem], waiting: int]
 
 proc applyTextEdits(s: LspServer, b: Buffer, edits: JsonNode) =
+  ## applies a list of LSP text edits to the buffer as one undo step, the last in the text first so that the earlier
+  ## positions still hold
   if edits == nil or edits.kind != JArray: return
   var list: seq[(Pos, Pos, string)]
   for e in edits:
@@ -691,6 +743,8 @@ proc lspDiagMsg(d: JsonNode): (string, JsonNode) =
   (m, (if ca != nil and ca.kind == JArray and ca.len > 0: ca else: nil))
 
 proc applyWorkspaceEdit(s: LspServer, we: JsonNode) =
+  ## applies an LSP workspace edit (its `changes` and `documentChanges`) to every file it names, loading those not open;
+  ## the changes are left unsaved and the number of files is told
   if we == nil or we.kind != JObject: return
   var files = 0
   if we.hasKey("changes") and we["changes"].kind == JObject:
@@ -731,6 +785,7 @@ proc fixEditInfo(s: LspServer, edit: JsonNode): (int, string, string, string) =
     if p0 < p1 and p1.line < fb.lines.len: result[2] = fb.getText(p0, p1)
 
 func fixShow(t: string): string =
+  ## a piece of text quoted for a fix's description: line breaks shown as ⏎, cut to 31 characters with …
   let x = t.strip.replace("\n", " ⏎ ")
   "'" & (if x.len > 32: x[0 ..< 31] & "…" else: x) & "'"
 

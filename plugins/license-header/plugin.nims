@@ -45,6 +45,8 @@ func licenseOfText*(t: string): string =
   else: ""
 
 proc projectLicense(): string =
+  ## the project's licence as an SPDX identifier: the license setting, else what the first LICENSE, COPYING or LICENCE
+  ## file in the project's folder is recognised as; "" when neither tells
   result = setting("license", "").strip
   if result.len > 0: return
   let root = projectRoot()
@@ -55,6 +57,7 @@ proc projectLicense(): string =
       if result.len > 0: return
 
 proc holder(): string =
+  ## the copyright holder: the holder setting, else the name git has in user.name
   result = setting("holder", "").strip
   if result.len == 0: result = shell("git config user.name").output.strip
 
@@ -71,6 +74,9 @@ func commentFor*(lang, ext, lineComment: string): (string, string) =
     else: ((if lineComment.len > 0: lineComment else: "#"), "")
 
 func headerLines*(c: (string, string), year, who, spdx: string): seq[string] =
+  ## the two header lines — Copyright (c) with the year and holder, and SPDX-License-Identifier — written in the comment
+  ## style c (start and end): a line comment on each line, or one block comment over the two (the second line indented
+  ## under the first's text)
   let (a, e) = c
   let lines = @["Copyright (c) " & year & (if who.len > 0: " " & who else: ""),
                 "SPDX-License-Identifier: " & spdx]
@@ -81,6 +87,7 @@ func headerLines*(c: (string, string), year, who, spdx: string): seq[string] =
     result.add(spaces(if a == "<!--": 5 else: 3) & lines[1] & " " & e)
 
 func hasHeader*(lines: seq[string]): bool =
+  ## whether one of the first twelve lines is an SPDX-License-Identifier or a Copyright (c) / © notice
   for i in 0 ..< min(lines.len, 12):
     if "SPDX-License-Identifier" in lines[i] or ("Copyright" in lines[i] and ("(c)" in lines[i] or "©" in lines[i])):
       return true
@@ -97,12 +104,16 @@ func insertAt*(lines: seq[string]): int =
   i
 
 proc headerFor(lang, path, lineComment: string): seq[string] =
+  ## the header for a file, this year, in the comment style its language or extension needs; none when the licence is
+  ## not known
   let spdx = projectLicense()
   if spdx.len == 0: return
   let ext = path.splitFile.ext.strip(chars = {'.'}).toLowerAscii
   headerLines(commentFor(lang, ext, lineComment), localTime()[0 ..< 4], holder(), spdx)
 
 proc addHere() =
+  ## License: add the header to this file — inserts the header at the top (after a #! or XML line), with a blank line
+  ## after it when code follows; leaves a file that has one alone and asks for the licence when it is not known
   let b = current()
   if hasHeader(b.lines):
     message("This file has a header already")
@@ -117,6 +128,7 @@ proc addHere() =
   message("Header added: " & h[^1].strip)
 
 proc sourceFiles(): seq[string] =
+  ## the source files git knows of (by their extension, vendor and node_modules left out), from the project's folder
   let r = shell("git ls-files")
   if r.code != 0: return
   for l in r.output.splitLines:
@@ -137,6 +149,7 @@ func langOfExt(ext: string): (string, string) =
   else: ("", "#")
 
 proc missing(): seq[string] =
+  ## the source files of the project that have no header, read from disk
   let root = projectRoot()
   for f in sourceFiles():
     try:
@@ -144,6 +157,8 @@ proc missing(): seq[string] =
     except IOError: discard
 
 proc addEverywhere() =
+  ## License: add the header to every file of the project — asks, counting the files that have none, then writes the
+  ## header into each of them on disk and says how many it did
   if projectLicense().len == 0:
     warn("Which licence? Set plugins.license-header.license — no LICENSE file says it")
     return

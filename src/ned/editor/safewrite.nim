@@ -4,6 +4,7 @@
 
 # ── safe writes, crash recovery (swap files), local history, line diffs ─────────
 
+# the folder where ned keeps its own state (history, recovery files, error log)
 proc stateDir(): string = parentDir(stateFile())
 
 func fnv(s: string): string =
@@ -14,6 +15,8 @@ func fnv(s: string): string =
   toHex(h, 16).toLowerAscii
 
 when defined(windows):
+  # rename for Windows with the C function's convention (0 on success): moves a file over an existing one in a single
+  # step
   proc cRename(a, b: cstring): cint = (if winMoveReplace($a, $b): 0 else: -1)   # (over the original, in one step)
 else:
   proc cRename(a, b: cstring): cint {.importc: "rename", header: "<stdio.h>".}
@@ -101,5 +104,7 @@ proc writeFileSafe0(path, content: string, newMode = 0o644) =
     raise newException(IOError, "rename failed: " & e)
 
 proc writeFileSafe(path, content: string, newMode = 0o644) =
+  ## writes a file crash-safely (see writeFileSafe0), then tells ned the file was written so a remote folder sends it to
+  ## its server and the Nim engine forgets what it knew of it
   writeFileSafe0(path, content, newMode)
   fileWritten(path)

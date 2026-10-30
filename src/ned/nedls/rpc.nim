@@ -30,6 +30,7 @@ var
   lsOutFd: cint = 1                       # start (lsTakeStdio), so nothing else can read or write them
 
 func lsRaise(code: int, msg: string) {.noreturn.} =
+  ## stops a request with a JSON-RPC error of this code; the main loop turns it into the error reply
   var e = newException(LsError, msg)
   e.code = code
   raise e
@@ -62,11 +63,14 @@ proc lsWriteAll(data: string) =
       lsOutBroken = true
 
 proc lsSendText(body: string) =
+  ## writes one message to the client, with its Content-Length header
   lsWriteAll("Content-Length: " & $body.len & "\r\n\r\n" & body)
 
+# sends a JSON value as one message
 proc lsSend(j: JsonNode) = lsSendText($j)
 
 proc lsReply(id: JsonNode, res: JsonNode) =
+  ## the successful reply to the request with this id (null for a nil result)
   lsSendText("{\"jsonrpc\":\"2.0\",\"id\":" & $id & ",\"result\":" & (if res == nil: "null" else: $res) & "}")
 
 proc lsReplyRaw(id: JsonNode, resText: string) =
@@ -74,10 +78,12 @@ proc lsReplyRaw(id: JsonNode, resText: string) =
   lsSendText("{\"jsonrpc\":\"2.0\",\"id\":" & $id & ",\"result\":" & resText & "}")
 
 proc lsReplyError(id: JsonNode, code: int, msg: string) =
+  ## the error reply to a request (a null id when it has none)
   lsSend(%*{"jsonrpc": "2.0", "id": (if id == nil: newJNull() else: id),
             "error": {"code": code, "message": msg}})
 
 proc lsNotify(meth: string, params: JsonNode) =
+  ## sends a notification to the client
   lsSend(%*{"jsonrpc": "2.0", "method": meth, "params": params})
 
 proc lsRequestOut(meth: string, params: JsonNode): string {.discardable.} =
@@ -91,6 +97,7 @@ proc lsShowMessage(typ: int, msg: string) =
   lsNotify("window/showMessage", %*{"type": typ, "message": "nedls: " & msg})
 
 proc lsLogMessage(typ: int, msg: string) =
+  ## window/logMessage: a line for the client's log (1 error, 2 warning, 3 info, 4 log)
   lsNotify("window/logMessage", %*{"type": typ, "message": msg})
 
 proc lsTakeStdio() =

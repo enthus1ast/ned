@@ -169,6 +169,7 @@ proc nimDemangle*(sym: string): (string, string) =
 # ── ELF ──
 
 proc elfMachine(m: int): string =
+  ## the processor's name for an ELF header's machine number ("machine N" when it is not one of the common ones)
   case m
   of 3: "x86"
   of 0x3E: "x86-64"
@@ -184,6 +185,9 @@ proc elfMachine(m: int): string =
   else: "machine " & $m
 
 proc parseElf(d: string, r: var BinInfo) =
+  ## reads an ELF file into `r`: word size, byte order, kind (a shared library with an .interp section is really a PIE
+  ## executable), processor, entry point, the sections from the section table and the symbols from .symtab (else
+  ## .dynsym) with each one's place in the file worked out from its section. Without a section table it only notes that.
   r.format = "ELF"
   r.bits = if ord(d[4]) == 2: 64 else: 32
   let be = ord(d[5]) == 2
@@ -270,6 +274,7 @@ proc parseElf(d: string, r: var BinInfo) =
 # ── Mach-O ──
 
 proc machoCpu(c: int): string =
+  ## the processor's name for a Mach-O header's cpu type number ("cpu N" when unknown)
   case c
   of 7: "x86"
   of 0x01000007: "x86-64"
@@ -281,6 +286,10 @@ proc machoCpu(c: int): string =
   else: "cpu " & $c
 
 proc parseMachO(d: string, start: int, r: var BinInfo) =
+  ## reads the Mach-O image that begins at `start` (0, or a slice of a universal binary) into `r`: header, then the load
+  ## commands for segments and their sections, the symbol table and the entry point (LC_MAIN); only symbols defined in a
+  ## section are kept. Mach-O has no symbol sizes, so each symbol is taken to run to the next one in its section (or the
+  ## section's end).
   r.format = "Mach-O"
   let magic = rd(d, start, 4, false)
   let is64 = magic == 0xFEEDFACF
@@ -366,6 +375,9 @@ proc parseMachO(d: string, start: int, r: var BinInfo) =
 # ── PE ──
 
 proc parsePe(d: string, r: var BinInfo) =
+  ## reads a Windows PE file into `r`: processor, kind (DLL, executable or object file), word size, entry point,
+  ## sections and the COFF symbols that a MinGW build keeps unless stripped (the size of each is the gap to the next
+  ## symbol in its section). The format stays "" when there is no PE header.
   let pe = int(rd(d, 0x3C, 4, false))
   if pe <= 0 or pe + 24 > d.len or d[pe ..< pe + 4] != "PE\0\0":
     r.format = ""

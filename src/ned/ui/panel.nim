@@ -29,6 +29,9 @@ proc problemCounts(): (int, int) =
   problemCountsMemo = (diagGen, result[0], result[1])
 
 proc rebuildProblems() =
+  ## makes the Problems tab's lines again: for each file with problems (from the language servers, the build, the AI,
+  ## the FFI, emit and web checks and plugins, sorted by path) a heading with the count and one line per problem in line
+  ## order, with its message, fix hint, source, rule and position; one line saying so when there are none
   var lines: seq[PanelLine]
   var paths: seq[string]
   for p in diagsLsp.keys: paths.add p
@@ -62,6 +65,8 @@ proc rebuildProblems() =
 # ── every problem with the code around it, in one editable buffer (like Zed's project diagnostics) ──
 
 proc cmdProblemsMultibuffer() =
+  ## opens every error and warning of the workspace in one editable multibuffer, each with the code around it; a message
+  ## when there is none
   var hits: seq[(string, int)]
   var paths: seq[string]
   for p in diagsLsp.keys: paths.add p
@@ -88,6 +93,7 @@ proc cmdProblemsMultibuffer() =
   openMultibuffer("Problems (" & $hits.len & ")", hits, 2)
 
 proc setPanel(k: PanelKind) =
+  ## shows the bottom panel on tab `k`, opened if closed; the problems are rebuilt and the terminal started on the way
   panelKind = k
   panelOpen = true
   if k == pkProblems: rebuildProblems()
@@ -95,6 +101,10 @@ proc setPanel(k: PanelKind) =
   needRender = true
 
 proc drawBottomPanel(x0, y0, w, h: int) =
+  ## draws the bottom panel: a header with the tab buttons (problems with their count, output, terminal, results,
+  ## debug), the running mark, the debugger's step buttons, stop, new and split terminal, maximise and close, then the
+  ## shown tab — the terminal, or the lines of the problems, output, search results or debug text, scrolled with the
+  ## selection in view; each line with a path is clickable and has a context menu
   let bg0 = theme.dockBg
   fillRect(x0, y0, w, h, theme.fg, bg0)
   # header bar with the panel tabs — tinted with the accent while the panel has the keyboard

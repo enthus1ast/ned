@@ -13,6 +13,8 @@ createDir(keys)
 createDir(rel)
 
 proc run(cmd, input: string): (bool, string) =
+  ## runs a command with the text on its standard input; whether it succeeded, and its output. The release check is
+  ## given this to run ssh-keygen.
   let (o, code) = execCmdEx(cmd, input = input)
   (code == 0, o)
 
@@ -24,12 +26,16 @@ proc makeKey(name: string): string =
   "ned-release namespaces=\"ned-release\" " & readFile(keys / name & ".pub").strip
 
 proc sign(name: string) =
+  ## signs the release folder's SHA256SUMS with the key of that name, in the ned-release namespace, replacing any
+  ## earlier signature (the test fails if ssh-keygen does)
   removeFile(rel / "SHA256SUMS.sig")
   let (o, code) = execCmdEx("ssh-keygen -q -Y sign -f " & quoteShell(keys / name) & " -n ned-release " &
                             quoteShell(rel / "SHA256SUMS"))
   doAssert code == 0, o
 
 proc writeRelease() =
+  ## writes a small pretend release in the release folder: a package and a zip, a SHA256SUMS that lists their hashes,
+  ## and no signature
   writeFile(rel / "ned_6.99.0_aarch64.deb", "a package\n")
   writeFile(rel / "ned-6.99.0-windows-x86_64.zip", "a zip")
   writeFile(rel / "SHA256SUMS", sha256Hex("a package\n") & "  ned_6.99.0_aarch64.deb\n" &

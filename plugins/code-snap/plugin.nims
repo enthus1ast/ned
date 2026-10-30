@@ -93,6 +93,8 @@ const
   CConsts = ["NULL", "true", "false", "nullptr", "this"]
 
 func family(lang: string): string =
+  ## which colouring rules a language uses: nim, python, js (JavaScript, TypeScript, JSON), c (C, C++, Objective-C) — or
+  ## other, which only gets comments, strings and numbers coloured
   case lang
   of "nim", "nimscript", "nims", "nimble": "nim"
   of "python": "python"
@@ -101,6 +103,8 @@ func family(lang: string): string =
   else: "other"
 
 proc newLexer(lang, lineComment: string): Lexer =
+  ## a colouring state for a language; a language of the other family takes the buffer's line-comment mark so its
+  ## comments can be found
   Lexer(fam: family(lang), lineComment: (if family(lang) == "other": lineComment else: ""))
 
 func wordKind(lx: Lexer, w: string, prev: string): Kind =
@@ -138,6 +142,8 @@ proc lexLine(lx: var Lexer, s: string): seq[Seg] =
   var i = 0
   var prevWord = ""
   template add(a, e: int, k: Kind) =
+    ## adds s[a ..< e] to the line's pieces as colour k, joining it to the piece before when that has the same colour;
+    ## nothing for an empty range
     if e > a:
       if result.len > 0 and result[^1].kind == k: result[^1].text.add s[a ..< e]
       else: result.add (s[a ..< e], k)
@@ -323,6 +329,8 @@ type Theme = object
   kinds: array[Kind, string]
 
 func theme(name: string): Theme =
+  ## the colours of the picture: the light theme for "light", the dark one for anything else (the colour of each kind of
+  ## token in the order of the Kind enum)
   if name == "light":
     Theme(bg: "#fafafa", fg: "#383a42", bar: "#eaeaeb", title: "#696c77", lineNo: "#a0a1a7",
           kinds: ["#383a42", "#a626a4", "#c18401", "#50a14f", "#986801", "#a0a1a7", "#4078f2", "#0184bc", "#e45649"])
@@ -331,6 +339,7 @@ func theme(name: string): Theme =
           kinds: ["#abb2bf", "#c678dd", "#e5c07b", "#98c379", "#d19a66", "#7f848e", "#61afef", "#56b6c2", "#e06c75"])
 
 func esc(s: string): string =
+  ## s with & < > and " written as entities, to go in SVG or HTML
   for c in s:
     case c
     of '&': result.add "&amp;"
@@ -405,6 +414,7 @@ type Snap = object
   font, background: string
 
 func fmtNum(x: float): string =
+  ## x with one decimal at most (3.0 is written 3), for the numbers in the SVG
   let t = int(x * 10.0 + 0.5)
   $(t div 10) & (if t mod 10 != 0: "." & $(t mod 10) else: "")
 
@@ -569,6 +579,8 @@ proc writeSnap(path, text: string): string =
   path
 
 proc snap(ext: string) =
+  ## Code snap as SVG or HTML (ext): draws the selected lines — or the whole file — into a picture, writes it where the
+  ## folder setting says and shows its path in the message line
   let b = current()
   if not b.valid:
     message("Code snap: open a file first")
@@ -668,6 +680,8 @@ func svgSize(svg: string): (int, int) =
   (attr("width"), attr("height"))
 
 proc snapPng() =
+  ## Code snap as PNG: writes the SVG into the data folder and has the first program that draws SVG turn it into a PNG,
+  ## in the background; with no such program installed it offers to install one (or to make an SVG instead)
   let b = current()
   if not b.valid:
     message("Code snap: open a file first")

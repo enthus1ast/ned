@@ -1,4 +1,11 @@
+# the generic lexer: one line of a language coloured from the language's description — comments, strings, numbers,
+# keywords, types, operators — with the state of block comments and multi-line strings carried to the next line, and the
+# cases particular to Nim, C, CSS, shell, Rust, Python and JavaScript.
 proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind], start = 0): LexSt =
+  ## colours one line of code from byte `start` by the rules of `lang`, beginning in state `startState` (inside a block
+  ## or doc comment of some depth, a triple-quoted string, a backtick string, a string that goes on below), and gives
+  ## the state the next line starts in. Names after a defining word get the function or type colour; strings in Nim may
+  ## be handed to the language they hold (SQL, HTML, C in an emit)
   var st = startState
   var i = start
   let n = s.len
@@ -6,6 +13,7 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
   var rawNext = false
   var emitCtx = false        # Nim: inside {.emit: …} — its strings are C (C++, JavaScript)
   template mark(a, b: int, k: TokKind) =
+    ## colours the bytes a ..< b of the line (kept inside it) as one kind of token
     for q in max(a, 0) ..< min(b, n): toks[q] = k
   while i < n:
     # ── continuing multi-line constructs

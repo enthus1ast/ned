@@ -53,6 +53,7 @@ type Task = object
   linkPath: string               # a place: its file, from the list's folder ("" none)
   linkLine: int                  # … and its line (from 0)
 
+# the count with its noun, an s added unless it is 1 ("3 tasks")
 func plural(n: int, w: string): string = $n & " " & w & (if n == 1: "" else: "s")
 
 # ── days ──
@@ -67,6 +68,7 @@ func daysFromCivil(y0, m, d: int): int =
   era * 146097 + doe - 719468
 
 func civilFromDays(z0: int): (int, int, int) =
+  ## the year, month and day of a day number (days since 1970-01-01); the opposite of daysFromCivil
   let z = z0 + 719468
   let era = (if z >= 0: z else: z - 146096) div 146097
   let doe = z - era * 146097
@@ -77,9 +79,11 @@ func civilFromDays(z0: int): (int, int, int) =
   let m = if mp < 10: mp + 3 else: mp - 9
   (yoe + era * 400 + (if m <= 2: 1 else: 0), m, d)
 
+# the number with a 0 in front when it has one digit
 func pad2(v: int): string = (if v < 10: "0" else: "") & $v
 
 func iso(n: int): string =
+  ## a day number written as yyyy-mm-dd
   let (y, m, d) = civilFromDays(n)
   $y & "-" & pad2(m) & "-" & pad2(d)
 
@@ -93,8 +97,10 @@ func dayNum(s: string): int =
   let n = daysFromCivil(y, m, d)
   if iso(n) != s: -1 else: n           # (no 31st of April)
 
+# the day of the week of a day number, Monday 0 to Sunday 6
 func weekday(n: int): int = ((n mod 7) + 7 + 3) mod 7      # 0 Monday … 6 Sunday (1970-01-01 was a Thursday)
 
+# today's day number, from the local date
 proc today(): int = dayNum(localTime()[0 ..< 10])
 
 func dueFrom(word: string, now: int): string =
@@ -117,6 +123,8 @@ func dueFrom(word: string, now: int): string =
   ""
 
 func dueWords(due: string, now: int): string =
+  ## a due date in words, as the list shows it: overdue 2 days, due today, due tomorrow, due friday (within the week) or
+  ## due and the date
   let d = dayNum(due) - now
   if d < 0: "overdue " & plural(-d, "day")
   elif d == 0: "due today"
@@ -127,6 +135,7 @@ func dueWords(due: string, now: int): string =
 # ── the list ──
 
 proc listPath(): string =
+  ## the path of the task list: the plugins.todo.file setting, taken from the project's folder unless it is a full path
   let f = setting("file", "TODO.md")
   if f.isAbsolute: f else: projectRoot() / f
 
@@ -168,6 +177,8 @@ func linkOf(s: string): (string, int, int) =
   except ValueError: (label, 0, a)
 
 func tasksOf(ls: seq[string]): seq[Task] =
+  ## the tasks in the lines of the list: each checkbox line with the more indented lines under it, its priority from a
+  ## leading (A), its due: date and its → [path:line] place read from the text
   var i = 0
   while i < ls.len:
     let (ind, done, at) = checkbox(ls[i])
@@ -216,6 +227,7 @@ func before(a, b: Task): bool =
   a.line < b.line
 
 proc openTasks(ls: seq[string]): seq[Task] =
+  ## the tasks not done, in the order of the list: the earliest due first, then by priority, then as the file has them
   for t in tasksOf(ls):
     if not t.done: result.add t
   result.sort(proc(a, b: Task): int = (if before(a, b): -1 elif before(b, a): 1 else: 0))
@@ -248,6 +260,7 @@ proc writeList(ls: seq[string]): bool =
 # ── what the commands do ──
 
 proc relTo(dir, p: string): string =
+  ## the path `p` from the folder `dir` when it is inside it, else as it is
   if dir.len > 0 and p.startsWith(dir & "/"): p[dir.len + 1 .. ^1] else: p
 
 proc fromComment(b: Buf): string =
@@ -292,6 +305,9 @@ proc addTask(text: string): int =
   openTasks(ls).len
 
 proc addCmd() =
+  ## Todo: add a task — asks for the text (offering the TODO or FIXME comment on the cursor's line, else the selection),
+  ## turns the due: words typed (fri, +3 …) into dates and, for a comment or when plugins.todo.linkHere is on, adds a
+  ## link to where the cursor is; then puts it at the end of the open tasks and says how many there are
   let b = current()
   var text = ""
   var here = false
@@ -332,6 +348,8 @@ proc toggled(s: string, now: int): string =
     if setting("doneDate", true): result = result.strip(leading = false) & " ✓ " & iso(now)
 
 proc setDone(t: Task, done: bool) =
+  ## makes the task done or not done in the list (ticking it with the day, or back), if its line is still a task, and
+  ## says so
   var ls = readList()
   if t.line >= ls.len or checkbox(ls[t.line])[0] < 0: return
   if checkbox(ls[t.line])[1] != done: ls[t.line] = toggled(ls[t.line], today())
@@ -339,6 +357,8 @@ proc setDone(t: Task, done: bool) =
     message("Todo: " & (if done: "✓ done — " else: "not done — ") & shown(t).substr(0, 60))
 
 proc toggleCmd() =
+  ## Todo: done / not done — ticks off or reopens the task on the cursor's line in the current file, whichever Markdown
+  ## file it is; the list is refreshed when that file is the list
   let b = current()
   if not b.valid: return
   let l = b.cursor.line
@@ -389,6 +409,7 @@ proc archiveCmd() =
   if writeList(keep): message("Todo: " & plural(n, "done task") & " moved under ## Done")
 
 proc openList() =
+  ## opens the task list in a tab; when there is none yet it asks, and makes it with a heading
   let p = listPath()
   if not fileExists(p) and listBuf().id < 0:
     if not confirm("Make " & extractFilename(p) & " in the project's folder?"): return
@@ -396,6 +417,8 @@ proc openList() =
   discard openFile(p, 0)
 
 proc setDue(t: Task) =
+  ## asks for a due date for the task (a date, today, fri, +3 …; empty removes it) and writes it in its line: in place
+  ## of the old date, else before its place or tick, else at the end
   let d = ask("Due (a date, today, tomorrow, fri, +3 — empty: none)", t.due).strip
   var ls = readList()
   if t.line >= ls.len: return
@@ -441,11 +464,14 @@ proc taskMenu(t: Task) =
   else: discard
 
 proc taskAt(line: int): (bool, Task) =
+  ## the task of the list that starts on that line (false when there is none)
   for t in tasksOf(readList()):
     if t.line == line: return (true, t)
   (false, Task())
 
 proc listCmd() =
+  ## Todo: the list — a pick of the open tasks (⚠ overdue, ● due today, with the due date and place beside each), "add a
+  ## task" first and, when some are done, the offer to move them under ## Done last; a task opens its menu
   let ls = readList()
   let ts = openTasks(ls)
   var done = 0
@@ -479,6 +505,8 @@ proc listCmd() =
 var lastDay = -1
 
 proc refresh() =
+  ## reads the list again: the status bar shows the open tasks (and how many are overdue or due today) unless
+  ## plugins.todo.statusBar is off, and the TODO LIST view in the dock is redrawn; remembers the day it was done
   let ls = readList()
   let now = today()
   lastDay = now

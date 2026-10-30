@@ -149,11 +149,17 @@ let
   MAP_FAILED* = cast[pointer](-1)
   INVALID_SOCKET* = SocketHandle(-1)    # (ned's socket descriptors: -1 when there is none)
 
+# true when the mode bits say a folder
 template S_ISDIR*(m: Mode): bool = (m and S_IFMT) == S_IFDIR
+# true when the mode bits say a regular file
 template S_ISREG*(m: Mode): bool = (m and S_IFMT) == S_IFREG
+# true when a wait status says the process ended by itself (the statuses here are the exit code shifted left by 8)
 template WIFEXITED*(s: cint): bool = (s and 0x7f) == 0
+# the exit code in a wait status
 template WEXITSTATUS*(s: cint): cint = (s shr 8) and 0xff
+# true when a wait status says the process was ended by a signal (it never is with the statuses `waitpidImpl` makes)
 template WIFSIGNALED*(s: cint): bool = (s and 0x7f) != 0 and (s and 0x7f) != 0x7f
+# the signal number in a wait status
 template WTERMSIG*(s: cint): cint = s and 0x7f
 
 # ── the C runtime ──
@@ -351,6 +357,8 @@ var
 initLock(wpLock)
 
 proc virtGet(fd: cint, v: var VirtFd): bool =
+  ## copies the record of a descriptor of ned's own (a pseudo-terminal or a socket) into `v`; false for an ordinary
+  ## descriptor or an unknown one
   if fd < VirtBase: return false
   {.cast(noSideEffect), cast(gcsafe).}:
     withLock wpLock:
@@ -359,6 +367,7 @@ proc virtGet(fd: cint, v: var VirtFd): bool =
         result = true
 
 proc virtAdd(v: VirtFd): cint =
+  ## registers a descriptor of ned's own and returns its number, counted up from `VirtBase`
   {.cast(noSideEffect), cast(gcsafe).}:
     withLock wpLock:
       result = nextVirt
@@ -366,39 +375,51 @@ proc virtAdd(v: VirtFd): cint =
       virts[result] = v
 
 proc procHandle(pid: Pid): Handle =
+  ## the process handle of a process ned started, by its id (0 when it is not one)
   {.cast(noSideEffect), cast(gcsafe).}:
     withLock wpLock: result = procs.getOrDefault(pid, (Handle(0), Handle(0)))[0]
 
 proc procJob(pid: Pid): Handle =
+  ## the job object (the group `kill` stops) of a process ned started, or 0
   {.cast(noSideEffect), cast(gcsafe).}:
     withLock wpLock: result = procs.getOrDefault(pid, (Handle(0), Handle(0)))[1]
 
 proc procAdd(pid: Pid, h, job: Handle) =
+  ## remembers a process ned started: its handle and its job
   {.cast(noSideEffect), cast(gcsafe).}:
     withLock wpLock: procs[pid] = (h, job)
 
 proc procDel(pid: Pid) =
+  ## forgets a process ned started
   {.cast(noSideEffect), cast(gcsafe).}:
     withLock wpLock: procs.del(pid)
 
 proc winInitOnce()
 
 proc handlerOf(sig: cint): Sighandler =
+  ## the handler `signal` set for that signal
   {.cast(noSideEffect), cast(gcsafe).}: result = sigHandlers[sig]
 proc conOk(): bool =
+  ## true when stdin is a console, whose key events are read as the bytes a terminal sends
   {.cast(noSideEffect), cast(gcsafe).}: result = conInputOk
 proc conInH(): Handle =
+  ## the console's input handle
   {.cast(noSideEffect), cast(gcsafe).}: result = conIn
 proc conOutH(): Handle =
+  ## the console's output handle
   {.cast(noSideEffect), cast(gcsafe).}: result = conOut
 proc conPendingLen(): int =
+  ## how many bytes of console input have been read but not handed to a `read` yet
   {.cast(noSideEffect), cast(gcsafe).}: result = conPending.len
 
 proc winInit() =
+  ## makes sure the Windows side is set up (once)
   {.cast(noSideEffect), cast(gcsafe).}:
     if conIn == 0: winInitOnce()
 
 proc winInitOnce() =
+  ## takes the console's handles, notes whether stdin is a console, puts the three standard descriptors in binary mode
+  ## and starts winsock
   conIn = GetStdHandle(STD_INPUT_HANDLE)
   conOut = GetStdHandle(STD_OUTPUT_HANDLE)
   var m: uint32
@@ -411,6 +432,7 @@ proc winInitOnce() =
     wsaStarted = wsaStartup(0x0202, addr d) == 0
 
 proc osHandle(fd: cint): Handle =
+  ## the Win32 handle behind a C runtime descriptor; -1 for a bad descriptor or one of ned's own
   if fd < 0 or fd >= VirtBase: return Handle(-1)
   Handle(c_getosfhandle(fd))
 
@@ -427,6 +449,9 @@ proc ctrlHandler(ctrlType: uint32): int32 {.stdcall.} =
   0
 
 proc signal*(sig: cint, h: Sighandler): Sighandler {.discardable.} =
+  ## sets the handler of a signal and returns the one before. SIGINT, SIGTERM and SIGSEGV go on to the C runtime; SIGHUP
+  ## is also made the console's close, log-off and shutdown event; the others are only noted (SIGWINCH is called by
+  ## `checkResize`).
   winInit()
   if sig >= 0 and sig < 64:
     {.cast(noSideEffect), cast(gcsafe).}:
@@ -478,34 +503,57 @@ proc waitpidImpl(pid: Pid, status: var cint, options: cint): Pid =
   procDel(pid)
   pid
 
+# this process's id
 proc getpid*(): Pid = Pid(c_getpid())
+# the parent's id as ned's launcher left it in $NED_PARENT_PID (0 when it did not)
 proc getppid*(): Pid = Pid(parseInt(getEnv("NED_PARENT_PID", "0")))
+# always 0: Windows has no user ids
 proc getuid*(): Uid = 0
+# always 0: Windows has no group ids
 proc getgid*(): Gid = 0
+# the process's own id: there are no process groups
 proc getpgrp*(): Pid = getpid()
+# does nothing; gives the process's own id (there are no sessions)
 proc setsid*(): Pid = getpid()
+# does nothing and succeeds (there are no process groups)
 proc setpgid*(a, b: Pid): cint = 0
+# does nothing and succeeds (there are no terminal process groups)
 proc tcsetpgrp*(fd: cint, p: Pid): cint = 0
+# does nothing: a lower priority is asked for when a process is started (`winSpawn`)
 proc nice*(n: cint): cint = 0
+# does nothing (files have no modes here)
 proc umask*(m: Mode): Mode = 0
+# does nothing and succeeds (files have no modes here)
 proc chmod*(p: cstring, m: Mode): cint = 0
+# does nothing and succeeds (files have no modes here)
 proc fchmod*(fd: cint, m: Mode): cint = 0
+# does nothing and succeeds (files have no owners here)
 proc chown*(p: cstring, u: Uid, g: Gid): cint = 0
 proc symlink*(a, b: cstring): cint =
+  ## always fails with EPERM: Windows keeps symbolic links for those with the right to make them
   errno = EPERM
   -1
+# only the page size (4096) is known; anything else gives -1
 proc sysconf*(n: cint): int = (if n == SC_PAGESIZE: 4096 else: -1)
+# the C runtime's text for an error number
 proc strerror*(e: cint): cstring = c_strerror(e)
+# ends the process at once, as the C runtime's _exit does
 proc exitnow*(code: cint) {.noreturn.} = c_exit(code)
 proc isatty*(fd: cint): cint =
+  ## true for stdin when it is a console (with ned's own handling of it), else what the C runtime says for the
+  ## descriptor
   winInit()
   if fd == 0 and conOk(): return 1
   c_isatty(fd)
+# "CONIN$" — the console's input, which can be opened to read keys from — when the descriptor is a terminal, else nil
 proc ttyname*(fd: cint): cstring = (if isatty(fd) != 0: "CONIN$" else: nil)   # (the console's input)
+# 0 when a file or folder of that path exists, else -1 (the mode asked for is not looked at)
 proc access*(p: cstring, mode: cint): cint = (if fileExists($p) or dirExists($p): 0 else: -1)
 
 proc uname*(u: var Utsname): cint =
+  ## fills in what Windows can say of itself: the system "Windows" and the machine's CPU kind
   proc put(a: var array[65, char], s: string) =
+    ## copies a string into a 65-character field, cut at 64
     for i, c in s:
       if i < 64: a[i] = c
   put(u.sysname, "Windows")
@@ -514,6 +562,7 @@ proc uname*(u: var Utsname): cint =
   0
 
 proc getrusage*(who: cint, r: ptr Rusage): cint =
+  ## the highest memory this process has used, in KB, as `ru_maxrss`
   var c: ProcessMemoryCounters
   c.cb = uint32(sizeof(c))
   if K32GetProcessMemoryInfo(GetCurrentProcess(), addr c, c.cb) == 0: return -1
@@ -532,6 +581,8 @@ proc clock_gettime*(clk: cint, ts: var Timespec): cint =
 # ── files ──
 
 proc stat*(p: cstring, s: var Stat): cint =
+  ## a path's size, link count, modification time and mode; the mode is only a folder or a regular file, with owner-only
+  ## rights (Windows' access lists are not modes). ENOENT when it cannot be read.
   try:
     let i = getFileInfo($p)
     # (the user's own, only theirs: what Windows gives a file in their profile — ACLs are not modes)
@@ -543,8 +594,10 @@ proc stat*(p: cstring, s: var Stat): cint =
   except CatchableError:
     errno = ENOENT
     -1
+# the same as `stat` (a link is followed)
 proc lstat*(p: cstring, s: var Stat): cint = stat(p, s)
 proc fstat*(fd: cint, s: var Stat): cint =
+  ## the size of an open file, and a regular file's mode
   let h = osHandle(fd)
   if h == Handle(-1): return -1
   var hi: int32
@@ -554,17 +607,22 @@ proc fstat*(fd: cint, s: var Stat): cint =
   0
 
 proc open*(p: cstring, flags: cint): cint =
+  ## opens a file by the C runtime in binary mode, never non-blocking; "/dev/null" is the NUL device
   winInit()
   if $p == "/dev/null": return c_open("NUL", (flags and 3) or O_BINARY or O_NOINHERIT, 0o666)
   c_open(p, (flags and not O_NONBLOCK) or O_BINARY, 0o666)
+# `open` with the mode ignored: files have no modes here
 proc open*(p: cstring, flags: cint, mode: Mode): cint = open(p, flags)
 
 proc c_unlink(p: cstring): cint {.importc: "_unlink", header: "<io.h>".}
 proc c_chdir(p: cstring): cint {.importc: "_chdir", header: "<direct.h>".}
+# deletes a file by the C runtime
 proc unlink*(p: cstring): cint = c_unlink(p)
+# changes the current folder by the C runtime
 proc chdir*(p: cstring): cint = c_chdir(p)
 
 proc fsync*(fd: cint): cint =
+  ## writes the file's buffers out to disk
   let h = osHandle(fd)
   if h == Handle(-1): return -1
   (if FlushFileBuffers(h) != 0: 0 else: -1)
@@ -572,6 +630,7 @@ proc fsync*(fd: cint): cint =
 proc c_ioctlsocket(s: SocketHandle, cmd: clong, arg: ptr culong): cint {.stdcall, importc: "ioctlsocket",
   dynlib: "ws2_32.dll".}
 
+# does nothing (the form with no argument: F_GETFL, F_GETFD …)
 proc fcntl*(fd: cint, cmd: cint): cint = 0
 proc fcntl*(fd: cint, cmd: cint, arg: cint): cint =
   ## F_SETFL with O_NONBLOCK: a socket that does not block (FIONBIO), a pipe that takes what fits (PIPE_NOWAIT: a
@@ -589,6 +648,7 @@ proc fcntl*(fd: cint, cmd: cint, arg: cint): cint =
     discard SetNamedPipeHandleState(h, addr mode, nil, nil)
   0
 proc ioctlWinSize(ws: ptr IOctl_WinSize): cint =
+  ## the console window's size in columns and rows (the visible part of its buffer); -1 when there is no console
   winInit()
   var i: ConsoleScreenBufferInfo
   if GetConsoleScreenBufferInfo(conOutH(), addr i) == 0: return -1
@@ -611,8 +671,11 @@ proc conptyLoad(): bool =
     closePseudo = cast[ClosePseudoConsoleFn](GetProcAddress(k, "ClosePseudoConsole"))
     createPseudo != nil and resizePseudo != nil and closePseudo != nil
 
+# any request but the two below: does nothing and succeeds
 proc ioctl*(fd: cint, req: culong): cint {.varargs.} = 0
 proc ioctl*(fd: cint, req: culong, ws: ptr IOctl_WinSize): cint =
+  ## TIOCGWINSZ gives the console window's size; TIOCSWINSZ on a pseudo-terminal descriptor resizes its pseudo-console;
+  ## anything else fails
   if req == TIOCGWINSZ: return ioctlWinSize(ws)
   var v: VirtFd
   if req == TIOCSWINSZ and virtGet(fd, v) and v.kind == vkPty:
@@ -663,6 +726,8 @@ proc conDrain() =
             conPending.add char(0x80 or (cp and 0x3F))
 
 proc checkResize() =
+  ## looks at the console's size and, when it is not the one seen last (and this is not the first look), calls the
+  ## SIGWINCH handler
   {.cast(noSideEffect), cast(gcsafe).}:
     var ws: IOctl_WinSize
     if ioctlWinSize(addr ws) != 0: return
@@ -692,6 +757,9 @@ proc pipeRead(h: Handle, buf: pointer, n: int): int =
   int(got)
 
 proc readImpl(fd: cint, buf: pointer, n: int): int =
+  ## reads from a descriptor without ever blocking: a socket (EAGAIN when nothing is there), a pseudo-terminal's output
+  ## pipe, the console (the bytes of its keys, after `checkResize` and `conDrain`; EAGAIN when none), a pipe
+  ## (`pipeRead`), else the C runtime's read
   winInit()
   var v: VirtFd
   if virtGet(fd, v):
@@ -716,6 +784,8 @@ proc readImpl(fd: cint, buf: pointer, n: int): int =
   int(c_read(fd, buf, cuint(n)))
 
 proc writeImpl(fd: cint, buf: pointer, n: int): int =
+  ## writes to a descriptor: a socket, a pseudo-terminal's input pipe, or the C runtime's write; a write of nothing to a
+  ## full pipe that does not wait is EAGAIN
   winInit()
   var v: VirtFd
   if virtGet(fd, v):
@@ -735,6 +805,8 @@ proc writeImpl(fd: cint, buf: pointer, n: int): int =
   r
 
 proc closeImpl(fd: cint): cint =
+  ## closes a descriptor: one of ned's own is forgotten and its socket, or its pseudo-console and pipes, closed; any
+  ## other by the C runtime
   var v: VirtFd
   if virtGet(fd, v):
     {.cast(noSideEffect), cast(gcsafe).}:
@@ -747,8 +819,11 @@ proc closeImpl(fd: cint): cint =
     return 0
   c_close(fd)
 
+# duplicates a descriptor by the C runtime
 proc dup*(fd: cint): cint = c_dup(fd)
 proc dup2*(a, b: cint): cint =
+  ## duplicates a descriptor onto another by the C runtime; when that is stdin (`git log | ned`: text on stdin, keys
+  ## from the console) the console handle is taken again
   result = c_dup2(a, b)
   if result == 0 and b == 0:
     # stdin is now the console (`git log | ned`: the text read, the keys from CONIN$)
@@ -781,14 +856,20 @@ proc socket*(af, typ, protocol: cint): SocketHandle =
   if s == INVALID_SOCKET: return SocketHandle(-1)
   SocketHandle(virtAdd(VirtFd(kind: vkSock, sock: s)))
 
+# connects the socket of a descriptor of ned's own
 proc connect*(s: SocketHandle, a: ptr SockAddr, n: SockLen): cint = winlean.connect(sockOf(s), a, n)
+# binds the socket of a descriptor of ned's own
 proc bindSocket*(s: SocketHandle, a: ptr SockAddr, n: SockLen): cint = winlean.bindSocket(sockOf(s), a, n)
+# makes the socket of a descriptor of ned's own listen
 proc listen*(s: SocketHandle, backlog: cint): cint = winlean.listen(sockOf(s), backlog)
 proc accept*(s: SocketHandle, a: ptr SockAddr, n: ptr SockLen): SocketHandle =
+  ## accepts a connection and gives it a descriptor of ned's own; -1 on failure
   let r = winlean.accept(sockOf(s), a, n)
   if r == INVALID_SOCKET: return SocketHandle(-1)
   SocketHandle(virtAdd(VirtFd(kind: vkSock, sock: r)))
+# shuts down the socket of a descriptor of ned's own
 proc shutdown*(s: SocketHandle, how: cint): cint = winlean.shutdown(sockOf(s), how)
+# a port number in network byte order: the two bytes swapped
 proc htons*(x: uint16): uint16 = (x shr 8) or (x shl 8)
 
 # ── poll ──
@@ -803,6 +884,7 @@ proc pollImpl(fds: ptr TPollfd, n: Tnfds, timeout: cint): cint =
   while true:
     var ready = 0
     for i in 0 ..< int(n):
+      # the descriptor being looked at in the loop
       template p: untyped = arr[i]
       p.revents = 0
       let fd = p.fd
@@ -853,17 +935,24 @@ proc pollImpl(fds: ptr TPollfd, n: Tnfds, timeout: cint): cint =
 # ── the calls, as POSIX declares them (no side effects the compiler would see: ned calls them from funcs) ──
 
 proc read*(fd: cint, buf: pointer, n: int): int =
+  ## POSIX's read, for `readImpl` (declared so the compiler sees no side effects)
   {.cast(noSideEffect), cast(gcsafe).}: result = readImpl(fd, buf, n)
 proc write*(fd: cint, buf: pointer, n: int): int =
+  ## POSIX's write, for `writeImpl`
   {.cast(noSideEffect), cast(gcsafe).}: result = writeImpl(fd, buf, n)
 proc close*(fd: cint): cint =
+  ## POSIX's close, for `closeImpl`
   {.cast(noSideEffect), cast(gcsafe).}: result = closeImpl(fd)
 proc kill*(pid: Pid, sig: cint): cint =
+  ## POSIX's kill, for `killImpl`
   {.cast(noSideEffect), cast(gcsafe).}: result = killImpl(pid, sig)
 proc poll*(fds: ptr TPollfd, n: Tnfds, timeout: cint): cint =
+  ## POSIX's poll, for `pollImpl`
   {.cast(noSideEffect), cast(gcsafe).}: result = pollImpl(fds, n, timeout)
 proc waitpid*(pid: Pid, status: var cint, options: cint): Pid =
+  ## POSIX's waitpid, for `waitpidImpl`
   {.cast(noSideEffect), cast(gcsafe).}: result = waitpidImpl(pid, status, options)
+# closes a socket (a descriptor of ned's own) like any other descriptor
 proc close*(s: SocketHandle): cint = close(cint(s))
 
 # ── processes ──
@@ -907,6 +996,7 @@ proc winShell*(): seq[string] =
     if c.len > 0 and fileExists(c): return @[c, "-c"]
   @[getEnv("ComSpec", "cmd.exe"), "/d", "/s", "/c"]
 
+# true when the program is cmd.exe, by its file name
 proc isCmdExe*(p: string): bool = extractFilename(p).toLowerAscii in ["cmd.exe", "cmd"]
 
 proc winCmdLine*(argv: seq[string]): string =
@@ -955,6 +1045,7 @@ proc winResolve*(argv: seq[string]): seq[string] =
     result = @[getEnv("ComSpec", "cmd.exe"), "/d", "/s", "/c", winCmdLine(result)]
 
 proc nulHandle(write: bool): Handle =
+  ## a handle to the NUL device that a started process inherits: for its output (`write`) or its input
   var sa = SECURITY_ATTRIBUTES(nLength: int32(sizeof(SECURITY_ATTRIBUTES)), bInheritHandle: 1)
   createFileW(newWideCString("NUL"), (if write: GENERIC_WRITE else: GENERIC_READ), FILE_SHARE_READ or FILE_SHARE_WRITE,
               addr sa, OPEN_EXISTING, 0, 0)
@@ -1119,6 +1210,8 @@ proc winMoveReplace*(a, b: string): bool =
 # ── the clipboard ──
 
 proc winClipSet*(s: string): bool =
+  ## puts the text on the Windows clipboard as Unicode text; false when the clipboard cannot be opened or memory cannot
+  ## be had
   let w = newWideCString(s)
   let n = (w.len + 1) * 2
   if OpenClipboard(0) == 0: return false
@@ -1133,6 +1226,7 @@ proc winClipSet*(s: string): bool =
   SetClipboardData(CF_UNICODETEXT, h) != 0
 
 proc winClipGet*(): string =
+  ## the Unicode text on the Windows clipboard as UTF-8 with \n line ends, or "" when there is none
   if OpenClipboard(0) == 0: return ""
   defer: discard CloseClipboard()
   let h = GetClipboardData(CF_UNICODETEXT)
@@ -1146,6 +1240,8 @@ proc winClipGet*(): string =
 # ── raw mode: the console's modes ──
 
 proc tcGetAttr*(fd: cint, t: ptr Termios): cint =
+  ## reads the console's input and output modes and code pages into the `Termios` (to put back later) and gives it the
+  ## flags of a terminal not in raw mode; -1 when stdin is not a console
   winInit()
   if not conInputOk: return -1
   discard GetConsoleMode(conIn, addr t.inMode)
@@ -1183,6 +1279,9 @@ proc tcSetAttr*(fd: cint, act: cint, t: ptr Termios): cint =
 
 # ── what the rest asks for and Windows does not have ──
 
+# always fails: Windows has no mmap here (its one caller, nxInMemory, is compiled for Linux and Android only)
 proc mmap*(a: pointer, len: int, prot, flags, fd: cint, off: Off): pointer = MAP_FAILED
+# does nothing: `mmap` never maps anything
 proc munmap*(a: pointer, len: int): cint = 0
+# does nothing: a hint to read a file ahead has no use here
 proc posix_fadvise*(fd: cint, off, len: Off, advice: cint): cint = 0

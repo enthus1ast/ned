@@ -55,6 +55,9 @@ proc nxGuessLib(): string =
 var nxNim3Applied = false               # the engine set up for Nim 3 (Nimony's library, names as written)
 
 proc nxApplyToolchain() =
+  ## tells the engine where to read from: for Nim 3, Nimony's library (and `nim dump` is not asked); for Nim 2, the
+  ## standard library, the paths `nim dump` gave, the package's own source folder, the nimble package folders and the
+  ## dependencies kept with the project (nimbledeps, deps, vendor)
   nxPluginLibDir = plugLibDir()          # (a plugin's `import nedplugin`: completion, hover, F12 in it too)
   nxNim3Applied = nim3On()
   nxExact = nxNim3Applied
@@ -172,6 +175,8 @@ proc nxRemoteDump(ri: int, proj: string) =
     # the server's paths made the local copy's (the folder) or the fetched copy's (the rest)
     var fetch: seq[string]
     proc here(p: string, get: bool): string =
+      ## the local place for a path on the server: the folder's own copy for a path inside the remote folder, else the
+      ## fetched copy — noting that it still has to be fetched, when `get` is true and it has not been
       if p == r.absPath or p.startsWith(r.absPath & "/"): return r.mirror & p[r.absPath.len .. ^1]
       if get and p.startsWith("/") and not fileExists(fr & p / ".ned-fetched") and p notin fetch: fetch.add p
       fr & p
@@ -181,6 +186,7 @@ proc nxRemoteDump(ri: int, proj: string) =
         for x in js[key].elems: x.str = here(x.getStr, key == "lib_paths")
     let local = $js
     proc apply() =
+      ## gives the answer with the local paths to the engine and to its worker, and marks the project as done
       nxDumping.excl proj
       nxDumped.incl proj
       nxDumpApply(proj, local)
@@ -206,6 +212,9 @@ proc nxRemoteDump(ri: int, proj: string) =
 #    answers (which is still asked, once a session, and wins when it says something else) ──
 
 proc nxDumpDeps(proj: string): seq[(string, string)] =
+  ## everything `nim dump` reads for the project, each with its stamp (time): the nim program, config files from the
+  ## project's folder up and the user's, the .nimble and its lock, and the package folders. If any stamp changes, the
+  ## kept answer is out of date
   var files = @[findExe("nim"), proj.changeFileExt("nims"), proj & ".cfg", proj.changeFileExt("nim.cfg")]
   var d = parentDir(proj)
   while d.len > 1:
@@ -225,6 +234,8 @@ proc nxDumpDeps(proj: string): seq[(string, string)] =
     if f.len > 0: result.add (f, nxStamp(f))
 
 proc nxDumpFile(proj: string): string =
+  ## where the kept `nim dump` answer for the project is stored: a file in ned's cache folder, named by a hash of the
+  ## project's path
   getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / AppName / "dump" / (toHex(cast[uint64](hash(proj))) & ".json")
 
 proc nxDumpKept(proj: string): string =
@@ -240,6 +251,8 @@ proc nxDumpKept(proj: string): string =
   except CatchableError: ""
 
 proc nxDumpKeep(proj, output: string) =
+  ## keeps what `nim dump` said, with the stamps of what it read, for the next session (written to a temporary file and
+  ## moved into place; a failure is ignored)
   var d = newJArray()
   for (p, st) in nxDumpDeps(proj): d.add %*[p, st]
   let f = nxDumpFile(proj)
@@ -315,10 +328,12 @@ proc engineDepLines(dir: string): seq[string] =
     result.add d.name & (if d.version.len > 0: " " & d.version else: "") & " (" & d.why & ")"
 
 proc nxBufStamp(path: string): string =
+  ## tells the index whether an open file changed: its tab's id and change counter, or "" when the file is not open
   let i = bufIndexByPath(path)
   if i < 0: "" else: "b" & $bufs[i].id & ":" & $bufs[i].changeId
 
 proc nxBufLines(path: string): seq[string] =
+  ## gives the index the text of an open file as it is in its tab (unsaved changes too); empty when it is not open
   let i = bufIndexByPath(path)
   if i >= 0: bufs[i].lines else: @[]
 

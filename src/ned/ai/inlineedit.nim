@@ -12,6 +12,9 @@ func inlineClean(text: string): string =
   t
 
 proc applyInlineEdit() =
+  ## puts the model's reply in place of the text that was selected when the inline edit was asked for, in the tab it was
+  ## asked in (code fences taken off), as one undo step, with the new text selected; nothing happens when that tab is
+  ## gone
   let bi = bufIndexByPath("")
   discard bi
   var b: Buffer = nil
@@ -47,6 +50,9 @@ proc aiInlinePrompt(b: Buffer, a, e: Pos, instruction: string): string =
     (if defs.len > 0: defs & "\n" else: "") & "Instruction: " & instruction
 
 proc aiInlineEdit(instruction: string) =
+  ## asks the model to rewrite the selection as the instruction says (with no selection: the block, such as a proc, the
+  ## cursor is in, or else its line), as a request of its own that does not touch the chat; the reply is applied by
+  ## applyInlineEdit when it arrives. It says so when the assistant is busy
   let b = buf()
   if instruction.strip.len == 0: return
   if aiBusy or aiInlineMode:
@@ -76,10 +82,13 @@ proc aiInlineEdit(instruction: string) =
   info("Asking the AI to edit the selection…")
 
 proc aiQuick(prompt: string) =
+  ## shows the assistant dock and sends the prompt at once
   showSide(svAssistant)
   aiSend(prompt)
 
 proc aiAskAboutFile(path: string) =
+  ## opens the file, shows the assistant dock and puts a question about the file in the message box, to be sent or
+  ## changed
   let b = openFile(path)
   if b == nil: return
   showSide(svAssistant)
@@ -87,12 +96,16 @@ proc aiAskAboutFile(path: string) =
   aiInputCur = aiInput.len
 
 proc typeModelAction(): (string, string, Action) =
+  ## the menu entry that asks for a model's id by typing it and sets ai.model to it
   act("Type a model id…", "any model your provider offers", proc() =
     settingKey = "ai.model"
     settingNoUi = true
     openPrompt(pSetting, "AI model id for " & cfgAiProvider & " (e.g. gpt-5.1, o4-mini)", aiModel()))
 
 proc aiChooseModel() =
+  ## AI: choose model — a menu of the models: Anthropic's known ones, or for other providers the list the endpoint's
+  ## /models gives (for OpenAI only the chat models), asked with curl with the key in a private file; each entry sets
+  ## ai.model, and typing an id is always offered
   if cfgAiProvider == "anthropic":
     var items: seq[(string, string, Action)]
     items.add typeModelAction()
@@ -172,6 +185,8 @@ proc aiChooseModel() =
 proc cmdAiOffline()
 
 proc aiChooseProvider() =
+  ## AI: choose provider — a menu of the providers (with the environment variable of its key, and a tick when it is set)
+  ## and the on-device option; choosing one sets ai.provider and clears the model
   var items: seq[(string, string, Action)]
   items.add act("On this device, offline…", "Ollama or llama.cpp: set up, download a model that fits", proc() = cmdAiOffline())
   for p in ["anthropic", "openai", "openrouter", "ollama", "groq", "deepseek", "gemini", "mistral", "custom"]:

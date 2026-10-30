@@ -5,6 +5,8 @@
 var ttyGone = false     # stdin hit end-of-file or an I/O error: the terminal is gone
 
 proc readInput(): bool =
+  ## reads whatever the terminal has sent into the input buffer without waiting; true when some bytes came. End of file
+  ## or a real read error marks the terminal as gone (ttyGone)
   var tmp: array[8192, char]
   while true:
     let n = posix.read(0.cint, addr tmp[0], tmp.len)
@@ -19,6 +21,8 @@ proc readInput(): bool =
     if n < tmp.len: break
 
 proc modsFromParam(p: int): set[Mod] =
+  ## the modifiers of a terminal's modifier number (one more than a sum of 1 for Shift, 2 for Alt, 4 for Ctrl); none for
+  ## 1 or less
   let m = p - 1
   if m <= 0: return {}
   if (m and 1) != 0: result.incl mShift
@@ -26,6 +30,9 @@ proc modsFromParam(p: int): set[Mod] =
   if (m and 4) != 0: result.incl mCtrl
 
 proc controlKey(c: char, k: var Key): bool =
+  ## a control byte as the key it stands for — Enter, Tab, Backspace (the byte 8 is Ctrl+Backspace unless the terminal's
+  ## erase key sends it), NUL as Ctrl+Space, the rest as Ctrl with a letter or one of \ ] ^ /; false when the byte is
+  ## none of them
   case c
   of '\r', '\n': k.kind = kEnter
   of '\t': k.kind = kTab
@@ -49,6 +56,7 @@ proc kittyKey(raw: string, k: var Key) =
   ## what the old way could not tell apart now is: Ctrl+Shift+F, Ctrl+I and Tab, Ctrl+Enter, Shift+Enter
   let parts = raw.split(';')
   proc num(s: string): int =
+    ## the number in a string, 0 when it is empty or not one
     if s.len == 0: return 0
     try: parseInt(s) except ValueError: 0
   let codes = parts[0].split(':')
@@ -115,7 +123,9 @@ proc kittyKey(raw: string, k: var Key) =
 
 var inOff = 0     # parse position inside inBuf (consumed bytes are dropped once per batch)
 
+# how many bytes of the input buffer are not decoded yet
 proc avail(): int {.inline.} = inBuf.len - inOff
+# the undecoded byte i places on
 proc at(i: int): char {.inline.} = inBuf[inOff + i]
 
 proc parseKey(force: bool, k: var Key): bool =
@@ -294,6 +304,7 @@ proc parseKey(force: bool, k: var Key): bool =
   true
 
 proc compactInput() {.inline.} =
+  ## drops the bytes already decoded from the front of the input buffer and starts the decoding position at 0
   if inOff > 0:
     if inOff >= inBuf.len: inBuf.setLen(0)
     else: inBuf = inBuf[inOff .. ^1]

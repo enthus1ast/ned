@@ -1,6 +1,10 @@
+# spell check commands and the dictionary downloads: the next misspelled word, choosing where it checks, downloading
+# hunspell dictionaries, and the quick fixes (change, add, ignore) for the word at the cursor.
 proc spellDownload(lang, code: string)
+# the action that downloads one language's dictionary
 proc spellDlAct(lang, code: string): Action = (proc() = spellDownload(lang, code))
 func spellModeAct(v: string): Action =
+  ## the action that sets editor.spellCheck to v (off, markdown or on)
   proc() =
     setSetting("editor.spellCheck", %v)
     info("Spell check: " & v)
@@ -69,12 +73,15 @@ proc spellDownload(lang, code: string) =
   if j == nil: error("Could not start curl")
 
 proc cmdSpellDownload() =
+  ## Spell check: download a dictionary — a menu of the languages ned can fetch
   var items: seq[(string, string, Action)]
   for (lang, code, name) in SpellDownloads:
     items.add act(name, lang, spellDlAct(lang, code))
   openActions("Download a dictionary (hunspell, from github.com/wooorm/dictionaries)", items)
 
 proc cmdSpellWhere() =
+  ## Spell check: where… — a menu to choose between off, Markdown files and commit messages only, or comments and
+  ## strings in code too; its title tells which dictionary file is in use and how many words it has
   let cur = cfgSpell
   var items: seq[(string, string, Action)]
   for (v, lab) in [("off", "Off"), ("markdown", "Markdown files and commit messages"),
@@ -85,6 +92,8 @@ proc cmdSpellWhere() =
                                   else: "no dictionary found: Spell check: download a dictionary…"), items)
 
 func spellChangeAct(bid, ln, a, e: int, w, sug: string): Action =
+  ## the action that replaces the misspelled word w (bytes a..e of line ln in buffer bid) by a suggestion, as an
+  ## undoable edit; it does nothing if the text there has changed since
   proc() =
     let bb = bufById(bid)
     if bb == nil or ln >= bb.lines.len or bb.lines[ln].len < e or bb.lines[ln][a ..< e] != w: return

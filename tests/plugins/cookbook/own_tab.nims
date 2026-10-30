@@ -15,6 +15,8 @@ proc keep(b: Buf) =
   b.markSaved()
 
 proc openPad() =
+  ## opens the scratch pad in a tab of its own, filled from the saved pad, or brings the one already open to the front;
+  ## a pad with no changes gets the cursor at the start
   # a tab of that title already open is used again — as it is, when it has changes not saved
   let b = newTab(Title, readData("scratch.md"), "scratch")
   if not b.dirty: b.setCursor(pos(0, 0))

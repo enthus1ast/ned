@@ -5,6 +5,8 @@
 from std/unicode import nil
 
 proc requestQuit() =
+  ## quits ned: at once when no tab has unsaved changes, or when files.hotExit has kept them for the next start;
+  ## otherwise it asks to save all and quit, discard and quit, or cancel
   var names: seq[string]
   for b in bufs:
     if b.dirty: names.add b.name
@@ -23,9 +25,12 @@ proc requestQuit() =
       of 'd', 'n', 'q': quitting = true
       else: discard)
 
+# shows or hides the left dock (the files)
 proc toggleTree() = toggleDock(dsLeft)
 
 proc togglePanel() =
+  ## shows or hides the bottom panel; opened with nothing in it, it shows a line on how to run the file; hiding it
+  ## returns the focus to the editor
   if panelOpen:
     panelOpen = false
     if focus == fPanel: focus = fEditor
@@ -37,12 +42,15 @@ proc togglePanel() =
     panelOpen = true
 
 proc newFile() =
+  ## a new empty tab, which gets the focus
   bufs.add newBuffer()
   curBuf = bufs.high
   focus = fEditor
   closeComp()
 
 proc switchTab(d: int) =
+  ## goes `d` tabs on (negative: back), round to the other end, within the active pane's tabs when the editor is split;
+  ## the editor gets the focus
   if bufs.len == 0: return
   if paneTabStep(d): return             # (panes: the active pane's own tabs)
   curBuf = (curBuf + d + bufs.len) mod bufs.len
@@ -50,6 +58,9 @@ proc switchTab(d: int) =
   closeComp()
 
 proc runInTerminal(cmd, cwd: string, wait = true) =
+  ## runs the command in the real terminal, the screen left to it: ned gives up raw mode and ignores Ctrl+C and Ctrl+\
+  ## for itself, and the command runs with sh in `cwd` as a child process that has them. With `wait` it shows the exit
+  ## code and waits for Enter. Then ned takes the terminal back (its process group, raw mode), and redraws
   # while the terminal is the program's, Ctrl+C and Ctrl+\ are for it, never for ned (also at "press Enter")
   signal(SIGINT, SIG_IGN)
   signal(SIGQUIT, SIG_IGN)
@@ -90,6 +101,8 @@ proc runInTerminal(cmd, cwd: string, wait = true) =
   needRender = true
 
 proc transformSel(f: proc(s: string): string) =
+  ## replaces the text of each selection — the word at the cursor where nothing is selected — with what `f` makes of it,
+  ## in one undo step, and selects the new text
   let b = buf()
   if not b.canEdit(): return
   b.beginEdit()
@@ -105,6 +118,7 @@ proc transformSel(f: proc(s: string): string) =
   b.normalize()
 
 proc sortLines(b: Buffer) =
+  ## sorts each block of selected lines (of two or more lines), ignoring case, as one undo step
   if not b.canEdit(): return
   for (s, e) in b.lineBlocks():
     if e > s:
@@ -116,6 +130,8 @@ proc sortLines(b: Buffer) =
   b.normalize()
 
 proc joinLines(b: Buffer) =
+  ## joins each block of selected lines — or a line with the next one, where only a line is selected — into one line,
+  ## with a single space between the parts and the indentation of the joined lines removed
   if not b.canEdit(): return
   b.beginEdit()
   for k in countdown(b.lineBlocks().high, 0):
@@ -131,6 +147,8 @@ proc joinLines(b: Buffer) =
   b.normalize()
 
 proc setIndent(b: Buffer, unit: string) =
+  ## changes the buffer's indentation to `unit` (a tab or some spaces) and rewrites the indentation of every line to
+  ## match, level by level, as one undo step; spaces left over that do not make a whole level stay
   let old = b.indent
   b.indent = unit
   if old == unit: return
@@ -149,6 +167,7 @@ proc setIndent(b: Buffer, unit: string) =
   info("Indentation: " & (if unit == "\t": "tabs" else: $unit.len & " spaces"))
 
 proc openSettings() =
+  ## opens the settings file in a tab, making it first, with the commented default settings, when there is none
   let p = configFile()
   if not fileExists(p):
     try:
@@ -160,6 +179,8 @@ proc openSettings() =
   discard openFile(p)
 
 proc restartLsp() =
+  ## restarts the language server of the current file's language: stops the running ones, forgets that it failed or died
+  ## and its problems, and starts it again for the open files; it says when there is no server for the language
   let b = buf()
   for s in servers:
     if s.langId == b.lang.id and not s.dead:
@@ -203,6 +224,8 @@ proc restartLangServer(langId: string) =
       break
 
 proc nimRestartSuggest() =
+  ## restarts nimsuggest: through nimlangserver (asking it to restart them all, or starting it again) when that is the
+  ## engine, else ned's own nimsuggest is stopped and starts again with the next request
   if nimUsesLsp():
     for s in servers:
       if s.langId == "nim" and s.ready and not s.dead:
@@ -219,6 +242,8 @@ proc nimRestartSuggest() =
     info("nimsuggest will restart on the next request")
 
 proc nimUseAsMain() =
+  ## makes the current Nim file the project's main module (nim.projectFile in the project settings) and restarts the Nim
+  ## server for it
   let b = buf()
   if b.lang.mode != lmNim or b.path.len == 0:
     info("Open the Nim module that is your program's or library's entry point first")
@@ -233,6 +258,9 @@ proc nimUseAsMain() =
     info("Main module: " & rel)
 
 proc nimServerStatus() =
+  ## opens a Markdown page, Nim: language server status, on how Nim is served: for nimlangserver its main module,
+  ## nimsuggest processes, errors and warnings; for ned's own engine the Nim in use, how many files are indexed and the
+  ## memory they take, the search paths and the nimsuggest processes
   var o = "# Nim code intelligence\n\n"
   if nimUsesLsp():
     var srv: LspServer

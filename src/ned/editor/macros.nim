@@ -16,6 +16,8 @@ var
 const MacroMark = "your macro"
 
 proc macroBadge(): string =
+  ## the status bar's recording mark: `● REC`, the vim register being recorded into if any, and the number of keys so
+  ## far
   "● REC" & (if macroReg.len > 0: " @" & macroReg else: "") & " " & $macroKeys.len
 
 proc macroNoteKey(k: Key) =
@@ -31,6 +33,8 @@ proc macroNoteKey(k: Key) =
   macroKeys.add k
 
 proc macroStart(reg = "") =
+  ## starts recording keys (into the vim register `reg`, if given) from an empty list, closes the completion popup and
+  ## tells how to stop; does nothing while a macro is playing
   if macroPlaying > 0: return
   macroRecording = true
   macroReg = reg
@@ -62,6 +66,7 @@ proc macroStop(prefixKeys = 0) =
         else: "Alt+Shift+M plays it · palette › Macro: save the last one… keeps it"))
 
 proc macroToggle() =
+  ## stops the recording if one is going on, otherwise starts one
   if macroRecording: macroStop() else: macroStart()
 
 proc macroRun(keys: seq[Key], times: int): bool =
@@ -106,6 +111,9 @@ proc macroRun(keys: seq[Key], times: int): bool =
   needRender = true
 
 proc macroPlay(keys: seq[Key], times = 1) =
+  ## plays a macro `times` times (up to 100000) with macroRun. A macro played from the keyboard becomes the last macro
+  ## (one played by another macro does not); playing the macro being recorded is refused, and with nothing recorded the
+  ## message says how to start.
   if keys.len == 0:
     info("No macro recorded yet — " & (if cfgKeymap == "emacs": "C-x (" elif cfgKeymap == "helix": "Q"
                                          else: "Alt+Shift+R") & " starts recording")
@@ -160,9 +168,12 @@ proc macroPlayToEnd() =
 
 # saved macros: macros.json in the config folder, readable — typed text as strings, other keys as objects
 
+# the file the named macros are kept in, in the config folder
 proc macrosFile(): string = configDir() / "macros.json"
 
 proc keyToJson(k: Key): JsonNode =
+  ## a key as a JSON object: its name and kind, with its character code, function number, text and modifiers when it has
+  ## them
   result = %*{"key": keyName(k), "kind": $k.kind}
   if k.ch != 0: result["ch"] = %k.ch
   if k.fn != 0: result["fn"] = %k.fn
@@ -174,6 +185,8 @@ proc keyToJson(k: Key): JsonNode =
   if ms.len > 0: result["mods"] = %ms
 
 proc macroToJson(keys: seq[Key]): JsonNode =
+  ## a macro as a JSON array that is easy to read and edit: runs of plain typed characters become one string each, every
+  ## other key an object
   result = newJArray()
   var run = ""
   for k in keys:
@@ -187,6 +200,8 @@ proc macroToJson(keys: seq[Key]): JsonNode =
   if run.len > 0: result.add %run
 
 proc macroFromJson(j: JsonNode): seq[Key] =
+  ## the keys of a macro from its JSON — strings as typed characters, objects as keys; mouse and unknown keys are
+  ## skipped, and anything that is not an array gives no keys
   if j == nil or j.kind != JArray: return
   for x in j:
     if x.kind == JString:
@@ -215,6 +230,7 @@ proc macroFromJson(j: JsonNode): seq[Key] =
 proc macroCommandsRefresh()
 
 proc loadMacros() =
+  ## reads the named macros from macros.json (a warning if it cannot be read) and makes a palette command of each
   macroLoaded = true
   macroSaved.clear()
   try:
@@ -228,6 +244,7 @@ proc loadMacros() =
   macroCommandsRefresh()
 
 proc saveMacros() =
+  ## writes the named macros to macros.json, creating the config folder if needed, and refreshes the palette commands
   var j = newJObject()
   for name, ks in macroSaved: j[name] = macroToJson(ks)
   try:
@@ -237,6 +254,7 @@ proc saveMacros() =
   macroCommandsRefresh()
 
 proc macroRunAct(name: string): Action =
+  ## an action that plays the saved macro called `name` — made here so each command keeps its own name
   result = proc() =
     if name in macroSaved: macroPlay(macroSaved[name])
 
@@ -250,6 +268,7 @@ proc macroCommandsRefresh() =
     commands.add Command(name: "Macro: " & name, keys: MacroMark, action: macroRunAct(name))
 
 proc macroSaveLast() =
+  ## asks for a name and keeps the last recorded macro under it, as the command `Macro: <name>`
   if macroLast.len == 0:
     info("Record a macro first (Alt+Shift+R)")
     return
@@ -263,6 +282,8 @@ proc macroSaveLast() =
 proc macroMenuAct(n: string): Action
 
 proc macroManage() =
+  ## palette command: lists the saved macros (and, when there is a last one, an item to save it); picking a macro opens
+  ## its own menu
   if not macroLoaded: loadMacros()
   var items: seq[(string, string, Action)]
   if macroLast.len > 0:

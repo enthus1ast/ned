@@ -72,6 +72,8 @@ proc norm(keys: string): string =
     else: result.add t
 
 proc addOnce(hints: var seq[(string, string)], k, d: string) =
+  ## adds the key with its description to the hints; when the key is there already (ned's own), the description is
+  ## replaced by this one, so a plugin's mapping shows instead of ned's
   for i, (hk, _) in hints:
     if hk == k:
       hints[i] = (k, d)              # (a plugin's mapping of the key: it, not ned's own)
@@ -103,6 +105,9 @@ proc mappingsAfter(hints: var seq[(string, string)], keys, mode: string, lang: s
     if not has: hints.add (k, "+ " & $n & (if n == 1: " more key" else: " more keys"))
 
 proc hintsFor(keys, mode: string): (string, seq[(string, string)]) =
+  ## the box's title and the keys that can follow the keys typed so far in the input mode (vim normal and visual, vim
+  ## operator, vim text object, emacs, helix) with what each does: ned's own lists above, the plugins' mappings added
+  ## (vim normal and visual, and text objects)
   var h: seq[(string, string)]
   let b = current()
   let lang = if b.valid: b.lang.toLowerAscii else: ""
@@ -150,6 +155,7 @@ proc hintsFor(keys, mode: string): (string, seq[(string, string)]) =
   (title, h)
 
 proc show(keys, mode: string) =
+  ## shows the box of what can follow, unless the keys have changed since it was asked for or nothing can follow them
   let (k, m) = pendingKeys()
   if k != keys or m != mode: return       # (the keys went on meanwhile)
   let (title, h) = hintsFor(keys, mode)

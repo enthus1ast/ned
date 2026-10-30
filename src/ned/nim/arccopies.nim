@@ -39,6 +39,7 @@ proc arcBlocks*(output: string): seq[(string, seq[string])] =
       result[cur][1].add l
 
 func matchClose(s: string, open: int): int =
+  ## the index of the bracket that closes the one at `open` (round or square, strings skipped); -1 when it is not closed
   var d = 0
   var inStr = false
   for i in open ..< s.len:
@@ -54,6 +55,7 @@ func matchClose(s: string, open: int): int =
   -1
 
 func splitArgs(s: string): seq[string] =
+  ## an argument list split at the commas that are not inside brackets or a string, each argument stripped
   var d = 0
   var cur = ""
   var inStr = false
@@ -90,6 +92,7 @@ func arcNorm*(e: string): string =
       inc i
 
 func baseName(e: string): string =
+  ## the leading identifier of an expression (`a` of `a.b[0]`)
   var j = 0
   while j < e.len and e[j] in ArcIdent: inc j
   e[0 ..< j]
@@ -204,6 +207,11 @@ func hasWord(code, w: string): bool =
     k = i + 1
 
 proc place(evs: seq[ArcEvent], lines: openArray[string], r: ArcRoutine): seq[ArcCopy] =
+  ## finds, for each copy event of one routine, the place in the routine's source lines where the copied expression
+  ## stands. It goes through the lines in the order the code runs, from where the last copy was found (wrapping round
+  ## once), skipping the header, and looks by the kind of copy: the `for` line for an iterator argument or loop
+  ## variable, the closure's header for a capture, else the line that has the copied expression and — for an assignment
+  ## or a sink call — the target or callee's name too. A place is used once
   var at = r.line
   var taken: HashSet[(int, int)]
   let last = min(r.endLine, lines.high)

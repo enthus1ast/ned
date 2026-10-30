@@ -1,6 +1,9 @@
 # ── drag handles (split divider, dock edges, bottom panel, scrollbar) and sizes from the keyboard ──
 
 proc dragHandleAt(x, y: int): DragTarget =
+  ## which draggable edge or bar is at that screen place: a split divider (remembering which), a dock's edge, the bottom
+  ## panel's header, the editor's scroll bar (the column before it too on Termux, where a finger is wider than a column)
+  ## or the minimap; dtNone when none
   for k, d in splitDivs:
     if (d.vertical and x == d.x and y >= d.y and y < d.y + d.len) or
        (not d.vertical and y == d.y and x >= d.x and x < d.x + d.len):
@@ -71,6 +74,9 @@ proc scrollbarJump(y: int) =
   b.scrollBy(target - b.topLine)
 
 proc dragTo(x, y: int) =
+  ## the pointer moved to x, y while dragging something: moves the split divider (only the two panes beside it change),
+  ## sets a dock's width or the panel's height, drags the scroll bar, minimap, a tab (along the bar, or off it to drop
+  ## on a pane), a text field's selection, a form's scroll bar or a box; or hands a file or text drag to the drop logic
   case dragTarget
   of dtSplit:
     if dragDiv < 0 or dragDiv >= splitDivs.len or splitDivs[dragDiv].node != dragNode:
@@ -146,6 +152,13 @@ proc resizeBy(horizontal: bool, d: int) =
   needRender = true
 
 proc handleMouse(k: Key) =
+  ## every mouse event: motion (hover and tooltips), the wheel (scrolls the other pane, the tabs, menus, pickers,
+  ## completion, hover, docks or the editor; sideways with Shift or a tilt wheel), releases (ends drags and drops, touch
+  ## swipes in the tree, press-and-hold as a right click), drags (moving what was grabbed, Alt+drag box selection,
+  ## extending the selection), right clicks (context menus for the picker, gutter or editor), middle click on a tab
+  ## (closes it) and left presses, tried in turn against the open menu, dialog, form, picker, completion, prompt, drag
+  ## handles and click regions, then the terminal, docks and the editor, where clicks place cursors (double: word,
+  ## triple: line, Ctrl: definition, Alt: more cursors or a box)
   let x = k.mx
   let y = k.my
   # pointer motion (any-event tracking) → hover effects and tooltips

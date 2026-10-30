@@ -35,6 +35,7 @@ func hexSel(hx: HexState): (int, int) =
   if hx.anchor < 0 or hx.anchor == hx.cur: return (min(hx.cur, n), min(hx.cur + 1, n))
   (min(min(hx.anchor, hx.cur), n), min(max(hx.anchor, hx.cur) + 1, n))
 
+# whether a range of bytes is selected (an anchor was set and the cursor has moved away from it)
 func hexHasSel(hx: HexState): bool = hx.anchor >= 0 and hx.anchor != hx.cur
 
 proc hexMarkChanged(hx: HexState, at, removed, added: int) =
@@ -82,6 +83,8 @@ proc hexReplace(b: Buffer, at, removeN: int, bytes: string) =
   needRender = true
 
 proc hexUndo(b: Buffer, redo = false) =
+  ## undoes the last edit of the bytes (or, with `redo`, does the last undone one again), puts the cursor at the edit,
+  ## fixes the changed-byte ranges and clears the selection
   let hx = b.hex
   if (if redo: hx.redo.len == 0 else: hx.undo.len == 0):
     info(if redo: "Nothing to redo" else: "Nothing to undo")
@@ -102,11 +105,13 @@ proc hexUndo(b: Buffer, redo = false) =
   inc b.changeId
   needRender = true
 
+# whether the hex editor has unsaved changes: its undo list is not the length it had when the file was saved
 proc hexDirty(b: Buffer): bool = b.hex != nil and b.hex.undo.len != b.hex.savedAt
 
 # ── what the bytes at the cursor read as ──
 
 proc hexLe(d: string, at, n: int, be = false): uint64 =
+  ## the `n` bytes at `at` read as one unsigned number, little-endian (big-endian with `be`)
   for i in 0 ..< n:
     let k = if be: i else: n - 1 - i
     result = (result shl 8) or uint64(ord(d[at + k]))
@@ -158,6 +163,8 @@ proc hexInspect(hx: HexState): seq[string] =
 # ── drawing ──
 
 proc hexCellColour(c: char): Rgb =
+  ## the colour of a byte: NUL dim, printable ASCII the normal text colour, tab and line ends like strings, bytes from
+  ## 0x80 like numbers, other control codes like keywords
   if c == '\0': theme.dim
   elif c in {' ' .. '~'}: theme.fg
   elif c in {'\t', '\n', '\r'}: theme.syn[tkString]
@@ -165,6 +172,8 @@ proc hexCellColour(c: char): Rgb =
   else: theme.syn[tkKeyword]
 
 proc hexInChanged(hx: HexState, i: int): bool =
+  ## whether byte `i` lies in one of the ranges edited since the file was opened (they are drawn in bold in the warning
+  ## colour)
   for (a, e) in hx.changed:
     if i >= a and i < e: return true
   false
@@ -180,6 +189,11 @@ proc hexSymbolAt(b: Buffer, off: int): int =
 proc hexClickAt(b: Buffer, x, y: int)
 
 proc drawHexView(b: Buffer, x0, y0, w, h: int, active: bool) =
+  ## draws the hex editor in a rectangle, only the rows on screen. The first line says what the file is (format,
+  ## processor, kind, size), OVERWRITE or INSERT, the cursor's offset, the selection's size and the symbol the cursor is
+  ## in, with buttons for executables. Then come the rows — offset, hex bytes, text — with 16, 8 or 4 bytes per row by
+  ## width, the cursor, the selection and the changed bytes marked, the cursor's twin in the other column lit up, and a
+  ## click region for each row. The data inspector fills the last one or two lines.
   let hx = b.hex
   editorRect = (x0, y0, w, h)
   fillRect(x0, y0, w, h, theme.fg, theme.bg)
@@ -342,6 +356,8 @@ proc hexParseBytes(s: string): (bool, string) =
   (res.len > 0, res)
 
 proc hexGoto(b: Buffer, s: string) =
+  ## moves to an offset typed by the person: decimal, 0x… or …h hexadecimal, or relative to the cursor with a leading +
+  ## or -; the view scrolls to show it, and a bad offset is an error
   let hx = b.hex
   var t = s.strip.replace("_", "")
   var rel = 0
@@ -366,6 +382,8 @@ proc hexGoto(b: Buffer, s: string) =
   needRender = true
 
 proc hexFindNext(b: Buffer, back = false) =
+  ## selects the next (or, with `back`, the previous) occurrence of the bytes searched for, wrapping round the file, and
+  ## says where it was found
   let hx = b.hex
   if hx.find.len == 0:
     info("Ctrl+F: bytes (de ad be ef) or text (\"abc\")")
@@ -388,6 +406,8 @@ proc hexFindNext(b: Buffer, back = false) =
   needRender = true
 
 proc hexFind(b: Buffer, q: string) =
+  ## searches the file for what was typed: text in double quotes literally, hex bytes (`de ad be ef`, `0xde, 0xad`) as
+  ## bytes, anything else as text — then goes to the first match from the cursor
   let t = q.strip
   var bytes = ""
   if t.len >= 2 and t[0] == '"' and t[^1] == '"': bytes = t[1 ..< t.high]
@@ -462,6 +482,8 @@ proc hexKey(b: Buffer, k: Key): bool =
   let n = hx.data.len
   let pr = max(1, hx.perRow)
   proc move(to: int) =
+    ## moves the cursor to byte `to` (kept inside the file); with Shift held the selection is extended from where it
+    ## began, otherwise it is cleared
     if shift:
       if hx.anchor < 0: hx.anchor = hx.cur
     else: hx.anchor = -1
@@ -591,6 +613,8 @@ proc hexKey(b: Buffer, k: Key): bool =
 # ── an executable's symbols and sections, Nim's modules by size ──
 
 proc hexJump(b: Buffer, off: int64) =
+  ## puts the cursor on file offset `off` and scrolls so that it is a third of the way down; an offset outside the file
+  ## (a section only made when the program runs) is only reported
   let hx = b.hex
   if off < 0 or off > hx.data.len:
     info("Not in the file (it is made when the program runs)")
@@ -621,6 +645,8 @@ proc nimSourceOf(module, name: string): (string, int) =
   ("", -1)
 
 proc cmdHexSymbols() =
+  ## palette command: lists the program's symbols that have bytes in the file — Nim's procs first, the biggest first, at
+  ## most 5000 — with their size and offset; picking one jumps to its bytes
   let b = buf()
   if b.hex == nil:
     info("Open a binary file (a program, a library)")
@@ -653,6 +679,8 @@ proc cmdHexSymbols() =
   openActions("Symbols — " & $info0.symbols.len & (if info0.nim: " (Nim's procs by their Nim names)" else: ""), items)
 
 proc cmdHexSections() =
+  ## palette command: lists the program's sections with their size, where they are in the file and where they are
+  ## loaded; picking one jumps to it
   let b = buf()
   if b.hex == nil: return
   let info0 = b.hexInfo()
@@ -673,6 +701,8 @@ proc cmdHexSections() =
   openActions("Sections — " & info0.format & " " & info0.arch, items)
 
 proc cmdHexNimSizes() =
+  ## palette command: lists the Nim modules of the program by the bytes of code they take, with their share of the
+  ## total; picking a module lists its procs by size, each of which jumps to its bytes
   let b = buf()
   if b.hex == nil: return
   let info0 = b.hexInfo()

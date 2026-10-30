@@ -6,6 +6,7 @@
 import std/[os, osproc, streams, strutils, tables, json, unittest]
 import ../../src/ned/testing/gcovdata
 
+# a file filter for the gcov readers that keeps every file
 proc keepAll(f: string): string = f
 
 const CalcSrc = """## calc
@@ -143,6 +144,7 @@ suite "gcov's output":
     let doc2 = """{"current_working_directory": "/other", "files": [{"file": "/proj/src/a.nim", "lines": [""" &
       """{"line_number": 3, "count": 1}, {"line_number": 5, "count": 0}]}]}"""
     var h: CovHits
+    # a file filter that keeps only the files under /proj/ (the others give an empty name, which drops them)
     proc onlyProj(f: string): string = (if f.startsWith("/proj/"): f else: "")
     parseGcovJson(newStringStream(doc1 & "\n" & doc2 & "\n"), h, onlyProj)
     check h["/proj/src/a.nim"] == {3: 3, 4: 0, 5: 0}.toTable
@@ -176,6 +178,7 @@ suite "the procs no test reaches":
   let lines = CalcSrc.splitLines
   let spans = nimRoutineSpans(lines)
   proc span(name: string): CovSpan =
+    ## the span the reader found for the routine of that name; one that starts at -1 when there is none
     for s in spans:
       if s.name == name: return s
     CovSpan(first: -1)
@@ -263,6 +266,8 @@ proc realBuild(clang: bool): Table[int, int] =
   h.getOrDefault(calc)
 
 proc checkCalc(t: Table[int, int]) =
+  ## checks the per-line counts of the calc example after classify(10), classify(1), area, safeDiv(4, 2) and the rest
+  ## were run: which lines ran, how often, which never, and that lines holding no code have no count
   # classify(10), classify(1): both conditions, "big" and "small" ran; "neg" never; `else:` holds no code
   check t.getOrDefault(9) == 2 and t.getOrDefault(10) == 2 and t.getOrDefault(11) == 1
   check t.getOrDefault(12) == 1 and t.getOrDefault(13, -1) == 0 and t.getOrDefault(15) == 1

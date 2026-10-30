@@ -1,18 +1,22 @@
 # ── dock frame ──
 
 proc toggleReplaceRow() =
+  ## shows or hides the replace box of the search view and moves the keyboard to the search view (the replace box when
+  ## it was just shown)
   dockShowReplace = not dockShowReplace
   dockField = if dockShowReplace: 1 elif dockField == 1: 0 else: dockField
   focus = fTree
   sideView = svSearch
 
 proc showIncludeRow() =
+  ## shows the "files" filter box of the search view, with the keyboard in it
   dockShowInclude = true
   dockField = 2
   focus = fTree
   sideView = svSearch
 
 proc clearIncludeRow() =
+  ## hides and empties the files filter of the search view, and searches again if a search had run
   dockShowInclude = false
   dockInclude = ""
   dockIncludeCur = 0
@@ -20,6 +24,8 @@ proc clearIncludeRow() =
   if dockQueryRan.len > 0: projectSearch(dockQuery)
 
 proc dockActions(v: SideView): seq[(string, string, Action)] =
+  ## the buttons at the right of a dock's header for a view: (icon, tooltip, action) — new file and refresh for the
+  ## files, commit for git, replace for search, run tests, add or install a plugin, and so on
   case v
   of svFiles: @[(ic("plus"), "New file", Action(proc() = openMenu(treeMenu(nil), mouseX, mouseY + 1))),
                 ("⟳", "Refresh", Action(proc() = refreshTree()))]
@@ -94,6 +100,10 @@ proc drawAssistant(x0, y0, w, h: int)
 proc drawSearchInput(x0, y0, w: int): int
 
 proc drawDock(side: DockSide, x0, y0, w, h: int) =
+  ## draws a side dock: a header row with an icon button for each of the side's views (the git one with its changed-file
+  ## count), the shown view's title and its action buttons and a close button, tinted when the dock has the keyboard;
+  ## below it the view itself (file tree, assistant, TODOs or search with their own top rows, else the list of items).
+  ## Right-clicking the dock opens its menu
   let isRight = side == dsRight
   let v = if isRight: rightView else: sideView
   let focused = focus == (if isRight: fRight else: fTree)
@@ -167,6 +177,8 @@ proc drawSearchInput(x0, y0, w: int): int =
   let focused = focus == fTree and sideView == svSearch
   let bg = theme.inputBg
   proc field(y, idx: int, text: var string, cur: var int, placeholder, icon: string, rightW: int) =
+    ## draws one text box of the search view on row `y` (`idx`: 0 search, 1 replace, 2 files filter): its icon and a
+    ## field that takes the cursor when clicked; the screen cursor goes in it when it is the active one
     let active = focused and dockField == idx
     fillRect(x0 + 1, y, w - 2, 1, theme.fg, bg)
     discard putStr(x0 + 2, y, icon, (if active: theme.accent else: theme.dim), bg)
@@ -223,9 +235,14 @@ proc drawSearchInput(x0, y0, w: int): int =
   y + 1 - y0
 
 proc dockListKey(dl: var DockList, v: SideView, k: Key) =
+  ## the keys of a dock's list: arrows, Page Up/Down, Home and End move the selection, Enter or Right opens the row, Esc
+  ## and q give the keyboard back to the editor (and close a dock on a narrow screen), r refreshes the view; and per
+  ## view single-letter commands — TODOs (f scope, c copy, x done, i issue, 1–9 hide a tag), tests (c coverage), git (s
+  ## stage, u unstage, d diff, x menu action, a stage all, c commit, P push, L pull, l log)
   let n = dl.items.len
   let rows = max(1, scrH - 6)
   proc moveSel(dl: var DockList, d: int) =
+    ## moves the selection `d` rows, clamped to the list, stepping over a heading row (role 6) where it can
     let n = dl.items.len
     if n == 0: return
     var s = clamp(dl.sel + d, 0, n - 1)
@@ -325,6 +342,9 @@ proc treeKey(k: Key)
 proc assistantKey(k: Key)
 
 proc searchViewKey(k: Key) =
+  ## the keys of the search view: Enter runs the search (or opens the selected hit when it has run), Alt+Enter or
+  ## Ctrl+Enter replaces all, arrows move in the results, Tab moves between the boxes, Esc leaves; Alt+C, W, R and H
+  ## toggle case, whole word, regex and the replace box; other keys edit the box that has the focus
   case k.kind
   of kEnter:
     if mAlt in k.mods or mCtrl in k.mods:
@@ -364,6 +384,8 @@ proc searchViewKey(k: Key) =
     else: discard editLine(dockQuery, dockQueryCur, k)
 
 proc sideKey(k: Key) =
+  ## the keys of the left dock: Tab and Shift+Tab switch between its views (unless a text box of the search needs the
+  ## Tab), anything else goes to the view shown — the tree, the search, or a list
   if k.kind == kTab and mCtrl notin k.mods and not (sideView == svSearch and (dockShowReplace or dockShowInclude)):
     let d = if mShift in k.mods: -1 else: 1
     let i = LeftViews.find(sideView)
@@ -375,6 +397,8 @@ proc sideKey(k: Key) =
   else: dockListKey(leftList, sideView, k)
 
 proc rightKey(k: Key) =
+  ## the keys of the right dock: the assistant takes its own, Tab and Shift+Tab switch between the right views, anything
+  ## else moves in the list
   if rightView == svAssistant:
     assistantKey(k)
     return

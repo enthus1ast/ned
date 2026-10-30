@@ -42,6 +42,8 @@ proc dcProbe() =
         elif "ghidra" in o: dcPlugins.incl dcRzGhidra)
 
 proc dcAvailable(): seq[DcTool] =
+  ## the tools installed here, best first: the C decompilers (radare2 with r2ghidra or r2dec, rizin with rz-ghidra,
+  ## RetDec — only when their plugins were found), then the disassemblers (radare2, rizin, objdump, llvm-objdump)
   dcProbe()
   if haveExe("r2"):
     if dcR2Ghidra in dcPlugins: result.add dcR2Ghidra
@@ -54,6 +56,8 @@ proc dcAvailable(): seq[DcTool] =
   if haveExe("llvm-objdump"): result.add dcLlvmObjdump
 
 proc dcChooseTool(): DcTool =
+  ## the tool to use: the one named in the decompiler.tool setting if it is installed, else the first available one,
+  ## else dcNone
   let want = sStr("decompiler.tool")
   let have = dcAvailable()
   if want.len > 0 and want != "auto":
@@ -61,19 +65,26 @@ proc dcChooseTool(): DcTool =
       if DcToolNames[t] == want: return t
   if have.len > 0: have[0] else: dcNone
 
+# whether the tool gives C (a decompiler) rather than assembly
 func dcIsC(t: DcTool): bool = t in {dcR2Ghidra, dcR2Dec, dcRzGhidra, dcRetdec}
 
 proc dcInstallHint(): string =
+  ## what to install to get a decompiler or disassembler, worded for this system (Termux, Windows, macOS, other Linux)
   if getEnv("PREFIX").contains("com.termux"): "pkg install radare2 (or: pkg install binutils, for objdump)"
   elif defined(windows): "radare2 (radare.org) or LLVM's llvm-objdump"
   elif defined(macosx): "brew install radare2 (r2pm -ci r2ghidra: C)"
   else: "radare2 (r2pm -ci r2ghidra: C), rizin, RetDec, or binutils' objdump"
 
 func dcHex(x: int64): string =
+  ## a number as lower-case hexadecimal with `0x` and no leading zeros
   let h = toHex(x).toLowerAscii.strip(trailing = false, chars = {'0'})
   "0x" & (if h.len == 0: "0" else: h)
 
 proc dcCommand(t: DcTool, exe: string, s: BinSymbol): string =
+  ## the shell command that makes tool `t` print the function `s` of the program `exe`: radare2 or rizin run quietly
+  ## without colours, seek to the address, analyse the function and print it (pdg, pdd or pdf); RetDec writes the
+  ## function's C to a temporary file that is then printed and removed; objdump disassembles the address range with
+  ## source lines
   let addrS = dcHex(s.address)
   let stop = dcHex(s.address + max(1, s.size))
   let q = quoteShell(exe)
@@ -110,9 +121,11 @@ proc dcClean(t: DcTool, o: string): string =
   while keep.len > 0 and keep[0].strip.len == 0: keep.delete(0)
   keep.join("\n")
 
+# the language the view is coloured as: C for the decompilers, Assembly for the others
 proc dcLang(t: DcTool): Lang = (if dcIsC(t): langByName("C") else: langByName("Assembly"))
 
 proc dcViewBuf(): Buffer =
+  ## the decompiler view's buffer, or nil when there is none open
   if dcView.bufId > 0: bufById(dcView.bufId) else: nil
 
 proc dcShow(title, text: string, t: DcTool) =
@@ -314,6 +327,8 @@ proc cmdDecompileHex(path = "") =
               " · " & DcToolNames[dcChooseTool()], items)
 
 proc cmdDecompileFile() =
+  ## palette command: asks for the path of a program, then lists its functions to decompile (as cmdDecompileHex does for
+  ## the hex editor's file)
   openPrompt(pPathInput, "A program to decompile (its path)", "")
   gitPromptCb = proc(p: string) =
     let full = absolutePath(expandTilde(p), rootDir)
