@@ -69,7 +69,12 @@ proc parseNimCheck(output, cwd, stdinPath: string): (Table[string, seq[Diag]], T
   for raw in output.splitLines:
     var t = stripAnsi(raw)
     if stdinPath.len > 0 and t.startsWith("stdinfile.nim("): t = stdinPath & t["stdinfile.nim".len .. ^1]
-    let (ok, p, l, c, sev, m) = parseErrLine(t, cwd)
+    var (ok, p, l, c, sev, m) = parseErrLine(t, cwd)
+    if stdinPath.len > 0 and "stdinfile" in m:
+      # (the module read from stdin is "stdinfile" to the compiler: its own name in the message — `for type
+      # demo.Config [type declared in demo.nim(3, 6)]`, not `stdinfile.Config`)
+      let fname = extractFilename(stdinPath)
+      m = m.replace("stdinfile.nim", fname).replace("stdinfile.", fname.changeFileExt("") & ".")
     if ok and sev in {1, 2} and m.len > 0 and m != "Traceback":
       result[0].mgetOrPut(p, @[]).add Diag(line: l, col: c, eline: l, ecol: -1, sev: sev, msg: m, src: "nim")
       lastP = p

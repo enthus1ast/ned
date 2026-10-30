@@ -1,6 +1,208 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-632). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-633). Older releases:
+
+## What's new in 6.32.4
+
+Memory that keeps growing as you edit, open files and go from project to project — looked for everywhere:
+
+- **Opening another folder** left everything kept about the last project's open tabs (the engine's colours, checks,
+  hints … of each) and about the project itself: the words of every file, the compiler's answers, the names macros
+  make, indexes of C headers and stylesheets. They go now (and come back from the disk when that project is opened
+  again).
+- **nedls** kept what it worked out for every file a client ever closed: it lets it go on close, as ned does.
+- Fourteen more things kept per open file, let go when its tab closes (a diff, a merge, a notebook, the engine
+  worker's counts …) — and a check, `tests/memory/bufids.py`, that finds any such table not let go.
+- Things kept by a file's version or a line number made a new entry at every edit: the reference counts, the result
+  types of `auto` routines; the text of every file the typo check looked through, and a plugin's copy of every file
+  it read, piled up — each has a bound now.
+- **The C standard headers' index** is kept on disk: the first check of a C file in a session no longer reads them
+  all (a few hundred million instructions); and the engine's problems among the compiler's are matched by line, not
+  each against each.
+
+The soak test now goes to a second project (with a C file) and back during its session, and closes the tabs now and
+then, as a person would.
+
+## What's new in 6.32.3
+
+- **A member a macro makes was marked as missing.** In the showcase, `cfg.getTitle` — made by
+  `makeGetters(Config, title, size)` — was marked *undeclared field* while its hover showed where it came from. The
+  check ran in the engine worker, which never learnt the names macro calls make; without the worker, it was not made
+  again when they came. The worker is told now, the checks are made again when the names arrive, and until they are
+  known (or when they never are: `nim.macroNames` off, no `nim`, a folder not trusted) a member is not marked.
+- **What the compiler told ned is kept, with what it came from.** An idea from the Nim compiler's new
+  `nimsuggest2`: results kept with exactly what they depend on, and used until one of those changes.
+  - The names macro calls make are kept on disk with the file's text, the files it sees, the macros' files, the
+    defines and the compiler: the next time a file is opened as it was, they are known at once, without the
+    compiler.
+  - What `nim dump` says of a project (its defines, search paths, packages) is kept with the times of the files it
+    read: the engine has it from the first screen instead of a guess until `nim dump` answers.
+  - The compiler's background answers (a type hint the engine cannot work out, the overload a call picks) were kept
+    by the text of their line only: a return type changed in another file left the old hint beside an unchanged
+    line. They are kept by what the file and the modules it imports declare now too.
+- **An edit inside a body no longer makes the modules that import the file gather their names again**: when a file
+  declares the same as before, what the others see of it is kept.
+- **Reference counts** come at once when a project is opened again: the words of its files are kept on disk by
+  each file's time, not read again from every file.
+
+## What's new in 6.32.2
+
+A release of checks, and of what they found. **Every command of the palette** (601 of them) and **every command of
+ned's own plugins** (155, with all 73 plugins on together) was run, each in a ned of its own: none crashed, made an
+internal error or stopped answering. A plugin calling **every request of the plugin API with arguments that make no
+sense**, the remote-control socket and nedls fed broken input, ned built with **AddressSanitizer** under the tests and
+the fuzzer, the fuzzer in **all its modes** for five minutes each, and an hour of editing at random. Fixed on the way:
+
+- **ned no longer grows as you open and close files.** Many parts of ned keep something per open file — the
+  semantic colours, the dimmed code, the engine's checks, inlay hints, the C engine's parse — and a closed file's
+  was never let go: opening and closing a big file grew ned by a megabyte or two each time, and 25 minutes of
+  editing at random took it to 229 MB. A closed tab now takes all of it with it, in ned and in its engine worker: the
+  same 25 minutes end at 76 MB.
+- **Typing in a big C file** was slow (14 ms a key, and one key in twenty 88 ms, in 50 000 lines with a warning every
+  ten): marking the uses of the name under the cursor read the whole file again at every key — it waits for a pause
+  in the typing now — and every frame looked through all the file's problems for each line it drew. Now about 3.5 ms a
+  key, one in twenty 7 ms.
+- **Opening a big Nim file** is faster — the first screen of a 50 000-line file shows in under 30 ms, not 70 to 90:
+  the code a `when` leaves out is dimmed just after it, not before it.
+- **Control characters** U+0080–U+009F in a file, a program's output or an AI's answer are drawn as �, as ESC and
+  BEL already were (␛ ␇): some terminals obey them as escape sequences.
+- A plugin request with arguments that are not an object made an internal error and left the plugin waiting; it is
+  read as having none now. A message of any length (a plugin's, a script's) is cut at 4 000 bytes: a 2 MB one slowed
+  ned down.
+- The Nim menu's *Nimble › add dependency…* was always greyed out: it named a command that does not exist. A new
+  check (`tests/docs/names.py`) finds every command and setting named anywhere — the menus, the key maps, ned's
+  plugins, the docs — that does not exist, or by an old name. Emacs's `C-x 1` closed the pane you were in rather
+  than the others.
+
+## What's new in 6.32.1
+
+The four things left open in 6.32:
+
+- **Typing in a very big Nim file is quick again.** ned read the whole file again at every key, to dim the code a
+  `when` leaves out: in a file of 50 000 lines a key took 45 ms to show. Now that waits for a pause in the typing,
+  as the semantic colours do, and a key takes about 1.5 ms there.
+- **The formatter lays out a long `return @[…]`** as nph does — `return`, then the list on the next line — instead
+  of refusing the whole file.
+- **Nothing in the sandbox can tell ned what to do.** ned's remote-control socket, and the socket of a terminal kept
+  running, could be reached by a plugin in the sandbox (Landlock does not limit that) — and through them, a plugin
+  could run any command or type into your shell. Each now answers only a program that sends its key, kept in a
+  file in ned's private folder that the sandbox cannot read.
+- **A plugin you allowed to run programs runs in a process of its own**, so the other plugins stay in the sandbox
+  (before, it took them all out of it with it).
+
+## What's new in 6.32
+
+6.32 is about seeing what Nim does: **macros written out under their calls**, **where an exception or a side effect
+comes from**, **more errors before the compiler** and **references you can trust**, with **bigger refactorings** and
+**a Nim tour** that runs in the notebook. Panes get **their own tabs**, a **terminal or the assistant as a pane** and
+**named layouts**; nedls reaches **Neovim, Helix and Zed**; plugins run in a **sandbox** and releases are **checked
+before they are installed**.
+
+**Macros you can see.** Alt+M on a macro or template call shows what it writes right under the call, coloured as
+Nim — not part of the file: nothing is saved and the line numbers stay. A template is written out at once by ned's
+engine, a macro by the compiler. In it, a name hovers with its documentation and a click (a tap) goes to where it is
+declared; an error the compiler reports on the call is shown on the generated line it is about. The expansion follows
+its call when lines come and go above it and is written again when the call changes; Alt+M again, or a tap on its
+heading, hides it. *Nim: expand macro/template in a tab* keeps the old way. [Expansion](docs/guide/nim.md).
+
+**Why?** Tap a routine's exception hint — or *Nim: why?* — and ned shows where an exception comes from: the call in
+the routine that raises it, the call in that one, … down to the `raise` (or a routine's own `{.raises.}`); each step
+a row that goes there. For a routine that cannot be a func, the same down to the global it uses or the routine that
+has side effects. On the compiler's *can raise an unlisted exception* and *can have side effects*, Alt+Enter offers
+it.
+
+**More errors before the compiler.** ned's engine says, as you type and in `ned --lint`: an assignment to a `let`, a
+`const`, a loop's variable or a parameter that is not `var`; a literal of the wrong type given to a variable, to
+`result` or by `return`; a member an object of the project does not have — in the compiler's words, checked on its
+compiler and standard library to say nothing the compiler would not.
+
+**Bigger refactorings, and references you can trust.** Each refactoring is a diff before anything changes, undone
+file by file with Ctrl+Z: *object ⇄ ref object* (constructors stay, `var x: T` and `result` get a `T()` where they
+relied on a value; `==`, shared copies, nil fields and nil checks listed), *split the selected declarations into a
+new module* (imports both ways, what the old module still uses exported, what it exported exported again),
+*callback → async* (`Future[T]`, `let r = await f(…)` in async callers, the rest listed), *switch call syntax*
+(`f(x, y)` · `x.f(y)` · `f x, y`, at the cursor or for a selection, only where the meaning stays). **Find
+references** now finds what nimsuggest finds on every place of the scoreboard's sample (95.6% before) and on 99% of
+870 more: `0..s.len`, a tuple's labels, a variable in its own value, `high(int64)` and `int.high`, a declaration
+below its use, command calls, forward declarations, a `let` in a condition, a module's own type over an imported
+one, pragma names, `when` over several lines or decided by `(NimMajor, NimMinor)`. (The comparison now also leaves
+out what nimsuggest itself does not resolve — `quote do:` bodies, implicitly generic routines; counted the old way,
+97.8%.)
+
+**A package installed while ned runs is found.** (Foxoman's bug: "cannot open file", found after a save, lost after
+the next.) ned now watches nimble's package folders and the files that put packages on the path; when they change,
+its engine reads them again, nimsuggest and nimlangserver start again (they read them only when they start), and the
+open Nim files are checked again — no save needed. nedls too.
+
+**The Nim tour.** Sixteen short lessons of Nim that run in the notebook, from the first `echo` through types,
+procedures, iterators, objects and references, generics, errors, templates and macros, async and the standard
+library, to ARC/ORC with `sink` and `lent`, and calling C. Ctrl+Enter runs a cell and shows what it printed under it.
+Each lesson ends with an exercise whose check says ✓ when your code works, and its answer is folded away beneath.
+The lessons are built into ned, so the tour needs no files and no network, only Nim and a C compiler. Each lesson
+opens as your own copy, and ned remembers where you were and which lessons you finished. *Help › Nim tour*. A
+notebook can now also say how it runs: `# notebook: compiled` above its first cell. [The Nim tour](docs/guide/tour.md).
+
+**Panes, each with its own tabs.** With several panes, a pane's files are tabs in its header: a tap shows one there,
+Ctrl+PgUp/PgDn go through that pane's tabs, × takes one out of the pane. **Named layouts**: *View: save this layout
+as…*, *View: layouts…* puts it back with its files. **A terminal or the assistant as a pane**: *View: terminal in a
+pane* (a shell of its own beside the code), *View: assistant in a pane*, *View: panel in a pane* (Problems,
+Output, the debugger beside the code). [Panes](docs/guide/projects.md#panes-tiling).
+
+**Smaller things in the editor.** A breadcrumb tapped lists what is beside it — a folder's files, a symbol's
+neighbours. The minimap marks what the find box finds and git's changes. In a Nim file the touch bar adds ▶ run, ✓
+check, μ macro, ? why and ⚡ fixes (`ui.touchBarLanguageKeys`), and with the touch bar shown lists have rows twice as
+tall (`ui.bigTargets`). **Battery saver** (`ui.batterySaver`, on by itself on battery): no cursor glide, the compiler
+on save rather than while typing, no AI completion as you type, fewer wake-ups — a leaf ❦ in the status bar.
+**Themes** for phones and tablets outdoors and for e-ink screens: `sunlight`, `sunlight-warm`, `sunlight-blue`,
+`e-ink`, `e-ink-dark` (black and white only — every shade ned would mix is drawn as one or the other). **Zed and
+Helix themes imported**: *Theme: import a Zed or Helix theme…* (or `ned --import-theme FILE…`) makes a Zed theme
+family `.json` or a Helix `.toml` — with its palette and the theme it inherits — into themes of your own: what the
+theme leaves out comes from the nearest built-in theme, and a colour too faint to read is made readable, its hue
+kept.
+
+**Formatter.** **Closer to nph**: 99.7% of the lines of Nim's compiler and standard library come out as nph writes
+them (360 of 463 files identical), with nph's empty lines in type sections and before a section's commented member,
+`x = block:`, `typeof(for …)` and `collect(for …)` as blocks, a `while` with a long condition, and comment blocks at
+their statement's level. **Code in strings**: the SQL, HTML and JSON in a Nim file's triple-quoted strings is
+formatted with the file (`nim.format.embedded`). **Indentation as you type**: in Nim a closing bracket and
+`of`/`elif`/`else`/`except`/`finally` go back to where they belong (`editor.autoDedent`). **Format only what I
+changed** now works in files git does not have (since you opened them), and gives black, ruff and clang-format the
+changed lines themselves.
+
+**nedls in more editors, and the whole project's problems.** Set-ups for **Neovim** (`editors/nvim`: `lsp/nedls.lua`
+for Neovim 0.11's `vim.lsp.enable('nedls')`, or `require('nedls').setup()`), **Helix** (`editors/helix/languages.toml`)
+and **Zed** (`editors/zed`: an extension that starts nedls beside the Nim extension), each with a README that says how
+to install it. An editor that asks for problems (pull diagnostics) gets the whole workspace's: ned's own checks, as
+`ned --lint` makes them, go over the project's files that are not open while nedls is idle, and the editor hears when
+they change (`workspaceDiagnostics`) — the VS Code extension asks for them, so its Problems panel lists the
+project's errors and warnings. Colours come as the edits since the last answer (semantic token deltas), not the whole
+file again. Workspace symbols answer at once, from a table nedls keeps up to date as files change: the project's
+names first, the names its imports export for a longer query, a name's word starts (`nsv` finds `newShapeValue`), and
+`Shape.wid` for a type's fields. And text typed on the last, empty line of a file no longer joins the line above in
+nedls's copy. [nedls in other editors](docs/guide/nim.md#nedls-neds-engine-in-other-editors).
+
+**Safety.** Releases carry SHA256SUMS and a signature, and `ned --update` and install.sh check them before
+installing (`ned --update --verify DIR` for a download). What goes to the AI has its secrets replaced with
+placeholders — keys, tokens, passwords in URLs, private keys — and files of secrets (`.env`, key files) are not sent
+(`ai.redactSecrets`). On Linux, plugins run in a Landlock sandbox (`plugins.sandbox`): they read the project and what
+they need, change files only in their data folder and the project, and have no network unless you allowed it; `ned
+--sandbox CMD` runs any command that way. [Safety](docs/guide/safety.md).
+
+**Fifteen new plugins of ned's own** (Plugins dock › AVAILABLE): for Nim, **benchy** (benchmarks run, shown in a
+table, compared with the last run), **web-routes** (a Jester or Prologue app's routes, each a tap from its handler),
+**examples-to-tests** (a routine's runnableExamples made a test file), **nimble-browser** (nimble's packages searched,
+a README read, installed, required) and **nim-playground** (the selection shared on play.nim-lang.org or run there);
+**containers** (Docker or Podman: containers, images, logs, start, stop), **github** (pull requests and issues through
+gh), **kanban** (a board from TODO.md, a card moved by editing the file), **wiki-notes** (Markdown notes with
+[[links]], their backlinks); and the languages **Typst, Kotlin, Fortran, Pascal, Ada** and **V** — colours,
+indentation, F5, snippets, an outline, their language servers, formatters and compiler checks when they are
+installed. [ned's own plugins](docs/plugins/available.md). **Plugins under any licence**: the plugin library comes
+with the [ned Plugin Exception](PLUGIN-EXCEPTION.md) — a plugin that imports it can be conveyed under terms of your
+choice; ned itself stays GPL-3.0-or-later.
+
+**Termux.** The package reads Nim's standard library into ned's index when it is installed (`ned --warm-index`), so
+the first session's completion and hover start at once. The debugger shows Nim strings, seqs and tables readably
+even when the Nim in use came without its gdb pretty printers (ned keeps a copy).
 
 ## What's new in 6.31
 

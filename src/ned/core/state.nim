@@ -92,7 +92,7 @@ var
   ghAccount = ""                                      # who the GitHub CLI is signed in as ("" not known)
   cSigHintsAt: Table[int, (int, int, int)]           # buffer id → (changeId, first, last line) they were made for
   cfgPasteFmt = "indent"       # editor.formatOnPaste: indent | format | off
-  cfgNimCompiler = "nim"       # nim | nimony
+  cfgNimCompiler = "auto"      # auto | nim | nimony
   # nimsuggest pool, tools, side panel
   nimSugs: seq[NimSug]
   exeCache = initTable[string, string]()
@@ -340,13 +340,13 @@ var
   clipParts: seq[string]
   fileCache: seq[string]
   fileCacheValid = false
-  diagsLsp = initTable[string, seq[Diag]]()
-  diagsBuild = initTable[string, seq[Diag]]()
-  diagsTest = initTable[string, seq[Diag]]()    # failed checks of tests run on save
-  diagsFfi = initTable[string, seq[Diag]]()     # importc wrappers that do not fit their C header
-  diagsEmit = initTable[string, seq[Diag]]()    # clangd's problems in the C a Nim file emits
-  diagsWeb = initTable[string, seq[Diag]]()     # ned's own CSS, HTML and SQL checks (web.engine)
-  diagsExt = initTable[string, seq[Diag]]()     # what a script sent (ned --remote-problems): kept until it sends again
+  diagsLsp = initDiagTable()
+  diagsBuild = initDiagTable()
+  diagsTest = initDiagTable()    # failed checks of tests run on save
+  diagsFfi = initDiagTable()     # importc wrappers that do not fit their C header
+  diagsEmit = initDiagTable()    # clangd's problems in the C a Nim file emits
+  diagsWeb = initDiagTable()     # ned's own CSS, HTML and SQL checks (web.engine)
+  diagsExt = initDiagTable()     # what a script sent (ned --remote-problems): kept until it sends again
   shadowNim = initTable[string, string]()       # the hidden C document of a Nim file's emits → the Nim file
   diagsByShadow = initTable[string, seq[Diag]]()  # a hidden document → its problems, on the Nim file's lines
   shadowLangName = initTable[string, string]()  # a hidden document → its language's name (the messages' prefix)

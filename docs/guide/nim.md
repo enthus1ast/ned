@@ -189,7 +189,7 @@ compiler, standard library and 19 packages that could be checked was made a func
 **Library names newer than your Nim** (`nim.minVersion`; empty: what the .nimble asks for). With `requires "nim >=
 1.6.0"`, a standard-library name or module that Nim 1.6 does not have is marked: *'minmax' is not in Nim 1.6.20 or
 older (Nim 2.0.0 has it)*, *module paths is not in Nim 1.6.20 or older*. It knows from a name's `{.since.}` and
-from a table of what each release from 1.0 to 2.2.12 added (`.github/ci/nimapis.py` makes it from the releases'
+from a table of what each release from 1.0 to 2.4.0 added (`.github/ci/nimapis.py` makes it from the releases'
 libraries). Code inside a `when` that asks which Nim this is — `NimMajor`, `NimVersion`, `declared(…)`,
 `compiles(…)` — is left alone. `"off"` turns it off.
 
@@ -420,6 +420,21 @@ nedls trusts the folder it is given (it runs `nim dump` and `nim check`, which r
 editors ask about trusting a workspace themselves. `nimble lsptest` drives it with a test client (every feature,
 and 2000 random edits that must not put it out of step).
 
+## Nim 2.4
+
+What Nim 2.4 added to the language is read as the rest:
+
+- **Sum types**: an `object` whose `case` has no field before `of` (`case` alone). Each branch's name is a
+  constructor — completion, hover and Go to definition know `Leaf(3)` makes a `Node`, with its fields as
+  parameters — and in `case n of Leaf(v): …` and `of Pair(a, b): …` the names bound are locals with the branch's
+  field types.
+- **The new operators** `⟑ ⟇ ⩓ ⩔ ■ □ ☆` are operators for the formatter (spaced as the others) and the engine
+  (a ``proc `⩓`(a, b: Set): Set`` is in the Outline, completion and hover).
+- `import b {.cyclic.}` is an import like any other: b's names are seen.
+- A message about code given on standard input (`--stdinfile`) shows the file's own name.
+- The standard library names Nim 2.4 added are known for `nim.minVersion` (*'readRawData' is not in Nim 2.2.12 or
+  older*).
+
 ## One Nim per project
 
 `nim.toolchain` (Nim settings; best in the project's `.ned/settings.json`, or *Nim: choose the Nim for this
@@ -495,8 +510,25 @@ is written, not committed: read it, then commit and push.
 
 ## Nim 3 (Nimony)
 
-A project is Nim 3 when you say so (*Nim › Nim 3 (Nimony) › This project is Nim 3*, kept in its
-`.ned/settings.json` as `"nim.compiler": "nimony"`) and `nimony` is on PATH. Then:
+**Which Nim a project is.** `nim.compiler` decides. `auto`, the default: a project is Nim 3 when its folder, or
+one up to three above it, has `nimony.args`, `nimony.paths` or `pnak.nif` (the files a Nimony project has) and
+nimony is installed; otherwise Nim 2. `nim` and `nimony` say it outright (*Nim › Nim 3 (Nimony) › This project is
+Nim 3* writes `"nim.compiler": "nimony"` to the project's `.ned/settings.json`; *Nim 3: decide from the project
+(auto)* goes back). The status bar says which: `Nim 3` or the Nim 2 version (`✓ Nim 2.4.0`), and *nimony (not
+found)* when the project asks for Nim 3 and there is no nimony.
+
+**Installing nimony.** *Nim 3: install or update nimony* (Nim › Nim 3 (Nimony)) clones Nimony into
+`~/.local/nimony` — or brings it up to date there — and builds it with its own builder, in the Run panel: a few
+minutes; it needs git and a Nim 2 (in Termux: `pkg install git nim`). ned looks for nimony on PATH and then in
+`~/.local/nimony/bin`, `~/nimony/bin` and `~/src/nimony/bin`, so nothing has to be added to PATH. By hand it is the
+same: `git clone https://github.com/nim-lang/nimony && cd nimony && nim c -r src/hastur/hastur build all`.
+
+**What changes between the two.** With Nim 2, `nim check` checks the file and Alt+R/F5 run it with `nim`; the
+engine reads Nim 2's standard library. With Nim 3, nimony does both and the engine reads Nimony's library; the
+rest is below. Everything else — completion, hover, Go to definition, rename, the type hints, the lint — is the
+same engine for both, and works without either compiler running.
+
+With Nim 3:
 
 - nimony checks the file on save and as you type, and runs it (F5); F12 and *Find references* ask nimony
   (`--def`, `--usages`) where ned's engine cannot tell which symbol a name is — when nimony stops on an error of
@@ -523,6 +555,11 @@ A project is Nim 3 when you say so (*Nim › Nim 3 (Nimony) › This project is 
   — F12 goes there, or, on a symbol, to where the NIF declares it. *Nim 3: the NIF of this file beside it* opens
   what nimony made of the file (it checks the file first when there is none yet); each side follows the cursor
   in the other.
+- **Colours from what nimony read**: once nimony has checked a saved file, its names take the colour of what they
+  are in nimony's reading — a routine, a type, a field, an enum value, a constant, a variable, a parameter —
+  including names a macro or a template made, which reading alone cannot know. The colours apply while the file
+  is as nimony saw it; after an edit the usual colours are back until the next check. (Nim 2.4 keeps what it
+  compiled in a binary form that ned does not read, so this is for Nim 3.)
 - **pnak**, Nim 3's package tool: *Nim 3: pnak fetch* checks out the packages the `.nimble` (or `pnak.nif`) asks
   for in `deps/` and writes `nimony.paths`; *Nim 3: pnak pin* writes `pnak.nif`, the lockfile: every package,
   the ones the project needs and theirs, at its commit. In `pnak.nif` the Outline lists the packages, hover says

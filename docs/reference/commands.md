@@ -262,6 +262,8 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | New file at path… |  |
 | New folder… |  |
 | Next problem | Alt+N / F8 |
+| Nim 3: decide from the project (auto) | Nim 3 when the project has nimony.args, nimony.paths or pnak.nif |
+| Nim 3: install or update nimony | clones github.com/nim-lang/nimony into ~/.local/nimony (or updates it) and builds it there |
 | Nim 3: pnak fetch (the project's packages, in deps/) | pnak checks out the packages the .nimble (or pnak.nif) asks for and writes nimony.paths |
 | Nim 3: pnak pin (write pnak.nif) | every package the project needs, theirs too, at the commit in use: a lockfile |
 | Nim 3: port this file with AI |  |

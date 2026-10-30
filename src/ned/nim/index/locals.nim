@@ -515,6 +515,28 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
           result.add NxSym(name: "result", kind: nxResult, typ: s.ret, line: l)
           scopes.add ind + 1
         break
+    elif w0 == "of" and '(' in t and not wasOpen:
+      # a sum type's branch matched in a `case` (Nim 2.4, Nimony): `of AddOpr(a, b): …` names the branch's fields,
+      # in their order, for its body
+      let po = t.find('(')
+      let nm = t[2 ..< po].strip
+      let pc = nxMatchClose(t, po)
+      if nm.len > 0 and nm.allCharsInSet(IdentChars) and pc > po:
+        var ctor = -1
+        let rs = nxLookup(nxScope(f), nm)
+        for ri2, r in rs:
+          if r.sym.kind == nxProc and r.sym.made and r.sym.ret.len > 0 and r.sym.ret == r.sym.owner:
+            ctor = ri2
+            break
+        if ctor >= 0:
+          let colon = nxFindTop(t, ':', pc + 1)
+          for vi, p in nxSplitTop(t[po + 1 ..< pc], {','}):
+            let (vn, _) = nxName(p.strip, 0)
+            if vn.len == 0 or vn == "_": continue
+            let params = rs[ctor].sym.params
+            result.add NxSym(name: vn, kind: nxForVar, typ: (if vi < params.len: params[vi].typ else: ""), line: l,
+                             col: nxWordCol(raw, vn), slots: 1,
+                             endLine: (if colon > 0 and colon < t.high: ind + colon + 1 else: -1))
     elif w0 == "except" and " as " in t:
       let k = t.find(" as ")
       let (nm, _) = nxName(t, k + 4)

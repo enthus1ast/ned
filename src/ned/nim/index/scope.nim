@@ -5,10 +5,26 @@ type
     file*: NxFile
     idx*: int32                # (16 bytes a reference: a scope holds thousands)
     origin*: int8              # 1 this module · 2 an import · 3 system
-  NxScope* = ref object
+  NxLayer* = ref object
+    ## what system, or one import, brings into a scope — the module's exported names, following its exports: made
+    ## once and shared by every scope that imports the same (each scope had its own copy of them all, sorted again:
+    ## a hundred thousand names for each file of a big program)
     refs*: seq[NxRef]
-    byHash*: seq[(uint32, int32)]          # (hash of the normalized name, index into refs), sorted: one block of
-                                           # memory where a table of names would be thousands of strings
+    byHash: seq[(uint32, int32)]           # (hash, index into refs), sorted
+    bloom: array[64, uint64]               # (the hashes it has, 4096 bits: a lookup passes most layers by)
+    deps: seq[(string, string)]            # every file its names come from, with the stamp they were read at
+    paths: HashSet[string]
+    key: string
+    used: int
+  NxRefs* = object
+    ## a scope's names: its own (and those of the files it includes), then each layer's, in that order — read as
+    ## one list (`for r in sc.refs`, `sc.refs.len`, `sc.refs[i]`)
+    own*: seq[NxRef]
+    layers*: seq[NxLayer]
+  NxScope* = ref object
+    refs*: NxRefs
+    byHash*: seq[(uint32, int32)]          # (hash of the normalized name, index into refs.own), sorted: one block
+                                           # of memory where a table of names would be thousands of strings
     modules*: Table[string, string]        # module name or alias → path
     stamp*: string
     ikey*: string                          # what it depends on besides its own text (the toolchain, its imports)
@@ -24,9 +40,30 @@ type
     plain*: HashSet[string]                # types as written that are no union (nxUnionAlts asked again and again)
     compat*: Table[string, int8]           # (parameter type, generics, argument type) → nxCompat's answer
 
+func len*(r: NxRefs): int =
+  result = r.own.len
+  for l in r.layers: result += l.refs.len
+
+iterator items*(r: NxRefs): NxRef =
+  for x in r.own: yield x
+  for l in r.layers:
+    for x in l.refs: yield x
+
+proc `[]`*(r: NxRefs, i: int): NxRef =
+  if i < r.own.len: return r.own[i]
+  var k = i - r.own.len
+  for l in r.layers:
+    if k < l.refs.len: return l.refs[k]
+    k -= l.refs.len
+  raise newException(IndexDefect, "index " & $i & " not in the scope's " & $r.len & " names")
+
+proc add*(r: var NxRefs, x: NxRef) {.inline.} = r.own.add x
+
 var
   nxFiles* = initTable[string, NxFile]()          # path → parsed file
   nxScopes* = initTable[string, NxScope]()        # path → what that file sees
+  nxLayers: Table[string, NxLayer]                # what system and imports bring, shared: key → layer
+  nxLayerTick = 0
   nxLibDir* = ""
   nxSearchPaths*: seq[string]                     # the compiler's search paths (stdlib dirs, --path, …)
   nxPkgDirs*: seq[string]                         # newest version of every installed nimble package
@@ -90,15 +127,17 @@ func nxNameHash*(s: string): uint32 =
       if s[i] != '_': mix(toLowerAscii(s[i]))
   h
 
-const NxStatFreshMs = 50                # (a file's stamp, read again after this: one question stats each file once)
+const NxStatFreshMs = 1000              # (a file's stamp on disk, read again after this — an open file's comes from its
+                                       # tab, and ned's own saves forget it at once: typing in a big program stat'ed
+                                       # every file it imports at every key, slow on Android's shared storage)
 var
   nxStatMemo* = false                  # ned --lint: nothing changes the files while it runs — each one stat'ed once
   nxStatSeen: Table[string, (string, MonoTime)]
 
 proc nxStamp*(path: string): string =
   ## a file's modification time and size ("" not there). A question to the engine asks for the same files many times
-  ## (each scope it looks through checks what it read): a stamp read in the last 50 ms is taken as it is — on
-  ## Android's shared storage a stat is slow
+  ## (each scope it looks through checks what it read): a stamp read in the last second is taken as it is —
+  ## on Android's shared storage a stat is slow (a file ned writes, or a client says changed, is read again at once)
   let now = getMonoTime()
   nxStatSeen.withValue(path, v):
     if nxStatMemo or (now - v[][1]).inMilliseconds < NxStatFreshMs: return v[][0]
@@ -213,6 +252,7 @@ proc nxForgetFiles*() =
   ## every parsed file read again when next asked for (the defines changed: what `when` decides)
   inc nxScopeEpoch
   nxFiles.clear()
+  nxLayers.clear()
   nxFileBytes.clear()
   nxFileUsed.clear()
   nxFilesBytes = 0
@@ -443,6 +483,7 @@ proc nxSetToolchain*(libDir: string, searchPaths, lazyPaths: seq[string], extraP
   nxModCache.clear()
   nxResolveMemo.clear()
   nxScopes.clear()
+  nxLayers.clear()
   inc nxGen
   inc nxScopeEpoch
 
@@ -963,14 +1004,93 @@ proc nxSortByHash*(a: var seq[(uint32, int32)]) =
     swap(a, tmp)
 
 proc nxIndexNames(sc: NxScope) =
-  ## the scope's names, by hash, sorted (nxLookup)
-  sc.byHash.setLen(sc.refs.len)
-  for i in 0 ..< sc.refs.len:
-    sc.byHash[i] = (nxNameHash(sc.refs[i].file.syms[sc.refs[i].idx].name), int32(i))
+  ## the scope's own names, by hash, sorted (nxLookup; the layers have theirs)
+  sc.byHash.setLen(sc.refs.own.len)
+  for i in 0 ..< sc.refs.own.len:
+    sc.byHash[i] = (nxNameHash(sc.refs.own[i].file.syms[sc.refs.own[i].idx].name), int32(i))
   nxSortByHash(sc.byHash)
 
+# ── layers: what system and each import bring, made once and shared by the scopes that see the same ──
+
+
+proc nxDefinesKey(): string
+
+func nxBloomHas(l: NxLayer, h: uint32): bool {.inline.} =
+  let bit = int(h and 4095)
+  (l.bloom[bit shr 6] and (1'u64 shl (bit and 63))) != 0
+
+proc nxLayerOf(refs: sink seq[NxRef]): NxLayer =
+  ## a layer of these names (in this order), sorted by hash, with the files they come from
+  result = NxLayer(refs: refs)
+  result.byHash.setLen(result.refs.len)
+  var lastF: NxFile = nil
+  for i in 0 ..< result.refs.len:
+    let r = result.refs[i]
+    let h = nxNameHash(r.file.syms[r.idx].name)
+    result.byHash[i] = (h, int32(i))
+    let bit = int(h and 4095)
+    result.bloom[bit shr 6] = result.bloom[bit shr 6] or (1'u64 shl (bit and 63))
+    if r.file != lastF:
+      lastF = r.file
+      if r.file.path notin result.paths:
+        result.paths.incl r.file.path
+        result.deps.add (r.file.path, r.file.stamp)
+  nxSortByHash(result.byHash)
+
+proc nxLayerFresh(l: NxLayer): bool =
+  for (p, st) in l.deps:
+    if nxCurStamp(p) != st: return false
+  true
+
+proc nxLayerTrim() =
+  ## the layers no scope uses, beyond a quarter of nim.indexMemory: the ones used least recently go
+  var used: HashSet[pointer]
+  for _, sc in nxScopes:
+    for l in sc.refs.layers: used.incl cast[pointer](l)
+  var total = 0
+  for _, l in nxLayers: total += l.refs.len
+  while nxLayers.len > 0 and (nxLayers.len > 400 or
+        (nxIndexBudget > 0 and total * (sizeof(NxRef) + 8) > nxIndexBudget div 4)):
+    var oldest = ""
+    var t = high(int)
+    for k, l in nxLayers:
+      if cast[pointer](l) notin used and l.used < t:
+        t = l.used
+        oldest = k
+    if oldest.len == 0: break
+    total -= nxLayers[oldest].refs.len
+    nxLayers.del oldest
+
+proc nxLayerForget(paths: HashSet[string]) =
+  ## the layers with names of these files go (their names changed, or the files were dropped)
+  var dead: seq[string]
+  for k, l in nxLayers:
+    for p in paths:
+      if p in l.paths:
+        dead.add k
+        break
+  for k in dead: nxLayers.del k
+
+proc nxLayerKey(key0: string): string =
+  key0 & "|" & $nxGen & "|" & nxLibDir & "|" & nxDefinesKey()
+
+proc nxLayerCached(key0, owner: string): NxLayer =
+  ## the layer kept under key0, when no file it read changed since and it holds nothing of `owner` (nil: make it)
+  nxLayers.withValue(nxLayerKey(key0), l):
+    if owner notin l[].paths and nxLayerFresh(l[]):
+      inc nxLayerTick
+      l[].used = nxLayerTick
+      return l[]
+  nil
+
+proc nxLayerKeep(key0: string, l: NxLayer) =
+  l.key = nxLayerKey(key0)
+  inc nxLayerTick
+  l.used = nxLayerTick
+  nxLayers[l.key] = l
+
 var
-  nxScopeMax* = 48                     # scopes kept: the files asked about most recently (each holds thousands of
+  nxScopeMax* = 96                     # scopes kept: the files asked about most recently (each holds thousands of
                                        # refs; a check of one proc walks a dozen library modules: fewer and an edit
                                        # made them all again) — and no more than a quarter of nim.indexMemory
   nxScopeUsed: Table[string, int]      # path → when its scope was asked for last (nxTick)
@@ -981,7 +1101,11 @@ proc nxKeepScope(path: string, sc: NxScope) =
   nxScopeUsed[path] = nxTick
   nxScopes[path] = sc
   var refs = 0
-  for _, x in nxScopes: refs += x.refs.len
+  var counted: HashSet[pointer]
+  for _, x in nxScopes:
+    refs += x.refs.own.len
+    for l in x.refs.layers:
+      if not counted.containsOrIncl(cast[pointer](l)): refs += l.refs.len
   while nxScopes.len > nxScopeMax or
         (nxScopes.len > 12 and nxIndexBudget > 0 and refs * (sizeof(NxRef) + 8) > nxIndexBudget div 4):
     var oldest = ""
@@ -992,9 +1116,10 @@ proc nxKeepScope(path: string, sc: NxScope) =
         t = u
         oldest = p
     if oldest.len == 0: break
-    refs -= nxScopes[oldest].refs.len
+    refs -= nxScopes[oldest].refs.own.len
     nxScopes.del oldest
     nxScopeUsed.del oldest
+  nxLayerTrim()
 
 proc nxForgetScopesOf*(path: string) =
   ## the names of `path` changed without its text changing (what its macro calls make): the scopes that see it go
@@ -1016,6 +1141,7 @@ proc nxForgetScopesOf*(path: string) =
   for k in dead:
     nxScopes.del k
     nxScopeUsed.del k
+  nxLayerForget([path].toHashSet)
 
 func skey(f: NxFile): string {.inline.} =
   ## the key a file's scope is kept under (its path; the file as a left-out `when` branch sees it: its own)
@@ -1034,22 +1160,25 @@ proc nxPatchScope(old: NxScope, path: string, g: NxFile): NxScope =
   ## the new ones put in their place, the rest kept — no gathering and sorting a hundred thousand names again for a
   ## keystroke in one include file of a big program (ned's own source has 290). nil when the file's names are not
   ## one block of names the module took all of
+  for l in old.refs.layers:
+    if path in l.paths: return nil                  # (an import's: its layer is made again)
   var a, e = -1
-  for i, r in old.refs:
+  for i, r in old.refs.own:
     if r.file.path == path:
       if e >= 0 or r.origin != 1: return nil        # (a second block, or names it took only some of)
       if a < 0: a = i
     elif a >= 0 and e < 0: e = i
   if a < 0: return nil
-  if e < 0: e = old.refs.len
+  if e < 0: e = old.refs.own.len
   let n = g.syms.len
   let delta = n - (e - a)
   result = NxScope(stamp: old.stamp, ikey: old.ikey, own: old.own, modules: old.modules, deps: old.deps)
-  if nxSameTypes(old.refs[a].file, g): result.memo = old.memo     # (an edit in a routine's body: types as they were)
-  result.refs = newSeqOfCap[NxRef](old.refs.len + delta)
-  for i in 0 ..< a: result.refs.add old.refs[i]
-  for i in 0 ..< n: result.refs.add NxRef(file: g, idx: int32(i), origin: 1)
-  for i in e ..< old.refs.len: result.refs.add old.refs[i]
+  if nxSameTypes(old.refs.own[a].file, g): result.memo = old.memo   # (an edit in a routine's body: types as they were)
+  result.refs.layers = old.refs.layers
+  result.refs.own = newSeqOfCap[NxRef](old.refs.own.len + delta)
+  for i in 0 ..< a: result.refs.own.add old.refs.own[i]
+  for i in 0 ..< n: result.refs.own.add NxRef(file: g, idx: int32(i), origin: 1)
+  for i in e ..< old.refs.own.len: result.refs.own.add old.refs.own[i]
   var fresh = newSeq[(uint32, int32)](n)
   for i in 0 ..< n: fresh[i] = (nxNameHash(g.syms[i].name), int32(a + i))
   fresh.sort(proc(x, y: (uint32, int32)): int = cmp(x[0], y[0]))
@@ -1095,18 +1224,36 @@ proc nxRepointScope(old: NxScope, path: string, g: NxFile): NxScope =
   ## body): its names pointed at the new version, nothing gathered or sorted again — nil when the declarations
   ## changed. (Every module importing one that was edited made its whole scope again: in a big program, a hundred
   ## thousand names for each of them)
+  for l in old.refs.layers:
+    if path in l.paths: return nil                  # (an import's: its layer is made again, once for all)
   var was: NxFile = nil
-  for r in old.refs:
+  for r in old.refs.own:
     if r.file.path == path:
       was = r.file
       break
   if was == nil or was == g or not nxSameDecls(was, g): return nil
   result = NxScope(stamp: old.stamp, ikey: old.ikey, own: old.own, modules: old.modules, deps: old.deps,
                    byHash: old.byHash, refs: old.refs, memo: old.memo)
-  for r in result.refs.mitems:
+  for r in result.refs.own.mitems:
     if r.file == was: r.file = g
   for d in result.deps.mitems:
     if d[0] == path: d[1] = g.stamp
+
+proc nxScopeDeps(sc: NxScope, f: NxFile) =
+  ## the files whose names the scope holds, but f's own (its own names and its layers'), with their stamps
+  var seenP: HashSet[string]
+  var lastF: NxFile = nil                    # (a file's names come together: its path hashed once, not per name)
+  for r in sc.refs.own:
+    if r.file == lastF: continue
+    lastF = r.file
+    if r.file != f and r.file.path notin seenP:
+      seenP.incl r.file.path
+      sc.deps.add (r.file.path, r.file.stamp)
+  for l in sc.refs.layers:
+    for (p, st) in l.deps:
+      if p != f.path and p notin seenP:
+        seenP.incl p
+        sc.deps.add (p, st)
 
 proc nxIncludedScope*(f, host: NxFile): NxScope =
   ## what a file that another one includes can see: everything its includer sees (the includer's own
@@ -1201,11 +1348,19 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
         nxKeepScope(f.skey, patched)
         return patched
   result = NxScope(stamp: st, own: f, modules: hs.modules)
-  for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
-  for r in hs.refs:
-    if r.file.path != f.path: result.refs.add r
+  for i in 0 ..< f.syms.len: result.refs.own.add NxRef(file: f, idx: int32(i), origin: 1)
+  for r in hs.refs.own:
+    if r.file.path != f.path: result.refs.own.add r
+  for l in hs.refs.layers:
+    if f.path notin l.paths: result.refs.layers.add l
+    else:
+      var rest: seq[NxRef]                     # (a layer that has this file's names: without them, its own)
+      for r in l.refs:
+        if r.file.path != f.path: rest.add r
+      result.refs.layers.add nxLayerOf(rest)
   # (its own imports, if it has any)
   var seen: HashSet[string]
+  var mine: seq[NxRef]
   for im in f.imports:
     if im.isInclude: continue
     let p = nxResolve(f.path, im.spec)
@@ -1216,17 +1371,14 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
     for r in got:
       var r2 = r
       r2.origin = 2
-      result.refs.add r2
+      mine.add r2
+  if mine.len > 0: result.refs.layers.add nxLayerOf(mine)
   nxIndexNames(result)
-  var seenP: HashSet[string]
-  var lastF: NxFile = nil                    # (a file's names come together: its path hashed once, not per name)
-  for r in result.refs:
-    if r.file == lastF: continue
-    lastF = r.file
-    if r.file != f and r.file.path notin seenP:
-      seenP.incl r.file.path
-      result.deps.add (r.file.path, r.file.stamp)
-  if host.path notin seenP: result.deps.add (host.path, host.stamp)
+  nxScopeDeps(result, f)
+  var hostIn = false
+  for (p, _) in result.deps:
+    if p == host.path: hostIn = true
+  if not hostIn: result.deps.add (host.path, host.stamp)
   nxKeepScope(f.skey, result)
 
 proc nxScopeImports(f: NxFile): string =
@@ -1302,70 +1454,101 @@ proc nxScope*(f: NxFile): NxScope =
       pt.own = f
       nxKeepScope(f.skey, pt)
       return pt
-    var sc = NxScope(refs: newSeqOfCap[NxRef](old.refs.len + 16), stamp: stamp, ikey: ikey, modules: old.modules,
-                     own: f, deps: old.deps, memo: (if nxSameTypes(old.own, f): old.memo else: nil))
-    for i in 0 ..< f.syms.len: sc.refs.add NxRef(file: f, idx: int32(i), origin: 1)
-    for r in old.refs:
-      if r.file != old.own and r.file != f and r.file.path != f.path: sc.refs.add r
+    var sc = NxScope(stamp: stamp, ikey: ikey, modules: old.modules, own: f, deps: old.deps,
+                     memo: (if nxSameTypes(old.own, f): old.memo else: nil))
+    sc.refs.own = newSeqOfCap[NxRef](old.refs.own.len + 16)
+    for i in 0 ..< f.syms.len: sc.refs.own.add NxRef(file: f, idx: int32(i), origin: 1)
+    for r in old.refs.own:
+      if r.file != old.own and r.file != f and r.file.path != f.path: sc.refs.own.add r
+    sc.refs.layers = old.refs.layers           # (what system and the imports bring: as it was, shared)
     nxIndexNames(sc)
     nxKeepScope(f.skey, sc)
     return sc
   result = NxScope(stamp: stamp, ikey: ikey, own: f)
-  for i in 0 ..< f.syms.len: result.refs.add NxRef(file: f, idx: int32(i), origin: 1)
+  for i in 0 ..< f.syms.len: result.refs.own.add NxRef(file: f, idx: int32(i), origin: 1)
   for g in nxIncluded(f):
-    for i in 0 ..< g.syms.len: result.refs.add NxRef(file: g, idx: int32(i), origin: 1)
-  var seen: HashSet[string]
-  seen.incl f.path
+    for i in 0 ..< g.syms.len: result.refs.own.add NxRef(file: g, idx: int32(i), origin: 1)
+  # what system brings, then each import: layers kept and shared (made here only when no scope made them yet, or a
+  # file they read changed). A layer whose reading reaches this very module is made for it alone, with the module
+  # left out — as when each scope gathered its own copy
+  var private = false
+  var sysSeen: HashSet[string]
+  var sysKey = ""
   let sys = nxSystemPath()
   if sys.len > 0 and f.path != sys and not f.path.startsWith(parentDir(sys) / "system" & "/"):
-    let before = result.refs.len
-    nxExports(sys, 0, seen, result.refs)
-    # system's NimScript part (exec, thisDir, switch …): a NimScript file's only — and a .nimble sees nimble's own
-    # versions of some, its other API and strutils, as nimble's wrapper gives them (nxNimbleApiPath)
     let script = nxIsScript(f.path)
     let nimble = nxIsNimbleFile(f.path)
-    var w = before
-    for k in before ..< result.refs.len:
-      let r = result.refs[k]
-      if nxFromNimscriptApi(r.file.path) and
-         (not script or (nimble and r.file.syms[r.idx].name in NxNimbleOverrides)): continue
-      result.refs[w] = r
-      result.refs[w].origin = 3
-      inc w
-    result.refs.setLen(w)
-    if nimble:
-      for p in [nxNimbleApiPath(), nxResolve(f.path, "std/strutils")]:
-        if p.len == 0: continue
-        var got: seq[NxRef]
-        nxExports(p, 0, seen, got)
-        for r in got:
-          var r2 = r
-          r2.origin = 3
-          result.refs.add r2
+    sysKey = "sys|" & sys & "|" & $script & "|" & $nimble & "|" & (if nimble: parentDir(f.path) else: "")
+    proc sysRefs(seen: var HashSet[string]): seq[NxRef] =
+      nxExports(sys, 0, seen, result)
+      # system's NimScript part (exec, thisDir, switch …): a NimScript file's only — and a .nimble sees nimble's
+      # own versions of some, its other API and strutils, as nimble's wrapper gives them (nxNimbleApiPath)
+      var w = 0
+      for k in 0 ..< result.len:
+        let r = result[k]
+        if nxFromNimscriptApi(r.file.path) and
+           (not script or (nimble and r.file.syms[r.idx].name in NxNimbleOverrides)): continue
+        result[w] = r
+        result[w].origin = 3
+        inc w
+      result.setLen(w)
+      if nimble:
+        for p in [nxNimbleApiPath(), nxResolve(f.path, "std/strutils")]:
+          if p.len == 0: continue
+          var got: seq[NxRef]
+          nxExports(p, 0, seen, got)
+          for r in got:
+            var r2 = r
+            r2.origin = 3
+            result.add r2
+    var l = nxLayerCached(sysKey, f.path)
+    if l == nil:
+      var seen: HashSet[string]
+      let refs = sysRefs(seen)
+      if f.path in seen:
+        private = true
+        var seen2 = [f.path].toHashSet
+        l = nxLayerOf(sysRefs(seen2))
+        l.paths = seen2
+      else:
+        l = nxLayerOf(refs)
+        l.paths = seen
+        nxLayerKeep(sysKey, l)
+    result.refs.layers.add l
+    sysSeen = l.paths
   for im in f.imports:
     if im.isInclude: continue
     let p = nxResolve(f.path, im.spec)
     if p.len == 0: continue
     result.modules[nxModuleName(if im.alias.len > 0: im.alias else: im.spec)] = p
-    var got: seq[NxRef]
-    var seen2 = seen
-    nxExports(p, 0, seen2, got)
-    for r in got:
-      let nm = r.file.syms[r.idx].name
-      if im.only.len > 0 and nm notin im.only: continue
-      if nm in im.excepts: continue
-      var r2 = r
-      r2.origin = 2
-      result.refs.add r2
+    let (only, excepts) = (im.only, im.excepts)
+    proc impRefs(seen: var HashSet[string]): seq[NxRef] =
+      var got: seq[NxRef]
+      nxExports(p, 0, seen, got)
+      for r in got:
+        let nm = r.file.syms[r.idx].name
+        if only.len > 0 and nm notin only: continue
+        if nm in excepts: continue
+        var r2 = r
+        r2.origin = 2
+        result.add r2
+    let key = "imp|" & p & "|" & im.only.join(",") & "|" & im.excepts.join(",") & "|" & sysKey
+    var l = if private: nil else: nxLayerCached(key, f.path)
+    if l == nil:
+      var seen = sysSeen
+      let refs = impRefs(seen)
+      if private or f.path in seen:
+        var seen2 = sysSeen
+        seen2.incl f.path
+        l = nxLayerOf(impRefs(seen2))
+        l.paths = seen2
+      else:
+        l = nxLayerOf(refs)
+        l.paths = seen
+        nxLayerKeep(key, l)
+    result.refs.layers.add l
   nxIndexNames(result)
-  var seenP: HashSet[string]
-  var lastF: NxFile = nil                    # (a file's names come together: its path hashed once, not per name)
-  for r in result.refs:
-    if r.file == lastF: continue
-    lastF = r.file
-    if r.file != f and r.file.path notin seenP:
-      seenP.incl r.file.path
-      result.deps.add (r.file.path, r.file.stamp)
+  nxScopeDeps(result, f)
   nxKeepScope(f.skey, result)
 
 var nxStyleFree: Table[string, (string, bool)]   # path → (stamp, it has {.feature: "ignoreStyle".})
@@ -1387,15 +1570,19 @@ proc nxIgnoresStyle*(f: NxFile): bool =
 proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
   let n = nxNorm(name)
   let h = nxNameHash(name)
-  var lo = 0
-  var hi = sc.byHash.len
-  while lo < hi:                               # the first entry with this hash
-    let mid = (lo + hi) div 2
-    if sc.byHash[mid][0] < h: lo = mid + 1 else: hi = mid
-  while lo < sc.byHash.len and sc.byHash[lo][0] == h:
-    let r = sc.refs[sc.byHash[lo][1]]
-    if nxNorm(r.file.syms[r.idx].name) == n: result.add r
-    inc lo
+  template look(refs, byHash: untyped) =
+    var lo = 0
+    var hi = byHash.len
+    while lo < hi:                             # the first entry with this hash
+      let mid = (lo + hi) div 2
+      if byHash[mid][0] < h: lo = mid + 1 else: hi = mid
+    while lo < byHash.len and byHash[lo][0] == h:
+      let r = refs[byHash[lo][1]]
+      if nxNorm(r.file.syms[r.idx].name) == n: result.add r
+      inc lo
+  look(sc.refs.own, sc.byHash)
+  for l in sc.refs.layers:
+    if l.nxBloomHas(h): look(l.refs, l.byHash)
   if result.len == 0 and nxExact and sc.own != nil and nxIgnoresStyle(sc.own):
     # (Nim 3: a module with {.feature: "ignoreStyle".} finds names by Nim 2's rule)
     let n2 = nxNorm2(name)
@@ -1540,6 +1727,7 @@ proc nxTrimIndex*(keep = "") =
   for k in dead:
     nxScopes.del k
     nxScopeUsed.del k
+  nxLayerForget(gone)
   var keepO: seq[(string, NxFile)]
   for o in nxOverlays:
     if o[1].path notin gone: keepO.add o

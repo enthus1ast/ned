@@ -5,7 +5,7 @@
 ## Exit status: 0 done (or nothing to change), 1 --check found files that would change, 2 a file was left alone
 ## (the formatter was not sure of it, or it could not be read or written), 3 wrong arguments.
 
-import std/[strutils, json, algorithm, osproc, terminal, streams, hashes, times, tables]
+import std/[strutils, json, algorithm, osproc, terminal, streams, hashes, times, tables, monotimes]
 when defined(windows): import ../sys/winos as os   # (std/os, with '/' in the paths it makes)
 else: import std/os
 when defined(windows): import ../sys/winposix as posix
@@ -580,7 +580,7 @@ proc unifiedDiff*(a, b, nameA, nameB: string, color = false): string =
 
 # ── which files ──
 
-proc gitRootOf(dir: string): string =
+proc gitRootLookup(dir: string): string =
   var d = dir
   for _ in 0 .. 40:
     if dirExists(d / ".git") or fileExists(d / ".git"): return d
@@ -588,6 +588,16 @@ proc gitRootOf(dir: string): string =
     if up.len == 0 or up == d: break
     d = up
   ""
+
+var gitRootMemo: Table[string, (MonoTime, string)]   # (a folder → its repository's top, looked at again after 2 s)
+
+proc gitRootOf(dir: string): string =
+  let now = getMonoTime()
+  gitRootMemo.withValue(dir, m):
+    if (now - m[][0]).inMilliseconds < 2000: return m[][1]
+  if gitRootMemo.len > 500: gitRootMemo.clear()
+  result = gitRootLookup(dir)
+  if result.len > 0: gitRootMemo[dir] = (now, result)   # (none yet: looked for again — `git init` may come)
 
 proc filesIn(dir: string, usualSkips = true): seq[string] =
   ## a folder's files: git's list in a repository (what .gitignore leaves out stays out), else a walk — never

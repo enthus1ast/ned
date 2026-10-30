@@ -6,13 +6,14 @@ proc problemsFromText(source, text, cwd: string): int =
   ## a build's or a linter's output → Problems, under `source` (what it sent before goes): file:line:col: msg,
   ## Nim's file(line, col) Error: …, Python's tracebacks … — the lines the Output panel links too
   let src = if source.len > 0: source else: "script"
-  var keep = initTable[string, seq[Diag]]()
+  var keep = initDiagTable()
   for p, ds in diagsExt:
     var rest: seq[Diag]
     for d in ds:
       if d.src != src: rest.add d
     if rest.len > 0: keep[p] = rest
   diagsExt = keep
+  inc diagGen                         # (a whole list put in place: counted as a change)
   for raw in text.splitLines:
     let (ok, path, l, c, sev, m) = parseErrLine(stripAnsi(raw), (if cwd.len > 0: cwd else: rootDir))
     if ok and path.len > 0:

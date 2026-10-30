@@ -114,8 +114,8 @@ func fKeywordAt*(text: string, i, j: int): int =
 func fIsIdent*(c: char): bool {.inline.} = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xFF'}
 
 func fUniOpLen*(text: string, i: int): int =
-  ## the bytes of the Unicode operator character at i (∙ ∘ × ★ ⊗ ⊘ ⊙ ⊛ ⊠ ⊡ ∩ ∧ ⊓ ± ⊕ ⊖ ⊞ ⊟ ∪ ∨ ⊔ — Nim's lexer
-  ## reads them as operator characters, not as part of a name), else 0
+  ## the bytes of the Unicode operator character at i (∙ ∘ × ★ ⊗ ⊘ ⊙ ⊛ ⊠ ⊡ ∩ ∧ ⊓ ± ⊕ ⊖ ⊞ ⊟ ∪ ∨ ⊔, and Nim 2.4's
+  ## ⟑ ⟇ ⩓ ⩔ ■ □ ☆ — Nim's lexer reads them as operator characters, not as part of a name), else 0
   if i + 1 >= text.len: return 0
   case text[i]
   of '\226':
@@ -124,7 +124,10 @@ func fUniOpLen*(text: string, i: int): int =
     let c = text[i + 2]
     if b == '\136' and c in {'\152', '\153', '\167', '\168', '\169', '\170'}: 3
     elif b == '\138' and c in {'\147' .. '\153', '\155', '\158' .. '\161'}: 3
-    elif b == '\152' and c == '\133': 3
+    elif b == '\152' and c in {'\133', '\134'}: 3                 # ★ ☆
+    elif b == '\159' and c in {'\135', '\145'}: 3                 # ⟇ ⟑
+    elif b == '\169' and c in {'\147', '\148'}: 3                 # ⩓ ⩔
+    elif b == '\150' and c in {'\160', '\161'}: 3                 # ■ □
     else: 0
   of '\194': (if text[i + 1] == '\177': 2 else: 0)
   of '\195': (if text[i + 1] == '\151': 2 else: 0)

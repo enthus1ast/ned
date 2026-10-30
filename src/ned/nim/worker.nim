@@ -314,6 +314,18 @@ proc wkWeb(b: Buffer): bool =
   wkSend(%*{"op": "web", "id": b.id, "v": b.changeId, "srv": srv})
   true
 
+proc wkCChecks(b: Buffer): bool =
+  ## (the editor) the C engine's checks of a file, asked of the worker — true when asked (the answer comes back)
+  if not wkOn() or b.path.len == 0 or not wkReady(b): return false
+  block:
+    let st0 = getMonoTime()
+    wkSyncAll(b)
+    for x in bufs:                             # (the other open C files: what the checks read of them)
+      if x != b and x.lang != nil and x.lang.id in ["c", "cpp"] and x.path.len > 0 and x.title.len == 0: wkSync(x)
+    noteWork("texts sent to the engine worker", st0)
+  wkSend(%*{"op": "cchecks", "id": b.id, "v": b.changeId})
+  true
+
 proc wkDump(proj, o: string) =
   ## `nim dump` said what a project builds with: the worker is told too (and a new one later)
   for i, (p, _) in wkDumps:
@@ -430,6 +442,13 @@ proc wkAnswer(line: string) =
   of "checks": wkChecksAnswer(j)
   of "refs": wkRefsAnswer(j)
   of "web": wkWebAnswer(j)
+  of "cchecks":
+    let b = bufById(j{"id"}.getInt)
+    if b != nil and j{"v"}.getInt == b.changeId:
+      var found: seq[CkProblem]
+      try: found = j{"found"}.to(seq[CkProblem])
+      except CatchableError: return
+      cEngChecksApply(b, found)
   of "resync":
     # (the edits did not fit what it had: the whole text next time, and what was asked, asked again)
     let id = j{"id"}.getInt
@@ -659,6 +678,12 @@ proc wkHandle(line: string) =
     wkTasks = keep
     wkTasks.add WkTask(kind: "checks", id: id, v: j{"v"}.getInt, lo: j{"lo"}.getInt, hi: j{"hi"}.getInt,
                        cl: j{"cl"}.getInt, cc: j{"cc"}.getInt, n3: j{"n3"}.getBool)
+  of "cchecks":
+    var keep: seq[WkTask]
+    for t in wkTasks:
+      if not (t.kind == "cchecks" and t.id == id): keep.add t
+    wkTasks = keep
+    wkTasks.add WkTask(kind: "cchecks", id: id, v: j{"v"}.getInt)
   of "web":
     var keep: seq[WkTask]
     for t in wkTasks:
@@ -851,6 +876,14 @@ proc workerMain() =
       of "checks": wkRunChecks(t)
       of "refs": wkRunRefs(t)
       of "web": wkRunWeb(t)
+      of "cchecks":
+        let b = wkDoc(t.id)
+        if b != nil and b.changeId == t.v:
+          curBuf = bufs.find(b)
+          var found: seq[CkProblem]
+          try: found = cEngFound(b)
+          except CatchableError, Defect: discard
+          wkWrite(%*{"op": "cchecks", "id": t.id, "v": t.v, "found": %found})
       else: discard
     except CatchableError as e: wkWrite(%*{"op": "error", "m": t.kind & ": " & e.msg})
   quit 0

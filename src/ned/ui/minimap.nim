@@ -22,7 +22,8 @@ proc drawMinimap(b: Buffer, x0, y0, w, h: int) =
   mmStart = start
   let vpA = b.topLine
   let vpB = b.topLine + textH
-  let ds = diagsFor(b.path)
+  let dsRef = diagsShared(b.path)
+  template ds: untyped = dsRef[]
   var diagLines: HashSet[int]
   for d in ds:
     if d.sev <= 2: diagLines.incl d.line

@@ -320,6 +320,7 @@ proc lsDryRun(act: Action): seq[(string, seq[string], seq[string])] =
   diagsLsp = dL
   diagsFfi = dF
   diagsEmit = dE
+  inc diagGen                          # (the lists put back: counted as a change)
   unusedHints = uH
   if msgLog.len > logLen: msgLog.setLen(logLen)
   curBuf = clamp(cb, 0, bufs.high)

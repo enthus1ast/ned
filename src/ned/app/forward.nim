@@ -262,3 +262,7 @@ proc paneTermEnd(id: int)                                       # ui/paneviews.n
 proc wkMacros(path: string)                                     # nim/worker.nim
 proc mnNamesKnown(f: NxFile, lines: seq[string], sc: NxScope): bool  # nim/macronames.nim
 proc projectForget()                                             # editor/bufforget.nim
+proc nifColorsFor(b: Buffer): ptr Table[int, seq[(int, int, TokKind)]]   # nim/nifcolors.nim
+proc applyNifColors(s: string, toks: var seq[TokKind], at: ptr Table[int, seq[(int, int, TokKind)]], line: int)
+proc tildePath(p: string): string                                 # ui/prompts.nim
+proc wkCChecks(b: Buffer): bool                                   # nim/worker.nim

@@ -2,7 +2,7 @@
 #  Navigation helpers: find, goto, symbols, definitions, diagnostics
 # ════════════════════════════════════════════════════════════════════════════
 
-var diagsAi = initTable[string, seq[Diag]]()     # AI: review staged changes — kept until reviewed again
+var diagsAi = initDiagTable()     # AI: review staged changes — kept until reviewed again
 
 proc splitTop(s: string, seps: set[char]): seq[string] =
   ## split at `seps` outside brackets and quotes

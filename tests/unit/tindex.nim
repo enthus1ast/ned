@@ -865,4 +865,25 @@ suite "6.25":
     check v.startsWith("xs.mapIt") and v.endsWith(".join(\", \")")
     check nxTypeOfExpr(f, nxScope(f), @[], v, 2, 0).typ == "string"
 
+
+suite "Nim 2.4 (6.33)":
+  test "a sum type: its branches make values, and `of Branch(x, y)` names the branch's fields":
+    let (f, ls) = fixture("type\n  Node = ref object\n    case\n    of AddOpr, SubOpr:\n      a, b: Node\n" &
+                          "    of Value:\n      val: int\n\nproc eval(n: Node): int =\n  case n\n" &
+                          "  of Value(v): v\n  of AddOpr(a, b): eval(a) + eval(b)\n  of SubOpr(a, b): eval(a) - eval(b)\n\n" &
+                          "let tree = AddOpr(a: Value(val: 40), b: Value(val: 2))\n")
+    var names: seq[string]
+    for s in f.syms:
+      if s.kind == nxProc and s.made: names.add s.name & "(" & s.params.mapIt(it.name).join(", ") & "): " & s.ret
+    check names == @["AddOpr(a, b): Node", "SubOpr(a, b): Node", "Value(val): Node"]
+    check typeAt(f, ls, 14, "tree") == "Node"
+    let vs = nxLocals(f, ls, 10, colOf(ls, 10, "v", 1))
+    check vs.anyIt(it.name == "v" and it.typ == "int")
+    let ab = nxLocals(f, ls, 11, colOf(ls, 11, "eval"))
+    check ab.anyIt(it.name == "a" and it.typ == "Node")
+  test "Nim 2.4's operator characters, and an import marked {.cyclic.}":
+    let (f, _) = fixture("import std/strutils {.cyclic.}\nproc `☆`(x, y: int): int = x * y\n")
+    check f.imports.len == 1 and f.imports[0].spec == "std/strutils"
+    check f.syms.anyIt(it.name == "☆")
+
 removeDir(dir)

@@ -402,3 +402,44 @@ type
     file, dir, name, version, author, desc, license, srcDir: string
     bins, requires: seq[string]
     tasks: seq[(string, string)]
+
+# ── a file → its problems from one source (the language server, the build, the tests …). Every change counts
+#    (diagGen): what is worked out from all of them — the merged list a frame draws, the counts in the status bar — is
+#    kept until it moves, not made again (and copied) for every frame. Reading never counts: `[]` gives the list as
+#    it is; `mget` is for changing one in place ──
+
+type DiagTable = distinct Table[string, seq[Diag]]
+
+var diagGen = 0
+
+template dtab(t: DiagTable): untyped = Table[string, seq[Diag]](t)
+proc initDiagTable(): DiagTable = DiagTable(initTable[string, seq[Diag]]())
+proc len(t: DiagTable): int = dtab(t).len
+proc contains(t: DiagTable, k: string): bool = dtab(t).contains(k)
+proc hasKey(t: DiagTable, k: string): bool = dtab(t).hasKey(k)
+proc getOrDefault(t: DiagTable, k: string): seq[Diag] = dtab(t).getOrDefault(k)
+proc `[]`(t: DiagTable, k: string): lent seq[Diag] = dtab(t)[k]
+proc `[]=`(t: var DiagTable, k: string, v: sink seq[Diag]) =
+  inc diagGen
+  dtab(t)[k] = v
+proc mget(t: var DiagTable, k: string): var seq[Diag] =
+  inc diagGen
+  dtab(t)[k]
+proc mgetOrPut(t: var DiagTable, k: string, v: seq[Diag]): var seq[Diag] =
+  inc diagGen
+  dtab(t).mgetOrPut(k, v)
+proc del(t: var DiagTable, k: string) =
+  inc diagGen
+  dtab(t).del k
+proc clear(t: var DiagTable) =
+  inc diagGen
+  dtab(t).clear()
+iterator keys(t: DiagTable): string =
+  for k in dtab(t).keys: yield k
+iterator pairs(t: DiagTable): (string, seq[Diag]) =
+  for k, v in dtab(t).pairs: yield (k, v)
+iterator values(t: DiagTable): seq[Diag] =
+  for v in dtab(t).values: yield v
+iterator mpairs(t: var DiagTable): tuple[key: string, val: var seq[Diag]] =
+  inc diagGen
+  for k, v in dtab(t).mpairs: yield (k, v)

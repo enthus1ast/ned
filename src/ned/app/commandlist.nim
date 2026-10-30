@@ -455,6 +455,10 @@ proc initCommands() =
       "lockfile", cmdPnak("pin"))
   add("Nim 3: port this file with AI", "", cmdNim3PortAi())
   add("Nim 3: this project is Nim 3 (nimony)", "", setProjectSetting("nim.compiler", %"nimony"))
+  add("Nim 3: install or update nimony", "clones github.com/nim-lang/nimony into ~/.local/nimony (or updates it) " &
+      "and builds it there", cmdInstallNimony())
+  add("Nim 3: decide from the project (auto)", "Nim 3 when the project has nimony.args, nimony.paths or pnak.nif",
+      setProjectSetting("nim.compiler", %"auto"))
   add("Nim 3: this project is Nim 2 (nim)", "", setProjectSetting("nim.compiler", %"nim"))
   add("Find references", "Alt+Q / Shift+F12", cmdReferences())
   add("File: reopen with encoding…", "", cmdEncodingPick(true))

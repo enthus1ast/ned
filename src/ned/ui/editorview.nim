@@ -176,6 +176,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
     drawMdPreview(b, x0, y0, w, h)
     return
   let sem = semMapFor(b)
+  let nifCols = nifColorsFor(b)        # (Nim 3: nimony's own reading of the saved file, over the engine's colours)
   let lsem = lspSemFor(b)
   let csem = if lsem.len == 0: cEngSemMap(b, make = false) else: nil     # (C: ned's engine, without a server's)
   let isMb = b.id in multiBufs
@@ -250,7 +251,8 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       focB = ph.line
       while focB < b.lines.high and not isBlank(b.lines[focB + 1]): inc focB
   let primSel = b.primary.hasSel
-  let ds = if isMb: b.mbDiags() else: diagsFor(b.path)
+  let dsRef = if isMb: (var r = new seq[Diag]; r[] = b.mbDiags(); r) else: diagsShared(b.path)
+  template ds: untyped = dsRef[]
   # the problems that can be on the lines drawn (without folds, no line below topLine + the rows: a file with
   # thousands of them made each frame look at every one for every line drawn — 10 ms a frame at 5 000)
   var dsNear: seq[int]
@@ -378,6 +380,7 @@ proc drawEditor(b: Buffer, x0, y0, w, h: int, active: bool) =
       let foreign = lexForeign
       let lexed = if foreign.len > 0: toks else: @[]
       if sem != nil: applySem(s, toks, sem, line)
+      if nifCols != nil: applyNifColors(s, toks, nifCols, line)
       if b.lang.mode == lmNim and s.len < 4000 and '"' in s and ("header" in s or "importc" in s or "dynlib" in s):
         pragmaStrColors(s, toks)
       if lsem.len > 0 and line in lsem:

@@ -40,7 +40,7 @@ proc lspAndBuildDiags(path: string): seq[Diag] =
     result.setLen(k)
     for d in em: result.add d
 
-proc diagsFor(path: string): seq[Diag] =
+proc diagsMake(path: string): seq[Diag] =
   if path.len == 0: return
   result = lspAndBuildDiags(path)
   for d in diagsAi.getOrDefault(path): result.add d
@@ -58,6 +58,27 @@ proc diagsFor(path: string): seq[Diag] =
         d.eline = hi
         d.ecol = -1
       elif d.line == hi and d.col > ls[][hi].len: d.col = ls[][hi].len
+
+var diagsMemo: Table[string, (int, int, int, ref seq[Diag])]   # path → (diagGen, its lines, its last line's
+                                                               #   length, the merged problems)
+
+proc diagsShared(path: string): ref seq[Diag] =
+  ## a file's problems, from every source, merged — kept while no problem list changed (each frame drew from a fresh
+  ## copy, two or three times: thousands of problems copied at every key). Shared: read it, never change it
+  let bi = bufIndexByPath(path)
+  let n = if bi >= 0: bufs[bi].lines.len else: -1
+  let last = if bi >= 0 and n > 0: bufs[bi].lines[^1].len else: -1
+  diagsMemo.withValue(path, m):
+    if m[][0] == diagGen and m[][1] == n and m[][2] == last: return m[][3]
+  if diagsMemo.len > 64: diagsMemo.clear()
+  result = new seq[Diag]
+  result[] = diagsMake(path)
+  diagsMemo[path] = (diagGen, n, last, result)
+
+proc diagsFor(path: string): seq[Diag] =
+  ## (a copy of its own: the caller may change it)
+  if path.len == 0: return
+  diagsShared(path)[]
 
 proc sevColor(sev: int): Rgb =
   case sev
