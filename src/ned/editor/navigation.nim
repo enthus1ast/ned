@@ -710,7 +710,10 @@ proc cmdHover(auto = false) =
   let s = lspReady(b)
   let cInfo = if onSymbol and b.lang.mode == lmNim: cHoverInfo(b, p) else: ""
   if onSymbol and nimEngineOn(b):
-    let h = engineHover(b, p)
+    var h = engineHover(b, p)
+    # (a saved file the compiler has read: the type it gave a let or var — a generic's instance spelled out)
+    let nn = try: nifHoverNote(b, p) except CatchableError: ""
+    if nn.len > 0: h = (if h.len > 0: h & "\n\n" else: "") & nn
     if h.len > 0: showHoverAuto(hoverPrefix & h & cInfo, auto)
     elif cInfo.len > 0: showHoverAuto(hoverPrefix & cInfo.strip(trailing = false), auto)
     elif nsUsable(b):

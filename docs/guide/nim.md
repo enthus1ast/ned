@@ -443,12 +443,22 @@ of it, kept in ned's folder (`~/.cache/ned/nif`, never in the project). From it,
   parameter — names a macro or a template made among them;
 - **the types after its lets and vars** as the compiler gave them (`: Table[string, int]`), where the engine has
   none or another;
-- **Go to definition** of the declaration the compiler chose: of `show(2.5)`, the `show` that takes a float.
+- **Go to definition** of the declaration the compiler chose: of `show(2.5)`, the `show` that takes a float;
+- **Find references** (Alt+Q) of that declaration and no other — not every routine named `show` — across the
+  project's files, when the compiler has read each of them as it is saved (the list says *(compiler)*; otherwise
+  the engine answers as before);
+- **hover** with the type the compiler gave a let or var (*the compiler's type: `Table[string, seq[int]]`*);
+- **what a macro call made** (Alt+M on a call at the top of the file) at once, written from the compiler's reading,
+  without running the compiler again — for a form it cannot write, the compiler is asked as before;
+- no nimsuggest run in the background for the types the engine cannot work out (`nim.compilerOracle`): the
+  compiler's reading has them — one process less on a phone.
 
 After an edit, until the next save, the engine's answers are back; a file with an error keeps them too (the
 compiler writes nothing for it). `nim.compilerNif` off goes back to `nim check`. A Nim older than 2.4 is checked
 with `nim check` as before, and everything else works the same with it. (`nim track`, Nim 2.4's Go to definition
-through its incremental compilation, is not used: 2 to 4 seconds a question, and it missed uses.)
+through its incremental compilation, is not used: 2 to 4 seconds a question, and it missed uses. Nor is the
+compiler's reading made while you type: Nim 2.4.0's `nim nif` stops with an internal error on text given on
+standard input.)
 
 ## One Nim per project
 
@@ -536,10 +546,16 @@ from the project, install or update nimony (while it builds, the status bar says
 Nim, the Nim panel.
 
 **Installing nimony.** *Nim 3: install or update nimony* (Nim › Nim 3 (Nimony)) clones Nimony into
-`~/.local/nimony` — or brings it up to date there — and builds it with its own builder, in the Run panel: a few
-minutes; it needs git and a Nim 2 (in Termux: `pkg install git nim`). ned looks for nimony on PATH and then in
-`~/.local/nimony/bin`, `~/nimony/bin` and `~/src/nimony/bin`, so nothing has to be added to PATH. By hand it is the
-same: `git clone https://github.com/nim-lang/nimony && cd nimony && nim c -r src/hastur/hastur build all`.
+`~/.local/nimony` — or brings it up to date there — and builds it one part at a time, at a low priority, with the C
+compiler two at a time: Nimony's own `hastur build all` starts a dozen compilers at once, and on a tablet Android
+closed Termux (ned and the terminal with it) for want of memory. It takes several minutes; the status bar shows the
+step (*building nimony 4 of 10: nimony*), and the Output panel what it said at the end. With less than about 1.5 GB
+of free memory it asks first. Last, the new nimony checks a two-line program: one that does not work is passed
+over, never used half built. It needs git and a Nim 2 (in Termux: `pkg install git nim`). ned looks for nimony on
+PATH and then in `~/.local/nimony/bin`, `~/nimony/bin` and `~/src/nimony/bin`, so nothing has to be added to PATH. By
+hand, on a machine with memory to spare: `git clone https://github.com/nim-lang/nimony && cd nimony && nim c -r
+src/hastur/hastur build all`; on a phone or tablet, one part at a time (`./bin/hastur build nifler`, then `nimony`,
+`lengc`, `niflink`, `nifmake`, `pnak`, `nifler2`).
 
 **What changes between the two.** With Nim 2, `nim check` checks the file and Alt+R/F5 run it with `nim`; the
 engine reads Nim 2's standard library. With Nim 3, nimony does both and the engine reads Nimony's library; the

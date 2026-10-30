@@ -418,6 +418,31 @@ func nxNamedAt(a: string): int =
     return eq
   -1
 
+proc nxGenericBind*(paramType, argType, generics: string): (string, string) =
+  ## what one argument says a routine's generic parameter is: `T` given an int → (T, int); `seq[T]`, `openArray[T]`,
+  ## `varargs[T]` given a seq[string], an array or an openArray of strings → (T, string), given a string → (T, char).
+  ## ("", "") when it says nothing (no generic parameter there, a type not spelled out)
+  let g = generics.strip(chars = {'[', ']'})
+  if g.len == 0: return
+  var names: seq[string]
+  for part in g.split({',', ';'}):
+    let n = part.split(':')[0].strip
+    if n.len > 0: names.add n
+  let p = nxStripMods(paramType).strip
+  let a = nxStripMods(argType).strip
+  if a.len == 0: return
+  if p in names: return (p, a)
+  let pb = nxBaseName(p)
+  if pb notin ["seq", "openArray", "varargs"]: return
+  let pargs = nxTypeArgs(p)
+  if pargs.len != 1 or pargs[0].strip notin names: return
+  let ab = nxBaseName(a)
+  if ab in ["string", "cstring"]: return (pargs[0].strip, "char")
+  if ab notin ["seq", "openArray", "varargs", "array"]: return
+  let aargs = nxTypeArgs(a)
+  if aargs.len == 0: return
+  (pargs[0].strip, aargs[^1].strip)
+
 proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string], line, e: int,
                   cands: seq[NxRef], recv: string): seq[NxRef] =
   ## of several overloads, the ones that take the call's arguments best — their number (defaults and varargs
@@ -443,11 +468,16 @@ proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string]
         if nxNamedAt(a) > 0: named = true
       if not named: arity.add r
     var score = 1
+    # (what each generic parameter stands for, from the arguments so far: `add[T](x: var seq[T], y: openArray[T])`
+    # cannot take a seq[seq[string]] and a seq[string] — T would be two types)
+    var binds: Table[string, string]
     if recv.len > 0:
       if s.params.len == 0: continue
       let c = nxCompatP(sc, s.params[0], s.generics, recv)
       if c == 0: continue
       score += c
+      let (g, x) = nxGenericBind(s.params[0].typ, recv, s.generics)
+      if g.len > 0: binds[g] = x
     var ok = true
     for j, a in args:
       let eq = nxNamedAt(a)
@@ -493,6 +523,12 @@ proc nxNarrowCall(f: NxFile, sc: NxScope, locals: seq[NxSym], lines: seq[string]
       if c == 0:
         ok = false
         break
+      let (g, x) = nxGenericBind(prm.typ, at, s.generics)
+      if g.len > 0:
+        if g in binds and nxNorm(nxStripMods(binds[g])) != nxNorm(nxStripMods(x)):
+          ok = false
+          break
+        binds[g] = x
       score += c
     if not ok: continue
     if score > bestScore:

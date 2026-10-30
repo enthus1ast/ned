@@ -1,6 +1,39 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-634). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-635). Older releases:
+
+## What's new in 6.34
+
+Nim 2.4's own reading of your code, a lighter screen, and every routine of ned explained.
+
+**The compiler's answers on a saved file (Nim 2.4 and newer).** The check on save is `nim nif` in place of `nim
+check`: the same messages in about the same time — and, for each module without errors, what the compiler made of
+it, kept in ned's folder (`~/.cache/ned/nif`). From it a saved file gets its names' colours by what each one is (a
+name a macro made among them), the types after its lets and vars where the engine had none or another
+(`let a: int = answer()`, `answer` made by a macro), and Go to definition of the declaration the compiler chose (of
+`show(2.5)`, the `show` that takes a float). Nimony's reading gives a Nim 3 project the same. After an edit the
+engine's answers are back until the next save; an older Nim is checked with `nim check` as before
+(`nim.compilerNif` off does that with 2.4 too).
+
+**The engine graded by the compiler.** `tests/engine/nifgrade.py` asks ned's engine for the declaration of every use
+of a module's names that the compiler's NIF answers, and compares. It found two things the engine missed: an
+import in a one-line `when` branch (`else: import std/os` — ned's own files import std/os that way) and the values
+of an enum type a module re-exports by name (`pcFile`). With both fixed, the engine agrees with the compiler on
+99.1% of 4000 uses in the formatter and 97.8% in the engine's own code; the rest are listed by the tool.
+
+**Which Nim, at a tap.** A tap on `✓ Nim` in the status bar says which Nim the project is and why — *Nim 3
+(nimony): ~/proj/nimony.paths is here*, *Nim 2.4.0 (PATH)* — and offers the rest: make it Nim 3 or Nim 2, decide
+from the project, install or update nimony (the status bar says *building nimony…* meanwhile), choose the Nim.
+
+**Less to draw on a phone.** A run of blank cells — the rest of a short line, the space before the minimap — is
+erased in its colour rather than sent as spaces: a jump to another part of a file sends 8% less to the terminal,
+a scroll 7% less. On a narrow screen, a menu item's keys no longer run over its label and the menu's frame (the
+long description some commands have is left out of menus), and the settings' long names end in `…`.
+
+**Every routine says what it does.** Each of ned's files says what it is for, and each of its 7,300 routines —
+procs, templates, macros, iterators, local ones too — says what it does and how, in a comment: in the source, the
+plugins and the tests. `tests/docs/comments.py` keeps it so (CI runs it). A few comments that were wrong — setting
+names, menu names — are put right.
 
 ## What's new in 6.33
 

@@ -50,28 +50,102 @@ proc runNimble(args: string) =
     return
   runCommand("nimble " & args, nimbleDir())
 
+const NimonyTools = ["nifler", "nimony", "lengc", "niflink", "nifmake", "pnak", "nifler2"]
+  ## what `hastur build` makes for Nim 3, one at a time (`nimony` is nimsem, nimony and shoggoth; nifler2 last: nimony
+  ## builds it) — not `hastur build all`, which starts a dozen compilers at once
+
+proc nimonyInstallScript(dir: string): string =
+  ## the shell script *Nim 3: install or update nimony* runs: the checkout cloned or brought up to date, then each tool
+  ## built in turn, at low priority, through a `nim` that lets the C compiler run two at a time — `hastur build all`
+  ## starts about a dozen `nim c` at once, each with a C compiler per core, and on a tablet Android then closed Termux
+  ## for want of memory. Last, a two-line program is checked with the new nimony: a nimony that does not work is marked
+  ## so (ned passes it over) and the script fails
+  let total = NimonyTools.len + 3
+  let realNim = findExe("nim")
+  let wrap = privTmp("nimonybuild")
+  result = "set -e\n"
+  result.add "step() { echo \"[nimony $1 of " & $total & ": $2]\"; }\n"
+  result.add "step 1 'getting the code'\n"
+  result.add "if [ -d " & quoteShell(dir / ".git") & " ]; then git -C " & quoteShell(dir) & " pull --ff-only; " &
+             "else git clone --depth 1 https://github.com/nim-lang/nimony " & quoteShell(dir) & "; fi\n"
+  result.add "cd " & quoteShell(dir) & "\n"
+  result.add "touch .ned-not-working\n"
+  result.add "git submodule update --init --depth 1\n"
+  # (the `nim` hastur runs: the real one, the C compiler two at a time)
+  result.add "mkdir -p " & quoteShell(wrap) & "\n"
+  result.add "printf '#!/bin/sh\\ncmd=$1; shift\\nexec " & realNim & " \"$cmd\" --parallelBuild:2 \"$@\"\\n' > " &
+             quoteShell(wrap / "nim") & "\n"
+  result.add "chmod +x " & quoteShell(wrap / "nim") & "\n"
+  result.add "export PATH=" & quoteShell(wrap) & ":$PATH\n"
+  result.add "step 2 'hastur, the builder'\n"
+  result.add "nice -n 10 nim c --hints:off -d:release src/hastur/hastur.nim\n"      # (its nim.cfg: into bin/)
+  var k = 3
+  for t in NimonyTools:
+    result.add "step " & $k & " " & quoteShell(t) & "\n"
+    result.add "nice -n 10 ./bin/hastur build " & t & "\n"
+    inc k
+  result.add "step " & $total & " 'checking it'\n"
+  let probe = privTmp("nimonyprobe") & ".nim"
+  result.add "printf 'import std/syncio\\necho 1 + 1\\n' > " & quoteShell(probe) & "\n"
+  result.add "./bin/nimony check " & quoteShell(probe) & "\n"
+  result.add "rm -f .ned-not-working " & quoteShell(probe) & "\n"
+  result.add "echo 'nimony is built and works'\n"
+
 proc cmdInstallNimony() =
-  ## Nim 3: nimony's code cloned into ~/.local/nimony (or brought up to date there) and built with hastur, its own
-  ## builder, in the Run panel — ned finds it there, without a change to PATH
+  ## Nim 3: nimony's code cloned into ~/.local/nimony (or brought up to date there) and built one tool at a time
+  ## (nimonyInstallScript), as a job of its own — the status bar shows the step, the Output panel what it said at the
+  ## end — and ned finds it there, without a change to PATH. With little free memory it asks first: building needs
+  ## about 1.5 GB
   if not haveExe("git") or not haveExe("nim"):
     error("Installing nimony needs git and nim (Termux: pkg install git nim)")
     return
+  if nimonyBuilding:
+    info("nimony is being built already — the status bar shows the step")
+    return
   let dir = getHomeDir() / ".local" / "nimony"
-  try: createDir(parentDir(dir))
-  except CatchableError: discard
-  let get = if dirExists(dir / ".git"): "git -C " & quoteShell(dir) & " pull --ff-only"
-            else: "git clone --depth 1 https://github.com/nim-lang/nimony " & quoteShell(dir)
-  info("Building nimony in " & tildePath(dir) & " — a few minutes; the Run panel shows how it goes")
-  nimonyBuilding = true
-  needRender = true
-  runCommand(get & " && cd " & quoteShell(dir) & " && nim c -r src/hastur/hastur build all", getHomeDir(),
-             proc(code: int) =
-               nimonyBuilding = false
-               nimonyMemo = ("\x00", "", "")             # (looked for again: in ~/.local/nimony now)
-               if code == 0 and nimonyExe().len > 0:
-                 info("nimony is ready: " & tildePath(nimonyExe()) & " — a project with nimony.args, nimony.paths or " &
-                      "pnak.nif is Nim 3 now (nim.compiler: auto)")
-               elif code != 0: error("Building nimony stopped (exit " & $code & ") — the Run panel says why"))
+  proc go() =
+    ## writes the script and runs it; when it ends, nimony is looked for again and the result said
+    try: createDir(parentDir(dir))
+    except CatchableError: discard
+    let script = privTmp("nimonyinstall") & ".sh"
+    try: writeFile(script, nimonyInstallScript(dir))
+    except CatchableError as e:
+      error("Could not write the build script: " & e.msg)
+      return
+    # (a job of its own, not the Run panel's: Alt+R, a test or a nimble task meanwhile would have stopped it)
+    let j = startJob(jkTool, "sh " & quoteShell(script), getHomeDir(), proc(j: Job) =
+      nimonyBuilding = false
+      nimonyJob = nil
+      nimonyMemo = ("\x00", "", "")             # (looked for again: in ~/.local/nimony now)
+      try: removeFile(script)
+      except CatchableError: discard
+      # (what it said, in the Output panel: the last lines — opened when it stopped)
+      var ls = @[PanelLine(text: "▶ Nim 3: install or update nimony", sev: 5, line: -1)]
+      let outLines = j.output.splitLines
+      for l in outLines[max(0, outLines.len - 60) .. ^1]: ls.add PanelLine(text: l, line: -1)
+      panelStore[pkOutput] = ls
+      if j.code == 0 and nimonyExe().len > 0:
+        info("nimony is ready: " & tildePath(nimonyExe()) & " — a project with nimony.args, nimony.paths or " &
+             "pnak.nif is Nim 3 now (nim.compiler: auto)")
+      else:
+        panelKind = pkOutput
+        panelOpen = true
+        error("Building nimony stopped (exit " & $j.code & ") — the Output panel says at which step and why")
+      needRender = true)
+    if j == nil:
+      try: removeFile(script)
+      except CatchableError: discard
+      return
+    nimonyJob = j
+    nimonyBuilding = true
+    info("Building nimony in " & tildePath(dir) & ", one part at a time — several minutes; the status bar shows the step")
+    needRender = true
+  let free = memAvailableMB()
+  if free >= 0 and free < 1500:
+    askConfirm("Building nimony needs about 1.5 GB of free memory, and " & $free & " MB is free now: with less, " &
+               "Android may close Termux. Close other apps first, or build anyway? (b)uild anyway (c)ancel",
+               proc(c: char) = (if c == 'b': go()))
+  else: go()
 
 proc runAtlas(args: string) =
   ## runs `atlas args` in the Run panel, in the project root; says how to build atlas when it is not installed
@@ -570,6 +644,13 @@ proc cmdReferences() =
     return
   if nimEngineOn(b):
     var hits: seq[(string, int, int)]
+    # (a saved project the compiler has read — Nim 2.4's NIF: its own answer, the overload and no other)
+    var fromNif = false
+    try: fromNif = nimNifReferences(b, b.primary.head, hits)
+    except CatchableError as e: internalError("references from the NIF", e)
+    if fromNif:
+      showReferences("REFERENCES " & w & " (compiler)", hits)
+      return
     var decl = ""
     var ok = false
     try: ok = engineReferences(b, b.primary.head, hits, decl)

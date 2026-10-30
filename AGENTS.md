@@ -58,6 +58,7 @@ python3 tests/ui/run.py ./ned [t_name …]              # the editor through tmu
 python3 .github/ci/pty_smoke.py ./ned && python3 .github/ci/bench.py ./ned && python3 tests/perf/rounds.py ./ned
 python .github/ci/win_smoke.py ned.exe nedls.exe nedfmt.exe   # on Windows (pip install pywinpty)
 NEDBIN=./ned_debug bash tests/fuzz/batch.sh 120 mixed palette hex   # random input; no crash, no internal error
+nim c -d:release --checks:on -r tests/fuzz/parsers.nim 20     # every reader and formatter fed broken text: no crash
 python3 tests/docs/apiref.py --check && python3 tests/docs/links.py && python3 tests/docs/names.py  # the docs
 python3 tests/docs/comments.py                       # every file and routine says what it is
 python3 tests/memory/bufids.py                       # every table kept per open file is let go when its tab closes

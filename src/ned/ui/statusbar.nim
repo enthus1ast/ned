@@ -215,7 +215,9 @@ proc drawStatusBar() =
     let tip = if b.lang.mode == lmNim and nim3On(): "Language intelligence · Nim 3: nimony in " & tildePath(nimonyRoot())
               elif b.lang.mode == lmNim and nimToolchainLine().len > 0: "Language intelligence · " & nimToolchainLine()
               else: "Language intelligence"
-    if b.lang.mode == lmNim and nimonyBuilding: lsTxt.add " · building nimony…"
+    if b.lang.mode == lmNim and nimonyBuilding:
+      let st = nimonyBuildStep()
+      lsTxt.add " · building nimony" & (if st.len > 0: " " & truncTo(st, 22) else: "…")
     # (a Nim file: a tap says which Nim and why, and offers the others — on a tablet there is no right click)
     let tap: Action = if b.lang.mode == lmNim: (proc() = ctxOpen(statusLsMenu())) else: (proc() = showSide(svProject))
     x = button(x, y, " " & lsTxt & " ", tap, tip, theme.dim, bg, rightAct = proc() = ctxOpen(statusLsMenu()))

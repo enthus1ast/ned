@@ -72,4 +72,13 @@ suite "what a file sees, in shared layers":
       if cast[pointer](l) == cast[pointer](strLayer): same = true
     check same
 
+  test "a module that offered nothing when first read: its new export is seen (its layer is made again)":
+    writeFile(dir / "util2.nim", "# nothing yet\n")
+    writeFile(dir / "app2.nim", "import util2\necho 1\n")
+    check nxLookup(nxScope(nxLoad(dir / "app2.nim")), "hello").len == 0
+    writeFile(dir / "util2.nim", "proc hello*() = discard\n")
+    setLastModificationTime(dir / "util2.nim", getTime() + initDuration(seconds = 7))
+    nxStatForget()
+    check nxLookup(nxScope(nxLoad(dir / "app2.nim")), "hello").len == 1
+
 removeDir(dir)
