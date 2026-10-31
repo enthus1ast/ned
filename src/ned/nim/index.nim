@@ -30,6 +30,33 @@ include index/typos
 include index/reshape
 when defined(nedMemProbe): include index/memprobe_gen   # (tests/memory/memprobe.py: how big each table is)
 
+proc nxShed*(keep: string) =
+  ## (the device short of memory: ui.lowMemory) what can be worked out again goes — every scope but `keep`'s, the
+  ## layers no scope left uses, what routines raise and the converters scopes see, the headers and local types read,
+  ## the lines and layouts kept, and the parsed files beyond half of nim.indexMemory (never one open in a buffer)
+  var gone: seq[string]
+  for k in nxScopes.keys:
+    if k != keep: gone.add k
+  for k in gone:
+    nxScopes.del k
+    nxScopeUsed.del k
+  var used: HashSet[pointer]
+  for _, sc in nxScopes:
+    for l in sc.refs.layers: used.incl cast[pointer](l)
+  var idle: seq[string]
+  for k, l in nxLayers:
+    if cast[pointer](l) notin used: idle.add k
+  for k in idle: nxLayers.del k
+  nxRaisesCache.clear(); nxRaisesDeps = 0; nxRsConvCache.clear()
+  nxHeaderCache.clear(); nxHeaderBytes = 0; nxLocalTypMemo.clear()
+  nxLayHoverCache.clear(); nxFxFwdCache.clear(); nxCpImplCache.clear()
+  nxLinesCache.setLen(0); nxLayLines.setLen(0)
+  if nxIndexBudget > 0:
+    let b = nxIndexBudget
+    nxIndexBudget = b div 2
+    nxTrimIndex(keep)
+    nxIndexBudget = b
+
 proc nxCacheStats*(): string =
   ## (measuring: what the index's caches hold besides the parsed files and the scopes)
   var convRefs, convScopes = 0

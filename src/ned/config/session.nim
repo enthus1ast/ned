@@ -46,6 +46,12 @@ proc loadState() =
 proc rememberPos(b: Buffer) =
   ## remembers where the main cursor of a file is, to put it back when the file is opened again
   if b.path.len > 0:
+    if savedPos.len > 2000:
+      # (every file ever opened in a long session: only the recent ones' places are kept, as the session file does)
+      var keep = initTable[string, Pos]()
+      for r in recentFiles:
+        if r in savedPos: keep[r] = savedPos[r]
+      savedPos = keep
     savedPos[b.path] = b.cursors[b.prim].head
 
 proc layoutState(): JsonNode

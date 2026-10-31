@@ -21,6 +21,10 @@ type
     ## one list (`for r in sc.refs`, `sc.refs.len`, `sc.refs[i]`)
     own*: seq[NxRef]
     layers*: seq[NxLayer]
+    hide*: seq[(string, int32)]  # (a file, the first layer where its names are not seen): an include file's scope
+                                 # has its own names first and its includer's in a layer shared by all the files it
+                                 # includes — this file's names there are the version the includer read
+    hidden*: int                 # (how many names of the layers that hides)
   NxScope* = ref object
     refs*: NxRefs
     byHash*: seq[(uint32, int32)]          # (hash of the normalized name, index into refs.own), sorted: one block
@@ -32,6 +36,7 @@ type
     deps*: seq[(string, string)]           # (path, stamp) of every other file it took symbols from
     memo*: NxTypeMemo                      # what was worked out about its types (shared with the next version of
                                            # the scope while no type declaration changed: tm)
+    ownLayer: NxLayer                      # (its own names as a layer, for the files its module includes: made once)
   NxTypeMemo* = ref object
     anc*: Table[string, seq[string]]       # type → its ancestors (normalized base names)
     alias*: Table[string, string]          # type name → what its aliases lead to
@@ -40,24 +45,46 @@ type
     plain*: HashSet[string]                # types as written that are no union (nxUnionAlts asked again and again)
     compat*: Table[string, int8]           # (parameter type, generics, argument type) → nxCompat's answer
 
+func nxHides(r: NxRefs, li: int, l: NxLayer): bool {.inline.} =
+  ## whether some of layer li's names are hidden in this scope (a file it hides from there on is among the layer's)
+  for (p, k) in r.hide:
+    if li >= k and p in l.paths: return true
+  false
+
+func nxHidden(r: NxRefs, li: int, x: NxRef): bool {.inline.} =
+  ## whether a name of layer li is hidden in this scope (its file is hidden from that layer on)
+  for (p, k) in r.hide:
+    if li >= k and x.file.path == p: return true
+  false
+
 func len*(r: NxRefs): int =
-  ## how many names the scope holds: its own and those of every layer
-  result = r.own.len
+  ## how many names the scope holds: its own and those of every layer, less the ones it hides
+  result = r.own.len - r.hidden
   for l in r.layers: result += l.refs.len
 
 iterator items*(r: NxRefs): NxRef =
-  ## every name of the scope, its own first, then each layer's in order
+  ## every name of the scope, its own first, then each layer's in order (not the ones it hides)
   for x in r.own: yield x
-  for l in r.layers:
-    for x in l.refs: yield x
+  for li, l in r.layers:
+    if r.hide.len == 0 or not r.nxHides(li, l):
+      for x in l.refs: yield x
+    else:
+      for x in l.refs:
+        if not r.nxHidden(li, x): yield x
 
 proc `[]`*(r: NxRefs, i: int): NxRef =
   ## the i-th name of the scope, counting its own and then the layers' as one list; raises when i is past the end
   if i < r.own.len: return r.own[i]
   var k = i - r.own.len
-  for l in r.layers:
-    if k < l.refs.len: return l.refs[k]
-    k -= l.refs.len
+  for li, l in r.layers:
+    if r.hide.len == 0 or not r.nxHides(li, l):
+      if k < l.refs.len: return l.refs[k]
+      k -= l.refs.len
+    else:
+      for x in l.refs:
+        if not r.nxHidden(li, x):
+          if k == 0: return x
+          dec k
   raise newException(IndexDefect, "index " & $i & " not in the scope's " & $r.len & " names")
 
 # adds a name to the scope's own
@@ -1208,13 +1235,42 @@ proc nxScopeCached*(f: NxFile): bool =
   let s = nxScopes.getOrDefault(f.skey)
   s != nil and (s.own == f or f.path != nxFocusPath)
 
+func nxHidesPath(r: NxRefs, li: int, path: string): bool =
+  ## whether the scope hides this file's names in layer li
+  for (p, k) in r.hide:
+    if li >= k and p == path: return true
+  false
+
+proc nxOwnLayer(sc: NxScope): NxLayer =
+  ## a scope's own names as a layer, made once for it: what each file its module includes sees of the module, shared
+  ## by all of them (each had a copy of its own — ned's source: thousands of names for each of its 290 files)
+  if sc.ownLayer == nil: sc.ownLayer = nxLayerOf(sc.refs.own)
+  sc.ownLayer
+
+proc nxOverHost(f: NxFile, hs: NxScope, st: string): NxScope =
+  ## an include file's scope made over its includer's: its own names, then the includer's own (one layer for all the
+  ## files the includer has, this file's names there hidden: they are the version the includer read), then the
+  ## includer's layers — with what the includer hides, one layer further on
+  result = NxScope(stamp: st, own: f, modules: hs.modules)
+  for i in 0 ..< f.syms.len: result.refs.own.add NxRef(file: f, idx: int32(i), origin: 1)
+  result.refs.layers = newSeqOfCap[NxLayer](hs.refs.layers.len + 2)
+  result.refs.layers.add nxOwnLayer(hs)
+  for l in hs.refs.layers: result.refs.layers.add l
+  for (p, k) in hs.refs.hide: result.refs.hide.add (p, k + 1)
+  result.refs.hide.add (f.path, 0'i32)
+  for li, l in result.refs.layers:
+    if result.refs.nxHides(li, l):
+      for x in l.refs:
+        if result.refs.nxHidden(li, x): inc result.refs.hidden
+
 proc nxPatchScope(old: NxScope, path: string, g: NxFile): NxScope =
   ## the scope with one of the files the module includes in its new version (`g`): that file's names taken out and
   ## the new ones put in their place, the rest kept — no gathering and sorting a hundred thousand names again for a
   ## keystroke in one include file of a big program (ned's own source has 290). nil when the file's names are not
   ## one block of names the module took all of
-  for l in old.refs.layers:
-    if path in l.paths: return nil                  # (an import's: its layer is made again)
+  for li, l in old.refs.layers:
+    # (an import's: its layer is made again — not the includer's names, where this file's are hidden)
+    if path in l.paths and not old.refs.nxHidesPath(li, path): return nil
   var a, e = -1
   for i, r in old.refs.own:
     if r.file.path == path:
@@ -1228,6 +1284,7 @@ proc nxPatchScope(old: NxScope, path: string, g: NxFile): NxScope =
   result = NxScope(stamp: old.stamp, ikey: old.ikey, own: old.own, modules: old.modules, deps: old.deps)
   if nxSameTypes(old.refs.own[a].file, g): result.memo = old.memo   # (an edit in a routine's body: types as they were)
   result.refs.layers = old.refs.layers
+  (result.refs.hide, result.refs.hidden) = (old.refs.hide, old.refs.hidden)
   result.refs.own = newSeqOfCap[NxRef](old.refs.own.len + delta)
   for i in 0 ..< a: result.refs.own.add old.refs.own[i]
   for i in 0 ..< n: result.refs.own.add NxRef(file: g, idx: int32(i), origin: 1)
@@ -1277,8 +1334,8 @@ proc nxRepointScope(old: NxScope, path: string, g: NxFile): NxScope =
   ## body): its names pointed at the new version, nothing gathered or sorted again — nil when the declarations
   ## changed. (Every module importing one that was edited made its whole scope again: in a big program, a hundred
   ## thousand names for each of them)
-  for l in old.refs.layers:
-    if path in l.paths: return nil                  # (an import's: its layer is made again, once for all)
+  for li, l in old.refs.layers:
+    if path in l.paths and not old.refs.nxHidesPath(li, path): return nil   # (an import's: made again, once for all)
   var was: NxFile = nil
   for r in old.refs.own:
     if r.file.path == path:
@@ -1372,8 +1429,10 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
       inc nxTick
       nxScopeUsed[f.skey] = nxTick
       return old
-    result = NxScope(stamp: st, own: f, modules: hs.modules, refs: hs.refs, byHash: hs.byHash, deps: hs.deps,
-                     memo: hs.tm)
+    result = nxOverHost(f, hs, st)
+    result.memo = hs.tm
+    nxIndexNames(result)
+    result.deps = hs.deps
     result.deps.add (host.path, host.stamp)
     nxKeepScope(f.skey, result)
     return
@@ -1400,17 +1459,7 @@ proc nxIncludedScope*(f, host: NxFile): NxScope =
       if patched != nil:
         nxKeepScope(f.skey, patched)
         return patched
-  result = NxScope(stamp: st, own: f, modules: hs.modules)
-  for i in 0 ..< f.syms.len: result.refs.own.add NxRef(file: f, idx: int32(i), origin: 1)
-  for r in hs.refs.own:
-    if r.file.path != f.path: result.refs.own.add r
-  for l in hs.refs.layers:
-    if f.path notin l.paths: result.refs.layers.add l
-    else:
-      var rest: seq[NxRef]                     # (a layer that has this file's names: without them, its own)
-      for r in l.refs:
-        if r.file.path != f.path: rest.add r
-      result.refs.layers.add nxLayerOf(rest)
+  result = nxOverHost(f, hs, st)
   # (its own imports, if it has any)
   var seen: HashSet[string]
   var mine: seq[NxRef]
@@ -1630,20 +1679,22 @@ proc nxLookup*(sc: NxScope, name: string): seq[NxRef] =
   ## style-insensitive names finds them by Nim 2's rule when nothing matched
   let n = nxNorm(name)
   let h = nxNameHash(name)
-  template look(refs, byHash: untyped) =
+  template look(rs, bh: untyped, li: int) =
     ## adds to the result the names of a sorted hash list that are really this name (the same hash may be another name)
+    ## and that the scope does not hide (li: the layer, -1 its own)
     var lo = 0
-    var hi = byHash.len
+    var hi = bh.len
     while lo < hi:                             # the first entry with this hash
       let mid = (lo + hi) div 2
-      if byHash[mid][0] < h: lo = mid + 1 else: hi = mid
-    while lo < byHash.len and byHash[lo][0] == h:
-      let r = refs[byHash[lo][1]]
-      if nxNorm(r.file.syms[r.idx].name) == n: result.add r
+      if bh[mid][0] < h: lo = mid + 1 else: hi = mid
+    while lo < bh.len and bh[lo][0] == h:
+      let r = rs[bh[lo][1]]
+      if nxNorm(r.file.syms[r.idx].name) == n and (li < 0 or sc.refs.hide.len == 0 or not sc.refs.nxHidden(li, r)):
+        result.add r
       inc lo
-  look(sc.refs.own, sc.byHash)
-  for l in sc.refs.layers:
-    if l.nxBloomHas(h): look(l.refs, l.byHash)
+  look(sc.refs.own, sc.byHash, -1)
+  for li, l in sc.refs.layers:
+    if l.nxBloomHas(h): look(l.refs, l.byHash, li)
   if result.len == 0 and nxExact and sc.own != nil and nxIgnoresStyle(sc.own):
     # (Nim 3: a module with {.feature: "ignoreStyle".} finds names by Nim 2's rule)
     let n2 = nxNorm2(name)

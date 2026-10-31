@@ -82,6 +82,7 @@ proc pumpJobs(ready: HashSet[cint]) =
   for j in jobs:
     if not j.done: keep.add j
   jobs = keep
+  startQueuedChecks()                # (a check ended: the next one waiting for its turn)
 
 var privSwept = false
 
@@ -323,6 +324,7 @@ proc mainLoop() =
       if macroViews.len > 0: timedWork("macro expansions"): mvPump()
       timedWork("nimble packages"): pkgWatchPump()
       batteryPump()
+      lowMemPump()
       if astOn: astPump()
       if docPvSrc >= 0: docPvPump()
       if mcpWaitReq and not mcpStarting():
@@ -355,7 +357,7 @@ proc mainLoop() =
       if cfgCSigHints and inBuf.len == 0 and not away: timedWork("C signature hints"): cSigHintsUpdate(buf())
       if inBuf.len == 0 and not away: timedWork("language server requests"): lspExtras(buf())
       # (the engine's reading: early in a round only — the frame drawn after it takes 5-6 ms of its own)
-      if inBuf.len == 0 and not away:
+      if inBuf.len == 0 and not away and not lowMemory:     # (short of memory: read when asked, not ahead)
         if msSince(busyFrom) < 3:
           timedWork("the engine reading imports"): engineWarm(buf())
         else: workDeferred = true
@@ -427,13 +429,13 @@ proc mainLoop() =
         if roomLeft(): timedWork("reference counts"): refLensPump(cb)
       timedWork("remote folder"): remoteAutoSync()   # a remote folder: what changed on the server
       if away: discard                     # (checks of what you look at: when you are back)
-      elif cfgLiveCheck and cb.chkAt == 0 and not cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
+      elif cfgLiveCheck and not lowMemory and cb.chkAt == 0 and not cb.dirty and cb.lang != nil and cb.lang.mode == lmNim and
          msSince(cb.lspChangeAt) > 1200 and cb.path notin typingChecks and msSince(lastInputAt) > 800:
         # a project file just opened: its errors, without waiting for an edit or a save
         if rootDir.len > 0 and cb.path.startsWith(rootDir & "/") and typingCheckUsable(cb):
           timedWork("the compiler's check started"): typingCheck(cb)
         else: cb.chkAt = -1
-      elif cfgLiveCheck and not batterySave and (cb.dirty or cb.chkAt > 0) and cb.chkAt != cb.changeId and
+      elif cfgLiveCheck and not batterySave and not lowMemory and (cb.dirty or cb.chkAt > 0) and cb.chkAt != cb.changeId and
          msSince(cb.lspChangeAt) > max(1200, min(4000, typingCheckMs.getOrDefault(cb.path, 0))) and
          cb.path notin typingChecks and not cEngineOn(cb) and not compOpen:   # (C: below)
         # (a check that takes long waits for a longer pause; none while the completion list is open: a word
@@ -457,13 +459,13 @@ proc mainLoop() =
         # (a pause in typing and in scrolling: on a phone the checks of a big file take a moment; the imports read
         # first, a few at a time)
         if roomLeft(): timedWork("the engine's checks"): engineTypos(cb)
-      if cfgOracle and not away and cb.lang != nil and cb.lang.mode == lmNim and not compilerRunning() and
+      if cfgOracle and not away and not lowMemory and cb.lang != nil and cb.lang.mode == lmNim and not compilerRunning() and
          msSince(lastInputAt) > 2500 and roomLeft():
         timedWork("the compiler asked in the background"): oracleStep(cb)
       if cfgMacroNames and cb.lang != nil and cb.lang.mode == lmNim and cb.path.len > 0 and cb.path notin nxMacroDone and
          cb.path notin mnDiskTried and nxDefinesComplete and mnUsable(cb.path):
         discard mnLoad(cb.path, cb.lines)          # (what its macro calls made, kept on disk for this text: at once)
-      if cfgMacroNames and not away and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
+      if cfgMacroNames and not away and not lowMemory and cb.lang != nil and cb.lang.mode == lmNim and mnSeen.getOrDefault(cb.id, -1) != cb.changeId and
          msSince(cb.lspChangeAt) > 1500 and msSince(lastInputAt) > 1000 and not compilerRunning():
         # (one compiler at a time, and not while you scroll or type: a phone has the CPU for one)
         if roomLeft(): timedWork("names macros make"): macroNamesFor(cb)

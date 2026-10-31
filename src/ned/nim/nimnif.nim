@@ -595,7 +595,16 @@ proc nifTypingRead(b: Buffer, folder, alias: string, started: times.Time, output
         break
   except CatchableError: return
   if nif.len == 0: return
-  let fx = nifFactsBuild(b.path, nif, true, alias)
+  nifTypingKeep(b, nif, true, alias)
+
+proc nifTypingKeep(b: Buffer, nif: string, nim2: bool, alias: string) =
+  ## the NIF a typing check wrote of the buffer's unsaved text (Nim 2.4's `nim nif -`, or nimony's of its copy:
+  ## `alias`, the name the NIF gives that text) gives the buffer's facts until the next check — on its lines as
+  ## they were then (nifLineAt)
+  var t: times.Time
+  try: t = getLastModificationTime(nif)
+  except CatchableError: return
+  let fx = nifFactsBuild(b.path, nif, nim2, alias)
   (fx.nif, fx.nifTime, fx.changeId, fx.alias) = (nif, t, b.changeId, alias)
   fx.lineHash = newSeq[Hash](b.lines.len)
   for i, l in b.lines: fx.lineHash[i] = hash(l)

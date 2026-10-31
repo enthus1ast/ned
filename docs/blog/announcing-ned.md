@@ -1,6 +1,6 @@
 # Announcing ned, a terminal code editor and Nim IDE
 
-*By Foxoman. This post comes with ned 6.36.0.*
+*By Foxoman. This post comes with ned 6.37.0.*
 
 ![A nimble project in ned: the Files dock, inlay hints and the assistant explaining the file](../../screenshots/nimble-ai.png)
 
@@ -54,17 +54,19 @@ sent, and files such as `.env` are not sent at all.
 
 **Made for a phone or tablet as much as a desktop.** Below 70 columns ned switches to a phone layout, and everything
 can be tapped. Every command is in the menus and the palette, and Termux's extra-keys row reaches every shortcut.
+ned watches the memory the phone has left: it never runs more than two compiler checks at once, and when memory is
+short it empties its caches and checks on save only, so Android has no reason to close Termux.
 
 ## Install
 
 To build ned you need Nim 2.2 or newer and nothing else. Other tools are optional and picked up when they are on your
 `PATH`.
 
-**1. Termux: the package from the release page.** Download `ned_6.36.0_aarch64.deb` from the
+**1. Termux: the package from the release page.** Download `ned_6.37.0_aarch64.deb` from the
 [releases](https://github.com/foxoman/ned/releases), then install it. It brings ned, nedls and nedfmt.
 
 ```sh
-pkg install ./ned_6.36.0_aarch64.deb
+pkg install ./ned_6.37.0_aarch64.deb
 ```
 
 **2. nimble, straight from GitHub.** This builds `ned`, `nedfmt` and `nedls` into `~/.nimble/bin`, and it takes a

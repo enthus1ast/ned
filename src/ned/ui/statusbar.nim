@@ -287,6 +287,10 @@ proc drawStatusBar() =
   if batterySave:
     right.add (ic("battery"), theme.gitAdd, Action(proc() = batteryToggle()),
                "Battery saver: on — a tap turns it off (ui.batterySaver)")
+  if lowMemory:
+    right.add ("mem low", theme.warn, Action(proc() = info("Little memory left: ned keeps light until the system " &
+               "has twice ui.lowMemory free (" & $memAvailableMB() & " MB now)")),
+               "Short of memory: checks one at a time and on save, nothing read ahead (ui.lowMemory)")
   if (b.lang.mode == lmMarkdown and b.path.len > 0) or (b.mdSrc != 0 and not b.mdNimDocs):
     var shown = b.mdSrc != 0
     for pb in bufs:

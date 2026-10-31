@@ -13,6 +13,17 @@ proc nxBaseName*(t: string): string
 proc nxTypeArgs*(t: string): seq[string]
 
 var nxHeaderCache*: Table[string, seq[NxSym]]    # a nested routine's header → its declaration
+var nxHeaderBytes* = 0                            # (about what it holds: a 32nd of nim.indexMemory at most)
+
+proc nxHeaderPut(key: string, syms: seq[NxSym]) =
+  ## keeps a header's declarations — the cache emptied first when it would hold more than a 32nd of nim.indexMemory
+  ## (4000 headers with no limit)
+  let cost = key.len + 320 * syms.len
+  if (nxIndexBudget > 0 and nxHeaderBytes + cost > nxIndexBudget div 32) or nxHeaderCache.len > 4000:
+    nxHeaderCache.clear()
+    nxHeaderBytes = 0
+  nxHeaderBytes += cost
+  nxHeaderCache[key] = syms
 
 func nxMacroParam*(typ: string): string =
   ## a macro's parameter inside the macro: a syntax tree (NimNode) whatever type is written — `cf: ClCfg`,
@@ -105,9 +116,7 @@ proc nxTemplateHeader(lines: openArray[string], l: int): NxSym =
     hdr.add lines[k][min(i0, leadWs(lines[k])) .. ^1]
     if nxCodeOf(lines[k]).endsWith("=") or (k == l and nxFindTop(lines[k], '=') > 0): break
   let key = hdr.join("\n")
-  if key notin nxHeaderCache:
-    if nxHeaderCache.len > 4000: nxHeaderCache.clear()
-    nxHeaderCache[key] = nxParse(hdr, "").syms
+  if key notin nxHeaderCache: nxHeaderPut(key, nxParse(hdr, "").syms)
   for s in nxHeaderCache[key]:
     if s.kind == nxTemplate: return s
 
@@ -497,9 +506,7 @@ proc nxLocals*(f: NxFile, lines: openArray[string], line, col: int, everything =
         hdr.add lines[k][min(ind, leadWs(lines[k])) .. ^1]
         if lines[k].strip.endsWith("="): break
       let hkey = hdr.join("\n")
-      if hkey notin nxHeaderCache:
-        if nxHeaderCache.len > 4000: nxHeaderCache.clear()
-        nxHeaderCache[hkey] = nxParse(hdr, "").syms
+      if hkey notin nxHeaderCache: nxHeaderPut(hkey, nxParse(hdr, "").syms)
       for s in nxHeaderCache[hkey]:
         if s.kind notin NxRoutineKinds: continue
         if nm.len > 0 and result.len > 0 and result[^1].name == nm and result[^1].line == l:

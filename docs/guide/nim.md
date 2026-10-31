@@ -265,9 +265,11 @@ tidy. Off: the editor works them out itself, a few ms at a time, as before 6.16.
 **The index's memory** (`nim.indexMemory`, 64 MB by default, 0 for no limit). The engine counts what its parsed
 files take and keeps them under the budget: above it, the files asked about least recently and not open are
 dropped and read again when needed (a library file comes back from the index cache in a few ms). On the whole Nim
-repository, a 16 MB budget holds the process at 23 MB instead of 40 MB. What each file sees (its scope) is kept for
-the 48 files asked about most recently, within a quarter of the budget, and what routines raise for 2,048 of them;
-past that, the oldest go and are worked out again when asked.
+repository, a 16 MB budget holds the process at 23 MB instead of 40 MB. The rest the engine keeps is held to the same
+budget: what each file sees (its scope, for the 48 files asked about most recently) and what the imports bring, a
+quarter of it each; what routines raise, a sixteenth; the routine headers it read, a thirty-second. Past that, the
+oldest go and are worked out again when asked. The files a module includes share what the module sees: each one's
+scope holds only its own names, then the module's, kept once for all of them.
 
 **The compiler's answer, once** (`nim.compilerAnswers`, on by default). With nimsuggest off (the default), a
 hover or *Go to definition* the engine has no answer for — a name a macro makes, say — asks the compiler once: one

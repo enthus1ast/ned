@@ -155,6 +155,11 @@ compiler, its tests or the settings that start programs (`security.folderTrust`;
 often `"ui.minimap": "off"`, or `"nim.engineHints": false` on a big file. Nothing runs in the background by default
 (nimsuggest is off); see [Building, tasks and performance](guide/building.md).
 
+**Termux closed by itself while ned was busy.** Android closes apps when the phone runs out of memory, Termux with
+them. ned runs at most two compiler checks at once, and when the system has little left (`ui.lowMemory`, 300 MB) it
+keeps light: *mem low* in the status bar, checks on save only, its caches emptied. If it still happens, a smaller
+`nim.indexMemory` (say 32) holds the engine to less, and closing tabs you do not need helps too.
+
 **Does it work in portrait on a phone?** Yes: below 70 columns ned switches to a phone layout, and everything can be
 tapped. A Nerd Font and `"ui.icons": "nerd"` give nicer icons.
 

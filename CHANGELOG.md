@@ -1,6 +1,52 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-636). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-637). Older releases:
+
+## What's new in 6.36
+
+**One check of a module at a time.** Each save started its own check, and a file that a module includes is checked
+through that module. So *Save all* with nine of ned's own files changed ran nine compilers of the whole program at
+once, about 800 MB each: on a phone, enough for Android to close Termux. Now a module has one check running at a
+time, and when it ends it runs once more for the files saved meanwhile.
+
+**The compiler's reading while you type (Nim 2.4 and newer).** The check after a pause in typing is now `nim nif -`
+in place of `nim check -`: the same messages, as fast (2.4 s against 3.2 s on a module of ned's), and the compiler's
+reading of the unsaved text with them. So before any save, names are coloured by what the compiler says they are,
+hover has the type it gave each let and var, F12 goes to the overload it chose, and Alt+M shows what a macro call
+made. Lines you type in or take out above move these along; a line changed since keeps the engine's answers until
+the next check. Hover on a declaration (`let fresh = …`) has the compiler's type too, saved or not. (The crash that
+kept this out of 6.35 was Nim 2.4.0's own, with `--stdinfile:`; ned does without that switch.)
+
+**What the soak's memory climb was.** The 20-minute soaks of 6.34 and 6.35 ended higher than they began. A build of
+ned that writes how big each of its tables is every 30 seconds, ned's and its engine worker's (`tests/memory/
+memprobe.py`, with the soak's `--mem-log`), showed three things:
+
+- the open tabs, from 3 to 17, a few MB each. The soak's own doing: before it put the project's files back with git it
+  saved only the tab in front, a tab with unsaved edits whose file git changed then asked at its next save whether
+  to overwrite the file or reload it, and the soak never answered, so no tab was saved or closed again. It now saves
+  every tab first and answers (and that is how the nine compilers above were found);
+- the index's scopes, what each file sees: one for each of the last 96 files asked about. In a program of include
+  files each one is a copy of the program's names (ned's own: 5,700 in each, 480,000 in all). Now 48 are kept;
+- what each routine raises, kept by the engine worker for 8,192 routines with the list of every file it read, about
+  8 KB each. Now up to 2,048 routines and 40,000 files read, about 3 MB. And beside it, to know whether a file's
+  converters were still the same, the scope itself was kept: up to 256 scopes the index had let go stayed alive, 40
+  MB of them. Now it keeps which scope it was, not the scope.
+
+Over the soak's 30 minutes ned and its worker now end at 146 MB, against 191 MB before these changes: the worker
+stays at about 43 MB (it ended at 85), and ned levels off after its first quarter of an hour. Two tables kept an entry for every file ever looked at: the unused names the compiler found in another
+project's files now go when you open a different project, and the list of each file's includes has a limit.
+
+**Go to definition graded against the compiler, again.** `tests/engine/nifgrade.py` asks ned's engine about every use
+the compiler's NIF names and compares the answers. It now leaves out what the NIF cannot say: a name in a comment, a
+name also written on the line beside it (the NIF can give a node the place of the one before it), a template call (the
+NIF has what the template made), and `for x in items:` (the compiler adds an `items` call). It also counts columns in
+bytes, as ned does. On ned's own source the engine now agrees on 99.6% (nedls) to 100% (nedfmt) of the uses. On Nim's
+own compiler it went from 96.5% to 99.4%: the engine now follows `import "."/[ast, msgs]`, a quoted folder before the
+modules, which Nim's compiler uses throughout.
+
+**The showcase and the post.** `examples/showcase.nim` has a section on the compiler's reading (two overloads, a let
+whose type only the compiler spells out) and points to the Nim label in the status bar.
+[docs/blog/announcing-ned.md](docs/blog/announcing-ned.md) says what ned does with Nim 2.4 now.
 
 ## What's new in 6.35
 

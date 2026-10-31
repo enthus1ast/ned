@@ -241,6 +241,12 @@ Appearance › *Icons*) goes through them.
   glide, the compiler's check on save instead of while you type (ned's own checks still run as you type), no AI
   completion as you type, and background work in fewer, larger steps while you are not typing. A leaf ❦ in the
   status bar shows it is on; a tap turns it off.
+- **Short of memory** (`ui.lowMemory`, 300 MB): when the system has less than that left to give, ned keeps light —
+  on a phone, Android closes Termux, with ned and its terminal, when memory runs out. What ned keeps to answer
+  faster goes (and is worked out again when asked), the compiler checks on save instead of while you type, one
+  check at a time, and nothing is read ahead. *mem low* in the status bar shows it; it ends by itself when the
+  system has twice that free again. `0` turns it off. (Whatever the memory, no more than two checks run at once:
+  the others wait for their turn.)
 
 ## Ligatures
 

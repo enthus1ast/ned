@@ -583,6 +583,7 @@ var
   cfgCursorAnim = "glide"          # ui.cursorAnimation: glide · off
   cfgCursorAnimMs = 100            # ui.cursorAnimationMs: how long a glide lasts
   batterySave = false              # (6.32) saving the battery (ui.batterySaver): no glide, fewer wake-ups
+  lowMemory = false                # (6.37) the device is short of memory (ui.lowMemory): ned keeps light
   caShownX, caShownY = -1          # where the last frame put the cursor
   caOn = false                     # a glide going on
   caFrom, caTo: (float, float)     # (column, row)

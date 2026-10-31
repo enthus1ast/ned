@@ -627,6 +627,8 @@ proc wkHandle(line: string) =
   of "dump":
     nxDumpApply(j{"proj"}.getStr, j{"out"}.getStr)
     nxDumped.incl j{"proj"}.getStr
+  of "shed":
+    nxShed(j{"keep"}.getStr)             # (the device short of memory: what can be worked out again goes)
   of "packages":
     nxApplyToolchain()                   # (packages installed or removed: read again, what was resolved forgotten)
     ecLast.clear()

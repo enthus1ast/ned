@@ -2,7 +2,7 @@
 ## a lookup gives what going through all the scope's names gives, in the same order — and two files that import the
 ## same module share what it brings. Run: nim r tests/unit/tscopes.nim
 
-import std/[os, strutils, unittest, algorithm, sets, times]
+import std/[os, strutils, unittest, algorithm, sets, times, tables]
 import ../../src/ned/nim/index
 
 proc nimLib(): string =
@@ -80,5 +80,30 @@ suite "what a file sees, in shared layers":
     setLastModificationTime(dir / "util2.nim", getTime() + initDuration(seconds = 7))
     nxStatForget()
     check nxLookup(nxScope(nxLoad(dir / "app2.nim")), "hello").len == 1
+  test "the files a module includes share its names (6.37): each has its own, then one layer of the module's":
+    writeFile(dir / "prog.nim", "import std/strutils\nproc top*() = discard\ninclude part1, part2\n")
+    writeFile(dir / "part1.nim", "proc one*(): int = 1\n")
+    writeFile(dir / "part2.nim", "import std/os\nproc two*(): int = 2\n")
+    nxStatForget()
+    nxIncDirs.clear()                         # (the folder's includes, looked at by the tests above before prog.nim)
+    nxFocusPath = dir / "part1.nim"           # (the file being edited: a scope of its own over the module's)
+    let s1 = nxScope(nxLoad(dir / "part1.nim"))
+    let s2 = nxScope(nxLoad(dir / "part2.nim"))   # (imports of its own: a scope of its own too)
+    nxFocusPath = ""
+    check s1.refs.own.len == 1 and s2.refs.own.len == 1      # (their own names only: no copy of the module's)
+    check cast[pointer](s1.refs.layers[0]) == cast[pointer](s2.refs.layers[0])
+    for nm in ["one", "two", "top"]:
+      check nxLookup(s1, nm).len == 1 and nxLookup(s2, nm).len == 1   # (a file's names once, not again from the layer)
+    check nxLookup(s1, "toUpperAscii").len > 0 and nxLookup(s2, "fileExists").len > 0
+    check nxLookup(s1, "fileExists").len == 0                 # (part2's own import is not part1's)
+    var n, ones = 0
+    var order: seq[(string, int32)]
+    for r in s1.refs:
+      inc n
+      order.add (r.file.path, r.idx)
+      if r.file.syms[r.idx].name == "one": inc ones
+    check ones == 1 and n == s1.refs.len
+    for i in [0, 1, n div 2, n - 1]:
+      check (s1.refs[i].file.path, s1.refs[i].idx) == order[i]
 
 removeDir(dir)

@@ -74,7 +74,7 @@ type
 const NxFxMark* = "side effect"   ## (fx) the "exception" a side effect is
 
 var nxRaisesCache: Table[string, (NxRaises, seq[(string, string)])]   # routine → what it raises, the files read
-var nxRaisesDeps = 0                     # (the files read that the cache holds, all routines together)
+var nxRaisesDeps* = 0                    # (the files read that the cache holds, all routines together)
 
 # the lines of the file the body being read is in
 template lines(w: NxRsBody): untyped = w.lr.lines
@@ -1951,8 +1951,10 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
     for p in mine: deps.add (p, nxRsStamp(c, p))
     # (each with the files it read and their stamps — in a program of include files, about all of them: 8 KB a
     # routine; 8192 of them made the engine worker grow by 60 MB in a long session, 6.36's soak. What the routines on
-    # screen raise is what is asked for: kept up to 2048 routines or 40,000 files read, about 3 MB)
-    if nxRaisesCache.len >= 2048 or nxRaisesDeps > 40_000:
+    # screen raise is what is asked for: kept up to a 16th of nim.indexMemory — 2048 routines, 40,000 files read,
+    # with no limit)
+    let bytes = nxRaisesDeps * 96 + nxRaisesCache.len * 256
+    if (nxIndexBudget > 0 and bytes > nxIndexBudget div 16) or nxRaisesCache.len >= 2048 or nxRaisesDeps > 40_000:
       nxRaisesCache.clear()
       nxRaisesDeps = 0
     nxRaisesDeps += deps.len
