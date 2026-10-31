@@ -21,7 +21,7 @@ library, and builds to a single program, with nothing else to install.
 
 ## Contents
 
-- [What's new in 6.35](#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [older releases](CHANGELOG.md)
+- [What's new in 6.36](#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,42 +30,51 @@ library, and builds to a single program, with nothing else to install.
 
 ---
 
-## What's new in 6.35
+## What's new in 6.36
 
-**Installing nimony no longer closes Termux.** *Nim 3: install or update nimony* ran Nimony's `hastur build all`,
-which starts about a dozen compilers at once, each with a C compiler per core: on a tablet Android ran out of memory
-and closed Termux, with ned and the terminal. Now each part is built in turn, at a low priority, with the C compiler
-two at a time; the status bar shows the step (*building nimony 4 of 10: nimony*), and with less than about 1.5 GB
-free ned asks first. At the end the new nimony checks a small program — one that does not work is never used — and
-the build is a job of its own: Alt+R or a test meanwhile no longer stops it.
+**One check of a module at a time.** Each save started its own check, and a file that a module includes is checked
+through that module. So *Save all* with nine of ned's own files changed ran nine compilers of the whole program at
+once, about 800 MB each: on a phone, enough for Android to close Termux. Now a module has one check running at a
+time, and when it ends it runs once more for the files saved meanwhile.
 
-**More from the compiler's reading (Nim 2.4 and newer).** On a saved project the compiler has read (`nim nif`):
+**The compiler's reading while you type (Nim 2.4 and newer).** The check after a pause in typing is now `nim nif -`
+in place of `nim check -`: the same messages, as fast (2.4 s against 3.2 s on a module of ned's), and the compiler's
+reading of the unsaved text with them. So before any save, names are coloured by what the compiler says they are,
+hover has the type it gave each let and var, F12 goes to the overload it chose, and Alt+M shows what a macro call
+made. Lines you type in or take out above move these along; a line changed since keeps the engine's answers until
+the next check. Hover on a declaration (`let fresh = …`) has the compiler's type too, saved or not. (The crash that
+kept this out of 6.35 was Nim 2.4.0's own, with `--stdinfile:`; ned does without that switch.)
 
-- **Find references** of the declaration the compiler chose — of `show(2.5)`, the `show` that takes a float, not
-  every `show` — across the project's files (the list says *(compiler)*);
-- **hover** with the type the compiler gave a let or var (*the compiler's type: `Table[string, seq[int]]`*);
-- **Alt+M** on a macro call shows what it made at once, written from the compiler's reading, without running the
-  compiler again;
-- no nimsuggest started in the background for the types the engine cannot work out — on a phone, a process less.
+**What the soak's memory climb was.** The 20-minute soaks of 6.34 and 6.35 ended higher than they began. A build of
+ned that writes how big each of its tables is every 30 seconds, ned's and its engine worker's (`tests/memory/
+memprobe.py`, with the soak's `--mem-log`), showed three things:
 
-The on-save check with `nim nif` now reports every error, not the first only, as `nim check` does; colours and type
-hints appear as soon as the check ends, not up to three seconds later; and of `"a".replace("b", "x").replace('c',
-'y')`, F12 on each `replace` goes to its own overload.
+- the open tabs, from 3 to 17, a few MB each. The soak's own doing: before it put the project's files back with git it
+  saved only the tab in front, a tab with unsaved edits whose file git changed then asked at its next save whether
+  to overwrite the file or reload it, and the soak never answered, so no tab was saved or closed again. It now saves
+  every tab first and answers (and that is how the nine compilers above were found);
+- the index's scopes, what each file sees: one for each of the last 96 files asked about. In a program of include
+  files each one is a copy of the program's names (ned's own: 5,700 in each, 480,000 in all). Now 48 are kept;
+- what each routine raises, kept by the engine worker for 8,192 routines with the list of every file it read, about
+  8 KB each. Now up to 2,048 routines and 40,000 files read, about 3 MB. And beside it, to know whether a file's
+  converters were still the same, the scope itself was kept: up to 256 scopes the index had let go stayed alive, 40
+  MB of them. Now it keeps which scope it was, not the scope.
 
-**The engine.** A module that offered nothing when it was first read — `import util` written before `util.nim` has
-its first `proc …*` — now shows its new names without reopening the folder. Of a generic routine, T is one type for
-all the arguments: `elems.add cur` with a `seq[seq[string]]` and a `seq[string]` goes to the `add` that takes one
-element (found by `tests/engine/nifgrade.py`, the engine graded against the compiler). C files' checks lost when the
-engine worker stopped are asked again. The Nim library's files are looked at once a session, not every second.
+Over the soak's 30 minutes ned and its worker now end at 146 MB, against 191 MB before these changes: the worker
+stays at about 43 MB (it ended at 85), and ned levels off after its first quarter of an hour. Two tables kept an entry for every file ever looked at: the unused names the compiler found in another
+project's files now go when you open a different project, and the list of each file's includes has a limit.
 
-**Fewer crashes, found before you.** `tests/fuzz/parsers.nim` gives broken text — millions of random changes to real
-files — to every reader and formatter: Nim, C, NIF, JSON, CSS, HTML, SQL, Markdown, YAML, TOML; also built with
-address and undefined-behaviour sanitizers. None crashed. Every test of the project ran for this release, the ones
-run only now and then too (every command, every plugin, hostile input, the Nim tour, the parser check).
+**Go to definition graded against the compiler, again.** `tests/engine/nifgrade.py` asks ned's engine about every use
+the compiler's NIF names and compares the answers. It now leaves out what the NIF cannot say: a name in a comment, a
+name also written on the line beside it (the NIF can give a node the place of the one before it), a template call (the
+NIF has what the template made), and `for x in items:` (the compiler adds an `items` call). It also counts columns in
+bytes, as ned does. On ned's own source the engine now agrees on 99.6% (nedls) to 100% (nedfmt) of the uses. On Nim's
+own compiler it went from 96.5% to 99.4%: the engine now follows `import "."/[ast, msgs]`, a quoted folder before the
+modules, which Nim's compiler uses throughout.
 
-**Install with nimble, and a post to announce ned.** `nimble install https://github.com/foxoman/ned` builds ned,
-nedfmt and nedls into `~/.nimble/bin`; [docs/blog/announcing-ned.md](docs/blog/announcing-ned.md) says what ned is and
-the ways to install it.
+**The showcase and the post.** `examples/showcase.nim` has a section on the compiler's reading (two overloads, a let
+whose type only the compiler spells out) and points to the Nim label in the status bar.
+[docs/blog/announcing-ned.md](docs/blog/announcing-ned.md) says what ned does with Nim 2.4 now.
 
 ## Features
 
@@ -222,7 +231,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.35.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.36.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -277,7 +286,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.35.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.36.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

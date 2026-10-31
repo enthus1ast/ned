@@ -175,9 +175,12 @@ proc runCheck(b: Buffer) =
     return
   runCheckPath(b.path, b.lang.id, keepExamples = false)
 
-proc runCheckPath(path, langId: string, keepExamples: bool) =
+proc runCheckPath(path, langId: string, keepExamples: bool, also: seq[string] = @[]) =
   ## check one file on disk; its problems from earlier builds and checks are replaced by what this finds
-  ## (keepExamples: a file that did not change keeps its failed runnableExamples marks)
+  ## (keepExamples: a file that did not change keeps its failed runnableExamples marks; also: other files this same
+  ## check answers for, saved while it ran). One check of a command at a time: the files of a project are all checked
+  ## through its main module, and a save of another while it runs makes it run once more when it ends — for all of
+  ## them (Save all with ten files changed started ten compilers at once, the size of the project each: 6.36)
   let (cmd, cwd) = checkCmdForPath(path, langId)
   if cmd.len == 0: return
   let exe = cmd.firstWord
@@ -187,14 +190,24 @@ proc runCheckPath(path, langId: string, keepExamples: bool) =
   if path in checkPending:
     pendingRecheck.incl path
     return
+  let key = cmd & "\t" & cwd
+  if key in checkByCmd:
+    checkByCmd[key].add (path, langId, keepExamples)
+    for p in also: checkByCmd[key].add (p, langId, false)
+    return
+  checkByCmd[key] = @[]
   checkPending.incl path
   # a check of the whole crate (cargo) also answers for the crate's other files that showed errors
   var covered = @[path]
+  for p in also:
+    if p notin covered: covered.add p
   if cwd != parentDir(path):
     for p, ds in diagsBuild:
-      if p != path and p.startsWith(cwd & "/") and ds.len > 0: covered.add p
-  discard startJob(jkCheck, cmd, cwd, proc(j: Job) =
+      if p notin covered and p.startsWith(cwd & "/") and ds.len > 0: covered.add p
+  let job = startJob(jkCheck, cmd, cwd, proc(j: Job) =
     checkPending.excl path
+    let waiting = checkByCmd.getOrDefault(key)
+    checkByCmd.del key
     nifChecked()                       # (Nim 2.4's `nim nif` wrote the compiler's reading: looked for at once)
     var found = initTable[string, seq[Diag]]()
     for p in covered: found[p] = @[]
@@ -245,7 +258,18 @@ proc runCheckPath(path, langId: string, keepExamples: bool) =
       engineAgain(p)
       if langId in ["c", "cpp"]: cEngAgain(p)
     for p, us in unusedFound: unusedHints[p] = us
+    # (saved again meanwhile — this file, or others this check answers for: once more, for all of them)
+    var again = waiting
     if path in pendingRecheck:
       pendingRecheck.excl path
-      runCheckPath(path, langId, keepExamples)
+      again.add (path, langId, keepExamples)
+    if again.len > 0:
+      let (p0, l0, k0) = again[^1]
+      var others: seq[string]
+      for (p, _, _) in again:
+        if p != p0 and p notin others: others.add p
+      runCheckPath(p0, l0, k0, others)
     needRender = true)
+  if job == nil:
+    checkPending.excl path
+    checkByCmd.del key

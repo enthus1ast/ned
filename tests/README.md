@@ -13,8 +13,8 @@ Every release of ned passes all of these. They need nothing that is not on GitHu
 | [`plugins/bundled/`](plugins/bundled) | ned's own plugins (plugins/: dial, which-key, oil, the languages …), each played through the plugin host as ned runs it, in `nim e` and compiled; every one in ned's list, with what it does and its checks | minutes | `python3 tests/plugins/tbundled.py --native [NAME …]` |
 | [`plugins/cookbook/`](plugins/cookbook) | the plugins of the [plugin cookbook](../docs/plugins/cookbook.md): each compiles as NimScript and as Nim, and the page shows each file as it is (`--run`: each started in the plugin host too) | a minute | `python3 tests/plugins/cookbook/check.py [--run]` |
 | [`perf/`](perf) | the longest rounds of ned's main loop and completion times on ned's own source (`--one-core`: on one core); speed budgets by hand before a release (`budgets.py`: starting, opening a 50 000-line file, typing and moving in it, as a terminal sees it) | minutes | `python3 tests/perf/rounds.py ./ned` · `python3 tests/perf/budgets.py ./ned` |
-| [`soak/`](soak) | a long editing session on a copy of ned's own source, picked at random — and in a second project now and then: memory, internal errors, and ned still answering after hours | hours | `python3 tests/soak/soak.py ./ned --minutes 180` |
-| [`memory/`](memory) | every table ned keeps per open file is let go when its tab closes (read from the source) | seconds | `python3 tests/memory/bufids.py` |
+| [`soak/`](soak) | a long editing session on a copy of ned's own source, picked at random — and in a second project now and then: memory, internal errors, and ned still answering after hours (`--only type_code,save` for some of the actions, `--revert-minutes` for how often the files go back) | hours | `python3 tests/soak/soak.py ./ned --minutes 180` |
+| [`memory/`](memory) | every table ned keeps per open file is let go when its tab closes (read from the source); and, to find what grows in a long session, a build that writes the size of each of its 600-odd tables — the index's and the engine worker's too — every 30 s (`memprobe.py OUT`, then the soak with `--mem-log FILE`, then `memprobe.py --diff FILE` and `--diff FILE.worker`) | seconds | `python3 tests/memory/bufids.py` |
 | [`update/`](update) | a release checked before it is installed (SHA256SUMS and its signature), install.sh and `ned --update` against a fake release in a local folder | seconds | `python3 tests/update/tupdate.py ./ned` |
 | [`ai/`](ai) | secrets kept from the AI (`ai.redactSecrets`): the real editor and a fake AI provider that writes down every request | a minute | `python3 tests/ai/tredact.py ./ned` |
 | [`plugins/tsandbox.py`](plugins/tsandbox.py) | plugins in the Landlock sandbox (`plugins.sandbox`) and `ned --sandbox`: what the kernel refuses (Linux; elsewhere it says why and passes) | a minute | `python3 tests/plugins/tsandbox.py ./ned` |
@@ -60,6 +60,7 @@ Some tests use optional tools; when one is missing, the test is skipped and says
 | zsh, fish | the terminal's shell integration (bash is always tested) |
 | an en_US hunspell dictionary (`hunspell-en-us`) | spell checking |
 | an SSH server | remote folders over SSH: run [`ui/ssh-setup.sh`](ui/ssh-setup.sh) on a throwaway machine (it adds hosts to `~/.ssh/config`), then `NED_TEST_SSH=1` |
+| Nim 2.4 or newer, its `bin` folder in `NED_TEST_NIM24` (the suite itself runs with an older Nim too) | the compiler's reading (`nim nif`) of unsaved text |
 
 What ned sends to the terminal is checked too: [`ui/vt.py`](ui/vt.py), a small terminal model, reads every byte of
 a session (scroll regions, colours carried along a row, skipped cells) and the screen it ends up with must be the one

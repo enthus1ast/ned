@@ -32,7 +32,7 @@ proc nim2NifDir(main: string): string =
     writeFile(result / "main.txt", main)
     var ds: seq[(times.Time, string)]
     for kind, d in walkDir(base):
-      if kind == pcDir: ds.add (getLastModificationTime(d), d)
+      if kind == pcDir and not extractFilename(d).startsWith("typing-"): ds.add (getLastModificationTime(d), d)
     if ds.len > 16:
       ds.sort(proc(a, b: (times.Time, string)): int = cmp(a[0], b[0]))
       for (_, d) in ds[0 ..< ds.len - 16]:
@@ -180,9 +180,14 @@ type NifFacts = ref object
   nifTime: times.Time
   kinds: Table[int, Table[string, TokKind]]  # line → a name as Nim compares it → its colour (tkText: not one colour)
   hints: Table[int, seq[(string, string)]]   # line → (a let or var declared there, its type as Nim writes it)
-  uses: Table[int, seq[(string, string, int)]]   # line → (a name as Nim compares it, the symbol it is, its column)
+  uses: Table[int, seq[(string, string, int)]]   # line → (a name as Nim compares it, the symbol it is — used or
+                                                 # declared there —, its column)
   defs: Table[string, (string, int, int)]    # this module's symbol → (its file, line, column)
   defTypes: Table[string, string]            # a let's or var's symbol → its type as the compiler gave it
+  # (of the unsaved text a typing check read — empty for a saved file's: the facts hold for every line)
+  lineHash: seq[Hash]                        # each line of that text
+  changeId: int                              # the buffer's text then
+  alias: string                              # the name the NIF gives that text (stdinfile.nim, or a private copy)
 
 func nifTagKind(tag: string, top: bool): TokKind =
   ## a declaration's colour: routines, templates and macros, types, fields, enum values and constants, parameters,
@@ -202,10 +207,12 @@ func nifTagKind(tag: string, top: bool): TokKind =
 
 var nifFactsMemo: Table[string, NifFacts]    # file → its facts
 var nifFactsLooked: Table[string, MonoTime]  # (a file's NIF looked for: at most every 3 s)
+var nifTyping: Table[string, NifFacts]       # file → the facts of the unsaved text its last typing check read
 
-proc nifFactsBuild(path, nif: string, nim2: bool): NifFacts =
+proc nifFactsBuild(path, nif: string, nim2: bool, alias = ""): NifFacts =
   ## reads a file's NIF: the colour of each name on each line (by this module's declarations, and the other modules'
-  ## from their NIF), the types of the lets and vars, which symbol each name is, where this module declares each
+  ## from their NIF), the types of the lets and vars, which symbol each name is, where this module declares each.
+  ## `alias`: the file the NIF names in place of this one (a typing check's text read from stdin, or its copy)
   result = NifFacts()
   var nodes: seq[NifNode]
   try:
@@ -219,6 +226,12 @@ proc nifFactsBuild(path, nif: string, nim2: bool): NifFacts =
     ## whether a file the NIF names is this one
     if f.len == 0: return false
     sameFile.withValue(f, v): return v[]
+    if alias.len > 0:
+      # (by name: a private copy's path may come back through a symlink; stdinfile.nim and the copies' names are
+      # no project file's)
+      result = extractFilename(f) == extractFilename(alias)
+      sameFile[f] = result
+      return
     let p = if f.isAbsolute: f elif nim2: normalizedPath(mainDir / f) else: nifSourcePath(nif, f)
     result = p == path or (p.len > 0 and path.endsWith("/" & f) and not nim2)
     sameFile[f] = result
@@ -260,7 +273,8 @@ proc nifFactsBuild(path, nif: string, nim2: bool): NifFacts =
     let name = nifSymName(n.atom)
     if name.len == 0 or name[0] notin IdentStartChars or '`' in n.atom or not here(n.file): continue
     let w = nxNorm(name)
-    if not n.isDef: result.uses.mgetOrPut(n.sline, @[]).add (w, n.atom, n.scol)
+    # (a declaration too: hover on `let x` has its type, and the n-th `x` of `let x = x + 1` is the n-th here)
+    result.uses.mgetOrPut(n.sline, @[]).add (w, n.atom, n.scol)
     let k = kindOf(n.atom)
     let row = addr result.kinds.mgetOrPut(n.sline, initTable[string, TokKind]())
     row[].withValue(w, old):
@@ -268,26 +282,29 @@ proc nifFactsBuild(path, nif: string, nim2: bool): NifFacts =
     do: row[][w] = k
 
 proc nifFactsFor(b: Buffer): NifFacts =
-  ## the compiler's facts about the buffer's file, when the buffer is the file as saved and the NIF was made after the
-  ## save (Nim 2.4's `nim nif`, or nimony with Nim 3) — nil otherwise. The NIF is looked for at most every 3 s a file
-  if b.path.len == 0 or b.dirty or b.lang == nil or b.lang.mode != lmNim or not b.path.endsWith(".nim"): return nil
+  ## the compiler's facts about the buffer's file: of the file as saved, when the NIF was made after the save (Nim
+  ## 2.4's `nim nif`, or nimony with Nim 3); of the text the last typing check read (Nim 2.4), for a buffer changed
+  ## since its save — nifLineAt says which of its lines still hold. nil: none. A saved file's NIF is looked for at
+  ## most every 3 s
+  if b.path.len == 0 or b.lang == nil or b.lang.mode != lmNim or not b.path.endsWith(".nim"): return nil
+  if b.dirty: return nifTyping.getOrDefault(b.path)
   let nim3 = nim3On()
   if not nim3 and not nim2NifOn(): return nil
   let st = nxStamp(b.path)
   let old = nifFactsMemo.getOrDefault(b.path)
   let recent = msSince(nifFactsLooked.getOrDefault(b.path)) < 3000
   if old != nil and old.stamp == st and recent: return old
-  if recent: return nil
+  if recent: return nifTyping.getOrDefault(b.path)
   if nifFactsLooked.len > 200: nifFactsLooked.clear()
   nifFactsLooked[b.path] = getMonoTime()
   let nif = if nim3: nifFileFor(b.path) else: nim2NifFor(b.path)
-  if nif.len == 0 or not (nif.endsWith(".s.nif") or nif.endsWith(".nim2.nif")): return nil
+  if nif.len == 0 or not (nif.endsWith(".s.nif") or nif.endsWith(".nim2.nif")): return nifTyping.getOrDefault(b.path)
   var t, srcT: times.Time
   try:
     t = getLastModificationTime(nif)
     srcT = getLastModificationTime(b.path)
   except CatchableError: return nil
-  if t < srcT: return nil                      # (made before the last save: its places are not this text's)
+  if t < srcT: return nifTyping.getOrDefault(b.path)   # (made before the last save: its places are not this text's)
   if old != nil and old.nif == nif and old.nifTime == t:
     old.stamp = st
     return old
@@ -297,14 +314,37 @@ proc nifFactsFor(b: Buffer): NifFacts =
   nifFactsMemo[b.path] = result
   needRender = true
 
+proc nifLineAt(fx: NifFacts, b: Buffer, line: int): int =
+  ## the facts' line for a line of the buffer, -1 when they do not hold for it: a saved file's facts hold for every
+  ## line; the facts of a typing check for a line as it was then — at its place, or moved by the lines typed in or
+  ## taken out above it since (the others wait for the next check)
+  if fx == nil or line < 0 or line >= b.lines.len: return -1
+  if fx.lineHash.len == 0 or b.changeId == fx.changeId: return line
+  let h = hash(b.lines[line])
+  if line < fx.lineHash.len and fx.lineHash[line] == h: return line
+  let moved = line - (b.lines.len - fx.lineHash.len)
+  if moved >= 0 and moved < fx.lineHash.len and fx.lineHash[moved] == h: return moved
+  -1
+
+proc nifBufLine(fx: NifFacts, b: Buffer, line: int): int =
+  ## the other way: where a line of the text a typing check read is in the buffer now (-1: changed since)
+  if fx == nil: return -1
+  if fx.lineHash.len == 0 or b.changeId == fx.changeId: return line
+  if line < 0 or line >= fx.lineHash.len: return -1
+  if line < b.lines.len and hash(b.lines[line]) == fx.lineHash[line]: return line
+  let moved = line + (b.lines.len - fx.lineHash.len)
+  if moved >= 0 and moved < b.lines.len and hash(b.lines[moved]) == fx.lineHash[line]: return moved
+  -1
+
 proc nifTypeHints(b: Buffer, line: int): seq[(int, string)] =
   ## the types the compiler gave the lets and vars declared on a line, each after its name (`: seq[string]`) — not
   ## for a name with its type written, nor a value whose type shows (a number, a string)
   if not cfgInlayHints or line >= b.lines.len: return
   let fx = nifFactsFor(b)
-  if fx == nil or line notin fx.hints: return
+  let fl = nifLineAt(fx, b, line)
+  if fl < 0 or fl notin fx.hints: return
   let s = b.lines[line]
-  for (name, t) in fx.hints[line]:
+  for (name, t) in fx.hints[fl]:
     let w = nxNorm(name)
     var i = 0
     while i < s.len:
@@ -329,7 +369,8 @@ proc nifTypeHints(b: Buffer, line: int): seq[(int, string)] =
 proc nifHasHints(b: Buffer, line: int): bool =
   ## whether the compiler's NIF has a type for a let or var of this line (it is drawn even without the engine's hints)
   let fx = nifFactsFor(b)
-  fx != nil and line in fx.hints
+  let fl = nifLineAt(fx, b, line)
+  fl >= 0 and fl in fx.hints
 
 func nifIdentsOn(s: string, w: string): seq[int] =
   ## the columns where a name (as Nim compares names) is written on a line, in order
@@ -345,7 +386,8 @@ func nifIdentsOn(s: string, w: string): seq[int] =
 proc nifSymAt(b: Buffer, fx: NifFacts, p: Pos): string =
   ## the symbol the name at a place is, by the compiler's reading (the n-th of that name on the line is the n-th the
   ## NIF names there, in the order of their columns) — "" when it cannot tell
-  if fx == nil or p.line notin fx.uses: return ""
+  let fl = nifLineAt(fx, b, p.line)
+  if fl < 0 or fl notin fx.uses: return ""
   let s = b.lines[p.line]
   var a = min(p.col, s.len)
   while a > 0 and s[a - 1] in IdentChars: dec a
@@ -357,7 +399,7 @@ proc nifSymAt(b: Buffer, fx: NifFacts, p: Pos): string =
   var syms: seq[string]
   # (the uses in the order they stand on the line: the NIF's own is the tree's — a chain's outer call first)
   var byCol: seq[(int, string)]
-  for (u, sym, c) in fx.uses[p.line]:
+  for (u, sym, c) in fx.uses[fl]:
     if u == w:
       byCol.add (c, sym)
       if sym notin syms: syms.add sym
@@ -373,7 +415,11 @@ proc nimNifDefinition(b: Buffer, p: Pos): bool =
   let sym = nifSymAt(b, fx, p)
   if sym.len == 0: return false
   var target: (string, int, int)
-  if sym in fx.defs: target = fx.defs[sym]
+  if sym in fx.defs:
+    target = fx.defs[sym]
+    target[1] = nifBufLine(fx, b, target[1])         # (typed since: where that line is now)
+    # (F12 on the declaration itself: the engine's answer — a forward declaration's body, say)
+    if target[1] < 0 or target[1] == p.line: return false
   else:
     let m = nifModuleOf(sym)
     if m.len == 0: return false
@@ -407,7 +453,7 @@ proc nimNifReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)]): boo
   ## files is newer than the file and none of them has unsaved changes; and where the places of a line cannot be told
   ## apart (a template wrote more of the name than the line has), not at all: false, and the engine answers
   let fx = nifFactsFor(b)
-  if fx == nil or not fx.nif.endsWith(".nim2.nif"): return false
+  if fx == nil or not fx.nif.endsWith(".nim2.nif") or fx.lineHash.len > 0: return false   # (saved files only)
   let sym = nifSymAt(b, fx, p)
   if sym.len == 0: return false
   let w = nxNorm(nifSymName(sym))
@@ -476,3 +522,83 @@ proc nifChecked() =
 proc nifForget() =
   ## (another folder opened) the facts read from NIFs go
   nifFactsMemo.clear(); nifFactsLooked.clear(); nifDeclMemo.clear(); nim2NifMaps.clear(); nim2NifDirs.setLen(0)
+  nifTyping.clear()
+
+# ── while typing: the compiler's reading of the unsaved text. The typing check (typingcheck.nim) runs `nim nif -`
+#    in place of `nim check -` with Nim 2.4 — as fast, the same messages — and the NIF it writes of the text read from
+#    stdin (the compiler calls it stdinfile.nim) gives the colours, type hints and Go to definition of the unsaved text.
+#    (`--stdinfile:` would name it, but Nim 2.4.0 then stops on an assertion of its own) ──
+
+var nifTypingBusy: Table[string, MonoTime]   # folder → since when its typing NIF is being written (one at a time:
+                                              # the same file name; a check stopped without ending frees it in 60 s)
+var nifTypingBroken = false            # (`nim nif -` failed in a way of its own: `nim check -` for the session)
+
+proc nifTypingDirName(folder: string): string =
+  ## the folder the typing checks run from a folder write their NIF to (`typing-<hash of the folder>`)
+  nifCacheBase() / ("typing-" & toHex(uint32(hash(folder) and 0xFFFF_FFFF)).toLowerAscii)
+
+proc nifTypingCmd(folder: string): string =
+  ## the start of a typing check's command run from `folder` when the compiler's reading comes with it — `nim nif` with
+  ## what `nim check` reports, into ned's folder for it (made, with a note of the folder; of these folders the 4 used
+  ## least recently go) — and the folder marked busy until nifTypingDone. "" for plain `nim check`: Nim older than 2.4,
+  ## nim.compilerNif off, `nim nif -` failed before, or another file's check from this folder is writing its NIF
+  if not nim2NifOn() or nifTypingBroken or
+     (folder in nifTypingBusy and msSince(nifTypingBusy[folder]) < 60_000): return ""
+  let dir = nifTypingDirName(folder)
+  try:
+    if not fileExists(dir / "main.txt"):
+      createDir(dir)
+      writeFile(dir / "main.txt", folder / "stdinfile.nim")
+      var ds: seq[(times.Time, string)]
+      for kind, d in walkDir(nifCacheBase()):
+        if kind == pcDir and extractFilename(d).startsWith("typing-"): ds.add (getLastModificationTime(d), d)
+      if ds.len > 4:
+        ds.sort(proc(a, b: (times.Time, string)): int = cmp(a[0], b[0]))
+        for (_, d) in ds[0 ..< ds.len - 4]:
+          if d != dir: removeDir(d)
+  except CatchableError: return ""
+  if nifTypingBusy.len > 16: nifTypingBusy.clear()
+  nifTypingBusy[folder] = getMonoTime()
+  "nim nif --errorMax:0 -d:nimcheck --nimcache:" & quoteShell(dir)
+
+proc nifTypingDone(folder: string) =
+  ## a typing check with its NIF ended (or will not be read): another file's from that folder may write one now
+  nifTypingBusy.del folder
+
+proc nifTypingRead(b: Buffer, folder, alias: string, started: times.Time, output: string) =
+  ## a typing check by `nim nif -` ended, the buffer unchanged since: the NIF it wrote of the text (the one newer than
+  ## the check's start, from stdin) gives the buffer's facts until the next — `alias` is the name the NIF gives the
+  ## text: stdinfile.nim, or the private copy an includer's text includes. When `nim nif -` itself failed (an
+  ## exception of the compiler's own), the typing checks are `nim check -` for the rest of the session
+  if "[AssertionDefect]" in output or "unhandled exception" in output:
+    nifTypingBroken = true
+    return
+  let dir = nifTypingDirName(folder)
+  var nif = ""
+  var t: times.Time
+  try:
+    for kind, f in walkDir(dir):
+      if kind != pcFile or not f.endsWith(".nim2.nif") or not extractFilename(f).startsWith("std"): continue
+      let ft = getLastModificationTime(f)
+      if ft < started: continue
+      var head = ""
+      let fh = open(f)
+      try:
+        var ln = ""
+        var k = 0
+        while k < 6 and fh.readLine(ln):
+          head.add ln
+          inc k
+      finally: fh.close()
+      if "(.original \"stdinfile\")" in head:
+        (nif, t) = (f, ft)
+        break
+  except CatchableError: return
+  if nif.len == 0: return
+  let fx = nifFactsBuild(b.path, nif, true, alias)
+  (fx.nif, fx.nifTime, fx.changeId, fx.alias) = (nif, t, b.changeId, alias)
+  fx.lineHash = newSeq[Hash](b.lines.len)
+  for i, l in b.lines: fx.lineHash[i] = hash(l)
+  if nifTyping.len >= 8 and b.path notin nifTyping: nifTyping.clear()
+  nifTyping[b.path] = fx
+  needRender = true

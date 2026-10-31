@@ -1,6 +1,43 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-635). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-636). Older releases:
+
+## What's new in 6.35
+
+**Installing nimony no longer closes Termux.** *Nim 3: install or update nimony* ran Nimony's `hastur build all`,
+which starts about a dozen compilers at once, each with a C compiler per core: on a tablet Android ran out of memory
+and closed Termux, with ned and the terminal. Now each part is built in turn, at a low priority, with the C compiler
+two at a time; the status bar shows the step (*building nimony 4 of 10: nimony*), and with less than about 1.5 GB
+free ned asks first. At the end the new nimony checks a small program — one that does not work is never used — and
+the build is a job of its own: Alt+R or a test meanwhile no longer stops it.
+
+**More from the compiler's reading (Nim 2.4 and newer).** On a saved project the compiler has read (`nim nif`):
+
+- **Find references** of the declaration the compiler chose — of `show(2.5)`, the `show` that takes a float, not
+  every `show` — across the project's files (the list says *(compiler)*);
+- **hover** with the type the compiler gave a let or var (*the compiler's type: `Table[string, seq[int]]`*);
+- **Alt+M** on a macro call shows what it made at once, written from the compiler's reading, without running the
+  compiler again;
+- no nimsuggest started in the background for the types the engine cannot work out — on a phone, a process less.
+
+The on-save check with `nim nif` now reports every error, not the first only, as `nim check` does; colours and type
+hints appear as soon as the check ends, not up to three seconds later; and of `"a".replace("b", "x").replace('c',
+'y')`, F12 on each `replace` goes to its own overload.
+
+**The engine.** A module that offered nothing when it was first read — `import util` written before `util.nim` has
+its first `proc …*` — now shows its new names without reopening the folder. Of a generic routine, T is one type for
+all the arguments: `elems.add cur` with a `seq[seq[string]]` and a `seq[string]` goes to the `add` that takes one
+element (found by `tests/engine/nifgrade.py`, the engine graded against the compiler). C files' checks lost when the
+engine worker stopped are asked again. The Nim library's files are looked at once a session, not every second.
+
+**Fewer crashes, found before you.** `tests/fuzz/parsers.nim` gives broken text — millions of random changes to real
+files — to every reader and formatter: Nim, C, NIF, JSON, CSS, HTML, SQL, Markdown, YAML, TOML; also built with
+address and undefined-behaviour sanitizers. None crashed. Every test of the project ran for this release, the ones
+run only now and then too (every command, every plugin, hostile input, the Nim tour, the parser check).
+
+**Install with nimble, and a post to announce ned.** `nimble install https://github.com/foxoman/ned` builds ned,
+nedfmt and nedls into `~/.nimble/bin`; [docs/blog/announcing-ned.md](docs/blog/announcing-ned.md) says what ned is and
+the ways to install it.
 
 ## What's new in 6.34
 

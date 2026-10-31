@@ -17,7 +17,7 @@ proc cEngAgain(path: string)
 proc showProblems()
 proc pipeThroughCommand(cmd: string)
 proc runCheck(b: Buffer)
-proc runCheckPath(path, langId: string, keepExamples: bool)
+proc runCheckPath(path, langId: string, keepExamples: bool, also: seq[string] = @[])
 proc recheckBuildErrors(saved: Buffer)
 proc ffiCheck(b: Buffer)
 proc copiesCheck(b: Buffer, everyRoutine = true)
@@ -273,6 +273,11 @@ proc nifForget()
 proc nifChecked()
 proc nifHoverNote(b: Buffer, p: Pos): string
 proc nimNifReferences(b: Buffer, p: Pos, hits: var seq[(string, int, int)]): bool
+proc nifTypingCmd(folder: string): string                          # nim/nimnif.nim
+proc nifTypingDone(folder: string)
+proc nifTypingRead(b: Buffer, folder, alias: string, started: times.Time, output: string)
 proc nifMacroText(b: Buffer, line: int): string                  # nim/nifprint.nim
 proc tildePath(p: string): string                                 # ui/prompts.nim
 proc wkCChecks(b: Buffer): bool                                   # nim/worker.nim
+when defined(nedMemProbe):
+  proc memProbeTick(suffix: string)                               # app/memprobe_gen.nim (tests/memory/memprobe.py)

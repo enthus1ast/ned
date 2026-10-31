@@ -28,14 +28,15 @@ include index/hover
 include index/expand
 include index/typos
 include index/reshape
+when defined(nedMemProbe): include index/memprobe_gen   # (tests/memory/memprobe.py: how big each table is)
 
 proc nxCacheStats*(): string =
   ## (measuring: what the index's caches hold besides the parsed files and the scopes)
   var convRefs, convScopes = 0
-  for _, (sc, rs) in nxRsConvCache:
+  for _, (sc, st, rs) in nxRsConvCache:
     if sc != nil:
       inc convScopes
-      convRefs += sc.refs.len
+      convRefs += rs.len
   var typoBytes = 0
   for _, (st, t) in nxTypoText: typoBytes += t.len
   var lines = 0
@@ -45,7 +46,7 @@ proc nxCacheStats*(): string =
   var memoTabs = 0
   for _, sc in nxScopes:
     if sc.memo != nil: memoTabs += sc.memo.anc.len + sc.memo.alias.len + sc.memo.unions.len + sc.memo.compat.len
-  "raises " & $nxRaisesCache.len & ", converters " & $convScopes & " scopes/" & $convRefs & " names, typo texts " &
+  "raises " & $nxRaisesCache.len & ", converters " & $convScopes & " scopes/" & $convRefs & " of them, typo texts " &
     $(typoBytes div 1024) & " KB, lines cached " & $lines & "+" & $layLines & ", auto " & $nxAutoCache.len &
     ", headers " & $nxHeaderCache.len & ", local types " & $nxLocalTypMemo.len & ", concept impls " &
     $nxCpImplCache.len & ", fwd " & $nxFxFwdCache.len & ", type memos " & $memoTabs & ", overlays " & $nxOverlays.len &

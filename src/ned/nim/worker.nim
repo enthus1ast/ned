@@ -900,6 +900,7 @@ proc workerMain() =
   bufs = @[newBuffer()]             # (a buffer that is no file: the ones asked about come after it)
   curBuf = 0
   while not wkQuit:
+    when defined(nedMemProbe): memProbeTick(".worker")      # (tests/memory/memprobe.py: the worker's tables too)
     wkDrain(wait = wkTasks.len == 0)
     if wkQuit: break
     if wkTasks.len == 0: continue

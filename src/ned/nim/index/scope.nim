@@ -972,6 +972,7 @@ proc nxIncludesOf*(p: string): seq[string] =
             let r = nxResolve(p, im.spec)
             if r.len > 0: res.add r
   except CatchableError: discard
+  if nxIncFiles.len > 20_000: nxIncFiles.clear()      # (every file looked at in a long session, in every project)
   nxIncFiles[p] = (st, res)
   res
 
@@ -1140,9 +1141,11 @@ proc nxLayerKeep(key0: string, l: NxLayer) =
   nxLayers[l.key] = l
 
 var
-  nxScopeMax* = 96                     # scopes kept: the files asked about most recently (each holds thousands of
+  nxScopeMax* = 48                     # scopes kept: the files asked about most recently (each holds thousands of
                                        # refs; a check of one proc walks a dozen library modules: fewer and an edit
-                                       # made them all again) — and no more than a quarter of nim.indexMemory
+                                       # made them all again) — and no more than a quarter of nim.indexMemory. (96
+                                       # up to 6.35: a program of include files keeps a copy of its names for each —
+                                       # the soak's ned held 390k names in 68 of them, 9 MB, and still growing)
   nxScopeUsed: Table[string, int]      # path → when its scope was asked for last (nxTick)
 
 proc nxKeepScope(path: string, sc: NxScope) =

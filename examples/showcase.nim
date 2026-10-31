@@ -1,4 +1,4 @@
-## ned showcase — one Nim file that exercises what ned (6.15) does for Nim.
+## ned showcase — one Nim file that exercises what ned (6.36) does for Nim.
 ##
 ## Open it:   ned showcase.nim        Run it:   F5 (or `nim c -r showcase.nim`)
 ## Each section says what to try. Alt+Enter = quick fixes (Alt+Shift+Enter or Ctrl+. where the terminal keeps
@@ -10,6 +10,8 @@
 ## Ctrl+E = command palette (type "Nim:" to see every Nim command).
 ## Help › Performance… shows how ned keeps up on your device: frames, what each sends to the terminal, and what
 ## the engine takes; Help › Check setup what the terminal can do (keys, colours, emoji widths).
+## The Nim label in the status bar (tap it) says which Nim answers and why, and offers Nim 3: with Nimony's files
+## and `nimony` (Nim 3: install or update nimony builds it a part at a time), ned checks and runs a project as Nim 3.
 ##
 ## Beside each routine and type: how many places use it ("3 references" — a click lists them; an export
 ## nothing uses is marked). In ned's terminal, `ned FILE:LINE` opens a file in this ned, and `git commit`
@@ -248,7 +250,20 @@ proc  messy( a:int,b:int ):int=a+b
 # FIXME: pick() never returns a value
 # NOTE: `messy` is badly formatted on purpose
 
-# ── 9. Main ───────────────────────────────────────────────────────────────────────────────────────────
+# ── 9. The compiler's reading (Nim 2.4 and newer) ─────────────────────────────────────────────────────
+# With Nim 2.4 the check is `nim nif`: the compiler writes down what it made of the file, each name resolved to its
+# declaration — on save, and while you type. From it: colours by what each name is, the type of every let and var
+# (hover: "the compiler's type: …"), F12 to the overload the compiler chose, Shift+F12 on a saved file the places
+# of that overload only (the list says "(compiler)"), and Alt+M on `makeGetters(Config, title, size)` above shows
+# at once the two procs it made. Type a line in `compilerChose`, wait a moment, hover what you typed: no save.
+proc label(x: int): string = "int " & $x
+proc label(x: float): string = "float " & $x
+
+proc compilerChose(): string =
+  let labelled = toSeq(evens(6)).mapIt((it, label(it)))     # hover `labelled`: seq[(int, string)]
+  result = label(2.5) & " · " & $labelled.len               # F12 on `label`: the one that takes a float
+
+# ── 10. Main ──────────────────────────────────────────────────────────────────────────────────────────
 # Try here: type `xs.` for member completion (fields first, then the procs that take it); `xs.for` + Tab
 # (postfix completion); `p.` on a Packet; `Config(` lists its fields. Rename `total` with F2. F9 puts a
 # breakpoint, F5 debugs with gdb (variables, watches, inline values at the end of each line).
@@ -278,13 +293,14 @@ proc main() =
   echo "C strlen ", cStrlen("hello"), " · C add_ints ", addInts(40, 2), " · walked ", walked, " m"
   echo embedded(), " · double ", double(4), " · start ", counterStart(), " · messy ", messy(1, 2)
   echo "tree root ", tree.kind, " · fetched ", waitFor fetchCount(), " · some ", some(5).get
+  echo "the compiler chose ", compilerChose()
   Db().saveShape(sq)
   try:
     echo readConfig("/no/such/showcase.conf")
   except IOError as e:
     echo "no config (", e.msg, ")"
 
-# ── 10. Editing: by structure, surround, the next edit, the undo tree ─────────────────────────────────
+# ── 11. Editing: by structure, surround, the next edit, the undo tree ─────────────────────────────────
 # Alt+Shift+→ in `scaled` grows the selection a piece of code at a time: `factor`, the call's argument, the
 # call, the value after `=`, the statement, the block, the proc with its doc comment (Alt+Shift+← goes back).
 # Alt+Shift+S puts brackets, quotes, a tag or a block (if, when, for, try…) around the selection — vim:
@@ -298,7 +314,7 @@ proc scaled*(x: float, factor: float): float =
   let doubled = x * factor * 2.0
   result = clamp(doubled, 0.0, factor * 100.0)
 
-# ── 11. Tests ─────────────────────────────────────────────────────────────────────────────────────────
+# ── 12. Tests ─────────────────────────────────────────────────────────────────────────────────────────
 # The Tests dock (test explorer) lists these; ▶ in the gutter runs one; with "nim.testOnSave" they run on
 # every save and show ✓ or ✗ beside each test. "Test coverage: run" colours the lines they reached.
 when isMainModule:
@@ -317,5 +333,7 @@ when isMainModule:
       check cStrlen("ned") == 3
     test "scaled":
       check scaled(1.0, 2.0) == 4.0
+    test "overloads":
+      check label(2) == "int 2" and label(2.5) == "float 2.5"
 
   main()

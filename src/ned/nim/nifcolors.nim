@@ -1,6 +1,7 @@
 # ── colours from the compiler's reading of a saved file (nimnif.nim: Nim 2.4's `nim nif`, or nimony with Nim 3):
 #    what each name is as the compiler resolved it — a name a macro made, which overload, a field — over the engine's
-#    guess, on the lines as saved (a buffer changed since keeps the engine's colours until the next check) ──
+#    guess, on the lines as saved — or, while you type, as the last typing check read them (nimnif.nim: a line
+#    changed since keeps the engine's colours until the next check) ──
 
 proc nifColorsOn(b: Buffer): bool =
   ## whether the buffer's colours come partly from its NIF now (asked once a frame: each line then looks it up)
@@ -10,8 +11,9 @@ proc applyNifColors(b: Buffer, s: string, toks: var seq[TokKind], line: int) =
   ## recolours the names of a line by what the compiler says they are — a name only where the compiler gives all of
   ## that name on the line one colour, and only over text coloured as code (not a keyword, a string or a comment)
   let fx = nifFactsFor(b)
-  if fx == nil: return
-  fx.kinds.withValue(line, row):
+  let fl = nifLineAt(fx, b, line)
+  if fl < 0: return
+  fx.kinds.withValue(fl, row):
     var i = 0
     let n = min(s.len, toks.len)
     while i < n:

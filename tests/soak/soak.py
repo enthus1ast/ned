@@ -14,7 +14,11 @@ Exit status 1 when ned ended or stopped answering, made an internal error, or it
 --grow-mb between the run's first quarter and its last (after a warm-up).
 
 Usage: soak.py path/to/ned [--minutes N (180)] [--seed S] [--sample SECONDS (30)] [--grow-mb MB (60)] [--keep]
-Needs tmux. A short run to try it: soak.py ./ned --minutes 3"""
+               [--only ACTION,ACTION…] [--revert-minutes N (10)] [--mem-log FILE]
+--only does just those actions (open_file, type_code, complete, undo_redo, save, find, scroll, select_copy_paste,
+palette, close_tab), to find which one makes memory grow; --revert-minutes is how often the projects go back to how
+they started (git checkout); --mem-log FILE is for a ned built by tests/memory/memprobe.py (each table's size,
+every 30 s). Needs tmux. A short run to try it: soak.py ./ned --minutes 3"""
 import json, os, random, re, shutil, statistics, subprocess, sys, tempfile, time
 
 ARGS = sys.argv[1:]
@@ -27,6 +31,9 @@ SEED = opt('--seed', int(time.time()) % 100000, int)
 SAMPLE = opt('--sample', 30.0)
 GROW_MB = opt('--grow-mb', 60.0)
 KEEP = '--keep' in ARGS
+ONLY = opt('--only', '', str)
+REVERT_S = opt('--revert-minutes', 10.0) * 60
+MEMLOG = opt('--mem-log', '', str)
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SOCK = 'ned-soak-%d' % os.getpid()
 W, H = 140, 45
@@ -83,6 +90,7 @@ json.dump({'security.folderTrust': 'off', 'ai.provider': 'off', 'ui.cursorAnimat
           open(cfg + '/ned/config.json', 'w'))
 pidfile, exitfile = os.path.join(root, 'pid'), os.path.join(root, 'exit')
 env = 'XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s TERM=xterm-256color COLORTERM=truecolor NED_SOCKET=' % (cfg, state)
+if MEMLOG: env += ' NED_MEM_LOG=' + os.path.abspath(MEMLOG)
 tm('new-session', '-d', '-s', 's', '-x', str(W), '-y', str(H),
    "cd %s && sh -c 'echo $$ > %s; exec env %s %s %s'; echo $? > %s; sleep 100000" %
    (proj, pidfile, env, NED, 'src/ned.nim', exitfile))
@@ -137,7 +145,7 @@ def complete():
 def undo_redo():
     n = rnd.randint(1, 6)
     keys(*(['C-z'] * n)); keys(*(['C-y'] * rnd.randint(0, n)))
-def save(): keys('C-s'); time.sleep(0.3); esc()
+def save(): keys('C-s'); time.sleep(0.3); answer_overwrite(); esc()
 def find():
     keys('C-f'); text(rnd.choice(['proc ', 'result', 'let ', 'buf', 'line'])); keys('Enter', 'Enter'); esc()
 def scroll():
@@ -151,15 +159,24 @@ def palette():
     time.sleep(0.4); keys('Enter'); time.sleep(0.5); esc()
 def close_tab():
     keys('C-s'); time.sleep(0.2); keys('C-w'); time.sleep(0.3); esc()
+def answer_overwrite():
+    # (a tab whose file changed on disk under unsaved edits: its save asks overwrite or reload — answered, or the
+    # keys after it go into the file, and from then on no tab is ever saved or closed)
+    if '(o)verwrite' in screen(): keys('o'); time.sleep(0.4)
+def save_all():
+    keys('C-e'); time.sleep(0.3); text('Save all'); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    answer_overwrite()
 def close_others():
     # (a person keeps a handful of tabs open, not every file opened in an hour: tabs piling up make ned grow for a
     # good reason, and that hid the growth that was a leak)
-    for cmd in ('Save all', 'Close other tabs'):
-        keys('C-e'); time.sleep(0.3); text(cmd); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
+    save_all()
+    keys('C-e'); time.sleep(0.3); text('Close other tabs'); time.sleep(0.4); keys('Enter'); time.sleep(0.5)
     esc()
 def revert_all():
-    # (now and then the project goes back to how it started: the files do not grow for hours)
-    save()
+    # (now and then the project goes back to how it started: the files do not grow for hours). Every tab saved first:
+    # one with unsaved edits whose file git changes asks at its next save — up to 6.35 the soak never answered, its
+    # tabs piled up (17 open, each a few MB) and that looked like a leak after the first revert
+    save_all()
     for d in (proj, proj2): subprocess.run(['git', '-C', d, 'checkout', '-q', '--', '.'], capture_output=True)
     time.sleep(1)
 def switch_project():
@@ -172,7 +189,8 @@ def switch_project():
 
 ACTIONS = [(open_file, 8), (type_code, 20), (complete, 10), (undo_redo, 10), (save, 8), (find, 8), (scroll, 15),
            (select_copy_paste, 6), (palette, 5), (close_tab, 4)]
-POOL = [f for f, w in ACTIONS for _ in range(w)]
+POOL = [f for f, w in ACTIONS for _ in range(w) if not ONLY or f.__name__ in ONLY.split(',')]
+if not POOL: tm('kill-server'); sys.exit('--only: none of those actions (%s)' % ', '.join(f.__name__ for f, _ in ACTIONS))
 
 # ── the session ──
 
@@ -199,7 +217,7 @@ while time.monotonic() < end:
     if actions % 25 == 0: esc()
     if actions % 60 == 0: close_others()
     if actions % 150 == 0: switch_project()
-    if time.monotonic() - last_revert > 600:
+    if time.monotonic() - last_revert > REVERT_S:
         revert_all(); last_revert = time.monotonic()
     s = screen()
     if 'Internal error' in s:

@@ -394,6 +394,8 @@ var
   lastFileCheck: MonoTime
   checkPending: HashSet[string]
   pendingRecheck: HashSet[string]
+  checkByCmd: Table[string, seq[(string, string, bool)]]  # an on-save check running (its command and folder) → the
+                                                          # saves it will run once more for (run/checks.nim)
   clipLineMode = false
   sysClipBroken = false
   panelTopY = -1

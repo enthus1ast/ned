@@ -74,6 +74,7 @@ type
 const NxFxMark* = "side effect"   ## (fx) the "exception" a side effect is
 
 var nxRaisesCache: Table[string, (NxRaises, seq[(string, string)])]   # routine → what it raises, the files read
+var nxRaisesDeps = 0                     # (the files read that the cache holds, all routines together)
 
 # the lines of the file the body being read is in
 template lines(w: NxRsBody): untyped = w.lr.lines
@@ -485,16 +486,19 @@ proc nxRsProcVar(w: NxRsBody, at: NxFile, typ, name: string, fx = false): NxRais
 #    the others every such place is looked at: the converter counted where it surely applies, no answer where the
 #    engine cannot tell ──
 
-var nxRsConvCache: Table[string, (NxScope, seq[NxRef])]   # file → (its scope, the converters it can see)
+var nxRsConvCache: Table[string, (pointer, string, seq[NxRef])]
+  ## file → (which scope it was — its address and stamp, not the scope: holding it kept every scope the index had
+  ## let go alive, each a copy of a program's names, 50 MB in the engine worker of a long session —, the converters
+  ## that scope sees)
 
 proc nxRsConvertersIn(sc: NxScope, path: string): seq[NxRef] =
   ## the converters scope `sc` sees (read again when the scope was made again)
   let x = nxRsConvCache.getOrDefault(path)
-  if x[0] == sc and sc != nil: return x[1]
+  if sc != nil and x[0] == cast[pointer](sc) and x[1] == sc.stamp: return x[2]
   for r in sc.refs:
     if r.sym.kind == nxConverter and not r.sym.made: result.add r
-  if nxRsConvCache.len > 256: nxRsConvCache.clear()
-  nxRsConvCache[path] = (sc, result)
+  if nxRsConvCache.len > 64: nxRsConvCache.clear()
+  nxRsConvCache[path] = (cast[pointer](sc), (if sc != nil: sc.stamp else: ""), result)
 
 proc nxRsConvSrc(sc: NxScope, t: string, gens: seq[string], into: var NxRsConv, depth = 0) =
   ## the types a converter's parameter takes: a union, an alias of one, a type class — each member
@@ -1945,7 +1949,13 @@ proc nxRsRoutine(c: var NxRsCtx, r: NxRef, callPath: string, callLine: int): NxR
   if not c.cut and not partial:
     var deps: seq[(string, string)]
     for p in mine: deps.add (p, nxRsStamp(c, p))
-    if nxRaisesCache.len >= 8192: nxRaisesCache.clear()
+    # (each with the files it read and their stamps — in a program of include files, about all of them: 8 KB a
+    # routine; 8192 of them made the engine worker grow by 60 MB in a long session, 6.36's soak. What the routines on
+    # screen raise is what is asked for: kept up to 2048 routines or 40,000 files read, about 3 MB)
+    if nxRaisesCache.len >= 2048 or nxRaisesDeps > 40_000:
+      nxRaisesCache.clear()
+      nxRaisesDeps = 0
+    nxRaisesDeps += deps.len
     nxRaisesCache[key] = (res, deps)
   res
 
