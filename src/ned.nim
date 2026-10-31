@@ -350,4 +350,5 @@ include ned/app/update
 include ned/app/battery
 include ned/nim/warmindex
 include ned/editor/bufforget
+when defined(nedMemProbe): include ned/app/memprobe_gen   # (tests/memory/memprobe.py: how big each table is)
 include ned/app/main

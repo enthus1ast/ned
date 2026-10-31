@@ -97,6 +97,7 @@ proc mainLoop() =
   lastFileCheck = getMonoTime()
   var busyFrom = getMonoTime()
   while not quitting:
+    when defined(nedMemProbe): memProbeTick("")               # (a build that finds leaks: tests/memory/memprobe.py)
     if ttyGone and termSignal == 0: termSignal = SIGHUP.int    # no terminal left to draw on or read from
     if termSignal != 0:
       # the terminal went away (Termux session closed, ssh dropped) or we were asked to stop:

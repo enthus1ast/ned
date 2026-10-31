@@ -910,5 +910,9 @@ suite "Nim 2.4 (6.33)":
     check d1.len == 1 and "sink" in readFile(d1[0][0]).splitLines[d1[0][1]]
     let d2 = nxDefinition(f, ls, 4, 4)
     check d2.len == 1 and "openArray" in readFile(d2[0][0]).splitLines[d2[0][1]]
+  test "a quoted folder before the modules: `\".\"/[a, b]`, `\"sub\" / [c]` (nifgrade.py: Nim's own compiler)":
+    let (f, _) = fixture("import \".\"/[ast, msgs]\nimport \"sub\" / [ha]\nimport \"..\"/lib/x as y\n")
+    check f.imports.mapIt(it.spec) == @["./ast", "./msgs", "sub/ha", "../lib/x"]
+    check f.imports[^1].alias == "y"
 
 removeDir(dir)

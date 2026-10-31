@@ -8,6 +8,7 @@ proc nifMacroText(b: Buffer, line: int): string =
   ## not at the top, or the printer does not know a form in it (the compiler is asked then, as before)
   let fx = nifFactsFor(b)
   if fx == nil or line >= b.lines.len or b.lines[line].len == 0 or b.lines[line][0] in {' ', '\t'}: return ""
+  if fx.lineHash.len > 0 and fx.changeId != b.changeId: return ""     # (a typing check's: of the text as it is now only)
   var ns: seq[NifNode]
   let nim2 = fx.nif.endsWith(".nim2.nif")
   try:
@@ -28,7 +29,7 @@ proc nifMacroText(b: Buffer, line: int): string =
   for l in 0 ..< b.lines.len:
     let s = b.lines[l]
     if l != line and s.len > 0 and s[0] notin {' ', '\t', '#'}: starts.incl l
-  let fileEnd = extractFilename(b.path)
+  let fileEnd = extractFilename(if fx.alias.len > 0: fx.alias else: b.path)
   var parts: seq[string]
   var inside = false
   for k in nifTopStatements(ns):

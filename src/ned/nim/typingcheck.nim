@@ -1,7 +1,8 @@
 # ── errors while you type, from the compiler: the unsaved text checked as it is ──
 #    `nim check -` reads the module from stdin. Run in the file's folder, it sees the same imports (relative ones
 #    too), the same nim.cfg / config.nims and the same nimble packages as a check of the file itself — so ned
-#    hands it a private copy of the buffer after a pause in typing, and puts what it says on the buffer.
+#    hands it a private copy of the buffer after a pause in typing, and puts what it says on the buffer. With Nim
+#    2.4 the check is `nim nif -`: the same messages, and the compiler's reading of the text too (nimnif.nim).
 
 var
   typingChecks: Table[string, (int, MonoTime, string)]   # path → (the text's changeId, started, the copy)
@@ -178,9 +179,16 @@ proc typingCheck(b: Buffer) =
   typingChecks[path] = (id, getMonoTime(), copy)
   # (a plugin's source: the plugin library's folder, as ned gives it to the plugins — else `import nedplugin` fails)
   let libFlag = if main.len > 0: pluginLibFlag(mainText.splitLines) else: pluginLibFlag(b.lines)
-  discard startJob(jkCheck, "nim check --hint:all:off --hint:XDeclaredButNotUsed:on --colors:off " &
+  let folder = parentDir(if main.len > 0: main else: path)
+  # (Nim 2.4: `nim nif`, with the same messages and the compiler's reading of the text — nimnif.nim)
+  let nifCmd = nifTypingCmd(folder)
+  let alias = if main.len > 0: copy else: folder / "stdinfile.nim"
+  let started = getTime()
+  let job = startJob(jkCheck, (if nifCmd.len > 0: nifCmd & " " else: "nim check ") &
+                            "--hint:all:off --hint:XDeclaredButNotUsed:on --colors:off " &
                             "--listFullPaths:on" & libFlag & " - < " & quoteShell(if main.len > 0: mainCopy else: copy),
-                   parentDir(if main.len > 0: main else: path), proc(j: Job) =
+                   folder, proc(j: Job) =
+    if nifCmd.len > 0: nifTypingDone(folder)
     let st = typingChecks.getOrDefault(path)
     typingChecks.del path
     typingCheckMs[path] = int(msSince(st[1]))
@@ -208,7 +216,9 @@ proc typingCheck(b: Buffer) =
     diagsBuild[path] = mine                          # (other files' errors: from their own checks, on disk)
     engineAgain(path)
     unusedHints[path] = unused.getOrDefault(path)
+    if nifCmd.len > 0: nifTypingRead(x, folder, alias, started, j.output)
     needRender = true)
+  if job == nil and nifCmd.len > 0: nifTypingDone(folder)
 
 proc recheckBuildErrors(saved: Buffer) =
   ## after a save: the errors other files show from a build or check may be gone now (the fix was in this

@@ -265,7 +265,9 @@ tidy. Off: the editor works them out itself, a few ms at a time, as before 6.16.
 **The index's memory** (`nim.indexMemory`, 64 MB by default, 0 for no limit). The engine counts what its parsed
 files take and keeps them under the budget: above it, the files asked about least recently and not open are
 dropped and read again when needed (a library file comes back from the index cache in a few ms). On the whole Nim
-repository, a 16 MB budget holds the process at 23 MB instead of 40 MB.
+repository, a 16 MB budget holds the process at 23 MB instead of 40 MB. What each file sees (its scope) is kept for
+the 48 files asked about most recently, within a quarter of the budget, and what routines raise for 2,048 of them;
+past that, the oldest go and are worked out again when asked.
 
 **The compiler's answer, once** (`nim.compilerAnswers`, on by default). With nimsuggest off (the default), a
 hover or *Go to definition* the engine has no answer for — a name a macro makes, say — asks the compiler once: one
@@ -435,9 +437,9 @@ What Nim 2.4 added to the language is read as the rest:
 - The standard library names Nim 2.4 added are known for `nim.minVersion` (*'readRawData' is not in Nim 2.2.12 or
   older*).
 
-**The compiler's own reading of a saved file.** With Nim 2.4 or newer, the check on save is `nim nif` in place of
-`nim check`: the same messages, about the same time — and, for each module without errors, what the compiler made
-of it, kept in ned's folder (`~/.cache/ned/nif`, never in the project). From it, a file as saved gets:
+**The compiler's own reading of a file.** With Nim 2.4 or newer, the check on save is `nim nif` in place of
+`nim check`, and so is the check while you type: the same messages, about the same time — and what the compiler
+made of each module, kept in ned's folder (`~/.cache/ned/nif`, never in the project). From it, a file gets:
 
 - **colours** by what each name is in the compiler's reading — a routine, a type, a field, a constant, a global, a
   parameter — names a macro or a template made among them;
@@ -445,20 +447,21 @@ of it, kept in ned's folder (`~/.cache/ned/nif`, never in the project). From it,
   none or another;
 - **Go to definition** of the declaration the compiler chose: of `show(2.5)`, the `show` that takes a float;
 - **Find references** (Alt+Q) of that declaration and no other — not every routine named `show` — across the
-  project's files, when the compiler has read each of them as it is saved (the list says *(compiler)*; otherwise
-  the engine answers as before);
+  project's files, when the compiler has read each of them as it is saved and none has unsaved changes (the list
+  says *(compiler)*; otherwise the engine answers as before);
 - **hover** with the type the compiler gave a let or var (*the compiler's type: `Table[string, seq[int]]`*);
 - **what a macro call made** (Alt+M on a call at the top of the file) at once, written from the compiler's reading,
   without running the compiler again — for a form it cannot write, the compiler is asked as before;
 - no nimsuggest run in the background for the types the engine cannot work out (`nim.compilerOracle`): the
   compiler's reading has them — one process less on a phone.
 
-After an edit, until the next save, the engine's answers are back; a file with an error keeps them too (the
-compiler writes nothing for it). `nim.compilerNif` off goes back to `nim check`. A Nim older than 2.4 is checked
-with `nim check` as before, and everything else works the same with it. (`nim track`, Nim 2.4's Go to definition
-through its incremental compilation, is not used: 2 to 4 seconds a question, and it missed uses. Nor is the
-compiler's reading made while you type: Nim 2.4.0's `nim nif` stops with an internal error on text given on
-standard input.)
+While you type, the check after a pause reads the unsaved text the same way, and its colours, types, hover and Go
+to definition hold for the lines as they were then — a line you typed in above moves them along with it; a line
+you changed since keeps the engine's colours until the next check. A part with an error is left out of the
+compiler's reading, so its lines keep the engine's answers too. Alt+M uses it when nothing was typed since the
+check; Find references from it waits for a save. `nim.compilerNif` off goes back to `nim check`. A Nim older than 2.4 is checked with `nim
+check` as before, and everything else works the same with it. (`nim track`, Nim 2.4's Go to definition through its
+incremental compilation, is not used: 2 to 4 seconds a question, and it missed uses.)
 
 ## One Nim per project
 

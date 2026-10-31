@@ -1,6 +1,6 @@
 # Announcing ned, a terminal code editor and Nim IDE
 
-*By Foxoman. This post comes with ned 6.35.0.*
+*By Foxoman. This post comes with ned 6.36.0.*
 
 ![A nimble project in ned: the Files dock, inlay hints and the assistant explaining the file](../../screenshots/nimble-ai.png)
 
@@ -22,11 +22,13 @@ counts). Nothing stays running in the background, which suits a phone's memory.
 
 ![Member completion from the built-in Nim engine, with the documentation beside the list](../../screenshots/completion-docs.png)
 
-**Nim 2.4 and Nim 3.** With Nim 2.4 or newer, a save asks the compiler for its own reading of the file. Names are
-coloured by what they are, types appear after your `let`s and `var`s where the engine had none, and Go to
-definition goes to the declaration the compiler chose. When a project has Nimony's files and `nimony` is installed,
+**Nim 2.4 and Nim 3.** With Nim 2.4 or newer, ned asks the compiler for its own reading of the file, when you save
+and while you type. Names are coloured by what they are, hover gives the type the compiler gave each `let` and
+`var`, Go to definition goes to the overload the compiler chose, Find references lists the places of that overload
+only, and Alt+M shows what a macro call made at once. When a project has Nimony's files and `nimony` is installed,
 ned treats it as Nim 3: `nimony` checks it as you type and runs it (F5). For a Nim 2 file, *Nim 3: what this file
-needs* lists the changes porting calls for in the Problems dock. ned can install `nimony` for you.
+needs* lists the changes porting calls for in the Problems dock. ned can install `nimony` for you: it builds it a
+part at a time, so a phone does not run out of memory.
 
 **A formatter.** Alt+F formats in nph's style. Turn on `"editor.formatOnSave": true`, and with
 `"editor.formatOnSaveScope": "changed"` only the lines you changed are formatted, so an old file does not become a
@@ -58,11 +60,11 @@ can be tapped. Every command is in the menus and the palette, and Termux's extra
 To build ned you need Nim 2.2 or newer and nothing else. Other tools are optional and picked up when they are on your
 `PATH`.
 
-**1. Termux: the package from the release page.** Download `ned_6.35.0_aarch64.deb` from the
+**1. Termux: the package from the release page.** Download `ned_6.36.0_aarch64.deb` from the
 [releases](https://github.com/foxoman/ned/releases), then install it. It brings ned, nedls and nedfmt.
 
 ```sh
-pkg install ./ned_6.35.0_aarch64.deb
+pkg install ./ned_6.36.0_aarch64.deb
 ```
 
 **2. nimble, straight from GitHub.** This builds `ned`, `nedfmt` and `nedls` into `~/.nimble/bin`, and it takes a

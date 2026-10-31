@@ -4,8 +4,8 @@ resolved to its declaration — the answer for every use of a module's routine, 
 project. Each is asked of ned's engine (the driver build.sh makes) at the same place; they should agree.
 
 Usage: nifgrade.py MAIN.nim [--nim PATH/TO/nim-2.4] [--driver ned-engine] [--max N] [--min PERCENT] [--show N]
-Only the project's own files are graded (not the Nim library), and only a name written once on its line (where the
-NIF says only the line). Exit 1 when the engine agrees less often than --min (default 0: report only)."""
+Only the project's own files are graded (not the Nim library), and only a name written once on its line and not on
+the lines beside it (the NIF's places are coarse: a node can have the line of the one before it). Exit 1 when the engine agrees less often than --min (default 0: report only)."""
 import json, os, re, subprocess, sys, tempfile, collections
 
 args = sys.argv[1:]
@@ -47,19 +47,21 @@ def read_info(s, i):
 
 def parse(text):
     """Nim 2.4's NIF: each token's place is written after the token before it. Gives (atom, is_def, tag of the node
-    holding it, file, line from 0, col) for every symbol atom"""
+    holding it, file, line from 0, col, exact) for every symbol atom — exact: its place written for it (or relative
+    to a parent's that was), not one it took from the node around it (the NIF leaves out a place that is its
+    parent's: most are not exact, so the grading does not ask for it)"""
     out = []
-    stack = []          # (tag, file, line, col)
+    stack = []          # (tag, file, line, col, exact)
     pending = None
     i, n = 0, len(text)
     def place(parent):
-        """the next token's place: its own (relative to its parent's), else its parent's"""
-        pf, pl, pc = (parent[1], parent[2], parent[3]) if parent else ('', -1, -1)
-        if pending is None: return pf, pl, pc
+        """the next token's place: its own (relative to its parent's), else its parent's — and whether it is exact"""
+        pf, pl, pc, pe = (parent[1], parent[2], parent[3], parent[4]) if parent else ('', -1, -1, False)
+        if pending is None: return pf, pl, pc, False
         c, l, f = pending
-        if f: return f, l - 1, c
-        if pl >= 0: return pf, pl + l, pc + c
-        return '', l - 1, c
+        if f: return f, l - 1, c, True
+        if pl >= 0: return pf, pl + l, pc + c, pe
+        return '', l - 1, c, False
     while i < n:
         ch = text[i]
         if ch in ' \t\r\n': i += 1; continue
@@ -70,8 +72,8 @@ def parse(text):
             j = i + 1
             while j < n and text[j] not in ' \t\n()@~#"\'': j += 1
             tag = text[i + 1:j]
-            f, l, c = place(parent)
-            stack.append((tag, f, l, c))
+            f, l, c, e = place(parent)
+            stack.append((tag, f, l, c, e))
             pending, i = read_info(text, j)
             continue
         if ch == ')':
@@ -81,7 +83,6 @@ def parse(text):
         if ch in '"\'':
             j = i + 1
             while j < n and text[j] != ch: j += 1
-            f, l, c = place(parent)
             pending, i = read_info(text, j + 1)
             continue
         j = i
@@ -90,8 +91,8 @@ def parse(text):
         while j < n and text[j] not in ' \t\n()@~#"': j += 1
         if j == i: i += 1; continue
         atom = text[i + 1 if is_def else i:j]
-        f, l, c = place(parent)
-        out.append((atom, is_def, parent[0] if parent else '', f, l, c))
+        f, l, c, e = place(parent)
+        out.append((atom, is_def, parent[0] if parent else '', f, l, c, e))
         pending, i = read_info(text, j)
     return out
 
@@ -108,7 +109,7 @@ def main():
     uses = []                     # (file, line, symbol)
     for f in os.listdir(cache):
         if not f.endswith('.nim2.nif'): continue
-        for atom, is_def, tag, src, line, col in parse(open(os.path.join(cache, f), encoding='utf-8', errors='replace').read()):
+        for atom, is_def, tag, src, line, col, exact in parse(open(os.path.join(cache, f), encoding='utf-8', errors='replace').read()):
             if atom.count('.') < 2 or '`' in atom or not re.match(r'[A-Za-z_\x80-\xff]', atom): continue
             path = os.path.normpath(src if os.path.isabs(src) else os.path.join(MAINDIR, src)) if src else ''
             if not path or line < 0: continue
@@ -117,14 +118,14 @@ def main():
                            'let', 'var', 'fld', 'efld'):
                     defs.setdefault(atom, (path, line, col))
             elif path.startswith(MAINDIR + os.sep):
-                uses.append((path, line, atom))
+                uses.append((path, line, atom, exact))
     # (each place once: a name written once on its line, one symbol of that name there in the NIF — a template's or
     # a generic's open choice names several — its declaration known)
     per_line = collections.defaultdict(set)
-    for path, line, sym in uses: per_line[(path, line, norm(sym.split('.')[0]))].add(sym)
+    for path, line, sym, _ in uses: per_line[(path, line, norm(sym.split('.')[0]))].add(sym)
     seen = set(); asks = []
     lines_of = {}
-    for path, line, sym in uses:
+    for path, line, sym, exact in uses:
         if sym not in defs or (path, line, sym) in seen or len(per_line[(path, line, norm(sym.split('.')[0]))]) > 1:
             continue
         seen.add((path, line, sym))
@@ -134,14 +135,27 @@ def main():
         ls = lines_of[path]
         if line >= len(ls): continue
         name = sym.split('.')[0]
-        hits = [m.start() for m in re.finditer(r'[A-Za-z_\x80-\xff][\w\x80-\xff]*', ls[line]) if norm(m.group()) == norm(name)]
+        code = re.sub(r'"(\\.|[^"\\])*"', lambda m: ' ' * len(m.group()), ls[line])   # (strings blanked: a # in one)
+        code = code[:code.index('#')] if '#' in code else code                      # (not in a comment)
+        hits = [m.start() for m in re.finditer(r'[A-Za-z_\x80-\xff][\w\x80-\xff]*', code) if norm(m.group()) == norm(name)]
         if len(hits) != 1: continue
+        # (the NIF can give a node of the next line — or the one before — this line's place: a name written on a
+        # line beside this one too is not asked, its answer may be that line's)
+        def near(k):
+            if not 0 <= k < len(ls): return False
+            c = re.sub(r'"(\\.|[^"\\])*"', '', ls[k])
+            c = c[:c.index('#')] if '#' in c else c
+            return any(norm(m.group()) == norm(name) for m in re.finditer(r'[A-Za-z_\x80-\xff][\w\x80-\xff]*', c))
+        if near(line - 1) or near(line + 1): continue
+        # (`for x in items:` names a variable; the NIF has the `items` iterator the compiler called on it)
+        if name in ('items', 'pairs', 'mitems', 'mpairs') and re.search(r'\bin\s+' + name + r'\s*:', code): continue
         if defs[sym][0] == path and defs[sym][1] == line: continue          # (the declaration itself)
-        asks.append((path, line, hits[0], sym))
+        # (the engine's columns are bytes, as Nim's: a — or an é before the name counts for more than one)
+        asks.append((path, line, len(ls[line][:hits[0]].encode('utf-8')), sym))
     asks = asks[:MAX]
     drv = subprocess.Popen([DRIVER], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                            bufsize=1)
-    agree = 0; wrong = []; none = 0
+    agree = 0; wrong = []; none = 0; tmpl = 0
     kinds = collections.Counter()
     for path, line, col, sym in asks:
         drv.stdin.write(json.dumps({'cmd': 'def', 'path': path, 'line': line, 'col': col}) + '\n'); drv.stdin.flush()
@@ -170,15 +184,28 @@ def main():
             t = re.sub(r'\{\..*', '', ls[line]).replace(';', ',')
             return ' '.join(t.split()) if re.match(r'\s*(proc|func|template|macro|iterator|converter|method)\b', t) else None
         ws = sig(want[0], want[1])
+        def src_line(path, line):
+            # (a line of a file, read once)
+            if path not in lines_of:
+                try: lines_of[path] = open(path, encoding='utf-8', errors='replace').read().split('\n')
+                except OSError: lines_of[path] = []
+            ls = lines_of[path]
+            return ls[line] if 0 <= line < len(ls) else ''
+        # (the engine says a template: the NIF has what the template made — `w.lines` as `w.lr.lines` —, not the call)
+        if not any(same(g) for g in got) and \
+           any(re.match(r'\s*template\s+`?' + re.escape(name) + r'\b', src_line(os.path.normpath(g[0]), g[1])) for g in got):
+            tmpl += 1
+            continue
         if any(same(g) for g in got) or (ws and any(sig(os.path.normpath(g[0]), g[1]) == ws for g in got)): agree += 1
         else:
             if not got: none += 1
             wrong.append((path, line, col, sym, want, got))
     drv.stdin.close(); drv.wait()
-    total = len(asks)
+    total = len(asks) - tmpl
     pct = 100.0 * agree / total if total else 100.0
     print(f'{total} uses asked: the engine agrees with the compiler on {agree} ({pct:.1f}%), '
-          f'goes elsewhere on {len(wrong) - none}, has no answer on {none}')
+          f'goes elsewhere on {len(wrong) - none}, has no answer on {none}' +
+          (f' ({tmpl} template calls not graded: the NIF has what they made)' if tmpl else ''))
     for path, line, col, sym, want, got in wrong[:SHOW]:
         text = lines_of[path][line].strip()[:90]
         where = (os.path.relpath(got[0][0], MAINDIR) + ':' + str(got[0][1] + 1)) if got else 'nothing'

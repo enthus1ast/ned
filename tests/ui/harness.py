@@ -33,6 +33,7 @@ def which(exe):
     """an optional tool, looked for on the tests' PATH too"""
     return shutil.which(exe, path=TOOLS + ':' + os.environ.get('PATH', '/usr/bin:/bin'))
 
+NIM24 = os.environ.get('NED_TEST_NIM24', '')   # (a Nim 2.4 or newer's bin folder, for the tests of `nim nif`)
 NODE_DIR = os.path.dirname(which('node') or '')
 SSH_DIR = os.path.dirname(which('ssh') or '')
 SSH_CTL = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'ned-ssh-%d' % os.getuid())   # ned's shared SSH connections
@@ -47,6 +48,9 @@ def need(*tools):
         if t == 'ssh-server':
             if os.environ.get('NED_TEST_SSH') != '1': missing.append('the test SSH server (NED_TEST_SSH=1, see README)')
             elif not which('ssh'): missing.append('ssh')
+        elif t == 'nim-2.4':
+            if not NIM24 or not os.path.exists(os.path.join(NIM24, 'nim')):
+                missing.append('Nim 2.4 or newer (NED_TEST_NIM24: its bin folder)')
         elif t == 'dictionary':
             if not spell_dict(): missing.append('an en_US hunspell dictionary')
         elif not which(t):

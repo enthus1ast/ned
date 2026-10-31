@@ -25,8 +25,8 @@ func nxTightSlash(s: string): string =
 
 proc nxParseImports*(f: NxFile, rest: string, line: int, kw: string) =
   ## reads what follows `import`, `include`, `from` or `export` on a line into f: `from x import a, b` (with its `only`
-  ## list), `import x except a`, `import a as b`, `std/[os, strutils]` split into one import each, and Nim 3's
-  ## parenthesised paths with a {.cyclic.} pragma. `export` adds to f.exports
+  ## list), `import x except a`, `import a as b`, `std/[os, strutils]` and `"."/[a, b]` split into one import each,
+  ## and Nim 3's parenthesised paths with a {.cyclic.} pragma. `export` adds to f.exports
   var r = nxTightSlash(rest.strip)
   if kw == "export":
     for p in nxSplitTop(r, {','}):
@@ -62,7 +62,8 @@ proc nxParseImports*(f: NxFile, rest: string, line: int, kw: string) =
     if a >= 0:
       alias = p[a + 4 .. ^1].strip
       p = p[0 ..< a].strip
-    p = p.strip(chars = {'"', ' '})
+    # (quotes anywhere in the path: `"."/[ast, msgs]`, `"sub" / [a]`, `"$lib"/pure/os` — a path has none of its own)
+    p = nxTightSlash(p.replace("\"", "").strip)
     let br = p.find('[')
     if br >= 0 and p.endsWith("]"):
       # std/[os, strutils]

@@ -94,5 +94,6 @@ proc projectForget() =
   nxMacroSyms.clear(); nxMacroDone.clear()
   nxTypoText.clear(); nxTypoTextBytes = 0; nxAutoCache.clear()
   cIndexes.clear(); cssFileMemo.clear(); sqlFileMemo.clear()
+  unusedHints.clear()            # (the other project's files: the compiler's unused names, from its checks)
   nifForget(); diagsMemo.clear()
   inc nxGen

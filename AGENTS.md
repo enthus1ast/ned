@@ -62,6 +62,7 @@ nim c -d:release --checks:on -r tests/fuzz/parsers.nim 20     # every reader and
 python3 tests/docs/apiref.py --check && python3 tests/docs/links.py && python3 tests/docs/names.py  # the docs
 python3 tests/docs/comments.py                       # every file and routine says what it is
 python3 tests/memory/bufids.py                       # every table kept per open file is let go when its tab closes
+python3 tests/memory/memprobe.py OUT                 # a ned that logs each table's size: soak.py OUT --mem-log M, --diff M
 python3 tests/engine/scoreboard.py --engine E --nedls ./nedls --cdriver C --c-files … --cpp-files …  # minimum scores
 python3 tests/engine/nifgrade.py MAIN.nim --nim NIM24 --driver E   # Go to definition against Nim 2.4's own NIF
 ```
