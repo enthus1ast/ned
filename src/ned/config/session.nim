@@ -26,6 +26,8 @@ proc loadState() =
       if n.hasKey("mode"): stateOverrides["nim.buildMode"] = n["mode"]
       if n.hasKey("backend"): stateOverrides["nim.backend"] = n["backend"]
       if n.hasKey("compiler"): stateOverrides["nim.compiler"] = n["compiler"]
+      if n.hasKey("folded") and n["folded"].kind == JArray:
+        for x in n["folded"]: nimFolded.incl x.getStr
     if j.hasKey("layout") and j["layout"].kind == JObject: savedLayout = j["layout"]
     if j.hasKey("sessions") and j["sessions"].kind == JObject: savedSessions = j["sessions"]
     if j.hasKey("aiHistory") and j["aiHistory"].kind == JArray:
@@ -111,13 +113,15 @@ proc saveState() =
     if b.path.len > 0:
       if b.marks.len > 0: savedMarks[b.path] = b.marks
       else: savedMarks.del b.path
+  var foldedJ = newJArray()
+  for f in nimFolded: foldedJ.add %f
   var marksJ = newJObject()
   for k, v in savedMarks:
     if v.len > 0 and marksJ.len < 300: marksJ[k] = %v
   let j = %*{"recent": recentFiles, "pos": pos, "theme": cfgThemeName, "lastRun": lastRunCmd,
              "uses": uses, "completions": comps, "layout": layoutState(), "sessions": sessions, "aiHistory": hist,
              "trusted": trustedDirs, "bookmarks": marksJ, "aiQuirks": aiQuirksList(),
-             "nim": {"mode": cfgNimMode, "backend": cfgNimTarget, "compiler": cfgNimCompiler}}
+             "nim": {"mode": cfgNimMode, "backend": cfgNimTarget, "compiler": cfgNimCompiler, "folded": foldedJ}}
   try:
     createDir(parentDir(stateFile()))
     writeFileSafe(stateFile(), $j)

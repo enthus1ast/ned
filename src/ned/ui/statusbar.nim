@@ -221,6 +221,14 @@ proc drawStatusBar() =
     # (a Nim file: a tap says which Nim and why, and offers the others — on a tablet there is no right click)
     let tap: Action = if b.lang.mode == lmNim: (proc() = ctxOpen(statusLsMenu())) else: (proc() = showSide(svProject))
     x = button(x, y, " " & lsTxt & " ", tap, tip, theme.dim, bg, rightAct = proc() = ctxOpen(statusLsMenu()))
+  # (6.38) the C of this file — a C file without clangd, or the C in a Nim file's {.emit}: is clangd answering?
+  let (cst, ctext, ctip) = clangdState(b)
+  if cst > 0 and scrW >= 70 and (b.lang.mode == lmNim or cst in {3, 4}):
+    let cfg = case cst
+              of 1: theme.gitAdd
+              of 4: theme.err
+              else: theme.dim
+    x = button(x, y, " " & ctext & " ", proc() = showSide(svProject), ctip & " — the Nim panel", cfg, bg)
   if b.lang.mode == lmNim and tcProblem.len > 0 and scrW >= 60 and not nim3On():
     # (the Nim in use is not what the project's .nimble asks for)
     x = button(x, y, " " & (if cfgAccessible: "[!]" else: "⚠") & " Nim " & tcVerText(tcVer) & ": " & tcProblem & " ",

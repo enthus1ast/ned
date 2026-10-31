@@ -640,6 +640,17 @@ Check it in the **Nim dock** (Alt+E › Code intelligence) or with *Nim: languag
 main module with *Nim: use current file as main module* (stored in the project's `.ned/settings.json`).
 Your own `nim.projectMapping` always wins.
 
+The Nim dock is in parts — Project, Code intelligence, Build & run, Nimble, Dependencies, Nim tools, Atlas, Nim 3,
+C · clangd, Toolchain — with a blank line between them. Click or tap a part's title (or Enter on it) to fold it to
+its title, with the number of lines it hides; again to open it. Which parts are folded is kept with the session.
+
+**C · clangd** says what answers for C: clangd and its version when it is installed (how many are running, and
+any that stopped with an error — tap it to restart it), what answers for the file in front, and a way to write
+`compile_commands.json` for clangd. Without clangd, ned's own C engine answers, and the line says how to install
+clangd. In a Nim file with C in `{.emit}` (and in a C file when clangd is missing or stopped) the status bar says
+it too: *C · clangd* when clangd answers, *C · clangd …* while it starts, *C · clangd ✗* when it stopped, *C · ned*
+when ned's own C engine answers (no clangd, or `nim.emitClangd` off). A tap opens the Nim dock.
+
 ## Other Nim features
 
 - Alt+M shows what the macro/template call under the cursor writes, under it; *in a tab*; *expand one level*; ARC/ORC view

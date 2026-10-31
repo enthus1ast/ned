@@ -394,6 +394,7 @@ var
   lastFileCheck: MonoTime
   checkPending: HashSet[string]
   pendingRecheck: HashSet[string]
+  nimFolded: HashSet[string]       # (6.38) the parts of the Nim panel folded (their titles; kept in the state file)
   checkByCmd: Table[string, seq[(string, string, bool)]]  # an on-save check running (its command and folder) → the
                                                           # saves it will run once more for (run/checks.nim)
   clipLineMode = false

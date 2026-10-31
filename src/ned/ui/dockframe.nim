@@ -242,13 +242,17 @@ proc dockListKey(dl: var DockList, v: SideView, k: Key) =
   let n = dl.items.len
   let rows = max(1, scrH - 6)
   proc moveSel(dl: var DockList, d: int) =
-    ## moves the selection `d` rows, clamped to the list, stepping over a heading row (role 6) where it can
+    ## moves the selection `d` rows, clamped to the list, stepping over a heading row (role 6) where it can — not one
+    ## that does something (a part's title in the Nim panel folds it)
     let n = dl.items.len
     if n == 0: return
     var s = clamp(dl.sel + d, 0, n - 1)
-    if dl.items[s].role == 6 and n > 1:
+    var steps = 0
+    while dl.items[s].role == 6 and dl.items[s].action == nil and n > 1 and steps < 3:
       let s2 = clamp(s + (if d >= 0: 1 else: -1), 0, n - 1)
-      if dl.items[s2].role != 6: s = s2
+      if s2 == s: break
+      s = s2
+      inc steps
     dl.sel = s
   let it = if dl.sel >= 0 and dl.sel < n: dl.items[dl.sel] else: SideItem(line: -1)
   case k.kind

@@ -31,7 +31,8 @@ proc mc(name: string, label = "", check = -1): MenuItem =
   let n = name
   # (a command's keys — or, for some, a line on what it does: too long beside a menu item, so left out there)
   let k = commands[i].keys
-  mi(lbl, (if strWidth(k) <= 24: k else: ""), proc() = runCmd(n), check)
+  result = mi(lbl, (if strWidth(k) <= 24: k else: ""), proc() = runCmd(n), check)
+  result.cmd = commands[i].name
 
 proc mc(name: string, label = "", check = -1, disabled: bool): MenuItem =
   ## the same menu item, but drawn disabled when `disabled` is true
@@ -382,3 +383,31 @@ proc openAppMenu() =
   for i, n in MenuNames: items.add msub(n, menuItems(i))
   closeMenus()
   openMenu(items, 0, (if lay.titleY >= 0: lay.titleY + 1 else: 0), -1)
+
+# ── (6.38) the menus as data, for tests/smoke/commands.py --menus: every item of every menu and submenu, with where
+#    the arrow keys find it (choosable items only: separators and disabled ones are stepped over) ──
+
+proc menuDumpItems(items: seq[MenuItem]): JsonNode =
+  ## a menu's items: label, keys, the command it runs, whether disabled, its place among the choosable ones, its submenu
+  result = newJArray()
+  var k = 0
+  for it in items:
+    if it.sep: continue
+    var j = %*{"label": it.label, "keys": it.keys, "cmd": it.cmd, "disabled": it.disabled, "act": it.act != nil}
+    if not it.disabled:
+      j["pick"] = %k
+      inc k
+    if it.sub.len > 0: j["sub"] = menuDumpItems(it.sub)
+    result.add j
+
+proc menuDump() =
+  ## writes the menu bar's menus as JSON to NED_MENU_DUMP, once, after the first frame (the state they are made from is
+  ## there by then)
+  let p = getEnv("NED_MENU_DUMP")
+  if p.len == 0: return
+  var all = newJArray()
+  for i, n in MenuNames:
+    all.add %*{"menu": i, "name": n, "items": menuDumpItems(menuItems(i))}
+  try: writeFile(p, $all)
+  except CatchableError: discard
+

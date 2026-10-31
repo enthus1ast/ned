@@ -216,6 +216,7 @@ type
     inlayAt, inlayLo, inlayHi: int
     inlayReqTime: MonoTime
     marks: seq[int]                        # bookmarked lines (Ctrl+F2 / F2)
+    undoBytes: int                         # (6.38) about how much text the undo history holds: counted up as it grows, recounted when over its bound
     binary: bool                           # a binary file: in the hex editor (hex)
     hex: HexState                          # the hex editor's state (nil: a text file)
     swapAt: int                            # changeId last written to the recovery file

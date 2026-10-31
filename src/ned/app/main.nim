@@ -133,6 +133,7 @@ proc mainLoop() =
       if not privSwept:
         privSwept = true
         timedWork("old temporary files"): privSweep()   # (after the first frame: nothing in the way of the start)
+        menuDump()                                       # (NED_MENU_DUMP: the menus for the smoke test)
     caPump()                                # (the cursor's glide, a frame of its own: only the trail's cells)
     if startTrace and startRss.len == 1:
       # settled: the file list made, git and the other background jobs done (10 s at most)
@@ -842,6 +843,15 @@ proc main() =
       of "--doc-settings":
         applyTheme("nim-crown")
         stdout.write settingsMarkdown()
+        # (and what is wrong with them, on stderr — tests/docs/wiring.py fails on it: a setting declared twice, a
+        # choice whose default is none of its values, one with no description)
+        var seen: HashSet[string]
+        for d in setDefs:
+          if seen.containsOrIncl(d.key): stderr.writeLine "setting " & d.key & ": declared twice"
+          if d.kind == skEnum and d.def.getStr notin d.opts:
+            stderr.writeLine "setting " & d.key & ": its default " & $d.def & " is none of its values " & $d.opts
+          if d.doc.strip.len < 12: stderr.writeLine "setting " & d.key & ": no description a person can act on"
+          if not validSetting(d, d.def): stderr.writeLine "setting " & d.key & ": its default is not a valid value"
         quit 0
       of "--doc-commands":
         applyTheme("nim-crown")

@@ -68,8 +68,8 @@ var undoWritten: Table[int, int]        # buffer id → the undo step last writt
 proc undoFile(path: string): string = stateDir() / "undo" / fnv(path) & ".json"
 
 proc writeUndo(b: Buffer) =
-  ## keeps a saved file's undo history for the next time it is opened: the last 300 undo and redo steps (about 4 MB of
-  ## text at most) and 20 undo-tree branches, as JSON together with a hash of the text, so readUndo only brings it back
+  ## keeps a saved file's undo history for the next time it is opened: the last 300 undo and redo steps (about 4 MB at
+  ## most) and 20 undo-tree branches, as JSON together with a hash of the text, so readUndo only brings it back
   ## while the file is unchanged. Skipped for buffers with no file, titled or binary ones, ones with unsaved edits and
   ## huge ones; an empty history removes the file
   if not cfgPersistentUndo or b.path.len == 0 or b.title.len > 0 or b.binary or b.dirty: return
@@ -95,7 +95,7 @@ proc writeUndo(b: Buffer) =
       let ops = newJArray()
       for o in g.ops:
         ops.add %*[pos(o.a), o.oldText, o.newText]
-        size += o.oldText.len + o.newText.len
+        size += o.oldText.len + o.newText.len + 24     # (and the edit's own place in the file: a Replace all is many)
       result.add %*{"o": ops, "b": curs(g.before), "a": curs(g.after), "k": g.kind, "s": g.seqId}
       if size > 4_000_000: break
   # the undo tree's branches (their first steps; where they leave the line of edits, counted in the steps kept)
@@ -147,6 +147,7 @@ proc readUndo(b: Buffer) =
     b.redoStack.setLen(0)
     b.undoBranches.setLen(0)
     return
+  b.undoTrim()                       # (counts what came back, and keeps it within its bound)
   for g in b.undoStack: undoSeq = max(undoSeq, g.seqId)
   for g in b.redoStack: undoSeq = max(undoSeq, g.seqId)
   for br in b.undoBranches:

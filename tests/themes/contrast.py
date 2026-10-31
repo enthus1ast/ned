@@ -6,7 +6,8 @@ colours are (CIE76 ΔE). ned's own themes must pass:
   took in for Foxoman — Shades of Purple, ClassicBlue, Nebula — which must read, their design kept)
 The sunlight themes, stricter: text 10:1 · every syntax colour 7:1 · comments, operators, errors, warnings and ok
 4.5:1 · no two syntax colours closer than ΔE 20. The e-ink themes: black and white only, not one colour between.
-The themes ned copies from elsewhere are listed for information (ned's makeReadable lifts their interface colours).
+The themes ned copies from elsewhere are listed for information, as their authors made them (ned's makeReadable
+lifts their interface colours, and since 6.38 any code colour under 3:1 to 3:1).
 Run: python3 tests/themes/contrast.py   (exit 1 when one of ned's own themes fails)"""
 import itertools, math, os, re, sys
 

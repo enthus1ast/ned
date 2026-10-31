@@ -1,6 +1,43 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-637). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-638). Older releases:
+
+## What's new in 6.37
+
+**Lighter on a phone.** Android closes apps when it runs out of memory, Termux with them, and ned with its terminal.
+
+- **No more than two checks at once.** The compiler checks (on save, while you type, a test on save) run two at a
+  time; the others wait for their turn, so a *Save all* of many files or quick switching between files no longer
+  starts a compiler for each. (6.36 made it one per module; this is for all of them.)
+- **Short of memory** (`ui.lowMemory`, 300 MB): when the system has less than that left to give, ned keeps light.
+  What it keeps to answer faster goes (and is worked out again when asked), its engine worker's too; checks run one
+  at a time and on save only; nothing is read ahead. *mem low* in the status bar shows it, and it ends by itself
+  when the system has twice that free again.
+- **One copy of a program's names.** Each file that a module includes had its own copy of everything the module
+  sees: for ned's own source, thousands of names for each of up to 48 files. Now each file's scope holds its own
+  names only, and the module's are shared by all of its files: in the soak, 13,000 names of their own in the 48
+  scopes, against 480,000.
+- **One budget.** `nim.indexMemory` now bounds everything the engine keeps, not only the files it read: what each
+  file sees and what the imports bring (a quarter of it each), what routines raise (a sixteenth), the routine
+  headers it read (a thirty-second).
+- **Tried, and left as it was:** the C library's memory allocator gives freed memory back to the system where Nim's
+  keeps it for later. But with musl, the C library of the Termux build, completion was half again as slow and ned
+  took more memory, not less, so ned keeps Nim's own.
+
+**Nim 3 while typing.** nimony's check of the unsaved text gives its reading of it too, as Nim 2.4's `nim nif -` does
+since 6.36: hover has the compiler's type, F12 goes where the compiler says, and the colours follow it, before any
+save.
+
+Over the soak's 30 minutes, ned and its engine worker grow while they read the program in, then stay where they are
+from the ninth minute to the end (ned within 4 MB, its worker within 3).
+
+**Guards in CI.** Two new jobs: ten minutes of editing ned's own source, which fails when ned and its engine worker
+grow by more than 40 MB; and Go to definition on ned's own source graded against Nim 2.4's reading of it, which fails
+under 99%.
+
+**Smaller things.** The cursor places remembered for every file opened in a long session are kept for the recent
+files only. Three UI tests that waited a fixed time after a key now wait for what they check, so they no longer fail
+on a busy machine.
 
 ## What's new in 6.36
 
