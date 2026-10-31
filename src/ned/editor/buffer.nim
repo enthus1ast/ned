@@ -354,10 +354,38 @@ proc dropOldestUndo(b: Buffer) =
     dec b.undoBranches[k].at
     if b.undoBranches[k].at < 0: b.undoBranches.delete(k) else: inc k
 
+const UndoBytesMax = 64 * 1024 * 1024
+  ## (6.38) a file's undo history holds at most this much text (an eighth of it when memory is short): 2000 steps of
+  ## Replace all over a 10 MB file would otherwise keep 20 GB. Vim's 'undolevels' and VS Code bound it the same way
+
+proc groupBytes(g: UndoGroup): int =
+  ## about how much memory an undo step holds: the text it replaced and put in (each edit's two strings and its place
+  ## are about 96 bytes more, measured), and its cursors
+  for o in g.ops: result += o.oldText.len + o.newText.len + 96
+  result += (g.before.len + g.after.len) * sizeof(Cursor) + 64
+
+proc undoTrim(b: Buffer) =
+  ## (the history is over its bound) counted again exactly — undone steps and branches too; then the oldest branches
+  ## go, then the oldest steps, until it is under. The step just made always stays
+  let limit = if lowMemory: UndoBytesMax div 8 else: UndoBytesMax
+  var n = 0
+  for g in b.undoStack: n += groupBytes(g)
+  for g in b.redoStack: n += groupBytes(g)
+  for br in b.undoBranches:
+    for g in br.groups: n += groupBytes(g)
+  b.undoBytes = n
+  while b.undoBytes > limit and b.undoBranches.len > 0:
+    for g in b.undoBranches[0].groups: b.undoBytes -= groupBytes(g)
+    b.undoBranches.delete(0)
+  while b.undoBytes > limit and b.undoStack.len > 1:
+    b.undoBytes -= groupBytes(b.undoStack[0])
+    b.dropOldestUndo()
+
 proc endEdit(b: Buffer) =
   ## ends the undo step beginEdit started: an empty one is dropped; else it is added to the undo stack with the cursors
   ## after it (what was undone before stays reachable as a branch). Typing after typing, or deleting after deleting,
-  ## within 1.5 seconds and where the last one ended, joins the step before. The history keeps 2000 steps.
+  ## within 1.5 seconds and where the last one ended, joins the step before. The history keeps 2000 steps, and no more
+  ## text than UndoBytesMax
   b.inGroup = false
   if b.group.ops.len == 0: return
   if b.nesHas:
@@ -369,6 +397,8 @@ proc endEdit(b: Buffer) =
   let branched = b.redoStack.len > 0
   b.detachRedo()                   # (an edit after an undo: what was undone stays reachable — Undo history…)
   inc undoSeq
+  b.undoBytes += groupBytes(b.group)
+  let over = b.undoBytes > (if lowMemory: UndoBytesMax div 8 else: UndoBytesMax)   # (trimmed once the step is in)
   let forceNew = b.newGroup or branched
   b.newGroup = false
   if b.group.kind in {ekType, ekDelete} and b.undoStack.len > 0 and not forceNew:
@@ -378,10 +408,12 @@ proc endEdit(b: Buffer) =
       last.after = b.group.after
       last.time = getMonoTime()
       last.seqId = undoSeq
+      if over: b.undoTrim()
       return
   b.group.seqId = undoSeq
   b.undoStack.add b.group
   if b.undoStack.len > 2000: b.dropOldestUndo()
+  if over: b.undoTrim()
 
 proc normalize(b: Buffer)
 

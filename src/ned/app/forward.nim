@@ -278,6 +278,7 @@ proc nifTypingDone(folder: string)
 proc nifTypingRead(b: Buffer, folder, alias: string, started: times.Time, output: string)
 proc nifTypingKeep(b: Buffer, nif: string, nim2: bool, alias: string)
 proc nifFileFor(path: string): string                              # nim/nifview.nim
+proc clangdState(b: Buffer): (int, string, string)                # c/emitclangd.nim
 proc nifMacroText(b: Buffer, line: int): string                  # nim/nifprint.nim
 proc tildePath(p: string): string                                 # ui/prompts.nim
 proc wkCChecks(b: Buffer): bool                                   # nim/worker.nim

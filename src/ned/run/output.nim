@@ -248,6 +248,7 @@ proc probeTools() =
   probeTool("git", "--version")
   probeTool("rg", "--version")
   probeTool("nimony", "--version")
+  probeTool("clangd", "--version")
 
 proc nimCmd(b: Buffer, run: bool): string =
   ## the command that runs (`run`) or builds the buffer's Nim file: `nim e` for a .nims, nimble run or build for a

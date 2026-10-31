@@ -52,6 +52,7 @@ python3 tests/editors/check.py ./nedls                # the set-ups for Neovim, 
 python3 tests/tour/check.py                           # the Nim tour's lessons: every cell, every exercise
 python3 tests/plugins/tsandbox.py ./ned && python3 tests/ai/tredact.py ./ned && python3 tests/update/tupdate.py ./ned
 python3 tests/smoke/commands.py ./ned && python3 tests/smoke/commands.py ./ned --plugins   # every command, every plugin
+python3 tests/smoke/commands.py ./ned --menus        # every item of every menu, picked with the keys
 python3 tests/hostile/thostile.py ./ned ./nedls      # plugins, the remote control, nedls and the screen fed nonsense
 sh tests/format/parsecheck.sh "$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")"   # the formatter
 python3 tests/ui/run.py ./ned [t_name …]              # the editor through tmux: ~1300 checks, about an hour
@@ -61,6 +62,7 @@ NEDBIN=./ned_debug bash tests/fuzz/batch.sh 120 mixed palette hex   # random inp
 nim c -d:release --checks:on -r tests/fuzz/parsers.nim 20     # every reader and formatter fed broken text: no crash
 python3 tests/docs/apiref.py --check && python3 tests/docs/links.py && python3 tests/docs/names.py  # the docs
 python3 tests/docs/comments.py                       # every file and routine says what it is
+python3 tests/docs/wiring.py ./ned                   # every menu item's command exists, every setting declared and read
 python3 tests/memory/bufids.py                       # every table kept per open file is let go when its tab closes
 python3 tests/memory/memprobe.py OUT                 # a ned that logs each table's size: soak.py OUT --mem-log M, --diff M
 python3 tests/engine/scoreboard.py --engine E --nedls ./nedls --cdriver C --c-files … --cpp-files …  # minimum scores

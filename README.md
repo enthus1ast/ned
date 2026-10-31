@@ -21,7 +21,7 @@ library, and builds to a single program, with nothing else to install.
 
 ## Contents
 
-- [What's new in 6.37](#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.38](#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,42 +30,42 @@ library, and builds to a single program, with nothing else to install.
 
 ---
 
-## What's new in 6.37
+## What's new in 6.38
 
-**Lighter on a phone.** Android closes apps when it runs out of memory, Termux with them, and ned with its terminal.
+**Every menu item, command and setting checked.** Each item of every menu and submenu was picked with the keys, as
+a person would, each in a ned of its own: 450 items, none broke anything or left ned not answering (the smoke
+test's new `--menus`). A new check, in CI too, makes sure that every command a menu item, a button or a tap names is
+one ned has (668 of them), that every setting is declared with a description and read somewhere (311), and that
+every request the plugin library sends has its answer in ned (80) — `tests/docs/wiring.py`. `ned --doc-settings`
+also says when a setting is declared twice, has a default that is none of its values or a description too short to
+act on: none is.
 
-- **No more than two checks at once.** The compiler checks (on save, while you type, a test on save) run two at a
-  time; the others wait for their turn, so a *Save all* of many files or quick switching between files no longer
-  starts a compiler for each. (6.36 made it one per module; this is for all of them.)
-- **Short of memory** (`ui.lowMemory`, 300 MB): when the system has less than that left to give, ned keeps light.
-  What it keeps to answer faster goes (and is worked out again when asked), its engine worker's too; checks run one
-  at a time and on save only; nothing is read ahead. *mem low* in the status bar shows it, and it ends by itself
-  when the system has twice that free again.
-- **One copy of a program's names.** Each file that a module includes had its own copy of everything the module
-  sees: for ned's own source, thousands of names for each of up to 48 files. Now each file's scope holds its own
-  names only, and the module's are shared by all of its files: in the soak, 13,000 names of their own in the 48
-  scopes, against 480,000.
-- **One budget.** `nim.indexMemory` now bounds everything the engine keeps, not only the files it read: what each
-  file sees and what the imports bring (a quarter of it each), what routines raise (a sixteenth), the routine
-  headers it read (a thirty-second).
-- **Tried, and left as it was:** the C library's memory allocator gives freed memory back to the system where Nim's
-  keeps it for later. But with musl, the C library of the Termux build, completion was half again as slow and ned
-  took more memory, not less, so ned keeps Nim's own.
+**The Nim panel in parts.** Project, Code intelligence, Build & run, Nimble, Dependencies, Nim tools, Atlas, Nim 3,
+C · clangd and Toolchain, each set apart by a blank line. A tap on a part's title folds it (▸, and +6 for the six
+lines it hides); another opens it. The folds are kept with the session.
 
-**Nim 3 while typing.** nimony's check of the unsaved text gives its reading of it too, as Nim 2.4's `nim nif -` does
-since 6.36: hover has the compiler's type, F12 goes where the compiler says, and the colours follow it, before any
-save.
+**Is clangd working?** The Nim panel's new C · clangd part says whether clangd is installed and which version, how
+many are running, any that stopped with an error (a tap restarts it), what answers for the file in front, and
+writes `compile_commands.json` for clangd. The status bar says it too, for a Nim file with C in `{.emit}` (and for a
+C file when clangd is missing or stopped): *C · clangd*, *C · clangd …* while it starts, *C · clangd ✗* when it
+stopped, *C · ned* when ned's own C engine answers.
 
-Over the soak's 30 minutes, ned and its engine worker grow while they read the program in, then stay where they are
-from the ninth minute to the end (ned within 4 MB, its worker within 3).
+**An undo history that stops growing.** A file kept its last 2000 undo steps whatever their size: twenty *Replace
+all* over a 200,000-line file took ned from 26 MB to 371 MB, and on. Now each file keeps at most 64 MB of history (8
+MB when memory is short, `ui.lowMemory`), as Vim and VS Code bound theirs: the same twenty stop at 178 MB. The
+oldest steps go first, and the undo tree's oldest branches before them. The history kept for the next time a file
+is opened counts each edit too, not only its text.
 
-**Guards in CI.** Two new jobs: ten minutes of editing ned's own source, which fails when ned and its engine worker
-grow by more than 40 MB; and Go to definition on ned's own source graded against Nim 2.4's reading of it, which fails
-under 99%.
+**Themes.** Every colour of code now reads on its background at 3:1 or more. A few light themes as their authors
+made them — Ayu Light, Everforest Light, Catppuccin Latte, Solarized Light, Rosé Pine Dawn, Kanagawa Lotus, Light Owl
+— had strings, functions or warnings near 2:1, which vanish on a tablet in daylight; they keep their hues, a little
+darker. New: `ayu-dark`, for 66 themes.
 
-**Smaller things.** The cursor places remembered for every file opened in a long session are kept for the recent
-files only. Three UI tests that waited a fixed time after a key now wait for what they check, so they no longer fail
-on a busy machine.
+**The plugin API, all of it run.** A new test runs, in a real ned, the parts of the API that nothing else ran: a
+multibuffer's pieces added, found, taken out and read again; a pane split and closed; a language's indent changed
+with `filetype`. That last one found a bug: a plugin's `filetype` did not reach the files already open when the
+plugins started — a session's files, every time. It does now (unless the file's own lines or its .editorconfig say
+otherwise).
 
 ## Features
 
@@ -73,7 +73,7 @@ on a busy machine.
 most-used first), Telescope (Alt+Shift+F: every finder with a preview), a cursor that glides, left dock (files,
 search & replace, git, Nim, tests), right dock (AI assistant, outline, timeline), bottom panel (problems, output,
 terminal), tabs, breadcrumbs, minimap, sticky scroll, indent guides, rainbow brackets, tooltips, toasts, modal
-dialogs, context menus (right click), drop shadows, hover effects, 60 themes (VS Code dark/light, One Dark, Tokyo
+dialogs, context menus (right click), drop shadows, hover effects, 66 themes (VS Code dark/light, One Dark, Tokyo
 Night, Catppuccin, Gruvbox, Dracula, Nord, Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Shades of
 Purple, Slate, Monochrome, Everforest, Night Owl, from vim Jellybeans, Iceberg, Sonokai and PaperColor, Foxoman's
 ClassicBlue and Nebula themes, and ned's own: Nim Crown, Frankincense, Desert Dusk, Lagoon, Sea Glass, Paper Ink,
@@ -222,7 +222,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.37.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.38.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -277,7 +277,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.37.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.38.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

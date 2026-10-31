@@ -8,6 +8,7 @@ type
     check: int            # -1 none, 0 off, 1 on
     sub: seq[MenuItem]
     disabled: bool
+    cmd: string           # the command it runs ("" an action of its own): the menu dump says (NED_MENU_DUMP)
   MenuState = object
     items: seq[MenuItem]
     x, y, w, sel: int

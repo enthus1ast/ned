@@ -834,6 +834,16 @@ proc plugApplyRegs() =
   plugViews = views
   plugTimers = timers
   applyUserLanguages()
+  # (6.38) a plugin's filetype that changes a language's indentation: the files of it already open — opened before
+  # the plugins started, as a session's are — take it too, unless their own lines or their .editorconfig say otherwise
+  for (_, id, spec) in plugLangSpecs:
+    if not (spec.hasKey("indentSize") or spec.hasKey("tabs")): continue
+    for b in bufs:
+      if b.lang == nil or b.lang.id != id or b.binary: continue
+      var ec = false
+      for (k, _, _) in b.ecInfo:
+        if k in ["indent_style", "indent_size"]: ec = true
+      if not ec: detectIndent(b)
   # (a plugin's language server for its language: unless your "lsp" setting has one)
   plugLspLater.clear()
   for (lang, cmd, afterSave) in plugLspCmds:

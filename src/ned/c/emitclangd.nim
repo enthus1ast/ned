@@ -329,3 +329,87 @@ proc emitShadowDiags(s: LspServer, shadowPath: string, params: JsonNode) =
   if ds.len > 0: diagsByShadow[shadowPath] = ds
   elif shadowPath in diagsByShadow: diagsByShadow.del shadowPath
   mergeShadowDiags(path)
+
+# ── (6.38) is clangd working? for the status bar and the Nim panel ──
+
+var
+  emitAskedId = -1        # (clangdState) the last file asked whether it emits C, at which change, and the answer:
+  emitAskedChange = -1    # one entry, not one per file, so nothing is left behind when a tab closes
+  emitAskedHas = false
+
+proc clangdState(b: Buffer): (int, string, string) =
+  ## how the buffer's C is answered: (0 no C here, 1 clangd works, 2 clangd is starting, 3 clangd is not installed —
+  ## ned's own C engine answers —, 4 clangd stopped with an error), a short text for the status bar, and what it means.
+  ## C here: a C or C++ file, or a Nim file with C in {.emit.} (its hidden C document)
+  var s: LspServer = nil
+  var emit = false
+  if clangdSeen < 0: clangdSeen = (if findExe("clangd").len > 0: 1 else: 0)
+  if b.lang != nil and b.lang.id in ["c", "cpp"]:
+    s = lspFor(b, false)
+  elif b.lang != nil and b.lang.mode == lmNim and b.id in emitShadow:
+    emit = true
+    s = shadowSrv.getOrDefault(b.id)
+    if s == nil: s = lspFor(emitShadow[b.id], false)
+  elif b.lang != nil and b.lang.mode == lmNim and (clangdSeen == 0 or not cfgEmitClangd) and b.path.len > 0:
+    # (no clangd for it, so no hidden document: does the file emit C at all? Asked once per change of the file)
+    if emitAskedId != b.id or emitAskedChange != b.changeId:
+      emitAskedId = b.id
+      emitAskedChange = b.changeId
+      emitAskedHas = b.lines.len <= 40000 and emitLangId(b).len > 0
+    if not emitAskedHas: return (0, "", "")
+    if not cfgEmitClangd:
+      return (3, "C · ned", "nim.emitClangd is off: ned's own C engine answers for the C in {.emit}")
+    emit = true
+  else: return (0, "", "")
+  let what = if emit: "the C in {.emit}" else: "this file"
+  if s != nil and s.name != "clangd": return (0, "", "")      # (another server of the user's: its own label)
+  if s != nil and s.dead and not s.stopped:
+    let why = if s.errTail.len > 0: s.errTail[^1] else: "it ended"
+    return (4, "C · clangd ✗", "clangd stopped (" & truncTo(why, 60) & ") — the Nim panel restarts it")
+  if s != nil and s.ready: return (1, "C · clangd", "clangd answers for " & what)
+  if s != nil: return (2, "C · clangd …", "clangd is starting for " & what)
+  if clangdSeen == 0: return (3, "C · ned", "clangd is not installed: ned's own C engine answers for " & what &
+                                           " (" & lspInstallCmd("clangd") & ")")
+  (2, "C · clangd …", "clangd starts for " & what & " in a moment")
+
+proc clangdPanelItems(): seq[SideItem] =
+  ## the Nim panel's C part: clangd installed (its version) or not, the clangd servers running and any that stopped
+  ## with an error (a tap restarts it), what answers for the file in front, and compile_commands.json for clangd
+  result.add sideItem("C · CLANGD", 6)
+  if clangdSeen < 0: clangdSeen = (if findExe("clangd").len > 0: 1 else: 0)
+  if clangdSeen == 0:
+    result.add sideItem("clangd: not installed", 2, "✗", lspInstallCmd("clangd"))
+    result.add sideItem("ned's own C engine answers for C and {.emit}", 0, "◆")
+  else:
+    var live, gone = 0
+    for s in servers:
+      if s.name != "clangd": continue
+      if s.dead and not s.stopped: inc gone
+      elif not s.dead: inc live
+    let v = toolVersions.getOrDefault("clangd")
+    result.add sideItem("clangd" & (if v.len > 0: " " & v else: ""), (if live > 0: 5 else: 0),
+                        (if live > 0: ic("ok") else: "◇"),
+                        (if live > 0: $live & " running" else: "starts with a C file or {.emit}"))
+    for s in servers:
+      if s.name == "clangd" and s.dead and not s.stopped:
+        let why = if s.errTail.len > 0: s.errTail[^1] else: "it ended"
+        let lid = s.langId
+        var it: SideItem
+        capture lid:
+          it = sideItem("stopped: " & truncTo(why, 50), 3, "✗", "tap: restart", proc() =
+            for x in bufs:
+              if x.lang != nil and x.lang.id == lid:
+                curBuf = bufs.find(x)
+                restartLsp()
+                break, depth = 1)
+        result.add it
+  let (st, _, tip) = clangdState(buf())
+  if st > 0:
+    let role = if st == 1: 5 elif st == 3: 2 elif st == 4: 3 else: 0
+    result.add sideItem("here: " & tip, role, (if st == 1: ic("ok") elif st == 4: "✗" else: "·"), depth = 1)
+  let cc = rootDir / "compile_commands.json"
+  if rootDir.len > 0 and fileExists(cc):
+    result.add sideItem("compile_commands.json", 0, "≡", "for clangd", proc() = discard openFile(cc))
+  elif rootDir.len > 0:
+    result.add sideItem("Write compile_commands.json for clangd", 7, "›", "",
+                        proc() = runCmd("Nim: write compile_commands.json for clangd"))

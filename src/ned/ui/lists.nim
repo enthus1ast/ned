@@ -200,11 +200,21 @@ proc drawDockList(dl: var DockList, v: SideView, x0, y0, w, h: int, focused: boo
     let sel = i == dl.sel
     let isH = hov(x0, y, w)
     # the same in every list: selection (focused) · selection kept while another part has the focus · hover
-    let bg = if sel and focused: theme.menuSel elif isH and it.role != 6: theme.hoverBg
+    let bg = if sel and focused: theme.menuSel elif isH and (it.role != 6 or it.action != nil): theme.hoverBg
              elif sel or i == curIdx: blend(bg0, theme.menuSel, 0.45) else: bg0
     fillRect(x0, y, w, 1, theme.fg, bg)
     if it.role == 6:
-      discard putStr(x0 + 1, y, it.text, theme.dim, bg, {aBold}, x0 + w)
+      let ex = putStr(x0 + 1, y, it.text, theme.dim, bg, {aBold}, x0 + w)
+      if it.detail.len > 0: discard putStr(ex + 1, y, it.detail, theme.dim, bg, {}, x0 + w)   # (a folded part's rows)
+      if it.action != nil:
+        # (a title that folds its part: a click or a tap does it)
+        let idx = i
+        let rightSide = isRight
+        let vv = v
+        capture idx, rightSide, vv:
+          region(x0, y, w, 1, proc() =
+            focus = (if rightSide: fRight else: fTree)
+            if rightSide: activateItem(rightList, vv, idx) else: activateItem(leftList, vv, idx))
       continue
     var x = x0 + 1 + min(it.depth, 8) * 2
     if it.icon.len > 0:

@@ -106,6 +106,37 @@ proc atlasItems(): seq[SideItem] =
   else:
     result.add sideItem("install atlas", 2, "+", "nimble install atlas", proc() = runNimble("install -y atlas"))
 
+proc nimFoldAct(title: string): Action =
+  ## the tap on a part's title in the Nim panel: folds the part, or unfolds it
+  result = proc() =
+    if title in nimFolded: nimFolded.excl title else: nimFolded.incl title
+    needRender = true
+
+proc nimPanelParts(items: seq[SideItem]): seq[SideItem] =
+  ## the Nim panel's rows in parts set apart: an empty row before each part, its title (▾) a tap that folds it — it
+  ## then shows ▸ and how many rows it holds — and unfolds it again; which parts are folded is kept between sessions
+  var i = 0
+  while i < items.len:
+    if items[i].role != 6:
+      result.add items[i]
+      inc i
+      continue
+    let title = items[i].text
+    var j = i + 1
+    while j < items.len and items[j].role != 6: inc j
+    let folded = title in nimFolded
+    if result.len > 0: result.add sideItem("", 6)                 # (the space between two parts)
+    var h = items[i]
+    h.text = (if folded: "▸ " else: "▾ ") & title
+    if folded: h.detail = "+" & $(j - i - 1)              # (the rows it holds, out of sight)
+    h.action = nimFoldAct(title)
+    result.add h
+    if not folded:
+      for k in i + 1 ..< j: result.add items[k]
+    i = j
+
+proc clangdPanelItems(): seq[SideItem]
+
 proc buildProjectItems(): seq[SideItem] =
   ## the rows of the Nim panel, in sections: the project (nimble file, new project), code intelligence (the language
   ## server or ned's own index, nimsuggest), build and run (run, build, debug, mode, backend, compiler), nimble tasks
@@ -208,6 +239,7 @@ proc buildProjectItems(): seq[SideItem] =
     result.add sideItem("not installed (github.com/nim-lang/nimony)", 2, "·")
   result.add sideItem("what this file needs for Nim 3", 7, "›", "", proc() = runCmd("Nim 3: what this file needs (porting problems)"))
   result.add sideItem("port this file with AI", 7, "✦", "", proc() = runCmd("Nim 3: port this file with AI"))
+  result.add clangdPanelItems()
   result.add sideItem("TOOLCHAIN", 6)
   if nimToolchainLine().len > 0:
     result.add sideItem(nimToolchainLine(), (if tcProblem.len > 0: 2 else: 0), (if tcProblem.len > 0: "⚠" else: "◆"),
@@ -221,6 +253,7 @@ proc buildProjectItems(): seq[SideItem] =
   result.add toolLine("git", "pkg install git")
   result.add toolLine("rg", "pkg install ripgrep (fast search)")
   result.add toolLine("curl", "pkg install curl (AI assistant)")
+  result = nimPanelParts(result)
 
 # the colour role of a git status letter: added or new green, deleted red, modified yellow, anything else the accent
 func gitRole(c: char): int = (if c in {'A', '?'}: 5 elif c == 'D': 3 elif c == 'M': 4 else: 1)

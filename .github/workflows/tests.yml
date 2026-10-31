@@ -70,6 +70,7 @@ jobs:
           python3 tests/docs/apiref.py --check
           python3 tests/docs/links.py
           python3 tests/docs/comments.py              # every file and routine says what it is
+          python3 tests/docs/wiring.py ./ned          # menus name real commands, settings declared and read
 
   nedls:
     # the language server driven by a test client, and the formatter checked by Nim's own parser

@@ -337,6 +337,7 @@ proc allThemesRaw(): seq[Theme] =
     mkTheme("modus-vivendi",     true,  0x000000, 0xFFFFFF, 0x2FAFFF, 0x5A5A5A, 0x989898, 0xB6A0FF, 0x6AE4B9, 0x79A8FF, 0x00BCFF, 0xFEACD0, 0xFFFFFF, 0xFF7F9F, 0x00D3D0, 0xFF5F59, 0xFEC43F, 0x44BC44),
     mkTheme("modus-operandi",    false, 0xFFFFFF, 0x000000, 0x0031A9, 0xBDBDBD, 0x595959, 0x531AB6, 0x005F5F, 0x3548CF, 0x0000B0, 0x721045, 0x000000, 0xA0132F, 0x005E8B, 0xA60000, 0x884900, 0x006800),
     mkTheme("ayu-mirage",        true,  0x1F2430, 0xCCCAC2, 0xFFCC66, 0x33415E, 0x5C6773, 0xFFA759, 0x73D0FF, 0xD5FF80, 0xDFBFFF, 0xFFD173, 0xF29E74, 0xF28779, 0x5CCFE6, 0xFF6666, 0xFFCC66, 0x87D96C),
+    mkTheme("ayu-dark",          true,  0x0B0E14, 0xBFBDB6, 0xE6B450, 0x1B395A, 0x626A73, 0xFF8F40, 0x59C2FF, 0xAAD94C, 0xD2A6FF, 0xFFB454, 0xF29668, 0xF07178, 0x39BAE6, 0xD95757, 0xE6B450, 0x7FD962),
     # from vim: jellybeans (nanotech), iceberg (cocopon), sonokai (sainnhe), PaperColor (NLKNguyen)
     mkTheme("jellybeans",        true,  0x151515, 0xE8E8D3, 0x8197BF, 0x404040, 0x888888, 0x8197BF, 0xFFB964, 0x99AD6A, 0xCF6A4C, 0xFAD07A, 0x799D6A, 0x8FBFDC, 0xC6B6EE, 0xD54E53, 0xFFB964, 0x99AD6A),
     mkTheme("iceberg",           true,  0x161821, 0xC6C8D1, 0x84A0C6, 0x272C42, 0x6B7089, 0x84A0C6, 0xB4BE82, 0x89B8C2, 0xA093C7, 0xE2A478, 0x84A0C6, 0xB4BE82, 0x89B8C2, 0xE27878, 0xE2A478, 0xB4BE82),
@@ -452,6 +453,12 @@ proc makeReadable(t: var Theme) =
   t.inlay = readableOn(t.inlay, t.bg, 2.6)
   t.syn[tkComment] = readableOn(t.syn[tkComment], t.bg, 2.8)
   t.syn[tkDoc] = readableOn(t.syn[tkDoc], t.bg, 2.8)
+  # (6.38) the code's own colours too, at 3:1: a few light themes as their authors made them (Ayu Light, Everforest
+  # Light, Catppuccin Latte, Solarized Light, Rosé Pine Dawn) have strings, functions or warnings near 2:1, which
+  # vanish on a tablet in daylight; the hue stays, only a little darker. A faded deprecated name stays faded
+  for tk in TokKind:
+    if tk notin {tkComment, tkDoc, tkDeprecated}: t.syn[tk] = readableOn(t.syn[tk], t.bg, 3.0)
+  for c in [addr t.err, addr t.warn, addr t.info, addr t.hint]: c[] = readableOn(c[], t.bg, 3.0)
   t.popupFg = readableOn(t.popupFg, t.popupBg, 4.5)
   t.titleFg = readableOn(t.titleFg, t.titleBg, 4.5)
   t.statusFg = readableOn(t.statusFg, t.statusBg, 4.5)

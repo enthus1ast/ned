@@ -15,7 +15,11 @@ With --plugins, every one of ned's own plugins is on (all of them together, in N
 them all and must show none failed and no internal error; then every command the plugins register (by a fixed
 name) is run the same way, once the plugins have registered it.
 
-Usage: commands.py path/to/ned [--jobs N (3)] [--only TEXT] [--plugins] [--keep]
+With --menus, every item of every menu of the menu bar and its submenus instead, picked as a person would: F10, Right
+to its menu, Down to the item (Right into a submenu), Enter — the same three checks after. The items come from ned
+itself (NED_MENU_DUMP: what each menu holds, as it is drawn in that folder).
+
+Usage: commands.py path/to/ned [--jobs N (3)] [--only TEXT] [--plugins] [--menus] [--keep]
 Exit status 1 when a command broke one of the three (or, with --plugins, a plugin did not start)."""
 import glob, json, os, re, shutil, socket, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +33,8 @@ JOBS = int(ARGS[ARGS.index('--jobs') + 1]) if '--jobs' in ARGS else 3
 ONLY = ARGS[ARGS.index('--only') + 1] if '--only' in ARGS else ''
 KEEP = '--keep' in ARGS
 PLUGINS = '--plugins' in ARGS
+MENUS = '--menus' in ARGS
+MENU_PATHS = {}       # (--menus) an item's label path → (its menu's place in the bar, its place in each menu down to it, cmd)
 
 # (not run: what for, and why)
 SKIP = {
@@ -103,9 +109,19 @@ def run_one(slot, name):
     time.sleep(0.3)
     if name == '(start)':
         return start_check(tm, screen, state, work)
-    # the command, through the palette (a plugin's: once the plugins registered it)
+    if MENUS:
+        # the menu item, by the keys: F10 opens the bar's first menu, Right the next ones, Down steps over what cannot
+        # be chosen, Right opens a submenu
+        bar, picks, _ = MENU_PATHS[name]
+        tm('send-keys', '-t', 's', 'F10'); time.sleep(0.4)
+        for _ in range(bar): tm('send-keys', '-t', 's', 'Right'); time.sleep(0.15)
+        for depth, k in enumerate(picks):
+            for _ in range(k): tm('send-keys', '-t', 's', 'Down'); time.sleep(0.05)
+            if depth < len(picks) - 1:
+                tm('send-keys', '-t', 's', 'Right'); time.sleep(0.3)
+        shown = screen()
     end = time.time() + (60 if PLUGINS else 0)
-    while True:
+    while not MENUS:
         tm('send-keys', '-t', 's', 'C-p'); time.sleep(0.25)
         tm('send-keys', '-t', 's', '-l', '>' + name); time.sleep(0.5)
         shown = screen()
@@ -126,7 +142,8 @@ def run_one(slot, name):
     errlog = os.path.join(state, 'ned', 'errors.log')
     if 'NED-EXITED' in s:
         code = re.search(r'NED-EXITED (\d+)', s)
-        if re.search(r'\bQuit\b|quit|Restart|restart|Close the window', name) and code and code.group(1) == '0':
+        what = name + ' ' + (MENU_PATHS[name][2] if MENUS else '')
+        if re.search(r'\bQuit\b|quit|Restart|restart|Close the window|Exit', what) and code and code.group(1) == '0':
             verdict = 'quit'
         else:
             verdict, detail = 'EXITED', s[-1500:]
@@ -152,15 +169,17 @@ def run_one(slot, name):
             tm('send-keys', '-t', 's', '-l', 'zqzqprobe'); time.sleep(1.5)
             alive = 'zqzqprobe' in screen()
         if not alive: verdict, detail = 'NOT ANSWERING', screen()[-1500:]
-    if '>' + name[:20] not in shown.replace('  ', ' ') and verdict == 'ok':
+    if not MENUS and '▍' + name[:20] not in shown and verdict == 'ok':     # (the palette's first row: the one run)
         detail = '(the palette may have picked another command)'
+    if MENUS and verdict == 'ok' and name.split(' › ')[-1][:24] not in shown:
+        detail = '(the menu item was not on the screen when picked)'
     tm('kill-server')
     if not KEEP: shutil.rmtree(work, ignore_errors=True)
     with lock:
         results.append((name, verdict, detail))
         bad = verdict not in ('ok', 'quit')
-        print(('%-15s %s' % (verdict, name)) + (('\n' + '\n'.join('      ' + l for l in detail.splitlines()[-25:])) if bad else ''),
-              flush=True)
+        print(('%-15s %s' % (verdict, name)) + (('\n' + '\n'.join('      ' + l for l in detail.splitlines()[-25:])) if bad else
+                                                (' ' + detail if detail.startswith('(') else '')), flush=True)
 
 def start_check(tm, screen, state, work):
     # every plugin on: give them a minute, then the Plugins panel must show none failed, and no internal error
@@ -179,11 +198,52 @@ def start_check(tm, screen, state, work):
         results.append(('(every plugin on, together)', verdict, errs + '\n'.join(failed) + s[-3000:]))
         print('%-15s every plugin on, together' % verdict + ('' if verdict == 'ok' else '\n' + errs + s[-3000:]), flush=True)
 
-names = [n for n in (plugin_commands() if PLUGINS else command_names()) if ONLY.lower() in n.lower()]
+def menu_items():
+    # (--menus) every item the menu bar's menus hold, from a ned in the demo project that writes them down
+    dump = os.path.join(ROOT, 'menus.json')
+    sock = 'ned-menus-%d' % os.getpid()
+    work = os.path.join(ROOT, 'wm')
+    shutil.copytree(TEMPLATE, os.path.join(work, 'proj'), symlinks=True)
+    cfg, state, home = [os.path.join(work, x) for x in ('cfg', 'state', 'home')]
+    for d in (cfg + '/ned', state, home): os.makedirs(d, exist_ok=True)
+    json.dump({'security.folderTrust': 'off', 'ai.provider': 'openai', 'ai.apiKey': 'sk-test', 'ai.model': 'gpt-6',
+               'ai.baseUrl': 'http://127.0.0.1:%d/v1' % AI_PORT, 'ui.cursorAnimation': 'off', 'files.hotExit': False,
+               'terminal.keepRunning': False, 'nim.nimsuggest': False}, open(cfg + '/ned/config.json', 'w'))
+    env = ('HOME=%s XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s XDG_CACHE_HOME=%s/cache TMPDIR=%s TERM=xterm-256color '
+           'COLORTERM=truecolor NED_SOCKET= NED_MENU_DUMP=%s PATH=%s' % (home, cfg, state, work, work, dump,
+                                                                        os.environ['PATH']))
+    tm = lambda *a: subprocess.run(['tmux', '-L', sock] + list(a), capture_output=True, text=True)
+    tm('-f', os.path.join(REPO, 'tests', 'ui', 'tmux.conf'), 'new-session', '-d', '-s', 's', '-x', '130', '-y', '36',
+       'cd %s/proj && env %s %s src/demo.nim; sleep 600' % (work, env, NED))
+    end = time.time() + 20
+    while time.time() < end and not os.path.exists(dump): time.sleep(0.2)
+    time.sleep(0.5)
+    tm('kill-server')
+    if not os.path.exists(dump): sys.exit('ned wrote no menus (NED_MENU_DUMP)')
+    names = []
+    def walk(items, bar, path, picks):
+        for it in items:
+            if it.get('disabled') or 'pick' not in it: continue
+            label = path + ' › ' + it['label']
+            if it.get('sub'): walk(it['sub'], bar, label, picks + [it['pick']])
+            elif it.get('act'):
+                MENU_PATHS[label] = (bar, picks + [it['pick']], it.get('cmd', ''))
+                names.append(label)
+    for m in json.load(open(dump)): walk(m['items'], m['menu'], m['name'], [])
+    return names
+
+def skipped(n):
+    # the reason a command or a menu item is not run, '' none (a menu item: the command it runs)
+    if n in SKIP: return SKIP[n]
+    if MENUS and MENU_PATHS[n][2] in SKIP: return SKIP[MENU_PATHS[n][2]]
+    return ''
+
+names = [n for n in (plugin_commands() if PLUGINS else menu_items() if MENUS else command_names())
+         if ONLY.lower() in n.lower()]
 if PLUGINS: names = ['(start)'] + names
-todo = [n for n in names if n not in SKIP]
+todo = [n for n in names if not skipped(n)]
 for n in names:
-    if n in SKIP: print('SKIP            %s  (%s)' % (n, SKIP[n]))
+    if skipped(n): print('SKIP            %s  (%s)' % (n, skipped(n)))
 t0 = time.time()
 slots = list(range(JOBS))
 free = list(slots)
@@ -199,7 +259,8 @@ try:
 finally:
     mock.terminate()
 bad = [r for r in results if r[1] not in ('ok', 'quit')]
-print('\n%d commands run, %d skipped, %d broke something, in %d min' % (len(results), len(names) - len(todo), len(bad),
+print('\n%d %s run, %d skipped, %d broke something, in %d min' % (len(results), 'menu items' if MENUS else 'commands',
+                                                                 len(names) - len(todo), len(bad),
                                                                        (time.time() - t0) / 60))
 for n, v, _ in bad: print('  %-15s %s' % (v, n))
 if not KEEP: shutil.rmtree(ROOT, ignore_errors=True)
