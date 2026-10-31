@@ -333,6 +333,9 @@ type
     resolve: seq[string]      # nimble's "Dependency resolution failed" explanation, a line at a time
     inResolve: bool
     atlasMsgs: seq[(int, string, string)]   # (an atlas job) its [Error]/[Warn] lines: severity, package, message
+    queued: bool              # a check waiting for its turn: not started yet (checkSlots compilers at a time)
+    qRun: string              # (its command as it will run, and its niceness)
+    qNice: int
 
   LspReqKind = enum lrInit, lrCompletion, lrHover, lrDefinition, lrRename, lrFormat, lrSymbols, lrShutdown,
                     lrSignature, lrReferences, lrExpand, lrInlay, lrCodeAction, lrResolve, lrOther,

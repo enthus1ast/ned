@@ -21,7 +21,7 @@ library, and builds to a single program, with nothing else to install.
 
 ## Contents
 
-- [What's new in 6.36](#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [6.31](CHANGELOG.md#whats-new-in-631) · [older releases](CHANGELOG.md)
+- [What's new in 6.37](#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,51 +30,42 @@ library, and builds to a single program, with nothing else to install.
 
 ---
 
-## What's new in 6.36
+## What's new in 6.37
 
-**One check of a module at a time.** Each save started its own check, and a file that a module includes is checked
-through that module. So *Save all* with nine of ned's own files changed ran nine compilers of the whole program at
-once, about 800 MB each: on a phone, enough for Android to close Termux. Now a module has one check running at a
-time, and when it ends it runs once more for the files saved meanwhile.
+**Lighter on a phone.** Android closes apps when it runs out of memory, Termux with them, and ned with its terminal.
 
-**The compiler's reading while you type (Nim 2.4 and newer).** The check after a pause in typing is now `nim nif -`
-in place of `nim check -`: the same messages, as fast (2.4 s against 3.2 s on a module of ned's), and the compiler's
-reading of the unsaved text with them. So before any save, names are coloured by what the compiler says they are,
-hover has the type it gave each let and var, F12 goes to the overload it chose, and Alt+M shows what a macro call
-made. Lines you type in or take out above move these along; a line changed since keeps the engine's answers until
-the next check. Hover on a declaration (`let fresh = …`) has the compiler's type too, saved or not. (The crash that
-kept this out of 6.35 was Nim 2.4.0's own, with `--stdinfile:`; ned does without that switch.)
+- **No more than two checks at once.** The compiler checks (on save, while you type, a test on save) run two at a
+  time; the others wait for their turn, so a *Save all* of many files or quick switching between files no longer
+  starts a compiler for each. (6.36 made it one per module; this is for all of them.)
+- **Short of memory** (`ui.lowMemory`, 300 MB): when the system has less than that left to give, ned keeps light.
+  What it keeps to answer faster goes (and is worked out again when asked), its engine worker's too; checks run one
+  at a time and on save only; nothing is read ahead. *mem low* in the status bar shows it, and it ends by itself
+  when the system has twice that free again.
+- **One copy of a program's names.** Each file that a module includes had its own copy of everything the module
+  sees: for ned's own source, thousands of names for each of up to 48 files. Now each file's scope holds its own
+  names only, and the module's are shared by all of its files: in the soak, 13,000 names of their own in the 48
+  scopes, against 480,000.
+- **One budget.** `nim.indexMemory` now bounds everything the engine keeps, not only the files it read: what each
+  file sees and what the imports bring (a quarter of it each), what routines raise (a sixteenth), the routine
+  headers it read (a thirty-second).
+- **Tried, and left as it was:** the C library's memory allocator gives freed memory back to the system where Nim's
+  keeps it for later. But with musl, the C library of the Termux build, completion was half again as slow and ned
+  took more memory, not less, so ned keeps Nim's own.
 
-**What the soak's memory climb was.** The 20-minute soaks of 6.34 and 6.35 ended higher than they began. A build of
-ned that writes how big each of its tables is every 30 seconds, ned's and its engine worker's (`tests/memory/
-memprobe.py`, with the soak's `--mem-log`), showed three things:
+**Nim 3 while typing.** nimony's check of the unsaved text gives its reading of it too, as Nim 2.4's `nim nif -` does
+since 6.36: hover has the compiler's type, F12 goes where the compiler says, and the colours follow it, before any
+save.
 
-- the open tabs, from 3 to 17, a few MB each. The soak's own doing: before it put the project's files back with git it
-  saved only the tab in front, a tab with unsaved edits whose file git changed then asked at its next save whether
-  to overwrite the file or reload it, and the soak never answered, so no tab was saved or closed again. It now saves
-  every tab first and answers (and that is how the nine compilers above were found);
-- the index's scopes, what each file sees: one for each of the last 96 files asked about. In a program of include
-  files each one is a copy of the program's names (ned's own: 5,700 in each, 480,000 in all). Now 48 are kept;
-- what each routine raises, kept by the engine worker for 8,192 routines with the list of every file it read, about
-  8 KB each. Now up to 2,048 routines and 40,000 files read, about 3 MB. And beside it, to know whether a file's
-  converters were still the same, the scope itself was kept: up to 256 scopes the index had let go stayed alive, 40
-  MB of them. Now it keeps which scope it was, not the scope.
+Over the soak's 30 minutes, ned and its engine worker grow while they read the program in, then stay where they are
+from the ninth minute to the end (ned within 4 MB, its worker within 3).
 
-Over the soak's 30 minutes ned and its worker now end at 146 MB, against 191 MB before these changes: the worker
-stays at about 43 MB (it ended at 85), and ned levels off after its first quarter of an hour. Two tables kept an entry for every file ever looked at: the unused names the compiler found in another
-project's files now go when you open a different project, and the list of each file's includes has a limit.
+**Guards in CI.** Two new jobs: ten minutes of editing ned's own source, which fails when ned and its engine worker
+grow by more than 40 MB; and Go to definition on ned's own source graded against Nim 2.4's reading of it, which fails
+under 99%.
 
-**Go to definition graded against the compiler, again.** `tests/engine/nifgrade.py` asks ned's engine about every use
-the compiler's NIF names and compares the answers. It now leaves out what the NIF cannot say: a name in a comment, a
-name also written on the line beside it (the NIF can give a node the place of the one before it), a template call (the
-NIF has what the template made), and `for x in items:` (the compiler adds an `items` call). It also counts columns in
-bytes, as ned does. On ned's own source the engine now agrees on 99.6% (nedls) to 100% (nedfmt) of the uses. On Nim's
-own compiler it went from 96.5% to 99.4%: the engine now follows `import "."/[ast, msgs]`, a quoted folder before the
-modules, which Nim's compiler uses throughout.
-
-**The showcase and the post.** `examples/showcase.nim` has a section on the compiler's reading (two overloads, a let
-whose type only the compiler spells out) and points to the Nim label in the status bar.
-[docs/blog/announcing-ned.md](docs/blog/announcing-ned.md) says what ned does with Nim 2.4 now.
+**Smaller things.** The cursor places remembered for every file opened in a long session are kept for the recent
+files only. Three UI tests that waited a fixed time after a key now wait for what they check, so they no longer fail
+on a busy machine.
 
 ## Features
 
@@ -231,7 +222,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.36.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.37.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -286,7 +277,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.36.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.37.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

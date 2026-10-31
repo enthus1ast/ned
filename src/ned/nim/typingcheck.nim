@@ -135,6 +135,7 @@ proc typingCheckNimony(b: Buffer) =
   typingChecks[path] = (id, getMonoTime(), copy)
   typingSig[path] = b.typingCodeSig()
   inc typingRuns
+  let started = getTime()
   discard startJob(jkCheck, quoteShell(nimonyExe()) & " check " & nimonyArgs() & " --path:" &
                             quoteShell(parentDir(path)) & " " & quoteShell(copy) & " 2>&1", dir, proc(j: Job) =
     let st = typingChecks.getOrDefault(path)
@@ -148,6 +149,12 @@ proc typingCheckNimony(b: Buffer) =
       if k == copy or (extractFilename(k) == extractFilename(copy) and k.startsWith(dir)): mine.add v
     diagsBuild[path] = mine
     engineAgain(path)
+    # (the compiler's reading of the unsaved text: nimony's NIF of the copy, written by this check — nimnif.nim)
+    let nif = nifFileFor(copy)
+    if nif.endsWith(".s.nif"):
+      try:
+        if getLastModificationTime(nif) >= started: nifTypingKeep(x, nif, false, copy)
+      except CatchableError: discard
     needRender = true)
 
 proc typingCheck(b: Buffer) =

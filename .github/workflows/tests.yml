@@ -8,6 +8,8 @@
 #   ui    — the whole editor driven through tmux, its screen read back (tests/ui), in four parts side by side,
 #           with the tools the tests use installed (language servers, clangd, gdb, shells, an SSH server)
 #   scoreboard — the engines against nimsuggest and clangd on fixed files, each score against its minimum
+#   grader — Go to definition on ned's own source against Nim 2.4's own reading of it (nifgrade.py), at least 99%
+#   soak  — ten minutes of editing ned's own source: ned and its engine worker may not grow, nor make an error
 # Started by hand (Actions › tests › Run workflow) it can also fuzz ned and compare its Nim engine with nimsuggest.
 name: tests
 
@@ -222,6 +224,45 @@ jobs:
           cat /tmp/scores.txt
           sed -n '/^| |/,$p' /tmp/scores.txt | grep -v '^left out\|^::' >> "$GITHUB_STEP_SUMMARY"
           exit $code
+
+  grader:
+    # ned's Go to definition graded by the compiler: Nim 2.4's `nim nif` resolves every name of ned's own source, and
+    # the engine must agree on at least 99% of the uses of each part (tests/engine/nifgrade.py; it says which differ)
+    name: Go to definition against the compiler
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: '2.4.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: The engine as a program
+        run: tests/engine/build.sh ./ned-engine
+      - name: The grades
+        run: |
+          for m in src/nedfmt.nim src/ned/nim/index.nim src/nedls.nim; do
+            python3 tests/engine/nifgrade.py $m --driver ./ned-engine --min 99 --show 10 | tee -a "$GITHUB_STEP_SUMMARY" || exit 1
+          done
+
+  soak:
+    # ten minutes of editing a copy of ned's own source, at random (tests/soak/soak.py): fails when ned and its engine
+    # worker grow by more than 40 MB between the first stretch and the last, ned stops answering or makes an internal
+    # error. To see what grew: tests/memory/memprobe.py, then the soak with --mem-log
+    name: soak (memory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Build
+        run: nim c -d:release --opt:speed --hints:off -o:ned src/ned.nim
+      - name: The session
+        run: python3 tests/soak/soak.py ./ned --minutes 10 --seed 4242 --grow-mb 40 | tee -a "$GITHUB_STEP_SUMMARY"
 
   engine:
     if: github.event_name == 'workflow_dispatch' && inputs.engine

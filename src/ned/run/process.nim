@@ -244,11 +244,45 @@ func closeProc(p: var Proc) =
 
 proc jobChunk(j: Job, chunk: string)
 
+proc checkSlots(): int =
+  ## how many checks — compilers, most of them: the on-save check, the one while typing, a test on save — run at once:
+  ## two, one when the device is short of memory (each can take the size of the whole program; nine at once closed
+  ## Termux on a phone)
+  if lowMemory: 1 else: 2
+
+proc checksRunning(): int =
+  ## the checks running now (not those waiting for their turn)
+  for j in jobs:
+    if j.kind == jkCheck and not j.done and not j.queued and not j.eof: inc result
+
+proc startQueuedChecks() =
+  ## starts the checks waiting for their turn, oldest first, while there is room (a check that cannot start ends at once
+  ## with code 127, so whoever waits for it hears)
+  var room = checkSlots() - checksRunning()
+  if room <= 0: return
+  for j in jobs:
+    if room <= 0: break
+    if not j.queued or j.done: continue
+    j.queued = false
+    j.started = getMonoTime()
+    try:
+      var p = spawnProc(@["sh", "-c", j.qRun], j.cwd, siNull, erMerge, j.qNice)
+      j.outFd = p.outFd
+      p.outFd = -1
+      j.pr = p
+      setNonBlock(j.outFd)
+      dec room
+    except CatchableError as e:
+      j.pr = Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1, exited: true, code: 127)
+      j.eof = true
+      j.output.add "ned: cannot start: " & e.msg & "\n"
+
 proc startJob(kind: JobKind, cmd, cwd: string, onDone: proc(j: Job) {.closure.} = nil): Job =
   ## starts a shell command as a background job of the given kind, in a folder, with its output (errors merged in) read
   ## without blocking and `onDone` called when it ends. Check and auxiliary jobs run at a lower priority than ned (kind
   ## decides), and git of a remote folder is wrapped to run on the server. A folder that is not trusted gives a job that
-  ## has already ended with code 126 and says why in its output; any other failure is reported and gives nil.
+  ## has already ended with code 126 and says why in its output; any other failure is reported and gives nil. A check
+  ## beyond checkSlots waits for its turn (started by startQueuedChecks when one ends)
   # git for a remote folder runs on the server (its repository is the real one)
   let run = if remotes.len > 0 and (kind == jkGit or cmd.startsWith("git ")): gitWrap(cmd, cwd) else: cmd
   try:
@@ -257,6 +291,12 @@ proc startJob(kind: JobKind, cmd, cwd: string, onDone: proc(j: Job) {.closure.} 
                    of jkRun: 0
                    of jkCheck, jkAux: 10
                    else: 5
+    if kind == jkCheck and checksRunning() >= checkSlots() and codeTrusted(cwd):
+      result = Job(kind: kind, pr: Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1), outFd: -1, errFd: -1,
+                   started: getMonoTime(), cmd: cmd, cwd: cwd, onDone: onDone, queued: true, qRun: run,
+                   qNice: niceness)
+      jobs.add result
+      return
     var p = spawnProc(@["sh", "-c", run], cwd, siNull, erMerge, niceness)
     let fd = p.outFd
     p.outFd = -1

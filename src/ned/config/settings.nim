@@ -100,6 +100,10 @@ proc initSettingDefs() =
        "The touch bar's keys, in order: esc tab indent unindent enter left right up down home end pgup pgdn undo redo save find " &
        "palette copy cut paste, a key like \"ctrl+p\" or \"alt+r\", or \"Label=command\" for any palette command " &
        "(e.g. \"Run=Run file\")")
+  defS("Appearance", "ui.lowMemory", %300,
+       "Megabytes the system has left to give below which ned keeps light: its caches emptied, checks one at a time " &
+       "and on save only, nothing read ahead — on a phone, Android closes Termux when memory runs out. Back to " &
+       "normal over twice that (0: never)")
   defS("Appearance", "ui.batterySaver", %"auto",
        "Save the battery: no cursor glide, the compiler's check on save rather than while you type, no AI " &
        "completion as you type, and ned wakes up less often when you are not typing — auto = while the device " &
