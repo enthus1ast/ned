@@ -56,8 +56,9 @@ also in the **Edit** menu and the palette (Ctrl+E). With vim, Emacs or Helix key
 Ctrl+Z and Ctrl+Y undo and redo. ned keeps an **undo tree**: when you undo and then type something else, what you
 undid is kept as a branch. *Undo history…* (Alt+Shift+U) lists every state the file has been in — the other
 branches too, newest first — with the text there; picking one goes to it. The history is kept after you
-close the file, and after you quit (`editor.persistentUndo`), as long as nothing else changed the file in between.
-For older versions, see *Local history* in [Safety](safety.md).
+close the file, and after you quit (`editor.persistentUndo`), as long as nothing else changed the file in between:
+the steps nearest to the text first, up to 4 MB in all. While a file is open its history holds at most 64 MB (8 MB
+when memory is short), the oldest steps going first. For older versions, see *Local history* in [Safety](safety.md).
 
 ## Keyboard macros
 

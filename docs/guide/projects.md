@@ -42,8 +42,8 @@ quit; `n` (or any other key) starts typing in a new file. *Welcome page* in the 
 
 **Sessions.** Each folder remembers its open files and the one you were in, its breakpoints and watches, and the
 run configuration and tasks you chose; opening the folder again brings them back (`files.restoreSession`). ned also
-remembers where the cursor was in every file, your bookmarks, and how the docks and panels were laid out
-(`ui.restoreLayout`). Unsaved edits come back too, still unsaved (`files.hotExit` — [Safety](safety.md)).
+remembers where the cursor was in every file, your bookmarks, and how the panes were split (`ui.restoreLayout`). It
+starts with no dock or panel open, the keys in the editor; `ui.restorePanels` reopens them as you left them. Unsaved edits come back too, still unsaved (`files.hotExit` — [Safety](safety.md)).
 
 ## The file tree
 

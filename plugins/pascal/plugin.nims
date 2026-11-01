@@ -29,7 +29,7 @@
 import nedplugin
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "runs fpc or lazbuild for F5, Build and the check, and pasls when it is installed")
 
 settingDef("server", "", "The language server's command: empty for pasls (when it is installed), \"off\" for none. " &

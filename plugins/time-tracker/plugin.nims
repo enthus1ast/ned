@@ -14,7 +14,7 @@ import nedplugin
 import std/[tables, algorithm]
 
 requiresNed(">= 6.26")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("idleMinutes", 5, "Time: a gap without typing, saving or moving longer than this (minutes) is a pause, " &
            "not counted")

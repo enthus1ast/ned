@@ -20,7 +20,7 @@ import nedplugin
 import std/[math, sequtils]
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "compiles and runs the file you benchmark with nim r")
 
 settingDef("command", "nim r -d:release --hints:off $file", "Bench: how the file is compiled and run — $file is " &

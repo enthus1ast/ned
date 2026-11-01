@@ -26,7 +26,7 @@
 import nedplugin
 
 requiresNed(">= 6.29")
-pluginInfo(version = "1.1.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.1.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("files", "writes the picture beside your file, or in a folder you name, when plugins.code-snap.folder " &
            "says so (in its own data folder it needs no permission)")
 

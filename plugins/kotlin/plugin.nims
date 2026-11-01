@@ -28,7 +28,7 @@
 import nedplugin
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "runs Gradle or kotlinc for F5 and Build, and a language server and ktfmt or ktlint when installed")
 
 settingDef("server", "", "The language server's command: empty for kotlin-lsp (or kotlin-language-server) when " &

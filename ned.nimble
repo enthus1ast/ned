@@ -1,7 +1,7 @@
 # Package
 
-version       = "6.39.0"
-author        = "Foxoman"
+version       = "6.40.0"
+author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Fast, safe terminal code editor and Nim IDE for Termux and Linux: desktop-style UI, " &
                 "a built-in Nim engine (completion with docs, no language server needed) and nph-style formatter, " &
                 "AI agent, split editor, " &

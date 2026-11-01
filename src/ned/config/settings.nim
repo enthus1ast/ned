@@ -177,7 +177,10 @@ proc initSettingDefs() =
   defS("Appearance", "ui.leftDockWidth", %0, "Left dock width in columns (0 = automatic)")
   defS("Appearance", "ui.rightDockWidth", %0, "Right dock width in columns (0 = automatic)")
   defS("Appearance", "ui.panelHeight", %0, "Bottom panel height in rows (0 = automatic)")
-  defS("Appearance", "ui.restoreLayout", %true, "Reopen docks and panels the way you left them")
+  defS("Appearance", "ui.restoreLayout", %true, "Reopen the split panes the way you left them (the docks and the " &
+       "panel too with ui.restorePanels)")
+  defS("Appearance", "ui.restorePanels", %false, "At start, reopen the docks and the bottom panel the way you left " &
+       "them (off: ned starts with none open, the keys in the editor)")
   # ── Editor ──
   defS("Editor", "editor.tabSize", %4, "Default indentation width (files keep their own detected indentation)")
   defS("Editor", "editor.keymap", %"default", "Key bindings: default (VS Code-like) · vim · emacs (C-f C-b C-n C-p, " &

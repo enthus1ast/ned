@@ -227,7 +227,7 @@ Appearance › *Icons*) goes through them.
   Appearance and the palette (*Toggle title bar*, *Toggle tab bar* …).
 - **Sizes.** Drag a dock's edge or the panel's header, or Ctrl+Alt+←/→/↑/↓; `ui.leftDockWidth`, `ui.rightDockWidth`
   and `ui.panelHeight` (0: automatic) fix them; *View: reset split and dock sizes* undoes it. `ui.restoreLayout`
-  reopens docks and panels as you left them.
+  reopens the split panes as you left them; ned starts with no dock or panel open unless `ui.restorePanels` is on.
 - **Phones.** Below 70 columns ned switches to a phone layout: a dock opens over the editor at full width and gets
   out of the way when the editor has the focus again. `"ui.touchBar": "auto"` (or `on`; *Toggle touch bar*) adds a
   row of big keys above the status bar — choose them with `ui.touchBarKeys`: key names (`esc`, `tab`, `undo`,

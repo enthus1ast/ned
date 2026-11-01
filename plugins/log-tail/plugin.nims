@@ -13,7 +13,7 @@
 import nedplugin
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("errorWords", "error|fatal|panic|critical|exception|traceback|failed|crit|emerg",
            "Log: the words that make a line an error (with | between, any case)")

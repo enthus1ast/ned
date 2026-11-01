@@ -67,11 +67,15 @@ var undoWritten: Table[int, int]        # buffer id → the undo step last writt
 # the file where the undo history of the file at this path is kept
 proc undoFile(path: string): string = stateDir() / "undo" / fnv(path) & ".json"
 
+const UndoKeepBytes = 4_000_000
+  ## (6.40) the most a file's undo history kept on disk takes (and brings back when the file opens), all of it together
+
 proc writeUndo(b: Buffer) =
-  ## keeps a saved file's undo history for the next time it is opened: the last 300 undo and redo steps (about 4 MB at
-  ## most) and 20 undo-tree branches, as JSON together with a hash of the text, so readUndo only brings it back
-  ## while the file is unchanged. Skipped for buffers with no file, titled or binary ones, ones with unsaved edits and
-  ## huge ones; an empty history removes the file
+  ## keeps a saved file's undo history for the next time it is opened, as JSON together with a hash of the text, so
+  ## readUndo only brings it back while the file is unchanged: the steps nearest to the text as it is first — the undo
+  ## steps back from now, the redo steps, then the newest undo-tree branches — at most 300 steps of each and 20
+  ## branches, and no more than UndoKeepBytes for all of them together. Skipped for buffers with no file, titled or
+  ## binary ones, ones with unsaved edits and huge ones; an empty history removes the file
   if not cfgPersistentUndo or b.path.len == 0 or b.title.len > 0 or b.binary or b.dirty: return
   if b.lines.len > 200_000: return             # (huge files: hashing them on every save costs too much)
   if undoWritten.getOrDefault(b.id, -1) == b.topSeq() and b.undoStack.len > 0: return
@@ -86,26 +90,49 @@ proc writeUndo(b: Buffer) =
     ## cursors as JSON: a list of [anchor line, anchor column, head line, head column]
     result = newJArray()
     for c in cs: result.add %[c.anchor.line, c.anchor.col, c.head.line, c.head.col]
-  proc groups(gs: seq[UndoGroup]): JsonNode =
-    ## the last 300 undo groups as JSON — each with its edits (position, old text, new text), the cursors before and
-    ## after, its kind and sequence number — stopping when the texts add up to 4 MB
-    result = newJArray()
-    var size = 0
-    for g in gs[max(0, gs.len - 300) .. ^1]:
-      let ops = newJArray()
-      for o in g.ops:
-        ops.add %*[pos(o.a), o.oldText, o.newText]
-        size += o.oldText.len + o.newText.len + 24     # (and the edit's own place in the file: a Replace all is many)
-      result.add %*{"o": ops, "b": curs(g.before), "a": curs(g.after), "k": g.kind, "s": g.seqId}
-      if size > 4_000_000: break
-  # the undo tree's branches (their first steps; where they leave the line of edits, counted in the steps kept)
-  let offset = b.undoStack.len - min(300, b.undoStack.len)
-  let brs = newJArray()
-  for br in b.undoBranches[max(0, b.undoBranches.len - 20) .. ^1]:
-    if br.at - offset < 0: continue
-    brs.add %*{"at": br.at - offset, "g": groups(br.groups[0 ..< min(300, br.groups.len)])}
-  let j = %*{"path": b.path, "hash": fnv(b.lines.join("\n")), "undo": groups(b.undoStack), "redo": groups(b.redoStack),
-             "branches": brs}
+  proc cost(g: UndoGroup): int =
+    ## how much a step takes in the file: its texts, and each edit's place (a Replace all is many edits)
+    for o in g.ops: result += o.oldText.len + o.newText.len + 24
+  proc toJson(g: UndoGroup): JsonNode =
+    ## a step as JSON: its edits (position, old text, new text), the cursors before and after, its kind and number
+    let ops = newJArray()
+    for o in g.ops: ops.add %*[pos(o.a), o.oldText, o.newText]
+    %*{"o": ops, "b": curs(g.before), "a": curs(g.after), "k": g.kind, "s": g.seqId}
+  # (6.40) one budget for all of it, the nearest steps first: before, each branch had a budget of its own, and a file
+  # whose Replace all was undone and done again on every visit kept one more branch each time — 10 MB a file, read
+  # back in each time it opened
+  var left = UndoKeepBytes
+  proc keepFromEnd(gs: seq[UndoGroup]): int =
+    ## how many of the steps at the end of `gs` (the ones nearest to the text) fit what is left
+    for i in countdown(gs.high, max(0, gs.len - 300)):
+      let c = cost(gs[i])
+      if c > left: break
+      left -= c
+      inc result
+  let nUndo = keepFromEnd(b.undoStack)
+  let nRedo = keepFromEnd(b.redoStack)
+  let undoJ = newJArray()
+  for g in b.undoStack[b.undoStack.len - nUndo .. ^1]: undoJ.add toJson(g)
+  let redoJ = newJArray()
+  for g in b.redoStack[b.redoStack.len - nRedo .. ^1]: redoJ.add toJson(g)
+  # the undo tree's branches, the newest first (their first steps; where they leave the line of edits, counted in the
+  # steps kept)
+  let offset = b.undoStack.len - nUndo
+  var brs: seq[JsonNode]
+  for k in countdown(b.undoBranches.high, max(0, b.undoBranches.len - 20)):
+    let br = b.undoBranches[k]
+    if br.at - offset < 0 or br.groups.len == 0: continue
+    var n = 0
+    for g in br.groups[0 ..< min(300, br.groups.len)]:
+      let c = cost(g)
+      if c > left: break
+      left -= c
+      inc n
+    if n == 0: continue
+    let gj = newJArray()
+    for g in br.groups[0 ..< n]: gj.add toJson(g)
+    brs.insert(%*{"at": br.at - offset, "g": gj}, 0)
+  let j = %*{"path": b.path, "hash": fnv(b.lines.join("\n")), "undo": undoJ, "redo": redoJ, "branches": %brs}
   try:
     createDir(parentDir(f))
     writeFile(f, $j)

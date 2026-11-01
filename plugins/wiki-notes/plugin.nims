@@ -22,7 +22,7 @@ import nedplugin
 import std/algorithm
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("folder", "", "Wiki: where the notes are — empty for the project's folder, or a folder (~/notes)")
 settingDef("markMissing", true, "Wiki: a [[link]] to a note there is none of yet is marked (a hint)")

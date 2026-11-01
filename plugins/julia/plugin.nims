@@ -21,7 +21,7 @@ import nedplugin
 import std/strutils
 
 requiresNed(">= 6.28")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("server", "", "The language server's command, started when you first save a Julia file: empty = " &
            "LanguageServer.jl when it is installed (] add LanguageServer), \"off\" for none. Plugins: reload after " &

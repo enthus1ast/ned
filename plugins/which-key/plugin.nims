@@ -8,7 +8,7 @@
 ## Settings: plugins.which-key.delay — how long the keys wait before the box shows (milliseconds, 500).
 import nedplugin
 
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 import std/strutils
 
 settingDef("delay", 500, "how long keys that wait for more wait before the box of what follows shows (milliseconds)")

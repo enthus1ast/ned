@@ -1,6 +1,34 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-639). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-640). Older releases:
+
+## What's new in 6.39
+
+**Eighteen more themes**, each from its author's own colours: Gruvbox Material (dark and light), Material
+Palenight, Nightfox, Carbonfox and Dawnfox, Oxocarbon, Poimandres, Synthwave '84, Cobalt2, Horizon, Vesper, Flexoki
+(dark and light), Zenburn, Melange (dark and light) and Monokai Pro — 84 in all. The short names other editors give
+some of them work too: `"theme": "gruvbox-material"`, `"flexoki"`, `"melange"`, `"synthwave"`, `"palenight"`.
+
+**Twelve more of ned's own plugins**, off until you turn one on in the Plugins dock — 85 in all:
+
+- **notify-done** — when a run, build or test that took a while ends: a note (✓ done in 42 s, ✗ failed after 3
+  min) and, on a phone, Termux:API's notification, with a buzz when it failed; notify-send on Linux.
+- **read-aloud** — the selection, the line or the file read out loud: the phone's own voice through Termux:API,
+  espeak-ng, spd-say or say; code said as words.
+- **blame-heat** — the file's lines tinted by when they last changed: today red, this week orange, this month blue.
+- **todo-to-issue** — the TODO comment on the cursor's line made a GitHub issue (gh), and `TODO(#42):` written back.
+- **log-tail** — a log followed as it grows, errors red and warnings yellow; only the lines with some words in a tab.
+- **inline-calc** — select `12*(3+4)` and get 84, or end a line with `=` for its result.
+- **license-audit** — every dependency's version and licence in one table, the ones to look at marked.
+- **typing-stats** — words a minute and the days in a row you have written, in the status bar.
+- **code-pet** — a small pet in the status bar that eats when you save, grows with your commits and naps when you
+  stop.
+- **rubber-duck** — the routine talked through a line at a time, the duck asking the questions.
+- **power-mode** — a combo count, sparks after the line you type, a cheer at 50.
+- **nim-tips** — a Nim tip a day when ned starts.
+
+**For plugins: `onJobDone`.** A plugin can now be told when a run, build or test of yours ends — what it was, its
+exit code and how long it took. notify-done is built on it.
 
 ## What's new in 6.38
 

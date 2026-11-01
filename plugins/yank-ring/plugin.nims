@@ -23,7 +23,7 @@
 import nedplugin
 
 requiresNed(">= 6.29")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("clipboard", "reads what you copy and cut, to keep the history of it")
 
 settingDef("size", 30, "Yank ring: how many copies the history keeps")

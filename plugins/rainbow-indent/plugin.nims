@@ -17,7 +17,7 @@
 import nedplugin
 
 requiresNed(">= 6.29")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 const Styles = ["background", "guides", "dots"]
 

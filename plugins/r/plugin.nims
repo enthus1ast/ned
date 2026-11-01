@@ -23,7 +23,7 @@ import nedplugin
 import std/strutils
 
 requiresNed(">= 6.28")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("server", "", "The language server's command: empty for R's languageserver package (when it is " &
            "installed; it starts when you first save an R file), \"off\" for none. Plugins: reload after a change")

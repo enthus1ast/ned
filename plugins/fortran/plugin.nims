@@ -25,7 +25,7 @@
 import nedplugin
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "runs gfortran or fpm for F5, Build and the check, and fortls and fprettify when they are installed")
 
 settingDef("server", "", "The language server's command: empty for fortls (when it is installed), \"off\" for none. " &

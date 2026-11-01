@@ -5,6 +5,9 @@ It runs in any terminal but looks and behaves like a desktop editor: menus, dock
 mouse and touch support, dialogs, toasts and tooltips. It is written in Nim, uses only the standard
 library, and builds to a single program, with nothing else to install.
 
+Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.foxoman.net](https://www.foxoman.net) ·
+[sultan@foxoman.net](mailto:sultan@foxoman.net)
+
 ![Member completion from the built-in Nim engine, with the documentation beside the list (nim-crown theme)](screenshots/completion-docs.png)
 
 ![Hover from the built-in engine: signature, documentation and where it is defined](screenshots/hover-docs.png)
@@ -21,7 +24,7 @@ library, and builds to a single program, with nothing else to install.
 
 ## Contents
 
-- [What's new in 6.39](#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.40](#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,33 +33,29 @@ library, and builds to a single program, with nothing else to install.
 
 ---
 
-## What's new in 6.39
+## What's new in 6.40
 
-**Eighteen more themes**, each from its author's own colours: Gruvbox Material (dark and light), Material
-Palenight, Nightfox, Carbonfox and Dawnfox, Oxocarbon, Poimandres, Synthwave '84, Cobalt2, Horizon, Vesper, Flexoki
-(dark and light), Zenburn, Melange (dark and light) and Monokai Pro — 84 in all. The short names other editors give
-some of them work too: `"theme": "gruvbox-material"`, `"flexoki"`, `"melange"`, `"synthwave"`, `"palenight"`.
+**Every launch starts clean.** ned now opens with no dock and no panel, and the keys go to the editor or the
+welcome screen. Before, a file tree left open last time came back holding the keys, so the welcome screen's `d`
+(*Open folder*) went to the tree as *Delete*, aimed at the file selected there. A dock that is not on the screen
+never takes a key now. `ui.restorePanels` brings the docks and the panel back as you left them; `ui.restoreLayout`
+still brings back your split panes.
 
-**Twelve more of ned's own plugins**, off until you turn one on in the Plugins dock — 85 in all:
+**Is `-d:useMalloc` needed?** No — but checking it found a leak. Four builds were measured: Nim's own memory
+allocator and the C library's (`-d:useMalloc`), each against glibc (desktop Linux) and musl (what the Termux build
+uses), with a 15-minute soak and six rounds of eight 3 MB files opened, changed by a *Replace all*, undone and
+closed. The rounds grew with all four builds alike, by about 45 MB a round: the undo history kept for a file's next
+opening gained an undo-tree branch on each visit (10 MB a file after six), and was read back in each time the file
+opened. Now all of it shares one 4 MB budget, the steps nearest to the text first, and the steps kept always lead
+up to the text as it is, so they still apply. After the fix the six rounds stay flat from the second with every
+build: Nim's allocator holds 234 MB on glibc and 239 on musl, malloc 208 and 197. With musl, malloc held less after
+the big files but grew through the soak (63 MB, where Nim's stayed flat) and made completion half again as slow
+(6.37's trial), so the Termux build keeps Nim's allocator. A leak is memory kept for something no longer needed —
+the allocator only decides whether freed memory goes back to the system or waits to be used again.
 
-- **notify-done** — when a run, build or test that took a while ends: a note (✓ done in 42 s, ✗ failed after 3
-  min) and, on a phone, Termux:API's notification, with a buzz when it failed; notify-send on Linux.
-- **read-aloud** — the selection, the line or the file read out loud: the phone's own voice through Termux:API,
-  espeak-ng, spd-say or say; code said as words.
-- **blame-heat** — the file's lines tinted by when they last changed: today red, this week orange, this month blue.
-- **todo-to-issue** — the TODO comment on the cursor's line made a GitHub issue (gh), and `TODO(#42):` written back.
-- **log-tail** — a log followed as it grows, errors red and warnings yellow; only the lines with some words in a tab.
-- **inline-calc** — select `12*(3+4)` and get 84, or end a line with `=` for its result.
-- **license-audit** — every dependency's version and licence in one table, the ones to look at marked.
-- **typing-stats** — words a minute and the days in a row you have written, in the status bar.
-- **code-pet** — a small pet in the status bar that eats when you save, grows with your commits and naps when you
-  stop.
-- **rubber-duck** — the routine talked through a line at a time, the duck asking the questions.
-- **power-mode** — a combo count, sparks after the line you type, a cheer at 50.
-- **nim-tips** — a Nim tip a day when ned starts.
-
-**For plugins: `onJobDone`.** A plugin can now be told when a run, build or test of yours ends — what it was, its
-exit code and how long it took. notify-done is built on it.
+**The developer, named.** ned is made by Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)) —
+[www.foxoman.net](https://www.foxoman.net) · [sultan@foxoman.net](mailto:sultan@foxoman.net): in *About ned*,
+`ned --help`, the README, ned.nimble, the editor extensions and every one of ned's own plugins.
 
 ## Features
 
@@ -213,7 +212,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.39.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.40.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -268,7 +267,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.39.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.40.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell
@@ -379,7 +378,8 @@ laid out and tested. Security problems: please report them privately ([SECURITY.
 
 ## License
 
-Copyright © 2026 Foxoman.
+Copyright © 2026 Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)) — [www.foxoman.net](https://www.foxoman.net) ·
+[sultan@foxoman.net](mailto:sultan@foxoman.net). ned is made by him.
 
 ned is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as
 published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
