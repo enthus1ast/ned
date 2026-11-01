@@ -49,7 +49,7 @@ sent, and files such as `.env` are not sent at all.
 - A git dock: stage, commit, push, pull, log and diff, with blame, interactive rebase, bisect and a merge editor.
 - A debugger. F9 sets a breakpoint and F5 starts the program under it: gdb for Nim, a Debug Adapter Protocol
   debugger for other languages.
-- Plugins written in NimScript. Seventy-three of ned's own come with it, off until you turn one on, and each asks
+- Plugins written in NimScript. Eighty-five of ned's own come with it, off until you turn one on, and each asks
   before it runs programs, changes files or uses the clipboard. The [tutorial](../plugins/tutorial.md) builds one.
 
 **Made for a phone or tablet as much as a desktop.** Below 70 columns ned switches to a phone layout, and everything

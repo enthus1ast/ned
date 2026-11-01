@@ -1,6 +1,6 @@
 # Themes and appearance
 
-ned draws everything itself, in the terminal's own font, so how it looks is up to you: 66 built-in themes, light or
+ned draws everything itself, in the terminal's own font, so how it looks is up to you: 84 built-in themes, light or
 dark that follows the terminal or the clock, your own colours over any theme, a theme editor that checks contrast,
 VS Code, Zed, Helix and base16 themes imported, Termux's colours set to match, three icon sets, an accessibility
 mode, a layout for phones, and settings for every bar, line and mark on the screen. The settings named here go in
@@ -24,7 +24,7 @@ the list. The default is `nim-crown`.
 
 | | dark | light |
 |---|---|---|
-| **from other editors** | `one-dark` `tokyo-night` `catppuccin-mocha` `gruvbox-dark` `dracula` `nord` `monokai` `solarized-dark` `github-dark` `rose-pine` `kanagawa` `everforest-dark` `night-owl` `nim-crown` `vscode-dark` `modus-vivendi` `ayu-mirage` `ayu-dark` `shades-of-purple` `shades-of-purple-super-dark` | `one-light` `catppuccin-latte` `gruvbox-light` `solarized-light` `everforest-light` `light-owl` `vscode-light` `github-light` `tokyo-night-day` `rose-pine-dawn` `kanagawa-lotus` `ayu-light` `modus-operandi` |
+| **from other editors** | `one-dark` `tokyo-night` `catppuccin-mocha` `gruvbox-dark` `dracula` `nord` `monokai` `solarized-dark` `github-dark` `rose-pine` `kanagawa` `everforest-dark` `night-owl` `nim-crown` `vscode-dark` `modus-vivendi` `ayu-mirage` `ayu-dark` `shades-of-purple` `shades-of-purple-super-dark` `gruvbox-material-dark` `material-palenight` `nightfox` `carbonfox` `oxocarbon` `poimandres` `synthwave-84` `cobalt2` `horizon` `vesper` `flexoki-dark` `zenburn` `melange-dark` `monokai-pro` | `one-light` `catppuccin-latte` `gruvbox-light` `solarized-light` `everforest-light` `light-owl` `vscode-light` `github-light` `tokyo-night-day` `rose-pine-dawn` `kanagawa-lotus` `ayu-light` `modus-operandi` `gruvbox-material-light` `dawnfox` `flexoki-light` `melange-light` |
 | **from vim** | `jellybeans` `iceberg` `sonokai` | `papercolor-light` |
 | **Foxoman's** | `classic-blue` (the VS Code theme) · `nebula-pulse` `nebula-nova` `nebula-nord` `nebula-serenity` (the Zed themes) | `nebula-glow` `nebula-dawn` |
 | **ned's own** | `frankincense` `desert-dusk` `lagoon` | `sea-glass` `paper-ink` `rose-quartz` |

@@ -886,6 +886,28 @@ template onQuit*(cb: proc(ev: Event)) = regEvent(instantiationInfo(-1, true).fil
   ##
   ##     onQuit do (ev: Event):
   ##       writeData("state.json", $state)
+
+type JobEnd* = object
+  ## A run, build or test of yours that ended — what the Output panel shows: the command (`title`), its exit code
+  ## (`code`, 0 when it went well) and how long it took (`seconds`). `onJobDone` gives it.
+  title*: string
+  code*: int
+  seconds*: float
+
+proc regJobDone*(file: string, cb: proc(job: JobEnd)) =
+  ## (what onJobDone uses: call `onJobDone`)
+  let f = cb
+  discard register(file, "event", %*{"event": "jobDone", "pattern": "*"}, proc(a: JsonNode): JsonNode =
+    f(JobEnd(title: a{"title"}.getStr, code: a{"code"}.getInt, seconds: a{"seconds"}.getFloat))
+    newJNull())
+
+template onJobDone*(cb: proc(job: JobEnd)) = regJobDone(instantiationInfo(-1, true).filename, cb)
+  ## (6.39) Calls `cb` when a run, build or test of yours ends — Run (F5), Build, a test, a nimble task: what the
+  ## Output panel shows — with what it was, its exit code and how long it took. A plugin with this event starts with
+  ## ned.
+  ##
+  ##     onJobDone do (job: JobEnd):
+  ##       if job.seconds > 30: toast(job.title & (if job.code == 0: " passed" else: " failed"))
 template autocmd*(event, pattern: string, cb: proc(ev: Event)) =
   ## The events by vim's names: BufRead, BufReadPost, BufNewFile and FileType are `onOpen`; BufEnter and
   ## BufWinEnter `onEnter`; BufWritePre `onBeforeSave`; BufWritePost `onSave`; BufDelete, BufUnload and

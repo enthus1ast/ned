@@ -223,6 +223,7 @@ proc runCommand(cmd0, cwd: string, after: proc(code: int) {.closure.} = nil) =
       addPanelLine(PanelLine(text: "✗ Exit code " & $j.code & " after " & formatFloat(dt, ffDecimal, 1) & "s" &
         (if errs > 0: " · " & $errs & " error(s) — Alt+N jumps to the next" else: ""), sev: 1, line: -1))
     if ri >= 0 and ri < remotes.len: remoteSync(ri)       # what it changed on the server comes back
+    plugJobDone(cmd0, j.code, dt)                          # (a plugin that tells you when it ended: notify-done)
     needRender = true
     if after != nil: after(j.code))
   if j == nil: return

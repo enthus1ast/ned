@@ -21,7 +21,7 @@ library, and builds to a single program, with nothing else to install.
 
 ## Contents
 
-- [What's new in 6.38](#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.39](#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -30,42 +30,33 @@ library, and builds to a single program, with nothing else to install.
 
 ---
 
-## What's new in 6.38
+## What's new in 6.39
 
-**Every menu item, command and setting checked.** Each item of every menu and submenu was picked with the keys, as
-a person would, each in a ned of its own: 450 items, none broke anything or left ned not answering (the smoke
-test's new `--menus`). A new check, in CI too, makes sure that every command a menu item, a button or a tap names is
-one ned has (668 of them), that every setting is declared with a description and read somewhere (311), and that
-every request the plugin library sends has its answer in ned (80) — `tests/docs/wiring.py`. `ned --doc-settings`
-also says when a setting is declared twice, has a default that is none of its values or a description too short to
-act on: none is.
+**Eighteen more themes**, each from its author's own colours: Gruvbox Material (dark and light), Material
+Palenight, Nightfox, Carbonfox and Dawnfox, Oxocarbon, Poimandres, Synthwave '84, Cobalt2, Horizon, Vesper, Flexoki
+(dark and light), Zenburn, Melange (dark and light) and Monokai Pro — 84 in all. The short names other editors give
+some of them work too: `"theme": "gruvbox-material"`, `"flexoki"`, `"melange"`, `"synthwave"`, `"palenight"`.
 
-**The Nim panel in parts.** Project, Code intelligence, Build & run, Nimble, Dependencies, Nim tools, Atlas, Nim 3,
-C · clangd and Toolchain, each set apart by a blank line. A tap on a part's title folds it (▸, and +6 for the six
-lines it hides); another opens it. The folds are kept with the session.
+**Twelve more of ned's own plugins**, off until you turn one on in the Plugins dock — 85 in all:
 
-**Is clangd working?** The Nim panel's new C · clangd part says whether clangd is installed and which version, how
-many are running, any that stopped with an error (a tap restarts it), what answers for the file in front, and
-writes `compile_commands.json` for clangd. The status bar says it too, for a Nim file with C in `{.emit}` (and for a
-C file when clangd is missing or stopped): *C · clangd*, *C · clangd …* while it starts, *C · clangd ✗* when it
-stopped, *C · ned* when ned's own C engine answers.
+- **notify-done** — when a run, build or test that took a while ends: a note (✓ done in 42 s, ✗ failed after 3
+  min) and, on a phone, Termux:API's notification, with a buzz when it failed; notify-send on Linux.
+- **read-aloud** — the selection, the line or the file read out loud: the phone's own voice through Termux:API,
+  espeak-ng, spd-say or say; code said as words.
+- **blame-heat** — the file's lines tinted by when they last changed: today red, this week orange, this month blue.
+- **todo-to-issue** — the TODO comment on the cursor's line made a GitHub issue (gh), and `TODO(#42):` written back.
+- **log-tail** — a log followed as it grows, errors red and warnings yellow; only the lines with some words in a tab.
+- **inline-calc** — select `12*(3+4)` and get 84, or end a line with `=` for its result.
+- **license-audit** — every dependency's version and licence in one table, the ones to look at marked.
+- **typing-stats** — words a minute and the days in a row you have written, in the status bar.
+- **code-pet** — a small pet in the status bar that eats when you save, grows with your commits and naps when you
+  stop.
+- **rubber-duck** — the routine talked through a line at a time, the duck asking the questions.
+- **power-mode** — a combo count, sparks after the line you type, a cheer at 50.
+- **nim-tips** — a Nim tip a day when ned starts.
 
-**An undo history that stops growing.** A file kept its last 2000 undo steps whatever their size: twenty *Replace
-all* over a 200,000-line file took ned from 26 MB to 371 MB, and on. Now each file keeps at most 64 MB of history (8
-MB when memory is short, `ui.lowMemory`), as Vim and VS Code bound theirs: the same twenty stop at 178 MB. The
-oldest steps go first, and the undo tree's oldest branches before them. The history kept for the next time a file
-is opened counts each edit too, not only its text.
-
-**Themes.** Every colour of code now reads on its background at 3:1 or more. A few light themes as their authors
-made them — Ayu Light, Everforest Light, Catppuccin Latte, Solarized Light, Rosé Pine Dawn, Kanagawa Lotus, Light Owl
-— had strings, functions or warnings near 2:1, which vanish on a tablet in daylight; they keep their hues, a little
-darker. New: `ayu-dark`, for 66 themes.
-
-**The plugin API, all of it run.** A new test runs, in a real ned, the parts of the API that nothing else ran: a
-multibuffer's pieces added, found, taken out and read again; a pane split and closed; a language's indent changed
-with `filetype`. That last one found a bug: a plugin's `filetype` did not reach the files already open when the
-plugins started — a session's files, every time. It does now (unless the file's own lines or its .editorconfig say
-otherwise).
+**For plugins: `onJobDone`.** A plugin can now be told when a run, build or test of yours ends — what it was, its
+exit code and how long it took. notify-done is built on it.
 
 ## Features
 
@@ -73,7 +64,7 @@ otherwise).
 most-used first), Telescope (Alt+Shift+F: every finder with a preview), a cursor that glides, left dock (files,
 search & replace, git, Nim, tests), right dock (AI assistant, outline, timeline), bottom panel (problems, output,
 terminal), tabs, breadcrumbs, minimap, sticky scroll, indent guides, rainbow brackets, tooltips, toasts, modal
-dialogs, context menus (right click), drop shadows, hover effects, 66 themes (VS Code dark/light, One Dark, Tokyo
+dialogs, context menus (right click), drop shadows, hover effects, 84 themes (VS Code dark/light, One Dark, Tokyo
 Night, Catppuccin, Gruvbox, Dracula, Nord, Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Shades of
 Purple, Slate, Monochrome, Everforest, Night Owl, from vim Jellybeans, Iceberg, Sonokai and PaperColor, Foxoman's
 ClassicBlue and Nebula themes, and ned's own: Nim Crown, Frankincense, Desert Dusk, Lagoon, Sea Glass, Paper Ink,
@@ -103,7 +94,7 @@ signs and highlights, languages with their completions, hover, code actions, out
 language servers (also written in NimScript, for any editor: `ned --lsp-bridge`), tools for the assistant, views
 in their dock, progress and output, vim mappings, operators and text objects, timers, how indentation looks — the
 NimScript ones in one process, a dock to manage them with their versions and updates, a list to install from; each
-asks before it runs programs, changes files or uses the clipboard. Seventy-three of ned's own come with it, off until
+asks before it runs programs, changes files or uses the clipboard. Eighty-five of ned's own come with it, off until
 you turn one on. → [Plugins](docs/plugins/README.md) · [Tutorial](docs/plugins/tutorial.md) · [API reference](docs/plugins/api.md)
 
 **Languages** — syntax highlighting for Nim, C, C++, JS/TS, Rust, Go, Python, Kotlin, C#, PHP, SQL, Java, Lua,
@@ -222,7 +213,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.38.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
+of a release, `pkg install ./ned_6.39.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
 `$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
@@ -277,7 +268,7 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.38.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
+The release's `ned-6.39.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
 it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
 
 ```powershell

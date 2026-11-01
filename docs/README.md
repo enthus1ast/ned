@@ -36,7 +36,7 @@ every command is in the menus (F10) and the palette (Ctrl+E).
 | page | what it covers |
 |---|---|
 | [Plugins](plugins/README.md) | what a plugin can do, how they run, permissions, installing and managing them |
-| [ned's own plugins](plugins/available.md) | the seventy-three that come with ned — dial, which-key, oil, harpoon, todo, indent-dots, rainbow-indent, rest-client, nim-html, Odin, Gleam, Swift … — and how to turn one on |
+| [ned's own plugins](plugins/available.md) | the eighty-five that come with ned — dial, which-key, oil, harpoon, todo, indent-dots, rainbow-indent, rest-client, nim-html, Odin, Gleam, Swift … — and how to turn one on |
 | [Tutorial](plugins/tutorial.md) | a plugin built step by step — its result is `examples/plugins/notes`, run by the plugin tests |
 | [API reference](plugins/api.md) | every type and proc of `nedplugin` and `nedlsp` (made from their doc comments) |
 

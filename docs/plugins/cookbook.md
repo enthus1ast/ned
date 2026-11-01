@@ -1650,7 +1650,7 @@ command "Regex: replace in the selection…":
 - [The tutorial](tutorial.md): one plugin, built step by step — and how to test a plugin without the editor
   ([Testing](tutorial.md#testing)).
 - [The API reference](api.md): every proc and type, with its documentation.
-- [ned's own plugins](available.md): seventy-three more, from small (dial) to large (oil, rest-client); *View its
+- [ned's own plugins](available.md): eighty-five more, from small (dial) to large (oil, rest-client); *View its
   source* in the Plugins dock shows each.
 
 ## 21. Panes and multibuffers
