@@ -1198,6 +1198,33 @@ onQuit do (ev: Event):
   writeData("state.json", $state)
 ```
 
+#### type `JobEnd`
+
+```nim
+type JobEnd = object
+```
+
+A run, build or test of yours that ended — what the Output panel shows: the command (`title`), its exit code (`code`, 0 when it went well) and how long it took (`seconds`). `onJobDone` gives it.
+
+| field | type | |
+|---|---|---|
+| `title` | `string` |  |
+| `code` | `int` |  |
+| `seconds` | `float` |  |
+
+#### `onJobDone`
+
+```nim
+template onJobDone(cb: proc(job: JobEnd))
+```
+
+(6.39) Calls `cb` when a run, build or test of yours ends — Run (F5), Build, a test, a nimble task: what the Output panel shows — with what it was, its exit code and how long it took. A plugin with this event starts with ned.
+
+```nim
+onJobDone do (job: JobEnd):
+  if job.seconds > 30: toast(job.title & (if job.code == 0: " passed" else: " failed"))
+```
+
 #### `autocmd`
 
 ```nim

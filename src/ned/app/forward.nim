@@ -284,3 +284,4 @@ proc tildePath(p: string): string                                 # ui/prompts.n
 proc wkCChecks(b: Buffer): bool                                   # nim/worker.nim
 when defined(nedMemProbe):
   proc memProbeTick(suffix: string)                               # app/memprobe_gen.nim (tests/memory/memprobe.py)
+proc plugJobDone(title: string, code: int, seconds: float)    # plugins/host.nim

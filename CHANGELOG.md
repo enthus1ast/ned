@@ -1,6 +1,43 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-638). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-639). Older releases:
+
+## What's new in 6.38
+
+**Every menu item, command and setting checked.** Each item of every menu and submenu was picked with the keys, as
+a person would, each in a ned of its own: 450 items, none broke anything or left ned not answering (the smoke
+test's new `--menus`). A new check, in CI too, makes sure that every command a menu item, a button or a tap names is
+one ned has (668 of them), that every setting is declared with a description and read somewhere (311), and that
+every request the plugin library sends has its answer in ned (80) — `tests/docs/wiring.py`. `ned --doc-settings`
+also says when a setting is declared twice, has a default that is none of its values or a description too short to
+act on: none is.
+
+**The Nim panel in parts.** Project, Code intelligence, Build & run, Nimble, Dependencies, Nim tools, Atlas, Nim 3,
+C · clangd and Toolchain, each set apart by a blank line. A tap on a part's title folds it (▸, and +6 for the six
+lines it hides); another opens it. The folds are kept with the session.
+
+**Is clangd working?** The Nim panel's new C · clangd part says whether clangd is installed and which version, how
+many are running, any that stopped with an error (a tap restarts it), what answers for the file in front, and
+writes `compile_commands.json` for clangd. The status bar says it too, for a Nim file with C in `{.emit}` (and for a
+C file when clangd is missing or stopped): *C · clangd*, *C · clangd …* while it starts, *C · clangd ✗* when it
+stopped, *C · ned* when ned's own C engine answers.
+
+**An undo history that stops growing.** A file kept its last 2000 undo steps whatever their size: twenty *Replace
+all* over a 200,000-line file took ned from 26 MB to 371 MB, and on. Now each file keeps at most 64 MB of history (8
+MB when memory is short, `ui.lowMemory`), as Vim and VS Code bound theirs: the same twenty stop at 178 MB. The
+oldest steps go first, and the undo tree's oldest branches before them. The history kept for the next time a file
+is opened counts each edit too, not only its text.
+
+**Themes.** Every colour of code now reads on its background at 3:1 or more. A few light themes as their authors
+made them — Ayu Light, Everforest Light, Catppuccin Latte, Solarized Light, Rosé Pine Dawn, Kanagawa Lotus, Light Owl
+— had strings, functions or warnings near 2:1, which vanish on a tablet in daylight; they keep their hues, a little
+darker. New: `ayu-dark`, for 66 themes.
+
+**The plugin API, all of it run.** A new test runs, in a real ned, the parts of the API that nothing else ran: a
+multibuffer's pieces added, found, taken out and read again; a pane split and closed; a language's indent changed
+with `filetype`. That last one found a bug: a plugin's `filetype` did not reach the files already open when the
+plugins started — a session's files, every time. It does now (unless the file's own lines or its .editorconfig say
+otherwise).
 
 ## What's new in 6.37
 

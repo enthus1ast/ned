@@ -24,16 +24,18 @@ const
   PlugExDir = currentSourcePath().plugSrcUp(4) & "/" & "examples" & "/" & "plugins"
   PlugBundledDir = currentSourcePath().plugSrcUp(4) & "/" & "plugins"
   # ned's own plugins: in ned, off until you turn one on (Plugins dock › AVAILABLE, Plugins › Available plugins…)
-  PlugBundledNames = ["ada", "align", "benchy", "case-change", "char-picker", "clojure", "cmake", "code-snap",
-                      "color-picker", "commit-helper", "containers", "crystal", "dart", "db-client", "dial",
-                      "doc-gen", "dotenv", "elixir", "erlang", "examples-to-tests", "exchange", "fortran", "github",
-                      "gleam", "graphql", "harpoon", "haskell", "import-graph", "indent-dots", "json-to-nim", "julia",
-                      "kanban", "kotlin", "latex", "license-header", "markdown-tools", "mermaid", "nim-eval",
-                      "nim-html", "nim-playground", "nimble-browser", "nix", "ocaml", "odin", "oil", "pascal",
-                      "path-complete", "perl", "pomodoro", "protobuf", "r", "rainbow-indent", "regex-lab",
-                      "release-helper", "rest-client", "scala", "split-join", "sqlite", "svelte", "swift",
-                      "terraform", "text-objects", "time-tracker", "todo", "transform", "typst", "vlang",
-                      "web-preview", "web-routes", "which-key", "wiki-notes", "yank-ring", "zig"]
+  PlugBundledNames = ["ada", "align", "benchy", "blame-heat", "case-change", "char-picker", "clojure", "cmake",
+                      "code-pet", "code-snap", "color-picker", "commit-helper", "containers", "crystal", "dart",
+                      "db-client", "dial", "doc-gen", "dotenv", "elixir", "erlang", "examples-to-tests", "exchange",
+                      "fortran", "github", "gleam", "graphql", "harpoon", "haskell", "import-graph", "indent-dots",
+                      "inline-calc", "json-to-nim", "julia", "kanban", "kotlin", "latex", "license-audit",
+                      "license-header", "log-tail", "markdown-tools", "mermaid", "nim-eval", "nim-html",
+                      "nim-playground", "nim-tips", "nimble-browser", "nix", "notify-done", "ocaml", "odin", "oil",
+                      "pascal", "path-complete", "perl", "pomodoro", "power-mode", "protobuf", "r", "rainbow-indent",
+                      "read-aloud", "regex-lab", "release-helper", "rest-client", "rubber-duck", "scala", "split-join",
+                      "sqlite", "svelte", "swift", "terraform", "text-objects", "time-tracker", "todo", "todo-to-issue",
+                      "transform", "typing-stats", "typst", "vlang", "web-preview", "web-routes", "which-key",
+                      "wiki-notes", "yank-ring", "zig"]
   PlugBundled = block:
     var r: seq[(string, string, string)]           # name, what it does (its first ## line), its source
     for n in PlugBundledNames:
@@ -885,7 +887,8 @@ proc plugEagerHost(h: PlugHost): bool =
   for r in h.regs:
     if r.kind in ["timer", "textObject", "completion", "hover", "symbols", "codeActions", "view"] or
        (r.kind == "formatter" and r.cb >= 0): return true
-    if r.kind == "event" and r.data{"event"}.getStr in ["startup", "open", "change", "beforeSave", "keys"]: return true
+    if r.kind == "event" and r.data{"event"}.getStr in ["startup", "open", "change", "beforeSave", "keys", "jobDone"]:
+      return true
   false
 
 # the file a process's registrations are remembered in between sessions (in the plugins' cache folder)
@@ -1399,6 +1402,14 @@ proc plugFire(event: string, b: Buffer, only: PlugHost = nil) =
     if ev == event and plugMatches(pat, b):
       if only != nil and plugKeyHost(key) != only: continue
       plugInvoke(key, plugEventArgs(b))
+
+proc plugJobDone(title: string, code: int, seconds: float) =
+  ## (6.39) a run, build or test of yours ended (the Output panel's): the plugins that asked (onJobDone) are told what
+  ## it was, its exit code and how long it took
+  if plugEvts.len == 0: return
+  for (ev, _, key) in plugEvts:
+    if ev == "jobDone":
+      plugInvoke(key, %*{"title": title, "code": code, "seconds": seconds})
 
 # ── the API: what the plugins ask of ned ──
 

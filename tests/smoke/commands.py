@@ -57,7 +57,8 @@ def bundled_names():
 def plugin_commands():
     names = []
     for f in sorted(glob.glob(os.path.join(REPO, 'plugins', '*', 'plugin.nims'))):
-        for m in re.finditer(r'\bcommand\s*\(?\s*"([^"]+)"(\s*&)?', open(f, encoding='utf-8').read()):
+        # (a command registered at the start of a line — not the word "command" inside a string or a setting's name)
+        for m in re.finditer(r'(?m)^[ \t]*command\s*\(?\s*"([^"\n]+)"(\s*&)?', open(f, encoding='utf-8').read()):
             if not m.group(2) and m.group(1) not in names: names.append(m.group(1))
     return names
 
@@ -169,7 +170,7 @@ def run_one(slot, name):
             tm('send-keys', '-t', 's', '-l', 'zqzqprobe'); time.sleep(1.5)
             alive = 'zqzqprobe' in screen()
         if not alive: verdict, detail = 'NOT ANSWERING', screen()[-1500:]
-    if not MENUS and '▍' + name[:20] not in shown and verdict == 'ok':     # (the palette's first row: the one run)
+    if not MENUS and not PLUGINS and '▍' + name[:20] not in shown and verdict == 'ok':   # (the palette's first row: the one run)
         detail = '(the palette may have picked another command)'
     if MENUS and verdict == 'ok' and name.split(' › ')[-1][:24] not in shown:
         detail = '(the menu item was not on the screen when picked)'

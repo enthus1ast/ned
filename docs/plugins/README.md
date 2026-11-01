@@ -77,7 +77,7 @@ command "Copy the file's name", "ctrl+alt+n":
 ### Events
 
 A file opened, saved, changed (after a pause in the typing), brought to the front, closed; ned starting and
-quitting. ned waits for `onBeforeSave` — what it changes is saved — and for `onQuit`, a moment; not for the
+quitting; a run, build or test of yours ending (`onJobDone`: what it was, its exit code, how long it took). ned waits for `onBeforeSave` — what it changes is saved — and for `onQuit`, a moment; not for the
 others. The pattern says which files: `"*"`, `"*.md"`, `"src/*.nim"`, `"lang:zig"`, several with commas.
 `autocmd` takes vim's names.
 
@@ -89,7 +89,8 @@ onBeforeSave("*.txt") do (ev: Event):
 
 [`onOpen`](api.md#onopen) · [`onBeforeSave`](api.md#onbeforesave) · [`onSave`](api.md#onsave) ·
 [`onChange`](api.md#onchange) · [`onEnter`](api.md#onenter) · [`onClose`](api.md#onclose) ·
-[`onStartup`](api.md#onstartup) · [`onQuit`](api.md#onquit) · [`autocmd`](api.md#autocmd) · [`Event`](api.md#type-event)
+[`onStartup`](api.md#onstartup) · [`onQuit`](api.md#onquit) · [`onJobDone`](api.md#onjobdone) · [`autocmd`](api.md#autocmd) ·
+[`Event`](api.md#type-event)
 · cookbook: [events](cookbook.md#2-events)
 
 ### Reading and changing the text

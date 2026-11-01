@@ -1,6 +1,6 @@
 # ned's own plugins
 
-ned comes with seventy-three plugins of its own. They are all off until you turn one on. Turn one on in the
+ned comes with eighty-five plugins of its own. They are all off until you turn one on. Turn one on in the
 **Plugins dock** (View › Plugins panel, or the menu bar's **Plugins** › Plugins panel): its **AVAILABLE ·
 ned's own plugins** section lists the ones that are off, each with a line saying what it does. A tap turns one
 on: the dock goes to it under **INSTALLED**, and once it runs the status bar says what it added — the languages,
@@ -28,9 +28,12 @@ sum on the clipboard, **yank-ring** reads the clipboard, **import-graph** reads 
 and awk, **release-helper** runs git, **db-client** runs psql or mysql, **code-snap** runs the program that draws its PNG
 (and writes a picture beside your file when you set it to), **benchy** runs nim, **nim-playground** runs curl and
 puts the link it makes on the clipboard, **nimble-browser** runs curl and nimble, **containers** runs docker or podman,
-**github** runs gh, the language plugins that start a language server or a
+**github** runs gh, **notify-done** runs termux-notification, termux-vibrate, notify-send or osascript, **read-aloud**
+runs termux-tts-speak, espeak-ng, espeak, spd-say or say, **blame-heat** runs git blame, **todo-to-issue** runs gh,
+**code-pet** runs git to count your commits, **inline-calc** puts a result on the clipboard, the language plugins that start a language server or a
 formatter, or give F5 a command, run those programs, and **todo** writes `TODO.md` when it is not open in a tab. The others only edit; harpoon,
-pomodoro, time-tracker, yank-ring and char-picker keep their data in their own folder, which needs no permission.
+pomodoro, time-tracker, yank-ring, char-picker, typing-stats, code-pet, power-mode and nim-tips keep their data in their
+own folder, which needs no permission.
 
 The plugins you have turned on are listed in the setting `plugins.bundled`. A project cannot set it until you
 trust the folder.
@@ -95,7 +98,24 @@ it. In short:
 | **github** | the project's pull requests and issues through gh: in the Plugins dock and to choose from — read one with its reviews and comments, its diff, check it out, its checks, comment, close, merge; a new issue, a new pull request |
 | **kanban** | a board from `TODO.md`: its `##` headings are the columns, its checklist items the cards. Alt+Left and Alt+Right move a card from column to column (ticked in *Done*), Alt+Up and Alt+Down within one — each move an edit of the file, which stays yours |
 | **wiki-notes** | Markdown notes linked with `[[links]]`: follow one (Alt+Shift+O; vim: Enter) — a note made when there is none —, completion of the notes' names and headings after `[[`, hover, the open note's backlinks in the Plugins dock, a hint on a link to no note |
+| **notify-done** | when a run, build or test that took a while ends (20 s or more): a note — ✓ done in 42 s, ✗ failed after 3 min — and the system's notification: on a phone Termux:API's, with a buzz when it failed; notify-send on Linux, osascript on a Mac. *Notify: test it* shows how it reaches you |
+| **blame-heat** | *Blame heat: on/off*: the file's lines tinted by when they last changed, from git blame — today red, this week orange, this month blue, older as they are —, following the files you go to and save; *…the file's ages* counts them |
+| **todo-to-issue** | the TODO, FIXME or HACK comment on the cursor's line made a GitHub issue with gh — its text the title, its place and the lines around it the body —, then `TODO(#42):` written into the comment; *TODO: open its issue* |
+| **log-tail** | *Log: follow this file*: a log followed as it grows, the cursor at its end, errors red, warnings yellow, debug lines dim; *Log: only the lines with…* (words with `\|` between) in a tab of their own |
+| **inline-calc** | *Calc: work it out*: the selected sum replaced with its result, or a line ending in `=` answered — `+ - * / // % ^`, brackets, `1_000`, `0x1F`, `15%`, sqrt, sin, log, round, min, max, `pi`, `ans`; *Calc: show the result* puts it on the clipboard |
+| **license-audit** | *Licences: check the dependencies*: every package the project's `.nimble` requires, and theirs, with its version and licence as installed (nimble's folder or Atlas's `deps/`) in a table — copyleft under a permissive project, no licence and not installed marked. Not legal advice |
+| **read-aloud** | the selection, the line or the file read out loud: Termux:API's voice on a phone, espeak-ng, spd-say or say elsewhere; code said as words (camelCase and snake_case apart); *Read aloud: stop* |
+| **typing-stats** | how fast you type (words a minute, over your last minutes of typing) and how many days in a row you have written, in the status bar: ⌨ 42 wpm · 3 days. *Typing: today* has the week in a table |
 | **code-snap** | the selected code as a picture — a PNG, an SVG or an HTML page of a window with its lines, coloured, numbered — to put in a README or a post. The PNG is drawn by rsvg-convert (librsvg), resvg, ImageMagick, Inkscape or Chromium; with none of them, it asks which to install and runs the command (pkg in Termux, apt, dnf, pacman, Homebrew …) in the terminal |
+
+## For fun, and a tip a day
+
+| plugin | what it does |
+|---|---|
+| **code-pet** | a small pet in the status bar — a cat, dog, bear, owl or blob — that eats when you save, grows a level with your commits, gets hungry when you have not saved for long and falls asleep when you stop typing. *Pet: name it…*, *Pet: feed it*, *Pet: how is it?* |
+| **rubber-duck** | *Duck: talk it through*: the routine the cursor is in (or the selection) a line at a time, with a question that fits each — when is this true? what comes back here? what do you expect x to be? — and you answer; the talk in a tab to keep. *Duck: a question to ask myself* when you are stuck |
+| **power-mode** | *Power mode: on/off*: a combo count in the status bar while you keep typing, sparks after the line you type, a cheer at 50, 100, 250, 500 … and your best combo kept |
+| **nim-tips** | a Nim tip in a note when ned starts, once a day — the language, its library, its tools and ned's Nim features —; *Nim tip: another one*, or all of them in a tab |
 
 ## Languages
 
