@@ -12,7 +12,7 @@
 import nedplugin
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "makes the issue with gh issue create, and opens it with gh issue view --web")
 permission("network", "gh talks to GitHub")
 

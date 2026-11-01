@@ -814,7 +814,8 @@ proc initCommands() =
   add("Copy info for bug report", "", cmdCopyBugInfo())
   add("About ned", "", openDialog("About ned", "ned " & Version & " — a fast, safe code editor for Termux " &
     "and Linux, written in Nim. Desktop-style UI in the terminal, Nim IDE features, integrated terminal, AI assistant, " &
-    $allThemesRaw().len & " themes and vim mode. Settings: " & configFile(), @[("OK", 'y')], nil))
+    $allThemesRaw().len & " themes and vim mode.\n\nMade by " & NedAuthor & " — " & NedSite & " · " & NedEmail &
+    "\nSettings: " & configFile(), @[("OK", 'y')], nil))
 
 proc commandsMarkdown(): string =
   ## every command of the palette as Markdown (`ned --doc-commands`: docs/reference/commands.md is made from it)

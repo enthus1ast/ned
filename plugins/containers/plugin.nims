@@ -17,7 +17,7 @@
 import nedplugin
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "runs docker or podman to list, start, stop and inspect your containers and images")
 
 settingDef("cli", "auto", "Containers: the program — auto (docker, else podman), or one of your own (nerdctl …)")

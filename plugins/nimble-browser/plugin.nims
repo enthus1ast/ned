@@ -19,7 +19,7 @@ import nedplugin
 import std/algorithm
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "fetches a package's README with curl, and runs nimble install and nimble refresh")
 
 settingDef("nimbleDir", "", "Nimble: nimble's folder, where its package lists are (empty: $NIMBLE_DIR, else ~/.nimble)")

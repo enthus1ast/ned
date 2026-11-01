@@ -580,6 +580,7 @@ proc mainLoop() =
 proc usage() =
   ## prints the help text of the command line: every option, the files ned keeps, and the main keys
   echo AppName & " " & Version & " — fast, safe terminal code editor and Nim IDE for Termux, Linux and macOS"
+  echo "By " & NedAuthor & " — " & NedSite & " · " & NedEmail
   echo ""
   echo "Usage: ned [options] [file[:line[:col]] | +line file | folder] ..."
   echo "       command | ned [-]        open what the command printed (git log | ned)"
@@ -1024,6 +1025,14 @@ proc main() =
             "fail — winget install Git.Git (Help › Check setup)", 2)
   restoreLayout()
   hotExitRestore()                     # (files.hotExit: the unsaved edits of last time, in their tabs)
+  if not sBool("ui.restorePanels"):
+    # (6.40) every launch starts with no dock and no panel open, the keys in the editor or the welcome screen — a dock
+    # left open last time kept the keys, and the welcome screen's d (Open folder) deleted the file the tree had
+    # selected. ui.restorePanels brings them back as they were
+    treeOpen = false
+    rightOpen = false
+    panelOpen = false
+    focus = fEditor
   checkRecoveryAtStart()
   keysCheckAtStart()                   # (the "keys" setting: an unknown command, a key no terminal sends)
   smark("session restored")

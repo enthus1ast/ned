@@ -18,7 +18,7 @@
 import nedplugin
 
 requiresNed(">= 6.25")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("all", false, "Align on every = (or :, or the text you give) of a line, not only the first one — " &
            ", and | are always every one")

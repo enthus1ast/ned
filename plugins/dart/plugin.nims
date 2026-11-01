@@ -23,7 +23,7 @@ import nedplugin
 import std/strutils
 
 requiresNed(">= 6.25")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 settingDef("server", "", "The language server's command: empty for dart language-server (when dart is " &
            "installed), \"off\" for none. Plugins: reload after a change")

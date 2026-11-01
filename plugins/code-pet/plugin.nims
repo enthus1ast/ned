@@ -14,7 +14,7 @@ import nedplugin
 import std/math
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "counts the project's commits with git rev-list, for the pet to grow (plugins.code-pet.commits)")
 
 settingDef("kind", "cat", "Pet: which one — cat, dog, bear, owl or blob")

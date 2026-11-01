@@ -18,7 +18,7 @@ import nedplugin
 import std/algorithm
 
 requiresNed(">= 6.26")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "lists the project's .json files with git (JSON → Nim types from a file)")
 permission("clipboard", "reads JSON from the clipboard when nothing is selected")
 

@@ -14,7 +14,7 @@ import nedplugin
 import std/algorithm
 
 requiresNed(">= 6.25")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 
 type Style = enum sSnake, sCamel, sPascal, sUpper, sKebab, sDot, sTitle, sSpace
 

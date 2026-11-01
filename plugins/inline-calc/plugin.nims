@@ -13,7 +13,7 @@ import nedplugin
 import std/math
 
 requiresNed(">= 6.31")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("clipboard", "puts the result on the clipboard (Calc: show the result)")
 
 settingDef("decimals", 10, "Calc: the most digits after the point in a result")

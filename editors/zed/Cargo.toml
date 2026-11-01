@@ -1,7 +1,8 @@
 [package]
 name = "zed_nedls"
-version = "6.39.0"
+version = "6.40.0"
 edition = "2021"
+authors = ["Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"]
 publish = false
 license = "GPL-3.0-or-later"
 description = "nedls (ned's Nim engine as a language server) in Zed"

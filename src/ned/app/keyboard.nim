@@ -728,6 +728,10 @@ proc handleKey(k: Key) =
     searchViewKey(k)          # the search view's own toggles win over the global Alt keys
     return
   if globalKey(k): return
+  # (6.40) a dock that is not on the screen never takes a key: it goes to the editor — a hidden file tree took the
+  # welcome screen's d (Open folder) as Delete
+  if (focus == fTree and not treeOpen) or (focus == fRight and not rightOpen and buf().paneView != 2):
+    focus = fEditor                 # (the assistant shown in a pane has the keys as fRight: it stays)
   case focus
   of fTree: sideKey(k)
   of fRight: rightKey(k)

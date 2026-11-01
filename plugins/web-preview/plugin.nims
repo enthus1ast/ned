@@ -14,7 +14,7 @@ import nedplugin
 import std/strutils
 
 requiresNed(">= 6.26")
-pluginInfo(version = "1.0.0", author = "Foxoman", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
+pluginInfo(version = "1.0.0", author = "Sultan Al Isaiee (@foxoman)", homepage = "https://github.com/foxoman/ned", license = "GPL-3.0-or-later")
 permission("shell", "opens pages with the system's browser and starts a web server for the project")
 
 settingDef("port", 8000, "Web: serve the project — the port of the web server")

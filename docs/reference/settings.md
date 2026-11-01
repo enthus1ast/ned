@@ -60,7 +60,8 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `ui.leftDockWidth` | `0` | Left dock width in columns (0 = automatic) |
 | `ui.rightDockWidth` | `0` | Right dock width in columns (0 = automatic) |
 | `ui.panelHeight` | `0` | Bottom panel height in rows (0 = automatic) |
-| `ui.restoreLayout` | `true` | Reopen docks and panels the way you left them |
+| `ui.restoreLayout` | `true` | Reopen the split panes the way you left them (the docks and the panel too with ui.restorePanels) |
+| `ui.restorePanels` | `false` | At start, reopen the docks and the bottom panel the way you left them (off: ned starts with none open, the keys in the editor) |
 
 ## Editor
 
