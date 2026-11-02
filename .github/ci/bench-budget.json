@@ -3,7 +3,7 @@
   "startup": {
     "empty folder": {"first_frame_ms": 150, "rss_first_frame_mb": 40, "rss_settled_mb": 40},
     "this repository": {"first_frame_ms": 200, "rss_first_frame_mb": 40, "rss_settled_mb": 60},
-    "a big file (ned in one)": {"first_frame_ms": 300, "rss_first_frame_mb": 60, "rss_settled_mb": 100},
+    "a big file (ned in one)": {"first_frame_ms": 500, "rss_first_frame_mb": 60, "rss_settled_mb": 130},
     "an 80 MB log": {"first_frame_ms": 1500, "rss_settled_mb": 170}
   },
   "frame_ms": {"scroll": 10, "cursor down": 10, "type": 10, "idle redraw": 10, "far jump": 10},

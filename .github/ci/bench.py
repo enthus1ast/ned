@@ -46,13 +46,14 @@ def startup(cwd, args):
     return {k: float(v) for k, v in (x.split('=') for x in m.group(1).split())}
 
 def big_file():
-    """ned's own source (src/**.nim) as one file: 53 000 lines of real code"""
+    """ned's own source (src/**.nim) as one file, its first 150 000 lines: real code, the same amount however much
+       the source grows"""
     p = os.path.join(tempfile.gettempdir(), 'ned-bench-source-%d.nim' % os.getpid())
     parts = []
     for root, _, files in sorted(os.walk(os.path.join(REPO, 'src'))):
         for f in sorted(files):
             if f.endswith('.nim'): parts.append(open(os.path.join(root, f)).read())
-    open(p, 'w').write('\n'.join(parts))
+    open(p, 'w').write('\n'.join('\n'.join(parts).split('\n')[:150000]))
     return p
 
 BIG = big_file()
