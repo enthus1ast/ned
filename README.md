@@ -35,27 +35,17 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## What's new in 6.40
 
-**Every launch starts clean.** ned now opens with no dock and no panel, and the keys go to the editor or the
-welcome screen. Before, a file tree left open last time came back holding the keys, so the welcome screen's `d`
-(*Open folder*) went to the tree as *Delete*, aimed at the file selected there. A dock that is not on the screen
-never takes a key now. `ui.restorePanels` brings the docks and the panel back as you left them; `ui.restoreLayout`
-still brings back your split panes.
+**A clean start.** ned opens with no dock and no panel, and the keys go to the editor or the welcome screen. A dock
+that is not on the screen no longer takes keys: a file tree left open last time could take the welcome screen's `d`
+(*Open folder*) as *Delete* for the file selected in it. Turn on `ui.restorePanels` to get the docks and the panel
+back as you left them; `ui.restoreLayout` still restores your split panes.
 
-**Is `-d:useMalloc` needed?** No — but checking it found a leak. Four builds were measured: Nim's own memory
-allocator and the C library's (`-d:useMalloc`), each against glibc (desktop Linux) and musl (what the Termux build
-uses), with a 15-minute soak and six rounds of eight 3 MB files opened, changed by a *Replace all*, undone and
-closed. The rounds grew with all four builds alike, by about 45 MB a round: the undo history kept for a file's next
-opening gained an undo-tree branch on each visit (10 MB a file after six), and was read back in each time the file
-opened. Now all of it shares one 4 MB budget, the steps nearest to the text first, and the steps kept always lead
-up to the text as it is, so they still apply. After the fix the six rounds stay flat from the second with every
-build: Nim's allocator holds 234 MB on glibc and 239 on musl, malloc 208 and 197. With musl, malloc held less after
-the big files but grew through the soak (63 MB, where Nim's stayed flat) and made completion half again as slow
-(6.37's trial), so the Termux build keeps Nim's allocator. A leak is memory kept for something no longer needed —
-the allocator only decides whether freed memory goes back to the system or waits to be used again.
+**Memory no longer grows with large files opened again and again.** The undo history saved for a file's next
+opening gained a branch on every visit and was read back in full each time. It now shares one 4 MB budget across
+all files, keeping the steps nearest the current text, so undo still works after a file is reopened. No build flag
+is needed for this: `-d:useMalloc` is not required, and the Termux build keeps Nim's own memory allocator.
 
-**The developer, named.** ned is made by Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)) —
-[www.foxoman.net](https://www.foxoman.net) · [sultan@foxoman.net](mailto:sultan@foxoman.net): in *About ned*,
-`ned --help`, the README, ned.nimble, the editor extensions and every one of ned's own plugins.
+**About ned** and `ned --help` show the author, the website and a contact address.
 
 ## Features
 
@@ -379,7 +369,7 @@ laid out and tested. Security problems: please report them privately ([SECURITY.
 ## License
 
 Copyright © 2026 Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)) — [www.foxoman.net](https://www.foxoman.net) ·
-[sultan@foxoman.net](mailto:sultan@foxoman.net). ned is made by him.
+[sultan@foxoman.net](mailto:sultan@foxoman.net).
 
 ned is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as
 published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
