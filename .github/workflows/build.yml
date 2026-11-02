@@ -114,7 +114,9 @@ jobs:
             nedls-*
 
   termux:
-    # Termux runs Android binaries: built with the Android NDK (API 24 = Android 7+), arm64
+    # Termux (Android, arm64): built as the release package is, with zig against musl (tests/build/termux.sh). The
+    # programs then need nothing from Android's own C library, which has no posix_spawn before Android 9 — the
+    # Android NDK's API 24 could not build std/osproc.
     name: termux-aarch64
     runs-on: ubuntu-latest
     steps:
@@ -123,15 +125,12 @@ jobs:
         with:
           nim-version: stable
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build with the Android NDK
+      - name: Build with zig, and the Termux package
         run: |
-          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
-          CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-          test -x "$CC"
-          for p in ned nedfmt nedls; do
-            nim c -d:release --opt:speed -d:strip -d:lto --hints:off --os:android --cpu:arm64 --cc:clang \
-              --clang.exe:"$CC" --clang.linkerexe:"$CC" -o:$p-termux-aarch64 src/$p.nim
-          done
+          python3 -m pip install --break-system-packages --target "$RUNNER_TEMP/zig" ziglang==0.17.0
+          ZIG="$RUNNER_TEMP/zig/ziglang/zig" bash tests/build/termux.sh out
+          for p in ned nedfmt nedls; do cp "out/$p" "$p-termux-aarch64"; done
+          cp out/ned_*_aarch64.deb .
           file ned-termux-aarch64
       - uses: actions/upload-artifact@v4
         with:
@@ -140,6 +139,7 @@ jobs:
             ned-termux-aarch64
             nedfmt-termux-aarch64
             nedls-termux-aarch64
+            ned_*_aarch64.deb
 
   windows-wsl:
     # ned is a Unix terminal program: on Windows it runs inside WSL, in Windows Terminal
@@ -253,5 +253,6 @@ jobs:
         with:
           files: |
             dist/*.tar.gz
+            dist/*.deb
             dist/*.vsix
           generate_release_notes: true
