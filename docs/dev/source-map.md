@@ -16,21 +16,21 @@ The AI assistant: providers, chat, the agent and its tools, MCP, inline suggesti
 
 | file | | what it is |
 |---|---|---|
-| [`ai/assistant.nim`](../../src/ned/ai/assistant.nim) | include 144 | AI assistant: streaming chat + agent tools (Anthropic, OpenAI-compatible, Ollama) via curl |
-| [`ai/mcp.nim`](../../src/ned/ai/mcp.nim) | include 145 | MCP: Model Context Protocol servers give the agent more tools ("ai.mcpServers") |
-| [`ai/agenttools.nim`](../../src/ned/ai/agenttools.nim) | include 146 | the assistant's tools: which calls need the user's approval, the tools that read, search, list, edit and write files and report problems, the checkpoints AI: undo … |
-| [`ai/requests.nim`](../../src/ned/ai/requests.nim) | include 147 | the AI's requests: the system prompt, the code's context (the definitions it uses, the open file), each provider's request body |
-| [`ai/endpoints.nim`](../../src/ned/ai/endpoints.nim) | include 148 | what an endpoint accepts differs per model |
-| [`ai/inlineedit.nim`](../../src/ned/ai/inlineedit.nim) | include 149 | inline edit (selection → AI → replacement) |
-| [`ai/chats.nim`](../../src/ned/ai/chats.nim) | include 150 | ned 4: saved chats, change diffs, slash commands, @mentions, usage, one-shot requests |
-| [`ai/context.nim`](../../src/ned/ai/context.nim) | include 151 | the change an edit/write call would make, as a unified diff |
-| [`ai/oneshot.nim`](../../src/ned/ai/oneshot.nim) | include 152 | one-shot requests (commit messages, …): the reply goes to a callback, not the chat |
-| [`ai/plan.nim`](../../src/ned/ai/plan.nim) | include 153 | AI: plan first, then do it — the assistant looks at the code (reading only) and answers with a numbered plan |
-| [`ai/offline.nim`](../../src/ned/ai/offline.nim) | include 154 | AI on this device, without the internet: Ollama (or llama.cpp's llama-server) found or installed, started, a model that fits the memory downloaded, ned set to use it … |
-| [`ai/suggestions.nim`](../../src/ned/ai/suggestions.nim) | include 155 | inline AI suggestions (opt-in: ai.inlineCompletion) — grey text after the cursor, Tab accepts |
-| [`ai/chatview.nim`](../../src/ned/ai/chatview.nim) | include 157 | the AI chat drawn: its Markdown, code blocks with Insert and Apply, tool calls in short, scrolling |
-| [`ai/review.nim`](../../src/ned/ai/review.nim) | include 253 | the assistant's changes of one run, file by file, as side-by-side diffs (r undoes one change) |
-| [`ai/comments.nim`](../../src/ned/ai/comments.nim) | include 280 | code from comments (as in Zed and Aider): a comment says what to write, the assistant writes it — · Alt+Shift+C on a comment (nothing selected), or the ✦ after it: … |
+| [`ai/assistant.nim`](../../src/ned/ai/assistant.nim) | include 145 | AI assistant: streaming chat + agent tools (Anthropic, OpenAI-compatible, Ollama) via curl |
+| [`ai/mcp.nim`](../../src/ned/ai/mcp.nim) | include 146 | MCP: Model Context Protocol servers give the agent more tools ("ai.mcpServers") |
+| [`ai/agenttools.nim`](../../src/ned/ai/agenttools.nim) | include 147 | the assistant's tools: which calls need the user's approval, the tools that read, search, list, edit and write files and report problems, the checkpoints AI: undo … |
+| [`ai/requests.nim`](../../src/ned/ai/requests.nim) | include 148 | the AI's requests: the system prompt, the code's context (the definitions it uses, the open file), each provider's request body |
+| [`ai/endpoints.nim`](../../src/ned/ai/endpoints.nim) | include 149 | what an endpoint accepts differs per model |
+| [`ai/inlineedit.nim`](../../src/ned/ai/inlineedit.nim) | include 150 | inline edit (selection → AI → replacement) |
+| [`ai/chats.nim`](../../src/ned/ai/chats.nim) | include 151 | ned 4: saved chats, change diffs, slash commands, @mentions, usage, one-shot requests |
+| [`ai/context.nim`](../../src/ned/ai/context.nim) | include 152 | the change an edit/write call would make, as a unified diff |
+| [`ai/oneshot.nim`](../../src/ned/ai/oneshot.nim) | include 153 | one-shot requests (commit messages, …): the reply goes to a callback, not the chat |
+| [`ai/plan.nim`](../../src/ned/ai/plan.nim) | include 154 | AI: plan first, then do it — the assistant looks at the code (reading only) and answers with a numbered plan |
+| [`ai/offline.nim`](../../src/ned/ai/offline.nim) | include 155 | AI on this device, without the internet: Ollama (or llama.cpp's llama-server) found or installed, started, a model that fits the memory downloaded, ned set to use it … |
+| [`ai/suggestions.nim`](../../src/ned/ai/suggestions.nim) | include 156 | inline AI suggestions (opt-in: ai.inlineCompletion) — grey text after the cursor, Tab accepts |
+| [`ai/chatview.nim`](../../src/ned/ai/chatview.nim) | include 158 | the AI chat drawn: its Markdown, code blocks with Insert and Apply, tool calls in short, scrolling |
+| [`ai/review.nim`](../../src/ned/ai/review.nim) | include 254 | the assistant's changes of one run, file by file, as side-by-side diffs (r undoes one change) |
+| [`ai/comments.nim`](../../src/ned/ai/comments.nim) | include 281 | code from comments (as in Zed and Aider): a comment says what to write, the assistant writes it — · Alt+Shift+C on a comment (nothing selected), or the ✦ after it: … |
 
 ## app
 
@@ -39,20 +39,20 @@ The program as a whole: start, the main loop, the command list, input, updates, 
 | file | | what it is |
 |---|---|---|
 | [`app/releasecheck.nim`](../../src/ned/app/releasecheck.nim) | module | Checking a release before it is installed |
-| [`app/forward.nim`](../../src/ned/app/forward.nim) | include 41 | Forward declarations: procs used before the file that defines them is included (look here before adding one: a second is an error) |
-| [`app/commands.nim`](../../src/ned/app/commands.nim) | include 185 | What many commands do: quitting, the docks and the panel, tabs, sorting and joining lines, indent, restarting language servers |
-| [`app/input.nim`](../../src/ned/app/input.nim) | include 186 | Keys and clicks sent where they belong — the editor, the file tree, the panel — and positions past inlay hints |
-| [`app/keyboard.nim`](../../src/ned/app/keyboard.nim) | include 266 | Keys routed: ned's global keys, the terminal's, the editor's, your own bindings, key names, conflicts |
-| [`app/setupcheck.nim`](../../src/ned/app/setupcheck.nim) | include 267 | Setup check (Help ▸ Check setup, ned --check) and info for bug reports |
-| [`app/perfreport.nim`](../../src/ned/app/perfreport.nim) | include 268 | Help › Performance: how fast frames are made, how much each sends to the terminal and how long the terminal takes to draw it, what runs in the background, the memory … |
-| [`app/usercommands.nim`](../../src/ned/app/usercommands.nim) | include 285 | your own commands (the "commands" setting): shell commands in the palette, with placeholders |
-| [`app/lint.nim`](../../src/ned/app/lint.nim) | include 286 | ned --lint (and nedls --lint): the engine's own checks over files or folders, without the compiler — a misspelled name, a field that is not there, a wrong number of … |
-| [`app/commandlist.nim`](../../src/ned/app/commandlist.nim) | include 293 | the list of the command palette: every command with its name and the key (or the words) shown beside it, and the Markdown page of them that `ned --doc-commands` writes |
-| [`app/control.nim`](../../src/ned/app/control.nim) | include 294 | Remote control: a socket only you can reach (in ned's private folder, 0600), so that the ned that is running can be told what to do — · `ned FILE` typed in ned's own … |
-| [`app/update.nim`](../../src/ned/app/update.nim) | include 296 | ned --update: the newest release (GitHub's newest release, else its newest version tag), installed the way this ned was — built with nimble, a checkout built in … |
-| [`app/battery.nim`](../../src/ned/app/battery.nim) | include 297 | (6.32) battery saver (ui.batterySaver): on a battery, ned does less — no cursor glide, the compiler checks on save rather than while you type, no AI completion as you … |
-| [`app/lowmem.nim`](../../src/ned/app/lowmem.nim) | include 298 | (6.37) short of memory (ui.lowMemory): when the system has little left to give — on a phone, Android then closes apps, Termux among them, with ned and its terminal — … |
-| [`app/main.nim`](../../src/ned/app/main.nim) | include 301 | The main loop (input, jobs, language servers, timers, drawing) and the command line: --help, --bench, --update, files formatted, the remote socket |
+| [`app/forward.nim`](../../src/ned/app/forward.nim) | include 42 | Forward declarations: procs used before the file that defines them is included (look here before adding one: a second is an error) |
+| [`app/commands.nim`](../../src/ned/app/commands.nim) | include 186 | What many commands do: quitting, the docks and the panel, tabs, sorting and joining lines, indent, restarting language servers |
+| [`app/input.nim`](../../src/ned/app/input.nim) | include 187 | Keys and clicks sent where they belong — the editor, the file tree, the panel — and positions past inlay hints |
+| [`app/keyboard.nim`](../../src/ned/app/keyboard.nim) | include 267 | Keys routed: ned's global keys, the terminal's, the editor's, your own bindings, key names, conflicts |
+| [`app/setupcheck.nim`](../../src/ned/app/setupcheck.nim) | include 268 | Setup check (Help ▸ Check setup, ned --check) and info for bug reports |
+| [`app/perfreport.nim`](../../src/ned/app/perfreport.nim) | include 269 | Help › Performance: how fast frames are made, how much each sends to the terminal and how long the terminal takes to draw it, what runs in the background, the memory … |
+| [`app/usercommands.nim`](../../src/ned/app/usercommands.nim) | include 286 | your own commands (the "commands" setting): shell commands in the palette, with placeholders |
+| [`app/lint.nim`](../../src/ned/app/lint.nim) | include 287 | ned --lint (and nedls --lint): the engine's own checks over files or folders, without the compiler — a misspelled name, a field that is not there, a wrong number of … |
+| [`app/commandlist.nim`](../../src/ned/app/commandlist.nim) | include 294 | the list of the command palette: every command with its name and the key (or the words) shown beside it, and the Markdown page of them that `ned --doc-commands` writes |
+| [`app/control.nim`](../../src/ned/app/control.nim) | include 295 | Remote control: a socket only you can reach (in ned's private folder, 0600), so that the ned that is running can be told what to do — · `ned FILE` typed in ned's own … |
+| [`app/update.nim`](../../src/ned/app/update.nim) | include 297 | ned --update: the newest release (GitHub's newest release, else its newest version tag), installed the way this ned was — built with nimble, a checkout built in … |
+| [`app/battery.nim`](../../src/ned/app/battery.nim) | include 298 | (6.32) battery saver (ui.batterySaver): on a battery, ned does less — no cursor glide, the compiler checks on save rather than while you type, no AI completion as you … |
+| [`app/lowmem.nim`](../../src/ned/app/lowmem.nim) | include 299 | (6.37) short of memory (ui.lowMemory): when the system has little left to give — on a phone, Android then closes apps, Termux among them, with ned and its terminal — … |
+| [`app/main.nim`](../../src/ned/app/main.nim) | include 302 | The main loop (input, jobs, language servers, timers, drawing) and the command line: --help, --bench, --update, files formatted, the remote socket |
 
 ## c
 
@@ -62,18 +62,18 @@ Ned's own C and C++ engine, C in Nim (emit, wrappers), clangd.
 |---|---|---|
 | [`c/cindex.nim`](../../src/ned/c/cindex.nim) | module | ned's own C engine: an index of C files and the headers they include — functions, structs and their members, unions, enums, typedefs, macros, globals, a function's … |
 | [`c/cnim.nim`](../../src/ned/c/cnim.nim) | module | a C header as Nim: its functions, structs, unions, enums, typedefs, #define constants and globals as Nim declarations that import them (importc, header) — from what … |
-| [`c/headers.nim`](../../src/ned/c/headers.nim) | include 219 | C interop: the C side of importc wrappers — headers, prototypes, wrapper checks, c2nim, clangd |
-| [`c/cdoctext.nim`](../../src/ned/c/cdoctext.nim) | include 220 | the documentation of a C declaration (the comment above it in its header or {.emit.}), and its short form |
-| [`c/nimside.nim`](../../src/ned/c/nimside.nim) | include 221 | the Nim side: declarations that import C |
-| [`c/types.nim`](../../src/ned/c/types.nim) | include 222 | C types and their Nim counterparts, for wrappers: an importc declaration checked against its C one |
-| [`c/navigation.nim`](../../src/ned/c/navigation.nim) | include 223 | go to definition and hover from Nim to C: an importc proc's C declaration and its docs |
-| [`c/completion.nim`](../../src/ned/c/completion.nim) | include 224 | completion: header names, and C names for importc |
-| [`c/emit.nim`](../../src/ned/c/emit.nim) | include 225 | C in {.emit.}: completion, hover and F12 with no language server (headers read by ned itself) |
-| [`c/emitclangd.nim`](../../src/ned/c/emitclangd.nim) | include 226 | C in {.emit.} through clangd: a hidden C document per Nim file, with the emitted C on the very lines and columns it has in the .nim file (everything else blank), so … |
-| [`c/c2nim.nim`](../../src/ned/c/c2nim.nim) | include 228 | a C header as Nim: by ned's own C engine (cnim.nim), or with c2nim or futhark |
-| [`c/compiledb.nim`](../../src/ned/c/compiledb.nim) | include 229 | compile_commands.json for clangd |
-| [`c/cdocs.nim`](../../src/ned/c/cdocs.nim) | include 230 | C knowledge in Nim: a wrapper's C documentation, header: / importc: strings, C signatures beside wrappers, a wrapper rewritten from its C declaration, a new wrapper … |
-| [`c/cengine.nim`](../../src/ned/c/cengine.nim) | include 231 | C files with ned's own engine (c.engine): completion — struct members after `.` and `->` too, a call's parameters to fill in, a header's names with their #include —, … |
+| [`c/headers.nim`](../../src/ned/c/headers.nim) | include 220 | C interop: the C side of importc wrappers — headers, prototypes, wrapper checks, c2nim, clangd |
+| [`c/cdoctext.nim`](../../src/ned/c/cdoctext.nim) | include 221 | the documentation of a C declaration (the comment above it in its header or {.emit.}), and its short form |
+| [`c/nimside.nim`](../../src/ned/c/nimside.nim) | include 222 | the Nim side: declarations that import C |
+| [`c/types.nim`](../../src/ned/c/types.nim) | include 223 | C types and their Nim counterparts, for wrappers: an importc declaration checked against its C one |
+| [`c/navigation.nim`](../../src/ned/c/navigation.nim) | include 224 | go to definition and hover from Nim to C: an importc proc's C declaration and its docs |
+| [`c/completion.nim`](../../src/ned/c/completion.nim) | include 225 | completion: header names, and C names for importc |
+| [`c/emit.nim`](../../src/ned/c/emit.nim) | include 226 | C in {.emit.}: completion, hover and F12 with no language server (headers read by ned itself) |
+| [`c/emitclangd.nim`](../../src/ned/c/emitclangd.nim) | include 227 | C in {.emit.} through clangd: a hidden C document per Nim file, with the emitted C on the very lines and columns it has in the .nim file (everything else blank), so … |
+| [`c/c2nim.nim`](../../src/ned/c/c2nim.nim) | include 229 | a C header as Nim: by ned's own C engine (cnim.nim), or with c2nim or futhark |
+| [`c/compiledb.nim`](../../src/ned/c/compiledb.nim) | include 230 | compile_commands.json for clangd |
+| [`c/cdocs.nim`](../../src/ned/c/cdocs.nim) | include 231 | C knowledge in Nim: a wrapper's C documentation, header: / importc: strings, C signatures beside wrappers, a wrapper rewritten from its C declaration, a new wrapper … |
+| [`c/cengine.nim`](../../src/ned/c/cengine.nim) | include 232 | C files with ned's own engine (c.engine): completion — struct members after `.` and `->` too, a call's parameters to fill in, a header's names with their #include —, … |
 | [`c/cchecks.nim`](../../src/ned/c/cchecks.nim) |  | C checks from ned's own engine, while you type and with no compiler: an #include nothing of which is used, a struct whose fields ordered by size take less room, a … |
 
 ## config
@@ -82,10 +82,10 @@ Settings, key bindings, folder trust, settings sync.
 
 | file | | what it is |
 |---|---|---|
-| [`config/settings.nim`](../../src/ned/config/settings.nim) | include 42 | Settings — each declared (defS) with its default and what it does — read, written back with comments kept, applied |
-| [`config/session.nim`](../../src/ned/config/session.nim) | include 43 | ned's remembered state between runs (state.json): recent files, cursor positions, theme, each folder's open files, breakpoints and layout, bookmarks, AI prompt … |
-| [`config/sync.nim`](../../src/ned/config/sync.nim) | include 111 | settings sync: your settings, key bindings, snippets, themes and dictionary words in one file — exported, imported, or kept in a git repository of yours |
-| [`config/reset.nim`](../../src/ned/config/reset.nim) | include 138 | Reset everything: ned as on its first run — its settings, its state (sessions, history, chats …), its caches and its downloads removed (each may be kept), then ned … |
+| [`config/settings.nim`](../../src/ned/config/settings.nim) | include 43 | Settings — each declared (defS) with its default and what it does — read, written back with comments kept, applied |
+| [`config/session.nim`](../../src/ned/config/session.nim) | include 44 | ned's remembered state between runs (state.json): recent files, cursor positions, theme, each folder's open files, breakpoints and layout, bookmarks, AI prompt … |
+| [`config/sync.nim`](../../src/ned/config/sync.nim) | include 112 | settings sync: your settings, key bindings, snippets, themes and dictionary words in one file — exported, imported, or kept in a git repository of yours |
+| [`config/reset.nim`](../../src/ned/config/reset.nim) | include 139 | Reset everything: ned as on its first run — its settings, its state (sessions, history, chats …), its caches and its downloads removed (each may be kept), then ned … |
 
 ## core
 
@@ -98,20 +98,20 @@ The basics everything uses: types, global state, utilities, languages, themes, t
 | [`core/editorconfig.nim`](../../src/ned/core/editorconfig.nim) | module | editorconfig (editorconfig.org): the properties a project's .editorconfig files give a file — read by the editor (indentation, line ends, whitespace, the ruler) and … |
 | [`core/encodings.nim`](../../src/ned/core/encodings.nim) | module | Text encodings: what a file's bytes are (UTF-8, with or without a BOM, UTF-16 with its BOM, Windows-1252 for text that is not UTF-8) and the conversions to and from … |
 | [`core/secrets.nim`](../../src/ned/core/secrets.nim) | module | Secrets kept from the AI: API keys, tokens, private keys, passwords in connection strings and in assignments (`.env` lines, settings, code) are found in what ned is … |
-| [`core/types.nim`](../../src/ned/core/types.nim) | include 21 | The types every part uses: buffers, positions and cursors, languages, themes, keys, jobs, diagnostics, prompts and pickers |
-| [`core/state.nim`](../../src/ned/core/state.nim) | include 22 | The program's global state: the settings in use, open buffers, panes, docks, the panel, prompts, pickers, popups |
-| [`core/utils.nim`](../../src/ned/core/utils.nim) | include 23 | Small utilities: positions and ranges, time since, relative paths, fuzzy matching |
-| [`core/themes.nim`](../../src/ned/core/themes.nim) | include 24 | Themes: the built-in ones (mkTheme makes each from sixteen colours), the readability pass, true black, e-ink, the names that stand for others |
-| [`core/screen.nim`](../../src/ned/core/screen.nim) | include 25 | Terminal: raw mode, cell grid, diffed output |
-| [`core/termcaps.nim`](../../src/ned/core/termcaps.nim) | include 26 | What the terminal can do: asked of it when raw mode starts, never assumed from its name alone |
-| [`core/keys.nim`](../../src/ned/core/keys.nim) | include 27 | Input decoding (keys, mouse, bracketed paste) |
-| [`core/languages.nim`](../../src/ned/core/languages.nim) | include 28 | The built-in languages — extensions, comments, keywords, indent rules, run and build commands, language servers — and finding a file's language |
-| [`core/highlight.nim`](../../src/ned/core/highlight.nim) | include 29 | Syntax highlighting (incremental, per-line state machine) |
-| [`core/lexgeneric.nim`](../../src/ned/core/lexgeneric.nim) | include 30 | the generic lexer: one line of a language coloured from the language's description — comments, strings, numbers, keywords, types, operators — with the state of block … |
-| [`core/lexers.nim`](../../src/ned/core/lexers.nim) | include 31 | the lexers of the languages that need more than the generic one — YAML, TOML and Makefile keys, Nim filter templates, Jinja, CSV, NIF — the host lexer that picks the … |
-| [`core/todos.nim`](../../src/ned/core/todos.nim) | include 32 | Comment tags: TODO · FIXME · BUG · HACK · NOTE (colours, the TODOs dock, next/previous) |
-| [`core/messages.nim`](../../src/ned/core/messages.nim) | include 33 | The status line's messages: info, warnings and errors (a long one in a popup) |
-| [`core/themeimport.nim`](../../src/ned/core/themeimport.nim) | include 110 | Zed and Helix themes imported: a Zed theme family (.json) or a Helix theme (.toml, with its `inherits` and its [palette]) becomes ned's own theme file in … |
+| [`core/types.nim`](../../src/ned/core/types.nim) | include 22 | The types every part uses: buffers, positions and cursors, languages, themes, keys, jobs, diagnostics, prompts and pickers |
+| [`core/state.nim`](../../src/ned/core/state.nim) | include 23 | The program's global state: the settings in use, open buffers, panes, docks, the panel, prompts, pickers, popups |
+| [`core/utils.nim`](../../src/ned/core/utils.nim) | include 24 | Small utilities: positions and ranges, time since, relative paths, fuzzy matching |
+| [`core/themes.nim`](../../src/ned/core/themes.nim) | include 25 | Themes: the built-in ones (mkTheme makes each from sixteen colours), the readability pass, true black, e-ink, the names that stand for others |
+| [`core/screen.nim`](../../src/ned/core/screen.nim) | include 26 | Terminal: raw mode, cell grid, diffed output |
+| [`core/termcaps.nim`](../../src/ned/core/termcaps.nim) | include 27 | What the terminal can do: asked of it when raw mode starts, never assumed from its name alone |
+| [`core/keys.nim`](../../src/ned/core/keys.nim) | include 28 | Input decoding (keys, mouse, bracketed paste) |
+| [`core/languages.nim`](../../src/ned/core/languages.nim) | include 29 | The built-in languages — extensions, comments, keywords, indent rules, run and build commands, language servers — and finding a file's language |
+| [`core/highlight.nim`](../../src/ned/core/highlight.nim) | include 30 | Syntax highlighting (incremental, per-line state machine) |
+| [`core/lexgeneric.nim`](../../src/ned/core/lexgeneric.nim) | include 31 | the generic lexer: one line of a language coloured from the language's description — comments, strings, numbers, keywords, types, operators — with the state of block … |
+| [`core/lexers.nim`](../../src/ned/core/lexers.nim) | include 32 | the lexers of the languages that need more than the generic one — YAML, TOML and Makefile keys, Nim filter templates, Jinja, CSV, NIF — the host lexer that picks the … |
+| [`core/todos.nim`](../../src/ned/core/todos.nim) | include 33 | Comment tags: TODO · FIXME · BUG · HACK · NOTE (colours, the TODOs dock, next/previous) |
+| [`core/messages.nim`](../../src/ned/core/messages.nim) | include 34 | The status line's messages: info, warnings and errors (a long one in a popup) |
+| [`core/themeimport.nim`](../../src/ned/core/themeimport.nim) | include 111 | Zed and Helix themes imported: a Zed theme family (.json) or a Helix theme (.toml, with its `inherits` and its [palette]) becomes ned's own theme file in … |
 | [`core/sha256.nim`](../../src/ned/core/sha256.nim) |  | SHA-256 (FIPS 180-4): ned checks what it downloads against a release's SHA256SUMS |
 
 ## debug
@@ -120,9 +120,10 @@ The debugger: gdb, the Debug Adapter Protocol, the debug views.
 
 | file | | what it is |
 |---|---|---|
-| [`debug/gdb.nim`](../../src/ned/debug/gdb.nim) | include 205 | the debugger: gdb's machine interface (breakpoints, stepping, call stack, variables) |
-| [`debug/dap.nim`](../../src/ned/debug/dap.nim) | include 206 | DAP (the Debug Adapter Protocol, as in VS Code and Zed): debugging Python (debugpy), C, C++ and Rust (gdb's own DAP mode, or lldb-dap), Go (delve) … in the same Debug … |
-| [`debug/gdbterm.nim`](../../src/ned/debug/gdbterm.nim) | include 207 | debugging with gdb in the integrated terminal |
+| [`debug/clines.nim`](../../src/ned/debug/clines.nim) | module | the C files of a Nim 2.4 build put right for the debugger |
+| [`debug/gdb.nim`](../../src/ned/debug/gdb.nim) | include 206 | the debugger: gdb's machine interface (breakpoints, stepping, call stack, variables) |
+| [`debug/dap.nim`](../../src/ned/debug/dap.nim) | include 207 | DAP (the Debug Adapter Protocol, as in VS Code and Zed): debugging Python (debugpy), C, C++ and Rust (gdb's own DAP mode, or lldb-dap), Go (delve) … in the same Debug … |
+| [`debug/gdbterm.nim`](../../src/ned/debug/gdbterm.nim) | include 208 | debugging with gdb in the integrated terminal |
 
 ## editor
 
@@ -133,56 +134,56 @@ Buffers and editing: the edit primitive and undo, cursors, find, folding, saving
 | [`editor/regex.nim`](../../src/ned/editor/regex.nim) | module | Regular expressions: a small backtracking VM (no PCRE needed on Termux) |
 | [`editor/binfmt.nim`](../../src/ned/editor/binfmt.nim) | module | executables and object files, read for the hex editor: ELF (Linux, Android), Mach-O (macOS) and PE (Windows) — what kind of file it is, its sections and its symbols … |
 | [`editor/asmview.nim`](../../src/ned/editor/asmview.nim) | module | Assembly the way Compiler Explorer (godbolt.org) shows it: a compiler's `-S` output, or an object file disassembled by objdump, read line by line — each instruction … |
-| [`editor/buffer.nim`](../../src/ned/editor/buffer.nim) | include 35 | Buffer core: text storage, edit primitive, undo |
-| [`editor/loadsave.nim`](../../src/ned/editor/loadsave.nim) | include 36 | Files loaded: encoding, line ends, indent found, .editorconfig, big files streamed, the hex view, the undo saved with a file |
-| [`editor/softwrap.nim`](../../src/ned/editor/softwrap.nim) | include 37 | Visual layout helpers (soft wrap) |
-| [`editor/motion.nim`](../../src/ned/editor/motion.nim) | include 38 | Cursor movement: by character, word, line start and end, up and down — for every cursor |
-| [`editor/editing.nim`](../../src/ned/editor/editing.nim) | include 39 | Editing commands (all multi-cursor aware) |
-| [`editor/find.nim`](../../src/ned/editor/find.nim) | include 40 | searching the text: matches in a line (plain or regular expression, whole words), the next match from a position, selecting occurrences with several cursors, adding … |
-| [`editor/safewrite.nim`](../../src/ned/editor/safewrite.nim) | include 45 | Safe writing (a temporary file renamed into place), ned's state and private folders, internal errors logged |
-| [`editor/swap.nim`](../../src/ned/editor/swap.nim) | include 46 | swap files: unsaved edits survive a crash, a killed Termux session or a dead battery One file per (path, ned process): <hash(path)>-<pid>.json |
-| [`editor/localhistory.nim`](../../src/ned/editor/localhistory.nim) | include 47 | local history: every save keeps the previous version (File › Local history) |
-| [`editor/linediff.nim`](../../src/ned/editor/linediff.nim) | include 48 | line diff (Myers, after trimming the common head and tail) |
-| [`editor/buffers.nim`](../../src/ned/editor/buffers.nim) | include 49 | the open buffers: finding one by id or path, the jump history, centring the view on a position and opening a file in a tab |
-| [`editor/save.nim`](../../src/ned/editor/save.nim) | include 51 | the hex editor's bytes saved (editor/hexedit.nim) |
-| [`editor/multibuffer.nim`](../../src/ned/editor/multibuffer.nim) | include 68 | multibuffers, as in Zed: pieces of many files in one editable buffer, each under a `§ path:line` header, written back to their files on save and kept in step with the … |
-| [`editor/clipboard.nim`](../../src/ned/editor/clipboard.nim) | include 72 | Clipboard (internal + OSC 52 + Termux:API / wl-clipboard / xclip) |
-| [`editor/snippets.nim`](../../src/ned/editor/snippets.nim) | include 73 | Snippets — the built-in ones and yours — expanded by Tab, Tab and Shift+Tab walking their placeholders (a placeholder used twice is edited with several cursors) |
-| [`editor/html.nim`](../../src/ned/editor/html.nim) | include 74 | HTML editing helpers: a closing tag added when the `>` of an opening one is typed, linked editing (renaming a tag renames its partner) and the expansion of Emmet … |
-| [`editor/emmetcss.nim`](../../src/ned/editor/emmetcss.nim) | include 75 | Emmet for CSS: Tab after m10 → margin: 10px |
-| [`editor/completion.nim`](../../src/ned/editor/completion.nim) | include 85 | the completion popup: the list for the word being typed (from the language server, nimsuggest, ned's own engines, snippets and the words of the file), filtering it as … |
-| [`editor/diagnostics.nim`](../../src/ned/editor/diagnostics.nim) | include 91 | a file's problems (errors, warnings, hints) merged from every source — language server, builds and checks, tests, plugins, ned's own checks — kept in step with the … |
-| [`editor/findreplace.nim`](../../src/ned/editor/findreplace.nim) | include 92 | the find and replace commands: counting the matches, finding as you type, stepping to the next or previous match, replacing all at once and asking match by match |
-| [`editor/navigation.nim`](../../src/ned/editor/navigation.nim) | include 93 | going to places and asking about code: go to line, the jump list and closed tabs, next problem, go to symbol, definition, type definition, implementations, type … |
-| [`editor/search.nim`](../../src/ned/editor/search.nim) | include 94 | project-wide text search: runs ripgrep or grep (or a built-in scan when neither exists) over the project, collects the matching lines for the Search view of the left … |
-| [`editor/projectreplace.nim`](../../src/ned/editor/projectreplace.nim) | include 95 | project-wide replace (Search view › ⇄): preview inline, replace one / a file / everything |
-| [`editor/undotree.nim`](../../src/ned/editor/undotree.nim) | include 98 | the undo tree: an edit after an undo keeps what was undone as a branch (buffer.nim: detachRedo), and Edit › Undo history… lists every state the file has been in — on … |
-| [`editor/nextedit.nim`](../../src/ned/editor/nextedit.nim) | include 156 | next-edit suggestions (editor.nextEdit): after a change to a name — `width` made `size` — the next place that still says `width` shows "→ size ⇥": Tab goes there, Tab … |
-| [`editor/pictures.nim`](../../src/ned/editor/pictures.nim) | include 159 | pictures: a .png, .jpg, .gif or .bmp file opens as a picture (Tab: its bytes in the hex editor, Shift+Tab back), and a Markdown preview shows the pictures it has |
-| [`editor/spell.nim`](../../src/ned/editor/spell.nim) | include 161 | spell check: Markdown, commit messages, and (editor.spellCheck "on") comments and strings in code |
-| [`editor/rainbow.nim`](../../src/ned/editor/rainbow.nim) | include 163 | rainbow brackets: a pair never takes the colour of the text around it |
-| [`editor/swatches.nim`](../../src/ned/editor/swatches.nim) | include 166 | colour swatches: a small block before #RRGGBB, rgb(…), hsl(…) and Nim's 0xRRGGBB (editor.colorSwatches) |
-| [`editor/hexedit.nim`](../../src/ned/editor/hexedit.nim) | include 167 | the hex editor. A binary file opens as its bytes — offset · hex · text — to type over (or insert, Insert key), delete, undo, search (bytes or text), go to an offset, … |
-| [`editor/jumplabels.nim`](../../src/ned/editor/jumplabels.nim) | include 168 | jump labels: a letter or two over every word on screen |
-| [`editor/decompile.nim`](../../src/ned/editor/decompile.nim) | include 175 | the decompiler, side by side: a function of a program — a Nim proc by its Nim name — as C (radare2 with r2ghidra or r2dec, rizin with rz-ghidra, RetDec) or as its … |
-| [`editor/cexplorer.nim`](../../src/ned/editor/cexplorer.nim) | include 176 | Compiler Explorer, as godbolt.org: the file beside the assembly it compiles to, compiled again a moment after you stop typing (the unsaved text, in a private copy of … |
-| [`editor/macros.nim`](../../src/ned/editor/macros.nim) | include 189 | keyboard macros: record what you type, play it back (N times, on each selected line, to the end of the file), keep it under a name |
-| [`editor/surround.nim`](../../src/ned/editor/surround.nim) | include 190 | surround: brackets, quotes, a tag or a block (if, for, try…) around the selection |
-| [`editor/folding.nim`](../../src/ned/editor/folding.nim) | include 194 | IDE features: folding, inlay hints, tests, project symbols, code actions, expand selection, gutter actions, gdb |
-| [`editor/projectsymbols.nim`](../../src/ned/editor/projectsymbols.nim) | include 201 | project-wide symbols (works offline for every language: Nim's and C's from ned's engines, the others' by their shape) |
-| [`editor/selection.nim`](../../src/ned/editor/selection.nim) | include 203 | selection by structure: it grows to the enclosing word, string, brackets, statement and block, and shrinks back |
-| [`editor/spelldicts.nim`](../../src/ned/editor/spelldicts.nim) | include 218 | spell check commands and the dictionary downloads: the next misspelled word, choosing where it checks, downloading hunspell dictionaries, and the quick fixes (change, … |
-| [`editor/inactive.nim`](../../src/ned/editor/inactive.nim) | include 232 | code a compile leaves out, dimmed: Nim's `when` branches that are false on this platform (when defined(windows) on Linux), C's #if 0 and #ifdef __cplusplus … |
-| [`editor/csv.nim`](../../src/ned/editor/csv.nim) | include 248 | CSV tables: sort by a column, a column's summary |
-| [`editor/notebook.nim`](../../src/ned/editor/notebook.nim) | include 250 | Notebook: a Nim or Python file's `# %%` cells run in one session that stays alive, each cell's output drawn under it (rows that are not part of the text: nothing is … |
-| [`editor/tour.nim`](../../src/ned/editor/tour.nim) | include 251 | The Nim tour (Help › Nim tour): sixteen short lessons of Nim that run in the notebook, from the first echo to calling C |
-| [`editor/bookmarks.nim`](../../src/ned/editor/bookmarks.nim) | include 258 | ned 4: bookmarks · local history · crash recovery · git changes & blame |
-| [`editor/localhistoryview.nim`](../../src/ned/editor/localhistoryview.nim) | include 259 | local history and recent projects: a file's earlier saved versions compared with it, folders opened before |
-| [`editor/recovery.nim`](../../src/ned/editor/recovery.nim) | include 260 | crash recovery: unsaved edits kept in recovery files, offered back after a crash |
-| [`editor/hotexit.nim`](../../src/ned/editor/hotexit.nim) | include 261 | hot exit (files.hotExit): quitting keeps the unsaved edits without asking |
-| [`editor/encodingcmds.nim`](../../src/ned/editor/encodingcmds.nim) | include 262 | a file's encoding: reopen it as another, save it as another (the status bar's UTF-8 · Windows-1252 …) |
-| [`editor/lfview.nim`](../../src/ned/editor/lfview.nim) | include 263 | The large-file viewer: a file bigger than editor.viewerSize (512 MB) — a log, a dump, a data file — opened read-only with a window of its lines in memory (LfWin of them) |
-| [`editor/bufforget.nim`](../../src/ned/editor/bufforget.nim) | include 300 | a tab closed: what ned kept about it goes with it |
+| [`editor/buffer.nim`](../../src/ned/editor/buffer.nim) | include 36 | Buffer core: text storage, edit primitive, undo |
+| [`editor/loadsave.nim`](../../src/ned/editor/loadsave.nim) | include 37 | Files loaded: encoding, line ends, indent found, .editorconfig, big files streamed, the hex view, the undo saved with a file |
+| [`editor/softwrap.nim`](../../src/ned/editor/softwrap.nim) | include 38 | Visual layout helpers (soft wrap) |
+| [`editor/motion.nim`](../../src/ned/editor/motion.nim) | include 39 | Cursor movement: by character, word, line start and end, up and down — for every cursor |
+| [`editor/editing.nim`](../../src/ned/editor/editing.nim) | include 40 | Editing commands (all multi-cursor aware) |
+| [`editor/find.nim`](../../src/ned/editor/find.nim) | include 41 | searching the text: matches in a line (plain or regular expression, whole words), the next match from a position, selecting occurrences with several cursors, adding … |
+| [`editor/safewrite.nim`](../../src/ned/editor/safewrite.nim) | include 46 | Safe writing (a temporary file renamed into place), ned's state and private folders, internal errors logged |
+| [`editor/swap.nim`](../../src/ned/editor/swap.nim) | include 47 | swap files: unsaved edits survive a crash, a killed Termux session or a dead battery One file per (path, ned process): <hash(path)>-<pid>.json |
+| [`editor/localhistory.nim`](../../src/ned/editor/localhistory.nim) | include 48 | local history: every save keeps the previous version (File › Local history) |
+| [`editor/linediff.nim`](../../src/ned/editor/linediff.nim) | include 49 | line diff (Myers, after trimming the common head and tail) |
+| [`editor/buffers.nim`](../../src/ned/editor/buffers.nim) | include 50 | the open buffers: finding one by id or path, the jump history, centring the view on a position and opening a file in a tab |
+| [`editor/save.nim`](../../src/ned/editor/save.nim) | include 52 | the hex editor's bytes saved (editor/hexedit.nim) |
+| [`editor/multibuffer.nim`](../../src/ned/editor/multibuffer.nim) | include 69 | multibuffers, as in Zed: pieces of many files in one editable buffer, each under a `§ path:line` header, written back to their files on save and kept in step with the … |
+| [`editor/clipboard.nim`](../../src/ned/editor/clipboard.nim) | include 73 | Clipboard (internal + OSC 52 + Termux:API / wl-clipboard / xclip) |
+| [`editor/snippets.nim`](../../src/ned/editor/snippets.nim) | include 74 | Snippets — the built-in ones and yours — expanded by Tab, Tab and Shift+Tab walking their placeholders (a placeholder used twice is edited with several cursors) |
+| [`editor/html.nim`](../../src/ned/editor/html.nim) | include 75 | HTML editing helpers: a closing tag added when the `>` of an opening one is typed, linked editing (renaming a tag renames its partner) and the expansion of Emmet … |
+| [`editor/emmetcss.nim`](../../src/ned/editor/emmetcss.nim) | include 76 | Emmet for CSS: Tab after m10 → margin: 10px |
+| [`editor/completion.nim`](../../src/ned/editor/completion.nim) | include 86 | the completion popup: the list for the word being typed (from the language server, nimsuggest, ned's own engines, snippets and the words of the file), filtering it as … |
+| [`editor/diagnostics.nim`](../../src/ned/editor/diagnostics.nim) | include 92 | a file's problems (errors, warnings, hints) merged from every source — language server, builds and checks, tests, plugins, ned's own checks — kept in step with the … |
+| [`editor/findreplace.nim`](../../src/ned/editor/findreplace.nim) | include 93 | the find and replace commands: counting the matches, finding as you type, stepping to the next or previous match, replacing all at once and asking match by match |
+| [`editor/navigation.nim`](../../src/ned/editor/navigation.nim) | include 94 | going to places and asking about code: go to line, the jump list and closed tabs, next problem, go to symbol, definition, type definition, implementations, type … |
+| [`editor/search.nim`](../../src/ned/editor/search.nim) | include 95 | project-wide text search: runs ripgrep or grep (or a built-in scan when neither exists) over the project, collects the matching lines for the Search view of the left … |
+| [`editor/projectreplace.nim`](../../src/ned/editor/projectreplace.nim) | include 96 | project-wide replace (Search view › ⇄): preview inline, replace one / a file / everything |
+| [`editor/undotree.nim`](../../src/ned/editor/undotree.nim) | include 99 | the undo tree: an edit after an undo keeps what was undone as a branch (buffer.nim: detachRedo), and Edit › Undo history… lists every state the file has been in — on … |
+| [`editor/nextedit.nim`](../../src/ned/editor/nextedit.nim) | include 157 | next-edit suggestions (editor.nextEdit): after a change to a name — `width` made `size` — the next place that still says `width` shows "→ size ⇥": Tab goes there, Tab … |
+| [`editor/pictures.nim`](../../src/ned/editor/pictures.nim) | include 160 | pictures: a .png, .jpg, .gif or .bmp file opens as a picture (Tab: its bytes in the hex editor, Shift+Tab back), and a Markdown preview shows the pictures it has |
+| [`editor/spell.nim`](../../src/ned/editor/spell.nim) | include 162 | spell check: Markdown, commit messages, and (editor.spellCheck "on") comments and strings in code |
+| [`editor/rainbow.nim`](../../src/ned/editor/rainbow.nim) | include 164 | rainbow brackets: a pair never takes the colour of the text around it |
+| [`editor/swatches.nim`](../../src/ned/editor/swatches.nim) | include 167 | colour swatches: a small block before #RRGGBB, rgb(…), hsl(…) and Nim's 0xRRGGBB (editor.colorSwatches) |
+| [`editor/hexedit.nim`](../../src/ned/editor/hexedit.nim) | include 168 | the hex editor. A binary file opens as its bytes — offset · hex · text — to type over (or insert, Insert key), delete, undo, search (bytes or text), go to an offset, … |
+| [`editor/jumplabels.nim`](../../src/ned/editor/jumplabels.nim) | include 169 | jump labels: a letter or two over every word on screen |
+| [`editor/decompile.nim`](../../src/ned/editor/decompile.nim) | include 176 | the decompiler, side by side: a function of a program — a Nim proc by its Nim name — as C (radare2 with r2ghidra or r2dec, rizin with rz-ghidra, RetDec) or as its … |
+| [`editor/cexplorer.nim`](../../src/ned/editor/cexplorer.nim) | include 177 | Compiler Explorer, as godbolt.org: the file beside the assembly it compiles to, compiled again a moment after you stop typing (the unsaved text, in a private copy of … |
+| [`editor/macros.nim`](../../src/ned/editor/macros.nim) | include 190 | keyboard macros: record what you type, play it back (N times, on each selected line, to the end of the file), keep it under a name |
+| [`editor/surround.nim`](../../src/ned/editor/surround.nim) | include 191 | surround: brackets, quotes, a tag or a block (if, for, try…) around the selection |
+| [`editor/folding.nim`](../../src/ned/editor/folding.nim) | include 195 | IDE features: folding, inlay hints, tests, project symbols, code actions, expand selection, gutter actions, gdb |
+| [`editor/projectsymbols.nim`](../../src/ned/editor/projectsymbols.nim) | include 202 | project-wide symbols (works offline for every language: Nim's and C's from ned's engines, the others' by their shape) |
+| [`editor/selection.nim`](../../src/ned/editor/selection.nim) | include 204 | selection by structure: it grows to the enclosing word, string, brackets, statement and block, and shrinks back |
+| [`editor/spelldicts.nim`](../../src/ned/editor/spelldicts.nim) | include 219 | spell check commands and the dictionary downloads: the next misspelled word, choosing where it checks, downloading hunspell dictionaries, and the quick fixes (change, … |
+| [`editor/inactive.nim`](../../src/ned/editor/inactive.nim) | include 233 | code a compile leaves out, dimmed: Nim's `when` branches that are false on this platform (when defined(windows) on Linux), C's #if 0 and #ifdef __cplusplus … |
+| [`editor/csv.nim`](../../src/ned/editor/csv.nim) | include 249 | CSV tables: sort by a column, a column's summary |
+| [`editor/notebook.nim`](../../src/ned/editor/notebook.nim) | include 251 | Notebook: a Nim or Python file's `# %%` cells run in one session that stays alive, each cell's output drawn under it (rows that are not part of the text: nothing is … |
+| [`editor/tour.nim`](../../src/ned/editor/tour.nim) | include 252 | The Nim tour (Help › Nim tour): sixteen short lessons of Nim that run in the notebook, from the first echo to calling C |
+| [`editor/bookmarks.nim`](../../src/ned/editor/bookmarks.nim) | include 259 | ned 4: bookmarks · local history · crash recovery · git changes & blame |
+| [`editor/localhistoryview.nim`](../../src/ned/editor/localhistoryview.nim) | include 260 | local history and recent projects: a file's earlier saved versions compared with it, folders opened before |
+| [`editor/recovery.nim`](../../src/ned/editor/recovery.nim) | include 261 | crash recovery: unsaved edits kept in recovery files, offered back after a crash |
+| [`editor/hotexit.nim`](../../src/ned/editor/hotexit.nim) | include 262 | hot exit (files.hotExit): quitting keeps the unsaved edits without asking |
+| [`editor/encodingcmds.nim`](../../src/ned/editor/encodingcmds.nim) | include 263 | a file's encoding: reopen it as another, save it as another (the status bar's UTF-8 · Windows-1252 …) |
+| [`editor/lfview.nim`](../../src/ned/editor/lfview.nim) | include 264 | The large-file viewer: a file bigger than editor.viewerSize (512 MB) — a log, a dump, a data file — opened read-only with a window of its lines in memory (LfWin of them) |
+| [`editor/bufforget.nim`](../../src/ned/editor/bufforget.nim) | include 301 | a tab closed: what ned kept about it goes with it |
 | [`editor/autoindent.nim`](../../src/ned/editor/autoindent.nim) |  | Indentation as you type, for Nim (editor.autoDedent): where a closing bracket typed alone on its line goes, and where a branch word (`of`, `elif`, `else`, `except`, … |
 | [`editor/tourlessons.nim`](../../src/ned/editor/tourlessons.nim) |  | The Nim tour's lessons (tour/lesson*.nim), read into ned when it is built, and what ned needs to know of one: its title, its cells' titles, the exercise's answer … |
 
@@ -194,9 +195,9 @@ The formatters: Nim (nph-style), C, YAML, TOML, the others, nedfmt's command lin
 |---|---|---|
 | [`format/formatters.nim`](../../src/ned/format/formatters.nim) | module | ned's built-in formatters: Nim (in nph's style, checked), JSON, Markdown tables, CSS and C (indentation) |
 | [`format/fmtcli.nim`](../../src/ned/format/fmtcli.nim) | module | ned's formatters from the command line: `nedfmt` (and `ned --format`) |
-| [`format/apply.nim`](../../src/ned/format/apply.nim) | include 60 | the means of applying a formatter: running an external command as a filter (text in on stdin, text out), putting its result into the buffer as the smallest set of … |
-| [`format/commands.nim`](../../src/ned/format/commands.nim) | include 65 | the format commands: which formatter a file gets, formatting a whole file, selected lines, only the lines changed (on save) or the code inside a Nim triple-quoted … |
-| [`format/folder.nim`](../../src/ned/format/folder.nim) | include 99 | Format every file of a folder (or the project): each with what Alt+F would use, reviewed before anything is written |
+| [`format/apply.nim`](../../src/ned/format/apply.nim) | include 61 | the means of applying a formatter: running an external command as a filter (text in on stdin, text out), putting its result into the buffer as the smallest set of … |
+| [`format/commands.nim`](../../src/ned/format/commands.nim) | include 66 | the format commands: which formatter a file gets, formatting a whole file, selected lines, only the lines changed (on save) or the code inside a Nim triple-quoted … |
+| [`format/folder.nim`](../../src/ned/format/folder.nim) | include 100 | Format every file of a folder (or the project): each with what Alt+F would use, reviewed before anything is written |
 | [`format/cfmt.nim`](../../src/ned/format/cfmt.nim) |  | Built-in C formatter (C files, and the C in a Nim {.emit.}) |
 | [`format/css.nim`](../../src/ned/format/css.nim) |  | CSS (and SCSS / Less): one declaration per line, blocks indented, `prop: value;` |
 | [`format/cstyle.nim`](../../src/ned/format/cstyle.nim) |  | The C formatter's style: as written ("keep", ned's own way since 5.13), one of clang-format's presets (LLVM, Google, Chromium, Mozilla, WebKit, Microsoft, GNU) or the … |
@@ -217,24 +218,24 @@ Git: the changes, commits, blame, merge, GitHub.
 
 | file | | what it is |
 |---|---|---|
-| [`git/repos.nim`](../../src/ned/git/repos.nim) | include 59 | git repositories of the workspace: each folder's own |
-| [`git/conflictmarks.nim`](../../src/ned/git/conflictmarks.nim) | include 77 | finding the merge conflicts of a buffer (the <<<<<<< ======= >>>>>>> blocks), and the forward declarations and shared debugger state that code included earlier in … |
-| [`git/status.nim`](../../src/ned/git/status.nim) | include 101 | git status: which files changed (for the file tree and the Git dock), refreshed in the background, and one file's diff view |
-| [`git/watch.nim`](../../src/ned/git/watch.nim) | include 102 | git status when something changes, not every few seconds: the repository's .git folder (a commit, a stage, a branch, a checkout, a pull — from ned, its terminal or … |
-| [`git/mergeeditor.nim`](../../src/ned/git/mergeeditor.nim) | include 183 | the merge editor: ours and theirs side by side above the result (the file itself, with its markers) |
-| [`git/conflicts.nim`](../../src/ned/git/conflicts.nim) | include 252 | git merge conflicts: accept ours / theirs / both, and a side-by-side view against the last commit |
-| [`git/changesview.nim`](../../src/ned/git/changesview.nim) | include 264 | the Git changes view (Git › Changes…, Alt+Shift+G): every change not committed yet, in every file, in one editable multibuffer — each change with a line or two around … |
-| [`git/marks.nim`](../../src/ned/git/marks.nim) | include 265 | git: live change marks, stepping through changes, reverting one, blame |
-| [`git/commands.nim`](../../src/ned/git/commands.nim) | include 269 | git: branches, push/pull that ask for a login in the terminal, commit box, history, stash, blame, more |
-| [`git/setup.nim`](../../src/ned/git/setup.nim) | include 270 | git for a new folder and for other people's projects: init, who you are, clone from a link |
-| [`git/advanced.nim`](../../src/ned/git/advanced.nim) | include 272 | interactive rebase, cherry-pick from a branch, compare branches, branch graph, GitHub (gh) |
-| [`git/history.nim`](../../src/ned/git/history.nim) | include 273 | git: the history of some lines, bisect, worktrees, submodules |
-| [`git/github.nim`](../../src/ned/git/github.nim) | include 274 | the GitHub commands, through the gh command line tool: pull requests, issues and Actions runs as menus, and the CI status of the current branch shown in the status bar |
-| [`git/signin.nim`](../../src/ned/git/signin.nim) | include 275 | signing in to GitHub: GitHub takes no password from git (since 2021), so when a push, pull or fetch needs a login ned offers the ways that work — the GitHub CLI … |
-| [`git/undo.nim`](../../src/ned/git/undo.nim) | include 276 | git: undo — the last things done to the branch (git's reflog: commits, amends, pulls, merges, rebases, resets, switches), each undone in one step: the branch goes … |
-| [`git/precommit.nim`](../../src/ned/git/precommit.nim) | include 277 | checks before a commit (git.checksBeforeCommit): the files to be committed are formatted (ned's own formatters, on what is staged), and the tests that cover them pass |
-| [`git/reviews.nim`](../../src/ned/git/reviews.nim) | include 278 | GitHub review comments of the branch's pull request, on the lines they are about: a note at the end of the line, the whole thread on hover, a list to go through them, … |
-| [`git/aigit.nim`](../../src/ned/git/aigit.nim) | include 279 | the assistant with git: why a line changed (its commit, explained), merge conflicts resolved — and checked by the compiler before you see them — and the staged … |
+| [`git/repos.nim`](../../src/ned/git/repos.nim) | include 60 | git repositories of the workspace: each folder's own |
+| [`git/conflictmarks.nim`](../../src/ned/git/conflictmarks.nim) | include 78 | finding the merge conflicts of a buffer (the <<<<<<< ======= >>>>>>> blocks), and the forward declarations and shared debugger state that code included earlier in … |
+| [`git/status.nim`](../../src/ned/git/status.nim) | include 102 | git status: which files changed (for the file tree and the Git dock), refreshed in the background, and one file's diff view |
+| [`git/watch.nim`](../../src/ned/git/watch.nim) | include 103 | git status when something changes, not every few seconds: the repository's .git folder (a commit, a stage, a branch, a checkout, a pull — from ned, its terminal or … |
+| [`git/mergeeditor.nim`](../../src/ned/git/mergeeditor.nim) | include 184 | the merge editor: ours and theirs side by side above the result (the file itself, with its markers) |
+| [`git/conflicts.nim`](../../src/ned/git/conflicts.nim) | include 253 | git merge conflicts: accept ours / theirs / both, and a side-by-side view against the last commit |
+| [`git/changesview.nim`](../../src/ned/git/changesview.nim) | include 265 | the Git changes view (Git › Changes…, Alt+Shift+G): every change not committed yet, in every file, in one editable multibuffer — each change with a line or two around … |
+| [`git/marks.nim`](../../src/ned/git/marks.nim) | include 266 | git: live change marks, stepping through changes, reverting one, blame |
+| [`git/commands.nim`](../../src/ned/git/commands.nim) | include 270 | git: branches, push/pull that ask for a login in the terminal, commit box, history, stash, blame, more |
+| [`git/setup.nim`](../../src/ned/git/setup.nim) | include 271 | git for a new folder and for other people's projects: init, who you are, clone from a link |
+| [`git/advanced.nim`](../../src/ned/git/advanced.nim) | include 273 | interactive rebase, cherry-pick from a branch, compare branches, branch graph, GitHub (gh) |
+| [`git/history.nim`](../../src/ned/git/history.nim) | include 274 | git: the history of some lines, bisect, worktrees, submodules |
+| [`git/github.nim`](../../src/ned/git/github.nim) | include 275 | the GitHub commands, through the gh command line tool: pull requests, issues and Actions runs as menus, and the CI status of the current branch shown in the status bar |
+| [`git/signin.nim`](../../src/ned/git/signin.nim) | include 276 | signing in to GitHub: GitHub takes no password from git (since 2021), so when a push, pull or fetch needs a login ned offers the ways that work — the GitHub CLI … |
+| [`git/undo.nim`](../../src/ned/git/undo.nim) | include 277 | git: undo — the last things done to the branch (git's reflog: commits, amends, pulls, merges, rebases, resets, switches), each undone in one step: the branch goes … |
+| [`git/precommit.nim`](../../src/ned/git/precommit.nim) | include 278 | checks before a commit (git.checksBeforeCommit): the files to be committed are formatted (ned's own formatters, on what is staged), and the tests that cover them pass |
+| [`git/reviews.nim`](../../src/ned/git/reviews.nim) | include 279 | GitHub review comments of the branch's pull request, on the lines they are about: a note at the end of the line, the whole thread on hover, a list to go through them, … |
+| [`git/aigit.nim`](../../src/ned/git/aigit.nim) | include 280 | the assistant with git: why a line changed (its commit, explained), merge conflicts resolved — and checked by the compiler before you see them — and the staged … |
 
 ## keymaps
 
@@ -242,11 +243,11 @@ The key bindings that are not VS Code's: Vim (and its : line), Emacs, Helix.
 
 | file | | what it is |
 |---|---|---|
-| [`keymaps/vim.nim`](../../src/ned/keymaps/vim.nim) | include 187 | Vim mode (editor.vimMode): normal · insert · visual · visual-line · replace |
-| [`keymaps/vimex.nim`](../../src/ned/keymaps/vimex.nim) | include 188 | Vim mode's : line — :set for every setting, the line commands with their ranges, Vim's common commands, any of ned's commands by name, and Tab completing all of them … |
-| [`keymaps/vimkeys.nim`](../../src/ned/keymaps/vimkeys.nim) | include 191 | the vim keymap's key handling (editor.vimMode): Ctrl+W window commands, and vimKey, which takes each key in insert, replace, normal and visual mode — counts, … |
-| [`keymaps/emacs.nim`](../../src/ned/keymaps/emacs.nim) | include 192 | the emacs keymap: C-f C-b C-n C-p · C-a C-e · M-f M-b · C-v M-v · M-< M-> · C-k C-w M-w C-y · C-SPC mark · C-s · M-% · C-/ · C-x C-s / C-f / C-w / b / k / u / h / o / … |
-| [`keymaps/helix.nim`](../../src/ned/keymaps/helix.nim) | include 193 | the helix keymap: select, then act |
+| [`keymaps/vim.nim`](../../src/ned/keymaps/vim.nim) | include 188 | Vim mode (editor.vimMode): normal · insert · visual · visual-line · replace |
+| [`keymaps/vimex.nim`](../../src/ned/keymaps/vimex.nim) | include 189 | Vim mode's : line — :set for every setting, the line commands with their ranges, Vim's common commands, any of ned's commands by name, and Tab completing all of them … |
+| [`keymaps/vimkeys.nim`](../../src/ned/keymaps/vimkeys.nim) | include 192 | the vim keymap's key handling (editor.vimMode): Ctrl+W window commands, and vimKey, which takes each key in insert, replace, normal and visual mode — counts, … |
+| [`keymaps/emacs.nim`](../../src/ned/keymaps/emacs.nim) | include 193 | the emacs keymap: C-f C-b C-n C-p · C-a C-e · M-f M-b · C-v M-v · M-< M-> · C-k C-w M-w C-y · C-SPC mark · C-s · M-% · C-/ · C-x C-s / C-f / C-w / b / k / u / h / o / … |
+| [`keymaps/helix.nim`](../../src/ned/keymaps/helix.nim) | include 194 | the helix keymap: select, then act |
 
 ## lsp
 
@@ -254,13 +255,13 @@ Language servers: the client, their features, nimlangserver and nimsuggest.
 
 | file | | what it is |
 |---|---|---|
-| [`lsp/client.nim`](../../src/ned/lsp/client.nim) | include 61 | The language server client: servers started, requests and notifications sent, replies read, positions in UTF-16 |
-| [`lsp/renamepreview.nim`](../../src/ned/lsp/renamepreview.nim) | include 62 | rename preview: every change listed first |
-| [`lsp/handlers.nim`](../../src/ned/lsp/handlers.nim) | include 63 | what ned does with what language servers send: the answers to its requests (symbols, hover, completion, references, formatting, signature help, hierarchies …), the … |
-| [`lsp/doclinks.nim`](../../src/ned/lsp/doclinks.nim) | include 64 | more of the language server protocol: problems ned asks for (pull diagnostics — servers that only answer when asked), the file's links (#include "x.h", @import, a … |
-| [`lsp/inlays.nim`](../../src/ned/lsp/inlays.nim) | include 195 | inlay hints (LSP textDocument/inlayHint) |
-| [`lsp/codeactions.nim`](../../src/ned/lsp/codeactions.nim) | include 202 | code actions (quick fixes): ned's own and the language server's, listed at the cursor and applied |
-| [`lsp/embedded.nim`](../../src/ned/lsp/embedded.nim) | include 227 | HTML, CSS, SQL, JSON (and JavaScript) in Nim strings, through their language servers: hidden documents built from what the lexer coloured, one per language (JSON: one … |
+| [`lsp/client.nim`](../../src/ned/lsp/client.nim) | include 62 | The language server client: servers started, requests and notifications sent, replies read, positions in UTF-16 |
+| [`lsp/renamepreview.nim`](../../src/ned/lsp/renamepreview.nim) | include 63 | rename preview: every change listed first |
+| [`lsp/handlers.nim`](../../src/ned/lsp/handlers.nim) | include 64 | what ned does with what language servers send: the answers to its requests (symbols, hover, completion, references, formatting, signature help, hierarchies …), the … |
+| [`lsp/doclinks.nim`](../../src/ned/lsp/doclinks.nim) | include 65 | more of the language server protocol: problems ned asks for (pull diagnostics — servers that only answer when asked), the file's links (#include "x.h", @import, a … |
+| [`lsp/inlays.nim`](../../src/ned/lsp/inlays.nim) | include 196 | inlay hints (LSP textDocument/inlayHint) |
+| [`lsp/codeactions.nim`](../../src/ned/lsp/codeactions.nim) | include 203 | code actions (quick fixes): ned's own and the language server's, listed at the cursor and applied |
+| [`lsp/embedded.nim`](../../src/ned/lsp/embedded.nim) | include 228 | HTML, CSS, SQL, JSON (and JavaScript) in Nim strings, through their language servers: hidden documents built from what the lexer coloured, one per language (JSON: one … |
 
 ## nedls
 
@@ -287,63 +288,63 @@ The Nim IDE: the engine (index/ is a module of its own), the engine worker, chec
 | [`nim/index.nim`](../../src/ned/nim/index.nim) | module | ned's Nim index: what Nim code declares and means, read by ned itself — no compiler, no server |
 | [`nim/arccopies.nim`](../../src/ned/nim/arccopies.nim) | module | ARC/ORC's copies, from `nim c --expandArc:name …`: where in the source each `=copy` and `=dup` the compiler inserted stands |
 | [`nim/nifread.nim`](../../src/ned/nim/nifread.nim) | module | NIF, Nim 3's (Nimony's) code between its passes: read as nodes — each tag, atom and definition with where it is in the NIF text and where it comes from in the Nim … |
-| [`nim/nimony.nim`](../../src/ned/nim/nimony.nim) | include 53 | Nim 3 (Nimony). A project built with `nimony` (nim.compiler: "nimony", best in its .ned/settings.json) is Nim 3: ned's engine matches names as written (Nim 3 is … |
-| [`nim/typingcheck.nim`](../../src/ned/nim/typingcheck.nim) | include 58 | errors while you type, from the compiler: the unsaved text checked as it is `nim check -` reads the module from stdin |
-| [`nim/project.nim`](../../src/ned/nim/project.nim) | include 66 | Tools, nimble projects, scratch buffers |
-| [`nim/nimsuggest.nim`](../../src/ned/nim/nimsuggest.nim) | include 67 | Built-in nimsuggest client — completion, hover, definition, references, signatures, outline, macro expansion and live checks with a stock `nim` install |
-| [`nim/nimsuggestread.nim`](../../src/ned/nim/nimsuggestread.nim) | include 69 | reading nimsuggest's answers: its output is split into replies, and each reply is turned into what the request asked for — completion, go to definition, hover, … |
-| [`nim/oracle.nim`](../../src/ned/nim/oracle.nim) | include 70 | Nim: the compiler as an oracle in the background (nim.compilerOracle) What ned's engine cannot work out by reading — the type of a let whose value a macro makes, a … |
-| [`nim/compileranswers.nim`](../../src/ned/nim/compileranswers.nim) | include 71 | Nim: the compiler's answer where the engine has none, without nimsuggest kept running (nim.nimsuggest off): one nimsuggest run for the one question (hover, Go to … |
-| [`nim/engine.nim`](../../src/ned/nim/engine.nim) | include 76 | The Nim engine in the editor: when it is on, the toolchain it reads, nim dump and the library paths, the dependencies |
-| [`nim/semantic.nim`](../../src/ned/nim/semantic.nim) | include 78 | colours from the index: a name is coloured by what it is (proc, template, type, constant, field, parameter, module), not by its case — and by where it stands: after a … |
-| [`nim/answers.nim`](../../src/ned/nim/answers.nim) | include 79 | the answers of ned's own Nim engine to the editor: completion (with its postfix templates), signature help, hover, go to definition, find references and rename — and … |
-| [`nim/oraclerun.nim`](../../src/ned/nim/oraclerun.nim) | include 80 | Nim: the oracle's questions and its runs (nim/oracle has what it keeps) |
-| [`nim/reflens.nim`](../../src/ned/nim/reflens.nim) | include 81 | reference counts beside Nim declarations ("3 references" |
-| [`nim/highlights.nim`](../../src/ned/nim/highlights.nim) | include 82 | the uses in this file of what the name at the cursor names (as clangd's document highlights), resolved by ned's engine: a local of another proc, a field of another … |
-| [`nim/copies.nim`](../../src/ned/nim/copies.nim) | include 83 | where ARC/ORC copies: after a save the compiler expands the file's routines (nim c --expandArc) and each =copy / =dup it inserted is marked beside what it copies … |
-| [`nim/outline.nim`](../../src/ned/nim/outline.nim) | include 84 | the Nim file's outline for the side panel and the Ctrl+T symbol list, built from the engine's declarations (a heuristic outline when the engine fails), plus a … |
-| [`nim/messages.nim`](../../src/ned/nim/messages.nim) | include 86 | Navigation helpers: find, goto, symbols, definitions, diagnostics |
-| [`nim/nimapis.nim`](../../src/ned/nim/nimapis.nim) | include 87 | generated by .github/ci/nimapis.py: the standard-library names and modules each Nim release added (a release step: the release before it, it, modules new in it, … |
-| [`nim/nim3checks.nim`](../../src/ned/nim/nim3checks.nim) | include 88 | Nim 3 (Nimony): what Nim 2 code must change to compile under Nimony (doc/porting.md, each rule checked against what nimony 0.6.3 itself rejects — closure iterators … |
-| [`nim/enginechecks.nim`](../../src/ned/nim/enginechecks.nim) | include 89 | checks from ned's own Nim engine, at once while you type (no compiler): code after a return, a field or proc that is not there (with the name meant), a call with too … |
-| [`nim/macronames.nim`](../../src/ned/nim/macronames.nim) | include 90 | names a macro makes, from the compiler: a module's top-level macro calls (makeProcs(Foo, Bar) at the left margin) expanded once by `nim check --expandMacro`, and what … |
-| [`nim/why.nim`](../../src/ned/nim/why.nim) | include 97 | why? (6.32): where an exception or a side effect comes from — the place in the routine where it comes in, the routine called there, the place in that one, … down to … |
-| [`nim/commands.nim`](../../src/ned/nim/commands.nim) | include 100 | the commands for Nim work: unused exports, expanding templates and macros, the ARC view and the generated C, call hierarchy, peek definition and references, find … |
-| [`nim/toolchain.nim`](../../src/ned/nim/toolchain.nim) | include 107 | one Nim per project (nim.toolchain): the Nim a project builds with, for every tool ned starts — nim, nimble, nimsuggest, nimlangserver, testament, the terminal — by … |
-| [`nim/projectchecks.nim`](../../src/ned/nim/projectchecks.nim) | include 108 | the project's own checks: a package imported that the .nimble does not require (a quick fix adds the line), a requirement nothing imports, exported routines nothing … |
-| [`nim/macroview.nim`](../../src/ned/nim/macroview.nim) | include 116 | macros you can see (6.32): what a macro or template call writes, folded under the call — rows that are not text (Buffer.vrows), coloured as Nim |
-| [`nim/atlas.nim`](../../src/ned/nim/atlas.nim) | include 122 | Atlas (nim-lang/atlas): a project whose dependencies are in its own deps/ folder |
-| [`nim/nifview.nim`](../../src/ned/nim/nifview.nim) | include 177 | NIF, Nim 3's code between its passes (nifread.nim reads it): its outline |
-| [`nim/nimnif.nim`](../../src/ned/nim/nimnif.nim) | include 178 | what the compiler made of a saved file, read from its NIF: Nim 2.4's `nim nif` (run in place of `nim check` on save: the same messages, about the same time — and, for … |
-| [`nim/nifprint.nim`](../../src/ned/nim/nifprint.nim) | include 179 | what a macro call made, shown under the call (Alt+M) at once from the saved file's NIF (Nim 2.4's `nim nif`, nimony) instead of running the compiler again — written … |
-| [`nim/nifcolors.nim`](../../src/ned/nim/nifcolors.nim) | include 180 | colours from the compiler's reading of a saved file (nimnif.nim: Nim 2.4's `nim nif`, or nimony with Nim 3): what each name is as the compiler resolved it — a name a … |
-| [`nim/pnak.nim`](../../src/ned/nim/pnak.nim) | include 181 | pnak, Nim 3's package tool: its pnak.nif lockfile (every package at its commit) read — the outline, hover, F12 to the package's checkout, its problems — and pnak … |
-| [`nim/astview.nim`](../../src/ned/nim/astview.nim) | include 182 | the AST view (Nim: AST view): the code's tree as a macro gets it — `body: untyped` — from Nim's own parser (nim e, parseStmt + treeRepr), and what the macro or … |
-| [`nim/aifix.nim`](../../src/ned/nim/aifix.nim) | include 213 | quick fixes of our own: Nim imports, AI fix/explain |
-| [`nim/stdindex.nim`](../../src/ned/nim/stdindex.nim) | include 215 | Nim: an index of what the standard library exports (for "import std/…" quick fixes) |
-| [`nim/codegen.nim`](../../src/ned/nim/codegen.nim) | include 216 | Nim code generation: missing case branches, $ / == / hash / constructor, doc comment, run a selection |
-| [`nim/refactors.nim`](../../src/ned/nim/refactors.nim) | include 217 | refactors: extract a variable, inline one, "a" & x → fmt"a{x}", and evaluating Nim at compile time |
-| [`nim/fixes.nim`](../../src/ned/nim/fixes.nim) | include 233 | Nim: quick fixes from the compiler's messages (Alt+Enter on the line) Each fix is worked out from the message and the text alone — a list of edits — so it can be … |
-| [`nim/refactor/core.nim`](../../src/ned/nim/refactor/core.nim) | include 234 | Nim refactorings across the project: change a routine's signature, inline it, move it to another module The places are the built-in engine's references (Find references) |
-| [`nim/refactor/signature.nim`](../../src/ned/nim/refactor/signature.nim) | include 235 | Nim: change signature — a proc's parameters reordered, renamed, added or removed, every call updated |
-| [`nim/refactor/inline.nim`](../../src/ned/nim/refactor/inline.nim) | include 236 | inline a routine: each call becomes its body |
-| [`nim/refactor/move.nim`](../../src/ned/nim/refactor/move.nim) | include 237 | move a top-level declaration to another module |
-| [`nim/refactor/reshape.nim`](../../src/ned/nim/refactor/reshape.nim) | include 238 | the bigger refactorings in the editor: object ⇄ ref object, a module split, callback → async, a call's syntax |
-| [`nim/rewrites.nim`](../../src/ned/nim/rewrites.nim) | include 239 | Nim rewrites in the quick-fix list (Alt+Enter), learned from other languages' servers: the type a let or var gets written out (rust-analyzer, Pylance), a call written … |
-| [`nim/quickfixes.nim`](../../src/ned/nim/quickfixes.nim) | include 240 | the quick-fix list (Alt+Enter) for Nim and for the other languages: the fixes for the problems at the cursor, the refactorings the cursor's word allows, and the … |
-| [`nim/profile.nim`](../../src/ned/nim/profile.nim) | include 242 | Nim: run with ned's line profiler — a small module (kept in this file as text) is imported into the program, which samples where it is about every millisecond and … |
-| [`nim/flame.nim`](../../src/ned/nim/flame.nim) | include 243 | the profile as a flame graph: each call stack the profiler saw, the program at the top and what each proc called below it, as wide as the time it took — a tap on a … |
-| [`nim/misc.nim`](../../src/ned/nim/misc.nim) | include 246 | small Nim commands that need no engine: share to the Nim Playground, switch the Nim version (choosenim or grabnim), browse the standard library's names, and list a … |
-| [`nim/nimbletree.nim`](../../src/ned/nim/nimbletree.nim) | include 247 | Nimble: the dependency tree — what the project requires, what that requires in turn, and what is installed |
-| [`nim/refactor/extract.nim`](../../src/ned/nim/refactor/extract.nim) | include 255 | Nim refactors: extract a proc, sort imports, proc ⇄ func |
-| [`nim/nimbleupdates.nim`](../../src/ned/nim/nimbleupdates.nim) | include 256 | Nimble: which dependencies have newer versions (each package's git tags), and moving a requirement up |
-| [`nim/nimbleedit.nim`](../../src/ned/nim/nimbleedit.nim) | include 257 | Editing a .nimble (and a config.nims): the versions a `requires` can name (installed, and the package's git tags) completed and on hover, a dependency added from the … |
-| [`nim/ciworkflow.nim`](../../src/ned/nim/ciworkflow.nim) | include 271 | Nim: add a CI workflow — .github/workflows/ci.yml for the project: its dependencies, build and tests on Linux and macOS with the oldest Nim its .nimble allows and the … |
-| [`nim/extras.nim`](../../src/ned/nim/extras.nim) | include 282 | Nim: what a proc can raise · benchmark a call · nimble release |
-| [`nim/examples.nim`](../../src/ned/nim/examples.nim) | include 283 | Nim: run runnableExamples — the ▶ beside them runs one block, "run all examples" every block in the file |
-| [`nim/worker.nim`](../../src/ned/nim/worker.nim) | include 288 | the engine worker (nim.engineWorker): what the Nim engine works out at length — type and parameter hints, its own checks, misspelled names — worked out by a second … |
-| [`nim/pkgwatch.nim`](../../src/ned/nim/pkgwatch.nim) | include 289 | nimble packages installed (or removed) while ned runs: in ned's terminal, another one, or by nimble setup / atlas |
-| [`nim/warmindex.nim`](../../src/ned/nim/warmindex.nim) | include 299 | ned --warm-index (6.32): Nim's standard library parsed once into the index cache (~/.cache/ned/index), so that the first session's completion, hover and checks start … |
+| [`nim/nimony.nim`](../../src/ned/nim/nimony.nim) | include 54 | Nim 3 (Nimony). A project built with `nimony` (nim.compiler: "nimony", best in its .ned/settings.json) is Nim 3: ned's engine matches names as written (Nim 3 is … |
+| [`nim/typingcheck.nim`](../../src/ned/nim/typingcheck.nim) | include 59 | errors while you type, from the compiler: the unsaved text checked as it is `nim check -` reads the module from stdin |
+| [`nim/project.nim`](../../src/ned/nim/project.nim) | include 67 | Tools, nimble projects, scratch buffers |
+| [`nim/nimsuggest.nim`](../../src/ned/nim/nimsuggest.nim) | include 68 | Built-in nimsuggest client — completion, hover, definition, references, signatures, outline, macro expansion and live checks with a stock `nim` install |
+| [`nim/nimsuggestread.nim`](../../src/ned/nim/nimsuggestread.nim) | include 70 | reading nimsuggest's answers: its output is split into replies, and each reply is turned into what the request asked for — completion, go to definition, hover, … |
+| [`nim/oracle.nim`](../../src/ned/nim/oracle.nim) | include 71 | Nim: the compiler as an oracle in the background (nim.compilerOracle) What ned's engine cannot work out by reading — the type of a let whose value a macro makes, a … |
+| [`nim/compileranswers.nim`](../../src/ned/nim/compileranswers.nim) | include 72 | Nim: the compiler's answer where the engine has none, without nimsuggest kept running (nim.nimsuggest off): one nimsuggest run for the one question (hover, Go to … |
+| [`nim/engine.nim`](../../src/ned/nim/engine.nim) | include 77 | The Nim engine in the editor: when it is on, the toolchain it reads, nim dump and the library paths, the dependencies |
+| [`nim/semantic.nim`](../../src/ned/nim/semantic.nim) | include 79 | colours from the index: a name is coloured by what it is (proc, template, type, constant, field, parameter, module), not by its case — and by where it stands: after a … |
+| [`nim/answers.nim`](../../src/ned/nim/answers.nim) | include 80 | the answers of ned's own Nim engine to the editor: completion (with its postfix templates), signature help, hover, go to definition, find references and rename — and … |
+| [`nim/oraclerun.nim`](../../src/ned/nim/oraclerun.nim) | include 81 | Nim: the oracle's questions and its runs (nim/oracle has what it keeps) |
+| [`nim/reflens.nim`](../../src/ned/nim/reflens.nim) | include 82 | reference counts beside Nim declarations ("3 references" |
+| [`nim/highlights.nim`](../../src/ned/nim/highlights.nim) | include 83 | the uses in this file of what the name at the cursor names (as clangd's document highlights), resolved by ned's engine: a local of another proc, a field of another … |
+| [`nim/copies.nim`](../../src/ned/nim/copies.nim) | include 84 | where ARC/ORC copies: after a save the compiler expands the file's routines (nim c --expandArc) and each =copy / =dup it inserted is marked beside what it copies … |
+| [`nim/outline.nim`](../../src/ned/nim/outline.nim) | include 85 | the Nim file's outline for the side panel and the Ctrl+T symbol list, built from the engine's declarations (a heuristic outline when the engine fails), plus a … |
+| [`nim/messages.nim`](../../src/ned/nim/messages.nim) | include 87 | Navigation helpers: find, goto, symbols, definitions, diagnostics |
+| [`nim/nimapis.nim`](../../src/ned/nim/nimapis.nim) | include 88 | generated by .github/ci/nimapis.py: the standard-library names and modules each Nim release added (a release step: the release before it, it, modules new in it, … |
+| [`nim/nim3checks.nim`](../../src/ned/nim/nim3checks.nim) | include 89 | Nim 3 (Nimony): what Nim 2 code must change to compile under Nimony (doc/porting.md, each rule checked against what nimony 0.6.3 itself rejects — closure iterators … |
+| [`nim/enginechecks.nim`](../../src/ned/nim/enginechecks.nim) | include 90 | checks from ned's own Nim engine, at once while you type (no compiler): code after a return, a field or proc that is not there (with the name meant), a call with too … |
+| [`nim/macronames.nim`](../../src/ned/nim/macronames.nim) | include 91 | names a macro makes, from the compiler: a module's top-level macro calls (makeProcs(Foo, Bar) at the left margin) expanded once by `nim check --expandMacro`, and what … |
+| [`nim/why.nim`](../../src/ned/nim/why.nim) | include 98 | why? (6.32): where an exception or a side effect comes from — the place in the routine where it comes in, the routine called there, the place in that one, … down to … |
+| [`nim/commands.nim`](../../src/ned/nim/commands.nim) | include 101 | the commands for Nim work: unused exports, expanding templates and macros, the ARC view and the generated C, call hierarchy, peek definition and references, find … |
+| [`nim/toolchain.nim`](../../src/ned/nim/toolchain.nim) | include 108 | one Nim per project (nim.toolchain): the Nim a project builds with, for every tool ned starts — nim, nimble, nimsuggest, nimlangserver, testament, the terminal — by … |
+| [`nim/projectchecks.nim`](../../src/ned/nim/projectchecks.nim) | include 109 | the project's own checks: a package imported that the .nimble does not require (a quick fix adds the line), a requirement nothing imports, exported routines nothing … |
+| [`nim/macroview.nim`](../../src/ned/nim/macroview.nim) | include 117 | macros you can see (6.32): what a macro or template call writes, folded under the call — rows that are not text (Buffer.vrows), coloured as Nim |
+| [`nim/atlas.nim`](../../src/ned/nim/atlas.nim) | include 123 | Atlas (nim-lang/atlas): a project whose dependencies are in its own deps/ folder |
+| [`nim/nifview.nim`](../../src/ned/nim/nifview.nim) | include 178 | NIF, Nim 3's code between its passes (nifread.nim reads it): its outline |
+| [`nim/nimnif.nim`](../../src/ned/nim/nimnif.nim) | include 179 | what the compiler made of a saved file, read from its NIF: Nim 2.4's `nim nif` (run in place of `nim check` on save: the same messages, about the same time — and, for … |
+| [`nim/nifprint.nim`](../../src/ned/nim/nifprint.nim) | include 180 | what a macro call made, shown under the call (Alt+M) at once from the saved file's NIF (Nim 2.4's `nim nif`, nimony) instead of running the compiler again — written … |
+| [`nim/nifcolors.nim`](../../src/ned/nim/nifcolors.nim) | include 181 | colours from the compiler's reading of a saved file (nimnif.nim: Nim 2.4's `nim nif`, or nimony with Nim 3): what each name is as the compiler resolved it — a name a … |
+| [`nim/pnak.nim`](../../src/ned/nim/pnak.nim) | include 182 | pnak, Nim 3's package tool: its pnak.nif lockfile (every package at its commit) read — the outline, hover, F12 to the package's checkout, its problems — and pnak … |
+| [`nim/astview.nim`](../../src/ned/nim/astview.nim) | include 183 | the AST view (Nim: AST view): the code's tree as a macro gets it — `body: untyped` — from Nim's own parser (nim e, parseStmt + treeRepr), and what the macro or … |
+| [`nim/aifix.nim`](../../src/ned/nim/aifix.nim) | include 214 | quick fixes of our own: Nim imports, AI fix/explain |
+| [`nim/stdindex.nim`](../../src/ned/nim/stdindex.nim) | include 216 | Nim: an index of what the standard library exports (for "import std/…" quick fixes) |
+| [`nim/codegen.nim`](../../src/ned/nim/codegen.nim) | include 217 | Nim code generation: missing case branches, $ / == / hash / constructor, doc comment, run a selection |
+| [`nim/refactors.nim`](../../src/ned/nim/refactors.nim) | include 218 | refactors: extract a variable, inline one, "a" & x → fmt"a{x}", and evaluating Nim at compile time |
+| [`nim/fixes.nim`](../../src/ned/nim/fixes.nim) | include 234 | Nim: quick fixes from the compiler's messages (Alt+Enter on the line) Each fix is worked out from the message and the text alone — a list of edits — so it can be … |
+| [`nim/refactor/core.nim`](../../src/ned/nim/refactor/core.nim) | include 235 | Nim refactorings across the project: change a routine's signature, inline it, move it to another module The places are the built-in engine's references (Find references) |
+| [`nim/refactor/signature.nim`](../../src/ned/nim/refactor/signature.nim) | include 236 | Nim: change signature — a proc's parameters reordered, renamed, added or removed, every call updated |
+| [`nim/refactor/inline.nim`](../../src/ned/nim/refactor/inline.nim) | include 237 | inline a routine: each call becomes its body |
+| [`nim/refactor/move.nim`](../../src/ned/nim/refactor/move.nim) | include 238 | move a top-level declaration to another module |
+| [`nim/refactor/reshape.nim`](../../src/ned/nim/refactor/reshape.nim) | include 239 | the bigger refactorings in the editor: object ⇄ ref object, a module split, callback → async, a call's syntax |
+| [`nim/rewrites.nim`](../../src/ned/nim/rewrites.nim) | include 240 | Nim rewrites in the quick-fix list (Alt+Enter), learned from other languages' servers: the type a let or var gets written out (rust-analyzer, Pylance), a call written … |
+| [`nim/quickfixes.nim`](../../src/ned/nim/quickfixes.nim) | include 241 | the quick-fix list (Alt+Enter) for Nim and for the other languages: the fixes for the problems at the cursor, the refactorings the cursor's word allows, and the … |
+| [`nim/profile.nim`](../../src/ned/nim/profile.nim) | include 243 | Nim: run with ned's line profiler — a small module (kept in this file as text) is imported into the program, which samples where it is about every millisecond and … |
+| [`nim/flame.nim`](../../src/ned/nim/flame.nim) | include 244 | the profile as a flame graph: each call stack the profiler saw, the program at the top and what each proc called below it, as wide as the time it took — a tap on a … |
+| [`nim/misc.nim`](../../src/ned/nim/misc.nim) | include 247 | small Nim commands that need no engine: share to the Nim Playground, switch the Nim version (choosenim or grabnim), browse the standard library's names, and list a … |
+| [`nim/nimbletree.nim`](../../src/ned/nim/nimbletree.nim) | include 248 | Nimble: the dependency tree — what the project requires, what that requires in turn, and what is installed |
+| [`nim/refactor/extract.nim`](../../src/ned/nim/refactor/extract.nim) | include 256 | Nim refactors: extract a proc, sort imports, proc ⇄ func |
+| [`nim/nimbleupdates.nim`](../../src/ned/nim/nimbleupdates.nim) | include 257 | Nimble: which dependencies have newer versions (each package's git tags), and moving a requirement up |
+| [`nim/nimbleedit.nim`](../../src/ned/nim/nimbleedit.nim) | include 258 | Editing a .nimble (and a config.nims): the versions a `requires` can name (installed, and the package's git tags) completed and on hover, a dependency added from the … |
+| [`nim/ciworkflow.nim`](../../src/ned/nim/ciworkflow.nim) | include 272 | Nim: add a CI workflow — .github/workflows/ci.yml for the project: its dependencies, build and tests on Linux and macOS with the oldest Nim its .nimble allows and the … |
+| [`nim/extras.nim`](../../src/ned/nim/extras.nim) | include 283 | Nim: what a proc can raise · benchmark a call · nimble release |
+| [`nim/examples.nim`](../../src/ned/nim/examples.nim) | include 284 | Nim: run runnableExamples — the ▶ beside them runs one block, "run all examples" every block in the file |
+| [`nim/worker.nim`](../../src/ned/nim/worker.nim) | include 289 | the engine worker (nim.engineWorker): what the Nim engine works out at length — type and parameter hints, its own checks, misspelled names — worked out by a second … |
+| [`nim/pkgwatch.nim`](../../src/ned/nim/pkgwatch.nim) | include 290 | nimble packages installed (or removed) while ned runs: in ned's terminal, another one, or by nimble setup / atlas |
+| [`nim/warmindex.nim`](../../src/ned/nim/warmindex.nim) | include 300 | ned --warm-index (6.32): Nim's standard library parsed once into the index cache (~/.cache/ned/index), so that the first session's completion, hover and checks start … |
 | [`nim/index/complete.nim`](../../src/ned/nim/index/complete.nim) |  | answers: completion, hover, definition, signature help |
 | [`nim/index/concepts.nim`](../../src/ned/nim/index/concepts.nim) |  | concepts: which types satisfy one |
 | [`nim/index/consteval.nim`](../../src/ned/nim/index/consteval.nim) |  | compile-time values: a constant expression worked out the way the compiler would, as far as the index knows the names in it — numbers (with shl, and, xor …), strings, … |
@@ -372,9 +373,9 @@ The plugin host (host.nim) and the library plugins are written with (lib/).
 
 | file | | what it is |
 |---|---|---|
-| [`plugins/decor.nim`](../../src/ned/plugins/decor.nim) | include 34 | plugins: what they put in the editor (gutter signs, text after a line, highlights, status-bar items) and what they declare that the editor's own parts read … |
-| [`plugins/perms.nim`](../../src/ned/plugins/perms.nim) | include 290 | plugin permissions: what a plugin may do beyond editing — run programs, use the network, change files, read and set the clipboard |
-| [`plugins/host.nim`](../../src/ned/plugins/host.nim) | include 291 | Plugins: folders with a plugin.nims (yours: ~/.config/ned/plugins/<name>, a project's: .ned/plugins/<name>, once you trust the folder) run together in one NimScript … |
+| [`plugins/decor.nim`](../../src/ned/plugins/decor.nim) | include 35 | plugins: what they put in the editor (gutter signs, text after a line, highlights, status-bar items) and what they declare that the editor's own parts read … |
+| [`plugins/perms.nim`](../../src/ned/plugins/perms.nim) | include 291 | plugin permissions: what a plugin may do beyond editing — run programs, use the network, change files, read and set the clipboard |
+| [`plugins/host.nim`](../../src/ned/plugins/host.nim) | include 292 | Plugins: folders with a plugin.nims (yours: ~/.config/ned/plugins/<name>, a project's: .ned/plugins/<name>, once you trust the folder) run together in one NimScript … |
 | [`plugins/lib/nedlsp.nim`](../../src/ned/plugins/lib/nedlsp.nim) |  | nedlsp — a language server in NimScript |
 | [`plugins/lib/nedplugin.nim`](../../src/ned/plugins/lib/nedplugin.nim) |  | nedplugin — what a ned plugin imports |
 
@@ -384,10 +385,10 @@ Projects and workspaces: the file tree, project search, remote folders over SSH.
 
 | file | | what it is |
 |---|---|---|
-| [`project/files.nim`](../../src/ned/project/files.nim) | include 44 | The project's files: scanned in the background for the picker, the file tree's folders loaded and shown |
-| [`project/remote.nim`](../../src/ned/project/remote.nim) | include 50 | remote folders over SSH: a local copy to edit (tree, search, language servers work as usual) |
-| [`project/workspaces.nim`](../../src/ned/project/workspaces.nim) | include 208 | multi-root workspaces: several folders in one window (tree, quick open, search, language servers) |
-| [`project/remotesync.nim`](../../src/ned/project/remotesync.nim) | include 209 | remote folders over SSH, the working part: the saved list of them, the shared ssh connection, copying the server's files to the local copy (the first pull, the … |
+| [`project/files.nim`](../../src/ned/project/files.nim) | include 45 | The project's files: scanned in the background for the picker, the file tree's folders loaded and shown |
+| [`project/remote.nim`](../../src/ned/project/remote.nim) | include 51 | remote folders over SSH: a local copy to edit (tree, search, language servers work as usual) |
+| [`project/workspaces.nim`](../../src/ned/project/workspaces.nim) | include 209 | multi-root workspaces: several folders in one window (tree, quick open, search, language servers) |
+| [`project/remotesync.nim`](../../src/ned/project/remotesync.nim) | include 210 | remote folders over SSH, the working part: the saved list of them, the shared ssh connection, copying the server's files to the local copy (the first pull, the … |
 
 ## run
 
@@ -395,14 +396,14 @@ Running things: jobs, the output panel, tasks, tests.
 
 | file | | what it is |
 |---|---|---|
-| [`run/process.nim`](../../src/ned/run/process.nim) | include 52 | Background jobs: run/build, checks, git |
-| [`run/cerrors.nim`](../../src/ned/run/cerrors.nim) | include 54 | C compiler errors in emitted code: the generated C file (nimcache/@mfile.nim.c) → the line in the .nim |
-| [`run/output.nim`](../../src/ned/run/output.nim) | include 55 | the Output panel's side of running commands: turning a running job's output into panel lines and problems (compiler messages with their file and line), starting, … |
-| [`run/configs.nim`](../../src/ned/run/configs.nim) | include 56 | run configurations ("run.configs"): the project's ways to run, one of them chosen for Alt+R / ▶ |
-| [`run/checks.nim`](../../src/ned/run/checks.nim) | include 57 | the check that runs when a file is saved: which checker command suits a language, running it as a background job and turning its output into the file's problems, and … |
-| [`run/memcheck.nim`](../../src/ned/run/memcheck.nim) | include 244 | Run with memory checks: the program built with the compiler's address and undefined-behaviour checks (AddressSanitizer, UndefinedBehaviorSanitizer |
-| [`run/configsui.nim`](../../src/ned/run/configsui.nim) | include 281 | Run › Configurations, run with arguments |
-| [`run/tasks.nim`](../../src/ned/run/tasks.nim) | include 284 | Tasks: the project's Makefile targets, package.json scripts, just recipes, Taskfile tasks, cargo, go and nimble — one list (F4 runs the last one again, Shift+F4 … |
+| [`run/process.nim`](../../src/ned/run/process.nim) | include 53 | Background jobs: run/build, checks, git |
+| [`run/cerrors.nim`](../../src/ned/run/cerrors.nim) | include 55 | C compiler errors in emitted code: the generated C file (nimcache/@mfile.nim.c) → the line in the .nim |
+| [`run/output.nim`](../../src/ned/run/output.nim) | include 56 | the Output panel's side of running commands: turning a running job's output into panel lines and problems (compiler messages with their file and line), starting, … |
+| [`run/configs.nim`](../../src/ned/run/configs.nim) | include 57 | run configurations ("run.configs"): the project's ways to run, one of them chosen for Alt+R / ▶ |
+| [`run/checks.nim`](../../src/ned/run/checks.nim) | include 58 | the check that runs when a file is saved: which checker command suits a language, running it as a background job and turning its output into the file's problems, and … |
+| [`run/memcheck.nim`](../../src/ned/run/memcheck.nim) | include 245 | Run with memory checks: the program built with the compiler's address and undefined-behaviour checks (AddressSanitizer, UndefinedBehaviorSanitizer |
+| [`run/configsui.nim`](../../src/ned/run/configsui.nim) | include 282 | Run › Configurations, run with arguments |
+| [`run/tasks.nim`](../../src/ned/run/tasks.nim) | include 285 | Tasks: the project's Makefile targets, package.json scripts, just recipes, Taskfile tasks, cargo, go and nimble — one list (F4 runs the last one again, Shift+F4 … |
 
 ## sys
 
@@ -420,13 +421,13 @@ The terminal: its output, the built-in terminal emulator, keys and mouse read fr
 
 | file | | what it is |
 |---|---|---|
-| [`term/pty.nim`](../../src/ned/term/pty.nim) | include 139 | Integrated terminal: pseudo-terminal + xterm-subset emulator |
-| [`term/shell.nim`](../../src/ned/term/shell.nim) | include 140 | shell integration: the shell marks each prompt, command line, output and exit code (OSC 133) |
-| [`term/vt.nim`](../../src/ned/term/vt.nim) | include 141 | the terminal emulator's core: creating a terminal and its shell, the screen and scrollback, and the parser that turns what the shell prints (UTF-8, escape and CSI … |
-| [`term/repltabs.nim`](../../src/ned/term/repltabs.nim) | include 142 | REPL tabs: code is typed in once the REPL shows its prompt |
-| [`term/panel.nim`](../../src/ned/term/panel.nim) | include 143 | the terminal panel: reading the shells' output, drawing one terminal or two side by side with their tabs, command marks and scrollback, and handling their keys, … |
-| [`term/repl.nim`](../../src/ned/term/repl.nim) | include 249 | Nim helpers: REPL, export marker, docs, nimble dependencies |
-| [`term/termhost.nim`](../../src/ned/term/termhost.nim) | include 295 | Terminals that outlive ned (terminal.keepRunning) |
+| [`term/pty.nim`](../../src/ned/term/pty.nim) | include 140 | Integrated terminal: pseudo-terminal + xterm-subset emulator |
+| [`term/shell.nim`](../../src/ned/term/shell.nim) | include 141 | shell integration: the shell marks each prompt, command line, output and exit code (OSC 133) |
+| [`term/vt.nim`](../../src/ned/term/vt.nim) | include 142 | the terminal emulator's core: creating a terminal and its shell, the screen and scrollback, and the parser that turns what the shell prints (UTF-8, escape and CSI … |
+| [`term/repltabs.nim`](../../src/ned/term/repltabs.nim) | include 143 | REPL tabs: code is typed in once the REPL shows its prompt |
+| [`term/panel.nim`](../../src/ned/term/panel.nim) | include 144 | the terminal panel: reading the shells' output, drawing one terminal or two side by side with their tabs, command marks and scrollback, and handling their keys, … |
+| [`term/repl.nim`](../../src/ned/term/repl.nim) | include 250 | Nim helpers: REPL, export marker, docs, nimble dependencies |
+| [`term/termhost.nim`](../../src/ned/term/termhost.nim) | include 296 | Terminals that outlive ned (terminal.keepRunning) |
 
 ## testing
 
@@ -435,14 +436,14 @@ Test coverage and profiles read for the gutter.
 | file | | what it is |
 |---|---|---|
 | [`testing/gcovdata.nim`](../../src/ned/testing/gcovdata.nim) | module | Nim test coverage, the parts that stand on their own (unit-tested in tests/unit/tgcov.nim): Nim's C (built with --lineDir:on) puts a `#line N "file.nim"` before each … |
-| [`testing/runners.nim`](../../src/ned/testing/runners.nim) | include 196 | tests (std/unittest): explorer view, gutter ▶, run single tests |
-| [`testing/testament.nim`](../../src/ned/testing/testament.nim) | include 197 | testament (the Nim compiler's test runner): a file whose first statement is a `discard """…"""` spec |
-| [`testing/aitests.nim`](../../src/ned/testing/aitests.nim) | include 198 | tests the AI writes, kept only when they compile and pass |
-| [`testing/explorer.nim`](../../src/ned/testing/explorer.nim) | include 199 | the test explorer: running every test of the project, the list of tests with their status in the side panel, and the run buttons (code lenses) shown on test lines in … |
-| [`testing/onsave.nim`](../../src/ned/testing/onsave.nim) | include 200 | tests on save: the std/unittest file you save — or, saving a module, the test files that import it — compiled and run in the background (nim.testOnSave): ✓ / ✗ beside … |
-| [`testing/aifixtest.nim`](../../src/ned/testing/aifixtest.nim) | include 214 | AI: fix a failing test — the test, its failure and the code it tests go to the model |
-| [`testing/coverage.nim`](../../src/ned/testing/coverage.nim) | include 241 | Nim: test coverage, profiling, playground, compiler versions, docs browser, nimble view |
-| [`testing/proctests.nim`](../../src/ned/testing/proctests.nim) | include 245 | Tests for this proc, from running it: the proc called with arguments its parameters' types suggest (0, 1, 42 |
+| [`testing/runners.nim`](../../src/ned/testing/runners.nim) | include 197 | tests (std/unittest): explorer view, gutter ▶, run single tests |
+| [`testing/testament.nim`](../../src/ned/testing/testament.nim) | include 198 | testament (the Nim compiler's test runner): a file whose first statement is a `discard """…"""` spec |
+| [`testing/aitests.nim`](../../src/ned/testing/aitests.nim) | include 199 | tests the AI writes, kept only when they compile and pass |
+| [`testing/explorer.nim`](../../src/ned/testing/explorer.nim) | include 200 | the test explorer: running every test of the project, the list of tests with their status in the side panel, and the run buttons (code lenses) shown on test lines in … |
+| [`testing/onsave.nim`](../../src/ned/testing/onsave.nim) | include 201 | tests on save: the std/unittest file you save — or, saving a module, the test files that import it — compiled and run in the background (nim.testOnSave): ✓ / ✗ beside … |
+| [`testing/aifixtest.nim`](../../src/ned/testing/aifixtest.nim) | include 215 | AI: fix a failing test — the test, its failure and the code it tests go to the model |
+| [`testing/coverage.nim`](../../src/ned/testing/coverage.nim) | include 242 | Nim: test coverage, profiling, playground, compiler versions, docs browser, nimble view |
+| [`testing/proctests.nim`](../../src/ned/testing/proctests.nim) | include 246 | Tests for this proc, from running it: the proc called with arguments its parameters' types suggest (0, 1, 42 |
 
 ## ui
 
@@ -450,54 +451,54 @@ Drawing and the interface: the frame, the editor view, docks, the panel, popups,
 
 | file | | what it is |
 |---|---|---|
-| [`ui/actions.nim`](../../src/ned/ui/actions.nim) | include 96 | Nim tooling, nimble/atlas/nimony, git, outline |
-| [`ui/outline.nim`](../../src/ned/ui/outline.nim) | include 103 | the outline of files no language server outlines: by indentation and headings, JSON and JavaScript |
-| [`ui/fieldsel.nim`](../../src/ned/ui/fieldsel.nim) | include 104 | one-line text fields (prompts, the picker's query, the dock's search, forms): the selection in them A field is its text variable: the selection belongs to the field … |
-| [`ui/pickers.nim`](../../src/ned/ui/pickers.nim) | include 105 | Pickers (command palette, files, symbols, buffers, themes, languages) |
-| [`ui/prompts.nim`](../../src/ned/ui/prompts.nim) | include 106 | Prompts (find, replace, goto, save as, run, search, file ops) |
-| [`ui/themefiles.nim`](../../src/ned/ui/themefiles.nim) | include 109 | themes: the terminal's background (auto), your own theme files, importing VS Code and base16 themes |
-| [`ui/promptkeys.nim`](../../src/ned/ui/promptkeys.nim) | include 112 | what the prompts do when answered, and their keys: the commands that start from a prompt or a folder (editing a theme's colours, opening a folder, moving a file) and … |
-| [`ui/render.nim`](../../src/ned/ui/render.nim) | include 113 | A frame: the editor, docks, panel, popups and bars drawn in order |
-| [`ui/icons.nim`](../../src/ned/ui/icons.nim) | include 114 | Desktop chrome: icons, clickable regions, tooltips, toasts, dialogs, menus |
-| [`ui/regions.nim`](../../src/ned/ui/regions.nim) | include 115 | clickable regions (rebuilt every frame |
-| [`ui/dialogs.nim`](../../src/ned/ui/dialogs.nim) | include 117 | notifications (toasts) and dialogs: showing one, asking yes or no, closing |
-| [`ui/menus.nim`](../../src/ned/ui/menus.nim) | include 118 | drop-down and context menus: opening one, its width and scrolling, the keys and clicks in it |
-| [`ui/fields.nim`](../../src/ned/ui/fields.nim) | include 119 | one-line fields drawn: the text in view, its selection, and the mouse in it (a press places the cursor, a drag selects, a double click a word, a triple click … |
-| [`ui/popupdraw.nim`](../../src/ned/ui/popupdraw.nim) | include 120 | notifications, dialogs and tooltips drawn, and the keys in a dialog |
-| [`ui/forms.nim`](../../src/ned/ui/forms.nim) | include 121 | forms: dialogs with fields, as a desktop app has them — check boxes, choices (a drop-down list), text fields, links, buttons |
-| [`ui/layout.nim`](../../src/ned/ui/layout.nim) | include 123 | Layout: title bar · docks · tabs · breadcrumbs · editor · bottom panel · status |
-| [`ui/menubar.nim`](../../src/ned/ui/menubar.nim) | include 124 | the menu bar's menus and their items (each a command), File › Open Recent, and a command run by its name |
-| [`ui/titlebar.nim`](../../src/ned/ui/titlebar.nim) | include 125 | the title bar: the menu bar's names, the project's name, the window's buttons |
-| [`ui/tabbar.nim`](../../src/ned/ui/tabbar.nim) | include 126 | the editor's tab bar: tabs drawn, scrolled, dragged and closed, each with its right-click menu |
-| [`ui/breadcrumbs.nim`](../../src/ned/ui/breadcrumbs.nim) | include 127 | the breadcrumbs above the editor: the folders and symbols down to the cursor, each a menu of its neighbours |
-| [`ui/docks.nim`](../../src/ned/ui/docks.nim) | include 128 | Docks: left (files · search · git · nim · tests) and right (assistant · outline · timeline) |
-| [`ui/todosdock.nim`](../../src/ned/ui/todosdock.nim) | include 129 | TODO comments: open files, the project scan, the dock's list |
-| [`ui/lists.nim`](../../src/ned/ui/lists.nim) | include 130 | the docks' lists — files, search results, git changes, tests, TODOs — built and drawn, and what a pick or a right click on an item does |
-| [`ui/filetree.nim`](../../src/ned/ui/filetree.nim) | include 131 | the file tree: drawn, and its right-click menu |
-| [`ui/dockframe.nim`](../../src/ned/ui/dockframe.nim) | include 132 | the docks' frames: headers and buttons, the search and replace rows, the keys in each dock |
-| [`ui/panel.nim`](../../src/ned/ui/panel.nim) | include 133 | Bottom panel (problems · output · terminal · results), status bar, inputs, minimap |
-| [`ui/statusbar.nim`](../../src/ned/ui/statusbar.nim) | include 134 | the status bar — mode, position, language, the chips for the engine, clangd, trust, a newer ned … — and the touch bar |
-| [`ui/quickinput.nim`](../../src/ned/ui/quickinput.nim) | include 135 | quick input (prompts) and the find widget |
-| [`ui/minimap.nim`](../../src/ned/ui/minimap.nim) | include 136 | the minimap: the file in small beside the editor, with its marks |
-| [`ui/settingsui.nim`](../../src/ned/ui/settingsui.nim) | include 137 | settings UI: every option in one filterable list |
-| [`ui/mdpreview.nim`](../../src/ned/ui/mdpreview.nim) | include 158 | the Markdown preview's renderer: paragraphs reflowed, headings, lists nested (task lists ☐ ☑), quotes nested (GitHub's > [!NOTE] too), tables with their columns lined … |
-| [`ui/welcome.nim`](../../src/ned/ui/welcome.nim) | include 160 | the welcome page shown when nothing is open — logo, start actions, recent files, toolchain status and a tip — with its single-key actions |
-| [`ui/codeline.nim`](../../src/ned/ui/codeline.nim) | include 162 | drawing one line of code in its syntax colours, without the cursor or selection, for places that show a line out of the editor (sticky headers, previews) |
-| [`ui/doclines.nim`](../../src/ned/ui/doclines.nim) | include 164 | which inlay hints may be drawn on a line of the editor, and the tables that keep the Markdown previews' lines and the previews' and diffs' cursor lines between frames |
-| [`ui/diffview.nim`](../../src/ned/ui/diffview.nim) | include 165 | a side-by-side diff: lines aligned, removed red on the left, added green on the right, changed words marked |
-| [`ui/editorview.nim`](../../src/ned/ui/editorview.nim) | include 169 | drawing the editor's text area: the lines with their syntax colours, gutter, selections, matches, problems, guides, hints, sticky headers, scroll bar and the headers … |
-| [`ui/popups.nim`](../../src/ned/ui/popups.nim) | include 170 | the popups drawn over the editor: the completion list with its documentation, the hover box, the picker (command palette, files, symbols …) with its preview, the … |
-| [`ui/zen.nim`](../../src/ned/ui/zen.nim) | include 171 | zen mode: the editor alone, with the docks, panel and bars hidden, and only a quiet line of position info and messages at the bottom |
-| [`ui/split.nim`](../../src/ned/ui/split.nim) | include 172 | panes (6.31: tiled) — the editor area cut into panes, as many as fit, by a tree of splits (PaneNode): each split side by side or one above the other, its divider … |
-| [`ui/paneviews.nim`](../../src/ned/ui/paneviews.nim) | include 173 | (6.32) a terminal and the assistant in a pane of the editor, a tab among the files — beside the code rather than under it or in a dock: View › Panes › Terminal in a … |
-| [`ui/contextmenus.nim`](../../src/ned/ui/contextmenus.nim) | include 174 | context menus: what a right click (or a long press) offers, wherever it lands — a text field, the gutter, the status bar and each of its parts, the title bar, a … |
-| [`ui/frame.nim`](../../src/ned/ui/frame.nim) | include 184 | drawing one whole frame of the screen — the order everything is drawn in — and the terminal's pointer shape and window title that follow it |
-| [`ui/gutter.nim`](../../src/ned/ui/gutter.nim) | include 204 | gutter clicks: fold markers and run buttons |
-| [`ui/editormenu.nim`](../../src/ned/ui/editormenu.nim) | include 210 | opening a folder as the project, the editor's right-click menu, and scrolling by the mouse wheel in whichever part of the screen it is over |
-| [`ui/dragdrop.nim`](../../src/ned/ui/dragdrop.nim) | include 211 | drag and drop (ui.dragAndDrop): a tab off the tab bar onto a pane or an edge (split there), a file or folder from the file tree onto the editor (opened — at an edge, … |
-| [`ui/mouse.nim`](../../src/ned/ui/mouse.nim) | include 212 | drag handles (split divider, dock edges, bottom panel, scrollbar) and sizes from the keyboard |
-| [`ui/compare.nim`](../../src/ned/ui/compare.nim) | include 254 | the diff tab's keys, the commands that compare a file with its last commit or with another file, and the command that opens a Markdown preview |
-| [`ui/telescope.nim`](../../src/ned/ui/telescope.nim) | include 292 | Telescope: one finder for everything (as Neovim's telescope.nvim) — Alt+Shift+F, or *Telescope…* in the palette: a list of finders — files, live grep, symbols, … |
+| [`ui/actions.nim`](../../src/ned/ui/actions.nim) | include 97 | Nim tooling, nimble/atlas/nimony, git, outline |
+| [`ui/outline.nim`](../../src/ned/ui/outline.nim) | include 104 | the outline of files no language server outlines: by indentation and headings, JSON and JavaScript |
+| [`ui/fieldsel.nim`](../../src/ned/ui/fieldsel.nim) | include 105 | one-line text fields (prompts, the picker's query, the dock's search, forms): the selection in them A field is its text variable: the selection belongs to the field … |
+| [`ui/pickers.nim`](../../src/ned/ui/pickers.nim) | include 106 | Pickers (command palette, files, symbols, buffers, themes, languages) |
+| [`ui/prompts.nim`](../../src/ned/ui/prompts.nim) | include 107 | Prompts (find, replace, goto, save as, run, search, file ops) |
+| [`ui/themefiles.nim`](../../src/ned/ui/themefiles.nim) | include 110 | themes: the terminal's background (auto), your own theme files, importing VS Code and base16 themes |
+| [`ui/promptkeys.nim`](../../src/ned/ui/promptkeys.nim) | include 113 | what the prompts do when answered, and their keys: the commands that start from a prompt or a folder (editing a theme's colours, opening a folder, moving a file) and … |
+| [`ui/render.nim`](../../src/ned/ui/render.nim) | include 114 | A frame: the editor, docks, panel, popups and bars drawn in order |
+| [`ui/icons.nim`](../../src/ned/ui/icons.nim) | include 115 | Desktop chrome: icons, clickable regions, tooltips, toasts, dialogs, menus |
+| [`ui/regions.nim`](../../src/ned/ui/regions.nim) | include 116 | clickable regions (rebuilt every frame |
+| [`ui/dialogs.nim`](../../src/ned/ui/dialogs.nim) | include 118 | notifications (toasts) and dialogs: showing one, asking yes or no, closing |
+| [`ui/menus.nim`](../../src/ned/ui/menus.nim) | include 119 | drop-down and context menus: opening one, its width and scrolling, the keys and clicks in it |
+| [`ui/fields.nim`](../../src/ned/ui/fields.nim) | include 120 | one-line fields drawn: the text in view, its selection, and the mouse in it (a press places the cursor, a drag selects, a double click a word, a triple click … |
+| [`ui/popupdraw.nim`](../../src/ned/ui/popupdraw.nim) | include 121 | notifications, dialogs and tooltips drawn, and the keys in a dialog |
+| [`ui/forms.nim`](../../src/ned/ui/forms.nim) | include 122 | forms: dialogs with fields, as a desktop app has them — check boxes, choices (a drop-down list), text fields, links, buttons |
+| [`ui/layout.nim`](../../src/ned/ui/layout.nim) | include 124 | Layout: title bar · docks · tabs · breadcrumbs · editor · bottom panel · status |
+| [`ui/menubar.nim`](../../src/ned/ui/menubar.nim) | include 125 | the menu bar's menus and their items (each a command), File › Open Recent, and a command run by its name |
+| [`ui/titlebar.nim`](../../src/ned/ui/titlebar.nim) | include 126 | the title bar: the menu bar's names, the project's name, the window's buttons |
+| [`ui/tabbar.nim`](../../src/ned/ui/tabbar.nim) | include 127 | the editor's tab bar: tabs drawn, scrolled, dragged and closed, each with its right-click menu |
+| [`ui/breadcrumbs.nim`](../../src/ned/ui/breadcrumbs.nim) | include 128 | the breadcrumbs above the editor: the folders and symbols down to the cursor, each a menu of its neighbours |
+| [`ui/docks.nim`](../../src/ned/ui/docks.nim) | include 129 | Docks: left (files · search · git · nim · tests) and right (assistant · outline · timeline) |
+| [`ui/todosdock.nim`](../../src/ned/ui/todosdock.nim) | include 130 | TODO comments: open files, the project scan, the dock's list |
+| [`ui/lists.nim`](../../src/ned/ui/lists.nim) | include 131 | the docks' lists — files, search results, git changes, tests, TODOs — built and drawn, and what a pick or a right click on an item does |
+| [`ui/filetree.nim`](../../src/ned/ui/filetree.nim) | include 132 | the file tree: drawn, and its right-click menu |
+| [`ui/dockframe.nim`](../../src/ned/ui/dockframe.nim) | include 133 | the docks' frames: headers and buttons, the search and replace rows, the keys in each dock |
+| [`ui/panel.nim`](../../src/ned/ui/panel.nim) | include 134 | Bottom panel (problems · output · terminal · results), status bar, inputs, minimap |
+| [`ui/statusbar.nim`](../../src/ned/ui/statusbar.nim) | include 135 | the status bar — mode, position, language, the chips for the engine, clangd, trust, a newer ned … — and the touch bar |
+| [`ui/quickinput.nim`](../../src/ned/ui/quickinput.nim) | include 136 | quick input (prompts) and the find widget |
+| [`ui/minimap.nim`](../../src/ned/ui/minimap.nim) | include 137 | the minimap: the file in small beside the editor, with its marks |
+| [`ui/settingsui.nim`](../../src/ned/ui/settingsui.nim) | include 138 | settings UI: every option in one filterable list |
+| [`ui/mdpreview.nim`](../../src/ned/ui/mdpreview.nim) | include 159 | the Markdown preview's renderer: paragraphs reflowed, headings, lists nested (task lists ☐ ☑), quotes nested (GitHub's > [!NOTE] too), tables with their columns lined … |
+| [`ui/welcome.nim`](../../src/ned/ui/welcome.nim) | include 161 | the welcome page shown when nothing is open — logo, start actions, recent files, toolchain status and a tip — with its single-key actions |
+| [`ui/codeline.nim`](../../src/ned/ui/codeline.nim) | include 163 | drawing one line of code in its syntax colours, without the cursor or selection, for places that show a line out of the editor (sticky headers, previews) |
+| [`ui/doclines.nim`](../../src/ned/ui/doclines.nim) | include 165 | which inlay hints may be drawn on a line of the editor, and the tables that keep the Markdown previews' lines and the previews' and diffs' cursor lines between frames |
+| [`ui/diffview.nim`](../../src/ned/ui/diffview.nim) | include 166 | a side-by-side diff: lines aligned, removed red on the left, added green on the right, changed words marked |
+| [`ui/editorview.nim`](../../src/ned/ui/editorview.nim) | include 170 | drawing the editor's text area: the lines with their syntax colours, gutter, selections, matches, problems, guides, hints, sticky headers, scroll bar and the headers … |
+| [`ui/popups.nim`](../../src/ned/ui/popups.nim) | include 171 | the popups drawn over the editor: the completion list with its documentation, the hover box, the picker (command palette, files, symbols …) with its preview, the … |
+| [`ui/zen.nim`](../../src/ned/ui/zen.nim) | include 172 | zen mode: the editor alone, with the docks, panel and bars hidden, and only a quiet line of position info and messages at the bottom |
+| [`ui/split.nim`](../../src/ned/ui/split.nim) | include 173 | panes (6.31: tiled) — the editor area cut into panes, as many as fit, by a tree of splits (PaneNode): each split side by side or one above the other, its divider … |
+| [`ui/paneviews.nim`](../../src/ned/ui/paneviews.nim) | include 174 | (6.32) a terminal and the assistant in a pane of the editor, a tab among the files — beside the code rather than under it or in a dock: View › Panes › Terminal in a … |
+| [`ui/contextmenus.nim`](../../src/ned/ui/contextmenus.nim) | include 175 | context menus: what a right click (or a long press) offers, wherever it lands — a text field, the gutter, the status bar and each of its parts, the title bar, a … |
+| [`ui/frame.nim`](../../src/ned/ui/frame.nim) | include 185 | drawing one whole frame of the screen — the order everything is drawn in — and the terminal's pointer shape and window title that follow it |
+| [`ui/gutter.nim`](../../src/ned/ui/gutter.nim) | include 205 | gutter clicks: fold markers and run buttons |
+| [`ui/editormenu.nim`](../../src/ned/ui/editormenu.nim) | include 211 | opening a folder as the project, the editor's right-click menu, and scrolling by the mouse wheel in whichever part of the screen it is over |
+| [`ui/dragdrop.nim`](../../src/ned/ui/dragdrop.nim) | include 212 | drag and drop (ui.dragAndDrop): a tab off the tab bar onto a pane or an edge (split there), a file or folder from the file tree onto the editor (opened — at an edge, … |
+| [`ui/mouse.nim`](../../src/ned/ui/mouse.nim) | include 213 | drag handles (split divider, dock edges, bottom panel, scrollbar) and sizes from the keyboard |
+| [`ui/compare.nim`](../../src/ned/ui/compare.nim) | include 255 | the diff tab's keys, the commands that compare a file with its last commit or with another file, and the command that opens a Markdown preview |
+| [`ui/telescope.nim`](../../src/ned/ui/telescope.nim) | include 293 | Telescope: one finder for everything (as Neovim's telescope.nvim) — Alt+Shift+F, or *Telescope…* in the palette: a list of finders — files, live grep, symbols, … |
 
 ## web
 
@@ -506,7 +507,7 @@ Ned's own engines for CSS, HTML, SQL, JavaScript and JSON.
 | file | | what it is |
 |---|---|---|
 | [`web/web.nim`](../../src/ned/web/web.nim) | module | ned's own engines for CSS, HTML, SQL, JavaScript and JSON — completion, hover and problems from what they know of the languages and of your project (its stylesheets' … |
-| [`web/webui.nim`](../../src/ned/web/webui.nim) | include 287 | ned's own CSS, HTML, SQL, JavaScript and JSON in the editor: in .css / .scss / .less, .html, .sql, .js and .json files and where they are embedded (an HTML <style> or … |
+| [`web/webui.nim`](../../src/ned/web/webui.nim) | include 288 | ned's own CSS, HTML, SQL, JavaScript and JSON in the editor: in .css / .scss / .less, .html, .sql, .js and .json files and where they are embedded (an HTML <style> or … |
 | [`web/cssengine.nim`](../../src/ned/web/cssengine.nim) |  | ned's own CSS: where the cursor is (a selector, a property, its value …), what fits there, what a name is, and the mistakes a browser silently drops (an unknown … |
 | [`web/htmlengine.nim`](../../src/ned/web/htmlengine.nim) |  | ned's own HTML: where the cursor is (a tag's name, an attribute, its value, text), what fits there, what an element or attribute is, and the mistakes a browser … |
 | [`web/jsdata.nim`](../../src/ned/web/jsdata.nim) |  | data for ned's own JavaScript engine: the keywords, the standard, browser and Node globals, and the members of the objects scripts use most — names, signatures, one … |

@@ -38,8 +38,10 @@ proc cmdDebugGdb() =
   let py = if haveExe("gdb"): nimGdbScript() else: ""
   let dbg = if haveExe("gdb"): "gdb -q" & (if py.len > 0: " -ex " & quoteShell("source " & py) else: "") else: "lldb"
   let outp = privDir() / ("ned_debug_" & splitFile(b.path).name) & ExeDot
-  let cmd = "nim c --debugger:native --opt:none --gcc.options.debug:-g3 --clang.options.debug:-g3 --hints:off " & (if cfgNimFlags.len > 0: cfgNimFlags & " " else: "") &
-            "-o:" & quoteShell(outp) & " " & quoteShell(b.path) & " && " & dbg & " " & quoteShell(outp) & "\r"
+  let cmd = nimDebugBuildCmd("c", "--debugger:native --opt:none --gcc.options.debug:-g3 --clang.options.debug:-g3 " &
+                             "--hints:off " & (if cfgNimFlags.len > 0: cfgNimFlags & " " else: "") & "-o:" & quoteShell(outp),
+                             b.path, privDir() / "debug-cache" / splitFile(b.path).name) &
+            " && " & dbg & " " & quoteShell(outp) & "\r"
   setPanel(pkTerminal)
   focus = fPanel
   let t = shellTermObj()

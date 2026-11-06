@@ -147,7 +147,8 @@ What lasts between sessions is written by [`config/session.nim`](../../src/ned/c
 
 1. the command line: `--version`, `--check`, `--format`, `--lint`, `--doc-settings`, `--engine-worker` (this
    process becomes the [engine worker](engines.md#the-engine-worker)), `--term-host` (a [kept
-   terminal](integrations.md#the-terminal)) … and the files, with `FILE:LINE:COL` and `+LINE`;
+   terminal](integrations.md#the-terminal)), `--c-lines DIR` (a step of the debugger's build with Nim 2.4:
+   [`debug/clines.nim`](../../src/ned/debug/clines.nim)) … and the files, with `FILE:LINE:COL` and `+LINE`;
 2. a ned already running for you (`NED_SOCKET` set, as in ned's own terminal): the files are sent to it and this
    process ends (`remoteMain`);
 3. the languages, the state, the project folder (a folder argument, or the project the first file belongs to),

@@ -182,7 +182,15 @@ proc parseGas*(text, mainPath: string, f: AsmFilters): AsmResult =
       of ".data", ".bss": section = 1
       of ".section", ".pushsection":
         let nm = args.split({',', ' ', '\t'})[0]
-        section = if nm.startsWith(".text"): 0
+        # (Mach-O, clang on macOS: a segment and a section — __TEXT,__text is the code, __TEXT,__cstring or
+        # __DATA,__data the data, __DWARF … never shown)
+        let machSect = if nm.startsWith("__"): args.split({','})[min(1, args.split({','}).high)].strip else: ""
+        section = if nm == "__TEXT" and machSect == "__text": 0
+                  elif nm in ["__TEXT", "__DATA", "__DATA_CONST"] and machSect in
+                       ["__cstring", "__const", "__literal4", "__literal8", "__literal16", "__data", "__bss",
+                        "__common", "__mod_init_func"]: 1
+                  elif nm.startsWith("__"): 2
+                  elif nm.startsWith(".text"): 0
                   elif nm.startsWith(".rodata") or nm.startsWith(".data") or nm.startsWith(".bss") or
                        nm.startsWith(".tdata") or nm.startsWith(".tbss") or nm.startsWith(".lit") or
                        nm.startsWith(".cstring") or nm.startsWith("__TEXT,__cstring") or nm.startsWith(".init_array"):

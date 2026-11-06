@@ -15,8 +15,10 @@ type
     freed: seq[MemFrame]            # … and where it was freed
 
 func memDemangle(fn: string): string =
-  ## Nim's C names without their module mark (`grow__app_u12` → grow)
+  ## Nim's C names without their module mark (`grow__app_u12`, Nim 2.4's `grow_u0__app` → grow)
   result = fn.strip
+  let (n, _) = nimDemangle(result)
+  if n.len > 0: return n
   let k = result.find("__")
   if k > 0: result = result[0 ..< k]
 
@@ -239,13 +241,16 @@ proc memCheckCmd(b: Buffer, tmp: string): string =
   let prog = quoteShell(tmp / "prog" & ExeDot)
   var builds: seq[string]
   if b.lang.mode == lmNim:
-    let base = "nim " & (if cfgNimTarget == "cpp": "cpp" else: "c") & " --hints:off --debugger:native -d:useMalloc" &
-               (if cfgNimFlags.len > 0: " " & cfgNimFlags else: "") & " --nimcache:" & quoteShell(tmp / "nc") &
+    let sub = if cfgNimTarget == "cpp": "cpp" else: "c"
+    let base = "--hints:off --debugger:native -d:useMalloc" & (if cfgNimFlags.len > 0: " " & cfgNimFlags else: "") &
                " -o:" & prog
-    builds = @[base & " --passC:-fsanitize=address,undefined --passC:-fsanitize-recover=address" &
-                      " --passC:-fno-omit-frame-pointer --passL:-fsanitize=address,undefined " & f,
-               base & " --passC:-fsanitize=undefined --passL:-fsanitize=undefined " & f,
-               base & " " & f]
+    proc build(flags: string): string =
+      ## one of the builds, as one command (with Nim 2.4 it is three steps: nimDebugBuildCmd)
+      "{ " & nimDebugBuildCmd(sub, base & flags, b.path, tmp / "nc") & "; }"
+    builds = @[build(" --passC:-fsanitize=address,undefined --passC:-fsanitize-recover=address" &
+                     " --passC:-fno-omit-frame-pointer --passL:-fsanitize=address,undefined"),
+               build(" --passC:-fsanitize=undefined --passL:-fsanitize=undefined"),
+               build("")]
   else:
     let cpp = b.lang.id == "cpp"
     var cc = if cpp: "c++" else: "cc"

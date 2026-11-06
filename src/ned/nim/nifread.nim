@@ -334,6 +334,10 @@ proc nifTypeText*(ns: seq[NifNode], i: int, nimony: bool): string =
       if ns[j].depth <= ns[kids[1]].depth: break
       if ns[j].parent == kids[1] and ns[j].tag.len == 0: bounds.add ns[j].atom
     if el.len == 0 or bounds.len != 2: return ""
+    # (from 0: by its length, as it is written — and as ned's own engine shows it)
+    if bounds[0] in ["0", "+0"]:
+      try: return "array[" & $(parseInt(bounds[1].strip(trailing = false, chars = {'+'})) + 1) & ", " & el & "]"
+      except ValueError: discard
     "array[" & bounds[0] & ".." & bounds[1] & ", " & el & "]"
   else: ""
 
