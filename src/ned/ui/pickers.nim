@@ -70,6 +70,10 @@ proc refilterPicker(keepSel = false) =
         for w in pickQuery.toLowerAscii.splitWhitespace():
           if w notin pickItems[i].search: all = false
         if all: sc = -100_000
+      if sc != low(int) and pickKind == pickFile and sc > -100_000:
+        # (a file whose name is the query — `demo.nim` — before a longer name that starts with it, `demo.nimble`)
+        let l = pickItems[i].label.toLowerAscii
+        if l == lq or l.endsWith("/" & lq): sc += 1000
       if sc != low(int):
         pickItems[i].score = sc
         cand.add i

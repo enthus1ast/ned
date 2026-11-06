@@ -103,10 +103,11 @@ func cxKindIcon(k: CxKind): int =
   of cxMacro: 15
   of cxLabel: 18
 
-proc emitCxx(b: Buffer): CxFile =
-  ## the C++ this file emits as ned's C engine reads it — lines and columns the .nim file's own —, its headers:
-  ## its #includes, the file's header: pragmas, nimbase.h
-  result = cxLoad(b.path, emitCode(b.lines) & "\n", "emit:" & $b.id & ":" & $b.changeId, cpp = true)
+proc emitCxx(b: Buffer, cpp = true): CxFile =
+  ## the C++ (or, cpp false, the C) this file emits as ned's C engine reads it — lines and columns the .nim file's
+  ## own —, its headers: its #includes, the file's header: pragmas, nimbase.h
+  result = cxLoad(b.path, emitCode(b.lines) & "\n", "emit:" & $b.id & ":" & $b.changeId & (if cpp: ":cpp" else: ":c"),
+                  cpp = cpp)
   for h in emitHeaders(b):
     let w = if h.startsWith("<") or h.startsWith("\""): h else: "\"" & h & "\""
     var has = false
@@ -125,18 +126,24 @@ template withEmitDirs(b: Buffer, body: untyped) =
     cxDirs = savedDirs
     cxSysDirs = savedSys
 
-proc emitCxxComplete(b: Buffer, p: Pos, manual: bool): bool =
-  ## C++ in an emit: after `.` `->` `::` the members (a namespace's names), else once a word starts
+proc emitMemberAt(b: Buffer, p: Pos, cpp: bool): bool =
+  ## is the word at p right after `.` or `->` (C++: `::` too) — where a type's members (a namespace's names) go?
   let ws = b.wordStart(p)
   let line = b.lines[p.line]
-  let prev = if ws > 0: line[ws - 1] else: ' '
-  let member = prev == '.' or (prev == '>' and ws >= 2 and line[ws - 2] == '-') or
-               (prev == ':' and ws >= 2 and line[ws - 2] == ':')
+  let prev = if ws > 0 and ws <= line.len: line[ws - 1] else: ' '
+  prev == '.' or (prev == '>' and ws >= 2 and line[ws - 2] == '-') or
+    (cpp and prev == ':' and ws >= 2 and line[ws - 2] == ':')
+
+proc emitCxxComplete(b: Buffer, p: Pos, manual: bool, cpp = true): bool =
+  ## C++ in an emit: after `.` `->` `::` the members (a namespace's names), else once a word starts. With cpp false,
+  ## C's members after `.` and `->` (the engine reads the emit as C)
+  let ws = b.wordStart(p)
+  let member = emitMemberAt(b, p, cpp)
   if not manual and not member and p.col - ws < 2: return false
   var res: (seq[CxItem], bool, string)
   try:
     withEmitDirs(b):
-      res = cxComplete(emitCxx(b), p.line, p.col, cSystemIncludeDirs())
+      res = cxComplete(emitCxx(b, cpp), p.line, p.col, cSystemIncludeDirs())
   except CatchableError as e:
     internalError("C++ engine", e)
     return false
@@ -359,6 +366,8 @@ proc emitComplete(b: Buffer, p: Pos, manual: bool): bool =
     return true
   if emitLspComplete(b, p): return true               # clangd, when installed
   if emitIsCpp(b, p): return emitCxxComplete(b, p, manual)
+  # (a struct's or union's members after `.` and `->`: ned's C engine, which knows the emit's types and locals)
+  if emitMemberAt(b, p, cpp = false): return emitCxxComplete(b, p, manual, cpp = false)
   if not manual and p.col - ws < 2: return false
   var items: seq[CompItem]
   var seen: HashSet[string]
@@ -426,7 +435,14 @@ proc emitHoverInfo(b: Buffer, p: Pos): string =
   let w = b.wordAt(p)
   if w.len == 0 or w in CKeywords: return ""
   let (d, h) = emitDecl(b, w)
-  if d.kind.len == 0: return ""
+  if d.kind.len == 0:
+    # (not a declaration of the file or its headers — a struct's member, a local, a parameter: ned's C engine)
+    try:
+      withEmitDirs(b):
+        return cxHover(emitCxx(b, cpp = false), p.line, p.col)
+    except CatchableError as e:
+      internalError("C engine", e)
+      return ""
   result = "**" & w & "** — C " & d.kind & ", " &
            (if h.len == 0: "line " & $(d.line + 1) & " of this file" else: extractFilename(d.path) & ":" & $(d.line + 1)) &
            "\n```c\n" & d.text & "\n```"
