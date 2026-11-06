@@ -772,6 +772,9 @@ proc initCommands() =
   add("Telescope: resume", "the last finder, with what you had typed", tsResume())
   add("Help: update ned…", "the newest release, in the terminal: ned --update (it asks first)",
       runInTerm(quoteShell(getAppFilename()) & " --update"))
+  add("Help: check for updates", "asks GitHub now whether a newer ned is out", updLook(true))
+  add("Help: what's new in the newest ned", "the newest release's notes, and how to update", updShowNotes())
+  add("Help: skip this update", "the newest release is not mentioned again (a newer one is)", updSkip())
   add("AI: new chat", "", aiNewChat())
   add("AI: attach a picture…", "a screenshot or a photo, for a model that reads pictures", aiAttachPicture())
   add("AI: stop", "", aiStop())

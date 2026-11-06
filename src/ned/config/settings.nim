@@ -355,6 +355,8 @@ proc initSettingDefs() =
        "followed by a save would change them for every project. Palette › File: allow editing this file")
   defS("Files", "files.autoReload", %true, "Reload files changed on disk when they have no unsaved edits")
   defS("Files", "files.restoreSession", %true, "Reopen the files that were open last time in this folder")
+  defS("Files", "update.check", %true, "Once a day, a little after ned starts, look on GitHub for a newer release of " &
+       "ned and say so when there is one (Help › Check for updates looks now)")
   # ── Search ──
   defS("Search", "search.useRipgrep", %true, "Use ripgrep (pkg install ripgrep) for project search when available")
   defS("Search", "search.maxResults", %5000, "Stop project search after this many matches")

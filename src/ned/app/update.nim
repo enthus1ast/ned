@@ -192,3 +192,106 @@ proc updateMain(args: seq[string]): int =
       return code
   echo "Updated to ned ", latest, " — start ned again to use it"
   0
+
+# ── in the editor: once a day, a little after ned starts, a look in the background for a newer release on GitHub
+#    (update.check); a note and a mark in the status bar when there is one, Help › Check for updates to look now,
+#    Help › What's new in the newest ned for its notes ──
+
+var updLookedThisRun = false   # this run has had its look (or will not have one)
+
+# where the last look's findings are kept: when, the newest version, its notes, a version you chose to skip
+proc updStatePath(): string = stateDir() / "update.json"
+
+proc updState(): JsonNode =
+  ## what the last look found ({} before the first)
+  try: result = parseJson(readFile(updStatePath()))
+  except CatchableError: result = newJObject()
+  if result.kind != JObject: result = newJObject()
+
+proc updSaveState(j: JsonNode) =
+  ## the findings kept for the next run
+  try:
+    createDir(stateDir())
+    writeFile(updStatePath(), $j)
+  except CatchableError: discard
+
+proc updNoteNewer(latest: string) =
+  ## a newer release is known: the status bar's mark, unless it is the version you skipped
+  updNewer = if verCmp(latest, Version) > 0 and updState(){"skipped"}.getStr != latest: latest else: ""
+
+proc updShowNotes() =
+  ## the newest release's notes in a tab of their own, with how to update
+  let st = updState()
+  let latest = st{"latest"}.getStr
+  if latest.len == 0 or verCmp(latest, Version) <= 0:
+    info("ned " & Version & " is the newest")
+    return
+  let notes = st{"notes"}.getStr.strip
+  var t = "# ned " & latest & "\n\nThis is ned " & Version & ". **Help › Update ned…** installs " & latest &
+          " the way this ned was installed (it says what it will do and asks first); in a terminal, `ned --update`." &
+          " To be told nothing more about " & latest & ": palette › *Help: skip this update*.\n\n"
+  if notes.len > 0: t.add notes & "\n"
+  let url = st{"url"}.getStr
+  if url.len > 0: t.add "\n" & url & "\n"
+  discard openScratch("ned " & latest, t, langByName("Markdown"))
+
+proc updSkip() =
+  ## Help: skip this update — the newest version is not mentioned again (a newer one is)
+  var st = updState()
+  let latest = st{"latest"}.getStr
+  if latest.len == 0 or verCmp(latest, Version) <= 0:
+    info("There is no newer ned to skip")
+    return
+  st["skipped"] = %latest
+  updSaveState(st)
+  updNewer = ""
+  info("ned " & latest & " will not be mentioned again")
+
+proc updLook(manual: bool) =
+  ## asks GitHub for the newest release, in the background (curl); a newer one than this ned: a note with a button
+  ## for its notes, and the status bar's mark. With `manual` (Help › Check for updates) it says either way, and why
+  ## it could not look; the daily look stays quiet then
+  let src = getEnv("NED_UPDATE_URL", "https://api.github.com/repos/" & NedRepo & "/releases/latest")
+  let web = src.startsWith("https://") or src.startsWith("http://")
+  if web and findExe("curl").len == 0:
+    if manual: error("Looking for a newer ned needs curl" & (if isTermux(): " (pkg install curl)" else: ""))
+    return
+  if manual: info("Looking for a newer ned…")
+  let cmd = if web: "curl -fsSL --max-time 15 -H 'Accept: application/vnd.github+json' -- " & quoteShell(src)
+            else: "cat -- " & quoteShell(src)
+  let dir = if dirExists(configDir()): configDir() else: getTempDir()
+  discard startJob(jkAux, cmd, dir, proc(j: Job) =
+    var latest, notes, url = ""
+    if j.code == 0:
+      try:
+        let r = parseJson(j.output)
+        latest = r{"tag_name"}.getStr.strip(trailing = false, chars = {'v', 'V'})
+        notes = r{"body"}.getStr
+        url = r{"html_url"}.getStr
+      except CatchableError: discard
+    if latest.len == 0:
+      if manual: error("Could not reach GitHub to look for a newer ned — is the network there?")
+      return
+    var st = updState()
+    st["checked"] = %epochTime()
+    st["latest"] = %latest
+    st["notes"] = %(if notes.len > 20_000: notes[0 ..< 20_000] & "…" else: notes)
+    st["url"] = %url
+    updSaveState(st)
+    updNoteNewer(latest)
+    if verCmp(latest, Version) <= 0:
+      if manual: info("ned " & Version & " is the newest")
+    elif manual: updShowNotes()
+    elif updNewer.len > 0:
+      toast("ned " & latest & " is out (this is " & Version & ")", 3, "What's new", proc() = updShowNotes(), 15_000))
+
+proc updAutoLook() =
+  ## (the main loop) the daily look, once a run: 20 seconds after start, with update.check on and a day after the
+  ## last; meanwhile the last look's findings keep the status bar's mark
+  if updLookedThisRun or msSince(startT0) < 20_000: return
+  updLookedThisRun = true
+  if not sBool("update.check"): return
+  let st = updState()
+  let latest = st{"latest"}.getStr
+  if latest.len > 0: updNoteNewer(latest)
+  if epochTime() - st{"checked"}.getFloat(0) >= 86_400 or getEnv("NED_UPDATE_URL").len > 0: updLook(false)

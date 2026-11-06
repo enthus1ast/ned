@@ -365,7 +365,8 @@ proc menuItems(i: int): seq[MenuItem] =
         mc("Nim: tour — next lesson", "Next lesson"), mc("Nim: tour — previous lesson", "Previous lesson"),
         mc("Nim: tour — all the lessons…", "All the lessons…"), msep(),
         mc("Nim: tour — reset this lesson", "Reset this lesson…")]), msep(), mc("Check setup", "Check setup…"),
-      mc("Performance report", "Performance…"), mc("Copy info for bug report"), msep(), mc("About ned")]
+      mc("Performance report", "Performance…"), mc("Copy info for bug report"), msep(),
+      mc("Help: check for updates", "Check for updates…"), mc("Help: update ned…", "Update ned…"), mc("About ned")]
 
 proc openMenuBar(i: int) =
   ## opens menu-bar menu `i` (wrapping round at both ends) under its title in the title bar, closing any other menu

@@ -244,6 +244,7 @@ var
   cfgUserFmt = initTable[string, string]()
   cfgUserRun = initTable[string, string]()
   theme: Theme
+  updNewer = ""                          # a newer release of ned on GitHub (app/update.nim): the status bar's mark
   trueColor = true
   # terminal
   gOrigTerm: Termios
