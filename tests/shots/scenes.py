@@ -10,7 +10,7 @@ and drawn as screenshots/NAME.png by render.py (in the font NED_SHOT_FONT names:
 ned is ./ned (or NEDBIN); tmux, Nim, gdb (the debugger scene), Playwright with its Chromium and Pillow are needed. The
 other screenshots of screenshots/ (each release's) were taken by hand; their captures are kept, so render.py draws
 them too. A new scene: a function here that sets up, drives ned and calls snap(NAME), added to SCENES."""
-import os, sys, time, shutil, subprocess
+import os, re, sys, time, shutil, subprocess
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 TMP = os.environ.get('NED_SHOT_TMP') or '/tmp/ned-shots-%d' % os.getuid()
@@ -308,12 +308,47 @@ def themes_641():
         items.append((th, capture())); tm('kill-server')
     snap_tiles('themes-641', items)
 
+def nim_layout_641():
+    """the hover of an object: each field's offset, size and padding, and the order that saves bytes"""
+    showcase('tokyo-night', 130, 34)
+    go('35:4'); keys('M-h'); wait_for('padding', 15); time.sleep(1.0)
+    snap('nim-layout-641')
+
+def nim_macro_641():
+    """a macro call (makeGetters) and what it made, at once (Alt+M)"""
+    showcase('kanagawa', 130, 34, {"editor.autoHover": False})
+    go('96:3'); time.sleep(1.0); keys('M-m'); wait_for('getTitle', 60); time.sleep(1.5)
+    snap('nim-macro-641')
+
+def nim_fixes_641():
+    """the quick fixes of a `var` that is never changed (Alt+Enter)"""
+    showcase('nim-crown', 130, 34)
+    go('123:7'); time.sleep(1.5); keys('M-Enter'); wait_for('let', 10); time.sleep(1.0)
+    snap('nim-fixes-641')
+
+def emit_c_641():
+    """C in a {.emit}: a struct's members completed, as in a C file (by clangd: it must be on PATH)"""
+    if not shutil.which('clangd'):
+        print('   emit-c-641 left out: it shows clangd answering, and clangd is not on PATH'); return
+    showcase('catppuccin-mocha', 130, 34)
+    go(197); keys('End', 'Enter'); text('t.'); time.sleep(1.5)
+    if not re.search(r'count\s+int', screen()): keys('C-Space')
+    wait_for(r'count\s+int', 15); time.sleep(1.0)
+    snap('emit-c-641')
+
+def strings_641():
+    """SQL in a Nim string: the columns of the table the schema string creates, completed"""
+    showcase('one-dark', 130, 34)
+    go('220:26'); time.sleep(1.0); keys('C-Space'); wait_for(r'sides', 15); time.sleep(1.0)
+    snap('strings-641')
+
 SCENES = {'completion-docs': completion_docs, 'hover-docs': hover_docs, 'split-panes': split_panes,
           'nimble-ai': nimble_ai, 'split-and-replace': split_and_replace, 'ai-diff-approval': ai_diff_approval,
           'debugger': debugger, 'desktop-62': desktop_62, 'diff-view': diff_view, 'todos': todos,
           'everforest-nightowl': everforest_nightowl, 'monochrome': monochrome, 'hero-641': hero_641,
           'completion-641': completion_641, 'vim-641': vim_641, 'phone-641': phone_641, 'terminal-641': terminal_641,
-          'themes-641': themes_641}
+          'themes-641': themes_641, 'nim-layout-641': nim_layout_641, 'nim-macro-641': nim_macro_641,
+          'nim-fixes-641': nim_fixes_641, 'emit-c-641': emit_c_641, 'strings-641': strings_641}
 
 if __name__ == '__main__':
     todo = sys.argv[1:] or list(SCENES)
