@@ -17,12 +17,33 @@ well.
 3. **This extension**, from Zed's extensions (search for *nedls*) — or as a dev extension: clone
    [github.com/foxoman/nedls-zed](https://github.com/foxoman/nedls-zed), run `zed: install dev extension` and pick
    the folder. Zed builds it; that needs Rust installed with rustup (Zed adds the WebAssembly target it builds for).
-4. **nedls for Nim**, in Zed's settings (instead of the Nim extension's nimlangserver):
+4. **nedls for Nim**, in Zed's settings (instead of the Nim extension's nimlangserver), with its colours:
 
 ```json
 {
   "languages": {
-    "Nim": { "language_servers": ["nedls", "!nim", "..."] }
+    "Nim": { "language_servers": ["nedls", "!nim", "..."], "semantic_tokens": "combined" }
+  }
+}
+```
+
+## Colours
+
+Two layers. The Nim extension's grammar colours what the text is — keywords, strings, numbers, comments, pragmas.
+nedls colours what each name *is*, as ned does: a type, a proc or template, a macro, a parameter, a field, an enum
+value, a module, a constant (`readonly`), a deprecated name. Zed asks the server for these only with
+`"semantic_tokens": "combined"` (above; `"full"` uses nedls's alone), and draws them in the theme's colours for
+`type`, `function`, `variable`, `property` … To change one, add a rule under `global_lsp_settings` — nedls's kinds
+are LSP's own: `namespace`, `type`, `enumMember`, `variable`, `parameter`, `property`, `function`, `macro`, with
+`declaration`, `readonly`, `static` and `deprecated`:
+
+```json
+{
+  "global_lsp_settings": {
+    "semantic_token_rules": [
+      { "token_type": "macro", "foreground_color": "#c792ea" },
+      { "token_type": "variable", "token_modifiers": ["readonly"], "style": ["constant"] }
+    ]
   }
 }
 ```
@@ -46,8 +67,7 @@ Under `lsp.nedls` in Zed's settings: `binary` (the program and its arguments, wh
 
 The settings are those of `nedls --help`: `inlayHints`, `parameterHints` (`literals`, `all`, `off`),
 `raisesHints`, `checkOnSave`, `liveDiagnostics`, `workspaceDiagnostics`, `formatLineLength`, `nedSettings`.
-Inlay hints show when `"inlay_hints": {"enabled": true}` is in Zed's settings; nedls's semantic colours when
-`"semantic_tokens"` is `"combined"`.
+Inlay hints show when `"inlay_hints": {"enabled": true}` is in Zed's settings.
 
 ## Other languages
 
