@@ -1,14 +1,14 @@
 [package]
-name = "zed_nedls"
-version = "6.40.0"
+name = "nedls_language_server"
+version = "6.41.0"
 edition = "2021"
 authors = ["Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"]
 publish = false
 license = "GPL-3.0-or-later"
 description = "nedls (ned's Nim engine as a language server) in Zed"
+repository = "https://github.com/foxoman/nedls-zed"
 
 [lib]
-path = "src/nedls.rs"
 crate-type = ["cdylib"]
 
 [dependencies]

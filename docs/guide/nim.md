@@ -407,8 +407,9 @@ install it:
   `vim.lsp.enable('nedls')` (copy it to `~/.config/nvim/lsp/`), or the folder as a plugin with
   `require('nedls').setup()` (Neovim 0.10 too).
 - **Helix:** [editors/helix](../../editors/helix/README.md) — the entries for your `languages.toml`.
-- **Zed:** [editors/zed](../../editors/zed/README.md) — an extension that starts nedls for Nim (install it with
-  *zed: install dev extension*), next to the Nim extension that gives Zed the language; then
+- **Zed:** the *nedls* extension ([github.com/foxoman/nedls-zed](https://github.com/foxoman/nedls-zed), a copy in
+  [editors/zed](../../editors/zed/README.md)) starts nedls for Nim — from Zed's extensions, or *zed: install dev
+  extension* — next to the Nim extension that gives Zed the language; then
   `"languages": {"Nim": {"language_servers": ["nedls", "!nim", "..."]}}` in Zed's settings.
 - **Emacs (eglot):** `(add-to-list 'eglot-server-programs '(nim-mode . ("nedls")))`
 - **Kate** (LSP Client › User Server Settings): `{"servers": {"nim": {"command": ["nedls"], "highlightingModeRegex": "^Nim$"}}}`

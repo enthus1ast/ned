@@ -1,10 +1,10 @@
-id = "nedls"
+id = "nedls-language-server"
 name = "nedls"
-description = "ned's Nim engine as a language server: completion, hover, definition, references, rename, formatting, quick fixes and problems as you type, without nimsuggest."
-version = "6.40.0"
+description = "Nim: ned's engine as a language server (nedls) — completion, hover, definition, references, rename, formatting, quick fixes and problems as you type, without nimsuggest."
+version = "6.41.0"
 schema_version = 1
 authors = ["Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"]
-repository = "https://github.com/foxoman/ned"
+repository = "https://github.com/foxoman/nedls-zed"
 
 # (Nim itself — its file types and colours — comes from the Nim extension; this one adds the server)
 [language_servers.nedls]
