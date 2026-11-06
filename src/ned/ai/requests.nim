@@ -1,4 +1,5 @@
-# ── request building ──
+# ── the AI's requests: the system prompt, the code's context (the definitions it uses, the open file), each
+#    provider's request body ──
 
 proc aiSystemPrompt(): string =
   ## the system prompt: what ned is and the project's root, the file being edited, the Nimble package, how to answer,

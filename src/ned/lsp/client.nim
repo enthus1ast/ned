@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  LSP client
+#  The language server client: servers started, requests and notifications sent, replies read, positions in UTF-16
 # ════════════════════════════════════════════════════════════════════════════
 
 proc lspFlush(s: LspServer) =

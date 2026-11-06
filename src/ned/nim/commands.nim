@@ -147,13 +147,6 @@ proc cmdInstallNimony() =
                proc(c: char) = (if c == 'b': go()))
   else: go()
 
-proc runAtlas(args: string) =
-  ## runs `atlas args` in the Run panel, in the project root; says how to build atlas when it is not installed
-  if not haveExe("atlas"):
-    error("atlas not found — build it with: nimble install atlas")
-    return
-  runCommand("atlas " & args, rootDir)
-
 proc saveForTool(b: Buffer): bool =
   ## gets the file ready for a tool that reads it from disk: saves unsaved changes first. False (with a note to save the
   ## file first) when it has no path yet

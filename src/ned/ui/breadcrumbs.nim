@@ -1,4 +1,4 @@
-# ── breadcrumbs ──
+# ── the breadcrumbs above the editor: the folders and symbols down to the cursor, each a menu of its neighbours ──
 
 var jsonCrumbsAt = ((-1, -1, -1, -1), newSeq[(string, int)]())   # ((buffer, change, line, column), the keys there)
 

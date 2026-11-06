@@ -1,4 +1,4 @@
-# ── toasts ──
+# ── notifications (toasts) and dialogs: showing one, asking yes or no, closing ──
 
 type Toast = object
   text: string

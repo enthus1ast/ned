@@ -1,4 +1,4 @@
-# ── title bar ──
+# ── the title bar: the menu bar's names, the project's name, the window's buttons ──
 
 proc projectName(): string =
   ## the project's name for the title bar: the nimble package's when the folder is its own, else the folder's name

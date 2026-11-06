@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Project files & file tree
+#  The project's files: scanned in the background for the picker, the file tree's folders loaded and shown
 # ════════════════════════════════════════════════════════════════════════════
 
 const

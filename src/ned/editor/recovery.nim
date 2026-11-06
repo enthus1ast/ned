@@ -1,4 +1,4 @@
-# ── crash recovery ──
+# ── crash recovery: unsaved edits kept in recovery files, offered back after a crash ──
 
 proc applyRecovered(b: Buffer, text: string) =
   ## puts the recovered text into the buffer as one edit (changing only the lines that differ) and writes the swap file

@@ -1,4 +1,4 @@
-# ── minimap ──
+# ── the minimap: the file in small beside the editor, with its marks ──
 
 var
   mmStart = 0

@@ -1,4 +1,4 @@
-# ── toasts & dialogs drawing ──
+# ── notifications, dialogs and tooltips drawn, and the keys in a dialog ──
 
 proc sevIcon(sev: int): (string, Rgb) =
   ## the icon and its colour for a severity: 1 error, 2 warning, 4 ok, anything else info

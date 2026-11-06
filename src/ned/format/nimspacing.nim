@@ -1,4 +1,4 @@
-# ── spacing ──
+# ── the Nim formatter's spacing: where a space goes between two tokens, and a line made from its tokens ──
 
 proc fDeclSite(toks: openArray[FTok], k: int): bool =
   ## is the name before toks[k] being declared (first on the line, after a comma, after proc/var/type …)?

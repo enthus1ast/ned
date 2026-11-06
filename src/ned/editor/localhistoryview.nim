@@ -1,4 +1,4 @@
-# ── local history ──
+# ── local history and recent projects: a file's earlier saved versions compared with it, folders opened before ──
 
 proc historyAct(id: int, file: string, ms: int64): Action =
   ## the action for one version in the local history list: opens a diff (that version, then now) of the buffer with this

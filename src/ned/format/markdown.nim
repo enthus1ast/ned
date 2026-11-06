@@ -1,4 +1,4 @@
-# ── Markdown: tables aligned ──
+# ── Markdown formatted: tables aligned (each cell padded to its column) ──
 
 proc mdCells*(line: string): seq[string] =
   ## the cells of a table row: split at every | but \| (in GitHub's tables a | inside `code` splits too)

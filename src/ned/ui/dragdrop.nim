@@ -15,7 +15,6 @@ var
   dndArmed = dtNone             # a press that becomes a drag once the pointer moves (dtFile, dtText)
   dndPressPos: Pos              # (a text press: where the click would put the cursor)
   dndX, dndY = -1
-  dndFolderRow = -1             # (the tree row of the folder it would go into)
 
 proc dndArmFile(path: string) =
   ## a press on a file or folder in the tree: it becomes a drag of that path once the pointer moves (nothing when drag
@@ -223,12 +222,6 @@ proc dndDrop(x, y: int, mods: set[Mod]) =
       terminalKey(Key(kind: kPaste, text: dndText))
     else: discard
   else: discard
-
-proc dndCancel() =
-  ## drops an armed press or a drag in progress without doing anything
-  dndArmed = dtNone
-  if dragTarget in {dtTabOut, dtFile, dtText}: dragTarget = dtNone
-  dndX = -1
 
 proc drawDnd() =
   ## the place a drop would land, shaded; the label at the pointer

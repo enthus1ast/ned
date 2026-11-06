@@ -1,4 +1,5 @@
-# ── status bar ──
+# ── the status bar — mode, position, language, the chips for the engine, clangd, trust, a newer ned … — and the
+#    touch bar ──
 
 proc vimModeName(): string
 proc aiStatus(): string

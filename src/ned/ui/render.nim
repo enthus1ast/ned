@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Rendering
+#  A frame: the editor, docks, panel, popups and bars drawn in order; boxes, wrapped text, sticky lines
 # ════════════════════════════════════════════════════════════════════════════
 
 proc drawFrame(x, y, w, h: int, bg, border: Rgb, title = "", titleFg: Rgb = NoColor, shadow = true)

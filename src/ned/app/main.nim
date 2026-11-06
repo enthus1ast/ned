@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Main loop
+#  The main loop (input, jobs, language servers, timers, drawing) and the command line: --help, --bench, --update,
+#  files formatted, the remote socket
 # ════════════════════════════════════════════════════════════════════════════
 
 when not defined(windows):
@@ -1091,7 +1092,7 @@ proc main() =
       prev = t
     for (n, m) in startRss: o.add "  memory " & alignLeft(n, 23) & align(formatFloat(m, ffDecimal, 1), 8) & " MB\n"
     block:
-      var syms, docB, strB, lines = 0
+      var syms, docB, strB = 0
       for _, f in nxFiles:
         if f == nil: continue
         syms += f.syms.len

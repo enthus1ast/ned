@@ -1,4 +1,4 @@
-# ── editor tab bar ──
+# ── the editor's tab bar: tabs drawn, scrolled, dragged and closed, each with its right-click menu ──
 
 var tabScroll = 0
 

@@ -329,14 +329,6 @@ proc tsNimLib(): Table[string, string] =
     except OSError: discard
   tsNimModules
 
-# the action that adds `import m` to the file in front when it is an editable Nim file, else says to open one
-proc tsImportAct(m: string): Action = (proc() =
-  let b = buf()
-  if b.lang != nil and b.lang.mode == lmNim and b.canEdit():
-    b.addImport(m)
-    info("import " & m & " added")
-  else: info("Not a Nim file: open one to add the import"))
-
 proc tsNimModulesPick() =
   ## the finder of the standard library's modules by name, each previewed from its first line; Enter opens one
   let mods = tsNimLib()
@@ -461,7 +453,6 @@ proc tsPlugins() =
   var have: HashSet[string]
   for p in plugs:
     have.incl p.id
-    let pid = p.id
     es.add TsEntry(label: p.id, detail: (if p.enabled: "on" else: "off") & (if p.version.len > 0: " · " & p.version else: "") &
                    (if p.bundled: " · ned's" else: ""), act: (proc() = cmdPlugins()), pv: tsFile(p.file, 0))
   for (n, what, src) in PlugBundled:

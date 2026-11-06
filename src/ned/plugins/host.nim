@@ -253,11 +253,6 @@ proc plugBundledOn(): seq[string] =
   for x in jitems(sval("plugins.bundled")):
     if x.kind == JString: result.add x.getStr
 
-proc plugBundledWhat(n: string): string =
-  ## the one-line description of one of ned's own plugins by its name, empty when there is none of that name
-  for (name, what, _) in PlugBundled:
-    if name == n: return what
-
 proc plugLogAdd(plugin, line: string) =
   ## adds a line to the plugins' log (a long line cut short, the log kept to its last 300 lines) and redraws the Plugins
   ## dock when it shows the log

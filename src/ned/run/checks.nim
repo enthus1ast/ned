@@ -80,9 +80,6 @@ proc checkCmdForPath(path, langId: string): (string, string) =
         return (c, dir)
   ("", "")
 
-# the checker command and folder for a buffer's file and language
-proc checkCmdFor(b: Buffer): (string, string) = checkCmdForPath(b.path, b.lang.id)
-
 var unusedHints: Table[string, seq[(int, int, string)]]   # file → (line, col, name) the compiler says is unused
 var covLines: Table[string, Table[int, bool]]            # test coverage: file → line → ran
 

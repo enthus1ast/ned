@@ -1,4 +1,5 @@
-# ── the formatter ──
+# ── the Nim formatter in nph's style: statements split and wrapped, calls, collections, comments, blank lines
+#    (format/formatters.nim calls it) ──
 
 type FOut* = object
   depth*: int

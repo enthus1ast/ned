@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Cursor movement
+#  Cursor movement: by character, word, line start and end, up and down — for every cursor
 # ════════════════════════════════════════════════════════════════════════════
 
 func charClass(c: char): int {.inline.} =

@@ -320,12 +320,6 @@ proc mcpResourceText(res: JsonNode): string =
                  $(c{"blob"}.getStr.len * 3 div 4) & " bytes]\n"
   result.strip(leading = false)
 
-proc mcpServerNamed(name: string): McpServer =
-  ## the server with that name that is still alive, nil when there is none
-  for s in mcpServers:
-    if s.name == name and not s.dead: return s
-  nil
-
 proc mcpResultText(res: JsonNode): string =
   ## the text of a tool call's result: each text part, images and audio as a note with their size, a resource by its
   ## text or address, a link by its address, or the structured result as JSON when there is no other

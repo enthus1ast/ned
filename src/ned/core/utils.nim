@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Small utilities
+#  Small utilities: positions and ranges, time since, relative paths, fuzzy matching
 # ════════════════════════════════════════════════════════════════════════════
 
 const ExeDot = when defined(windows): ".exe" else: ""   # (a program ned builds: `nim c -o:` takes the name as it is)

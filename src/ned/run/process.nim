@@ -14,8 +14,6 @@ type
   StdinMode = enum siNull, siPipe
   ErrMode = enum erMerge, erPipe, erNull
 
-proc csystem(cmd: cstring): cint {.importc: "system", header: "<stdlib.h>".}
-
 func closeFd(fd: var cint) =
   ## closes the file descriptor if it is open and sets it to -1
   if fd >= 0:

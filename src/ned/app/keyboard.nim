@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Keyboard routing
+#  Keys routed: ned's global keys, the terminal's, the editor's, your own bindings, key names, conflicts
 # ════════════════════════════════════════════════════════════════════════════
 
 proc keyName(k: Key): string =

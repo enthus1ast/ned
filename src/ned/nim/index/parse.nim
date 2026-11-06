@@ -1,4 +1,4 @@
-# ── the declaration parser ──
+# ── the Nim engine's declaration parser: imports, when/defined branches, a file's declarations and their values ──
 
 type
   NxBlock* = enum bkRoutine, bkTypeSec, bkVarSec, bkObject, bkEnum, bkTransparent, bkObjTransparent, bkOther,

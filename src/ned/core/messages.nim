@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Messages
+#  The status line's messages: info, warnings and errors (a long one in a popup)
 # ════════════════════════════════════════════════════════════════════════════
 
 proc popupMsg(s: string, sev: int)

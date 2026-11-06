@@ -1,4 +1,4 @@
-# ── F12 and hover: the C side ──
+# ── go to definition and hover from Nim to C: an importc proc's C declaration and its docs ──
 
 proc ffiTarget(b: Buffer, p: Pos): (NimFfi, string, seq[string]) =
   ## the importc declaration the cursor is on, or that the word under it names (this file, then the

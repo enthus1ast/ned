@@ -1,4 +1,5 @@
-# ── expand / shrink selection ──
+# ── selection by structure: it grows to the enclosing word, string, brackets, statement and block, and shrinks back
+#    ──
 
 var selStack: seq[seq[Cursor]]
 

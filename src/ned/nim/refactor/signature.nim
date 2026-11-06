@@ -1,4 +1,4 @@
-# ── change signature ──
+# ── Nim: change signature — a proc's parameters reordered, renamed, added or removed, every call updated ──
 
 func rfParamText(p: NxParam): string =
   ## a parameter written as `name: type = default`
