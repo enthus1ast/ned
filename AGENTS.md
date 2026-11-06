@@ -71,6 +71,7 @@ python3 tests/memory/bufids.py                       # every table kept per open
 python3 tests/memory/memprobe.py OUT                 # a ned that logs each table's size: soak.py OUT --mem-log M, --diff M
 python3 tests/engine/scoreboard.py --engine E --nedls ./nedls --cdriver C --c-files … --cpp-files …  # minimum scores
 python3 tests/engine/nifgrade.py MAIN.nim --nim NIM24 --driver E   # Go to definition against Nim 2.4's own NIF
+NED_SHOT_FONT=FONT.ttf python3 tests/shots/scenes.py [NAME …]  # the docs' screenshots taken again (render.py: redrawn)
 ```
 
 A change to a setting or a command: `ned --doc-settings > docs/reference/settings.md` and `ned --doc-commands >
@@ -88,6 +89,13 @@ UI suite on a quiet machine: under load a few timing-sensitive tests can fail, a
   template, macro — local ones too) says what it does and how: a `##` first in its body, or a `#` line above a
   one-line one. `python3 tests/docs/comments.py` checks it (CI too); `--list` shows what is missing.
 - Comments say why, in the same plain style. Keep a change small and in the style of the code around it.
+- Screenshots (`screenshots/`): every one is drawn from its tmux capture (`screenshots/captures/NAME.ansi`) in the
+  Coder Nerd Font Mono by `tests/shots/render.py` — a new one too, never a screen grab
+  ([Screenshots](docs/dev/testing.md#screenshots)).
 - A release: the version in `src/ned/version.nim`, `ned.nimble`, `editors/vscode/package.json`,
   `editors/zed/extension.toml` and `editors/zed/Cargo.toml` (and the file names in the README), a
   *What's new* section at the top of the README (the one before moves to CHANGELOG.md), every test above passing.
+  CI only checks that ned builds everywhere and publishes nothing: `ned --update` and `install.sh` build the newest
+  tag with nimble; the Termux package (`tests/build/termux.sh`) is attached to the GitHub release by hand.
+  `editors/zed` is also its own repository, [foxoman/nedls-zed](https://github.com/foxoman/nedls-zed): keep the two
+  the same.
