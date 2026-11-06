@@ -101,9 +101,15 @@ def main():
     v = ned_version()
     ext = tomllib.loads(read("zed", "extension.toml"))
     cargo = tomllib.loads(read("zed", "Cargo.toml"))
-    check("Zed: extension.toml — id, schema, the language server for Nim", ext.get("id") == "nedls" and
+    check("Zed: extension.toml — id, schema, the language server for Nim", ext.get("id") == "nedls-language-server" and
           ext.get("schema_version") == 1 and "Nim" in ext.get("language_servers", {}).get("nedls", {}).get("languages", []),
           ext)
+    eid = ext.get("id", "")
+    check("Zed: an id its registry takes (kebab-case, says it is a language server, no \"zed\" or \"extension\" in it)",
+          re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", eid) is not None and eid.endswith(("-language-server", "-lsp")) and
+          "zed" not in eid and "extension" not in eid, eid)
+    check("Zed: a licence Zed accepts beside the extension (LICENSE: the GPL 3)",
+          os.path.isfile(os.path.join(ED, "zed", "LICENSE")) and "GNU GENERAL PUBLIC LICENSE" in read("zed", "LICENSE"))
     check("Zed: Nim documents go to nedls as languageId nim",
           ext["language_servers"]["nedls"].get("language_ids", {}).get("Nim") == "nim", ext["language_servers"])
     check("Zed: the extension's version is ned's (extension.toml, Cargo.toml)", ext.get("version") == v and

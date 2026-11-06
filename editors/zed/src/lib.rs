@@ -37,8 +37,9 @@ impl zed::Extension for Nedls {
             }
         }
         let command = path.or_else(|| worktree.which("nedls")).ok_or_else(|| {
-            "nedls is not on PATH: `nimble install ned` builds it (or take it from a ned release), or name it in \
-             Zed's settings: \"lsp\": {\"nedls\": {\"binary\": {\"path\": \"/path/to/nedls\"}}}"
+            "nedls is not on PATH: `nimble install https://github.com/foxoman/ned` builds it (with ned and nedfmt, \
+             into ~/.nimble/bin), or name it in Zed's settings: \
+             \"lsp\": {\"nedls\": {\"binary\": {\"path\": \"/path/to/nedls\"}}}"
                 .to_string()
         })?;
         Ok(zed::Command { command, args, env })

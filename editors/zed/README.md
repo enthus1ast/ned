@@ -10,12 +10,14 @@ well.
 
 ## Install
 
-1. nedls itself: `nimble install ned` builds `ned`, `nedfmt` and `nedls`; or take `nedls` from a ned release. It
-   must be on the `PATH` of your shell, or named in the settings below.
-2. The **Nim** extension, from Zed's extensions (`zed: extensions`).
-3. This extension, as a dev extension: `zed: install dev extension`, and pick `editors/zed`. Zed builds it from
-   this folder; that needs Rust installed with rustup (Zed adds the WebAssembly target it builds for).
-4. nedls instead of the Nim extension's nimlangserver, in Zed's settings:
+1. **nedls itself.** With Nim 2.2 or newer: `nimble install https://github.com/foxoman/ned` builds `ned`, `nedfmt`
+   and `nedls` into `~/.nimble/bin`. It must be on the `PATH` of your shell, or named in the settings below. The
+   extension never downloads it.
+2. **The Nim extension**, from Zed's extensions (`zed: extensions`).
+3. **This extension**, from Zed's extensions (search for *nedls*) — or as a dev extension: clone
+   [github.com/foxoman/nedls-zed](https://github.com/foxoman/nedls-zed), run `zed: install dev extension` and pick
+   the folder. Zed builds it; that needs Rust installed with rustup (Zed adds the WebAssembly target it builds for).
+4. **nedls for Nim**, in Zed's settings (instead of the Nim extension's nimlangserver):
 
 ```json
 {
@@ -50,8 +52,8 @@ Inlay hints show when `"inlay_hints": {"enabled": true}` is in Zed's settings; n
 ## Other languages
 
 nedls also answers for C, C++, JavaScript, HTML, CSS, SQL and JSON with ned's own engines. To have Zed start it
-for those, add them to `languages` in `extension.toml`, and to `opt_in_languages` so that only the languages whose
-`language_servers` name `nedls` get it (a Zed too old for `opt_in_languages` starts it for all of them):
+for those, add them to `languages` in `extension.toml` (of a dev extension), and to `opt_in_languages` so that only
+the languages whose `language_servers` name `nedls` get it:
 
 ```toml
 [language_servers.nedls]
@@ -59,3 +61,13 @@ name = "nedls"
 languages = ["Nim", "C", "JSON"]
 opt_in_languages = ["C", "JSON"]
 ```
+
+## Where it lives
+
+This extension is its own repository, [github.com/foxoman/nedls-zed](https://github.com/foxoman/nedls-zed) — the
+one in Zed's extensions — and a copy of it is in ned's source, `editors/zed`, kept the same (ned's tests check it).
+Its version is ned's.
+
+## Licence
+
+GPL-3.0-or-later, as ned ([LICENSE](LICENSE)). Copyright © Sultan Al Isaiee (@foxoman).
