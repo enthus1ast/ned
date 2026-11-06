@@ -15,7 +15,7 @@ const
     ("laststatus", "ls", "ui.statusBar"), ("showtabline", "stal", "ui.tabBar"), ("title", "", "ui.terminalTitle")]
   VimOptOwn = ["number", "nu", "relativenumber", "rnu", "tabstop", "ts", "shiftwidth", "sw", "softtabstop", "sts",
     "expandtab", "et", "ignorecase", "ic", "colorcolumn", "cc", "mouse", "clipboard", "background", "bg", "spell",
-    "filetype", "ft", "syntax", "syn"]
+    "filetype", "ft", "syntax", "syn", "gdefault", "gd"]
     # (Vim options :set handles itself: the file's own indent and language, the search's case, …)
   VimOptQuiet = ["hlsearch", "hls", "incsearch", "is", "autoindent", "ai", "smartindent", "si", "cindent", "cin",
     "smartcase", "scs", "showmatch", "sm", "ruler", "ru", "showmode", "smd", "showcmd", "sc", "termguicolors", "tgc",
@@ -32,6 +32,7 @@ const
     "make", "run", "zen", "pwd", "registers", "help"]
 
 var
+  vimGdefault = false       # :set gdefault — :s replaces every match on a line, and g then only the first
   vimCompList: seq[string]  # the : line's completions of what was typed (whole lines), stepped through by Tab
   vimCompAt = -1            # the one in the prompt (-1: their common start)
   vimCompShown = ""         # the text Tab last put in the prompt
@@ -160,6 +161,9 @@ proc vimSetOwn(b: Buffer, name, op, val: string): bool =
   of "spell":
     if op == "?": info("spell: " & sStr("editor.spellCheck"))
     else: setSetting("editor.spellCheck", %(if off: "off" else: "on"))
+  of "gdefault", "gd":
+    if op == "?": info("gdefault: " & $vimGdefault)
+    else: vimGdefault = not off
   of "filetype", "ft", "syntax", "syn":
     if op == "?" or val.len == 0: info(n & "=" & b.lang.name)
     elif val notin ["on", "off", "enable"]: vimSetLangOf(b, val)
@@ -274,7 +278,7 @@ proc vimRange(b: Buffer, c: string): (bool, int, int, string) =
 
 proc vimSubst(b: Buffer, lo, hi: int, spec: string): int =
   ## :s/old/new/flags on lines lo..hi — the text old (not a pattern) becomes new: the first on each line, every one
-  ## with g, in any case with i; how many were replaced (one undo step)
+  ## with g (the other way round with :set gdefault), in any case with i; how many were replaced (one undo step)
   if spec.len < 2: return 0
   let d = spec[0]
   let f = spec[1 .. ^1].split(d)
@@ -282,6 +286,7 @@ proc vimSubst(b: Buffer, lo, hi: int, spec: string): int =
   let (pat, rep) = (f[0], f[1])
   let flags = if f.len >= 3: f[2] else: ""
   let anyCase = 'i' in flags
+  let every = ('g' in flags) != vimGdefault           # (:set gdefault turns the g flag the other way)
   b.beginEdit()
   for l in lo .. min(hi, b.lines.high):
     var s = b.lines[l]
@@ -291,7 +296,7 @@ proc vimSubst(b: Buffer, lo, hi: int, spec: string): int =
       s = s[0 ..< i] & rep & s[i + pat.len .. ^1]
       inc result
       changed = true
-      if 'g' notin flags: break
+      if not every: break
       i = (if anyCase: s.toLowerAscii.find(pat.toLowerAscii, i + rep.len) else: s.find(pat, i + rep.len))
     if changed: discard b.replaceText(Pos(line: l, col: 0), Pos(line: l, col: b.lines[l].len), s)
   b.endEdit()

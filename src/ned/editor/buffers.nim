@@ -23,12 +23,13 @@ proc pushJump() =
   fwdStack.setLen(0)                    # a new jump: nothing to go forward to
 
 proc centerOn(b: Buffer, p: Pos) =
-  ## puts the only cursor at `p` and scrolls so that its line is a third of the way down the text area; also notes the
-  ## line, so that the screen lights it up for a moment when that setting is on
+  ## puts the only cursor at `p` (opening a fold that hides it) and scrolls so that its line is a third of the way
+  ## down the text area; also notes the line, so that the screen lights it up for a moment when that setting is on
   if cfgJumpHl and gRaw:
     landBuf = b.id                      # (the line it lands on lights up for a moment: ui.jumpHighlight)
     landLine = p.line
     landAt = getMonoTime()
+  if b.isHidden(p.line): b.unfoldLine(p.line)     # (a jump into a folded part opens it)
   b.setSingle(p)
   (b.topLine, b.topSub) = b.stepBack(p.line, 0, max(0, textH div 3))
   b.lastHead = p
