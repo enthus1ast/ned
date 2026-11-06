@@ -100,7 +100,7 @@ def run(factory, tag):
         bare, gf = os.path.join(tmp, "bare"), os.path.join(tmp, "gf")
         fake_tools(bare, ["sh-nothing"])
         fake_tools(gf, ["gfortran", "fpm"])
-        o = run_sh(cmd, os.path.dirname(f), [bare])
+        o = run_sh(cmd, os.path.dirname(f), [bare], hide=("gfortran", "fpm", "flang", "lfortran"))
         check(tag + "the check without gfortran: nothing", o == "", o)
         o = run_sh(cmd, os.path.dirname(f), [gf]).split("\n")
         check(tag + "the check: gfortran -fsyntax-only, one line a problem (a folder with a space)",

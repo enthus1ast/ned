@@ -121,7 +121,7 @@ jobs:
           sudo apt-get install -y tmux clangd gdb lldb zsh fish hunspell-en-us openssh-server
           npm install -g vscode-langservers-extracted sql-language-server
           pip install --break-system-packages debugpy pytest || pip install debugpy pytest
-          nimble install -y nimlangserver || true
+          nimble install -y nimlangserver || echo "nimlangserver did not build: its tests are skipped"
           tests/ui/ssh-setup.sh
       - name: Build
         run: nim c -d:release --hints:off -o:ned src/ned.nim
@@ -198,7 +198,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
         with:
-          nim-version: stable
+          # (Nim 2.2's nimsuggest: the yardstick. Nim 2.4's `use` leaves out some uses of a variable and puts `result`
+          # where the routine's body starts — the scores then measure nimsuggest, not ned)
+          nim-version: '2.2.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: sudo apt-get update && sudo apt-get install -y clangd
       - name: The engines as programs

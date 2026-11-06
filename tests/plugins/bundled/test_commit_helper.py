@@ -17,6 +17,9 @@ def write(root, rel, text):
 
 
 def run(factory, tag):
+    # (git's name and address before the plugin starts: its git runs with the environment it started with — a machine
+    # with no git identity of its own, as GitHub's, would refuse the commit)
+    os.environ.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
     h = factory()
     if not h.build_ok:
         check(tag + "the host compiles", False, h.build_err)
@@ -33,7 +36,6 @@ def run(factory, tag):
     root = os.path.join(h.tmp, "proj")          # (not the folder the plugin's data is in)
     os.makedirs(root, exist_ok=True)
     h.root = root
-    os.environ.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
     git(root, "init", "-q")
     write(root, "src/ned/ui/outline.nim", "a\nb\n")
     write(root, "README.md", "x\n")

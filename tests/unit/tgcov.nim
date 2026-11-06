@@ -279,8 +279,9 @@ proc checkCalc(t: Table[int, int]) =
   check t.getOrDefault(28) == 1 and t.getOrDefault(30, -1) == 0
   # neverCalled: not in the C at all (and the line after safeDiv does not borrow its count)
   for l in 34 .. 39: check l notin t
-  # the iterator's body, inlined in the test; the template's code counts on the line that uses it
-  check t.getOrDefault(45) >= 3 and t.getOrDefault(47) >= 3 and t.getOrDefault(49) == 1 and 7 notin t
+  # the iterator's body, inlined in the test; the template's code counts on the line that uses it. (The `while`
+  # line: Nim 2.2 marks each test of its condition with it, Nim 2.4 only the first — it ran, either way)
+  check t.getOrDefault(45) >= 1 and t.getOrDefault(47) >= 3 and t.getOrDefault(49) == 1 and 7 notin t
   check 1 notin t
 
 suite "a real build":

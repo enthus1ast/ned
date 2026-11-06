@@ -1,7 +1,7 @@
 """What the language plugins (zig, julia, ocaml, crystal, dart, clojure) are checked for, the same way for each: the
 language's spec, its snippets, the outline from the plugin without a language server, F5's command, and the language
 server and formatter — found on PATH (pretend programs here), given by the plugin's settings, or "off"."""
-import os, shutil, stat, subprocess, tempfile
+import atexit, os, shutil, stat, subprocess, tempfile
 from tplugins import check
 
 
@@ -15,12 +15,39 @@ def fake_tools(d, names):
         os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
 
 
-def start(factory, path_dirs=(), settings=None, only_path=False):
+_SYSTEM = {}
+
+
+def system_dirs(hide=()):
+    """/usr/bin and /bin — or, with programs to hide, a folder of links to everything in them but those: a machine that
+    has a tool installed (gh, gfortran on GitHub's) still runs the checks of what happens without it"""
+    if not hide:
+        return ["/usr/bin", "/bin"]
+    key = tuple(sorted(hide))
+    if key not in _SYSTEM:
+        d = tempfile.mkdtemp(prefix="ned-sysbin-")
+        atexit.register(shutil.rmtree, d, True)
+        for src in ["/usr/bin", "/bin"]:
+            if not os.path.isdir(src):
+                continue
+            for n in os.listdir(src):
+                if n in hide or os.path.lexists(os.path.join(d, n)):
+                    continue
+                try:
+                    os.symlink(os.path.join(src, n), os.path.join(d, n))
+                except OSError:
+                    pass
+        _SYSTEM[key] = [d]
+    return _SYSTEM[key]
+
+
+def start(factory, path_dirs=(), settings=None, only_path=False, hide=()):
     old = os.environ.get("PATH", "")
     if path_dirs:
-        # (only_path: the pretend programs, nim (it runs the plugin) and the system's own — none of your tools)
+        # (only_path: the pretend programs, nim (it runs the plugin) and the system's own — none of your tools; hide:
+        # those left out of the system's too)
         nim = os.path.dirname(shutil.which("nim") or "/usr/bin/nim")
-        os.environ["PATH"] = os.pathsep.join(list(path_dirs) + ([nim, "/usr/bin", "/bin"] if only_path else [old]))
+        os.environ["PATH"] = os.pathsep.join(list(path_dirs) + ([nim] + system_dirs(hide) if only_path else [old]))
     try:
         h = factory()
     finally:
@@ -36,8 +63,8 @@ def ned_cmd(cmd, path, tmp):
             .replace("$root", os.path.dirname(path)))
 
 
-def run_sh(cmd, cwd, path_dirs, stdin=""):
-    env = dict(os.environ, PATH=os.pathsep.join(list(path_dirs) + ["/usr/bin", "/bin"]))
+def run_sh(cmd, cwd, path_dirs, stdin="", hide=()):
+    env = dict(os.environ, PATH=os.pathsep.join(list(path_dirs) + system_dirs(hide)))
     r = subprocess.run(["sh", "-c", cmd], cwd=cwd, input=stdin, capture_output=True, text=True, env=env, timeout=30)
     return r.stdout + r.stderr
 

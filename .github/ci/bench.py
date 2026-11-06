@@ -12,6 +12,12 @@ RUNS = int(sys.argv[2]) if len(sys.argv) > 2 else 5
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.getcwd()
 BUDGET = json.load(open(os.path.join(HERE, 'bench-budget.json')))
+if sys.platform == 'darwin':
+    # (macOS: the limits of its own section replace the others — GitHub's shared macOS machines vary the most)
+    mac = BUDGET.get('macos', {})
+    for case, lims in mac.get('startup', {}).items(): BUDGET['startup'].setdefault(case, {}).update(lims)
+    for k in ('terminal_ms_per_100k_lines',):
+        if k in mac: BUDGET[k] = mac[k]
 
 def startup(cwd, args):
     """one ned --startup-time run: the numbers of its STARTUP line"""

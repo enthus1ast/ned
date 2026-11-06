@@ -8,5 +8,10 @@
   },
   "frame_ms": {"scroll": 10, "cursor down": 10, "type": 10, "idle redraw": 10, "far jump": 10},
   "frame_bytes": {"scroll": 4000, "cursor down": 6000, "type": 1500, "idle redraw": 200, "far jump": 30000},
-  "terminal_ms_per_100k_lines": 400
+  "terminal_ms_per_100k_lines": 400,
+  "macos": {
+    "_": "GitHub's macOS machines are shared and their speed varies from run to run (a big file's first frame 370 ms on one, 555 on the next, the same ned): these limits replace the ones above there.",
+    "startup": {"a big file (ned in one)": {"first_frame_ms": 1000}, "an 80 MB log": {"first_frame_ms": 2500}},
+    "terminal_ms_per_100k_lines": 800
+  }
 }

@@ -165,6 +165,7 @@ def normT(t):
     if t == 'Error Type': return ''
     if t == 'iterator': t = 'proc'                             # (a parameter typed `iterator`: nimsuggest says proc)
     t = re.sub(r'\bvarargs\[([^,\[\]]+),[^\[\]]*\]', r'varargs[\1]', t)   # varargs[string, `$`]: its converter aside
+    t = t.replace('%.', '')                                    # (Nim 2.4's nimsuggest: Option[%.T] for Option[T])
     t = re.sub(r'\bint literal\(\d+\)', 'int', t)
     t = re.sub(r'\b(float|string|bool|char) literal\([^)]*\)', r'\1', t)
     t = re.sub(r'(\b[A-Z]\w*): \w+$', r'\1', t)                # T: SomeFloat, var T: distinct
@@ -258,6 +259,11 @@ for (l, c, w, m) in sample:
     elif nsd and not ids: st['ns_only'] += 1; bad.append(('MISS', l, c, w, nsd[:1], []))
     elif ids and not nsd: st['ned_only'] += 1
     elif any(x in ids for x in nsd): st['agree'] += 1
+    elif w == 'result' and rows and rows[0][1] == 'skResult' and any(
+            f == g and 0 < nl - il <= 6 for (f, nl) in nsd for (g, il) in ids):
+        # (the implicit result: Nim 2.4's nimsuggest puts it where the routine's body starts, Nim 2.2's and ned at
+        # the routine's own line — the same routine)
+        st['agree'] += 1
     else: st['disagree'] += 1; bad.append(('DIFF', l, c, w, nsd[:1], ids[:2]))
     if rows and rows[0][1] in ('skLet', 'skVar', 'skForVar', 'skParam', 'skResult', 'skConst', 'skField') and \
             not (rows[0][1] == 'skResult' and w != 'result'):    # (nimsuggest answers `result` at a routine's name)
