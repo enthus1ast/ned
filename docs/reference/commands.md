@@ -207,7 +207,10 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Go to symbol in workspace (language server)… |  |
 | Go to symbol… | Ctrl+T |
 | Go to type definition |  |
+| Help: check for updates | asks GitHub now whether a newer ned is out |
+| Help: skip this update | the newest release is not mentioned again (a newer one is) |
 | Help: update ned… | the newest release, in the terminal: ned --update (it asks first) |
+| Help: what's new in the newest ned | the newest release's notes, and how to update |
 | Hex: copy as a C array |  |
 | Hex: copy as a Nim array |  |
 | Hex: copy as a Nim string |  |

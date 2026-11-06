@@ -239,6 +239,7 @@ jobs:
     needs: [unix, cross, termux, windows-wsl, windows, vscode]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -249,10 +250,22 @@ jobs:
           chmod +x ned-* nedfmt-* nedls-*
           for f in ned-* nedfmt-* nedls-*; do tar czf "$f.tar.gz" "$f"; done
           ls -la
+      - name: SHA256SUMS of the release's files, signed when the NED_SIGNING_KEY secret is set
+        # (ned --update checks a downloaded package against them before it installs it)
+        env:
+          SIGNING_KEY: ${{ secrets.NED_SIGNING_KEY }}
+        run: |
+          mkdir rel
+          for f in dist/*.tar.gz dist/*.deb dist/*.vsix; do if [ -f "$f" ]; then cp "$f" rel/; fi; done
+          if [ -n "$SIGNING_KEY" ]; then
+            umask 077
+            printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/signing-key"
+            export NED_SIGNING_KEY="$RUNNER_TEMP/signing-key"
+          fi
+          sh tests/build/sums.sh rel
+          cat rel/SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.tar.gz
-            dist/*.deb
-            dist/*.vsix
+            rel/*
           generate_release_notes: true

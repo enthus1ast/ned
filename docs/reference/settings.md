@@ -229,6 +229,7 @@ Every setting ned has, its default and what it does — made by `ned --doc-setti
 | `files.protectLibraries` | `true` | Files of the Nim toolchain (the standard library, the compiler) and of installed nimble packages open read-only — go to definition often lands there, and a stray key followed by a save would change them for every project. Palette › File: allow editing this file |
 | `files.autoReload` | `true` | Reload files changed on disk when they have no unsaved edits |
 | `files.restoreSession` | `true` | Reopen the files that were open last time in this folder |
+| `update.check` | `true` | Once a day, a little after ned starts, look on GitHub for a newer release of ned and say so when there is one (Help › Check for updates looks now) |
 
 ## Decompiler
 

@@ -40,6 +40,7 @@ def main():
         print('no ned binary at %s — build it first: nimble release' % nedbin); return 2
     tmp = tempfile.mkdtemp(prefix='ned-ui-')
     os.environ['NED_TEST_TMP'] = tmp
+    os.environ.setdefault('NED_UPDATE_URL', tmp + '/no-release.json')   # (no look on GitHub for a newer ned)
     os.environ['NEDBIN'] = os.path.abspath(nedbin)
     os.environ['NED_TEST_AI_PORT'] = str(free_port())
     os.environ['NED_TEST_MOCK_LOG'] = tmp + '/mock-requests.log'

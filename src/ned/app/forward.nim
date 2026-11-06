@@ -260,6 +260,9 @@ proc batteryToggle()                                   # app/battery.nim
 proc drawPaneView(b: Buffer, x0, y0, w, h: int, active: bool)   # ui/paneviews.nim
 proc paneTermEnd(id: int)                                       # ui/paneviews.nim
 proc wkMacros(path: string)                                     # nim/worker.nim
+proc updLook(manual: bool)                                      # app/update.nim
+proc updShowNotes()                                             # app/update.nim
+proc updSkip()                                                  # app/update.nim
 proc mnNamesKnown(f: NxFile, lines: seq[string], sc: NxScope): bool  # nim/macronames.nim
 proc projectForget()                                             # editor/bufforget.nim
 proc nifColorsOn(b: Buffer): bool                                 # nim/nifcolors.nim

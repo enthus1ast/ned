@@ -252,6 +252,7 @@ proc mainLoop() =
     let r = poll(addr fds[0], fds.len.Tnfds, timeout.cint)
     busyFrom = getMonoTime()
     perfRoundStart()
+    updAutoLook()                      # (a newer ned on GitHub? once a day, a little after start; update.check)
     if r < 0:
       if errno == EINTR: continue
       os.sleep(10)

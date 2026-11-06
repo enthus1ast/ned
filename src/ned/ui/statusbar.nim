@@ -245,6 +245,11 @@ proc drawStatusBar() =
   if b.libLocked and scrW >= 60:
     x = button(x, y, " Read-only ", proc() = runCmd("File: allow editing this file"),
                "Part of the Nim toolchain or an installed package — click to edit it anyway", theme.warn, bg)
+  if updNewer.len > 0 and scrW >= 60:
+    # (a newer ned is out: a tap shows what is new in it and how to update)
+    x = button(x, y, " " & (if cfgAccessible: "^" else: "⬆") & " ned " & updNewer & " ",
+               proc() = runCmd("Help: what's new in the newest ned"),
+               "ned " & updNewer & " is out — click for what is new and how to update", theme.accent, bg)
   if b.largeOn:
     x = button(x, y, " Large file ", proc() = runCmd("Large file mode: on/off for this file"),
                "Large-file mode (" & b.largeWhy & ") — click to turn the code features back on", theme.warn, bg)
