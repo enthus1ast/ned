@@ -21,16 +21,19 @@ Short answers, with a link to where each thing is explained in full. Something n
 a language server, an AI key …) is optional and picked up when it is on your `PATH`; `ned --check` lists what it
 found and how to install the rest. See [Installing](../README.md#installing).
 
-**How do I install it on Termux?** Either the ready-made package of a release — `pkg install
-./ned_6.29.0_aarch64.deb` (ned, nedls and nedfmt, the example plugins in `$PREFIX/share/ned/plugins`) — or from the
-source: `pkg install nim git`, then `nim c -d:release --opt:speed -d:strip -o:$PREFIX/bin/ned src/ned.nim` (or
-`nimble termux` in the project folder).
+**How do I install it on Termux?** Build it on the device: `curl -fsSL
+https://raw.githubusercontent.com/foxoman/ned/main/install.sh | sh` does it with nimble, or by hand `pkg install nim
+git`, then `nim c -d:release --opt:speed -d:strip -o:$PREFIX/bin/ned src/ned.nim` (or `nimble termux` in the project
+folder). A ready-made package, if you have one — `pkg install ./ned_6.41.0_aarch64.deb` — brings ned, nedls and
+nedfmt, and the example plugins in `$PREFIX/share/ned/plugins`.
 
 **And on Linux, macOS, Windows?** Linux and macOS build from the source with one `nim c` (or `nimble install`).
-On Windows, ned runs in WSL as on Linux — the tried way — or natively (experimental, since 6.21; a release has a
-zip with `ned.exe`). The [Installing](../README.md#installing) section has each one step by step.
+On Windows, ned runs in WSL as on Linux — the tried way — or natively (experimental, since 6.21; built with `nim c`
+as anywhere else). The [Installing](../README.md#installing) section has each one step by step.
 
-**How do I update?** Install the new release's package (Termux), or pull the source and build again. Your
+**How do I update?** `ned --update` (or *Help › Update ned…*): it builds the newest version the way ned was installed
+— with nimble, or a checkout pulled and built again. ned says by itself when a newer version is out (once a day;
+`update.check`). Your
 settings, sessions and plugins are kept: they are in your home folder, not next to the program
 ([Files ned uses](guide/files.md)).
 

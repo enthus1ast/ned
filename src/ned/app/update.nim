@@ -1,5 +1,5 @@
-# ── ned --update: the newest release, installed the way this ned was — the Termux package, nimble, or a checkout
-#    built in place. It says what it will run and asks first (--yes: does not ask; --check: only says). A package
+# ── ned --update: the newest release (GitHub's newest release, else its newest version tag), installed the way this
+#    ned was — built with nimble, a checkout built in place, or a release's Termux package when it has one. It says what it will run and asks first (--yes: does not ask; --check: only says). A package
 #    it downloads is checked before it is installed: its SHA-256 against the release's SHA256SUMS, and SHA256SUMS
 #    against its signature by a key in release-signers (app/releasecheck.nim); --verify DIR checks a release
 #    downloaded by hand the same way ──
@@ -49,24 +49,47 @@ proc updVerifyDir(dir: string, names: seq[string]): int =
       return 1
   if updVerify(dir, files): 0 else: 1
 
+const
+  UpdReleaseUrl = "https://api.github.com/repos/" & NedRepo & "/releases/latest"
+  UpdTagsUrl = "https://api.github.com/repos/" & NedRepo & "/tags?per_page=100"
+
+proc updNewestOf(j: JsonNode): (string, JsonNode) =
+  ## the newest version in GitHub's answer — a release ({"tag_name", "body", "assets"}) or the list of tags
+  ## ([{"name"}]: the highest vX.Y.Z) — with the release (a tag: one made of it, without files or notes)
+  if j == nil: return ("", nil)
+  if j.kind == JObject and j{"tag_name"}.getStr.len > 0:
+    return (j{"tag_name"}.getStr.strip(trailing = false, chars = {'v', 'V'}), j)
+  if j.kind == JArray:
+    var best = ""
+    for t in j:
+      let v = t{"name"}.getStr.strip(trailing = false, chars = {'v', 'V'})
+      if v.len > 0 and v[0] in Digits and '.' in v and (best.len == 0 or verCmp(v, best) > 0): best = v
+    if best.len > 0: return (best, %*{"tag_name": "v" & best, "assets": []})
+  ("", nil)
+
 proc updLatest(): (string, JsonNode) =
-  ## the newest release: (its version, GitHub's answer) — $NED_UPDATE_URL (a URL, or a file of the same JSON) in
-  ## its place for tests; ("", nil) when it cannot be read
-  let src = getEnv("NED_UPDATE_URL", "https://api.github.com/repos/" & NedRepo & "/releases/latest")
-  var body = ""
-  if src.startsWith("https://") or src.startsWith("http://"):
-    if findExe("curl").len == 0: return ("", nil)
-    let (ok, o, _) = runFilter("curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' -- " &
-                               quoteShell(src), "", getCurrentDir(), 30_000)
-    if not ok: return ("", nil)
-    body = o
-  else:
-    try: body = readFile(src)
-    except CatchableError: return ("", nil)
-  try:
-    let j = parseJson(body)
-    result = (j{"tag_name"}.getStr.strip(trailing = false, chars = {'v', 'V'}), j)
-  except CatchableError: result = ("", nil)
+  ## the newest release: (its version, the release) — GitHub's newest release, else its newest version tag (a
+  ## version may be only a tag: built with nimble); $NED_UPDATE_URL (a URL, or a file of the same JSON — a release
+  ## or a list of tags) in its place for tests; ("", nil) when it cannot be read
+  proc fetch(src: string): JsonNode =
+    ## GitHub's answer at src (a URL, or a file for tests), nil when there is none
+    var body = ""
+    if src.startsWith("https://") or src.startsWith("http://"):
+      if findExe("curl").len == 0: return nil
+      let (ok, o, _) = runFilter("curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' -- " &
+                                 quoteShell(src), "", getCurrentDir(), 30_000)
+      if not ok: return nil
+      body = o
+    else:
+      try: body = readFile(src)
+      except CatchableError: return nil
+    try: result = parseJson(body)
+    except CatchableError: result = nil
+  let test = getEnv("NED_UPDATE_URL")
+  if test.len > 0: return updNewestOf(fetch(test))
+  let rel = updNewestOf(fetch(UpdReleaseUrl))
+  let tag = updNewestOf(fetch(UpdTagsUrl))
+  if rel[0].len > 0 and (tag[0].len == 0 or verCmp(rel[0], tag[0]) >= 0): rel else: tag
 
 proc updHow(): (string, string) =
   ## how this ned was installed: ("termux", "") the package · ("nimble", "") · ("source", the checkout) ·
@@ -123,19 +146,23 @@ proc updateMain(args: seq[string]): int =
       elif n == "SHA256SUMS": sumsUrl = u
       elif n == "SHA256SUMS.sig": sigUrl = u
     if url.len == 0:
-      echo "The release has no Termux package — see https://github.com/", NedRepo, "/releases"
-      return 1
-    if sumsUrl.len == 0:
+      # (no package to install: ned built on this device with nimble — Nim and git from Termux's packages)
+      echo "There is no Termux package of ", latest, " to install: it is built here with nimble instead (a few minutes),"
+      echo "into ~/.nimble/bin — put that before $PREFIX/bin in PATH (or apt remove ned) to use it."
+      cmds = @["pkg install -y nim git clang",
+               "nimble install -y " & quoteShell("https://github.com/" & NedRepo & "@#" & tag)]
+    elif sumsUrl.len == 0:
       echo "The release has no SHA256SUMS, so its package cannot be checked — nothing was installed. It is on " &
            "https://github.com/", NedRepo, "/releases/tag/", tag, " if you want it anyway."
       return 1
-    dl = privDir() / ("update-" & $getCurrentProcessId())
-    let deb = dl / extractFilename(url)
-    downloads.add (sumsUrl, dl / "SHA256SUMS", false)
-    if sigUrl.len > 0: downloads.add (sigUrl, dl / "SHA256SUMS.sig", false)
-    downloads.add (url, deb, true)
-    check = @[extractFilename(url)]
-    cmds = @["apt install -y " & quoteShell(deb)]
+    else:
+      dl = privDir() / ("update-" & $getCurrentProcessId())
+      let deb = dl / extractFilename(url)
+      downloads.add (sumsUrl, dl / "SHA256SUMS", false)
+      if sigUrl.len > 0: downloads.add (sigUrl, dl / "SHA256SUMS.sig", false)
+      downloads.add (url, deb, true)
+      check = @[extractFilename(url)]
+      cmds = @["apt install -y " & quoteShell(deb)]
   of "nimble":
     cmds = @["nimble install -y " & quoteShell("https://github.com/" & NedRepo & "@#" & tag)]
   of "source":
@@ -145,8 +172,7 @@ proc updateMain(args: seq[string]): int =
                " src/ned.nim"]
   else:
     echo "ned does not know how it was installed here. Any of these brings ", latest, ":"
-    echo "  Termux:   the package of the release, ned_", latest, "_aarch64.deb — pkg install ./ned_", latest, "_aarch64.deb"
-    echo "  nimble:   nimble install https://github.com/", NedRepo, "@#", tag
+    echo "  nimble:   nimble install https://github.com/", NedRepo, "@#", tag, "   (Termux too: pkg install nim git)"
     echo "  a script: curl -fsSL https://raw.githubusercontent.com/", NedRepo, "/main/install.sh | sh"
     return 1
   if downloads.len > 0:
@@ -227,9 +253,10 @@ proc updShowNotes() =
     info("ned " & Version & " is the newest")
     return
   let notes = st{"notes"}.getStr.strip
-  var t = "# ned " & latest & "\n\nThis is ned " & Version & ". **Help › Update ned…** installs " & latest &
-          " the way this ned was installed (it says what it will do and asks first); in a terminal, `ned --update`." &
-          " To be told nothing more about " & latest & ": palette › *Help: skip this update*.\n\n"
+  var t = "# ned " & latest & "\n\nThis is ned " & Version & ". **Help › Update ned…** brings " & latest &
+          " the way this ned was installed — built with nimble, or a source checkout pulled and built again (it says" &
+          " what it will do and asks first); in a terminal, `ned --update`. To be told nothing more about " & latest &
+          ": palette › *Help: skip this update*.\n\n"
   if notes.len > 0: t.add notes & "\n"
   let url = st{"url"}.getStr
   if url.len > 0: t.add "\n" & url & "\n"
@@ -247,11 +274,41 @@ proc updSkip() =
   updNewer = ""
   info("ned " & latest & " will not be mentioned again")
 
+func updReadmeNotes(md, version: string): string =
+  ## the README's "What's new in X.Y" for a version (its X.Y, else the README's first What's new)
+  let parts = version.split('.')
+  let want = "## What's new in " & (if parts.len >= 2: parts[0] & "." & parts[1] else: version)
+  var at = md.find("\n" & want)
+  while at >= 0 and at + 1 + want.len < md.len and md[at + 1 + want.len] in Digits:   # (6.4 is not 6.41)
+    at = md.find("\n" & want, at + 1)
+  if at < 0: at = md.find("\n## What's new in ")
+  if at < 0: return ""
+  let a = at + 1
+  let e = md.find("\n## ", a + 3)
+  md[a ..< (if e < 0: md.len else: e)].strip
+
+proc updFound(latest, notes, url: string, manual: bool) =
+  ## what a look found, kept for the next start; a newer version than this ned: a note with a button for what is
+  ## new in it, and the status bar's mark (with `manual`, its notes at once; the same version: said so)
+  var st = updState()
+  st["checked"] = %epochTime()
+  st["latest"] = %latest
+  st["notes"] = %(if notes.len > 20_000: notes[0 ..< 20_000] & "…" else: notes)
+  st["url"] = %url
+  updSaveState(st)
+  updNoteNewer(latest)
+  if verCmp(latest, Version) <= 0:
+    if manual: info("ned " & Version & " is the newest")
+  elif manual: updShowNotes()
+  elif updNewer.len > 0:
+    toast("ned " & latest & " is out (this is " & Version & ")", 3, "What's new", proc() = updShowNotes(), 15_000)
+
 proc updLook(manual: bool) =
-  ## asks GitHub for the newest release, in the background (curl); a newer one than this ned: a note with a button
-  ## for its notes, and the status bar's mark. With `manual` (Help › Check for updates) it says either way, and why
-  ## it could not look; the daily look stays quiet then
-  let src = getEnv("NED_UPDATE_URL", "https://api.github.com/repos/" & NedRepo & "/releases/latest")
+  ## asks GitHub for the newest version (its tags), in the background (curl); a newer one than this ned: its What's
+  ## new is read from the README at that tag, then a note with a button for it, and the status bar's mark. With
+  ## `manual` (Help › Check for updates) it says either way, and why it could not look; the daily look stays quiet
+  let test = getEnv("NED_UPDATE_URL")
+  let src = if test.len > 0: test else: UpdTagsUrl
   let web = src.startsWith("https://") or src.startsWith("http://")
   if web and findExe("curl").len == 0:
     if manual: error("Looking for a newer ned needs curl" & (if isTermux(): " (pkg install curl)" else: ""))
@@ -264,26 +321,23 @@ proc updLook(manual: bool) =
     var latest, notes, url = ""
     if j.code == 0:
       try:
-        let r = parseJson(j.output)
-        latest = r{"tag_name"}.getStr.strip(trailing = false, chars = {'v', 'V'})
-        notes = r{"body"}.getStr
-        url = r{"html_url"}.getStr
+        let (v, r) = updNewestOf(parseJson(j.output))
+        latest = v
+        if r != nil:
+          notes = r{"body"}.getStr
+          url = r{"html_url"}.getStr
       except CatchableError: discard
     if latest.len == 0:
       if manual: error("Could not reach GitHub to look for a newer ned — is the network there?")
       return
-    var st = updState()
-    st["checked"] = %epochTime()
-    st["latest"] = %latest
-    st["notes"] = %(if notes.len > 20_000: notes[0 ..< 20_000] & "…" else: notes)
-    st["url"] = %url
-    updSaveState(st)
-    updNoteNewer(latest)
-    if verCmp(latest, Version) <= 0:
-      if manual: info("ned " & Version & " is the newest")
-    elif manual: updShowNotes()
-    elif updNewer.len > 0:
-      toast("ned " & latest & " is out (this is " & Version & ")", 3, "What's new", proc() = updShowNotes(), 15_000))
+    if url.len == 0: url = "https://github.com/" & NedRepo & "/blob/v" & latest & "/README.md"
+    if notes.len > 0 or not web or verCmp(latest, Version) <= 0:
+      updFound(latest, notes, url, manual)
+      return
+    # (a newer version, only a tag: its What's new from the README at that tag)
+    let readme = "https://raw.githubusercontent.com/" & NedRepo & "/v" & latest & "/README.md"
+    discard startJob(jkAux, "curl -fsSL --max-time 15 -- " & quoteShell(readme), dir, proc(r: Job) =
+      updFound(latest, (if r.code == 0: updReadmeNotes(r.output, latest) else: ""), url, manual)))
 
 proc updAutoLook() =
   ## (the main loop) the daily look, once a run: 20 seconds after start, with update.check on and a day after the

@@ -256,9 +256,10 @@ the whole of `src/ned.nim`, built with `-d:nedNoMain`).
    whole UI suite on a quiet machine, `pty_smoke.py`, `bench.py`, `rounds.py`, `budgets.py`, every command
    (`smoke/commands.py`, with and without `--plugins`), the hostile input (`hostile/thostile.py`), the fuzzer, the docs
    and themes checks, and the scoreboard (CI runs it).
-5. **The builds**: `bash tests/build/termux.sh OUT` (the `.deb`) and `bash tests/build/windows.sh OUT` (the zip), with
-   zig as the C compiler; `tests/build/cross.sh` for every other target. Build one thing at a time on a small machine.
-   Gather the release's files in one folder and run `NED_SIGNING_KEY=~/.ssh/ned-release sh tests/build/sums.sh
-   FOLDER`; publish SHA256SUMS and SHA256SUMS.sig with them.
-6. **Tag and push** `vX.Y.Z`: `.github/workflows/build.yml` builds every platform and attaches the programs (and the
-   VS Code extension) to the GitHub release.
+5. **The builds**, for whoever wants them ready-made: `bash tests/build/termux.sh OUT` (the `.deb`) and
+   `bash tests/build/windows.sh OUT` (the zip), with zig as the C compiler; `tests/build/cross.sh` for every other
+   target. Build one thing at a time on a small machine. A package attached to a GitHub release by hand needs
+   `NED_SIGNING_KEY=~/.ssh/ned-release sh tests/build/sums.sh FOLDER` and SHA256SUMS (and SHA256SUMS.sig) attached
+   with it: `ned --update` and `install.sh` take a release's Termux package only when they can check it.
+6. **Tag and push** `vX.Y.Z`: `.github/workflows/build.yml` checks that ned builds on every platform (it publishes
+   nothing); the tag is what `ned --update` and ned's daily look see as the newest version, built with nimble.

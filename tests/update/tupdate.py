@@ -9,6 +9,7 @@ SHA256SUMS.sig given as file:// URLs, and apt replaced by a script that writes d
   signed, and ned has the key        installed, the signature checked
   signed by another key              refused
   ned has a key, no signature        refused
+  a version only tagged              built with nimble on Termux (asked first)
 
 Usage: tupdate.py [path/to/ned]   (without a ned: install.sh only). The signed cases need ssh-keygen (OpenSSH).
 Exit status 1 when a check fails."""
@@ -118,6 +119,14 @@ for who, run in runners:
     check(who + ': signed, but the package changed: refused', code != 0 and not installed(), out)
 
 if NED:
+    # a version that is only a tag (no release, no package): Termux builds it with nimble — said, asked, nothing run
+    tags = os.path.join(root, 'tags.json')
+    json.dump([{'name': 'v99.1.0'}, {'name': 'v6.0.0'}, {'name': 'not-a-version'}], open(tags, 'w'))
+    r = subprocess.run([NED, '--update'], env=env(PLACEHOLDER, NED_UPDATE_URL=tags, NED_UPDATE_HOW='termux'),
+                       capture_output=True, text=True, timeout=60, input='n\n')
+    out = r.stdout + r.stderr
+    check('ned --update: a version only tagged — the newest tag, built with nimble on Termux, asked first',
+          'ned 99.1.0 is out' in out and 'nimble install' in out and 'Nothing changed' in out and not installed(), out)
     release()
     code, out = ned_verify(PLACEHOLDER)
     check('ned --update --verify DIR: the files SHA256SUMS lists, checked', code == 0 and 'Checked ' + DEB in out, out)
