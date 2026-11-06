@@ -23,7 +23,7 @@ INK = ['e-ink', 'e-ink-dark']
 # (6.30: themes ned took in for Foxoman — their colours lifted to read, their design as it was: two syntax colours
 # may be the same or near, as their authors made them)
 READ = ['shades-of-purple', 'shades-of-purple-super-dark', 'classic-blue', 'nebula-pulse', 'nebula-nova', 'nebula-nord',
-        'nebula-serenity', 'nebula-glow', 'nebula-dawn']
+        'nebula-serenity', 'nebula-glow', 'nebula-dawn', 'mint-night']
 MONO = ['amber-crt', 'green-phosphor', 'monochrome', 'monochrome-light', 'e-ink', 'e-ink-dark']
 NAMES = 'bg fg accent sel comment keyword type string number func operator macro property error warning ok'.split()
 
