@@ -1,6 +1,6 @@
 # Themes and appearance
 
-ned draws everything itself, in the terminal's own font, so how it looks is up to you: 84 built-in themes, light or
+ned draws everything itself, in the terminal's own font, so how it looks is up to you: 150 built-in themes, light or
 dark that follows the terminal or the clock, your own colours over any theme, a theme editor that checks contrast,
 VS Code, Zed, Helix and base16 themes imported, Termux's colours set to match, three icon sets, an accessibility
 mode, a layout for phones, and settings for every bar, line and mark on the screen. The settings named here go in
@@ -27,11 +27,18 @@ the list. The default is `nim-crown`.
 | **from other editors** | `one-dark` `tokyo-night` `catppuccin-mocha` `gruvbox-dark` `dracula` `nord` `monokai` `solarized-dark` `github-dark` `rose-pine` `kanagawa` `everforest-dark` `night-owl` `nim-crown` `vscode-dark` `modus-vivendi` `ayu-mirage` `ayu-dark` `shades-of-purple` `shades-of-purple-super-dark` `gruvbox-material-dark` `material-palenight` `nightfox` `carbonfox` `oxocarbon` `poimandres` `synthwave-84` `cobalt2` `horizon` `vesper` `flexoki-dark` `zenburn` `melange-dark` `monokai-pro` | `one-light` `catppuccin-latte` `gruvbox-light` `solarized-light` `everforest-light` `light-owl` `vscode-light` `github-light` `tokyo-night-day` `rose-pine-dawn` `kanagawa-lotus` `ayu-light` `modus-operandi` `gruvbox-material-light` `dawnfox` `flexoki-light` `melange-light` |
 | **from vim** | `jellybeans` `iceberg` `sonokai` | `papercolor-light` |
 | **Foxoman's** | `classic-blue` (the VS Code theme) · `nebula-pulse` `nebula-nova` `nebula-nord` `nebula-serenity` (the Zed themes) | `nebula-glow` `nebula-dawn` |
-| **ned's own** | `frankincense` `desert-dusk` `lagoon` | `sea-glass` `paper-ink` `rose-quartz` |
+| **from ray.so** | `ray-vercel-dark` `ray-rabbit-dark` `ray-supabase-dark` `ray-tailwind-dark` `ray-openai-dark` `ray-mintlify-dark` `ray-prisma-dark` `ray-clerk-dark` `ray-elevenlabs-dark` `ray-resend-dark` `ray-triggerdev-dark` `ray-nuxt-dark` `ray-browserbase-dark` `ray-cloudflare-dark` `ray-gemini-dark` `ray-stripe` `ray-bitmap-dark` `ray-noir-dark` `ray-ice-dark` `ray-sand-dark` `ray-forest-dark` `ray-mono-dark` `ray-breeze-dark` `ray-candy-dark` `ray-crimson-dark` `ray-falcon-dark` `ray-meadow-dark` `ray-midnight-dark` `ray-raindrop-dark` `ray-sunset-dark` `ray-firecrawl-dark` `ray-aws-dark` `ray-auth0-dark` | `ray-vercel-light` `ray-rabbit-light` `ray-supabase-light` `ray-tailwind-light` `ray-openai-light` `ray-mintlify-light` `ray-prisma-light` `ray-clerk-light` `ray-elevenlabs-light` `ray-resend-light` `ray-triggerdev-light` `ray-nuxt-light` `ray-browserbase-light` `ray-cloudflare-light` `ray-gemini-light` `ray-bitmap-light` `ray-noir-light` `ray-ice-light` `ray-sand-light` `ray-forest-light` `ray-mono-light` `ray-breeze-light` `ray-candy-light` `ray-crimson-light` `ray-falcon-light` `ray-meadow-light` `ray-midnight-light` `ray-raindrop-light` `ray-sunset-light` `ray-firecrawl-light` `ray-aws-light` `ray-auth0-light` |
+| **ned's own** | `frankincense` `desert-dusk` `lagoon` `mint-night` | `sea-glass` `paper-ink` `rose-quartz` |
 | **easy on the eyes** | `oled-black` `oled-warm` `oled-dim` `lcd-soft` `lcd-warm` | `lcd-paper` |
 | **old terminals** | `amber-crt` `green-phosphor` | |
 | **slate** | `slate` (Nebula Void) | |
 | **grey only** | `monochrome` | `monochrome-light` |
+
+The *ray.so* themes are the code themes of [ray.so](https://ray.so), each with `ray-` before its name: the code
+colours as ray.so has them, on the background of its code window. `ray-vercel`, `ray-candy` and the rest without
+`-dark` or `-light` give the dark one; `ray-stripe` is dark only. Their colours are © 2024 Raycast Technologies Ltd,
+under the MIT licence (the notice is beside them in `src/ned/core/themes.nim`). `mint-night` is near black, with mint
+keywords and types, lavender function names and light blue strings.
 
 `nim-crown` is ned's default. The *easy on the eyes* themes are for long sessions. On an OLED screen (most phones
 and tablets) `oled-black` keeps the background truly black — those pixels are off — with soft grey text instead of
