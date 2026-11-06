@@ -1,6 +1,6 @@
 # Announcing ned, a terminal code editor and Nim IDE
 
-*By Foxoman. This post comes with ned 6.41.0.*
+*By Foxoman. This post comes with ned 6.41.1.*
 
 ![A Nim file in ned: the Files dock, references and types in grey beside the code, the engine's own checks, the minimap (nim-crown theme)](../../screenshots/hero-641.png)
 
@@ -74,13 +74,14 @@ The [Nim IDE guide](../guide/nim.md) has the rest.
 Nim code often holds other languages: C in an `{.emit}`, SQL in a string, a piece of HTML. ned edits each as its own
 language, right there in the `.nim` file.
 
-**C in `{.emit}`** is edited as C: its own colours and indentation, `//` comments, completion from its `#include`s and
-`nimbase.h`, hover, Go to definition between a Nim wrapper and the C function it imports (and back), the C
-compiler's errors on the emit's own lines, and Alt+F to format it. With clangd installed, clangd answers inside the
-emit as in a C file: its completion, errors while you type and their fixes. A Nim name in the emit's backticks is
-completed, hovered and renamed with the Nim code. With `"nim.backend": "cpp"` an emit is C++.
+**C in `{.emit}`** is edited as C: its own colours and indentation, `//` comments, completion from its `#include`s
+and `nimbase.h` and of a struct's members, hover, Go to definition between a Nim wrapper and the C function it
+imports (and back), the C compiler's errors on the emit's own lines, and Alt+F to format it. ned's own C engine
+answers, with nothing to install; with clangd installed, clangd answers instead, as in a C file: its completion,
+errors while you type and their fixes. A Nim name in the emit's backticks is completed, hovered and renamed with the
+Nim code. With `"nim.backend": "cpp"` an emit is C++.
 
-![C inside a Nim `{.emit}`: a struct's members completed by clangd, and its warning on an `#include` with the fix (catppuccin-mocha theme)](../../screenshots/emit-c-641.png)
+![C inside a Nim `{.emit}`: a struct's members completed by ned's own C engine, nothing installed (catppuccin-mocha theme)](../../screenshots/emit-c-641.png)
 
 **Wrapping C.** Go to definition on an `importc` proc opens the C prototype in its header; the C signature is shown
 dimmed after each wrapper, and the wrappers are checked against their headers. *Nim: wrap a C header…* writes the Nim
@@ -180,11 +181,11 @@ nimble install https://github.com/foxoman/ned
 
 Once ned is in Nim's package list, `nimble install ned` will do the same.
 
-**3. The Termux package.** Download `ned_6.41.0_aarch64.deb` from the
+**3. The Termux package.** Download `ned_6.41.1_aarch64.deb` from the
 [releases](https://github.com/foxoman/ned/releases), then install it. It brings ned, nedls and nedfmt.
 
 ```sh
-pkg install ./ned_6.41.0_aarch64.deb
+pkg install ./ned_6.41.1_aarch64.deb
 ```
 
 **4. From source.**

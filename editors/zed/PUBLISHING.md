@@ -23,7 +23,7 @@ For the maintainer. Zed lists an extension once a pull request adds it to
    ```toml
    [nedls-language-server]
    submodule = "extensions/nedls-language-server"
-   version = "6.41.0"
+   version = "6.41.1"
    ```
 
    The version must be the one in this repository's `extension.toml` at that commit; the submodule's URL must be
