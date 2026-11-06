@@ -1,6 +1,20 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-640). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-641). Older releases:
+
+## What's new in 6.40
+
+**A clean start.** ned opens with no dock and no panel, and the keys go to the editor or the welcome screen. A dock
+that is not on the screen no longer takes keys: a file tree left open last time could take the welcome screen's `d`
+(*Open folder*) as *Delete* for the file selected in it. Turn on `ui.restorePanels` to get the docks and the panel
+back as you left them; `ui.restoreLayout` still restores your split panes.
+
+**Memory no longer grows with large files opened again and again.** The undo history saved for a file's next
+opening gained a branch on every visit and was read back in full each time. It now shares one 4 MB budget across
+all files, keeping the steps nearest the current text, so undo still works after a file is reopened. No build flag
+is needed for this: `-d:useMalloc` is not required, and the Termux build keeps Nim's own memory allocator.
+
+**About ned** and `ned --help` show the author, the website and a contact address.
 
 ## What's new in 6.39
 
