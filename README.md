@@ -24,7 +24,7 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## Contents
 
-- [What's new in 6.41](#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.41.1](#whats-new-in-6411) · [6.41](#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -32,6 +32,29 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 - [Contributing](#contributing)
 
 ---
+
+## What's new in 6.41.1
+
+- **A struct's members in C inside an `{.emit}`.** After `.` and `->`, completion lists the members of a struct or a
+  union, and the hover of a member shows it, from ned's own C engine — no clangd needed, as in a `.c` file.
+- **Ctrl+P puts the file you name first.** Typing a file's whole name (`demo.nim`) opens that file, not a longer name
+  that starts with it (`demo.nimble`).
+- **Nim 2.4's names.** Nim 2.4 writes a proc's name into the C differently (`shout_u0__app`, where Nim 2.2 wrote
+  `shout__app_u1`): Compiler Explorer, the view of a program Nim built, the debugger's stop when a global changes and
+  the memory checks' stacks read both, and show Nim's names again.
+- **The debugger with Nim 2.4.** Nim 2.4 writes a line's C over several lines, and the C compiler took the later
+  ones for the Nim lines below: a breakpoint stopped before the line's variables were set, a step went to a line that
+  had not run, and Compiler Explorer's shading and the memory checks' stacks were a few lines out. ned now builds for
+  the debugger, the program view, Compiler Explorer and the memory checks with every line of that C under its own
+  Nim line, as with Nim 2.2 — and C in an `{.emit}` keeps its own lines, so a breakpoint there stops on the line it
+  is on (a top-level emit's was one line off with Nim 2.2 too).
+- **Benchmark a call and runnableExamples with Nim 2.4.0.** Both build a program read from ned, which Nim 2.4.0's new
+  separate code generator could not find; they work again.
+- **Nim 2.4's answers, as ned's own.** A type hint shows an array by its length (`array[2, Person]`, not
+  `array[0..1, Person]`), and Go to definition on a name a template made goes to the line that calls the template.
+- **Compiler Explorer on macOS shows the code.** clang there puts it in a section ned left out, so the view was empty.
+- **For contributors.** GitHub's tests pass with Nim 2.4 — the version it installs: a few checks no longer depend on
+  what the machine has installed, its SSH server starts on a fresh machine, and macOS has its own speed limits.
 
 ## What's new in 6.41
 
@@ -227,7 +250,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or a ready-made package,
-`pkg install ./ned_6.41.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
+`pkg install ./ned_6.41.1_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
 `nimble termuxdeb` makes it on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
