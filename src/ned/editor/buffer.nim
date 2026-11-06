@@ -120,6 +120,8 @@ proc shiftInlays(b: Buffer, a, c, e: Pos) =
     v.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
   b.inlays = nt
 
+proc vcLineEdited(b: Buffer, line, col: int)      # (editor/softwrap.nim: a long line's column marks)
+
 proc rawReplace(b: Buffer, a, c: Pos, text: string): Pos =
   ## puts `text` in place of the text between a and c and gives back the position at its end — only the text, no undo
   ## step and no cursors (replaceText does those). The per-line tables (highlighting state, git marks) change size with
@@ -149,6 +151,7 @@ proc rawReplace(b: Buffer, a, c: Pos, text: string): Pos =
     result = Pos(line: a.line, col: a.col + text.len)
     b.hlValid = min(b.hlValid, a.line)
     inc b.changeId
+    b.vcLineEdited(a.line, a.col)
     b.lspDirty = true
     b.lspChangeAt = getMonoTime()
     b.shiftInlays(a, c, result)

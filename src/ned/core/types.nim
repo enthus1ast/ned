@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Types
+#  The types every part uses: buffers, positions and cursors, languages, themes, keys, jobs, diagnostics, prompts and
+#  pickers
 # ════════════════════════════════════════════════════════════════════════════
 
 type
@@ -42,6 +43,8 @@ type
     nameChars: set[char]          # characters a name may have after its first letter besides letters, digits, _
     dedentWords: seq[string]      # a line that becomes one of these words alone (`end`) goes one level out
     keywords, types, consts, builtins, defWords, classWords: HashSet[string]
+    wordFlags: Table[string, uint8]  # (core/lexgeneric.nim) the word sets above as one table: one lookup a word
+    wordFlagsAt: int                 # … made when the sets had this many words in all (-1: not made)
     indentChars: set[char]
     indentWords: seq[string]
     dedentChars: set[char]

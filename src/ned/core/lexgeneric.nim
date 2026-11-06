@@ -1,6 +1,26 @@
 # the generic lexer: one line of a language coloured from the language's description — comments, strings, numbers,
 # keywords, types, operators — with the state of block comments and multi-line strings carried to the next line, and the
 # cases particular to Nim, C, CSS, shell, Rust, Python and JavaScript.
+const
+  wfKeyword = 1'u8                     # (Lang.wordFlags: which of the language's word sets a word is in)
+  wfDef = 2'u8
+  wfClass = 4'u8
+  wfConst = 8'u8
+  wfType = 16'u8
+  wfBuiltin = 32'u8
+
+proc wordFlagsReady(lang: Lang) =
+  ## the language's word sets as one table (made again when they changed size): a word costs one lookup, not five
+  let total = lang.keywords.len + lang.types.len + lang.consts.len + lang.builtins.len + lang.defWords.len +
+              lang.classWords.len
+  if lang.wordFlagsAt == total and (total == 0 or lang.wordFlags.len > 0): return
+  lang.wordFlags = initTable[string, uint8](total * 2)
+  for (sset, f) in [(lang.keywords, wfKeyword), (lang.defWords, wfDef), (lang.classWords, wfClass),
+                    (lang.consts, wfConst), (lang.types, wfType), (lang.builtins, wfBuiltin)]:
+    for w in sset:
+      lang.wordFlags[w] = lang.wordFlags.getOrDefault(w) or f
+  lang.wordFlagsAt = total
+
 proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind], start = 0): LexSt =
   ## colours one line of code from byte `start` by the rules of `lang`, beginning in state `startState` (inside a block
   ## or doc comment of some depth, a triple-quoted string, a backtick string, a string that goes on below), and gives
@@ -10,6 +30,8 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
   var i = start
   let n = s.len
   var prevDef = 0            # 1: next ident is a function name, 2: a type name
+  lang.wordFlagsReady()
+  var w = newStringOfCap(32) # (each name, in one string used again: no allocation a name)
   var rawNext = false
   var emitCtx = false        # Nim: inside {.emit: …} — its strings are C (C++, JavaScript)
   template mark(a, b: int, k: TokKind) =
@@ -354,21 +376,23 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
       var j = i + 1
       while j < n and (isWordByte(s[j]) or (lang.mode in {lmCss, lmMake} and s[j] == '-') or s[j] in lang.nameChars):
         inc j
-      let w = s[i..<j]
+      w.setLen(j - i)
+      copyMem(addr w[0], unsafeAddr s[i], j - i)
+      let f = lang.wordFlags.getOrDefault(w)
       var k = tkText
       if prevDef == 1: k = tkFunc
       elif prevDef == 2: k = tkType
       if prevDef != 0:
         prevDef = 0
-      elif w in lang.keywords:
+      elif (f and wfKeyword) != 0:
         k = tkKeyword
-        if w in lang.defWords: prevDef = 1
-        elif w in lang.classWords: prevDef = 2
-      elif w in lang.classWords:
+        if (f and wfDef) != 0: prevDef = 1
+        elif (f and wfClass) != 0: prevDef = 2
+      elif (f and wfClass) != 0:
         k = tkKeyword
         prevDef = 2
-      elif w in lang.consts: k = tkConst
-      elif w in lang.types: k = tkType
+      elif (f and wfConst) != 0: k = tkConst
+      elif (f and wfType) != 0: k = tkType
       elif lang.capsTypes and c in {'A'..'Z'}:
         var allCaps = w.len > 1
         for ch in w:
@@ -380,7 +404,7 @@ proc lexGeneric(lang: Lang, s: string, startState: uint8, toks: var seq[TokKind]
         if q < n and s[q] == '(': k = tkFunc
         elif lang.mode == lmRust and q < n and s[q] == '!': k = tkFunc
         elif lang.mode == lmNim and q < n and s[q] == '"': k = tkFunc
-        elif w in lang.builtins: k = tkFunc
+        elif (f and wfBuiltin) != 0: k = tkFunc
         elif lang.mode == lmCss and q < n and s[q] == ':': k = tkProperty
       if lang.mode == lmPython and j < n and s[j] in {'"', '\''} and w.len <= 2 and
          w.toLowerAscii.allCharsInSet({'r', 'b', 'f', 'u'}):
