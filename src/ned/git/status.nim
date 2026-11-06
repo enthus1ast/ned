@@ -1,4 +1,5 @@
-# ── git ──────────────────────────────────────────────────────────────────────
+# ── git status: which files changed (for the file tree and the Git dock), refreshed in the background, and one
+#    file's diff view ──
 
 proc refreshGitStatus()
 

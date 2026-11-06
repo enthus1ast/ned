@@ -1,4 +1,4 @@
-# ── code actions (quick fixes) ──
+# ── code actions (quick fixes): ned's own and the language server's, listed at the cursor and applied ──
 
 var pendingLocalFixes: seq[(string, string, Action)]
 var pendingInlineFixes: seq[JsonNode]   # fixes the server sent with the diagnostics at the cursor (clangd)

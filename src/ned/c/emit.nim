@@ -288,12 +288,6 @@ proc emitNimTargetsIn(w: var EmitWork, src: seq[string], f: NxFile, l, s, e: int
     w.lines[a] = ""
     return (rs, locals)
 
-proc emitNimTargets(lines: seq[string], f: NxFile, l, s, e: int): (seq[NxRef], seq[NxSym]) =
-  ## what the `name` at line l, columns s ..< e of an emit names in Nim, building the blanked-out working copy of the
-  ## file first — for a caller that has no copy of its own
-  var w = emitWork(lines)
-  emitNimTargetsIn(w, lines, f, l, s, e)
-
 func emitCName(s: NxSym): string =
   ## the C name a Nim symbol has when it says (exportc, importc), "" when the compiler chooses it
   for prag in ["exportc", "importc", "importcpp"]:

@@ -24,7 +24,6 @@ type
 const
   OptionalEnd = ["p", "li", "dt", "dd", "rt", "rp", "optgroup", "option", "colgroup", "caption", "thead", "tbody",
                  "tfoot", "tr", "td", "th", "head", "body", "html"]
-  RawText = ["script", "style", "textarea", "title", "pre"]   # (pre: markup inside is markup, but kept as written)
   BoolAttrs = ["hidden", "disabled", "checked", "required", "readonly", "multiple", "selected", "autofocus",
                "novalidate", "async", "defer", "open", "loop", "muted", "controls", "autoplay", "playsinline", "inert",
                "ismap", "nomodule", "reversed", "default", "formnovalidate", "allowfullscreen", "itemscope"]

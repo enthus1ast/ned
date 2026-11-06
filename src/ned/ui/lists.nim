@@ -1,4 +1,5 @@
-# ── lists ──
+# ── the docks' lists — files, search results, git changes, tests, TODOs — built and drawn, and what a pick or a
+#    right click on an item does ──
 
 proc buildTestItems(): seq[SideItem]
 proc buildItems(v: SideView): seq[SideItem] =

@@ -9,6 +9,7 @@ the plugin *author* documentation is in [docs/plugins](../plugins/README.md).
 | page | what it covers |
 |---|---|
 | [Architecture](architecture.md) | how `src/ned.nim` puts the program together, the modules compiled on their own, the main loop, global state |
+| [The source, file by file](source-map.md) | every source file, folder by folder, with what it is and where it comes in the include order — where to look for a part |
 | [Rendering](rendering.md) | how a frame is drawn: the cell grid, the diff sent to the terminal, regions and clicks, popups, layout, themes, pictures |
 | [Editing](editing.md) | buffers, cursors, edits and the undo tree, highlighting, soft wrap, folding, big files, encodings, saving, keymaps, commands |
 | [Engines](engines.md) | the Nim engine, the C/C++ engine, the web engines, nedls, and the scoreboard that guards their accuracy |

@@ -1,4 +1,4 @@
-# ── file tree ──
+# ── the file tree: drawn, and its right-click menu ──
 
 
 proc treeMenu(n: TreeNode): seq[MenuItem] =

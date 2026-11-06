@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Forward declarations
+#  Forward declarations: procs used before the file that defines them is included (look here before adding one: a
+#  second is an error)
 # ════════════════════════════════════════════════════════════════════════════
 
 proc refreshGit(b: Buffer)
@@ -68,7 +69,6 @@ type EmitWork = object
   lines: seq[string]          # the file with its emit statements blanked
   stmts: seq[(int, int)]      # each emit statement's first and last line
 proc emitTickNames(ls: seq[string]): seq[(int, int, string)]
-proc emitNimTargets(lines: seq[string], f: NxFile, l, s, e: int): (seq[NxRef], seq[NxSym])
 proc emitWork(ls: seq[string]): EmitWork
 proc emitNimTargetsIn(w: var EmitWork, src: seq[string], f: NxFile, l, s, e: int): (seq[NxRef], seq[NxSym])
 proc emitGoto(b: Buffer, p: Pos): bool

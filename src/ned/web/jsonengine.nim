@@ -398,7 +398,6 @@ proc tsconfigSchema(): JSchema =
 
 proc atlasConfigSchema(): JSchema =
   ## the schema of an Atlas project's atlas.config (and atlas.workspace)
-  let pat = jObj("", [], jSch("string"))
   jObj("atlas.config — the packages of an Atlas project", [
     ("deps", jSch("string", "the folder the dependencies are cloned into (vendor, deps …)")),
     ("nameOverrides", jObj("package names mapped to URLs: \"name\": \"https://github.com/me/fork\" ($1 for a * in the name)",

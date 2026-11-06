@@ -1,4 +1,4 @@
-# ── menus of the menu bar ──
+# ── the menu bar's menus and their items (each a command), File › Open Recent, and a command run by its name ──
 
 const MenuNames = ["File", "Edit", "View", "Go", "Run", "Git", "Nim", "AI", "Plugins", "Help"]
 

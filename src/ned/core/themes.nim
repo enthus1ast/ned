@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Themes
+#  Themes: the built-in ones (mkTheme makes each from sixteen colours), the readability pass, true black, e-ink, the
+#  names that stand for others
 # ════════════════════════════════════════════════════════════════════════════
 
 proc blend(a, b: Rgb, t: float): Rgb =

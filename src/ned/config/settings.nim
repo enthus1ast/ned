@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Config & persistent state
+#  Settings — each declared (defS) with its default and what it does — read, written back with comments kept,
+#  applied; ned's folders; folder trust
 # ════════════════════════════════════════════════════════════════════════════
 
 

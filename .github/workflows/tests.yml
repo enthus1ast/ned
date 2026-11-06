@@ -68,6 +68,7 @@ jobs:
           ./ned --doc-commands | diff -u docs/reference/commands.md - ||
             { echo "::error::docs/reference/commands.md is not what ned --doc-commands makes: run it"; exit 1; }
           python3 tests/docs/apiref.py --check
+          python3 tests/docs/sourcemap.py --check       # docs/dev/source-map.md: every file, what it is
           python3 tests/docs/links.py
           python3 tests/docs/comments.py              # every file and routine says what it is
           python3 tests/docs/wiring.py ./ned          # menus name real commands, settings declared and read

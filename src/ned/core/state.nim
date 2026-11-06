@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Global state
+#  The program's global state: the settings in use, open buffers, panes, docks, the panel, prompts, pickers, popups
 # ════════════════════════════════════════════════════════════════════════════
 
 const NoColor: Rgb = 0xFF000000'u32

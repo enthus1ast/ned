@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Commands
+#  What many commands do: quitting, the docks and the panel, tabs, sorting and joining lines, indent, restarting
+#  language servers
 # ════════════════════════════════════════════════════════════════════════════
 
 from std/unicode import nil

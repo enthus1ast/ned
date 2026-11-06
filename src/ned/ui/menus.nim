@@ -1,4 +1,4 @@
-# ── menus ──
+# ── drop-down and context menus: opening one, its width and scrolling, the keys and clicks in it ──
 
 type
   MenuItem = object

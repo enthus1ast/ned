@@ -1,4 +1,4 @@
-# ── C type ↔ Nim type ──
+# ── C types and their Nim counterparts, for wrappers: an importc declaration checked against its C one ──
 
 func cNimFor(ctype: string): seq[string] =
   ## the Nim types that match a C type that is not a pointer (empty: not one ned knows)

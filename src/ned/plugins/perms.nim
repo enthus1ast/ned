@@ -257,11 +257,6 @@ proc plugScanDir(dir: string): PlugScan =
       plugScanText(relativePath(f, dir), t, result)
   except CatchableError: discard
 
-proc plugScanSource(name, text: string): PlugScan =
-  ## the permissions a single source text asks for, with `name` as the file shown in `seen` (the same scan `plugScanDir`
-  ## makes of each file)
-  plugScanText(name, text, result)
-
 func plugPermsList(ps: set[PlugPerm]): string =
   ## the permissions' short names, in a row and separated by commas, as the toasts and the Plugins dock say them
   var xs: seq[string]

@@ -21,6 +21,9 @@ scripts do): with debug information, ned's biggest C file needs more than 6 GB t
 
 ## How the source is put together
 
+[docs/dev/source-map.md](docs/dev/source-map.md) lists every source file, folder by folder, with what it is
+and where it comes in the include order — the place to find a part.
+
 - `src/ned.nim` `include`s most files in order — each sees what the files before it declare. A proc used before
   the file that defines it is included needs a forward declaration in `src/ned/app/forward.nim` (look there
   first: it may exist already, and a second one is an error).
@@ -62,6 +65,7 @@ NEDBIN=./ned_debug bash tests/fuzz/batch.sh 120 mixed palette hex   # random inp
 nim c -d:release --checks:on -r tests/fuzz/parsers.nim 20     # every reader and formatter fed broken text: no crash
 python3 tests/docs/apiref.py --check && python3 tests/docs/links.py && python3 tests/docs/names.py  # the docs
 python3 tests/docs/comments.py                       # every file and routine says what it is
+python3 tests/docs/sourcemap.py                      # docs/dev/source-map.md, every file and what it is (--check: CI)
 python3 tests/docs/wiring.py ./ned                   # every menu item's command exists, every setting declared and read
 python3 tests/memory/bufids.py                       # every table kept per open file is let go when its tab closes
 python3 tests/memory/memprobe.py OUT                 # a ned that logs each table's size: soak.py OUT --mem-log M, --diff M
@@ -69,12 +73,12 @@ python3 tests/engine/scoreboard.py --engine E --nedls ./nedls --cdriver C --c-fi
 python3 tests/engine/nifgrade.py MAIN.nim --nim NIM24 --driver E   # Go to definition against Nim 2.4's own NIF
 ```
 
-A change to a setting or a command: `ned --doc-settings > docs/reference/settings.md` and
-`ned --doc-commands > docs/reference/commands.md` (with an empty `XDG_CONFIG_HOME`, so no one's settings get in);
-to the plugin API: `python3 tests/docs/apiref.py`. CI fails when they are out of date. A UI test is a
-`t_<version>_<topic>` function in `tests/ui/suite.py`, added to the `tests` list at its end; it drives keys and
-mouse clicks (`click(x, y)`, columns and rows from 1) and reads the screen back. Run the UI suite on a quiet
-machine: under load a few timing-sensitive tests can fail, and pass alone.
+A change to a setting or a command: `ned --doc-settings > docs/reference/settings.md` and `ned --doc-commands >
+docs/reference/commands.md` (with an empty `XDG_CONFIG_HOME`, so no one's settings get in); to the plugin API:
+`python3 tests/docs/apiref.py`; a file added, moved or renamed: `python3 tests/docs/sourcemap.py`. CI fails when they
+are out of date. A UI test is a `t_<version>_<topic>` function in `tests/ui/suite.py`, added to the `tests` list at
+its end; it drives keys and mouse clicks (`click(x, y)`, columns and rows from 1) and reads the screen back. Run the
+UI suite on a quiet machine: under load a few timing-sensitive tests can fail, and pass alone.
 
 ## Write
 

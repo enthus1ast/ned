@@ -76,7 +76,6 @@ var
   dbgLogExprs, dbgLogVals: seq[string]           # its {expressions} and what gdb answered for them
   dbgLogWait = 0
   dbgWatchpoints: seq[(string, string)]          # "stop when it changes": (expression, gdb's number · DAP's data id)
-  dbgWpPending = ""                              # (the one being set, while gdb looks for it)
   dbgWpLookup, dbgWpSet: seq[string]             # watchpoints on their way: gdb looking up a global's C name · setting it
   dbgWpStartupLeft = 0                           # (of those, set before the program starts: it waits for them)
   dbgGlobals: Table[string, seq[string]]         # the program's Nim globals: name → C names (counter → counter__app_u3)

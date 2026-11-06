@@ -1,4 +1,4 @@
-# ── dock frame ──
+# ── the docks' frames: headers and buttons, the search and replace rows, the keys in each dock ──
 
 proc toggleReplaceRow() =
   ## shows or hides the replace box of the search view and moves the keyboard to the search view (the replace box when

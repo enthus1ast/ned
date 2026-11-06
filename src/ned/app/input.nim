@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Input handling
+#  Keys and clicks sent where they belong — the editor, the file tree, the panel — and positions past inlay hints
 # ════════════════════════════════════════════════════════════════════════════
 
 proc dirPrefix(dir: string): string =

@@ -1,4 +1,4 @@
-# ── chat rendering ──
+# ── the AI chat drawn: its Markdown, code blocks with Insert and Apply, tool calls in short, scrolling ──
 
 # a piece of chat text with its colours and attributes
 func span(t: string, fg: Rgb, bg: Rgb = NoColor, at: set[Attr] = {}): ChatSpan = ChatSpan(t: t, fg: fg, bg: bg, at: at)

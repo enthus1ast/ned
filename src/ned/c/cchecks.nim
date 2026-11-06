@@ -684,8 +684,6 @@ func ckTakes(c: CkConv): string =
   of 's': "a string"
   of 'p': "a pointer"
   else: "something else"
-# whether a printf conversion letter is one that takes a floating-point number
-func ckFloatConv(c: char): bool = c in {'f', 'F', 'e', 'E', 'g', 'G', 'a', 'A'}
 
 proc ckCall(f: CxFile, files: seq[CxFile], name: string, fi: int, scan: bool, args: seq[CkArg], line, col: int):
     seq[CkProblem] =

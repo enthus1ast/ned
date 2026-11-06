@@ -246,11 +246,6 @@ proc cBlank(s: var string) =
         inc n
     ls = le + 1
 
-func cWordAt(s: string, i: int, w: string): bool =
-  ## whether the word w stands at index i of s as a whole word (no identifier character before or after it)
-  i >= 0 and s.continuesWith(w, i) and (i == 0 or s[i-1] notin IdentChars) and
-    (i + w.len >= s.len or s[i + w.len] notin IdentChars)
-
 proc cCleanType(t: string): string =
   ## a C type without storage words, attributes and export macros: "extern __attribute__((x)) int" → "int"
   var toks: seq[string]

@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Languages
+#  The built-in languages — extensions, comments, keywords, indent rules, run and build commands, language servers —
+#  and finding a file's language
 # ════════════════════════════════════════════════════════════════════════════
 
 type

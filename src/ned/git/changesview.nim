@@ -393,17 +393,6 @@ proc cmdGitUnstageHere() =
     return
   gcAct(b.path, b.primary.head.line, "unstage")
 
-proc cmdGitStageAll() =
-  ## Git: stage all — `git add -A`, then refreshes the status and the changes view
-  let root = gitHome()
-  if root.len == 0: return
-  discard startJob(jkGit, "git add -A", root, proc(j: Job) =
-    if j.code != 0: error("git add failed: " & j.output.strip)
-    else:
-      refreshGitStatus()
-      gcRefreshViews()
-      info("Every change staged"))
-
 proc gcAfterSave(b: Buffer) =
   ## (a changes view written back: made again, its changes are others now)
   if b.id in gcViews:

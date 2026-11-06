@@ -1,4 +1,4 @@
-# ── outline ──────────────────────────────────────────────────────────────────
+# ── the outline of files no language server outlines: by indentation and headings, JSON and JavaScript ──
 
 proc heuristicOutline(b: Buffer): seq[SideItem] =
   ## the outline of any file from ned's text-based symbol finder: one row per symbol, nested by the line's indentation

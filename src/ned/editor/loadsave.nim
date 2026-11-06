@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Loading & saving
+#  Files loaded: encoding, line ends, indent found, .editorconfig, big files streamed, the hex view, the undo saved
+#  with a file
 # ════════════════════════════════════════════════════════════════════════════
 
 func detectIndent(b: Buffer) =

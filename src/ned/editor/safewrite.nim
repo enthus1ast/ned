@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Buffer management
+#  Safe writing (a temporary file renamed into place), ned's state and private folders, internal errors logged
 # ════════════════════════════════════════════════════════════════════════════
 
 # ── safe writes, crash recovery (swap files), local history, line diffs ─────────

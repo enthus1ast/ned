@@ -1527,7 +1527,7 @@ proc nxRsStmt(c: var NxRsCtx, w: var NxRsBody, ls: seq[NxRsLine], i: var int, ex
     var caught: seq[string]
     while i < ls.len and ls[i].ind == ind:
       let b = ls[i]
-      let (bw, bwe) = nxName(b.text, 0)
+      let (bw, _) = nxName(b.text, 0)
       if bw notin ["except", "finally"]: break
       inc i
       var types: seq[string]

@@ -1,6 +1,6 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Snippets (Tab expands; Tab / Shift+Tab walk the placeholders; same-number
-#  placeholders are edited together with multiple cursors)
+#  Snippets — the built-in ones and yours — expanded by Tab, Tab and Shift+Tab walking their placeholders (a
+#  placeholder used twice is edited with several cursors)
 # ════════════════════════════════════════════════════════════════════════════
 
 const Snippets = [
