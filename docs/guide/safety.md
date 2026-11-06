@@ -51,11 +51,12 @@
   macOS). `plugins.sandbox` turns it off. `ned --sandbox CMD…` runs any command
   this way: it may change only the current folder (`--write DIR` adds one, `--net` gives it the network;
   `ned --sandbox --help`).
-- **Checked updates**: `ned --update` and `install.sh` check a release's package before installing it — its SHA-256
-  against the release's `SHA256SUMS`, and `SHA256SUMS` against its signature (`SHA256SUMS.sig`, made with the
-  release key whose public half is in ned's source, `src/ned/app/release-signers`). A package that does not match,
-  or a release without `SHA256SUMS`, is refused and nothing is installed; while releases are not signed yet, only
-  the SHA-256 is checked, and that is said. Checking a signature needs `ssh-keygen` (Termux: `pkg install openssh`).
-  A release you download yourself: `ned --update --verify DIR` checks the files in DIR the same way. (nimble and a
-  checkout built in place get ned from git, over https.)
+- **Checked updates**: ned is built from its source with nimble (`ned --update`, `install.sh`), from git over https. A
+  release that carries a package — `ned --update` and `install.sh` take a Termux package when there is one — is
+  checked before it is installed: its SHA-256 against the release's `SHA256SUMS`, and `SHA256SUMS` against its
+  signature (`SHA256SUMS.sig`, made with the release key whose public half is in ned's source,
+  `src/ned/app/release-signers`). A package that does not match, or a release without `SHA256SUMS`, is refused and
+  nothing is installed; while releases are not signed yet, only the SHA-256 is checked, and that is said. Checking a
+  signature needs `ssh-keygen` (Termux: `pkg install openssh`). A release you download yourself: `ned --update
+  --verify DIR` checks the files in DIR the same way.
 - *File › Compare with saved* shows your unsaved changes as a diff.

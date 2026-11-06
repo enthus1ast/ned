@@ -1,6 +1,7 @@
 #!/bin/sh
 # install.sh — ned, the newest release, the easiest way for this machine:
-#   Termux (Android)  the release's package (ned, nedfmt, nedls), installed with apt
+#   Termux (Android)  the newest release's package (ned, nedfmt, nedls) with apt when it has one, else built with
+#                     nimble like everywhere else (Nim, git and clang from Termux's packages)
 #   elsewhere         built from the source with nimble (Nim 2.2 or newer is needed: choosenim or grabnim gives it),
 #                     into ~/.nimble/bin
 #   curl -fsSL https://raw.githubusercontent.com/foxoman/ned/main/install.sh | sh
@@ -68,7 +69,7 @@ if [ -n "${TERMUX_VERSION:-}" ] || [ "${PREFIX:-}" != "${PREFIX#*com.termux}" ];
   if [ $from_source = no ]; then
     need curl "pkg install curl"
     say "Looking for ned's newest Termux package…"
-    json=$(curl -fsSL "$api")
+    json=$(curl -fsSL "$api" 2>/dev/null || true)     # (no release, or none with files: built from the source)
     asset() { printf '%s\n' "$json" | grep -o '"browser_download_url": *"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' |
               grep -E "$1" | head -n 1; }
     url=$(asset '_aarch64\.deb$' || true)
