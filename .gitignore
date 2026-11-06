@@ -23,5 +23,6 @@ tests/unit/t*
 # python
 __pycache__/
 /tests/fuzz/found/
+/tests/fuzz/parsers
 /src/ned/app/memprobe_gen.nim
 /src/ned/nim/index/memprobe_gen.nim

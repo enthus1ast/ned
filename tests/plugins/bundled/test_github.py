@@ -195,7 +195,7 @@ def go(factory, tag, tmp):
     done(h)
     bare = os.path.join(tmp, "bare")
     os.makedirs(bare)
-    h, ok, err = start(factory, [bare], only_path=True)
+    h, ok, err = start(factory, [bare], only_path=True, hide=("gh",))
     if ok:
         h.call(h.reg("command", title="GitHub: pull requests…")["cb"])
         check(tag + "gh not installed: said how to install it", "gh is not installed (Termux: pkg install gh" in

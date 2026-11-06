@@ -107,7 +107,7 @@ def run(factory, tag):
             .replace("$tmp", t)
         bare = os.path.join(tmp, "bare")
         fake_tools(bare, ["gcc"])
-        o = run_sh(cmd, d, [bare])
+        o = run_sh(cmd, d, [bare], hide=("gnat", "gnatmake", "gprbuild", "alr"))
         check(tag + "the check without GNAT: nothing (no error from a gcc without Ada)", o == "", o)
         withg = os.path.join(tmp, "gnat")
         fake_tools(withg, ["gcc", "gnat"])

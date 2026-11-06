@@ -19,9 +19,10 @@ def check(name, ok, info=""):
 
 
 tmp = tempfile.mkdtemp(prefix="ned-win-")
+HELLO = "proc greet(name: string): string =\n  ## says hello\n  \"hello \" & name\n\necho greet(\"you\")\n"
 src = os.path.join(tmp, "hello.nim")
 with open(src, "w", newline="\n") as f:
-    f.write("proc greet(name: string): string =\n  ## says hello\n  \"hello \" & name\n\necho greet(\"you\")\n")
+    f.write(HELLO)
 env = dict(os.environ, XDG_CONFIG_HOME=os.path.join(tmp, "config"), XDG_STATE_HOME=os.path.join(tmp, "state"),
            XDG_DATA_HOME=os.path.join(tmp, "data"), XDG_CACHE_HOME=os.path.join(tmp, "cache"))
 os.makedirs(os.path.join(tmp, "config", "ned"), exist_ok=True)
@@ -110,6 +111,10 @@ def read_msg(stream):
     return json.loads(stream.read(int(headers.get("content-length", 0))))
 
 
+# (a file of its own: the editor above typed an x into hello.nim, and `xproc greet` is no proc)
+src = os.path.join(tmp, "greet.nim")
+with open(src, "w", newline="\n") as f:
+    f.write(HELLO)
 ls = subprocess.Popen([nedls], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=tmp)
 uri = "file:///" + src.replace("\\", "/").lstrip("/")
 text = open(src).read()

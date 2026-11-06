@@ -164,6 +164,9 @@ def diff(log):
         print('  %-28s %10d → %-10d (+%d)' % (k, a.get(k, 0), b[k], g))
 
 if __name__ == '__main__':
-    if len(sys.argv) == 3 and sys.argv[1] == '--diff': diff(sys.argv[2])
+    if len(sys.argv) == 3 and sys.argv[1] == '--diff':
+        try: diff(sys.argv[2])
+        except BrokenPipeError:                       # (its output cut short by `| head`: no traceback for it)
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
     elif len(sys.argv) == 2 and not sys.argv[1].startswith('-'): build(sys.argv[1])
     else: sys.exit(__doc__)

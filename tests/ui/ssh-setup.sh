@@ -32,8 +32,10 @@ if command -v fish > /dev/null; then
   fi
   getent passwd nedfish > /dev/null && fishuser=nedfish
 fi
-if [ "$(id -u)" = 0 ]; then "$SSHD" -f "$D/sshd_config" -E "$D/sshd.log"
-else sudo "$SSHD" -f "$D/sshd_config" -E "$D/sshd.log"; fi
+# (sshd will not start without its privilege separation folder, which a machine whose ssh service has never run — a
+# fresh CI runner — may not have yet)
+if [ "$(id -u)" = 0 ]; then mkdir -p /run/sshd && chmod 755 /run/sshd; "$SSHD" -f "$D/sshd_config" -E "$D/sshd.log"
+else sudo mkdir -p /run/sshd && sudo chmod 755 /run/sshd; sudo "$SSHD" -f "$D/sshd_config" -E "$D/sshd.log"; fi
 for h in devbox devboxpw fishbox; do
   grep -q "^Host $h\$" ~/.ssh/config 2>/dev/null && { echo "~/.ssh/config already has $h"; continue; }
   key=$D/id; user=$me; extra=""
@@ -43,4 +45,10 @@ for h in devbox devboxpw fishbox; do
     $h "$user" "$key" "$D" >> ~/.ssh/config
 done
 chmod 600 ~/.ssh/config
-ssh -o BatchMode=yes devbox true && echo "ok: ssh devbox works — run the tests with NED_TEST_SSH=1"
+if ssh -o BatchMode=yes -o ConnectTimeout=10 devbox true; then
+  echo "ok: ssh devbox works — run the tests with NED_TEST_SSH=1"
+else
+  echo "ssh devbox does not work — what sshd said ($D/sshd.log):" >&2
+  cat "$D/sshd.log" >&2 2>/dev/null || sudo cat "$D/sshd.log" >&2
+  exit 1
+fi
