@@ -239,6 +239,7 @@ include ned/ui/frame
 include ned/app/commands
 include ned/app/input
 include ned/keymaps/vim
+include ned/keymaps/vimex
 include ned/editor/macros
 include ned/editor/surround
 include ned/keymaps/vimkeys

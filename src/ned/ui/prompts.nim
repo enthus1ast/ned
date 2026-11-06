@@ -69,6 +69,7 @@ proc completePath(t: string): string =
 var treeTarget = ""
 
 proc vimEx(cmd: string)
+proc vimExComplete(text: string): string
 proc aiInlineEdit(instruction: string)
 proc submitSetting(t: string)
 proc nimbleAddDep(pkg: string)

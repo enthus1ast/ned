@@ -257,7 +257,7 @@ proc submitPrompt() =
 
 proc promptKey(k: Key) =
   ## the keys of the open prompt: Esc closes, Enter answers (Shift+Enter steps back in a find), Up and Down walk the
-  ## prompt's history (or step through matches in a find), Tab completes paths, F3 and Ctrl+F step through matches,
+  ## prompt's history (or step through matches in a find), Tab completes paths (and vim's : line), F3 and Ctrl+F step through matches,
   ## Alt+C, W and R toggle case, whole word and regex in find prompts, Ctrl+R turns find into replace; other keys edit
   ## the text, and a find prompt updates its matches as you type
   let kind = promptKind
@@ -283,6 +283,9 @@ proc promptKey(k: Key) =
   of kTab:
     if kind in {pSaveAs, pNewFile, pNewFolder, pRenamePath, pOpenFolder, pPathInput}:
       promptText = completePath(promptText)
+      promptCur = promptText.len
+    elif kind == pVimCmd:                       # (vim's : line: commands, settings, themes, files, tabs)
+      promptText = vimExComplete(promptText)
       promptCur = promptText.len
     return
   of kFn:

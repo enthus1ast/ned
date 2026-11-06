@@ -217,7 +217,7 @@ on). Each keymap is a function that may take a key before the default handling a
 
 | keymap | files | entered from |
 |---|---|---|
-| vim | [`keymaps/vim.nim`](../../src/ned/keymaps/vim.nim) (modes, motions, text objects, operators, registers, `:` commands — `vimEx`), `keymaps/vimkeys.nim` (`vimKey`, the key handling) | `vimEditorKey`, at the start of `editorKey` |
+| vim | [`keymaps/vim.nim`](../../src/ned/keymaps/vim.nim) (modes, motions, text objects, operators, registers), [`keymaps/vimex.nim`](../../src/ned/keymaps/vimex.nim) (the `:` line — `vimEx` runs one, `vimExComplete` completes one, `vimSet` is `:set`), `keymaps/vimkeys.nim` (`vimKey`, the key handling) | `vimEditorKey`, at the start of `editorKey` |
 | helix | [`keymaps/helix.nim`](../../src/ned/keymaps/helix.nim) (select, then act) | `helixEditorKey`, after vim's |
 | emacs | [`keymaps/emacs.nim`](../../src/ned/keymaps/emacs.nim) (C-x and M-g prefixes, the mark, kills) | `emacsKey`, in `handleKey` before the global keys |
 
