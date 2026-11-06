@@ -408,9 +408,25 @@ proc nifSymAt(b: Buffer, fx: NifFacts, p: Pos): string =
   byCol.sort(proc(x, y: (int, string)): int = cmp(x[0], y[0]))
   if nth < byCol.len: byCol[nth][1] else: ""
 
+proc nifInTemplateBody(lines: seq[string], line: int): bool =
+  ## whether `line` of a file's `lines` is in the body of a template or a macro — what is declared there is made where
+  ## it is called
+  if line <= 0 or line > lines.high: return false
+  var ind = leadingWs(lines[line]).len
+  var l = line - 1
+  while l >= 0 and ind > 0:
+    let t = lines[l]
+    if t.strip.len > 0 and leadingWs(t).len < ind:
+      ind = leadingWs(t).len
+      let s = t.strip
+      if s.startsWith("template ") or s.startsWith("macro "): return true
+    dec l
+  false
+
 proc nimNifDefinition(b: Buffer, p: Pos): bool =
   ## Go to definition by the compiler's reading of the saved file: the symbol the name at the cursor is (nifSymAt),
-  ## then where its module's NIF declares it
+  ## then where its module's NIF declares it — unless that is in a template's or a macro's body (Nim 2.4's NIF has
+  ## that line): the engine's answer, the line that calls it, as it is with an older Nim
   let fx = nifFactsFor(b)
   let sym = nifSymAt(b, fx, p)
   if sym.len == 0: return false
@@ -438,10 +454,17 @@ proc nimNifDefinition(b: Buffer, p: Pos): bool =
       if n.isDef and n.atom == sym and n.sline >= 0 and n.file.len > 0:
         let src = if n.file.isAbsolute: n.file elif nim2: normalizedPath(mainDir / n.file) else: nifSourcePath(f, n.file)
         if src.len == 0 or not fileExists(src): return false
+        # (that file saved since its NIF was made, or changed in its tab: its lines may have moved — the engine's)
+        let i = bufIndexByPath(src)
+        if i >= 0 and bufs[i].dirty: return false
+        try:
+          if getLastModificationTime(src) > getLastModificationTime(f): return false
+        except CatchableError: return false
         target = (src, n.sline, n.scol)
         found = true
         break
     if not found: return false
+  if nifInTemplateBody(if target[0] == b.path: b.lines else: fileLinesNow(target[0]), target[1]): return false
   pushJump()
   let nb = if target[0] == b.path: b else: openFile(target[0])
   if nb != nil: nb.centerOn(nb.clampPos(Pos(line: target[1], col: target[2])))

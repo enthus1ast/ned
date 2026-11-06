@@ -233,8 +233,8 @@ proc dcNimProgram(b: Buffer, then: proc(exe: string) {.closure.}) =
              of "release": " -d:release"
              of "danger": " -d:danger"
              else: ""
-  let cmd = "nim c --hints:off --warnings:off --debugger:native" & mode & " --nimcache:" &
-            quoteShell(privDir() / "dc-cache") & " -o:" & quoteShell(exe) & " " & quoteShell(main) & " 2>&1"
+  let cmd = nimDebugBuildCmd("c", "--hints:off --warnings:off --debugger:native" & mode & " -o:" & quoteShell(exe), main,
+                             privDir() / "dc-cache") & " 2>&1"
   info("Building " & extractFilename(main) & " to decompile it…")
   dcBusy = true
   discard startJob(jkTool, cmd, parentDir(main), proc(j: Job) =

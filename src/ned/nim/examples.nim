@@ -89,7 +89,7 @@ proc runExamples(b: Buffer, line: int) =
   let path = b.path
   var flagStr = ""
   for f in flags: flagStr.add quoteShell(f) & " "
-  let cmd = "nim c" & (if compileOnly: "" else: " -r") & " --hints:off --warnings:off --colors:off " &
+  let cmd = "nim c" & (if compileOnly: "" else: " -r") & " --hints:off --warnings:off --colors:off" & nimStdinFlags() & " " &
             flagStr & "--nimcache:" & quoteShell(privDir() / "examples_cache") & " -o:" & quoteShell(exe) & " - < " &
             quoteShell(priv) & " 2>&1"
   discard startJob(jkTool, cmd, parentDir(b.path), proc(j: Job) =

@@ -72,6 +72,36 @@ suite "a compiler's -S output":
       if ".cfi_startproc" in l.text: hasDirective = true
     check not hasL5 and hasL8 and hasDirective
 
+const MachO = """	.section	__TEXT,__text,regular,pure_instructions
+	.build_version macos, 14, 0
+	.file	1 "/w" "ex.nim"
+	.globl	__ZN2ex6squareE3int
+	.p2align	2
+__ZN2ex6squareE3int:
+	.loc	1 1 0
+	.cfi_startproc
+	.loc	1 2 6 prologue_end
+	mul	x0, x0, x0
+	ret
+	.cfi_endproc
+	.section	__TEXT,__cstring,cstring_literals
+l_.str:
+	.asciz	"hello"
+	.section	__DWARF,__debug_abbrev,regular,debug
+Lsection_abbrev:
+	.byte	1
+"""
+
+suite "clang on macOS (Mach-O)":
+  test "__TEXT,__text is the code: its functions, with their Nim lines (Nim 2.4's names)":
+    let r = parseGas(MachO, "/w/ex.nim", AllFilters)
+    check r.functions == @["square"]
+    var mulLine = -2
+    for l in r.lines:
+      if "mul" in l.text: mulLine = l.src
+    check mulLine == 1
+    for l in r.lines: check "debug_abbrev" notin l.text and ".byte" notin l.text
+
 suite "names, instructions, registers":
   test "Nim's names as Nim writes them":
     check demangleIn("call square__ex_u1") == "call square"

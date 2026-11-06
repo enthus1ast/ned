@@ -50,6 +50,27 @@ proc tcVerText(v: seq[int]): string =
   for x in v: p.add $x
   p.join(".")
 
+proc nimSpreadsLines(): bool =
+  ## whether the Nim in use writes a Nim line's C over several lines under one `#line` (2.4 and newer), which a build
+  ## for a debugger has to put right (debug/clines.nim)
+  tcVer.len >= 2 and (tcVer[0], tcVer[1]) >= (2, 4)
+
+proc nimDebugBuildCmd(sub, flags, main, nimcache: string): string =
+  ## the shell command for `nim <sub> <flags> <main>` with its C in `nimcache`, for a debugger, the assembly or the
+  ## memory checks to read. With a Nim that spreads a line's C (nimSpreadsLines) it is three steps — the C
+  ## (`--compileOnly`), its `#line`s put right (`ned --c-lines`), then the C compiled and linked from Nim's own list
+  ## (`nim jsonscript`) — so that breakpoints, steps and the assembly's lines fall on the Nim lines they belong to
+  let a = flags & " --nimcache:" & quoteShell(nimcache) & " " & quoteShell(main)
+  if not nimSpreadsLines(): return "nim " & sub & " " & a
+  "nim " & sub & " --compileOnly " & a & " && " & quoteShell(getAppFilename()) & " --c-lines " & quoteShell(nimcache) &
+    " && nim jsonscript " & a
+
+proc nimStdinFlags(): string =
+  ## what `nim c -` (a program read from stdin, built to run) needs: with Nim 2.4.0 " --spawnCodegen:off", as its
+  ## separate code generator looks for the project file on the command line and stops when it is "-"; nothing with
+  ## an older Nim, which has no such switch
+  if tcVer.len >= 2 and (tcVer[0], tcVer[1]) >= (2, 4): " --spawnCodegen:off" else: ""
+
 proc tcTopOfExe(exe: string): string =
   ## the Nim folder a `nim` program belongs to (symlinks followed; choosenim's proxy: its current toolchain)
   if exe.len == 0: return ""

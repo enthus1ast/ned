@@ -145,6 +145,22 @@ or check that the program it should make exists and is newer than the sources.
 ned's own plugins (`plugins/<name>/plugin.nims`) and the plugin library (`nedplugin.nim`, `nedlsp.nim`) are read into
 the binary when it is built (`staticRead`). A change to one shows in the editor only after a new build.
 
+### Nim 2.4 is not Nim 2.2
+
+GitHub's checks and Termux use the newest Nim; test a change that reads what Nim makes with both. What differs:
+
+- **C names**: `shout_u0__app` (2.2: `shout__app_u1`) — `nimDemangle` in `editor/binfmt.nim` reads both.
+- **`#line`**: a Nim line's C is spread over several C lines under one `#line`, so the C compiler counts on and gives
+  the later ones the Nim lines below (an emit's text, though, is right as counted). A build whose debug information
+  or assembly ned reads goes through `nimDebugBuildCmd` (`nim/toolchain.nim`): `--compileOnly`, `ned --c-lines`
+  (`debug/clines.nim`: copies of the C put right, which Nim's list of commands then compiles), `nim jsonscript`.
+- **`nim c -` (stdin)**: 2.4.0's separate code generator cannot find the project; `nimStdinFlags()` turns it off.
+- **nimsuggest**: `result` is declared on the body's first line, `use` leaves some uses out, types print as
+  `Option[%.T]`; the engine scoreboard keeps 2.2's as its yardstick.
+- **coverage**: gcov counts a `while` line once, where 2.2 counted each check.
+- **NIF**: an array type is `array[0..1, T]` (ned shows `array[2, T]`), a name a template made is declared on the
+  template's line.
+
 ### Never `pkill -f` a pattern that matches your own shell
 
 `pkill -f ned` matches every process whose command line contains "ned" — the shell running your command

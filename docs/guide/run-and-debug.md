@@ -123,6 +123,8 @@ at the cursor*, debugs just that test. Breakpoints are kept with the folder's se
 **Which debugger.** Nim uses **gdb** (or lldb) through its machine interface: F5 builds with `--debugger:native`,
 and Nim's own gdb pretty printer (`nim-gdb.py` of the Nim you build with — or ned's copy of it, when that Nim came
 without one) shows strings, seqs and tables as values; *Nim: debug with gdb* (gdb in the terminal) loads it too.
+With Nim 2.4, which writes a line's C over several lines, the build has a step more: the C is put right first
+(`ned --c-lines`), so that a breakpoint and a step are on the Nim line they belong to.
 The other languages use a **Debug Adapter Protocol** debugger, as VS Code does: Python — debugpy, C, C++ and Rust —
 `gdb -i dap` or lldb-dap, Go — delve, JavaScript and TypeScript — js-debug. *Debug: check the debugger for this
 file* says which one F5 will use and whether it is installed; *Debug: install the debugger for this language…*

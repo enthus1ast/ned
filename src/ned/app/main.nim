@@ -833,6 +833,7 @@ proc main() =
       of "--engine-worker": workerMain()          # (the editor's engine worker: nim/worker.nim)
       of "--update": quit updateMain(cl[ai .. ^1])
       of "--sandbox": quit sandboxMain(cl[ai .. ^1])     # (sys/landlock.nim: a command limited by Landlock)
+      of "--c-lines": quit cLinesMain(cl[ai .. ^1])      # (debug/clines.nim: a step of the debugger's build)
       of "--term-host":                           # (a kept terminal's shell: term/termhost.nim)
         when not defined(windows): termHostMain(cl[ai .. ^1])
         else: quit 2

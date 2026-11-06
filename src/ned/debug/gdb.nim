@@ -433,7 +433,7 @@ proc dbgLogGot() =
 
 proc dbgWatchStart(expr: string) =
   ## gdb: stop whenever `expr` changes — a local of the current function (and its fields) by its C name, a global
-  ## looked up first (Nim names them name__module_uN)
+  ## looked up first (Nim 2.2 names them name__module_uN, Nim 2.4 name_uN__module)
   var first = ""
   var k = 0
   while k < expr.len and expr[k] in IdentChars: inc k
@@ -446,7 +446,7 @@ proc dbgWatchStart(expr: string) =
     dbgSend("9000-break-watch " & miQuote(dbgCExpr(expr)))
   else:
     dbgWpLookup.add expr
-    dbgSend("9100-symbol-info-variables --name " & miQuote("^" & first & "__"))
+    dbgSend("9100-symbol-info-variables --name " & miQuote("^" & first & "_"))
 
 proc dbgWpDone(): bool =
   ## a watchpoint asked for at startup is answered (set or not): true while starting (its failure is no error)
@@ -553,9 +553,9 @@ proc dbgLine(line: string) =
         for grp in jitems(r{"symbols", "debug"}):
           for sy in jitems(grp{"symbols"}):
             let nm = sy{"name"}.getStr
-            let k = nm.find("__")
-            if k > 0 and "_u" in nm[k .. ^1] and nm[k + 2 .. ^1].find("__") < 0:
-              dbgGlobals.mgetOrPut(nm[0 ..< k], @[]).add nm
+            # (a Nim global's C name: counter__app_u1 — Nim 2.4: counter_u0__app)
+            let (n, m) = nimDemangle(nm)
+            if n.len > 0 and m.len > 0 and not nm.startsWith("_ZN"): dbgGlobals.mgetOrPut(n, @[]).add nm
       elif token == 9100:
         # the global's C name: the one in this module when there are several
         let x = if dbgWpLookup.len > 0: dbgWpLookup[0] else: ""
@@ -566,16 +566,16 @@ proc dbgLine(line: string) =
         for grp in jitems(r{"symbols", "debug"}):
           for sy in jitems(grp{"symbols"}):
             let nm = sy{"name"}.getStr
-            if nm.startsWith(x[0 ..< k] & "__"): names.add nm
+            if nm.startsWith(x[0 ..< k] & "__") or nimDemangle(nm)[0] == x[0 ..< k]: names.add nm
         if names.len == 0:
           if dbgWpDone(): dbgOut.add "● " & x & ": set it again when the program stops where it is in scope"
           else: error("Cannot stop when " & x & " changes: it is not a variable of this function, nor a global one")
         else:
           var pick = names[0]
           if dbgAt[0].len > 0:
-            let m = "__" & splitFile(dbgAt[0]).name & "_u"
+            let m = splitFile(dbgAt[0]).name
             for nm in names:
-              if m in nm: pick = nm
+              if nimDemangle(nm)[1] == m: pick = nm
           dbgWpSet.add x
           dbgSend("9000-break-watch " & miQuote(pick & x[k .. ^1]))
       elif token == 9000 and r.hasKey("wpt"):
@@ -796,8 +796,9 @@ proc dbgStart() =
   # module's breakpoints are reached through the project's main file
   let main = if isNimProgram(b): b.path else: nimProjectFile(b)
   let exe = privDir() / ("ned_debug_" & splitFile(main).name) & ExeDot
-  let cmd = "nim c --debugger:native --opt:none --gcc.options.debug:-g3 --clang.options.debug:-g3 --hints:off " & (if cfgNimFlags.len > 0: cfgNimFlags & " " else: "") &
-            "-o:" & quoteShell(exe) & " " & quoteShell(main)
+  let cmd = nimDebugBuildCmd("c", "--debugger:native --opt:none --gcc.options.debug:-g3 --clang.options.debug:-g3 " &
+                             "--hints:off " & (if cfgNimFlags.len > 0: cfgNimFlags & " " else: "") & "-o:" & quoteShell(exe),
+                             main, privDir() / "debug-cache" / splitFile(main).name)
   dbgState = "building " & extractFilename(main) & " with debug information…"
   dbgOut = @["$ " & cmd]
   dbgFrames.setLen(0)

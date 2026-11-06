@@ -123,6 +123,13 @@ proc nimonyUnmangle(m: string): string =
         result.add c
         inc i
 
+func nimModulePath(module: string): string =
+  ## a module's name as Nim writes it into a C name back to its path: `stdZprivateZdigitsutils` → std/private/digitsutils
+  for i, c in module:
+    if c == 'Z' and i > 0 and i + 1 < module.len and module[i - 1] in {'a'..'z', '0'..'9'} and
+       module[i + 1] in {'a'..'z'}: result.add '/'
+    else: result.add c
+
 proc nimDemangle*(sym: string): (string, string) =
   ## (Nim's name, its module) of a symbol a Nim (2 or 3) compiler made — ("", "") when it is no such name
   var s = sym
@@ -144,21 +151,24 @@ proc nimDemangle*(sym: string): (string, string) =
     if inner.len > 0: return (inner, im)
     return (nim2Name(parts[^1]), parts[0 .. ^2].join("/"))
   if s.len > 1 and s[0] == '_' and s[1] != '_': s = s[1 .. ^1]   # (Mach-O and old Windows put a _ in front)
-  # Nim 2: <name>__<module>_u<number>
+  # Nim 2 (to 2.2): <name>__<module>_u<number>
   let u = s.rfind("_u")
   if u > 0 and u + 2 < s.len and s[u + 2 .. ^1].allCharsInSet(Digits):
     let sep = s.rfind("__", last = u - 1)
     if sep > 0 and sep + 2 < u:
-      var module = s[sep + 2 ..< u]
-      var nm = s[0 ..< sep]
+      let module = s[sep + 2 ..< u]
+      let nm = s[0 ..< sep]
       # (`plus___it_u12`: the last "__" before the module — the name's own trailing _ stays with it)
-      if nm.len > 0 and module.len > 0:
-        var modPath = ""
-        for i, c in module:
-          if c == 'Z' and i > 0 and i + 1 < module.len and module[i - 1] in {'a'..'z', '0'..'9'} and
-             module[i + 1] in {'a'..'z'}: modPath.add '/'
-          else: modPath.add c
-        return (nim2Name(nm), modPath)
+      if nm.len > 0 and module.len > 0: return (nim2Name(nm), nimModulePath(module))
+  # Nim 2.4: <name>_u<number>__<module> (`shout_u0__app`, `plus__u0__app`, `addInt_u1__stdZprivateZdigitsutils`)
+  let sep = s.rfind("__")
+  if sep > 0 and sep + 2 < s.len:
+    let head = s[0 ..< sep]
+    let hu = head.rfind("_u")
+    let module = s[sep + 2 .. ^1]
+    if hu > 0 and hu + 2 < head.len and head[hu + 2 .. ^1].allCharsInSet(Digits) and module[0] in {'a'..'z', 'A'..'Z'} and
+       module.allCharsInSet(IdentChars):
+      return (nim2Name(head[0 ..< hu]), nimModulePath(module))
   # Nim 3 (Nimony): <name>_<number>_<module key>
   let parts = nimonyUnmangle(s).split('.')
   if parts.len >= 3 and parts[^2].len > 0 and parts[^2].allCharsInSet(Digits) and parts[^1].len >= 4 and

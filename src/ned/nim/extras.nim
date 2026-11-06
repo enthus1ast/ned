@@ -132,7 +132,7 @@ proc nimBenchmark() =
       error("Cannot write the benchmark: " & ex.msg)
       return
     info("Benchmarking " & call & " (release build)…")
-    discard startJob(jkTool, "nim c -r -d:release --hints:off --warnings:off --colors:off --nimcache:" &
+    discard startJob(jkTool, "nim c -r -d:release --hints:off --warnings:off --colors:off" & nimStdinFlags() & " --nimcache:" &
                      quoteShell(privDir() / "bench_cache") & " -o:" & quoteShell(exe) & " - < " &
                      quoteShell(tmp) & " 2>&1", parentDir(b.path), proc(j: Job) =
       try:

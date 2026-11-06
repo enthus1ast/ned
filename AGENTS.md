@@ -15,7 +15,11 @@ nim c -d:release --hints:off --compileOnly:on src/ned.nim       # a quick check 
 nim c --stackTrace:on --lineTrace:on -o:ned_debug src/ned.nim   # with stack traces (the fuzzer uses it)
 ```
 
-Nim 2.2 or newer. Cross builds need zig (`pip install ziglang`): `tests/build/termux.sh` (the Termux `.deb`),
+Nim 2.2 or newer — test with the oldest and the newest: GitHub's checks (and Termux) use the newest Nim, 2.4,
+whose C names (`shout_u0__app`), `#line`s, coverage lines, NIF and nimsuggest differ from 2.2's (the engine scoreboard
+keeps 2.2's nimsuggest as its yardstick; what else differs: [pitfalls](docs/dev/pitfalls.md#nim-24-is-not-nim-22)).
+For the UI suite with 2.4, build ned with it and put it first on PATH. A build whose debug information ned reads goes
+through `nimDebugBuildCmd`. Cross builds need zig (`pip install ziglang`): `tests/build/termux.sh` (the Termux `.deb`),
 `tests/build/windows.sh` (the Windows zip), `tests/build/cross.sh` (every target). Pass `-g0` to `zig cc` (the
 scripts do): with debug information, ned's biggest C file needs more than 6 GB to compile.
 

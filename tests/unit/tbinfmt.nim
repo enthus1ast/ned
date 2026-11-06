@@ -15,6 +15,15 @@ suite "Nim's names":
     check nimDemangle("eqwasMoved___it_u164") == ("=wasMoved", "it")
     check nimDemangle("_shout__app_u6") == ("shout", "app")        # (Mach-O's _ in front)
 
+  test "Nim 2.4: <name>_u<n>__<module>, operators and hooks":
+    check nimDemangle("shout_u0__app") == ("shout", "app")
+    check nimDemangle("plus__u0__app") == ("+", "app")
+    check nimDemangle("dollar__u1__systemZdollars") == ("$", "system/dollars")
+    check nimDemangle("eqdestroy__u31__system") == ("=destroy", "system")
+    check nimDemangle("addInt_u1__stdZprivateZdigitsutils") == ("addInt", "std/private/digitsutils")
+    check nimDemangle("_shout_u0__app") == ("shout", "app")         # (Mach-O's _ in front)
+    check nimDemangle("NTIv2__9cahZY9a6it2yJO79cWlILhKw_") == ("", "")     # (type info: no proc)
+
   test "Nim 3 (Nimony): <name>_<n>_<module key>":
     check nimDemangle("greet_0_h3j08bn01") == ("greet", "h3j08bn01")
     check nimDemangle("plusQ_0_h3j08bn01") == ("+", "h3j08bn01")

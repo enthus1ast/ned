@@ -362,6 +362,8 @@ proc ceBuild(src: Buffer, opts: string, done: proc(ok: bool, r: AsmResult, err: 
         if mc.len == 0:
           done(false, AsmResult(), @["Nim wrote no C compiler command for the module (" & tildePath(nc) & ")"])
           return
+        # (Nim 2.4 spreads a line's C under one #line: put right, or the shading would be on the lines after)
+        if nimSpreadsLines(): discard cLinesFixFile(nc / ("@m" & extractFilename(copy) & ".c"))
         stage2(ceRewriteCmd(mc, outS, binary)))
     nimStage(keepAll)
   else:
