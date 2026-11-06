@@ -272,6 +272,25 @@ text 7:1, keywords, types, strings, numbers, functions, macros, properties and e
 (every target this machine reaches) build with zig as the C compiler. They pass `-g0`: with debug information ned's
 biggest C file needs more than 6 GB to compile. See [Building](../guide/building.md#packages-and-other-platforms).
 
+## Screenshots
+
+Every picture in `screenshots/` — the README's, the guides', the changelog's, the blog post's — is drawn the same way,
+in one font: ned's screen captured from tmux with its colours (`tmux capture-pane -e -N -p`), kept as
+`screenshots/captures/NAME.ansi`, and drawn cell by cell by [`tests/shots/render.py`](../../tests/shots/render.py) in
+the Coder Nerd Font Mono, at twice the size, framed, in 256 colours. The font is not in the repository:
+`NED_SHOT_FONT` names its `.ttf`. Python with Playwright (and its Chromium) and Pillow draw them.
+
+- `NED_SHOT_FONT=… python3 tests/shots/render.py [NAME …]` draws the captures again (every one, without a name).
+- `NED_SHOT_FONT=… python3 tests/shots/scenes.py [NAME …]` takes the README's, the guides' and the blog post's
+  screenshots again with today's ned: each scene drives ned through the UI tests' harness — the mock AI answers its
+  assistant — and keeps the screen. It needs tmux, and gdb for the debugger's.
+- A new screenshot: a scene in `scenes.py` (set up, drive, `snap(NAME)`) — or, taken by hand, its capture saved as
+  `screenshots/captures/NAME.ansi`, then `render.py NAME`. Captures side by side (a theme gallery):
+  `NAME@01-label.ansi`, `NAME@02-label.ansi` …, two across, each labelled.
+- Name it by topic and release (`undo-tree-615`); its alt text says what it shows, and the theme. It shows a project
+  anyone could have (the UI tests' demo project, `examples/`), never a home folder or a machine's name — a terminal
+  with a short prompt.
+
 ## CI
 
 [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml), on every push and pull request:
@@ -288,5 +307,5 @@ biggest C file needs more than 6 GB to compile. See [Building](../guide/building
 
 [`.github/workflows/build.yml`](../../.github/workflows/build.yml) builds ned, nedfmt and nedls for Linux (gcc,
 clang, and the oldest Nim supported), macOS, Linux arm64, Termux and Windows (WSL and native), runs the command-line
-checks, `pty_smoke.py`, the performance checks and `tnedls.py`, packages the VS Code extension, and for a tag `v*`
-attaches everything to the GitHub release.
+checks, `pty_smoke.py`, the performance checks and `tnedls.py`, and packages the VS Code extension — to know that
+ned builds everywhere; it publishes nothing (`ned --update` and `install.sh` build a new version with nimble).
