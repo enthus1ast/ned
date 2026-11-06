@@ -3,31 +3,36 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 # ── very long lines (minified JSON, JS, CSS; a log on one line): where each 16 KB of the line starts on the screen,
-#    kept for each such line until the text changes. The cursor's column (the status bar, drawing it, keeping it in
-#    view) and the first character shown when scrolled to the right are found from the nearest mark instead of from
-#    the start of the line — a frame of a 5 MB line took 22 ms, most of it counting columns from the start ──
+#    made only as far as something needs and kept for each such line; an edit within the line drops only the marks
+#    after it. The cursor's column (the status bar, drawing it, keeping it in view) and the first character shown
+#    when scrolled to the right are found from the nearest mark instead of from the start of the line — a frame of a
+#    5 MB line took 22 ms, most of it counting columns from the start, and typing in one 2.4 ms before 6.41 (0.5) ──
 
 const
   VcLongLine = 32_768                  # lines this long get marks
   VcStep = 16_384                      # (about) bytes between two marks
 
-type VcMarks = object
-  change, tab: int                     # the buffer's changeId and the tab width they were made for
-  joined: bool                         # (and whether the terminal joins grapheme clusters: their widths differ)
-  lines: Table[int, seq[(int, int)]]   # line → (byte, visual column) at character boundaries, the first (0, 0)
+type
+  VcLine = object                      # one long line's marks
+    m: seq[(int, int)]                 # (byte, visual column) at character boundaries, the first (0, 0)
+    at, atVc: int                      # how far they are made: the byte the counting got to, and its visual column
+  VcMarks = object
+    change, tab: int                   # the buffer's changeId and the tab width they were made for
+    joined: bool                       # (and whether the terminal joins grapheme clusters: their widths differ)
+    lines: Table[int, VcLine]
 
 var vcMarks: Table[int, VcMarks]       # buffer id → its long lines' marks
 
-proc vcBuild(s: string): seq[(int, int)] =
-  ## the marks of one very long line: (byte offset, visual column) pairs at character boundaries about every 16 KB, the
-  ## first being (0, 0). Plain ASCII is counted eight bytes at a time
-  result = @[(0, 0)]
-  var i = 0
-  var vc = 0
-  var next = VcStep
-  while i < s.len:
+proc vcExtend(s: string, v: var VcLine, limit: int) =
+  ## the marks of a long line made on to byte `limit` (or the end of the line): a mark about every 16 KB. Plain ASCII
+  ## is counted eight bytes at a time
+  var i = v.at
+  var vc = v.atVc
+  var next = (if v.m.len > 0: v.m[^1][0] else: 0) + VcStep
+  let stop = min(limit, s.len)
+  while i < stop:
     if i >= next:
-      result.add (i, vc)
+      v.m.add (i, vc)
       next = i + VcStep
     if i + 8 <= s.len and printable8(s, i) and (i + 8 >= s.len or s[i + 8].uint8 < 0x80):
       vc += 8
@@ -36,23 +41,46 @@ proc vcBuild(s: string): seq[(int, int)] =
     let (w, n) = charWidthAt(s, i, vc)
     vc += w
     i += n
+  v.at = i
+  v.atVc = vc
 
-proc vcMarksOf(b: Buffer, line: int): seq[(int, int)] =
-  ## the marks of a long line, built once and kept per buffer; all of a buffer's marks are dropped when its text, the
-  ## tab width or the grapheme-joining setting changed
+proc vcLineOf(b: Buffer, line: int): ptr VcLine =
+  ## a long line's marks as far as they are made, kept per buffer; all of a buffer's marks are dropped when its text
+  ## changed (other than by an edit within one long line, which vcLineEdited follows), or the tab width or the
+  ## grapheme-joining setting did
   if b.id notin vcMarks or vcMarks[b.id].change != b.changeId or vcMarks[b.id].tab != tabW or
      vcMarks[b.id].joined != graphemes:
     vcMarks[b.id] = VcMarks(change: b.changeId, tab: tabW, joined: graphemes)
-  vcMarks[b.id].lines.withValue(line, m):
-    return m[]
-  result = vcBuild(b.lines[line])
-  vcMarks[b.id].lines[line] = result
+  if line notin vcMarks[b.id].lines: vcMarks[b.id].lines[line] = VcLine(m: @[(0, 0)])
+  addr vcMarks[b.id].lines[line]
+
+proc vcMarksOf(b: Buffer, line: int, upTo = int.high): seq[(int, int)] =
+  ## the marks of a long line, made at least as far as byte `upTo` (the whole line by default)
+  let v = b.vcLineOf(line)
+  if v.at < min(upTo, b.lines[line].len): vcExtend(b.lines[line], v[], max(upTo, v.at + VcStep))
+  v.m
+
+proc vcLineEdited(b: Buffer, line, col: int) =
+  ## (rawReplace, after an edit within one long line) the line's marks from `col` on are no longer right: they go and
+  ## are made again when needed; those before it — and every other line's — stay, so typing in a 5 MB line counts
+  ## columns only from the edit on, and only as far as the screen needs
+  vcMarks.withValue(b.id, vm):
+    if vm.change != b.changeId - 1: return            # (already stale: they all go at the next look)
+    vm.change = b.changeId
+    vm.lines.withValue(line, v):
+      let keep = col - 64                             # (a little before: a joining character may change the one before)
+      var k = v.m.len
+      while k > 1 and v.m[k - 1][0] > keep: dec k
+      v.m.setLen(k)
+      if v.at > v.m[^1][0]:
+        v.at = v.m[^1][0]
+        v.atVc = v.m[^1][1]
 
 proc visColAt(b: Buffer, line, col: int): int =
   ## the visual column of byte `col` of a line (on a very long line: counted from the nearest mark)
   if line < 0 or line >= b.lines.len: return 0
   if b.lines[line].len < VcLongLine: return visColOf(b.lines[line], col)
-  let m = b.vcMarksOf(line)
+  let m = b.vcMarksOf(line, col + 1)
   var lo = 0
   var hi = m.high
   while lo < hi:                          # (the last mark at or before col)
@@ -62,7 +90,9 @@ proc visColAt(b: Buffer, line, col: int): int =
 
 proc vcMarkBefore(b: Buffer, line, vcol: int): (int, int) =
   ## the last mark of a long line at or before visual column `vcol`: (byte, visual column)
-  let m = b.vcMarksOf(line)
+  let v = b.vcLineOf(line)
+  while v.at < b.lines[line].len and v.atVc <= vcol: vcExtend(b.lines[line], v[], v.at + 4 * VcStep)
+  let m = v.m
   var lo = 0
   var hi = m.high
   while lo < hi:
