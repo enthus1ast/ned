@@ -23,18 +23,36 @@ and `g-` `g+`, which go back and forth in time across the [undo tree](editing.md
 **Search**: `/` and `?`, `n N`, `* #`. **Scrolling and folds**: `zz zt zb`, `za zc zo zM zR`. **Macros**: `q{a-z}`
 records, `q` stops, `@{a-z}` plays, `@@` again — the same macros as Edit › Macros. `K` shows the hover.
 
-**Ex commands**:
+**The `:` line** runs every command of ned by its name, in any case, or by enough of its start to be the only
+one (`:about`, `:git: commit`), and reaches every setting with `:set`. **Tab** completes command names, settings
+and their values, themes, files and tabs; Tab again steps through the choices. `:help` lists all of it in a tab;
+`:help editor.tabSize` or `:help Sort lines` says what one is.
 
 | | |
 |---|---|
-| `:w` `:q` `:q!` `:wq` `:x` `:wa` `:qa` `:wqa` | write, quit — one file or all |
-| `:e file` · `:bn` `:bp` · `:bd` | open a file · the next and previous tab · close it |
-| `:s/a/b/g` · `:%s/a/b/g` · `:'<,'>s/…/` | replace on the line · in the file · in the selection |
-| `:!cmd` · `:%!sort` · `:'<,'>!cmd` · `:N,M!cmd` | run a command (`%` is the file) · put lines through one |
-| `:sp` · `:vs` · `:only` | split the editor (above and below · side by side) · back to one pane |
-| `:set wrap` `nowrap` `nu` `rnu` `nonu` `list` `nolist` · `:noh` | options · clear the search highlight |
-| `:term` · `:make` · `:run` · `:zen` | the terminal · build · run · zen mode |
-| `:N` | go to line N |
+| `:w` `:w file` `:up` `:sav file` | save · save as · save if changed · save under another name |
+| `:q` `:q!` `:wq` `:x` `:wa` `:qa` `:wqa` | write, quit — one file or all |
+| `:e file` · `:e!` · `:r file` | open a file · read it from disk again · put a file's lines below the cursor |
+| `:tabnew [file]` `:tabn` `:tabp` `:tabc` · `:bn` `:bp` `:bd` | tabs |
+| `:ls` · `:b 3` · `:b name` | the tabs · the third · the one whose name starts with (or has) that |
+| `:sp` · `:vs` · `:new` `:vnew` · `:only` | split the editor (above and below · side by side) · with a new file · one pane |
+| `:set key=value` · `:set key` `nokey` `key!` · `:set key?` `key&` | any setting by its key (`editor.tabSize`, or only `tabSize`): a value · on, off, the other way · shown, back as ned comes |
+| `:set key+=2` · `:set` · `:set all` | a number up · the settings you changed · every setting, in a tab |
+| Vim's names | `wrap` `list` `cursorline` `scrolloff` `foldenable` `undofile` `autoread` `autowrite` `encoding` `spelllang` `laststatus` `showtabline` `title` `number` `relativenumber` `colorcolumn=80,120` `mouse` `clipboard` `background=light` `spell` `ignorecase`; for this file `tabstop` `shiftwidth` `expandtab` `filetype=python` |
+| `:colorscheme NAME` | the theme |
+| `:N` · `:$` · `:'<` | go to a line |
+| `:s/a/b/gi` | replace the text (not a pattern) — every one with g, in any case with i |
+| `:d` `:y` `:m N` `:t N` `:j` `:>` `:<` | delete, yank, move or copy below line N (0: the top), join, indent |
+| `:sort` · `:sort! i n u` | sort (backwards, in any case, by number, without repeats) |
+| `:g/text/d` · `:v/text/d` · `:g/text/s/a/b/` | the lines that have (or lack) the text: delete them, or replace on them |
+| `:!cmd` · `:%!sort` · `:'<,'>!cmd` | run a command (`%` is the file) · put lines through one |
+| `:noh` `:u` `:redo` `:cn` `:cp` `:copen` `:Explore` `:term` `:make` `:run` `:zen` `:pwd` `:registers` | the search highlight · undo, redo · the problems · the files · the terminal · build, run · zen mode |
+
+A line command takes a range first: `%` (the whole file), `.` (this line), `$` (the last), `N`, `N,M`, `'<,'>` (the
+selection), each with `+N` or `-N` after it if you like — `:.,+3d`, `:%sort`, `:'<,'>s/a/b/g`. A setting changed
+with `:set` is kept in your settings, as the Settings window keeps it; `tabstop`, `shiftwidth`, `expandtab` and
+`filetype` change only the file in front of you. Vim options ned has no setting for (`hlsearch`, `autoindent` …)
+are accepted and left alone, so lines from a vimrc work.
 
 Plugins can add their own mappings, operators, text objects and ex commands ([Plugins](../plugins/README.md)) —
 the *commentary* example adds `gc` with every motion, an `ie` text object and `:Comment`. Several of
