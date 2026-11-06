@@ -41,7 +41,7 @@ and their values, themes, files and tabs; Tab again steps through the choices. `
 | Vim's names | `wrap` `list` `cursorline` `scrolloff` `foldenable` `undofile` `autoread` `autowrite` `encoding` `spelllang` `laststatus` `showtabline` `title` `number` `relativenumber` `colorcolumn=80,120` `mouse` `clipboard` `background=light` `spell` `ignorecase`; for this file `tabstop` `shiftwidth` `expandtab` `filetype=python` |
 | `:colorscheme NAME` | the theme |
 | `:N` · `:$` · `:'<` | go to a line |
-| `:s/a/b/gi` | replace the text (not a pattern) — every one with g, in any case with i |
+| `:s/a/b/gi` | replace the text (not a pattern) — every one with g, in any case with i (`:set gdefault`: every one unless g) |
 | `:d` `:y` `:m N` `:t N` `:j` `:>` `:<` | delete, yank, move or copy below line N (0: the top), join, indent |
 | `:sort` · `:sort! i n u` | sort (backwards, in any case, by number, without repeats) |
 | `:g/text/d` · `:v/text/d` · `:g/text/s/a/b/` | the lines that have (or lack) the text: delete them, or replace on them |

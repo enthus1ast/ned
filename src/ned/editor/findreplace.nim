@@ -1,5 +1,15 @@
 # the find and replace commands: counting the matches, finding as you type, stepping to the next or previous match,
 # replacing all at once and asking match by match
+
+func reLiteral(s: string): string =
+  ## a text as a regular expression that finds it as it is written (its special characters escaped)
+  for c in s:
+    if c in {'\\', '.', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}'}: result.add '\\'
+    result.add c
+
+# the selected text as the find box's query: as it is written, also when the find is by regular expression
+proc selQuery(t: string): string = (if findRegex: reLiteral(t) else: t)
+
 proc countMatches() =
   ## counts the matches of the find query in the whole buffer (findTotal) and which of them the selection is at
   ## (findIdx); it gives up on a very big file after 25 ms or 100000 matches and marks the count as capped
@@ -45,7 +55,7 @@ proc findStep(forward: bool) =
   let b = buf()
   if findQuery.len == 0:
     let (a, e) = b.primary.range
-    findQuery = if a != e and a.line == e.line: b.getText(a, e) else: b.wordAt(b.primary.head)
+    findQuery = selQuery(if a != e and a.line == e.line: b.getText(a, e) else: b.wordAt(b.primary.head))
     if findQuery.len == 0:
       info("Nothing to find")
       return

@@ -113,14 +113,14 @@ proc globalKey(k: Key): bool =
         focus = fEditor
         let b = buf()
         let (a, e) = b.primary.range
-        openPrompt(pFind, "Find", (if a != e and a.line == e.line: b.getText(a, e) else: findQuery))
+        openPrompt(pFind, "Find", (if a != e and a.line == e.line: selQuery(b.getText(a, e)) else: findQuery))
         findIncremental()
       of 'r':
         if cfgVim and focus == fEditor and vimMode != vmInsert: return false
         focus = fEditor
         let b = buf()
         let (a, e) = b.primary.range
-        openPrompt(pReplaceFind, "Replace", (if a != e and a.line == e.line: b.getText(a, e) else: findQuery))
+        openPrompt(pReplaceFind, "Replace", (if a != e and a.line == e.line: selQuery(b.getText(a, e)) else: findQuery))
       of '\\': toggleTerminal()
       else: result = false
     elif alt and not ctrl:

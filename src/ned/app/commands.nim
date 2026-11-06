@@ -106,6 +106,20 @@ proc transformSel(f: proc(s: string): string) =
   ## in one undo step, and selects the new text
   let b = buf()
   if not b.canEdit(): return
+  if b.cursors.len in 2 .. 4000:
+    # (two cursors in one word, or overlapping selections: that text once — a second pass would change it again)
+    var seen: seq[(Pos, Pos)]
+    var keep: seq[Cursor]
+    for cu in b.cursors:
+      var (a, e) = cu.range
+      if a == e: (a, e) = b.wordRangeAt(a)
+      var dup = false
+      for (x, y) in seen:
+        if (a < y and x < e) or (a == x and e == y): dup = true
+      if not dup:
+        seen.add (a, e)
+        keep.add cu
+    if keep.len < b.cursors.len: b.cursors = keep
   b.beginEdit()
   for i in countdown(b.cursors.high, 0):
     var (a, e) = b.cursors[i].range

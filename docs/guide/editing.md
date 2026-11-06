@@ -71,7 +71,8 @@ the `keys` setting can bind to a key. Saved macros are in `~/.config/ned/macros.
 
 Alt+- folds the block at the cursor and Alt+= unfolds it; a click on ▾ or ▸ in the gutter does the same. *Fold
 all*, *Unfold all* and *Fold level 2* work on the whole file. Folding follows the indentation (and a language
-server's folding ranges, when it has them); `editor.folding` turns it off.
+server's folding ranges, when it has them); `editor.folding` turns it off. A jump into a folded part — go to
+line, a definition, a symbol, a problem, a picked result, back and forward — opens it.
 
 ## Looking at the code
 

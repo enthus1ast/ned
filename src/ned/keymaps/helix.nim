@@ -283,7 +283,7 @@ proc helixKey(k: Key): bool =
     if findQuery.len > 0: findStep((ch == 'n') != vimSearchBack)
   of '*':
     let (a, e) = b.primary.range
-    findQuery = if a != e and a.line == e.line: b.getText(a, e) else: b.wordAt(b.primary.head)
+    findQuery = selQuery(if a != e and a.line == e.line: b.getText(a, e) else: b.wordAt(b.primary.head))
     findWord = a == e
     info("Search: " & findQuery)
   of ':': openPrompt(pVimCmd, ":", "")
