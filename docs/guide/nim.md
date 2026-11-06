@@ -684,7 +684,8 @@ when ned's own C engine answers (no clangd, or `nim.emitClangd` off). A tap open
 - Code inside strings in its own colours: `{.emit}` as C (C++, JS), `sql"…"`, `re"…"`, `peg"…"`, `parseJson("…")`,
   the `{expressions}` of `fmt"…"` and `&"…"`, and HTML or SQL in triple-quoted strings. `#[html]#` before a string
   marks it; `nim.embeddedLanguages` names your own procs (`{"render": "html"}`).
-- C in `{.emit}` edits as C: indentation, `//` comments, completion from its headers and `nimbase.h`, hover,
+- C in `{.emit}` edits as C: indentation, `//` comments, completion from its headers and `nimbase.h` (and a
+  struct's members after `.` and `->`), hover,
   F12 between the Nim declaration and the C, C compiler errors on the emit's lines (on save and from builds);
   with clangd installed, clangd's completion, errors while typing, fixes and parameter hints (`nim.emitClangd`).
   A Nim name in an emit's backticks (`` `counter` ``) is completed, has its Nim hover (and the C name it becomes),
