@@ -18,13 +18,13 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ![Project-wide replace with its preview in the Search dock, the editor split in two](screenshots/split-and-replace.png)
 
-![Nim dock with one nimsuggest, and an AI edit waiting for approval as a diff](screenshots/ai-diff-approval.png)
+![The Nim dock, and the assistant's edit waiting for approval as a diff](screenshots/ai-diff-approval.png)
 
 ---
 
 ## Contents
 
-- [What's new in 6.40](#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.41](#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -33,36 +33,59 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ---
 
-## What's new in 6.40
+## What's new in 6.41
 
-**A clean start.** ned opens with no dock and no panel, and the keys go to the editor or the welcome screen. A dock
-that is not on the screen no longer takes keys: a file tree left open last time could take the welcome screen's `d`
-(*Open folder*) as *Delete* for the file selected in it. Turn on `ui.restorePanels` to get the docks and the panel
-back as you left them; `ui.restoreLayout` still restores your split panes.
+**Every ray.so theme, and mint-night.** All of [ray.so](https://ray.so)'s themes are in, dark and light, each named
+with `ray-` before it: `ray-vercel-dark`, `ray-candy-light`, `ray-midnight` (the dark one of a pair) … 65 in all.
+`mint-night` is near black, with mint keywords and types, lavender function names and light blue strings. ned now
+has 150 themes ([Themes](docs/guide/themes.md#the-built-in-themes)).
 
-**Memory no longer grows with large files opened again and again.** The undo history saved for a file's next
-opening gained a branch on every visit and was read back in full each time. It now shares one 4 MB budget across
-all files, keeping the steps nearest the current text, so undo still works after a file is reopened. No build flag
-is needed for this: `-d:useMalloc` is not required, and the Termux build keeps Nim's own memory allocator.
+**Vim: the `:` line reaches everything.** Every command by its name, or by enough of its start (`:about`), and every
+setting with `:set` — by its key (`:set editor.tabSize=2`), only its last part (`:set tabSize?`), or Vim's own name
+(`tabstop`, `colorcolumn=80`, `ignorecase`, `nowrap`); `:colorscheme NAME`. **Tab** completes command names,
+settings and their values, themes, files and tabs. New line commands with ranges: `:sort` (`! i n u`), `:g/text/d`,
+`:v/text/d`, `:m`, `:t`, `:d`, `:y`, `:j`, `:>`, `:<`; and `:tabnew`, `:ls`, `:b`, `:cn`, `:cp`, `:r`, `:sav`,
+`:help` ([Vim](docs/guide/vim-and-zen.md#vim)).
 
-**About ned** and `ned --help` show the author, the website and a contact address.
+**ned says when a newer version is out.** Once a day, a little after it starts, ned looks on GitHub; when there is a
+newer version, a note says so and a mark in the status bar opens what is new in it. *Help › Check for updates* looks
+now; `"update.check": false` stops the daily look. `ned --update` and `install.sh` build the new version with nimble
+(on Termux too); GitHub's checks build ned on every platform, and publish nothing.
+
+**Ideas from Zed's own changelog.** A jump into a folded part — go to line, a definition, a symbol, a problem, a
+picked result, back and forward — opens it. Selected text put in the find box is found as it is written, also when
+the find is by regular expression. Two cursors in one word change it once. Vim: `:set gdefault`.
+
+**nedls in Zed's extensions.** The Zed extension is ready for Zed's list, in a repository of its own
+([nedls-zed](https://github.com/foxoman/nedls-zed)) and named `nedls-language-server` as Zed asks
+([editors/zed](editors/zed/README.md)).
+
+**Faster.** Typing in a very long line — a minified JSON or JavaScript file — is about four times faster, and
+colouring code about 15% faster.
+
+**For contributors.** [docs/dev/source-map.md](docs/dev/source-map.md) lists every source file, folder by folder,
+with what it is; files describe themselves more clearly at the top, and code nothing used is gone. Every screenshot is
+drawn in one font from its capture, and `tests/shots` takes them again
+([Screenshots](docs/dev/testing.md#screenshots)).
+
+**Announcing ned.** [The announcement post](docs/blog/announcing-ned.md): what ned is, and how to start.
 
 ## Features
 
 **Desktop-style UI in the terminal** — title bar with menus (F10), command palette (Ctrl+E, over 500 commands,
-most-used first), Telescope (Alt+Shift+F: every finder with a preview), a cursor that glides, left dock (files,
-search & replace, git, Nim, tests), right dock (AI assistant, outline, timeline), bottom panel (problems, output,
-terminal), tabs, breadcrumbs, minimap, sticky scroll, indent guides, rainbow brackets, tooltips, toasts, modal
-dialogs, context menus (right click), drop shadows, hover effects, 84 themes (VS Code dark/light, One Dark, Tokyo
-Night, Catppuccin, Gruvbox, Dracula, Nord, Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Shades of
-Purple, Slate, Monochrome, Everforest, Night Owl, from vim Jellybeans, Iceberg, Sonokai and PaperColor, Foxoman's
-ClassicBlue and Nebula themes, and ned's own: Nim Crown, Frankincense, Desert Dusk, Lagoon, Sea Glass, Paper Ink,
-Rose Quartz, Amber CRT, Green Phosphor, and six easy on the eyes for OLED and LCD screens …) — or `auto`, following
-the terminal's background or the time of day, your own colours (a theme editor that checks contrast), VS Code or
-base16 themes imported, and Termux's own colours set to match — three icon sets (unicode, Nerd Font, ASCII), phone
-layout below 70 columns, an accessibility mode (ASCII, letters beside colours, high contrast), multi-root workspaces
-(git for each folder), remote folders over SSH (git, Run and the assistant's commands on the server; its changes come
-back by themselves), settings sync. → [Themes and appearance](docs/guide/themes.md) · [Key
+most-used first), Telescope (Alt+Shift+F: every finder with a preview), a cursor that glides, left dock (files, search
+& replace, git, Nim, tests), right dock (AI assistant, outline, timeline), bottom panel (problems, output, terminal),
+tabs, breadcrumbs, minimap, sticky scroll, indent guides, rainbow brackets, tooltips, toasts, modal dialogs, context
+menus (right click), drop shadows, hover effects, 150 themes (VS Code dark/light, One Dark, Tokyo Night, Catppuccin,
+Gruvbox, Dracula, Nord, Solarized, GitHub, Rosé Pine, Kanagawa, Ayu, Monokai, Modus, Shades of Purple, Slate,
+Monochrome, Everforest, Night Owl, from vim Jellybeans, Iceberg, Sonokai and PaperColor, every ray.so theme, Foxoman's
+ClassicBlue and Nebula themes, and ned's own: Nim Crown, Frankincense, Desert Dusk, Lagoon, Mint Night, Sea Glass,
+Paper Ink, Rose Quartz, Amber CRT, Green Phosphor, and six easy on the eyes for OLED and LCD screens …) — or `auto`,
+following the terminal's background or the time of day, your own colours (a theme editor that checks contrast), VS
+Code or base16 themes imported, and Termux's own colours set to match — three icon sets (unicode, Nerd Font, ASCII),
+phone layout below 70 columns, an accessibility mode (ASCII, letters beside colours, high contrast), multi-root
+workspaces (git for each folder), remote folders over SSH (git, Run and the assistant's commands on the server; its
+changes come back by themselves), settings sync. → [Themes and appearance](docs/guide/themes.md) · [Key
 bindings](docs/guide/keys.md) · [Settings](docs/guide/settings.md)
 
 **Editing** — multi-cursor (Ctrl+D, Alt+A, Alt+J/K), selection that grows by the code's structure (a name, the
@@ -176,7 +199,7 @@ OpenAI-compatible endpoint. → [The AI assistant](docs/guide/ai.md)
 ned needs **Nim 2.2 or newer** and nothing else to build. Everything else is optional and is picked up
 automatically when it is on your `PATH`.
 
-**The quick way** — Termux gets the release's package, anywhere else ned is built with nimble:
+**The quick way** — ned built with nimble, on Termux too (Nim, git and clang come from Termux's packages):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foxoman/ned/main/install.sh | sh
@@ -187,10 +210,12 @@ ned`) builds `ned`, `nedfmt` and `nedls` into `~/.nimble/bin`. **With Atlas**: n
 nothing for Atlas to fetch to build it — clone it and build it as below; in an Atlas project that uses ned's engine
 as a library (`import ned/nim/index`), `atlas use https://github.com/foxoman/ned` adds it.
 
-**Updating**: `ned --update` (or *Help: update ned…* in the palette) finds the newest release and installs it the
-way this ned was installed — the Termux package, nimble, or a checkout it was built in — after saying what it will
-run and asking; `ned --update --check` only says whether there is one. The package is checked against the
-release's SHA256SUMS and its signature first.
+**Updating**: `ned --update` (or *Help: update ned…* in the palette) finds the newest version (its tag on GitHub)
+and builds it the way this ned was installed — with nimble, or a checkout pulled and built again — after saying what
+it will run and asking; `ned --update --check` only says whether there is one. A release that does carry a Termux
+package is installed from it, checked against the release's SHA256SUMS and its signature first. ned also looks by
+itself, once a day a little after it starts: when a newer version is out it says so, and a mark in the status bar
+opens what is new in it (*Help › Check for updates* looks now; `"update.check": false` stops the daily look).
 
 ### Termux (Android)
 
@@ -201,9 +226,9 @@ ned --check                                 # what ned found, and how to add the
 ned
 ```
 
-or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or the ready-made package
-of a release, `pkg install ./ned_6.40.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in
-`$PREFIX/share/ned/plugins`). `nimble termuxdeb` makes that package on a Linux machine (with zig).
+or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or a ready-made package,
+`pkg install ./ned_6.41.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
+`nimble termuxdeb` makes it on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
 Recommended extras:
@@ -257,8 +282,8 @@ is installed (else `cmd.exe`), the clipboard is the Windows clipboard, and paths
 takes them). It is built and checked on every push (`windows-x86_64` in `.github/workflows/build.yml`: the command
 line, the formatter's tests), but used far less than the Linux, macOS and Termux builds — WSL is the tried way.
 
-The release's `ned-6.40.0-windows-x86_64.zip` has `ned.exe`, `nedfmt.exe` and `nedls.exe`, ready to run: unzip
-it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features). Or build it:
+Build it, and start `.\ned.exe` in Windows Terminal (`nim` on the PATH for the Nim features;
+`tests/build/windows.sh` makes a zip of `ned.exe`, `nedfmt.exe` and `nedls.exe` from Linux, with zig):
 
 ```powershell
 scoop install nim git                       # or the official Nim zip, and Git for Windows (its sh runs ned's commands)
