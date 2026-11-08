@@ -65,7 +65,8 @@ check() { # DIR NAME: DIR/NAME against DIR/SHA256SUMS, and SHA256SUMS against it
 from_source=no
 [ "${1:-}" = "--source" ] && from_source=yes
 
-if [ -n "${TERMUX_VERSION:-}" ] || [ "${PREFIX:-}" != "${PREFIX#*com.termux}" ]; then
+prefix=${PREFIX:-}     # (Termux's own folder there; not set on most other systems)
+if [ -n "${TERMUX_VERSION:-}" ] || [ "$prefix" != "${prefix#*com.termux}" ]; then
   if [ $from_source = no ]; then
     need curl "pkg install curl"
     say "Looking for ned's newest Termux package…"
