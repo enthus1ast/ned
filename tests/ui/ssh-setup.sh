@@ -32,6 +32,15 @@ if command -v fish > /dev/null; then
   fi
   getent passwd nedfish > /dev/null && fishuser=nedfish
 fi
+# A locked account cannot log in over SSH, even with a key.
+sudo=()
+if [ "$(id -u)" != 0 ]; then sudo=(sudo); fi
+for user in "$me" "$fishuser"; do
+  if "${sudo[@]}" passwd -S "$user" | grep -q ' L '; then
+    hash=$(openssl rand -base64 32 | openssl passwd -6 -stdin)
+    "${sudo[@]}" usermod -p "$hash" "$user"
+  fi
+done
 # (sshd will not start without its privilege separation folder, which a machine whose ssh service has never run — a
 # fresh CI runner — may not have yet)
 if [ "$(id -u)" = 0 ]; then mkdir -p /run/sshd && chmod 755 /run/sshd; "$SSHD" -f "$D/sshd_config" -E "$D/sshd.log"
