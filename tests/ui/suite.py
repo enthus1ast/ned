@@ -2544,6 +2544,7 @@ def t_518_terminal():
             shutil.copy(home + '/.config/fish/config.fish', CFG + '/fish/config.fish')
         start('src/demo.nim', w=120, h=34, env_extra=extra); time.sleep(0.5)
         keys('C-\\'); time.sleep(1.5)
+        if nm == 'zsh': wait_for(r'zsh% ', 5)
         text('hi'); keys('Enter'); time.sleep(0.4)
         if nm == 'zsh':
             text('echo env-$FROM_ZSHENV'); keys('Enter'); time.sleep(0.4)
@@ -6253,6 +6254,8 @@ def t_613_remote():
     # git commit: the message in a tab; saved and closed, git goes on — and the terminal has the focus again
     keys('C-\\'); time.sleep(0.5)
     if 'TERMINAL' not in screen(): keys('C-\\'); time.sleep(0.5)
+    tab = find_on_screen('TERMINAL')
+    if tab: click(*tab)
     text('git -c user.name=t -c user.email=t@t commit'); keys('Enter')
     ok = wait_for('COMMIT_EDITMSG', 8)
     check('613 remote: git commit opens its message in a tab of this ned, and says git waits', ok and 'waits for it' in
@@ -6381,9 +6384,9 @@ def t_613_vim_filter():
 
 
 def t_614_web_css():
-    # ned's own CSS (no language server for it): a property and then its value completed; an unknown property, a
-    # value its property does not take, a missing `;` — found as you write; the hover
-    setup({})
+    # ned's own CSS engine: a property and then its value completed; an unknown property, a value its property does
+    # not take, a missing `;` — found as you write; the hover
+    setup({"web.engine": "on"})
     open(W + '/style.css', 'w').write('a {\n  \n}\n\nb {\n  colr: red;\n  display: flexx;\n  color: blue\n  margin: 0;\n}\n')
     start('style.css', w=130, h=30)
     check('614 css: an unknown property, and the one meant', wait_for("unknown property 'colr' — did you mean 'color'", 5),
@@ -6706,7 +6709,7 @@ def t_615_next_edit():
 def t_615_web_js():
     # ned's own JavaScript: a class's members after `p.`, a global's (Math.), hover with the signature, F12 to the
     # declaration; problems — a const assigned, a name one letter off; in an HTML page's <script> too
-    setup({})
+    setup({"web.engine": "on"})
     open(W + '/app.js', 'w').write('class Point {\n  constructor(x, y) { this.x = x; this.y = y; }\n'
                                    '  norm() { return Math.hypot(this.x, this.y); }\n}\n'
                                    'const p = new Point(1, 2);\nconst total = 1;\ntotal = 2;\nconsole.log(p, totl);\n\n')
@@ -6728,7 +6731,7 @@ def t_615_web_js():
     keys('Escape')
     keys('C-p'); time.sleep(0.3); text('page.html'); time.sleep(0.4); keys('Enter')
     check("615 js: in an HTML page's <script>", wait_for("'n' is a constant", 6), screen())
-    r = subprocess.run([BIN, '--lint', 'app.js'], capture_output=True, text=True, cwd=W)
+    r = subprocess.run([BIN, '--lint', '--format:text', 'app.js'], capture_output=True, text=True, cwd=W)
     check('615 js: ned --lint', '[js-const-assign]' in r.stdout and '[js-typo]' in r.stdout, r.stdout + r.stderr)
 
 def t_615_cpp():
