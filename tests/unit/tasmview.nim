@@ -128,7 +128,7 @@ suite "a real program (nim and a C compiler at hand)":
   let nim = findExe("nim")
   let cc = if findExe("gcc").len > 0: "gcc" elif findExe("clang").len > 0: "clang" else: ""
   let dir = getTempDir() / "tasmview-" & $getCurrentProcessId()
-  test "square: its imul on its own line, the program's calls kept, the runtime out":
+  test "square: its multiply on its own line, the program's calls kept, the runtime out":
     if nim.len == 0 or cc.len == 0:
       skip()
     else:
@@ -149,7 +149,8 @@ suite "a real program (nim and a C compiler at hand)":
       check "square" in r.functions
       var mulOnLine2 = false
       for l in r.lines:
-        if l.fn == "square" and ("mul" in l.text) and l.src == 1: mulOnLine2 = true
+        let mnemonic = l.text.strip.split({' ', '\t'})[0]
+        if l.fn == "square" and mnemonic in ["imul", "mul", "madd"] and l.src == 1: mulOnLine2 = true
       check mulOnLine2
       check r.lines.len < r.total div 4               # (most of it is the runtime and the debug info)
       removeDir(dir)

@@ -173,7 +173,7 @@ proc syncGit(push: bool) =
     try:
       createDir(d)
     except OSError: discard
-    let (_, who, _) = runFilter("git config user.name", "", rootDir, 3000)
+    let (_, who, _) = runFilter("git config user.name", "", d, 3000)
     let ident = if who.strip.len == 0: "-c user.name=ned -c user.email=ned@localhost " else: ""
     sh.add "if git rev-parse -q --verify \"origin/$B\" >/dev/null; then git reset -q --soft \"origin/$B\"; fi; " &
            "cp " & quoteShell(privDir() / SyncFile) & " " & SyncFile & "; git add " & SyncFile & "; " &
@@ -471,7 +471,7 @@ proc syncBoth(quiet = false) =
       syncBusy = false
       error("Settings sync: " & e.msg)
       return
-    let (_, who, _) = runFilter("git config user.name", "", rootDir, 3000)
+    let (_, who, _) = runFilter("git config user.name", "", d, 3000)
     let ident = if who.strip.len == 0: "-c user.name=ned -c user.email=ned@localhost " else: ""
     let push = "set -e; cd " & q & "; B=$(git symbolic-ref --short HEAD 2>/dev/null || echo main); " &
                "if git rev-parse -q --verify \"origin/$B\" >/dev/null; then git reset -q --soft \"origin/$B\"; fi; " &
