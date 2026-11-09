@@ -57,6 +57,47 @@ func validUtf8*(s: string): bool =
     i += need + 1
   true
 
+func utf8Repaired*(s: string): string =
+  ## `s` with each byte sequence that is not UTF-8 — a character cut in two, a byte of another encoding — as U+FFFD
+  ## (�): text a server that checks its JSON's UTF-8 takes (llama.cpp refuses the whole request over one such byte);
+  ## `s` itself when it is valid
+  if validUtf8(s): return s
+  result = newStringOfCap(s.len + 16)
+  var i = 0
+  let n = s.len
+  while i < n:
+    let c = s[i].ord
+    if c < 0x80:
+      result.add s[i]
+      inc i
+      continue
+    var need, cp, lo: int
+    if c >= 0xC2 and c <= 0xDF: (need, cp, lo) = (1, c and 0x1F, 0x80)
+    elif c >= 0xE0 and c <= 0xEF: (need, cp, lo) = (2, c and 0x0F, 0x800)
+    elif c >= 0xF0 and c <= 0xF4: (need, cp, lo) = (3, c and 0x07, 0x10000)
+    else:
+      result.add "\xEF\xBF\xBD"
+      inc i
+      continue
+    var k = 1
+    var whole = true
+    while k <= need:
+      if i + k >= n or (s[i + k].ord and 0xC0) != 0x80:
+        whole = false
+        break
+      cp = (cp shl 6) or (s[i + k].ord and 0x3F)
+      inc k
+    if whole and cp >= lo and cp <= 0x10FFFF and not (cp >= 0xD800 and cp <= 0xDFFF):
+      result.add s[i .. i + need]
+    else:
+      result.add "\xEF\xBF\xBD"         # (one for the start of a character and what came of it)
+    i += k
+
+func utf8Cut*(s: string, at: int): int =
+  ## a byte index at or before `at` that does not split a UTF-8 character: where to cut `s` to about `at` bytes
+  result = clamp(at, 0, s.len)
+  while result > 0 and result < s.len and (ord(s[result]) and 0xC0) == 0x80: dec result
+
 func detectEncoding*(bytes: string, fallback = EncCp1252): string =
   ## a BOM says it; else UTF-8 when the bytes are valid UTF-8; else `fallback` (text from an older Windows or Mac
   ## program, most often). Bytes with NULs and no BOM are not text (the caller's binary check)

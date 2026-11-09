@@ -149,7 +149,8 @@ proc toolSearch(j: JsonNode): (string, bool) =
       for s in lines:
         inc l
         if findInLine(s, q, 0, caseS, false) >= 0:
-          o.add rel & ":" & $l & ": " & s.strip[0 ..< min(200, s.strip.len)]
+          let t = s.strip
+          o.add rel & ":" & $l & ": " & t[0 ..< utf8Cut(t, 200)]     # (200 bytes, not in a character)
           if o.len >= 150: break
     except CatchableError: discard
     if o.len >= 150 or msSince(t0) > 3000: break
@@ -342,11 +343,6 @@ proc expandMentions(t: string): string
 proc diffForCall(c: AiCall): string
 proc projectInstructions(): string
 proc saveChat()
-
-func utf8Cut(s: string, at: int): int =
-  ## a byte index near `at` that does not split a UTF-8 character
-  result = clamp(at, 0, s.len)
-  while result > 0 and result < s.len and (ord(s[result]) and 0xC0) == 0x80: dec result
 
 proc aiLastUser(): int =
   ## the index of the user's latest message in the chat (-1: none)
