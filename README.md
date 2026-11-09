@@ -24,7 +24,7 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## Contents
 
-- [What's new in 6.41.1](#whats-new-in-6411) · [6.41](#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.42](#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -33,65 +33,27 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ---
 
-## What's new in 6.41.1
+## What's new in 6.42
 
-- **A struct's members in C inside an `{.emit}`.** After `.` and `->`, completion lists the members of a struct or a
-  union, and the hover of a member shows it, from ned's own C engine — no clangd needed, as in a `.c` file.
-- **Ctrl+P puts the file you name first.** Typing a file's whole name (`demo.nim`) opens that file, not a longer name
-  that starts with it (`demo.nimble`).
-- **Nim 2.4's names.** Nim 2.4 writes a proc's name into the C differently (`shout_u0__app`, where Nim 2.2 wrote
-  `shout__app_u1`): Compiler Explorer, the view of a program Nim built, the debugger's stop when a global changes and
-  the memory checks' stacks read both, and show Nim's names again.
-- **The debugger with Nim 2.4.** Nim 2.4 writes a line's C over several lines, and the C compiler took the later
-  ones for the Nim lines below: a breakpoint stopped before the line's variables were set, a step went to a line that
-  had not run, and Compiler Explorer's shading and the memory checks' stacks were a few lines out. ned now builds for
-  the debugger, the program view, Compiler Explorer and the memory checks with every line of that C under its own
-  Nim line, as with Nim 2.2 — and C in an `{.emit}` keeps its own lines, so a breakpoint there stops on the line it
-  is on (a top-level emit's was one line off with Nim 2.2 too).
-- **Benchmark a call and runnableExamples with Nim 2.4.0.** Both build a program read from ned, which Nim 2.4.0's new
-  separate code generator could not find; they work again.
-- **Nim 2.4's answers, as ned's own.** A type hint shows an array by its length (`array[2, Person]`, not
-  `array[0..1, Person]`), and Go to definition on a name a template made goes to the line that calls the template.
-- **Compiler Explorer on macOS shows the code.** clang there puts it in a section ned left out, so the view was empty.
-- **For contributors.** GitHub's tests pass with Nim 2.4 — the version it installs: a few checks no longer depend on
-  what the machine has installed, its SSH server starts on a fresh machine, and macOS has its own speed limits.
+**Your own keys in vim and Helix mode.** `vim.keys`, `vim.visualKeys` and `helix.keys` put any command of the
+palette, or a `:` line, on keys of your own, written as vim writes them:
 
-## What's new in 6.41
+```json
+"vim.keys": {"<leader>n": "Next tab", "<leader>p": "Previous tab", "<leader>x": "Close tab", "<leader>w": ":w"},
+"helix.keys": {"<space>n": "Next tab", "<space>x": "Close tab"}
+```
 
-**Every ray.so theme, and mint-night.** All of [ray.so](https://ray.so)'s themes are in, dark and light, each named
-with `ray-` before it: `ray-vercel-dark`, `ray-candy-light`, `ray-midnight` (the dark one of a pair) … 65 in all.
-`mint-night` is near black, with mint keywords and types, lavender function names and light blue strings. ned now
-has 150 themes ([Themes](docs/guide/themes.md#the-built-in-themes)).
+They come before ned's own use of the keys and before a plugin's, a count before them repeats the command
+(`3<leader>n`), and the which-key plugin lists them. See [Your own keys](docs/guide/vim-and-zen.md#your-own-keys).
 
-**Vim: the `:` line reaches everything.** Every command by its name, or by enough of its start (`:about`), and every
-setting with `:set` — by its key (`:set editor.tabSize=2`), only its last part (`:set tabSize?`), or Vim's own name
-(`tabstop`, `colorcolumn=80`, `ignorecase`, `nowrap`); `:colorscheme NAME`. **Tab** completes command names,
-settings and their values, themes, files and tabs. New line commands with ranges: `:sort` (`! i n u`), `:g/text/d`,
-`:v/text/d`, `:m`, `:t`, `:d`, `:y`, `:j`, `:>`, `:<`; and `:tabnew`, `:ls`, `:b`, `:cn`, `:cp`, `:r`, `:sav`,
-`:help` ([Vim](docs/guide/vim-and-zen.md#vim)).
+**jj as Esc in Helix mode too.** `vim.escapeSequence` (`"jj"`, `"jk"` …) now leaves Helix's insert mode as well. In
+both modes it also works while the completion list is open, which the sequence's first key often opens.
 
-**ned says when a newer version is out.** Once a day, a little after it starts, ned looks on GitHub; when there is a
-newer version, a note says so and a mark in the status bar opens what is new in it. *Help › Check for updates* looks
-now; `"update.check": false` stops the daily look. `ned --update` and `install.sh` build the new version with nimble
-(on Termux too); GitHub's checks build ned on every platform, and publish nothing.
+**Next tab and Previous tab** are commands of the palette, so the `keys` setting, your vim and Helix keys and
+plugins can use them (`{"alt+n": "Next tab"}`).
 
-**Ideas from Zed's own changelog.** A jump into a folded part — go to line, a definition, a symbol, a problem, a
-picked result, back and forward — opens it. Selected text put in the find box is found as it is written, also when
-the find is by regular expression. Two cursors in one word change it once. Vim: `:set gdefault`.
-
-**nedls in Zed's extensions.** The Zed extension is ready for Zed's list, in a repository of its own
-([nedls-zed](https://github.com/foxoman/nedls-zed)) and named `nedls-language-server` as Zed asks
-([editors/zed](editors/zed/README.md)).
-
-**Faster.** Typing in a very long line — a minified JSON or JavaScript file — is about four times faster, and
-colouring code about 15% faster.
-
-**For contributors.** [docs/dev/source-map.md](docs/dev/source-map.md) lists every source file, folder by folder,
-with what it is; files describe themselves more clearly at the top, and code nothing used is gone. Every screenshot is
-drawn in one font from its capture, and `tests/shots` takes them again
-([Screenshots](docs/dev/testing.md#screenshots)).
-
-**Announcing ned.** [The announcement post](docs/blog/announcing-ned.md): what ned is, and how to start.
+**The one-line installer works on Linux and macOS again.** Outside Termux it stopped at once with `PREFIX:
+parameter not set`.
 
 ## Features
 
@@ -250,7 +212,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or a ready-made package,
-`pkg install ./ned_6.41.1_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
+`pkg install ./ned_6.42.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
 `nimble termuxdeb` makes it on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
