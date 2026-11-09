@@ -10,6 +10,7 @@ SHA256SUMS.sig given as file:// URLs, and apt replaced by a script that writes d
   signed by another key              refused
   ned has a key, no signature        refused
   a version only tagged              built with nimble on Termux (asked first)
+  install.sh outside Termux          built with nimble (PREFIX not set, or set to another folder)
 
 Usage: tupdate.py [path/to/ned]   (without a ned: install.sh only). The signed cases need ssh-keygen (OpenSSH).
 Exit status 1 when a check fails."""
@@ -32,7 +33,9 @@ rel = os.path.join(root, 'release')
 fake = os.path.join(root, 'bin')
 os.makedirs(rel); os.makedirs(fake)
 applog = os.path.join(root, 'apt.log')
-for name, body in [('apt', '#!/bin/sh\necho "$@" >> %s\n' % applog), ('ned', '#!/bin/sh\necho "ned 99.0.0"\n')]:
+nimblelog = os.path.join(root, 'nimble.log')
+for name, body in [('apt', '#!/bin/sh\necho "$@" >> %s\n' % applog), ('ned', '#!/bin/sh\necho "ned 99.0.0"\n'),
+                   ('nimble', '#!/bin/sh\necho "$@" >> %s\n' % nimblelog)]:
     p = os.path.join(fake, name)
     open(p, 'w').write(body)
     os.chmod(p, 0o755)
@@ -117,6 +120,19 @@ for who, run in runners:
     check(who + ': ned has a key, the release no signature: refused', code != 0 and not installed(), out)
     code, out = run(release(sign_with=good, deb=b'evil\n'), good_signers)
     check(who + ': signed, but the package changed: refused', code != 0 and not installed(), out)
+
+# outside Termux (PREFIX not set, as on most Linux machines and macOS, or set to another folder): built with nimble,
+# by the shell `curl … | sh` runs (dash on Debian and Ubuntu)
+for shell in [s for s in ['sh', 'dash', 'bash'] if shutil.which(s)]:
+    for prefix in [None, '/usr/local']:
+        e = {k: v for k, v in env(PLACEHOLDER).items() if k not in ('TERMUX_VERSION', 'PREFIX')}
+        if prefix: e['PREFIX'] = prefix
+        if os.path.exists(nimblelog): os.remove(nimblelog)
+        r = subprocess.run([shell, os.path.join(REPO, 'install.sh')], env=e, capture_output=True, text=True, timeout=60)
+        out = r.stdout + r.stderr
+        built = os.path.exists(nimblelog) and 'github.com/foxoman/ned' in open(nimblelog).read()
+        check('install.sh outside Termux (%s, PREFIX %s): built with nimble' % (shell, prefix or 'not set'),
+              r.returncode == 0 and built and not installed() and 'Installed: ned' in out, out)
 
 if NED:
     # a version that is only a tag (no release, no package): Termux builds it with nimble — said, asked, nothing run
