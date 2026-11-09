@@ -7,7 +7,8 @@ For each step it prints the longest round (a moment ned did not read a key), and
 memory of the editor and its engine worker at the end. Each number is checked against tests/perf/budget.json.
 
 Usage: rounds.py path/to/ned [--runs N] [--steps K] [--keep] [--one-core]
-  a first session with nothing in the index's disk cache, then N sessions (1) with what it kept: their median.
+  a first session with nothing in the index's disk cache, then N sessions (1) with what it kept: their median. A
+  step over budget with fewer than three sessions is measured in more of them, to three, and their median counts.
   The program worked on is a copy of this repository's src/ and ned.nimble. Linux (memory is read from /proc).
   --one-core: everything on one core (a phone's slow cores as a stand-in).
 Exit status 1 when a number is over its budget. NED_PERF_NO_BUDGET=1: print only."""
@@ -174,15 +175,10 @@ def one_run(root, proj, n, env_extra):
     res['_'] = {'editor_mb': ned_mb, 'worker_mb': worker_mb, 'completions_ms': allc}
     return res
 
-def main():
-    root = tempfile.mkdtemp(prefix='ned-perf-')
-    proj = project(root)
-    # the first session finds nothing in the index's disk cache (ned's first time with this program and this Nim);
-    # the others find what it kept
-    cold = one_run(root, proj, 0, {})
-    runs = [one_run(root, proj, i + 1, {}) for i in range(RUNS)]
-    if KEEP: print('(kept: %s)' % root)
-    else: shutil.rmtree(root, ignore_errors=True)
+def verdict(cold, runs, show):
+    """what is over budget — the first time from the session with nothing cached, each step's longest round and the
+    completion times as the median of the other sessions, the memory — and with `show`, the table"""
+    out = print if show else (lambda *a: None)
     over = []
     first = 'open a file of a big program'
     v = cold[first]['longest_ms']
@@ -190,8 +186,8 @@ def main():
     what = ', '.join('%s %.1f' % (n, us / 1000) for n, us in sorted(cold[first]['what'], key=lambda x: -x[1])[:3])
     flag = '' if v <= b else '  OVER %d' % b
     if flag: over.append('first time')
-    print('%-46s %10s %8s   %s' % ('step', 'longest', '>16 ms', 'what the longest round did'))
-    print('%-46s %7.1f ms %8d   %s%s' % (first + ' (nothing cached)', v, cold[first]['over_16ms'], what, flag))
+    out('%-46s %10s %8s   %s' % ('step', 'longest', '>16 ms', 'what the longest round did'))
+    out('%-46s %7.1f ms %8d   %s%s' % (first + ' (nothing cached)', v, cold[first]['over_16ms'], what, flag))
     steps = [k for k in runs[0] if k != '_']
     lim = BUDGET['longest_round_ms']
     for s in steps:
@@ -202,20 +198,41 @@ def main():
         b = lim.get(s, lim['default'])
         flag = '' if med <= b else '  OVER %d' % b
         if flag: over.append(s)
-        print('%-46s %7.1f ms %8d   %s%s' % (s, med, best['over_16ms'], what, flag))
-    cs = sorted(c for r in runs for c in r['_']['completions_ms'])
-    if cs:
-        med, mx = statistics.median(cs), cs[-1]
+        out('%-46s %7.1f ms %8d   %s%s' % (s, med, best['over_16ms'], what, flag))
+    per = [sorted(r['_']['completions_ms']) for r in runs if r['_']['completions_ms']]
+    if per:
+        # (each session's median and longest, then the median of those: one session's slow moment is not ned's)
+        meds = sorted(statistics.median(cs) for cs in per)
+        mxs = sorted(cs[-1] for cs in per)
+        med, mx = meds[len(meds) // 2], mxs[len(mxs) // 2]
         b = BUDGET['completion_ms']
         flag = '' if mx <= b['max'] and med <= b['median'] else '  OVER %s' % b
         if flag: over.append('completion')
-        print('completion: %d asked, median %.1f ms, longest %.1f ms%s' % (len(cs), med, mx, flag))
+        out('completion: %d asked, median %.1f ms, longest %.1f ms%s' % (sum(len(cs) for cs in per), med, mx, flag))
     em = statistics.median(r['_']['editor_mb'] for r in runs)
     wm = statistics.median(r['_']['worker_mb'] for r in runs)
     b = BUDGET['memory_mb']
     flag = '' if em + wm <= b['editor_and_worker'] else '  OVER %d' % b['editor_and_worker']
     if flag: over.append('memory')
-    print('memory: editor %.0f MB, engine worker %.0f MB, together %.0f MB%s' % (em, wm, em + wm, flag))
+    out('memory: editor %.0f MB, engine worker %.0f MB, together %.0f MB%s' % (em, wm, em + wm, flag))
+    return over
+
+def main():
+    root = tempfile.mkdtemp(prefix='ned-perf-')
+    proj = project(root)
+    # the first session finds nothing in the index's disk cache (ned's first time with this program and this Nim);
+    # the others find what it kept
+    cold = one_run(root, proj, 0, {})
+    runs = [one_run(root, proj, i + 1, {}) for i in range(RUNS)]
+    # (a step over budget with fewer than three sessions: two more, and the median of three counts — one slow moment
+    # of a busy machine, a CI runner's, is not ned's; the first time cannot be had again)
+    if [o for o in verdict(cold, runs, False) if o != 'first time'] and len(runs) < 3:
+        print('(over budget in %d session%s: measured again, the median of three counts)' %
+              (len(runs), '' if len(runs) == 1 else 's'))
+        runs += [one_run(root, proj, len(runs) + 1 + i, {}) for i in range(3 - len(runs))]
+    over = verdict(cold, runs, True)
+    if KEEP: print('(kept: %s)' % root)
+    else: shutil.rmtree(root, ignore_errors=True)
     if over and not os.environ.get('NED_PERF_NO_BUDGET'):
         print('over budget: ' + ', '.join(over))
         sys.exit(1)

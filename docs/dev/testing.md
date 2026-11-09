@@ -247,7 +247,9 @@ python3 .github/ci/bench.py ./ned                  # run it from the repository'
 python3 tests/perf/rounds.py ./ned [--runs 3] [--one-core]     # --one-core: a phone's slow cores as a stand-in
 ```
 
-The first `rounds.py` after a build can be slow (cold caches): run it again before believing a regression.
+The first `rounds.py` after a build can be slow (cold caches): run it again before believing a regression. A step
+over budget with fewer than three sessions is measured in more, to three, and their median counts — so one slow
+moment of a busy CI runner does not fail the build.
 `NED_PERF_NO_BUDGET=1` prints the numbers without checking them. *Help › Performance…* and `NED_PERF_LOG` are the
 same numbers from a session of yours ([Architecture](architecture.md#timedwork-and-the-performance-report)).
 
