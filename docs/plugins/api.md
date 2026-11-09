@@ -638,7 +638,7 @@ A key, or keys, that a plugin uses (or your `keys` setting): what `keyMaps` list
 
 | field | type | |
 |---|---|---|
-| `mode` | `string` | n v (vim mappings), op (an operator), obj (a text object), key (any keymap) |
+| `mode` | `string` | n v (vim mappings), op (an operator), obj (a text object), key (any keymap), helix (your helix.keys) |
 | `keys` | `string` | as given: `<leader>f`, `gc`, `ie`, `ctrl+alt+u` |
 | `desc` | `string` | what it does ("": not said; for a command's key, its title) |
 | `lang` | `string` | only in files of this language ("" every file) |
@@ -680,7 +680,7 @@ Closes the box of `showKeyHints` (ned closes it by itself when the keys waiting 
 proc keyMaps(): seq[KeyMap]
 ```
 
-Every key the plugins use — vim mappings, operators, text objects, `keyIn`'s keys, commands' keys — and the commands on keys in your `keys` setting, each with what it does: what a which-key box lists.
+Every key the plugins use — vim mappings, operators, text objects, `keyIn`'s keys, commands' keys — and the commands on keys in your `keys`, `vim.keys`, `vim.visualKeys` and `helix.keys` settings, each with what it does: what a which-key box lists.
 
 ### talking to you
 

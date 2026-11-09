@@ -1677,6 +1677,8 @@ proc plugApi(h: PlugHost, j: JsonNode) =
             arr.add %*{"mode": "key", "keys": d{"keys"}.getStr, "desc": d{"title"}.getStr, "lang": "", "plugin": r.plugin}
         else: discard
       for k, v in cfgKeys: arr.add %*{"mode": "key", "keys": k, "desc": v, "lang": "", "plugin": ""}
+      for (md, k, v) in cfgVimKeys:
+        arr.add %*{"mode": (if md == "h": "helix" else: md), "keys": k, "desc": v, "lang": "", "plugin": ""}
       answer(arr)
     of "clipboard":
       # (what paste would paste: the system's clipboard, else what was copied in ned — no helper to read it)
@@ -2426,8 +2428,9 @@ proc plugRunOp(key: string, b: Buffer, a, e: Pos, linewise: bool) =
   plugInvoke(key, %*{"buf": b.id, "range": {"start": jPos(a), "stop": jPos(e)}, "linewise": linewise})
 
 proc plugVimKey(b: Buffer, ch: char, visual: bool): bool =
-  ## vim: a plugin's mappings and operators (sequences of keys); true when the key was theirs
-  if plugReplaying or (plugVimMaps.len == 0 and plugOps.len == 0): return false
+  ## vim: your own keys (vim.keys, vim.visualKeys) and a plugin's mappings and operators (sequences of keys) — yours
+  ## first; true when the key was one of them
+  if plugReplaying or (plugVimMaps.len == 0 and plugOps.len == 0 and cfgVimKeys.len == 0): return false
   let p = b.primary.head
   if plugOpKeys.len > 0:
     let op = plugOpKeys
@@ -2505,7 +2508,18 @@ proc plugVimKey(b: Buffer, ch: char, visual: bool): bool =
   for (keys, rk) in plugOps:
     if keys == sq: opExact = rk
     elif keys.startsWith(sq): longer = true
+  var mine = ""
+  for (md, keys, what) in cfgVimKeys:
+    if md != mode: continue
+    let ks = vimKeysOf(keys)
+    if ks == sq: mine = what
+    elif ks.startsWith(sq): longer = true
   let count = if vimCount.len > 0: (try: parseInt(vimCount) except ValueError: 1) else: 1
+  if mine.len > 0:
+    plugSeq = ""
+    vimCount = ""
+    vimUserRun(mine, count, visual)
+    return true
   if exact.len > 0:
     plugSeq = ""
     vimCount = ""
@@ -2555,7 +2569,9 @@ proc plugPendingKeys(): (string, string) =
   ## v (visual), o (an operator waits for its motion), obj (… for its text object: "di"), emacs, helix — ("", "")
   ## when none waits
   if focus != fEditor or promptKind != pNone or pickKind != pickNone: return ("", "")
-  if cfgKeymap == "helix": return ((if hxPending == "space": "<space>" else: hxPending), "helix")
+  if cfgKeymap == "helix":
+    if hxUserHeld.len > 0: return (hxUserHeld.replace(" ", "<space>"), "helix")
+    return ((if hxPending == "space": "<space>" else: hxPending), "helix")
   if cfgKeymap == "emacs": return (emacsPrefix, "emacs")
   if not cfgVim or vimMode notin {vmNormal, vmVisual, vmVLine}: return ("", "")
   let vis = vimMode in {vmVisual, vmVLine}

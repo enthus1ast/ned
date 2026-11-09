@@ -502,7 +502,8 @@ type
   KeyMap* = object
     ## A key, or keys, that a plugin uses (or your `keys` setting): what `keyMaps` lists, for a box of what can
     ## be typed next.
-    mode*: string                ## n v (vim mappings), op (an operator), obj (a text object), key (any keymap)
+    mode*: string                ## n v (vim mappings), op (an operator), obj (a text object), key (any keymap),
+                                 ## helix (your helix.keys)
     keys*: string                ## as given: `<leader>f`, `gc`, `ie`, `ctrl+alt+u`
     desc*: string                ## what it does ("": not said; for a command's key, its title)
     lang*: string                ## only in files of this language ("" every file)
@@ -530,7 +531,8 @@ proc hideKeyHints*() = discard api("hideKeyHints")
   ## Closes the box of `showKeyHints` (ned closes it by itself when the keys waiting change).
 proc keyMaps*(): seq[KeyMap] =
   ## Every key the plugins use — vim mappings, operators, text objects, `keyIn`'s keys, commands' keys — and the
-  ## commands on keys in your `keys` setting, each with what it does: what a which-key box lists.
+  ## commands on keys in your `keys`, `vim.keys`, `vim.visualKeys` and `helix.keys` settings, each with what it does:
+  ## what a which-key box lists.
   for x in api("keyMaps"):
     result.add KeyMap(mode: x{"mode"}.getStr, keys: x{"keys"}.getStr, desc: x{"desc"}.getStr,
                       lang: x{"lang"}.getStr, plugin: x{"plugin"}.getStr)

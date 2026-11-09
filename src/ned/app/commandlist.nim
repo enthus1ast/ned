@@ -39,6 +39,8 @@ proc initCommands() =
   add("Jump back", "Alt+,", jumpBack())
   add("Go forward", "Alt+Shift+, (Alt+<)", jumpForward())
   add("Reopen closed tab", "Alt+Shift+T", reopenClosedTab())
+  add("Next tab", "Alt+→ / Ctrl+PgDn", switchTab(1))
+  add("Previous tab", "Alt+← / Ctrl+PgUp", switchTab(-1))
   add("Show hover info", "Alt+H", cmdHover())
   add("Rename symbol", "F2", cmdRename())
   add("Format document", "Alt+F", buf().formatBuffer())

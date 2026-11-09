@@ -67,14 +67,47 @@ proc hxRange(b: Buffer): (Pos, Pos) =
   if p.line < b.lines.high: return (p, Pos(line: p.line + 1, col: 0))
   (p, p)
 
+# (helixKey, below: hxUserKey gives it back the keys it held)
+proc helixKey(k: Key): bool
+
+proc hxUserKey(ch: char, n: int): bool =
+  ## your own keys in normal and select mode (helix.keys, as vim writes them: `<space>n`, `gx`): true when `ch` ran
+  ## one, or may be the start of one (held back); when the keys held back are not yours after all, they are given to
+  ## Helix first, then false — and `ch` goes on as usual
+  if hxReplaying or hxPending.len > 0: return false
+  if hxUserHeld.len == 0 and ch in Digits: return false      # (a count)
+  let sq = hxUserHeld & $ch
+  var mine = ""
+  var longer = false
+  for (md, keys, what) in cfgVimKeys:
+    if md != "h": continue
+    let ks = keys.multiReplace([("<space>", " "), ("<Space>", " "), ("<leader>", " "), ("<Leader>", " ")])
+    if ks == sq: mine = what
+    elif ks.startsWith(sq): longer = true
+  if mine.len > 0:
+    hxUserHeld = ""
+    hxCount = ""
+    vimUserRun(mine, n, false)
+    return true
+  if longer:
+    hxUserHeld = sq
+    return true
+  if hxUserHeld.len > 0:
+    let held = hxUserHeld
+    hxUserHeld = ""
+    hxReplaying = true
+    for c in held: discard helixKey(Key(kind: kChar, ch: ord(c)))
+    hxReplaying = false
+  false
+
 proc helixKey(k: Key): bool =
-  ## the Helix keymap for one key: insert mode passes everything but Esc on to the editor; normal and select mode take
-  ## counts, the g and space prefixes, r<char>, motions (select mode extends the selection instead of moving it) and the
-  ## editing keys. True when the key was taken
+  ## the Helix keymap for one key: insert mode passes everything but Esc (or vim.escapeSequence) on to the editor;
+  ## normal and select mode take your own keys (helix.keys), counts, the g and space prefixes, r<char>, motions
+  ## (select mode extends the selection instead of moving it) and the editing keys. True when the key was taken
   let b = buf()
   # ── insert ──
   if hxMode == hxInsert:
-    if k.kind == kEsc or (k.kind == kChar and mCtrl in k.mods and k.ch in [ord('['), ord('c')]):
+    if k.kind == kEsc or (k.kind == kChar and mCtrl in k.mods and k.ch in [ord('['), ord('c')]) or vimEscapeSeq(b, k):
       if compOpen: closeComp()
       b.stops.setLen(0)
       hxSetMode(hxNormal)
@@ -83,6 +116,7 @@ proc helixKey(k: Key): bool =
   if k.kind == kEsc:
     hxPending = ""
     hxCount = ""
+    hxUserHeld = ""
     if hxMode == hxSelect: hxSetMode(hxNormal)
     if b.cursors.len > 1:
       b.cursors = @[b.primary]
@@ -98,6 +132,7 @@ proc helixKey(k: Key): bool =
   let ch = char(k.ch)
   let ext = hxMode == hxSelect
   let n = (if hxCount.len > 0: (try: parseInt(hxCount) except ValueError: 1) else: 1)
+  if cfgVimKeys.len > 0 and hxUserKey(ch, n): return true
   # ── pending: g · space · r ──
   if hxPending.len > 0:
     let pend = hxPending
@@ -294,7 +329,12 @@ proc helixEditorKey(k: Key): bool =
   ## the editor's entry to the Helix keymap: only when editor.keymap is helix, and not while the completion list is open
   ## in insert mode; sets the cursor's shape for the mode after the key
   if cfgKeymap != "helix": return false
-  if compOpen and hxMode == hxInsert: return false
+  if compOpen and hxMode == hxInsert:
+    # (the completion list takes the keys typed — but vim.escapeSequence still leaves insert mode)
+    if not vimEscapeSeq(buf(), k): return false
+    result = helixKey(Key(kind: kEsc))
+    vimShape()
+    return
   result = helixKey(k)
   vimShape()
 

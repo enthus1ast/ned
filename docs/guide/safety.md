@@ -27,7 +27,7 @@
   check its code, but nothing in it runs — not the Nim compiler (its `config.nims` and macros can run commands),
   nimble, nimsuggest, its tests or the program — and its project settings that run programs (`lsp`, `run`,
   `run.configs`, `formatters`, `languages`, `debug.adapters`, `repl.commands`, `terminal.shell`, `keys`,
-  `editor.keymap`, `commands`, `ai.*` including MCP servers, `nim.nimsuggestPath`, `sync.repository`) are ignored, so
+  `vim.keys`, `vim.visualKeys`, `helix.keys`, `editor.keymap`, `commands`, `ai.*` including MCP servers, `nim.nimsuggestPath`, `sync.repository`) are ignored, so
   opening a cloned repository cannot start programs or redirect your code (or your settings) somewhere else. A
   project ned creates for you, the Nim toolchain's own files and nimble packages are trusted;
   `security.folderTrust: off` trusts every folder.

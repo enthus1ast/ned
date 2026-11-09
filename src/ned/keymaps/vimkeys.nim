@@ -28,6 +28,40 @@ proc vimWindowKey(c: char): bool =
     swapPaneDir((if c == 'H': -1 elif c == 'L': 1 else: 0), (if c == 'K': -1 elif c == 'J': 1 else: 0))
   else: result = false
 
+proc vimEscapeSeq(b: Buffer, k: Key): bool =
+  ## vim.escapeSequence in insert mode (vim's or Helix's): true on its second key typed within 400 ms of the first,
+  ## the first taken out of the text again; the first key remembered
+  if cfgVimEscape.len != 2 or k.kind != kChar or k.mods != {} or k.ch >= 128: return false
+  let c = char(k.ch)
+  if vimEscChar == cfgVimEscape[0] and c == cfgVimEscape[1] and msSince(vimEscAt) < 400:
+    vimEscChar = '\0'
+    b.backspace()
+    return true
+  if c == cfgVimEscape[0]:
+    vimEscChar = c
+    vimEscAt = getMonoTime()
+  else: vimEscChar = '\0'
+  false
+
+proc vimUserRun(what: string, count: int, visual: bool) =
+  ## one of your own keys (vim.keys, vim.visualKeys, helix.keys): `what` is a `:` line, run as if typed after :, or
+  ## the name of a command of the palette — `count` times (a count typed before the keys; 100 at most). In a visual
+  ## mode the command gets what it shows selected (whole lines in V, the last character too in v), and normal mode
+  ## comes back after it, at the selection's start, as after vim's own commands
+  if visual and cfgVim and vimMode in {vmVisual, vmVLine}:
+    let b = buf()
+    var (a, e) = b.primary.range
+    if vimMode == vmVLine: (a, e) = (Pos(line: a.line, col: 0), Pos(line: e.line, col: b.lines[e.line].len))
+    else: e = b.clampPos(Pos(line: e.line, col: e.col + 1))
+    b.setSingle(e, a)
+  for _ in 1 .. clamp(count, 1, 100):
+    if what.startsWith(":"): vimEx(what[1 .. ^1]) else: runCmd(what)
+  if visual and cfgVim and vimMode in {vmVisual, vmVLine}:
+    let b = buf()
+    vimSetMode(vmNormal)
+    b.setSingle(b.clampNormal(b.primary.range[0]))
+  needRender = true
+
 proc vimKey(k: Key): bool =
   ## true when vim consumed the key
   let b = buf()
@@ -39,16 +73,8 @@ proc vimKey(k: Key): bool =
     vimRec.add k
   # ── insert / replace mode ──
   if vimMode in {vmInsert, vmReplace}:
-    var esc = k.kind == kEsc or (k.kind == kChar and mCtrl in k.mods and k.ch in [ord('['), ord('c')])
-    if cfgVimEscape.len == 2 and k.kind == kChar and k.mods == {} and k.ch < 128:
-      let c = char(k.ch)
-      if vimEscChar == cfgVimEscape[0] and c == cfgVimEscape[1] and msSince(vimEscAt) < 400:
-        b.backspace()
-        esc = true
-      elif c == cfgVimEscape[0]:
-        vimEscChar = c
-        vimEscAt = getMonoTime()
-      else: vimEscChar = '\0'
+    let esc = k.kind == kEsc or (k.kind == kChar and mCtrl in k.mods and k.ch in [ord('['), ord('c')]) or
+              vimEscapeSeq(b, k)
     if esc:
       if compOpen:
         closeComp()
@@ -147,8 +173,10 @@ proc vimKey(k: Key): bool =
       if ch == '\0': return false
     else: return false
   if ch == '\0': return false
-  let p = b.primary.head
   if plugVimKey(b, ch, visual): return true          # (a plugin's mapping, operator or what it waits for)
+  # (where the cursor is after it: keys it held back that were not a mapping after all, given back to vim, may have
+  # moved it — space then l went one to the right, not two)
+  let p = b.primary.head
   # counts
   if ch in {'1'..'9'} or (ch == '0' and vimCount.len > 0):
     if vimPending in ["", "d", "c", "y", ">", "<", "gu", "gU", "gc", "~"] or vimPending.len == 0:
@@ -628,6 +656,12 @@ proc vimKey(k: Key): bool =
 proc vimEditorKey(k: Key): bool =
   ## entry from editorKey; false = let the normal editor handle the key
   if not cfgVim: return false
-  if compOpen and vimMode == vmInsert: return false
+  if compOpen and vimMode == vmInsert:
+    # (the completion list takes the keys typed — but the escape sequence still leaves insert mode: its first key
+    # may have opened the list)
+    if not vimEscapeSeq(buf(), k): return false
+    result = vimKey(Key(kind: kEsc))
+    vimShape()
+    return
   result = vimKey(k)
   vimShape()

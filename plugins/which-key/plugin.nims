@@ -106,8 +106,8 @@ proc mappingsAfter(hints: var seq[(string, string)], keys, mode: string, lang: s
 
 proc hintsFor(keys, mode: string): (string, seq[(string, string)]) =
   ## the box's title and the keys that can follow the keys typed so far in the input mode (vim normal and visual, vim
-  ## operator, vim text object, emacs, helix) with what each does: ned's own lists above, the plugins' mappings added
-  ## (vim normal and visual, and text objects)
+  ## operator, vim text object, emacs, helix) with what each does: ned's own lists above, the plugins' mappings and
+  ## your own keys added (vim normal and visual, helix, and text objects)
   var h: seq[(string, string)]
   let b = current()
   let lang = if b.valid: b.lang.toLowerAscii else: ""
@@ -121,6 +121,7 @@ proc hintsFor(keys, mode: string): (string, seq[(string, string)]) =
     of "g": h = @helixG
     of "r": h = @[("…", "a character: it replaces every one of the selection")]
     else: discard
+    h.mappingsAfter(norm(keys), mode, lang)          # (your own: helix.keys)
   of "obj":
     let last = keys[^1]
     for (k, d) in vimObjects: h.add (k, (if last == 'i': "inside " else: "around ") & d)
