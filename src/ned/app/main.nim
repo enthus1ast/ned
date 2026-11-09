@@ -86,6 +86,7 @@ proc pumpJobs(ready: HashSet[cint]) =
   startQueuedChecks()                # (a check ended: the next one waiting for its turn)
 
 var privSwept = false
+var menuDumped = false
 
 proc mainLoop() =
   ## the editor's main loop, until it is told to quit. A closed terminal or a stop signal saves every unsaved edit (hot
@@ -132,8 +133,10 @@ proc mainLoop() =
         smark("first frame")
         startRss.add ("first frame", rssMB())
       if not privSwept:
-        privSwept = true
-        timedWork("old temporary files"): privSweep()   # (after the first frame: nothing in the way of the start)
+        # (after the first frame, a little each frame: nothing in the way of the start)
+        timedWork("old temporary files"): privSwept = not privSweep()
+      if not menuDumped:
+        menuDumped = true
         menuDump()                                       # (NED_MENU_DUMP: the menus for the smoke test)
     caPump()                                # (the cursor's glide, a frame of its own: only the trail's cells)
     if startTrace and startRss.len == 1:

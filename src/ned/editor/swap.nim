@@ -46,19 +46,33 @@ proc privTmp(name: string): string =
   inc privTmpN
   privDir() / (name & "-" & $getCurrentProcessId() & "-" & $privTmpN)
 
-proc privSweep() =
-  ## what a ned that was killed left in privDir() (its process gone, the file 10 minutes old): its temp files
-  ## are named name-PID-N, and only those whose PID runs no more are removed
-  try:
-    let now = getTime()
-    for kind, p in walkDir(privDir()):
-      let parts = extractFilename(p).split('-')
-      if parts.len < 3 or parts[^2].len == 0 or not parts[^2].allCharsInSet(Digits) or parts[^2].len > 9: continue
-      let pid = parseInt(parts[^2])
-      if pid <= 1 or pid == getCurrentProcessId() or kill(Pid(pid), 0) == 0 or errno == EPERM: continue
-      if now - getLastModificationTime(p) < initDuration(minutes = 10): continue
+var privSweepLeft: seq[(PathComponent, string)]   # what killed neds left, still to remove (privSweep)
+var privSweepListed = false
+
+proc privSweep(): bool =
+  ## what a ned that was killed left in privDir() (its process gone, the file 10 minutes old): its temp files are named
+  ## name-PID-N, and only those whose PID runs no more are removed — listed the first time, then removed a few at a
+  ## time (about 4 ms a call), so a start after many were left is not held up. True while some are left
+  if not privSweepListed:
+    privSweepListed = true
+    try:
+      let now = getTime()
+      for kind, p in walkDir(privDir()):
+        let parts = extractFilename(p).split('-')
+        if parts.len < 3 or parts[^2].len == 0 or not parts[^2].allCharsInSet(Digits) or parts[^2].len > 9: continue
+        let pid = parseInt(parts[^2])
+        if pid <= 1 or pid == getCurrentProcessId() or kill(Pid(pid), 0) == 0 or errno == EPERM: continue
+        if now - getLastModificationTime(p) < initDuration(minutes = 10): continue
+        privSweepLeft.add (kind, p)
+    except CatchableError: discard
+    return privSweepLeft.len > 0
+  let t0 = getMonoTime()
+  while privSweepLeft.len > 0 and msSince(t0) < 4:
+    let (kind, p) = privSweepLeft.pop()
+    try:
       if kind == pcDir: removeDir(p) else: removeFile(p)
-  except CatchableError: discard
+    except CatchableError: discard
+  privSweepLeft.len > 0
 
 # ── persistent undo: a file's undo history is kept (state/undo) and comes back while the file is unchanged ──
 

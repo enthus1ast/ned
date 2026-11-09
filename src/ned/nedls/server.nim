@@ -184,7 +184,7 @@ proc lsInitialize(params: JsonNode): JsonNode =
     lsRootGuess = true
   wsRoots = others
   lsApplySettings()
-  privSweep()
+  while privSweep(): discard           # (what killed neds left: all of it, before the editor waits for answers)
   # the toolchain: guessed from `nim` on PATH now; `nim dump` (search paths, defines) runs with the first file
   nxEnsureToolchain(nil)
   let legend = %*{"tokenTypes": LsTokTypes, "tokenModifiers": LsTokMods}
