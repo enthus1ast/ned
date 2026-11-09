@@ -99,6 +99,15 @@ proc openaiTools(flat: bool): JsonNode =
     if flat: result.add %*{"type": "function", "name": n, "description": d, "parameters": sc}
     else: result.add %*{"type": "function", "function": {"name": n, "description": d, "parameters": sc}}
 
+proc aiArgsSent(args: string): string =
+  ## a tool call's arguments as sent back with the conversation: the model's JSON written out again strictly — a local
+  ## model's literal tab or newline inside a string, a comma before `}` — for a server that reads them (llama.cpp
+  ## answers the whole request with HTTP 500 otherwise); "{}" for arguments that are not JSON at all (the tool's
+  ## result says so)
+  if args.strip.len == 0: return "{}"
+  try: $parseJson(args)
+  except CatchableError: "{}"
+
 proc openaiBody(): JsonNode =
   ## the request for a chat-completions endpoint: the system prompt (as a developer message for reasoning models, or in
   ## the first user message when the endpoint takes no system role), the conversation with its pictures, tool calls and
@@ -123,8 +132,7 @@ proc openaiBody(): JsonNode =
       if m.calls.len > 0:
         let tc = newJArray()
         for c in m.calls:
-          tc.add %*{"id": c.id, "type": "function", "function": {"name": c.name,
-                    "arguments": (if c.args.len > 0: c.args else: "{}")}}
+          tc.add %*{"id": c.id, "type": "function", "function": {"name": c.name, "arguments": aiArgsSent(c.args)}}
         o["tool_calls"] = tc
         if m.text.len == 0: o["content"] = newJNull()
       msgs.add o
@@ -154,8 +162,7 @@ proc responsesBody(): JsonNode =
     of 1:
       if m.text.len > 0: items.add %*{"role": "assistant", "content": m.text}
       for c in m.calls:
-        items.add %*{"type": "function_call", "call_id": c.id, "name": c.name,
-                     "arguments": (if c.args.len > 0: c.args else: "{}")}
+        items.add %*{"type": "function_call", "call_id": c.id, "name": c.name, "arguments": aiArgsSent(c.args)}
     of 2:
       for c in m.calls: items.add %*{"type": "function_call_output", "call_id": c.id, "output": aiSentResult(mi, c, lastUser)}
     else: discard
@@ -332,7 +339,7 @@ proc aiRequest() =
   try:
     writeFile(hf, hdr)
     setFilePermissions(hf, {fpUserRead, fpUserWrite})
-    writeFile(bf, $body)
+    writeFile(bf, utf8Repaired($body))    # (a byte that is not UTF-8 from a file or a command: the request refused)
     setFilePermissions(bf, {fpUserRead, fpUserWrite})
   except CatchableError as e:
     aiFail("Cannot write request: " & e.msg)

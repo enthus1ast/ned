@@ -196,7 +196,7 @@ proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.cl
   try:
     writeFile(hf, hdr)
     setFilePermissions(hf, {fpUserRead, fpUserWrite})
-    writeFile(bf, $body)
+    writeFile(bf, utf8Repaired($body))    # (UTF-8 only: strict servers refuse the request over one bad byte)
     setFilePermissions(bf, {fpUserRead, fpUserWrite})
   except CatchableError: return nil
   let url = if anth: base & "/v1/messages" elif resp: base & "/responses" else: base & "/chat/completions"

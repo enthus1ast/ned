@@ -74,7 +74,7 @@ proc gitText(args: string): string =
   if root.len == 0: return ""
   let (ok, o, _) = runFilter("git --no-pager " & args, "", root, 8000)
   if not ok: return ""
-  if o.len > 60_000: o[0 ..< 60_000] & "\n… (diff truncated)" else: o
+  if o.len > 60_000: o[0 ..< utf8Cut(o, 60_000)] & "\n… (diff truncated)" else: o
 
 proc problemsText(): string =
   ## the errors and warnings of the language server and the last build, one to a line as path:line:col: error or
@@ -174,6 +174,6 @@ proc projectInstructions(): string =
     if fileExists(p):
       try:
         var t = readFile(p)
-        if t.len > 12_000: t = t[0 ..< 12_000] & "\n…"
+        if t.len > 12_000: t = t[0 ..< utf8Cut(t, 12_000)] & "\n…"
         result.add "\n\n<project-instructions file=\"" & f & "\">\n" & t.strip & "\n</project-instructions>"
       except CatchableError: discard

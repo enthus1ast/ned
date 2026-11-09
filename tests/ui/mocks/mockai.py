@@ -117,11 +117,17 @@ class H(BaseHTTPRequestHandler):
         if m == 'gpt-6-verify' and b.get('stream'):
             return err(self, 400, 'Your organization must be verified to stream this model. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization. If you just verified, it can take up to 15 minutes for access to propagate.', 'stream', 'unsupported_value')
         msgs = b.get('messages', [])
+        # (earlier tool calls' arguments read strictly, as llama.cpp reads them: a literal tab in a string is refused)
+        for x in msgs:
+            for tc in x.get('tool_calls') or []:
+                try: json.loads((tc.get('function') or {}).get('arguments') or '{}')
+                except ValueError: return err(self, 500, 'parse error: a tool call\'s arguments are not JSON')
         user = last_user_text(msgs)
         want_tool = 'list the files' in user and 'tools' in b and not has_tool_result(msgs)
         want_edit = 'doc comment to shout' in user and 'tools' in b and not has_tool_result(msgs)
         want_cube = 'add a cube proc' in user and 'tools' in b
         want_gen = 'run the generator' in user and 'tools' in b and not has_tool_result(msgs)
+        want_search = 'search the project for ZQX' in user and 'tools' in b and not has_tool_result(msgs)
         want_plan = ('PLANTASK' in user or 'twice2 and thrice2' in user or 'of the plan now' in user) and 'tools' in b
         mcp_name = None
         if 'use the echo tool' in user and not has_tool_result(msgs):
@@ -221,6 +227,12 @@ class H(BaseHTTPRequestHandler):
         self.sse_start()
         if mcp_name:
             self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': 'call_m1', 'type': 'function', 'function': {'name': mcp_name, 'arguments': mcp_args}}]}}]})
+            self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})
+            self.ev('[DONE]'); return
+        if want_search:
+            # (its result: lines of files in other encodings, or cut — sent back as UTF-8, or json.loads refuses them;
+            # its arguments with a literal tab in a string, as local models write them — sent back strict JSON)
+            self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': 'call_s1', 'type': 'function', 'function': {'name': 'search', 'arguments': '{"query": "ZQX", "note": "a\tb"}'}}]}}]})
             self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})
             self.ev('[DONE]'); return
         if want_gen:

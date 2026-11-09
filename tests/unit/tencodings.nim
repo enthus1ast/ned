@@ -20,6 +20,21 @@ suite "encodings (6.19)":
     check not validUtf8("\xF5\x80\x80\x80")
     check validUtf8("")
 
+  test "made UTF-8 for a strict server (6.42.1): every bad sequence one \uFFFD, good text as it is":
+    check utf8Repaired("caf\xC3\xA9 \xE2\x82\xAC") == "caf\xC3\xA9 \xE2\x82\xAC"      # (valid: the same)
+    check utf8Repaired("caf\xE9 latin") == "caf\xEF\xBF\xBD latin"                    # (a Latin-1 byte)
+    check utf8Repaired("a\xE2\x82") == "a\xEF\xBF\xBD"                               # (a character cut at the end)
+    check utf8Repaired("\xE2\x82x") == "\xEF\xBF\xBDx"                               # (… and cut before an ASCII one)
+    check utf8Repaired("\xC0\xAF\xED\xA0\x80") == "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD"   # (C0, AF: two; a surrogate: one)
+    check utf8Repaired("\x80\xBF") == "\xEF\xBF\xBD\xEF\xBF\xBD"                     # (lone continuation bytes)
+    check validUtf8(utf8Repaired("\xF0\x9F\x8E\x89\xF0\x9F\xFF\xC3"))
+
+  test "cut between characters (6.42.1)":
+    let s = "ab\xC3\xA9\xE2\x82\xACz"
+    check utf8Cut(s, 3) == 2 and utf8Cut(s, 4) == 4 and utf8Cut(s, 5) == 4 and utf8Cut(s, 6) == 4
+    check utf8Cut(s, 7) == 7 and utf8Cut(s, 99) == s.len and utf8Cut(s, -1) == 0
+    check validUtf8(s[0 ..< utf8Cut(s, 5)])
+
   test "UTF-16: both byte orders, a character outside the BMP, the BOM back on saving":
     let (ok, t) = decode("\xFF\xFEh\x00\xE9\x00<\xD8\x89\xDF", EncUtf16Le)
     check ok and t == "h\xC3\xA9\xF0\x9F\x8E\x89"

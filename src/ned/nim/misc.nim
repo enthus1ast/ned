@@ -9,7 +9,7 @@ proc cmdShareToPlayground() =
   let (a, e) = b.primary.range
   let code = if a != e: b.getText(a, e) else: b.lines.join("\n")
   let tmp = privDir() / "ned_share.json"
-  try: writeFile(tmp, $(%*{"code": code, "compilationTarget": "c"}))
+  try: writeFile(tmp, utf8Repaired($(%*{"code": code, "compilationTarget": "c"})))   # (JSON a strict server takes)
   except IOError, OSError: return
   info("Uploading to the Nim Playground…")
   discard startJob(jkTool, "curl -sS --max-time 30 -X POST -H 'Content-Type: application/json' --data-binary @" &
