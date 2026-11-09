@@ -294,7 +294,16 @@ proc initSettingDefs() =
        "Red ones are counted in the status bar")
   defS("TODO comments", "todo.withName", %false, "TODO: insert a tag comment adds your git user name: TODO(name): …")
   # ── Vim ──
-  defS("Vim", "vim.escapeSequence", %"", "Two keys typed quickly in insert mode that act as Esc, e.g. \"jk\"")
+  defS("Vim", "vim.escapeSequence", %"", "Two keys typed quickly in insert mode that act as Esc, e.g. \"jk\" or " &
+       "\"jj\" — in vim and in Helix key bindings")
+  defS("Vim", "vim.keys", newJObject(), "Your own keys in vim's normal mode → a command of the palette, or a : line " &
+       "to run, e.g. {\"<leader>n\": \"Next tab\", \"gT\": \"Previous tab\", \"<leader>w\": \":w\"}. " &
+       "<leader> is the space bar; a count before them runs it that many times")
+  defS("Vim", "vim.visualKeys", newJObject(), "Your own keys in vim's visual modes → a command of the palette, or a : " &
+       "line, e.g. {\"<leader>s\": \"Sort lines\"}")
+  # ── Helix ──
+  defS("Helix", "helix.keys", newJObject(), "Your own keys in Helix's normal and select modes → a command of the " &
+       "palette, or a : line, e.g. {\"<space>n\": \"Next tab\", \"<space>x\": \"Close tab\", \"<space>w\": \":w\"}")
   defS("Vim", "vim.useSystemClipboard", %true, "y/d/p use the system clipboard")
   defS("Vim", "vim.relativeNumbers", %false, "Relative line numbers while vim mode is on")
   # ── Files ──
@@ -913,7 +922,7 @@ proc validSetting(d: SetDef, v: JsonNode): bool =
   of skEnum: v.kind == JString and v.getStr in d.opts
   of skJson: v.kind == d.def.kind or (d.def.kind == JArray and v.kind == JArray)
 
-const SettingSections = ["editor", "ui", "nim", "ai", "terminal", "files", "git", "search", "vim", "zen", "todo"]
+const SettingSections = ["editor", "ui", "nim", "ai", "terminal", "files", "git", "search", "vim", "helix", "zen", "todo"]
 
 proc unknownSettingNote(k: string): string =
   ## a key ned does not know: "did you mean …" for a near miss (wrong case, a typo, the wrong section),
@@ -1291,6 +1300,10 @@ proc applySettings() =
       if body.len > 0: cfgUserSnippets.add (lang, key, (if desc.len > 0: desc else: "your snippet"), body)
   cfgKeys.clear()
   for k, v in sval("keys"): cfgKeys[k.toLowerAscii.replace(" ", "")] = v.getStr
+  cfgVimKeys.setLen(0)
+  for (s, mode) in [("vim.keys", "n"), ("vim.visualKeys", "v"), ("helix.keys", "h")]:
+    for k, v in sval(s):
+      if k.len > 0 and v.kind == JString and v.getStr.len > 0: cfgVimKeys.add (mode, k, v.getStr)
 
 # the folder's own settings file, .ned/settings.json in the project folder
 proc projectSettingsFile(): string = rootDir / ".ned" / "settings.json"
@@ -1429,7 +1442,7 @@ func riskyProjectKey(k: string): bool =
   ## settings that start programs or send code somewhere: a cloned repository must not set them
   ## until you trust the folder
   k in ["lsp", "lsp.alsoRun", "formatters", "run", "run.configs", "terminal.shell", "nim.nimsuggestPath", "nim.ide",
-        "nim.toolchain", "nim.ciNedRepository", "keys", "commands",
+        "nim.toolchain", "nim.ciNedRepository", "keys", "commands", "vim.keys", "vim.visualKeys", "helix.keys",
         "languages", "debug.adapters", "repl.commands", "sync.repository", "editor.spellDictionary", "editor.keymap",
         "plugins.bundled"] or
     k.startsWith("ai.")

@@ -1,5 +1,5 @@
 """which-key: after keys that wait for more (vim's g z d …, a plugin's <leader>, emacs's C-x, helix's space), the box
-of what each next key does — ned's own keys and the plugins' mappings (with what they say they do)."""
+of what each next key does — ned's own keys, the plugins' mappings (with what they say they do) and your own."""
 import os, shutil, tempfile
 from tplugins import check
 
@@ -85,6 +85,14 @@ def run(factory, tag):
         sp = ask(h, cb, "<space>", "helix")
         check(tag + "helix space: f open a file, / search the project, ? the command palette",
               sp.get("f") == "open a file" and sp.get("/") == "search the project" and sp.get("?"), sp)
+        h.your_keys = [{"mode": "helix", "keys": "<space>n", "desc": "Next tab", "lang": "", "plugin": ""},
+                       {"mode": "n", "keys": "<leader>x", "desc": "Close tab", "lang": "", "plugin": ""}]
+        sp = ask(h, cb, "<space>", "helix")
+        check(tag + "helix space: your own keys too (helix.keys: <space>n Next tab), and Helix's", sp.get("n") ==
+              "Next tab" and sp.get("f") == "open a file", sp)
+        ld = ask(h, cb, "<leader>", "n")
+        check(tag + "<leader>: your own vim keys too (vim.keys: <leader>x Close tab)", ld.get("x") == "Close tab", ld)
+        h.your_keys = []
         gone = ask(h, cb, "g", "n", still=False)
         check(tag + "the keys went on before it looked: no box", h.hints is None and not gone, h.hints)
         none = ask(h, cb, "Q", "n")

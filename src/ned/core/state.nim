@@ -237,6 +237,7 @@ var
   cfgAiNimContext = true
   cfgAiSystem = ""
   cfgKeys = initTable[string, string]()
+  cfgVimKeys: seq[(string, string, string)]   # your own vim and Helix keys: mode (n v h), keys as written, command
   savedLayout: JsonNode
   savedSessions: JsonNode
   aiPromptHist: seq[string]
@@ -498,6 +499,8 @@ type HxMode = enum hxNormal, hxInsert, hxSelect
 var
   hxMode = hxNormal                  # helix keymap: normal (select, then act) · insert · select (extend)
   hxPending = ""                     # g, space, r, m … waiting for the next key
+  hxUserHeld = ""                    # the first keys of one of your own (helix.keys), held until the rest comes
+  hxReplaying = false                # held keys given back to Helix: not yours after all
   hxCount = ""
   emacsPrefix = ""                   # emacs keymap: C-x or M-g waiting for the next key
   emacsMark = false                  # C-SPC: moving extends the selection

@@ -265,6 +265,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | New file at path… |  |
 | New folder… |  |
 | Next problem | Alt+N / F8 |
+| Next tab | Alt+→ / Ctrl+PgDn |
 | Nim 3: decide from the project (auto) | Nim 3 when the project has nimony.args, nimony.paths or pnak.nif |
 | Nim 3: install or update nimony | clones github.com/nim-lang/nimony into ~/.local/nimony (or updates it) and builds it there |
 | Nim 3: pnak fetch (the project's packages, in deps/) | pnak checks out the packages the .nimble (or pnak.nif) asks for and writes nimony.paths |
@@ -415,6 +416,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Plugins: uninstall / remove one… |  |
 | Plugins: update (git pull) | every plugin from git, not the pinned ones |
 | Previous problem | Alt+P |
+| Previous tab | Alt+← / Ctrl+PgUp |
 | Problems: all of them with their code (multibuffer) |  |
 | Quick fix / code actions… | Alt+Enter · Ctrl+. |
 | Quit | Ctrl+Q |

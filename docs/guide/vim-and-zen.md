@@ -65,7 +65,8 @@ and `f{char}` too.
 | setting | default | |
 |---|---|---|
 | `editor.vimMode` | `false` | vim keys |
-| `vim.escapeSequence` | `""` | two keys typed quickly in insert mode that act as Esc, e.g. `"jk"` |
+| `vim.escapeSequence` | `""` | two keys typed quickly in insert mode that act as Esc, e.g. `"jk"` or `"jj"` (Helix's insert mode too) |
+| `vim.keys` · `vim.visualKeys` | `{}` | your own keys in normal mode · in visual mode ([Your own keys](#your-own-keys)) |
 | `vim.useSystemClipboard` | `true` | `y`, `d` and `p` use the system clipboard |
 | `vim.relativeNumbers` | `false` | relative line numbers while vim mode is on |
 
@@ -81,8 +82,26 @@ shows a prefix you have started (`C-x-`) and when the mark is set.
 
 `"editor.keymap": "helix"` — select first, then act: `h j k l`, `w b e W B E`, `x` selects the line, `%` all, `v`
 extends, `;` collapses, `,` keeps one cursor, `C` adds a cursor below; `d c y p P`, `i a I A o O`, `u U`, `r<c>`,
-`~`, `> <`, `J`; `/ ? n N *`; `g` goes (`g e h l s d r y i n p`), space opens the space menu (`f b s S / k a r c y p
-d ?`), and `:w :q`.
+`~`, `> <`, `J`; `/ ? n N *`; `g` goes (`g e h l s d r y i n p` — `gn` and `gp` are the next and the previous tab),
+space opens the space menu (`f b s S / k a r c y p d ?`), and `:w :q`. `vim.escapeSequence` (`"jj"`) leaves insert
+mode as Esc does, and `helix.keys` adds your own keys ([below](#your-own-keys)).
+
+## Your own keys
+
+Put any command of the palette (its name, as the palette shows it) or a `:` line on keys of your own, in the key
+bindings that have modes:
+
+| setting | in | for example |
+|---|---|---|
+| `vim.keys` | vim's normal mode | `{"<leader>n": "Next tab", "<leader>p": "Previous tab", "<leader>x": "Close tab", "<leader>w": ":w"}` |
+| `vim.visualKeys` | vim's visual modes | `{"<leader>s": "Sort lines"}` |
+| `helix.keys` | Helix's normal and select modes | `{"<space>n": "Next tab", "<space>x": "Close tab", "<space>w": ":w"}` |
+
+Write the keys as vim does: `<leader>` (or `<space>`) is the space bar, and in vim mode `<CR>` is Enter, `<Tab>` Tab
+and `<C-a>` … `<C-z>` Ctrl and a letter. Yours come before ned's own use of the keys and before a plugin's; while
+their first keys are typed, ned waits for the rest (the **which-key** plugin shows what can follow), and a count
+before them runs the command that many times (`3<leader>n`: three tabs on). A key with Ctrl or Alt that should work
+in every mode goes in the `keys` setting instead (`{"alt+w": "Close tab"}`).
 
 ## Zen mode
 

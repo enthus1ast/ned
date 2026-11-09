@@ -155,6 +155,7 @@ class BHost(tplugins.Host):
                 elif k == "command" and r.get("keys"):
                     v.append({"mode": "key", "keys": r["keys"], "desc": r.get("title", ""), "lang": "",
                               "plugin": r.get("plugin", "")})
+            v += getattr(self, "your_keys", [])       # (your own: keys, vim.keys, vim.visualKeys, helix.keys)
         elif fn == "vimMode": v = self.vim_mode
         elif fn == "closeTab":
             bid = a.get("buf", self.cur)
