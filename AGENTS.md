@@ -100,6 +100,7 @@ UI suite on a quiet machine: under load a few timing-sensitive tests can fail, a
   `editors/zed/extension.toml` and `editors/zed/Cargo.toml` (and the file names in the README), a
   *What's new* section at the top of the README (the one before moves to CHANGELOG.md), every test above passing.
   CI only checks that ned builds everywhere and publishes nothing: `ned --update` and `install.sh` build the newest
-  tag with nimble; the Termux package (`tests/build/termux.sh`) is attached to the GitHub release by hand.
+  tag with nimble; the Termux package (`tests/build/termux.sh`) is attached to the GitHub release by hand, with the
+  `SHA256SUMS` the script writes beside it (install.sh and `ned --update` refuse a package the release has no sums for).
   `editors/zed` is also its own repository, [foxoman/nedls-zed](https://github.com/foxoman/nedls-zed): keep the two
   the same.
