@@ -1,7 +1,7 @@
 id = "nedls-language-server"
 name = "nedls"
 description = "Nim: ned's engine as a language server (nedls) — completion, hover, definition, references, rename, formatting, quick fixes and problems as you type, without nimsuggest."
-version = "6.41.1"
+version = "6.42.0"
 schema_version = 1
 authors = ["Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"]
 repository = "https://github.com/foxoman/nedls-zed"
