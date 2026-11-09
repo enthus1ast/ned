@@ -194,6 +194,12 @@ proc total(xs: seq[int]): int =
     if MODE == 'nimsuggest': cfg["nim.ide"] = "nimsuggest"
     if MODE == 'nls': cfg["nim.ide"] = "nimlangserver"
     if MODE in ('helix', 'emacs'): cfg["editor.keymap"] = MODE
+    # (your own keys and the escape sequence: keys held for them, given back when they turn out not to be)
+    if MODE in ('vim', 'helix'):
+        cfg.update({"vim.escapeSequence": "jj", "vim.keys": {"<leader>n": "Next tab", "gx": "Previous tab",
+                                                             "<leader>u": ":noh"},
+                    "vim.visualKeys": {"<leader>s": "Sort lines"},
+                    "helix.keys": {"<space>n": "Next tab", "gx": "Previous tab", "<space>u": ":noh"}})
     if MODE == 'a11y':
         cfg.update({"ui.accessible": True, "editor.largeFileSize": 200000, "editor.longLineLimit": 1000,
                     "editor.spellCheck": "on", "editor.spellDictionary": os.environ.get('NED_TEST_DICT', '/usr/share/hunspell/en_US.dic')})
