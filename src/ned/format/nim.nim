@@ -4109,6 +4109,8 @@ func fPrefixLike*(toks: seq[FTok], k: int): bool =
   ## an operator after an operand, with a space before it and none after: Nim reads it as a prefix
   ## (`echo -1` is echo(-1)) — the formatter must never change that
   if k == 0 or k + 1 >= toks.len: return false
+  # (`=` never is one: `const s ="a"`, `let x =y`, `b =3` are Nim's `=` however they are spaced)
+  if toks[k].text == "=": return false
   # (`proc `$` *(x: T)`: right after a routine's name a `*` is its export mark, however it is spaced)
   if k >= 2 and toks[k].text == "*" and toks[k - 2].kind == fkKw and toks[k - 2].text in FRoutineKw and
      toks[k - 1].kind == fkIdent:
@@ -5055,7 +5057,7 @@ proc fScriptAlign(entries: seq[FOut], res: var seq[string], firstLine: seq[int],
     for n, e in run:
       let line = res[firstLine[e]]
       let name = entries[e].toks[0].text
-      # (`name<pad>= value`: one space after the `=` — with none, Nim would read it as a prefix operator)
+      # (`name<pad>= value`: one space after the `=`, as everywhere else)
       var vs = cols[n] + 1
       while vs < line.len and line[vs] == ' ': inc vs
       let fresh = name & spaces(target - name.len) & "= " & line[vs .. ^1]

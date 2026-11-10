@@ -52,6 +52,11 @@ answer, each tool call with its arguments — go into a log only you can read; *
 see what a local model was given, or to attach to a bug report. Secrets are hidden in it as they are in the request,
 and the API key is never written.
 
+**The formatter refuses less.** The built-in Nim formatter left two kinds of file alone and asked for a report: an
+if-expression with an `(if x:` broken over lines in one branch and a block in a later one, and an `=` with no space
+after it (`const s ="a"`). Both are formatted now; the if-expression is kept as you wrote it, only moved to its
+indentation.
+
 ## Features
 
 **Desktop-style UI in the terminal** — title bar with menus (F10), command palette (Ctrl+E, over 500 commands,

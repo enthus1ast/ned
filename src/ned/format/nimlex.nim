@@ -444,6 +444,25 @@ func fTopColonAt*(toks: openArray[FTok]): int =
     elif d == 0 and t.kind == fkColon: return k
   -1
 
+proc fValueIfOpen(l: FLine): bool =
+  ## is `l` a statement given an if-expression (`let r = if a: …`, `x = when …`, `result.add if …`, `return if …`)
+  ## whose last branch has its body on the lines under it (the line ends with that branch's `:`)?
+  if l.comment or l.toks.len < 4: return false
+  let t0 {.cursor.} = l.toks[0]
+  if t0.kind == fkKw and (t0.text in FBlockKw or t0.text in FRoutineKw or t0.text == "case"): return false
+  var e = l.toks.high
+  while e > 0 and l.toks[e].kind == fkComment: dec e
+  if l.toks[e].kind != fkColon: return false
+  var d = 0
+  for k, t in l.toks:
+    if t.kind in {fkOpen, fkPragOpen}: inc d
+    elif t.kind in {fkClose, fkPragClose}: dec d
+    elif d == 0 and k > 0 and t.kind == fkKw and t.text in ["if", "when"]:
+      let p {.cursor.} = l.toks[k - 1]
+      return (p.kind == fkOp and p.text == "=") or p.kind == fkIdent or
+             (p.kind == fkKw and p.text in ["return", "yield", "discard"])
+  false
+
 proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
   ## tokens → logical lines (a statement continued inside brackets or after an operator is one line)
   var cur: FLine
@@ -633,6 +652,25 @@ proc fGroupLines*(toks: seq[FTok]): seq[FLine] =
       elif t.kind == fkComma and d > 0 and d == stmtAt and stmtIf:
         stmtAt = -1          # (the if-expression ended: it was one argument)
       if t.kind != fkComment: prev = t
+  # an if-expression kept as written whose last branch has its body on the lines under it (`let r = if a: 1` ⏎
+  # `elif b: (if x:` ⏎ `y else: "")` ⏎ `elif c:` ⏎ `z` ⏎ `else: ""`): the rest of it, every line under the statement,
+  # is kept with it — laid out apart, its later branches would go under the wrong line
+  var i = 0
+  while i < result.len:
+    if result[i].verbatim and fValueIfOpen(result[i]):
+      var last = i
+      var j = i + 1
+      while j < result.len and (result[j].comment or result[j].indent > result[i].indent):
+        if not result[j].comment: last = j          # (a comment after it stays a line of its own)
+        inc j
+      if last > i:
+        for k in i + 1 .. last:
+          result[i].toks.add result[k].toks
+          result[i].phys += result[k].phys
+        let n = last - i
+        for k in last + 1 ..< result.len: result[k - n] = move result[k]
+        result.setLen(result.len - n)
+    inc i
 
 proc fOpensBlock*(l: FLine): bool =
   ## does the next deeper line belong to this one as a block?

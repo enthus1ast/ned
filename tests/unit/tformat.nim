@@ -1079,6 +1079,28 @@ suite "Nim: 6.28 — closer to nph":
     check nimFmt("func `$` *(r: Peg): string = discard\nproc `==` *(a, b: int): bool = discard\n") ==
           "func `$`*(r: Peg): string =\n  discard\nproc `==`*(a, b: int): bool =\n  discard\n"
 
+suite "Nim: 6.43":
+  test "an if-expression kept as written keeps its later branches with it (it refused: \"block structure\")":
+    # (`(if x:` ⏎ `y else: "")` keeps the statement as written; a branch after it with its body under it went under
+    # the wrong line when laid out on its own)
+    let src = "proc f() =\n    let r = if a: 1\n            elif b: (if x:\n                       y else: \"\")\n" &
+              "            elif c:\n              # why\n              z\n            else: \"\"\n    echo r\n"
+    let r = nimFmt(src)
+    check r == "proc f() =\n  let r = if a: 1\n          elif b: (if x:\n                     y else: \"\")\n" &
+               "          elif c:\n            # why\n            z\n          else: \"\"\n  echo r\n"
+    check nimFmt(r) == r
+    # given to a command and to return; a long string; the line after it laid out as usual
+    let cmd = "proc g(): string =\n  result.add if a: (if x:\n                      y else: \"\")\n" &
+              "             elif c:\n               z\n             else:\n               \"w\"\n" &
+              "  return if b: \"\"\"one\ntwo\"\"\"\n         elif c:\n           z\n         else: \"\"\n" &
+              "  echo(  1)\n"
+    check nimFmt(cmd) == cmd.replace("echo(  1)", "echo(1)")
+
+  test "`=` with no space after it is still Nim's `=`, never a prefix operator (it refused: \"change the code\")":
+    check nimFmt("const s =\"a\"\nlet x =y\nproc f(a: int, b =3): int = a + b\necho f(1, b =2)\n") ==
+          "const s = \"a\"\nlet x = y\nproc f(a: int, b = 3): int =\n  a + b\n\necho f(1, b = 2)\n"
+    check nimFmt("echo -1\necho x -1\n") == "echo -1\necho x -1\n"     # (a real prefix operator stays one)
+
 suite "C: clang-format's styles in ned's own formatter (6.23)":
   const sample ="int main( void )\n{\n  int x=1; int *p=&x;\n  if(x) return 1;\n  switch(x){case 1: x++; break;}\n" &
                  "  call_something_long(first_argument_value, second_argument_value, third_argument_value);\n" &
