@@ -38,6 +38,8 @@ SIMPLE = [('x', (1, 1)), ('X', (1, 5)), ('xx', (1, 1)), ('dd', (1, 1)), ('2dd', 
           ('dw .', (1, 1)), ('i hello', (1, 1)), ('a hello', (1, 1))]
 
 ESC = '\x1b'          # (every edit ends in normal mode: what is typed leaves insert mode)
+TAB = 4               # (how wide a tab is drawn: ned's default and the oracle's `tabstop`, so a display column is the
+                      # same on both sides — vim's own default of 8 would put a tab line's columns out of step)
 
 
 def vim_keys(keys):
@@ -85,7 +87,7 @@ CASES = _build()
 KNOWN_DIFFERS = {}
 
 
-def ned_to_vim(line, viscol, tab=8):
+def ned_to_vim(line, viscol, tab=TAB):
     """vim's character column for the column ned's status bar shows. ned shows a *display* column (a tab moves the cursor
     to the next tab stop), vim's `col('.')` counts characters — on a line that starts with a tab, ned shows 5 for its
     second character, vim's column 2"""
@@ -96,7 +98,7 @@ def ned_to_vim(line, viscol, tab=8):
     return vimcol
 
 
-def vim_to_ned(line, col, tab=8):
+def vim_to_ned(line, col, tab=TAB):
     """the column ned's status bar shows for vim's character column — the other way round"""
     c = 1
     for ch in line[:col - 1]:
