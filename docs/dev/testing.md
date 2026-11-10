@@ -74,6 +74,27 @@ python3 tests/ui/run.py ./ned t_528_refs t_57_ai        # some
 python3 tests/ui/run.py --list                         # the names
 python3 tests/ui/run.py ./ned --shard 2/4              # every 4th test from the 2nd (CI runs four parts at once)
 NED_UI_FULL=1 python3 tests/ui/run.py ./ned t_vim       # a failure prints the whole screen (not 400 characters)
+
+### Vim mode, against a real vim
+
+`t_65_vim_oracle` checks ned's vim mode against vim itself: the same file, the same place, the same keys — the
+movements by where the cursor and the mode end up, the edits by the text they left. vim runs headless
+(`tests/ui/vimoracle.py`, `nvim -es` with `feedkeys`), so a case answers the same thing every run and 260 cases take
+seconds; its answers are cached for as long as `vim --version` and the cases are the same. The cases are made from lists
+in [`tests/ui/vimcases.py`](../../tests/ui/vimcases.py) (the motions, the counts, the operator × motion grid, the edits),
+and a case ned and vim are known to differ on goes in its `KNOWN_DIFFERS` with the reason. The score — how many cases
+agree — is what the report of [`tests/ui/vimdiff.py`](../../tests/ui/vimdiff.py) says; it only goes down.
+
+```sh
+python3 tests/ui/run.py ./ned t_65_vim_oracle    # ned against vim (the cases are in its scratch folder's log)
+python3 tests/ui/vimoracle.py --json /tmp/vim.json   # what vim alone answers, for every case
+python3 tests/ui/vimdiff.py                      # the report, tests/ui/vimdiff.md
+```
+
+A case starts where its own line and column say: ned is put there with Go to line, and between two cases the file is
+written again and read back (`Reload from disk`) with the cursor at its start. ned's `Col` in the status bar is a
+*display* column (a tab is as wide as the screen draws it) and vim's `col('.')` counts characters, so the comparison
+turns one into the other (`vimcases.ned_to_vim`) before they are compared.
 ```
 
 It needs tmux, git, python3 and nim on `PATH`. Language servers, clangd, gdb, lldb, debugpy, zsh, fish, a hunspell

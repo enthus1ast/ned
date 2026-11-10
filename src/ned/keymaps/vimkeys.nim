@@ -204,7 +204,7 @@ proc vimKey(k: Key): bool =
         b.beginEdit()
         discard b.replaceText(p, Pos(line: p.line, col: e), repeat(ch, n))
         b.endEdit()
-        b.setSingle(Pos(line: p.line, col: p.col + n - 1))
+        b.setSingle(Pos(line: p.line, col: p.col))     # (vim's r leaves the cursor where it was)
         vimIsChange = true
         if not vimReplaying: vimLastChange = vimRec
       return true
@@ -249,9 +249,13 @@ proc vimKey(k: Key): bool =
       vimPending = ""
       case ch
       of 'g':
-        let m = b.vimMotion("gg", max(1, (if vimCount.len > 0: parseInt(vimCount) else: 1)), p)
+        # (gg is a motion like the others: it keeps its column without a count, and goes to that line's column 1 with one)
+        let hadC = vimCount.len > 0
+        let m = b.vimMotion("gg", max(1, (if hadC: parseInt(vimCount) else: 1)), p)
         vimCount = ""
-        if visual: b.cursors[b.prim].head = m.p else: b.setSingle(m.p)
+        var np = m.p
+        if hadC: vimDesiredCol = -1
+        if visual: b.cursors[b.prim].head = np else: b.setSingle(b.clampNormal(np))
         return true
       of 'd':
         cmdDefinition()
@@ -459,8 +463,13 @@ proc vimKey(k: Key): bool =
         discard anc
     else:
       var np = m.p
-      if m.linewise and ch in {'j', 'k'}:
-        np.col = clamp(p.col, 0, max(0, b.lines[np.line].len - 1))
+      if m.keepCol:
+        # (vim's remembered column: j and k come back to it over a short line and past a tab — it is the display column
+        # the cursor is drawn at, and where it stands is what the next one remembers)
+        if vimDesiredCol < 0: vimDesiredCol = b.visColOfPos(p)
+        np.col = b.colAtVis(np.line, vimDesiredCol)
+      else:
+        vimDesiredCol = -1              # (any other motion: the remembered column is where it left the cursor)
       b.setSingle(b.clampNormal(np))
     return true
   # commands
@@ -599,7 +608,11 @@ proc vimKey(k: Key): bool =
       b.vimApply("gU", a, Pos(line: e.line, col: e.col + 1), false)
   of 'J':
     vimIsChange = true
+    # (vim leaves the cursor where the join met: just after the text of the first line)
+    let at = Pos(line: p.line, col: b.lines[p.line].len)
     b.joinLines()
+    for _ in 1 ..< max(1, count): b.joinLines()
+    b.setSingle(b.clampNormal(at))
     if not vimReplaying: vimLastChange = vimRec
   of 'r':
     vimPending = "r"

@@ -17,6 +17,8 @@ var
   vimEscChar = '\0'
   vimCursorShape = ""
   vimSurRange: (Pos, Pos)          # (vim-surround: what ys{motion} goes around, until its character)
+  vimDesiredCol = -1               # (vim's remembered *display* column, counted from 1 as virtcol is: j and k go back
+                                   # to it over short lines and past a tab; -1: none)
 
 proc vimModeName(): string =
   ## the mode shown in the status bar for the keymap in use: NORMAL / INSERT / VISUAL / V-LINE / REPLACE for vim (with
@@ -151,6 +153,39 @@ proc wordEnd(b: Buffer, p: Pos, big: bool): Pos =
 # the position of the first character of the line that is not a space or tab (the line's end for a blank line)
 func firstNonBlank(b: Buffer, l: int): Pos = Pos(line: l, col: leadingWs(b.lines[l]).len)
 
+const vimBlank = {' ', '\t', '\0', '\x0b', '\x0c', '\r', '\n'}   # (vim's iswhite(): what ^ and gg/G skip)
+
+proc firstNonBlankVim(b: Buffer, l: int): Pos =
+  ## vim's first non-blank: a space, a tab, a form feed, a vertical tab and a carriage return are blanks there (ned's
+  ## own firstNonBlank, for the editor, skips only spaces and tabs)
+  var c = 0
+  while c < b.lines[l].len and b.lines[l][c] in vimBlank: inc c
+  Pos(line: l, col: c)
+
+proc colAtVis(b: Buffer, l: int, vcol: int): int =
+  ## the character column of a line that sits at display column `vcol` (from 1, as vim's virtcol), as vim's j and k put
+  ## the cursor: the
+  ## first character whose display position is at or after it — a tab covers the columns up to its stop, so a column
+  ## inside one is the tab itself (vim's j from a column of 8 lands on a tab at the start of the next line). `visColAt`
+  ## is the editor's own, so the same tab stops are used as the screen's cursor.
+  let s = b.lines[l]
+  for c in 0 ..< s.len:
+    # (the character whose span covers that column: it starts at or before it and does not end before it)
+    let start = b.visColAt(l, c) + 1
+    if start >= vcol: return c
+    if s[c] == '\t' and start + b.tabOf - (start - 1) mod b.tabOf > vcol: return c
+  max(0, s.len - 1)
+
+proc visColOfPos(b: Buffer, p: Pos): int =
+  ## the display column the cursor is drawn at, as the editor draws it; a tab counts as the column it ends at (vim's
+  ## virtcol), everything else as the column it starts at
+  # (a display column counted from 1, as vim's virtcol: the cursor on a tab is at the last column the tab covers)
+  let c = min(p.col, b.lines[p.line].len)
+  if c < b.lines[p.line].len and b.lines[p.line][c] == '\t':
+    let v = b.visColAt(p.line, c) + 1
+    return v + b.tabOf - 1 - (v - 1) mod b.tabOf
+  b.visColAt(p.line, c) + 1
+
 proc paragraphMove(b: Buffer, p: Pos, d: int): Pos =
   ## vim's } and { (d is 1 or -1): over the blank lines and then the text lines in that direction to the start of the
   ## next blank run, or to the buffer's first or last line
@@ -180,6 +215,7 @@ type MotionRes = object
   ok: bool
   p: Pos
   linewise, inclusive: bool
+  keepCol: bool          # (j and k: the column the cursor came from is the one kept, see vimDesiredCol)
 
 proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
   ## position after a motion; `key` is one or two characters
@@ -195,11 +231,15 @@ proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
   of "j", "+":
     q.line = min(b.lines.high, p.line + count)
     result.linewise = true
+    result.keepCol = true
     if key == "+": q = b.firstNonBlank(q.line)
+    elif vimDesiredCol >= 0: q.col = b.colAtVis(q.line, vimDesiredCol)
   of "k", "-":
     q.line = max(0, p.line - count)
     result.linewise = true
+    result.keepCol = true
     if key == "-": q = b.firstNonBlank(q.line)
+    elif vimDesiredCol >= 0: q.col = b.colAtVis(q.line, vimDesiredCol)
   of "w", "W":
     for _ in 0 ..< count: q = b.nextWordStart(q, key == "W")
     if vimPending in ["c"] and q.line > p.line:
@@ -210,16 +250,17 @@ proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
     for _ in 0 ..< count: q = b.wordEnd(q, key == "E")
     result.inclusive = true
   of "0": q.col = 0
-  of "^", "_": q = b.firstNonBlank(p.line)
+  of "^", "_": q = b.firstNonBlankVim(p.line)
   of "$":
     q.line = min(b.lines.high, p.line + count - 1)
     q.col = max(0, b.lines[q.line].len - (if vimPending.len > 0: 0 else: 1))
     if vimPending.len > 0: q.col = b.lines[q.line].len
-  of "gg":
-    q = b.firstNonBlank(if vimCount.len > 0 or vimOpCount.len > 0: clamp(count - 1, 0, b.lines.high) else: 0)
-    result.linewise = true
-  of "G":
-    q = b.firstNonBlank(if vimCount.len > 0 or vimOpCount.len > 0: clamp(count - 1, 0, b.lines.high) else: b.lines.high)
+  of "gg", "G":
+    # (the line: the first or the last, or with a count that line; the column: the display column the cursor was drawn
+    # at, which vim's jumps keep — `2G` from the middle of a line stays in the middle of the line)
+    q = Pos(line: if count > 1: clamp(count - 1, 0, b.lines.high) else: (if key == "gg": 0 else: b.lines.high),
+            col: b.colAtVis(if count > 1: clamp(count - 1, 0, b.lines.high) else: (if key == "gg": 0 else: b.lines.high),
+                            b.visColOfPos(p)))
     result.linewise = true
   of "}":
     for _ in 0 ..< count: q = b.paragraphMove(q, 1)
@@ -381,12 +422,20 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
     else:
       let p = b.replaceText(a, e, "")
       b.endEdit()
-      b.setSingle(if op == "d": b.clampNormal(if linewise: b.firstNonBlank(min(p.line, b.lines.high)) else: p) else: p)
+      # (vim leaves the cursor on the last character of what is left before the deletion — `D` from column 5 on
+      # "abcdef" is column 4 — and where the change was, for a `c`)
+      b.setSingle(if op == "d": b.clampNormal(if linewise: b.firstNonBlank(min(p.line, b.lines.high))
+                                              else: Pos(line: a.line, col: max(0, a.col - 1)))
+                                  else: b.clampNormal(p))
     if op == "c": vimSetMode(vmInsert)
   of ">", "<":
+    # (vim's cursor: `>>` on the first non-blank of the line; `> w`, `> j` and the rest where the motion put it, in the
+    # display column it was drawn at — the shift moves the text, not the cursor)
+    let want = a0.minP(e0)
     b.setSingle(Pos(line: e0.line, col: 0), Pos(line: a0.line, col: 0))
     b.indentLines(if op == ">": 1 else: -1)
-    b.setSingle(b.firstNonBlank(min(a0.line, e0.line)))
+    if linewise: b.setSingle(b.firstNonBlank(min(a0.line, e0.line)))
+    else: b.setSingle(b.clampNormal(Pos(line: want.line, col: b.colAtVis(want.line, b.visColAt(want.line, want.col) + 1))))
   of "~", "gu", "gU":
     if not b.canEdit(): return
     var t = ""
