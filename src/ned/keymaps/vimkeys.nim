@@ -548,7 +548,11 @@ proc vimKey(k: Key): bool =
         b.vimApply("d", p, Pos(line: p.line, col: min(b.lines[p.line].len, p.col + count)), false)
     of 'X':
       vimIsChange = true
-      if p.col > 0: b.vimApply("d", Pos(line: p.line, col: max(0, p.col - count)), p, false)
+      if p.col > 0:
+        # (vim's X leaves the cursor where it was, which is the last character when the line got shorter: column 5 of a
+        # line that lost two characters is its new last one)
+        b.vimApply("d", Pos(line: p.line, col: max(0, p.col - count)), p, false)
+        b.setSingle(b.clampNormal(Pos(line: p.line, col: max(0, p.col - 1))))   # (vim: col 5 of 1,5 -> 4)
     of 's':
       vimIsChange = true
       b.vimApply("c", p, Pos(line: p.line, col: min(b.lines[p.line].len, p.col + count)), false)
@@ -556,6 +560,7 @@ proc vimKey(k: Key): bool =
       vimIsChange = true
       b.vimApply("c", p, Pos(line: min(b.lines.high, p.line + count - 1), col: 0), true)
     of 'C':
+      # (vim leaves the cursor where the change starts: |col 5| of 1,5 -> `Col 4`, as the text is typed there)
       vimIsChange = true
       b.vimApply("c", p, Pos(line: p.line, col: b.lines[p.line].len), false)
     of 'D':

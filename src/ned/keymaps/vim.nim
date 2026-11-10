@@ -423,19 +423,21 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
       let p = b.replaceText(a, e, "")
       b.endEdit()
       # (vim leaves the cursor on the last character of what is left before the deletion — `D` from column 5 on
-      # "abcdef" is column 4 — and where the change was, for a `c`)
+      # "abcdef" is column 4 — and a `c` leaves it where the change starts, for the text about to be typed)
       b.setSingle(if op == "d": b.clampNormal(if linewise: b.firstNonBlank(min(p.line, b.lines.high))
                                               else: Pos(line: a.line, col: max(0, a.col - 1)))
-                                  else: b.clampNormal(p))
+                                  else: p)
     if op == "c": vimSetMode(vmInsert)
   of ">", "<":
-    # (vim's cursor: `>>` on the first non-blank of the line; `> w`, `> j` and the rest where the motion put it, in the
-    # display column it was drawn at — the shift moves the text, not the cursor)
+    # (vim moves the text under the cursor, not the cursor: it stays in the display column it was drawn at — `>>` on the
+    # first non-blank of the line, `> w` and `> j` wherever the motion put it. A cell the shift made empty is the last
+    # character of the line)
     let want = a0.minP(e0)
+    let vcol = b.visColAt(want.line, want.col) + 1
     b.setSingle(Pos(line: e0.line, col: 0), Pos(line: a0.line, col: 0))
     b.indentLines(if op == ">": 1 else: -1)
-    if linewise: b.setSingle(b.firstNonBlank(min(a0.line, e0.line)))
-    else: b.setSingle(b.clampNormal(Pos(line: want.line, col: b.colAtVis(want.line, b.visColAt(want.line, want.col) + 1))))
+    let line = if linewise: min(a0.line, e0.line) else: want.line
+    b.setSingle(b.clampNormal(Pos(line: line, col: b.colAtVis(line, vcol))))
   of "~", "gu", "gU":
     if not b.canEdit(): return
     var t = ""
