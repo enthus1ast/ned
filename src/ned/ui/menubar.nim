@@ -340,7 +340,7 @@ proc menuItems(i: int): seq[MenuItem] =
       mc("AI: review staged changes (findings in Problems)", "Review staged changes"),
       mc("AI: review the assistant's changes…", "Review the assistant's changes…"),
       mc("AI: undo the assistant's changes…", "Undo the assistant's changes…"),
-      mc("AI: MCP servers…", "MCP servers…"),
+      mc("AI: MCP servers…", "MCP servers…"), mc("AI: open the request log", "Request log"),
       mc("AI: fast / smart model", (if aiFastOn: "Use the smart model" else: "Use the fast model")),
       mc("Git: generate commit message with AI", "Write commit message"), msep(),
       mc("AI: toggle inline suggestions", "Inline suggestions (Tab)", chk(cfgGhostOn)),

@@ -671,6 +671,13 @@ proc initSettingDefs() =
        "of secrets (.env, *.pem, id_ed25519, what the project's .gitignore keeps out for secrets) are not sent at all")
   defS("AI", "ai.nimContext", %true, "Nim files: send the definitions of the procs and types your code uses, " &
        "found by the built-in engine, so answers know them")
+  defS("AI", "ai.showThinking", %true, "Show what a thinking model thinks while it thinks (a local model through " &
+       "llama.cpp, Ollama, LM Studio or vLLM; DeepSeek; OpenRouter): its newest lines under ▾ Thinking, folded to " &
+       "▸ Thought once it answers — a tap opens or folds it, and Esc stops a model that went the wrong way. Off: " &
+       "only the folded line")
+  defS("AI", "ai.log", %false, "Write what the assistant sends to the model and what comes back to a log " &
+       "(palette › AI: open the request log): to see what a local model was given, or to attach to a bug report. " &
+       "Secrets are hidden in it as in the request, the API key is never written, and the last 4 MB are kept")
   # ── Languages ──
   defS("Languages", "lsp", newJObject(), "Language servers per language id, e.g. {\"python\": [\"pyright-langserver\", \"--stdio\"]}")
   defS("Languages", "lsp.alsoRun", newJObject(), "More language servers next to the main one — their problems and " &
@@ -1249,6 +1256,8 @@ proc applySettings() =
   cfgAiFastModel = sStr("ai.fastModel")
   cfgAiWarnTokens = sInt("ai.warnTokens")
   cfgAiNimContext = sBool("ai.nimContext")
+  cfgAiLog = sBool("ai.log")
+  cfgAiShowThinking = sBool("ai.showThinking")
   cfgAiSystem = sStr("ai.systemPrompt")
   cfgUserLsp.clear()
   for k, v in sval("lsp"):

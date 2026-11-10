@@ -235,6 +235,8 @@ var
   aiFastOn = false
   cfgAiWarnTokens = 60000
   cfgAiNimContext = true
+  cfgAiLog = false               # ai.log: what the assistant sends and gets back, written to <state>/ai.log
+  cfgAiShowThinking = true       # ai.showThinking: a thinking model's thoughts shown while it thinks
   cfgAiSystem = ""
   cfgKeys = initTable[string, string]()
   cfgVimKeys: seq[(string, string, string)]   # your own vim and Helix keys: mode (n v h), keys as written, command

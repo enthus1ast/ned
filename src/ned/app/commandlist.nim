@@ -802,6 +802,7 @@ proc initCommands() =
   add("AI: choose model…", "", aiChooseModel())
   add("AI: toggle agent mode", "", toggleSetting("ai.agent", "Agent mode"))
   add("AI: settings…", "", openSettingsUi("ai."))
+  add("AI: open the request log", "what was sent to the model and what came back (ai.log)", aiOpenRequestLog())
   add("Tips", "", (block:
     var t = ""
     for x in Tips: t.add "• " & x & "\n"

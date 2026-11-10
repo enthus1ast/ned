@@ -207,13 +207,15 @@ proc jHasErr(j: JsonNode): bool =
   ## an "error" member that is set (the Responses API sends "error": null on success)
   j{"error"} != nil and j["error"].kind notin {JNull}
 
+proc aiContentParts(c: JsonNode, think, text: var string)
+
 proc aiApplyWhole(raw: string): bool =
   ## a non-streamed reply (stream=false): one JSON document in chat-completions or Responses format
   var r: JsonNode
   try: r = parseJson(raw.strip)
   except CatchableError: return false
   if r.kind != JObject or jHasErr(r): return false
-  var text = ""
+  var text, think = ""
   var calls: seq[AiCall]
   if r{"choices"} != nil and r["choices"].kind == JArray and r["choices"].len > 0:
     let ch = r["choices"][0]
@@ -221,6 +223,9 @@ proc aiApplyWhole(raw: string): bool =
     let msg = ch{"message"}
     if msg != nil and msg.kind == JObject:
       text = msg{"content"}.getStr
+      think = msg{"reasoning_content"}.getStr
+      if think.len == 0: think = msg{"reasoning"}.getStr
+      aiContentParts(msg{"content"}, think, text)
       if msg{"tool_calls"} != nil and msg["tool_calls"].kind == JArray:
         for c in msg["tool_calls"]:
           calls.add AiCall(id: c{"id"}.getStr("call_" & $calls.len), name: c{"function", "name"}.getStr,
@@ -238,6 +243,9 @@ proc aiApplyWhole(raw: string): bool =
         if item{"content"} != nil and item["content"].kind == JArray:
           for c in item["content"]:
             if c{"type"}.getStr == "output_text": text.add c{"text"}.getStr
+      of "reasoning":
+        if item{"summary"} != nil and item["summary"].kind == JArray:
+          for c in item["summary"]: think.add c{"text"}.getStr
       of "function_call":
         calls.add AiCall(id: item{"call_id"}.getStr, name: item{"name"}.getStr, args: item{"arguments"}.getStr)
       else: discard
@@ -250,14 +258,19 @@ proc aiApplyWhole(raw: string): bool =
     aiFinish = r{"stop_reason"}.getStr
     for blk in r["content"]:
       if blk{"type"}.getStr == "text": text.add blk{"text"}.getStr
+      elif blk{"type"}.getStr == "thinking": think.add blk{"thinking"}.getStr
       elif blk{"type"}.getStr == "tool_use":
         calls.add AiCall(id: blk{"id"}.getStr, name: blk{"name"}.getStr,
                          args: (if blk{"input"} != nil: $blk["input"] else: "{}"))
   else: return false
+  let (inText, answer) = splitThink(text)        # (<think> … </think> written into the answer)
+  if inText.len > 0: think.add (if think.len > 0: "\n\n" else: "") & inText
   if aiInlineMode:
-    aiInlineText.add text
+    aiInlineText.add answer
+    aiInlineThink.add think
   elif aiMsgs.len > 0 and aiMsgs[^1].role == 1:
-    aiMsgs[^1].text.add text
+    aiMsgs[^1].text.add answer
+    aiMsgs[^1].think.add think
     aiMsgs[^1].calls.add calls
   true
 
@@ -273,6 +286,41 @@ proc aiCostText(inTok, outTok, cacheTok: int): string =
     if v == nil: 0.0 elif v.kind == JFloat: v.getFloat elif v.kind == JInt: v.getInt.float else: 0.0
   let usd = (inTok.float * rate("input") + outTok.float * rate("output") + cacheTok.float * rate("cacheRead")) / 1e6
   "$" & formatFloat(usd, ffDecimal, (if usd < 0.1: 3 else: 2))
+
+proc aiLogWrite(s: string) =
+  ## adds `s` to the request log (ai.log), a file only you can read in ned's state folder; past 4 MB it becomes ai.log.1
+  ## (the one before goes) and a new one begins
+  if not cfgAiLog: return
+  let p = stateDir() / "ai.log"
+  try:
+    createDir(parentDir(p))
+    if fileExists(p) and getFileSize(p) > 4_000_000: moveFile(p, p & ".1")
+    let fresh = not fileExists(p)
+    var f = open(p, fmAppend)
+    if fresh: setFilePermissions(p, {fpUserRead, fpUserWrite})
+    f.write(s)
+    f.close()
+  except CatchableError: discard
+
+func aiLoggedUrl(u: string): string =
+  ## the address for the log, without a user and password in it or a query (where a key could be)
+  result = u
+  let q = result.find('?')
+  if q >= 0: result.setLen(q)
+  let s = result.find("://")
+  if s >= 0:
+    let at = result.find('@', s + 3)
+    let slash = result.find('/', s + 3)
+    if at >= 0 and (slash < 0 or at < slash): result = result[0 ..< s + 3] & result[at + 1 .. ^1]
+
+func aiSizeText(n: int): string =
+  ## a size in bytes for people: 812 B, 3.2 KB, 1.4 MB
+  if n < 1024: $n & " B"
+  elif n < 1024 * 1024: formatFloat(n / 1024, ffDecimal, 1) & " KB"
+  else: formatFloat(n / (1024 * 1024), ffDecimal, 1) & " MB"
+
+proc aiEndSplit()
+proc aiReplyForLog(): string
 
 proc aiRequest() =
   ## sends the conversation to the model with curl as a streaming job: checks curl, key, model and address first, waits
@@ -339,8 +387,11 @@ proc aiRequest() =
   try:
     writeFile(hf, hdr)
     setFilePermissions(hf, {fpUserRead, fpUserWrite})
-    writeFile(bf, utf8Repaired($body))    # (a byte that is not UTF-8 from a file or a command: the request refused)
+    let sent = utf8Repaired($body)        # (a byte that is not UTF-8 from a file or a command: the request refused)
+    writeFile(bf, sent)
     setFilePermissions(bf, {fpUserRead, fpUserWrite})
+    aiLogWrite("\n━━ " & now().format("yyyy-MM-dd HH:mm:ss") & "  sent to " & aiLoggedUrl(url) & "  (" & aiModel() &
+               ", " & aiSizeText(sent.len) & ")\n" & sent & "\n")
   except CatchableError as e:
     aiFail("Cannot write request: " & e.msg)
     return
@@ -354,6 +405,9 @@ proc aiRequest() =
   aiReqOut = 0
   aiReqCacheRead = 0
   aiReqCacheWrite = 0
+  aiSplit = ThinkSplit()
+  aiInlineThink = ""
+  aiReqStart = getMonoTime()
   aiBusy = true
   aiPhase = "thinking…"
   if not aiInlineMode: aiMsgs.add AiMsg(role: 1)
@@ -367,6 +421,8 @@ proc aiRequest() =
     aiCleanup()
     if j != aiJob: return
     aiJob = nil
+    aiEndSplit()
+    let logged = if cfgAiLog: aiReplyForLog() else: ""   # (before the secrets go back into what it wrote)
     if aiSecretTab.items.len > 0:
       # (a placeholder the model wrote where a secret belongs: the secret goes back into what becomes a file's text
       #  — an inline edit or a one-shot answer, edit_file, write_file — never into a command, an MCP call or the chat)
@@ -390,6 +446,13 @@ proc aiRequest() =
                  else: e{"error", "message"}.getStr
         if em.len > 0: m = em
       except CatchableError: discard
+    if cfgAiLog:
+      let secs = (getMonoTime() - aiReqStart).inMilliseconds.float / 1000
+      aiLogWrite("━━ " & now().format("yyyy-MM-dd HH:mm:ss") & "  came back after " & formatFloat(secs, ffDecimal, 1) &
+                 " s: " & (if code > 0: "HTTP " & $code else: "no answer (curl " & $j.code & ")") &
+                 (if aiFinish.len > 0: ", finish reason " & aiFinish else: "") &
+                 (if aiReqIn + aiReqOut > 0: ", " & $aiReqIn & " tokens in, " & $aiReqOut & " out" else: "") & "\n" &
+                 (if failed: "[error]\n" & m & "\n" else: "") & logged)
     # the endpoint refused a parameter this model does not take: learn it and ask again
     let retry = failed and code in [400, 404, 422] and aiRetries < 3 and aiLearnQuirk(m)
     if retry: inc aiRetries
@@ -471,6 +534,80 @@ proc curAssistant(): int =
   ## the index of the assistant message being written (the last one), -1 when the last message is not one
   if aiMsgs.len > 0 and aiMsgs[^1].role == 1: aiMsgs.high else: -1
 
+proc aiEndSplit() =
+  ## the reply is complete: what the <think> splitter held back goes to the thinking or the answer. A chat keeps the last
+  ## 64 KB of each thinking (its conclusion), so that a long chat with a thinking model does not grow without end
+  if aiInlineMode: aiSplit.finish(aiInlineThink, aiInlineText)
+  else:
+    let mi = curAssistant()
+    if mi >= 0:
+      aiSplit.finish(aiMsgs[mi].think, aiMsgs[mi].text)
+      if aiMsgs[mi].think.len > 65536:
+        let t = aiMsgs[mi].think
+        aiMsgs[mi].think = "… " & t[utf8Cut(t, t.len - 65536) .. ^1]
+
+proc aiReplyForLog(): string =
+  ## what came back, for the request log: the thinking, the answer and each tool call with its arguments
+  if aiInlineMode:
+    if aiInlineThink.len > 0: result.add "[thinking]\n" & aiInlineThink & "\n"
+    result.add "[answer]\n" & aiInlineText & "\n"
+    return
+  let mi = curAssistant()
+  if mi < 0: return
+  if aiMsgs[mi].think.len > 0: result.add "[thinking]\n" & aiMsgs[mi].think & "\n"
+  if aiMsgs[mi].text.len > 0: result.add "[answer]\n" & aiMsgs[mi].text & "\n"
+  for c in aiMsgs[mi].calls: result.add "[tool call] " & c.name & " " & c.args & "\n"
+
+proc aiCallTarget(c: AiCall): string =
+  ## what a tool call is about in a few words, read from its arguments even while they are still being written:
+  ## "edit src/a.nim", "$ nimble test", or its name
+  case c.name
+  of "edit_file": "edit " & partialJsonString(c.args, "path")
+  of "write_file": "write " & partialJsonString(c.args, "path")
+  of "read_file": "read " & partialJsonString(c.args, "path")
+  of "run_command":
+    let cmd = partialJsonString(c.args, "command")
+    let nl = cmd.find('\n')
+    "$ " & (if nl < 0: cmd else: cmd[0 ..< nl] & " …")
+  of "search": "search \"" & partialJsonString(c.args, "query") & "\""
+  else: c.name
+
+proc aiDeltaThought(d: JsonNode): string =
+  ## a chat-completions delta's thinking: reasoning_content (llama.cpp, LM Studio, DeepSeek) or reasoning (Ollama,
+  ## OpenRouter, vLLM, Groq) — only one of them when a server sends both
+  if d == nil or d.kind != JObject: return ""
+  result = d{"reasoning_content"}.getStr
+  if result.len == 0: result = d{"reasoning"}.getStr
+
+proc aiWaitedText(): string =
+  ## how long the request has run, for the chat while the model works: " · 14 s" (nothing in its first 3 seconds) — a
+  ## local model can take minutes to read a long request before anything comes
+  if not aiBusy or aiJob == nil: return ""
+  let secs = (getMonoTime() - aiReqStart).inSeconds
+  if secs < 3: "" else: " · " & $secs & " s"
+
+proc aiContentParts(c: JsonNode, think, text: var string) =
+  ## a content given as a list of parts (Mistral's thinking models): its text parts to `text`, its thinking parts to
+  ## `think`
+  if c == nil or c.kind != JArray: return
+  for part in c:
+    case part{"type"}.getStr
+    of "text": text.add part{"text"}.getStr
+    of "thinking":
+      let t = part{"thinking"}
+      if t != nil and t.kind == JArray:
+        for x in t: think.add x{"text"}.getStr
+      else: think.add t.getStr
+    else: discard
+
+proc aiThinkPhase(think: string): string =
+  ## the phase while a model thinks: "thinking · 312 words"
+  "thinking · " & $wordCount(think) & " words"
+
+proc aiCallPhase(c: AiCall): string =
+  ## the phase while a tool call is being written: "calling edit src/a.nim · 3.2 KB"
+  "calling " & aiCallTarget(c) & (if c.args.len >= 1024: " · " & aiSizeText(c.args.len) else: "")
+
 proc aiLine(line: string) =
   ## one line of curl's output: the HTTP status marker is kept; a reply that is not streamed is collected whole; a line
   ## of the stream is read for its text, tool calls, token counts, finish reason and errors, in the form of the
@@ -494,6 +631,13 @@ proc aiLine(line: string) =
   try: j = parseJson(data)
   except CatchableError: return
   if aiInlineMode:
+    let r = if cfgAiProvider == "anthropic": j{"delta", "thinking"}.getStr
+            elif aiRespApi: (if j{"type"}.getStr in ["response.reasoning_summary_text.delta", "response.reasoning_text.delta"]:
+                               j{"delta"}.getStr else: "")
+            elif j{"choices"} != nil and j["choices"].kind == JArray and j["choices"].len > 0:
+              aiDeltaThought(j["choices"][0]{"delta"})
+            else: ""
+    aiInlineThink.add r
     let t = if cfgAiProvider == "anthropic": j{"delta", "text"}.getStr
             elif aiRespApi: (if j{"type"}.getStr == "response.output_text.delta": j{"delta"}.getStr else: "")
             else: (if j{"choices"} != nil and j["choices"].kind == JArray and j["choices"].len > 0:
@@ -508,9 +652,10 @@ proc aiLine(line: string) =
     if j{"choices"} != nil and j["choices"].kind == JArray and j["choices"].len > 0 and
        j["choices"][0]{"finish_reason"} != nil and j["choices"][0]["finish_reason"].kind == JString:
       aiFinish = j["choices"][0]["finish_reason"].getStr
-    aiInlineText.add t
-    aiTokensOut += t.len div 4
-    aiPhase = "editing… " & $aiTokensOut & " tokens"
+    aiSplit.feed(t, aiInlineThink, aiInlineText)
+    aiTokensOut += (t.len + r.len) div 4
+    aiPhase = if aiInlineText.len == 0 and aiInlineThink.len > 0: aiThinkPhase(aiInlineThink)
+              else: "editing… " & $aiTokensOut & " tokens"
     needRender = true
     return
   let mi = curAssistant()
@@ -518,8 +663,11 @@ proc aiLine(line: string) =
   if aiRespApi:
     case j{"type"}.getStr
     of "response.output_text.delta":
-      aiMsgs[mi].text.add j{"delta"}.getStr
+      aiSplit.feed(j{"delta"}.getStr, aiMsgs[mi].think, aiMsgs[mi].text)
       aiPhase = "writing…"
+    of "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+      aiMsgs[mi].think.add j{"delta"}.getStr
+      aiPhase = aiThinkPhase(aiMsgs[mi].think)
     of "response.output_item.added":
       let it = j{"item"}
       if it != nil and it{"type"}.getStr == "function_call":
@@ -528,7 +676,9 @@ proc aiLine(line: string) =
         aiPhase = "calling " & it{"name"}.getStr
     of "response.function_call_arguments.delta":
       let ci = aiBlocks.getOrDefault(j{"output_index"}.getInt, -1)
-      if ci >= 0 and ci < aiMsgs[mi].calls.len: aiMsgs[mi].calls[ci].args.add j{"delta"}.getStr
+      if ci >= 0 and ci < aiMsgs[mi].calls.len:
+        aiMsgs[mi].calls[ci].args.add j{"delta"}.getStr
+        aiPhase = aiCallPhase(aiMsgs[mi].calls[ci])
     of "response.function_call_arguments.done":
       let ci = aiBlocks.getOrDefault(j{"output_index"}.getInt, -1)
       if ci >= 0 and ci < aiMsgs[mi].calls.len and j{"arguments"}.getStr.len > 0:
@@ -575,11 +725,16 @@ proc aiLine(line: string) =
       let idx = j{"index"}.getInt
       case d{"type"}.getStr
       of "text_delta":
-        aiMsgs[mi].text.add d{"text"}.getStr
+        aiSplit.feed(d{"text"}.getStr, aiMsgs[mi].think, aiMsgs[mi].text)
         aiPhase = "writing…"
+      of "thinking_delta":
+        aiMsgs[mi].think.add d{"thinking"}.getStr
+        aiPhase = aiThinkPhase(aiMsgs[mi].think)
       of "input_json_delta":
         let ci = aiBlocks.getOrDefault(idx, -1)
-        if ci >= 0: aiMsgs[mi].calls[ci].args.add d{"partial_json"}.getStr
+        if ci >= 0:
+          aiMsgs[mi].calls[ci].args.add d{"partial_json"}.getStr
+          aiPhase = aiCallPhase(aiMsgs[mi].calls[ci])
       else: discard
     of "error":
       aiRaw.add j{"error", "message"}.getStr & "\n"
@@ -601,10 +756,19 @@ proc aiLine(line: string) =
       aiFinish = ch[0]["finish_reason"].getStr
     let d = ch[0]{"delta"}
     if d == nil: return
-    let t = d{"content"}.getStr
+    # a thinking model's thoughts: llama.cpp, LM Studio, DeepSeek send reasoning_content; Ollama, OpenRouter, vLLM,
+    # Groq reasoning (some send both, the same text: one is taken)
+    let r = aiDeltaThought(d)
+    if r.len > 0:
+      aiMsgs[mi].think.add r
+      aiPhase = aiThinkPhase(aiMsgs[mi].think)
+    var t = d{"content"}.getStr
+    if d{"content"} != nil and d["content"].kind == JArray:
+      aiContentParts(d["content"], aiMsgs[mi].think, t)
+      if t.len == 0: aiPhase = aiThinkPhase(aiMsgs[mi].think)
     if t.len > 0:
-      aiMsgs[mi].text.add t
-      aiPhase = "writing…"
+      aiSplit.feed(t, aiMsgs[mi].think, aiMsgs[mi].text)
+      aiPhase = if aiMsgs[mi].text.len > 0: "writing…" else: aiThinkPhase(aiMsgs[mi].think)
     let tc = d{"tool_calls"}
     if tc != nil and tc.kind == JArray:
       for c in tc:
@@ -614,10 +778,9 @@ proc aiLine(line: string) =
         if c{"id"}.getStr.len > 0: aiMsgs[mi].calls[idx].id = c{"id"}.getStr
         let f = c{"function"}
         if f != nil:
-          if f{"name"}.getStr.len > 0:
-            aiMsgs[mi].calls[idx].name = f{"name"}.getStr
-            aiPhase = "calling " & f{"name"}.getStr
+          if f{"name"}.getStr.len > 0: aiMsgs[mi].calls[idx].name = f{"name"}.getStr
           aiMsgs[mi].calls[idx].args.add f{"arguments"}.getStr
+          aiPhase = aiCallPhase(aiMsgs[mi].calls[idx])
   inc aiVersion
   needRender = true
 

@@ -75,6 +75,16 @@ know your code and not only its name.
   and in the AI menu. A Nim fix is checked with `nim check` before it is applied.
 - **Chats are kept**: *AI: chat history…* (or the ◷ button) lists them and resumes one (the newest 200);
   *AI: new chat* starts again, *AI: regenerate last reply* asks once more, *AI: stop* stops an answer.
+- **Thinking models**: what a thinking model thinks shows as it comes, under ▾ Thinking, with the seconds the request
+  has taken — llama.cpp, Ollama, LM Studio, vLLM, DeepSeek and OpenRouter send it apart from the answer, and a server
+  that leaves it in the answer between `<think>` and `</think>` has it taken out (of an inline edit and a suggestion
+  too). Once the model answers, it folds to ▸ Thought · 312 words; a tap opens or folds it. Esc stops a model that
+  went the wrong way. With `ai.showThinking` off, only the folded line is shown. The thinking is never sent back.
+- **The request log**: with `ai.log` on, each request the assistant sends, exactly as it went, and what came back —
+  the thinking, the answer, each tool call with its arguments, or the error — go into `ai.log` in ned's state folder
+  (`~/.local/state/ned`), a file only you can read. *AI: open the request log* (also in the AI menu) opens it at its
+  end. It keeps the last 4 MB, and the 4 MB before them in a second file beside it. Secrets are placeholders in it, as in the request,
+  and the API key, which goes in a header, is never written. Inline suggestions are not logged.
 - **Project instructions**: `AGENTS.md`, `CLAUDE.md`, `NED.md`, `.ned/instructions.md` or
   `.github/copilot-instructions.md` in the project are added to what the model is told (`ai.projectInstructions`);
   `ai.systemPrompt` adds your own.
@@ -89,7 +99,8 @@ search the project, edit or write a file, run a command, and read the problems. 
 
 - **Approval.** Edits and commands wait for you (`ai.autoApprove`: none, reads — the default: reading and searching
   go ahead —, edits, all). A file change is shown as a **diff** first, with *Open diff* for the whole change.
-  Anything outside the project folder always asks, and the agent cannot edit outside it.
+  Anything outside the project folder always asks, and the agent cannot edit outside it. A call is shown while the
+  model writes it — what it edits or runs, and its last lines as they come — and waits for you only once it is whole.
 - **It checks its own work.** The files it edits are checked — `nim check` for Nim; `py_compile`, `node --check`,
   `cargo check` … for the others — and what is wrong goes back to it, so it fixes its mistakes before it says it is
   done (`ai.checkEdits`). `ai.maxSteps` (30) limits the tool steps of one request.

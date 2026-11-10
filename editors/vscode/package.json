@@ -2,7 +2,7 @@
   "name": "nedls",
   "displayName": "nedls — ned's Nim engine",
   "description": "Nim (and C, C++, JavaScript, HTML, CSS, SQL, JSON) with ned's own engine: completion, hover, definition, references, rename, call and type hierarchy, formatting, quick fixes and problems as you type — no nimsuggest needed.",
-  "version": "6.42.1",
+  "version": "6.43.0",
   "publisher": "foxoman",
   "author": { "name": "Sultan Al Isaiee (@foxoman)", "email": "sultan@foxoman.net", "url": "https://www.foxoman.net" },
   "license": "GPL-3.0-or-later",

@@ -24,7 +24,7 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## Contents
 
-- [What's new in 6.42.1](#whats-new-in-6421) · [6.42](#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.43](#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -33,39 +33,24 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ---
 
-## What's new in 6.42.1
+## What's new in 6.43
 
-**The assistant with llama.cpp and other strict servers.** A search result cut in the middle of a character, or a
-line of a file in another encoding (Latin-1, Windows-1252), put bytes into the request that are not UTF-8, and
-llama.cpp refused all of it (*HTTP 500 … ill-formed UTF-8 byte*). What ned sends is now always UTF-8: text is cut
-between characters, and a byte of another encoding goes as �. And a tool call a local model wrote with a literal tab
-or newline inside a string, which ned runs as meant, now goes back with the conversation as strict JSON, which
-llama.cpp also refused.
+**Watch a thinking model think.** A local model through llama.cpp, Ollama, LM Studio or vLLM — or DeepSeek, or a
+thinking model on OpenRouter — can think for minutes before it answers. The chat now shows its thinking as it comes,
+under ▾ Thinking, with the seconds it has taken, so you see early when it is on the wrong track and can stop it with
+Esc. Once it answers, the thinking folds to one line, ▸ Thought · 312 words, and a tap opens it again. A server that
+leaves the thinking in the answer between `<think>` and `</think>` (Qwen, QwQ, DeepSeek R1 …) is read the same way:
+the tags and the thinking no longer end up in the answer, an inline edit or a suggestion. `ai.showThinking` turns the
+live view off.
 
-**A quicker start after ned was stopped.** What earlier copies of ned left behind when they were killed (by Android,
-say) is now cleared a little at a time once ned is on the screen, not all at once before it.
+**A tool call as the model writes it.** An edit, a new file or a command the model is still writing shows what it is
+for and its last lines as they come. It asks for your approval only once it is whole: before, *Allow* was there while
+it was half written, and `y` could run half a command.
 
-## What's new in 6.42
-
-**Your own keys in vim and Helix mode.** `vim.keys`, `vim.visualKeys` and `helix.keys` put any command of the
-palette, or a `:` line, on keys of your own, written as vim writes them:
-
-```json
-"vim.keys": {"<leader>n": "Next tab", "<leader>p": "Previous tab", "<leader>x": "Close tab", "<leader>w": ":w"},
-"helix.keys": {"<space>n": "Next tab", "<space>x": "Close tab"}
-```
-
-They come before ned's own use of the keys and before a plugin's, a count before them repeats the command
-(`3<leader>n`), and the which-key plugin lists them. See [Your own keys](docs/guide/vim-and-zen.md#your-own-keys).
-
-**jj as Esc in Helix mode too.** `vim.escapeSequence` (`"jj"`, `"jk"` …) now leaves Helix's insert mode as well. In
-both modes it also works while the completion list is open, which the sequence's first key often opens.
-
-**Next tab and Previous tab** are commands of the palette, so the `keys` setting, your vim and Helix keys and
-plugins can use them (`{"alt+n": "Next tab"}`).
-
-**The one-line installer works on Linux and macOS again.** Outside Termux it stopped at once with `PREFIX:
-parameter not set`.
+**The request log.** With `ai.log` on, what the assistant sends to the model and what comes back — the thinking, the
+answer, each tool call with its arguments — go into a log only you can read; *AI: open the request log* opens it. To
+see what a local model was given, or to attach to a bug report. Secrets are hidden in it as they are in the request,
+and the API key is never written.
 
 ## Features
 
@@ -224,7 +209,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or a ready-made package,
-`pkg install ./ned_6.42.1_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
+`pkg install ./ned_6.43.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
 `nimble termuxdeb` makes it on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.

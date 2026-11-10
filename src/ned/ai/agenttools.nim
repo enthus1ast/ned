@@ -627,6 +627,7 @@ proc approveCall(mi, ci: int, allow: bool, always = false) =
   ## run, denied it is finished with an error saying so; then the agent goes on
   if mi >= aiMsgs.len or ci >= aiMsgs[mi].calls.len: return
   if aiMsgs[mi].calls[ci].state != 0: return
+  if aiJob != nil: return               # (the model is still writing it: half a command or half an edit is never run)
   if allow:
     if always: aiAlwaysAllow.incl aiMsgs[mi].calls[ci].name
     runCall(mi, ci)

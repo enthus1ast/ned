@@ -26,6 +26,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | AI: MCP servers… |  |
 | AI: new chat |  |
 | AI: on this device, offline (Ollama, llama.cpp)… |  |
+| AI: open the request log | what was sent to the model and what came back (ai.log) |
 | AI: plan a change, then do it step by step… |  |
 | AI: regenerate last reply |  |
 | AI: review staged changes (findings in Problems) |  |

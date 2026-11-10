@@ -36,7 +36,7 @@ proc saveChat() =
   for m in aiMsgs:
     let calls = newJArray()
     for c in m.calls: calls.add callJson(c)
-    msgs.add %*{"role": m.role, "text": m.text, "shown": m.shown, "calls": calls, "pics": m.pics}
+    msgs.add %*{"role": m.role, "text": m.text, "shown": m.shown, "calls": calls, "pics": m.pics, "think": m.think}
   let j = %*{"id": aiChatId, "title": chatTitle(), "root": rootDir, "provider": cfgAiProvider, "model": aiModel(),
              "updated": (epochTime() * 1000).int64, "usage": {"in": aiUsageIn, "out": aiUsageOut,
              "cacheRead": aiUsageCacheRead}, "msgs": msgs}
@@ -61,7 +61,7 @@ proc loadChat(path: string) =
     aiStop()
     aiMsgs.setLen(0)
     for m in jitems(j{"msgs"}):
-      var am = AiMsg(role: m{"role"}.getInt, text: m{"text"}.getStr, shown: m{"shown"}.getStr)
+      var am = AiMsg(role: m{"role"}.getInt, text: m{"text"}.getStr, shown: m{"shown"}.getStr, think: m{"think"}.getStr)
       for p in jitems(m{"pics"}):
         if fileExists(p.getStr): am.pics.add p.getStr       # (a picture removed since: the chat goes on without it)
       for c in jitems(m{"calls"}): am.calls.add callFrom(c)
@@ -86,6 +86,21 @@ proc loadChat(path: string) =
     info("Chat restored: " & j{"title"}.getStr)
   except CatchableError as e:
     error("Cannot open that chat: " & e.msg)
+
+proc aiOpenRequestLog() =
+  ## opens the request log (ai.log: what the assistant sent and what came back) at its end; when there is none and it is
+  ## off, offers to turn it on
+  let p = stateDir() / "ai.log"
+  if not fileExists(p):
+    if cfgAiLog: info("Nothing in the request log yet — the next request to the model goes into it")
+    else:
+      askConfirm("The request log is off — turn it on (ai.log)? It keeps what is sent to the model and what comes " &
+                 "back (y/n)", proc(c: char) =
+        if c in {'y', 'Y'}:
+          setSetting("ai.log", %true)
+          info("The assistant's requests and replies now go to the request log (AI: open the request log)"))
+    return
+  discard openFile(p, line = int32.high)
 
 # the menu action that opens the saved chat at path `p` (made by a proc so that each menu item keeps its own path)
 proc chatAct(p: string): Action = (proc() = loadChat(p))

@@ -6,6 +6,7 @@ and whose .env has a password.
   the chat, with the file and @.env    the key is a placeholder in what is sent; .env is not sent at all
   an inline edit of the key's line     the model answers with the placeholder: the file gets the key back
   ai.redactSecrets off                 the key goes as it is (the setting does what it says)
+  the request log (ai.log)             what was sent and what came back, the secrets placeholders, no API key
 
 Usage: tredact.py path/to/ned     (needs tmux and curl)"""
 import json, os, shutil, socket, subprocess, sys, tempfile, threading, time
@@ -17,6 +18,7 @@ for tool in ['tmux', 'curl']:
 # (in two parts, so that GitHub's secret scanning does not take this made-up key for a real one)
 KEY = 'sk-' + 'proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0f'
 PASSWORD = 'hunter22secret'
+APIKEY = 'ned-test-' + 'provider-key-0042'     # (the key of the fake provider: it goes in a header, never in the log)
 requests = []
 fails = []
 
@@ -76,7 +78,8 @@ def session(redact):
     os.makedirs(cfg + '/ned')
     json.dump({'security.folderTrust': 'off', 'ai.provider': 'custom', 'ai.baseUrl': 'http://127.0.0.1:%d' % port,
                'ai.model': 'fake', 'ai.agent': False, 'ai.warnTokens': 0, 'ai.redactSecrets': redact,
-               'files.hotExit': False, 'ui.cursorAnimation': 'off'}, open(cfg + '/ned/config.json', 'w'))
+               'files.hotExit': False, 'ui.cursorAnimation': 'off', 'ai.log': True,
+               'ai.apiKey': APIKEY}, open(cfg + '/ned/config.json', 'w'))
     env = 'XDG_CONFIG_HOME=%s XDG_STATE_HOME=%s/state TERM=xterm-256color NED_SOCKET= http_proxy= HTTP_PROXY=' % (cfg, cfg)
     tm('new-session', '-d', '-s', 's', '-x', '140', '-y', '40', 'cd %s && env %s %s main.nim; sleep 600' % (proj, env, NED))
     time.sleep(2.5)
@@ -105,6 +108,8 @@ def session(redact):
         result['file'] = open(os.path.join(proj, 'main.nim')).read()
     keys('C-q'); time.sleep(0.5)
     tm('kill-server')
+    log = os.path.join(cfg, 'state', 'ned', 'ai.log')
+    result['log'] = open(log, encoding='utf-8', errors='replace').read() if os.path.exists(log) else ''
     return result
 
 r = session(True)
@@ -116,6 +121,11 @@ check('… .env is not sent (its password nowhere), and the model is told why',
 check('… the model is told what the placeholders are', 'placeholder exactly as it is' in r['chat'])
 check('the inline edit: sent with the placeholder', r['inline'] != '' and KEY not in r['inline'], r['inline'][:400])
 check('… the answer\'s placeholder back to the key in the file', 'let API_KEY = "%s"' % KEY in r['file'], r['file'])
+check('the request log (ai.log) has both requests and their replies', r['log'].count('sent to http://127.0.0.1') >= 2
+      and 'came back after' in r['log'] and '[answer]' in r['log'], r['log'][-800:])
+check('… with the secrets as placeholders, and without the API key',
+      KEY not in r['log'] and PASSWORD not in r['log'] and APIKEY not in r['log'] and '[REDACTED:api-key#1]' in r['log'],
+      r['log'][-800:])
 r = session(False)
 check('ai.redactSecrets off: the key is sent as it is', KEY in r['chat'], r['chat'][:400])
 

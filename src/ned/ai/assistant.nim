@@ -19,6 +19,8 @@ type
     checked: bool         # its edits were checked (ai.checkEdits)
     shown: string         # what the chat shows for a user message (attachments hidden)
     pics: seq[string]     # pictures sent with it (@shot.png): for models that read them
+    think: string         # the assistant's: what a thinking model thought before it answered (never sent back)
+    thinkShown: int       # … 0 as ai.showThinking says, 1 opened, 2 folded (a tap on its line)
 
   AiPlanState = enum apNone, apPlanning, apReady, apDoing
 
@@ -118,6 +120,9 @@ var
   aiUsageIn, aiUsageOut, aiUsageCacheRead, aiUsageCacheWrite: int
   aiWarnOk = false          # this run's big request was allowed
   aiReqIn, aiReqOut, aiReqCacheRead, aiReqCacheWrite: int
+  aiSplit: ThinkSplit       # the reply being read: the <think> … </think> a model writes into its answer, taken out
+  aiInlineThink = ""        # … an inline edit's or a one-shot request's thinking (kept out of what it writes)
+  aiReqStart: MonoTime      # when the request went: the chat counts the seconds until something comes
   aiOneShotCb: proc(t: string) {.closure.}
   aiCheckGen = 0          # bumped when the assistant stops: a check of its edits still running is then dropped
   aiRespApi = false       # the running request uses OpenAI's Responses API

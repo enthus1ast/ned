@@ -243,6 +243,7 @@ proc aiFastAsk(instr, user: string, maxTokens: int, onText: proc(t: string) {.cl
     except CatchableError:
       if onFail != nil: onFail("the answer was not JSON: " & truncTo(j.output.strip, 160))
       return
+    t = splitThink(t)[1]                          # (a local thinking model's <think> … </think> is not code)
     if t.strip.startsWith("```"):
       var ls = t.strip.splitLines()
       if ls.len >= 2:

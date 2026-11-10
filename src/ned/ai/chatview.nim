@@ -367,10 +367,10 @@ proc markdownLines(text: string, width: int, bg: Rgb, compact = false): seq[Chat
 
 proc callSummary(c: AiCall): string =
   ## a tool call in a few words for the chat: read src/a.nim:1-40, a command with a $, the server and tool of an MCP or
-  ## plugin call with its arguments cut short
+  ## plugin call with its arguments cut short — while its arguments are still being written, what of them is there
   var j: JsonNode
   try: j = parseJson(if c.args.strip.len == 0: "{}" else: c.args)
-  except CatchableError: j = newJObject()
+  except CatchableError: return aiCallTarget(c)
   case c.name
   of "read_file": "read " & j{"path"}.getStr & (if j{"start_line"} != nil: ":" & $j{"start_line"}.getInt & "-" & $j{"end_line"}.getInt else: "")
   of "list_files": "list files" & (if j{"filter"}.getStr.len > 0: " *" & j{"filter"}.getStr & "*" else: "")
@@ -384,6 +384,56 @@ proc callSummary(c: AiCall): string =
       let parts = c.name[(if c.name.startsWith("mcp__"): 5 else: 8) .. ^1].split("__", 1)
       (if parts.len == 2: parts[0] & " · " & parts[1] else: c.name) & " " & truncTo($j, 60)
     else: c.name
+
+proc thinkLines(mi, width: int, bg: Rgb): seq[ChatLine] =
+  ## a thinking model's thoughts in the chat: a line to tap — ▾ Thinking while it thinks, ▸ Thought once it answered,
+  ## with how many words — and under it, while it thinks (as ai.showThinking says), its newest lines, or all of it once
+  ## opened with a tap
+  let thinking = aiBusy and mi == aiMsgs.high and aiMsgs[mi].text.len == 0 and aiMsgs[mi].calls.len == 0
+  let open = aiMsgs[mi].thinkShown == 1 or (aiMsgs[mi].thinkShown == 0 and thinking and cfgAiShowThinking)
+  var l = ChatLine(bg: bg)
+  l.spans.add span("  " & (if open: "▾ " else: "▸ ") & (if thinking: "Thinking" else: "Thought") &
+                   (if thinking: "" else: " · " & $wordCount(aiMsgs[mi].think) & " words"), theme.dim, bg, {aItalic})
+  let m2 = mi
+  let o = open
+  capture m2, o:
+    l.act = proc() =
+      if m2 < aiMsgs.len:
+        aiMsgs[m2].thinkShown = (if o: 2 else: 1)
+        inc aiVersion
+  l.tip = (if open: "Fold what the model thought" else: "Show what the model thought")
+  result.add l
+  if not open: return
+  let all = aiMsgs[mi].thinkShown == 1
+  let t = aiMsgs[mi].think
+  # (while it thinks: only its end is wrapped, its last eight lines shown — a long thinking costs nothing per piece)
+  let src = if all or t.len <= 3000: t else: t[utf8Cut(t, t.len - 3000) .. ^1]
+  var ls: seq[ChatLine]
+  for line in src.splitLines:
+    if line.strip.len == 0: continue
+    ls.add wrapSpans(@[span(line, theme.dim, bg, {aItalic})], width, bg, 4)
+  if not all and ls.len > 8:
+    ls = ls[ls.len - 8 .. ^1]
+    result.add wrapSpans(@[span("…", theme.dim, bg, {aItalic})], width, bg, 4)
+  result.add ls
+
+proc writingLines(c: AiCall, width: int): seq[ChatLine] =
+  ## a tool call the model is still writing: how much of it has come, and the last lines of what it writes (an edit's new
+  ## text, a file, a command) as they arrive — it can be stopped (Esc) before it is done
+  let body = case c.name
+    of "edit_file": partialJsonString(c.args, "new_text")
+    of "write_file": partialJsonString(c.args, "content")
+    of "run_command": partialJsonString(c.args, "command")
+    else: c.args
+  result.add wrapSpans(@[span("writing · " & aiSizeText(c.args.len), theme.dim, theme.dockBg, {aItalic})], width,
+                       theme.dockBg, 4)
+  if body.strip.len == 0: return
+  var ls = body.splitLines
+  while ls.len > 0 and ls[^1].len == 0: ls.setLen(ls.len - 1)
+  for il in ls[max(0, ls.len - 6) .. ^1]:
+    var cl = ChatLine(bg: theme.codeBg)
+    cl.spans.add span("   " & truncTo(il, width - 4), theme.dim, theme.codeBg)
+    result.add cl
 
 proc buildChat(width: int): seq[ChatLine] =
   ## the whole chat as lines for the width. With no messages: the welcome with five prompts to tap and a note when there
@@ -447,14 +497,17 @@ proc buildChat(width: int): seq[ChatLine] =
         l.tip = ""
         result.add l
     of 1:
-      if m.text.len > 0 or mi == 0 or aiMsgs[mi - 1].role notin {1, 2}: result.add ChatLine(bg: bg)
-      if m.text.len > 0 or (m.calls.len == 0 and aiBusy and mi == aiMsgs.high):
+      if m.text.len > 0 or m.think.len > 0 or mi == 0 or aiMsgs[mi - 1].role notin {1, 2}: result.add ChatLine(bg: bg)
+      if m.text.len > 0 or m.think.len > 0 or (m.calls.len == 0 and aiBusy and mi == aiMsgs.high):
         var head = ChatLine(bg: bg)
         head.spans.add span(" " & ic("ai") & " " & (if aiModel().len > 0: aiModel() else: "assistant"), theme.syn[tkKeyword], bg, {aBold})
         result.add head
+      if m.think.len > 0: result.add thinkLines(mi, width, bg)
       if m.text.len > 0: result.add markdownLines(m.text, width, bg)
-      elif aiBusy and mi == aiMsgs.high and m.calls.len == 0:
-        result.add wrapSpans(@[span(aiPhase, theme.dim, bg, {aItalic})], width, bg, 2)
+      elif aiBusy and mi == aiMsgs.high and m.calls.len == 0 and m.think.len == 0:
+        result.add wrapSpans(@[span(aiPhase & aiWaitedText(), theme.dim, bg, {aItalic})], width, bg, 2)
+      # (a call whose arguments are still coming: what it writes so far, and no approval yet)
+      let streaming = aiJob != nil and mi == aiMsgs.high
       for ci, c in m.calls:
         let (icn, fg) = case c.state
           of 0: ("?", theme.warn)
@@ -476,7 +529,9 @@ proc buildChat(width: int): seq[ChatLine] =
               inc aiVersion
         l.tip = "Show / hide details"
         result.add l
-        if c.state == 0 and needsApproval(c) and mi == aiMsgs.high:
+        if streaming and c.state == 0:
+          if ci == m.calls.high: result.add writingLines(c, width)
+        elif c.state == 0 and needsApproval(c) and mi == aiMsgs.high:
           # approval card: commands verbatim, file changes as a real diff
           var info = c.args
           var isDiff = false
@@ -569,9 +624,10 @@ proc buildChat(width: int): seq[ChatLine] =
       result.add ChatLine(bg: bg)
       for l in m.text.splitLines:
         result.add wrapSpans(@[span(l, theme.warn, bg)], width, bg, 2)
-  if aiBusy and aiPhase.len > 0 and aiMsgs.len > 0 and (aiMsgs[^1].role != 1 or aiMsgs[^1].text.len > 0 or aiMsgs[^1].calls.len > 0):
+  if aiBusy and aiPhase.len > 0 and aiMsgs.len > 0 and (aiMsgs[^1].role != 1 or aiMsgs[^1].text.len > 0 or
+                                                       aiMsgs[^1].calls.len > 0 or aiMsgs[^1].think.len > 0):
     let spin = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][int(getMonoTime().ticks div 100_000_000) mod 10]
-    result.add wrapSpans(@[span(spin & " " & aiPhase, theme.accent, bg, {aItalic})], width, bg, 2)
+    result.add wrapSpans(@[span(spin & " " & aiPhase & aiWaitedText(), theme.accent, bg, {aItalic})], width, bg, 2)
   elif not aiBusy and aiMsgs.len > 0 and aiMsgs[^1].role in {1, 3}:
     # after the last reply: regenerate it, copy it
     var l = ChatLine(bg: bg)
@@ -840,8 +896,8 @@ func mentionInsertAct(m: string): Action =
 
 proc pendingApproval(): (int, int) =
   ## the message and call number of the first call of the last message that waits for the user's approval; (-1, -1) when
-  ## none does
-  if aiMsgs.len == 0: return (-1, -1)
+  ## none does, or while the model is still writing them
+  if aiMsgs.len == 0 or aiJob != nil: return (-1, -1)
   let mi = aiMsgs.high
   if aiMsgs[mi].role != 1: return (-1, -1)
   for ci, c in aiMsgs[mi].calls:

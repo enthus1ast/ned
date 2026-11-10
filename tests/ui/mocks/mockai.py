@@ -128,6 +128,10 @@ class H(BaseHTTPRequestHandler):
         want_cube = 'add a cube proc' in user and 'tools' in b
         want_gen = 'run the generator' in user and 'tools' in b and not has_tool_result(msgs)
         want_search = 'search the project for ZQX' in user and 'tools' in b and not has_tool_result(msgs)
+        want_think = 'think it through' in user
+        want_tags = 'think in tags' in user
+        want_parts = 'think in parts' in user
+        want_slow_edit = 'write a slow edit' in user and 'tools' in b and not has_tool_result(msgs)
         want_plan = ('PLANTASK' in user or 'twice2 and thrice2' in user or 'of the plan now' in user) and 'tools' in b
         mcp_name = None
         if 'use the echo tool' in user and not has_tool_result(msgs):
@@ -227,6 +231,39 @@ class H(BaseHTTPRequestHandler):
         self.sse_start()
         if mcp_name:
             self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': 'call_m1', 'type': 'function', 'function': {'name': mcp_name, 'arguments': mcp_args}}]}}]})
+            self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})
+            self.ev('[DONE]'); return
+        if want_think:
+            # (as llama.cpp sends a thinking model's reply: the thinking in reasoning_content, slowly, then the answer)
+            for w in ['Let me', ' look at', ' the file first.', '\nThe proc', ' doubles its input,', ' so ZQTHINK', ' holds.']:
+                self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'reasoning_content': w}}]})
+                time.sleep(0.5)
+            for w in ['The answer ', 'is 42.']:
+                self.ev({'choices': [{'index': 0, 'delta': {'content': w}}]})
+            self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})
+            self.ev('[DONE]'); return
+        if want_tags:
+            # (a server that leaves the thinking in the answer, between tags, cut anywhere)
+            for w in ['<thi', 'nk>\nTagged ', 'thoughts ZQTAG.</th', 'ink>', '\n\n', 'Tagged answer.']:
+                self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': w}}]})
+                time.sleep(0.05)
+            self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})
+            self.ev('[DONE]'); return
+        if want_parts:
+            # (Mistral's thinking models: the content a list of parts, the thinking one of them)
+            self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': [
+                {'type': 'thinking', 'thinking': [{'type': 'text', 'text': 'Parts thought ZQPART.'}]}]}}]})
+            self.ev({'choices': [{'index': 0, 'delta': {'content': [{'type': 'text', 'text': 'Parts answer.'}]}}]})
+            self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})
+            self.ev('[DONE]'); return
+        if want_slow_edit:
+            # (an edit written slowly, a few characters at a time, as a local model writes one)
+            args = json.dumps({'path': 'src/demo/utils.nim', 'old_text': '',
+                               'new_text': 'proc slowOne*(): int = 1\nproc slowTwo*(): int = 2\n'})
+            self.ev({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': 'call_w1', 'type': 'function', 'function': {'name': 'edit_file', 'arguments': ''}}]}}]})
+            for i in range(0, len(args), 10):
+                self.ev({'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'function': {'arguments': args[i:i + 10]}}]}}]})
+                time.sleep(0.3)
             self.ev({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})
             self.ev('[DONE]'); return
         if want_search:

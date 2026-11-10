@@ -1,6 +1,40 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-642). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-643). Older releases:
+
+## What's new in 6.42.1
+
+**The assistant with llama.cpp and other strict servers.** A search result cut in the middle of a character, or a
+line of a file in another encoding (Latin-1, Windows-1252), put bytes into the request that are not UTF-8, and
+llama.cpp refused all of it (*HTTP 500 … ill-formed UTF-8 byte*). What ned sends is now always UTF-8: text is cut
+between characters, and a byte of another encoding goes as �. And a tool call a local model wrote with a literal tab
+or newline inside a string, which ned runs as meant, now goes back with the conversation as strict JSON, which
+llama.cpp also refused.
+
+**A quicker start after ned was stopped.** What earlier copies of ned left behind when they were killed (by Android,
+say) is now cleared a little at a time once ned is on the screen, not all at once before it.
+
+## What's new in 6.42
+
+**Your own keys in vim and Helix mode.** `vim.keys`, `vim.visualKeys` and `helix.keys` put any command of the
+palette, or a `:` line, on keys of your own, written as vim writes them:
+
+```json
+"vim.keys": {"<leader>n": "Next tab", "<leader>p": "Previous tab", "<leader>x": "Close tab", "<leader>w": ":w"},
+"helix.keys": {"<space>n": "Next tab", "<space>x": "Close tab"}
+```
+
+They come before ned's own use of the keys and before a plugin's, a count before them repeats the command
+(`3<leader>n`), and the which-key plugin lists them. See [Your own keys](docs/guide/vim-and-zen.md#your-own-keys).
+
+**jj as Esc in Helix mode too.** `vim.escapeSequence` (`"jj"`, `"jk"` …) now leaves Helix's insert mode as well. In
+both modes it also works while the completion list is open, which the sequence's first key often opens.
+
+**Next tab and Previous tab** are commands of the palette, so the `keys` setting, your vim and Helix keys and
+plugins can use them (`{"alt+n": "Next tab"}`).
+
+**The one-line installer works on Linux and macOS again.** Outside Termux it stopped at once with `PREFIX:
+parameter not set`.
 
 ## What's new in 6.41.1
 

@@ -15,6 +15,7 @@
 | `~/.local/state/ned/swap/` | recovery files of unsaved edits |
 | `~/.local/state/ned/history/` | local history (previous versions of saved files) |
 | `~/.local/state/ned/chats/` | saved AI chats (newest 200) |
+| `~/.local/state/ned/ai.log` | the assistant's request log, when `ai.log` is on (the last 4 MB, and the 4 MB before them in a second file beside it) |
 | `~/.local/state/ned/nimindex.json` | index of the Nim standard library's exports |
 | `~/.cache/ned/index/` | the engine's reading of the standard library, packages and the project's files, kept between sessions (`nim.indexCache`; `$XDG_CACHE_HOME`; safe to delete) |
 | `~/.cache/ned/nedastcheck-*` | the Nim parser check the formatter can use (`nim.format.verify`), built once |
