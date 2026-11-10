@@ -66,10 +66,18 @@ proc gitLineHistory() =
     info($n & " commit" & (if n == 1: "" else: "s") & " changed " & what & " — Enter on one opens it")
     needRender = true)
 
+proc bisectFirstBad(l: string): int =
+  ## where git bisect's "<commit> is the first bad commit" has its " is the first" in the line `l` (git 2.56 and later
+  ## quote the word: "is the first 'bad' commit"); -1 when the line does not say it
+  for m in [" is the first bad commit", " is the first 'bad' commit"]:
+    let k = l.find(m)
+    if k > 0: return k
+  -1
+
 proc gitBisectReport(root, o: string) =
   ## where a bisect stands after a step; when it is over: the commit, and back to where you were
   for l in o.splitLines:
-    let k = l.find(" is the first bad commit")
+    let k = bisectFirstBad(l)
     if k > 0:
       let h = l[0 ..< k].strip
       bisectInfo = ""; bisectAt = ""; bisectSteps = ""
@@ -152,7 +160,10 @@ proc bisectFromAct(root, h: string): Action =
           jr.onDone = proc(jj: Job) =
             if prev != nil: prev(jj)
             let o2 = stripAnsi(jj.output)
-            if " is the first bad commit" in o2: gitBisectReport(root, o2)
+            var found = false
+            for l in o2.splitLines:
+              if bisectFirstBad(l) > 0: found = true
+            if found: gitBisectReport(root, o2)
             else:
               bisectRoot = ""
               discard startJob(jkGit, "git bisect reset", root, proc(_: Job) = refreshGitStatus())

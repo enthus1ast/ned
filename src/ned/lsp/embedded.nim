@@ -20,6 +20,7 @@ proc embServerAvailable(lg: Lang): bool =
   ## whether a language server for the language is installed (yours from the settings, or one of the language's own),
   ## looked for once per language
   if lg == nil: return false
+  if lg.id in lspFailed: return false     # (it kept exiting and was turned off: as if there were none — ned's own answers)
   if lg.id in embAvail: return embAvail[lg.id]
   var ok = false
   if lg.id in cfgUserLsp and cfgUserLsp[lg.id].len > 0 and findExe(cfgUserLsp[lg.id][0]).len > 0: ok = true

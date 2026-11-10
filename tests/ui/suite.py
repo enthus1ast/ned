@@ -1896,7 +1896,8 @@ def t_510_debug_tools():
     keys('S-F5'); time.sleep(2)
     z = [l for l in sh('ps ax -o stat=,comm=').stdout.splitlines() if l.startswith('Z') and 'lldb-dap' in l]
     check('510 the debug adapter is not left as a zombie', not z, str(z))
-    # JavaScript and TypeScript with vscode-js-debug
+    # JavaScript and TypeScript with vscode-js-debug (the rest of the test: skipped without it)
+    need('node', 'js-debug')
     setup()
     open(W + '/app.js', 'w').write('function total(items) {\n  let s = 0;\n  for (const x of items) {\n    s += x;\n  }\n  return s;\n}\nconst nums = [1, 2, 3];\nconsole.log("sum", total(nums));\n')
     start('app.js', w=130, h=40); time.sleep(0.5)
@@ -2545,10 +2546,10 @@ def t_518_terminal():
         start('src/demo.nim', w=120, h=34, env_extra=extra); time.sleep(0.5)
         keys('C-\\'); time.sleep(1.5)
         if nm == 'zsh': wait_for(r'zsh% ', 5)
-        text('hi'); keys('Enter'); time.sleep(0.4)
+        text('hi'); keys('Enter'); wait_for('hello-from-' + nm + 'rc', 5)     # (a busy machine: a while)
         if nm == 'zsh':
-            text('echo env-$FROM_ZSHENV'); keys('Enter'); time.sleep(0.4)
-        text('false'); keys('Enter'); time.sleep(0.6)
+            text('echo env-$FROM_ZSHENV'); keys('Enter'); wait_for('env-yes', 5)
+        text('false'); keys('Enter'); wait_for('exit 1', 5); time.sleep(0.2)
         s = screen()
         check('518 %s: its own startup file is read' % nm, 'hello-from-' + nm + 'rc' in s and (nm != 'zsh' or 'env-yes' in s), s)
         check('518 %s: the header shows a failed command' % nm, 'exit 1' in s.split('TERMINAL')[1].splitlines()[0], s)
@@ -3139,7 +3140,8 @@ def t_524_deps():
     open(W + '/app.nimble', 'w').write('version = "0.3.1"\nauthor = "Ann"\ndescription = "x"\nlicense = "MIT"\n'
         'requires "nim >= 2.0.0",\n  "jsony >= 1.1.0",\n  "chronos ^= 4.0"\nrequires "https://github.com/foo/missingpkg.git"\n')
     start('app.nimble', w=130, h=44, env_extra='NIMBLE_DIR=' + nd); time.sleep(1.5)
-    palette('Nimble: dependency tree'); time.sleep(1)
+    palette('Nimble: dependency tree')
+    wait_for(r'\d+ not installed', 10); time.sleep(0.3)     # (nimble asked: a while on a busy machine)
     s = screen()
     rows = {r.split('──')[-1].split()[0]: r for r in s.splitlines() if '──' in r}
     check('524 deps: the tree with the versions installed', 'jsony' in rows and '1.1.5 ✓' in rows['jsony'] and
@@ -3917,12 +3919,13 @@ def t_63_marks():
     check('63 … and stays there once the file is scanned again', mark_rows() == after, str((after, mark_rows())))
 
 def no_clang_format_dir():
-    """a PATH folder with everything in /usr/bin but clang-format (ned's own C formatter then)"""
+    """a PATH folder with everything in /usr/bin but clang-format and clangd (ned's own C formatter then: clangd
+    would format with clang-format's own rules)"""
     d = TMP + '/noclang'
     if not os.path.isdir(d):
         os.makedirs(d)
         for x in os.listdir('/usr/bin'):
-            if not x.startswith('clang-format'):
+            if not x.startswith('clang-format') and not x.startswith('clangd'):
                 try: os.symlink('/usr/bin/' + x, d + '/' + x)
                 except OSError: pass
     return d
@@ -4476,8 +4479,9 @@ def t_67_github_signin():
     home = TMP + '/home67'
     shutil.rmtree(home, ignore_errors=True); os.makedirs(home + '/.ssh')
     open(home + '/.ssh/id_ed25519.pub', 'w').write('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest ned-test\n')
-    # (no GitHub CLI: PATH without /usr/local/bin, where one may be installed)
-    start('src/demo.nim', w=130, h=34, path=mock + ':' + TOOLS + ':/usr/bin:/bin', env_extra='GIT_CONFIG_COUNT=0 HOME=' + home)
+    # (no GitHub CLI: PATH without /usr/local/bin, where one may be installed, nor /usr/bin's — GitHub's runners have one)
+    start('src/demo.nim', w=130, h=34, path=mock + ':' + TOOLS + ':' + usr_bin_without('gh'),
+          env_extra='GIT_CONFIG_COUNT=0 HOME=' + home)
     palette('Git: push')
     ok = wait_for(r'GitHub needs you to sign in', 10)
     sc = screen()
@@ -6008,7 +6012,10 @@ def t_611_frames_vt():
     setup({"nim.nimsuggest": False, "editor.autoHover": False, "ui.tooltips": False})
     shutil.copy(FIX + '/showcase.nim', W + '/src/showcase.nim')
     Wd, Hd = 130, 40
-    env = dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor', XDG_CONFIG_HOME=CFG, XDG_STATE_HOME=STATE)
+    # (no language server for the JSON, HTML, CSS, SQL and C in its strings: a server's "ready" goes away by itself,
+    # between a frame and the full redraw after it)
+    env = dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor', XDG_CONFIG_HOME=CFG, XDG_STATE_HOME=STATE,
+               PATH=no_web_servers('clangd'))
     pid, fd = pty.fork()
     if pid == 0:
         os.chdir(W)
@@ -6264,7 +6271,8 @@ def t_613_remote():
     ok = wait_for(r'\[master [0-9a-f]+\] a message from ned', 8)
     log = subprocess.run('cd %s && git log -1 --format=%%s' % W, shell=True, capture_output=True, text=True).stdout
     check('613 remote: … closed: git goes on and commits', ok and log.strip() == 'a message from ned', log + screen())
-    text('echo back-in-the-terminal'); keys('Enter'); time.sleep(0.4)
+    text('echo back-in-the-terminal'); keys('Enter')
+    wait_until(lambda: screen().count('back-in-the-terminal') >= 2, 5)     # (the command and what it printed)
     check('613 remote: … and the terminal has the focus again', 'back-in-the-terminal\n' in screen() or
           screen().count('back-in-the-terminal') >= 2, screen())
     text(BIN); keys('Enter'); time.sleep(0.8)
@@ -6388,7 +6396,7 @@ def t_614_web_css():
     # not take, a missing `;` — found as you write; the hover
     setup({"web.engine": "on"})
     open(W + '/style.css', 'w').write('a {\n  \n}\n\nb {\n  colr: red;\n  display: flexx;\n  color: blue\n  margin: 0;\n}\n')
-    start('style.css', w=130, h=30)
+    start('style.css', w=130, h=30, path=no_web_servers())   # (ned's own: no CSS server)
     check('614 css: an unknown property, and the one meant', wait_for("unknown property 'colr' — did you mean 'color'", 5),
           screen())
     check('614 css: a value its property does not take', "'flexx' is not a value of display" in screen(), screen())
@@ -6410,7 +6418,7 @@ def t_614_web_html():
     open(W + '/site.css', 'w').write('.hero-title { margin: 0 }\n')
     open(W + '/page.html', 'w').write('<!DOCTYPE html>\n<html>\n<body>\n  <div>\n    <span>x</div>\n  <p class="">\n</body>\n</html>\n')
     open(W + '/ugly.html', 'w').write('<ul><li>one</li><li>two</li></ul>\n<section><h1>Hi</h1><p>text</p></section>\n')
-    start('page.html', w=130, h=30)
+    start('page.html', w=130, h=30, path=no_web_servers())   # (ned's own: no HTML server)
     check('614 html: a closing tag that closes the wrong element', wait_for('<span> is not closed before </div>', 5),
           screen())
     keys('C-g'); text('6'); keys('Enter'); keys('End', 'Left', 'Left'); text('he'); time.sleep(0.7)
@@ -6436,7 +6444,7 @@ def t_614_web_sql():
                                    'proc sql(s: string): string = s\nlet db = 1\n'
                                    'db.exec(sql"INSERT INTO users (name, email) VALUES (?, ?)", "a", "b", "c")\n'
                                    'db.exec(sql"SELECT  FROM users u WHERE u.nam = ?", "1")\n')
-    start('q.sql', w=130, h=30)
+    start('q.sql', w=130, h=30, path=no_web_servers())   # (ned's own: no SQL server)
     keys('End'); text('u'); time.sleep(0.8)
     check('614 sql: the project\'s tables after FROM', 'users' in screen() and '3 columns' in screen(), screen())
     keys('Escape')
@@ -7448,7 +7456,18 @@ def t_629_telescope():
     check('629 telescope: resume — the last finder again, with what was typed', ok, screen())
     keys('Enter'); time.sleep(0.5)
     s = screen()
-    check('629 telescope: Enter goes to the line', re.search(r'Ln [49], Col', s) is not None and 'demo.nim' in s, s)
+    # (to the line of the one selected — which comes first depends on the order the files are found in: on GitHub's
+    # runners examples/ex1.nim, here src/demo.nim)
+    m = re.search(r'Ln (\d+), Col', s)
+    crumb = s.split('\n')[2].strip().split(' › ')
+    rel = []
+    for part in crumb:
+        rel.append(part)
+        if '.' in part: break
+    p = os.path.join(W, *rel)
+    lines = open(p).read().split('\n') if m and os.path.isfile(p) else []
+    check('629 telescope: Enter goes to the line',
+          m is not None and 0 < int(m.group(1)) <= len(lines) and 'greet' in lines[int(m.group(1)) - 1], s)
 
 def t_629_cursor_glide():
     # 6.29: ui.cursorAnimation — a jump of the cursor glides there with a fading trail (frames of its own, only the
@@ -10116,7 +10135,7 @@ def t_627_json():
     # it does not take), its keys completed with what they do, a comma missing found, the key path in the breadcrumbs
     setup({"nim.nimsuggest": False})
     open(W + '/package.json', 'w').write(PKG627)
-    start('package.json', w=140, h=32); time.sleep(0.6)
+    start('package.json', w=140, h=32, path=no_web_servers()); time.sleep(0.6)   # (ned's own: no JSON server)
     check('627 json: package.json — a misspelled key, and the one meant', wait_for(r'"nmae" is not a key of package.json — "name"\?', 8),
           screen())
     check('627 json: a value it does not take ("modul": "module"?)', '"module"?' in screen(), screen())
@@ -10141,7 +10160,7 @@ def t_627_web_more():
     open(W + '/vars627.css', 'w').write(':root { --primary: #333; }\na { color: var(--primay); }\n')
     open(W + '/ins627.sql', 'w').write('CREATE TABLE users (id INTEGER, name TEXT);\nINSERT INTO users (id, nmae) VALUES (1, 2);\n'
                                        'INSERT INTO users (id, name) VALUES (1, 2, 3);\n')
-    start('site627.html', w=150, h=32); time.sleep(0.6)
+    start('site627.html', w=150, h=32, path=no_web_servers()); time.sleep(0.6)   # (ned's own)
     check('627 html: a link to a file that is not beside the page', wait_for(r'no gone\.html beside this page', 8), screen())
     check("627 html: an attribute's typo (clas: class?)", "has no attribute 'clas' — 'class'?" in screen(), screen())
     palette('Open file'); text('vars627.css'); keys('Enter')
@@ -11382,6 +11401,60 @@ def t_643_ai_thinking():
     palette('AI: open the request log'); time.sleep(0.8)
     check('643 ai: AI: open the request log opens it', 'ai.log' in screen(), screen())
 
+def t_6431_server_edits():
+    # a language server's edits at the end of the file (its "end": the line after the last): formatting with the HTML or
+    # the CSS server keeps nothing of the old last line (it did); a SQL server that keeps exiting is turned off and
+    # ned's own SQL checks take its place, in a Nim string too
+    need('node', 'vscode-html-language-server', 'vscode-css-language-server')
+    setup({"nim.nimsuggest": False})
+    open(W + '/ugly.html', 'w').write('<ul><li>one</li><li>two</li></ul>\n<section><h1>Hi</h1><p>text</p></section>\n')
+    open(W + '/ugly.css', 'w').write('a{color:red}\nb{margin:0}\n')
+    start('ugly.html', w=130, h=30, path=path_without('prettier'))     # (the server formats, not prettier)
+    wait_for('✓ vscode-html-language-server', 15); time.sleep(0.5)
+    keys('M-f'); ok = wait_for(r'Formatted \(vscode-html-language-server\)', 6); keys('C-s'); time.sleep(0.5)
+    check('6431 the HTML server formats the whole file: nothing of its last line left over', ok and ftext('ugly.html') ==
+          '<ul>\n  <li>one</li>\n  <li>two</li>\n</ul>\n<section>\n  <h1>Hi</h1>\n  <p>text</p>\n</section>\n',
+          repr(ftext('ugly.html')) + screen())
+    keys('C-p'); time.sleep(0.3); text('ugly.css'); time.sleep(0.4); keys('Enter')
+    wait_for('✓ vscode-css-language-server', 15); time.sleep(0.5)
+    keys('M-f'); ok = wait_for(r'Formatted \(vscode-css-language-server\)', 6); keys('C-s'); time.sleep(0.5)
+    check('6431 … and the CSS server', ok and ftext('ugly.css') == 'a {\n  color: red\n}\n\nb {\n  margin: 0\n}\n',
+          repr(ftext('ugly.css')) + screen())
+    # a SQL server that exits as soon as it starts
+    tm('kill-server'); time.sleep(0.3)
+    fake = TMP + '/fakesql'
+    shutil.rmtree(fake, ignore_errors=True); os.makedirs(fake)
+    open(fake + '/sql-language-server', 'w').write('#!/bin/sh\necho "cannot start" >&2\nexit 1\n')
+    os.chmod(fake + '/sql-language-server', 0o755)
+    open(W + '/schema.sql', 'w').write('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);\n')
+    open(W + '/db.nim', 'w').write('proc sql(s: string): string = s\nlet q = sql"SELECT u.nam FROM users u"\n')
+    start('db.nim', w=130, h=30, path=fake + ':' + no_web_servers())
+    ok = wait_for('keeps exiting', 20)
+    check('6431 a SQL server that keeps exiting is turned off', ok, screen())
+    check("6431 … and ned's own SQL checks take its place", wait_for("has no column 'nam'", 8), screen())
+
+def t_6431_touch_copy():
+    # by touch (Termux, the touch bar): a triple tap selects a long line — all of its rows — and ⧉ Copy in the status
+    # bar copies it whole: no line break where it wraps (Termux's own long press copies the screen's rows)
+    setup({"ui.touchBar": "on", "nim.nimsuggest": False})
+    long = 'echo ' + ' '.join('word%02d' % i for i in range(30))
+    open(W + '/long.txt', 'w').write(long + '\nend\n')
+    start('long.txt', w=100, h=30); time.sleep(0.5)
+    check('6431 touch: no Copy in the status bar while nothing is selected', '⧉ Copy' not in screen(), screen())
+    x, y = find_on_screen('word03')
+    for _ in range(3):
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<0;%d;%dM' % (x, y))
+        tm('send-keys', '-t', 'f', '-l', '\x1b[<0;%d;%dm' % (x, y)); time.sleep(0.08)
+    time.sleep(0.5)
+    s = screen()
+    check('6431 touch: a triple tap selects the line, and ⧉ Copy is in the status bar', '⧉ Copy' in s, s)
+    c = find_on_screen('⧉ Copy')
+    if c: click(*c)
+    check('6431 touch: … a tap on it copies', wait_for('Copied', 3), screen())
+    keys('C-End'); keys('Enter'); keys('C-v'); time.sleep(0.3); keys('C-s'); time.sleep(0.4)
+    t = ftext('long.txt')
+    check('6431 touch: … the line whole, as it is in the file', t.count(long) == 2 and '↪' not in t, repr(t))
+
 tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_terminal, t_run_file, t_lsp, t_lsp_diag, t_ai_chat, t_split_zen_theme, t_vim, t_recovery, t_quit_dirty, t_mixed_folder, t_builtin_nimsuggest, t_server_crash_restart, t_engine_member_completion, t_engine_hover_def_sig, t_engine_refs_rename, t_engine_imports, t_engine_without_nimsuggest, t_engine_outline_symbols, t_format_keeps_cursor, t_zen_vim, t_ai_insert, t_format_builtin, t_format_choice, t_reset_settings, t_52_refactors, t_52_format_selection, t_52_conflict, t_52_settings_search, t_52_mouse, t_521_debugger, t_521_touchbar, t_521_bp_follow_edits, t_522_navigation, t_522_peek_hierarchy_stage, t_522_rename_imports, t_522_shortcuts_markdown, t_522_multibuffer, t_522_nim_codegen, t_522_nim_tools, t_53_alerts_and_formatter, t_53_diff_view, t_53_rename_preview, t_53_debugger_watch_test, t_53_user_commands, t_531_help_menus, t_532_polish, t_54_git, t_55_publish, t_56_todos, t_561_review_fixes, t_562_format_cursor, t_563_open_folder, t_564_tiny_screens, t_564_save_safety, t_57_themes, t_57_ai, t_57_nim, t_57_git, t_571_rulers, t_572_editorconfig, t_572_tasks, t_572_errors, t_572_swatches, t_572_examples, t_59_small, t_59_html, t_59_problems_mb, t_59_lsp_more, t_59_langs_tests, t_59_ai_more, t_59_dap, t_510_large, t_510_debug_tools, t_510_testament, t_510_repl, t_510_nimble_outdated, t_510_merge_editor, t_510_spell, t_510_coverage, t_510_langs, t_510_mcp_more, t_510_emmet_css, t_510_sync, t_510_keymaps, t_510_accessible, t_510_workspace, t_510_remote, t_511_stale_errors, t_511_embedded, t_512_c_interop, t_512_refs_big, t_512_comp_stale, t_513_emit_edit, t_513_emit_errors, t_513_emit_c, t_514_emit_clangd, t_515_emit_more, t_515_strings, t_516_quickfixes, t_516_ai_fix, t_517_remote_git, t_517_workspace_git, t_518_macros, t_518_terminal, t_519_refactor, t_519_lists, t_520_agent_check, t_520_ai_tests, t_521_remote, t_521_git, t_521_format_self, t_522_perf, t_523_include, t_523_typehints, t_523_charlit, t_524_debug, t_524_format, t_524_deps, t_525_hints, t_525_engine, t_525_csv, t_525_profile, t_525_macro_nested, t_526_typing_errors, t_527_expand, t_527_complete, t_527_hover, t_528_hierarchy, t_528_refs, t_528_actions, t_529_clangd_fixes, t_529_examples, t_60_includes, t_60_protect, t_61_semantic, t_63_marks, t_63_git, t_63_format, t_63_paste, t_63_cdocs, t_64_engine, t_65_cengine, t_65_ligatures, t_66_cwrap, t_66_zen_menu, t_66_align_hints, t_66_trust, t_66_postfix, t_66_copies, t_66_test_on_save, t_66_ctvalues, t_66_include_check, t_67_github_signin, t_67_git_undo, t_67_commit_checks, t_67_review_comments, t_67_ai_grounded, t_67_ai_fix_test, t_67_format_changed, t_67_format_preview, t_67_yaml_toml, t_67_termux_clock, t_67_rich_colors, t_67_theme_editor, t_67_two_servers, t_67_lsp_links, t_67_ai_plan, t_67_ai_offline, t_68_nedfmt, t_68_engine_checks, t_68_compiler_answers, t_68_macro_names, t_68_settings_panel, t_69_locked_versions, t_69_expected_type, t_69_memory_layout, t_69_raises_hints, t_69_engine_hints, t_69_shared_settings, t_69_toolchain, t_69_lint_and_ci, t_610_expected_multiline, t_610_can_be_func, t_610_concepts, t_610_nim_coverage, t_610_lint_rules, t_610_imports_required, t_610_dep_tree_locked, t_610_project_checks, t_610_fmt_uses, t_611_terminal_scroll, t_611_frames_vt, t_611_perf_report, t_612_hints_ahead, t_612_reflow_comments, t_6112_examples_after_format, t_6112_long_line, t_6112_terminal_flood, t_612_nim3, t_612_nim3_port, t_612_hex, t_612_hex_exe, t_612_big_text, t_613_remote, t_613_terminal_answers, t_613_edit_tools, t_613_vim_filter, t_614_web_css, t_614_web_html, t_614_web_sql, t_614_picker_preview, t_614_jump_labels, t_614_git_new_folder, t_614_format_pieces, t_6141_quick_fix_keys, t_6141_ref_counts, t_6141_showcase, t_615_select_structure, t_615_surround, t_615_vim_surround, t_615_undo_tree, t_615_git_changes, t_615_next_edit, t_615_web_js, t_615_cpp, t_616_engine_worker, t_618_nedls_in_ned, t_619_nimble_resolve, t_619_plugins, t_619_plugins_vim, t_619_plugins_lsp_lang, t_619_hot_exit, t_619_encodings, t_619_key_conflicts, t_620_plugin_language, t_620_plugin_full_nim, t_6241_plugin_check, t_620_ast_docs, t_620_nimble_edit, t_620_emit_names, t_620_viewer, t_620_plugin_list, t_621_emit_format, t_621_reset, t_621_settings_form, t_621_fields, t_621_context_menus, t_621_drag_drop, t_621_atlas, t_621_decompile, t_621_new_project, t_622_settings_controls, t_622_nimscript, t_622_plugin_api, t_622_doc_comments, t_623_decompile_menu, t_623_align_comments, t_623_c_engine, t_623_emit_builtin_c, t_623_nim_rewrites, t_623_call_args, t_624_compiler_explorer, t_624_ce_toolbar, t_6241_dock_view_menu, t_6241_ce_all_procs, t_625_indent, t_625_plugins_menu, t_625_which_key, t_625_oil, t_625_engine_checks,
          t_625_chain_hints, t_625_rename_reach, t_625_completion_recent, t_625_oracle, t_625_c_if, t_625_c_checks,
          t_625_cpp_overloads, t_624_compiler_explorer_c,
@@ -11396,4 +11469,4 @@ tests = [t_edit_save_undo, t_find_replace, t_multicursor, t_project_search, t_te
          t_632_macro_view, t_632_package_installed, t_632_why, t_632_engine_errors, t_632_pane_tabs, t_632_crumbs, t_632_minimap_marks, t_632_touch_context, t_632_battery, t_632_warm_index, t_632_pane_views, t_632_theme_import, t_632_autodedent, t_632_tour, t_632_refactorings, t_6322_emacs_panes, t_6322_close_frees, t_6323_macro_members, t_636_typing_nif, t_636_one_check, t_637_nim3_typing, t_637_check_slots, t_637_low_memory,
          t_635_nim_chip, t_638_nim_panel, t_638_plugin_api_rest, t_639_themes_and_job_event,
          t_640_no_panels_at_start, t_640_undo_kept_bounded, t_641_vim_ex, t_641_update_check, t_641_from_zed,
-         t_6411_emit_members, t_6411_picker_exact, t_642_your_keys, t_6421_ai_utf8, t_643_ai_thinking]
+         t_6411_emit_members, t_6411_picker_exact, t_642_your_keys, t_6421_ai_utf8, t_643_ai_thinking, t_6431_server_edits, t_6431_touch_copy]

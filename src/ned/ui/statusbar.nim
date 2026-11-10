@@ -177,6 +177,12 @@ proc drawStatusBar() =
   if macroRecording:
     x = button(x, y, " " & macroBadge() & " ", proc() = macroToggle(), "Recording a macro — click (or Alt+Shift+R) to stop",
                theme.badgeFg, theme.err, {aBold})
+  # (Termux, or the touch bar on: the selection's Copy within reach of a finger — Termux's own long press copies the
+  # screen, where a long line is cut into the rows it is shown on)
+  if focus == fEditor and b.primary.hasSel and (isTermux() or lay.touchY >= 0) and scrW >= 40:
+    x = button(x, y, " ⧉ Copy ", proc() = copySel(false),
+               "Copy the selection (Ctrl+C): long lines whole, as they are in the file", theme.badgeFg, theme.accent,
+               {aBold})
   let (ne, nw) = problemCounts()
   let pfg = if ne > 0: theme.err elif nw > 0: theme.warn else: theme.dim
   let ptxt = if ne + nw == 0: " " & ic("ok") & " 0 " else: " " & ic("error") & " " & $ne & "  " & ic("warn") & " " & $nw & " "

@@ -120,10 +120,14 @@ proc lintChecks(b: Buffer): seq[Diag] =
     except CatchableError, Defect: discard
   # (the SQL, HTML and CSS in its strings: a query given the wrong number of values, an unknown table …)
   if cfgWebEngine != "off":
+    # (ned's own, even with a language server installed: none is started here, so `auto` would leave them unchecked)
+    let was = cfgWebEngine
+    cfgWebEngine = "on"
     try:
       for d in webDiagsOf(b):
         if d.sev <= ecWantSev: result.add d
     except CatchableError, Defect: discard
+    finally: cfgWebEngine = was
   # (a field's typo the engine's check names, with the field meant: not again as a misspelled name)
   var fieldTypos: HashSet[(int, int)]
   for d in result:

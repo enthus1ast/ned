@@ -42,7 +42,11 @@ jobs:
           nim-version: stable
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Unit tests
-        run: for t in tests/unit/t*.nim; do nim r -d:release --hints:off "$t" || exit 1; done
+        # (every one, each failure named: one that fails does not hide those after it)
+        run: |
+          failed=""
+          for t in tests/unit/t*.nim; do nim r -d:release --hints:off "$t" || { echo "::error::$t failed"; failed="$failed $t"; }; done
+          if [ -n "$failed" ]; then echo "failed:$failed"; exit 1; fi
 
   plugins:
     # the plugins' host (nim e, and compiled) with the example plugins, the API played by a test; a language
@@ -119,15 +123,29 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y tmux clangd gdb lldb zsh fish hunspell-en-us openssh-server
-          npm install -g vscode-langservers-extracted sql-language-server
+          npm install -g vscode-langservers-extracted
+          # sql-language-server: what npm gives it today does not start (vscode-languageserver-protocol 3.18 no longer
+          # has the file it loads) — installed in a folder of its own, with that library held at 3.17
+          mkdir -p ~/sqlls && cd ~/sqlls &&
+            echo '{"private": true, "overrides": {"vscode-languageserver-protocol": "3.17.5"}}' > package.json &&
+            npm install --no-audit --no-fund sql-language-server@1.7.1 && cd - &&
+            echo "NED_TEST_PATH=$HOME/sqlls/node_modules/.bin" >> "$GITHUB_ENV"
+          # vscode-js-debug (JavaScript and TypeScript debugging), where ned's own install puts it
+          mkdir -p ~/.local/share && curl -fsSL "$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/microsoft/vscode-js-debug/releases/latest |
+            grep -o 'https://[^"]*js-debug-dap-v[^"]*tar.gz' | head -1)" | tar xz -C ~/.local/share ||
+            echo "vscode-js-debug did not download: its tests are skipped"
           pip install --break-system-packages debugpy pytest coverage || pip install debugpy pytest coverage
           nimble install -y nimlangserver || echo "nimlangserver did not build: its tests are skipped"
           tests/ui/ssh-setup.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
         run: nim c -d:release --hints:off -o:ned src/ned.nim
       - name: UI tests
         env:
           NED_TEST_SSH: "1"
+          NED_UI_FULL: "1"         # (a failure's whole screen in the log, not its first 400 characters)
         run: python3 tests/ui/run.py ./ned --shard ${{ matrix.shard }}/4
 
   fuzz:

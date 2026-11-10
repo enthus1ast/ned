@@ -78,6 +78,9 @@ python3 tests/engine/nifgrade.py MAIN.nim --nim NIM24 --driver E   # Go to defin
 NED_SHOT_FONT=FONT.ttf python3 tests/shots/scenes.py [NAME …]  # the docs' screenshots taken again (render.py: redrawn)
 ```
 
+A UI test that fails only on GitHub: run it with the runner's tools (Nim 2.4 on PATH, the language servers in
+`NED_TEST_PATH`, `GITHUB_ACTIONS=true`, `NED_UI_FULL=1`) — see [What the machine has](docs/dev/pitfalls.md#what-the-machine-has).
+
 A change to a setting or a command: `ned --doc-settings > docs/reference/settings.md` and `ned --doc-commands >
 docs/reference/commands.md` (with an empty `XDG_CONFIG_HOME`, so no one's settings get in); to the plugin API:
 `python3 tests/docs/apiref.py`; a file added, moved or renamed: `python3 tests/docs/sourcemap.py`. CI fails when they

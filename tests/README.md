@@ -55,7 +55,8 @@ Some tests use optional tools; when one is missing, the test is skipped and says
 |---|---|
 | nimlangserver | the language-server mode of the Nim features |
 | clangd | C in `{.emit.}`, C interop, clangd's fixes |
-| node, vscode-langservers-extracted, sql-language-server | HTML, CSS, SQL and JSON inside Nim strings |
+| node, vscode-langservers-extracted, sql-language-server | HTML, CSS, SQL and JSON inside Nim strings (sql-language-server: installed with `vscode-languageserver-protocol` held at 3.17, as [the CI](../.github/workflows/tests.yml) does — what npm gives it today does not start) |
+| vscode-js-debug (in `~/.local/share/js-debug`, where the install ned offers when you debug JavaScript puts it) | debugging JavaScript and TypeScript |
 | gdb, lldb, debugpy | debugging |
 | pytest, go | the test explorer for Python and Go |
 | zsh, fish | the terminal's shell integration (bash is always tested) |
@@ -68,6 +69,12 @@ a session (scroll regions, colours carried along a row, skipped cells) and the s
 a full redraw draws.
 
 `NED_TEST_PATH` puts more folders on the tests' PATH (where your language servers are, say).
+A test of something that must not be there (ned's own CSS, HTML, JSON and SQL engine; ned's C formatter; the
+GitHub CLI missing) starts ned with a PATH without it — `path_without(…)`, `no_web_servers()`, `usr_bin_without(…)`
+in [`ui/harness.py`](ui/harness.py) — since a machine may have it, as GitHub's runners have clangd, gh and the
+language servers. A test waits for what it reads (`wait_for`, `wait_until`) rather than sleeping a fixed time:
+the runners are slower. `GITHUB_ACTIONS` is taken out of the tests' environment, so `ned --lint` writes its
+usual lines there too.
 `NED_TEST_DICT` names a dictionary. `--shard 2/4` runs a quarter of the tests (CI runs four parts at once).
 A run that fails keeps its scratch folder and says where it is.
 

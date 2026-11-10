@@ -332,7 +332,7 @@ proc formatSelection(b: Buffer) =
       discard s.lspRequest("textDocument/rangeFormatting", %*{"textDocument": b.docId,
         "range": {"start": s.lspPos(b, Pos(line: ra.line, col: 0)), "end": s.lspPos(b, re)},
         "options": {"tabSize": b.indentW(), "insertSpaces": b.indent != "\t"}},
-        LspReq(kind: lrFormat, bufId: b.id))
+        LspReq(kind: lrFormat, bufId: b.id, version: b.changeId))
       return
     info("Format selection needs the built-in Nim formatter or a language server that formats ranges — " &
          "Alt+F formats the whole file")
@@ -438,9 +438,10 @@ proc formatBuffer(b: Buffer) =
     return
   let s = lspReady(b)
   if s != nil and s.caps != nil and s.caps{"documentFormattingProvider"} != nil:
+    lspSync(b)                           # (the server formats the text as it is now, not as it was last sent)
     discard s.lspRequest("textDocument/formatting", %*{"textDocument": b.docId,
       "options": {"tabSize": b.indentW(), "insertSpaces": b.indent != "\t"}},
-      LspReq(kind: lrFormat, bufId: b.id))
+      LspReq(kind: lrFormat, bufId: b.id, version: b.changeId))
     return
   if bk in ["markdown", "css", "scss", "c", "cpp", "yaml", "toml", "html", "sql"]:
     builtin(b)

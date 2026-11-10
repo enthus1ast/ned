@@ -39,6 +39,8 @@ def main():
     if args != ['--list'] and not os.access(nedbin, os.X_OK):
         print('no ned binary at %s — build it first: nimble release' % nedbin); return 2
     tmp = tempfile.mkdtemp(prefix='ned-ui-')
+    # (on GitHub's runners ned --lint would write annotations, not path:line:col: the tests ask for them by name)
+    os.environ.pop('GITHUB_ACTIONS', None)
     os.environ['NED_TEST_TMP'] = tmp
     os.environ.setdefault('NED_UPDATE_URL', tmp + '/no-release.json')   # (no look on GitHub for a newer ned)
     os.environ['NEDBIN'] = os.path.abspath(nedbin)

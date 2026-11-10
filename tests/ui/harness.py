@@ -53,6 +53,11 @@ def need(*tools):
                 missing.append('Nim 2.4 or newer (NED_TEST_NIM24: its bin folder)')
         elif t == 'dictionary':
             if not spell_dict(): missing.append('an en_US hunspell dictionary')
+        elif t == 'js-debug':
+            # (vscode-js-debug where ned's install command puts it, or its adapter on PATH)
+            if not (which('js-debug-adapter') or os.path.exists(os.path.expanduser(
+                    '~/.local/share/js-debug/src/dapDebugServer.js'))):
+                missing.append('vscode-js-debug (~/.local/share/js-debug)')
         elif not which(t):
             missing.append(t)
     if missing: raise Skip('needs ' + ', '.join(missing))
@@ -226,6 +231,47 @@ def ned_source():
                 if f.endswith('.nim'): out.append(open(os.path.join(root, f)).read())
         open(p, 'w').write('\n'.join(out))
     return p
+
+def usr_bin_without(*names):
+    """a folder with what /usr/bin (and /bin, when it is another folder) holds but the programs whose names start with
+    one of `names`, for PATH: a tool a test needs missing though the machine has it (GitHub's runners have gh and
+    clangd in /usr/bin)"""
+    d = TMP + '/without-' + '-'.join(names)
+    if not os.path.isdir(d):
+        os.makedirs(d)
+        for base in ['/usr/bin', '/bin']:
+            if base == '/bin' and os.path.realpath('/bin') == os.path.realpath('/usr/bin'): continue
+            for x in os.listdir(base):
+                if not any(x.startswith(n) for n in names) and not os.path.lexists(d + '/' + x):
+                    try: os.symlink(base + '/' + x, d + '/' + x)
+                    except OSError: pass
+    return d
+
+WEB_SERVERS = ['vscode-html-language-server', 'vscode-css-language-server', 'vscode-json-language-server',
+               'sql-language-server', 'sqls']
+
+def path_without(*names):
+    """the tests' PATH without the programs named (prettier, a language server …), though the machine has them: a
+    folder that holds one is replaced by a folder of links to the rest of it"""
+    out = []
+    for i, d in enumerate((TOOLS + ':' + os.environ.get('PATH', '/usr/bin:/bin')).split(':')):
+        if not d or not os.path.isdir(d): continue
+        if not any(os.path.exists(os.path.join(d, s)) for s in names):
+            out.append(d)
+            continue
+        c = '%s/without/%s/%d' % (TMP, '-'.join(sorted(names)), i)
+        if not os.path.isdir(c):
+            os.makedirs(c)
+            for f in os.listdir(d):
+                if f not in names: os.symlink(os.path.join(d, f), os.path.join(c, f))
+        out.append(c)
+    return ':'.join(out)
+
+def no_web_servers(*more):
+    """the tests' PATH without the HTML, CSS, JSON and SQL language servers (and the programs named in `more`), for
+    the tests of ned's own engine for those languages (web.engine auto leaves them to a server that is installed, as
+    on GitHub's runners), or a test that a server's messages would disturb"""
+    return path_without(*(WEB_SERVERS + list(more)))
 
 def no_nim_dir():
     """a PATH folder with nim, nimble and nimsuggest but no testament or inim"""

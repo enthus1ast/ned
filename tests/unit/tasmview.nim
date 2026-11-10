@@ -101,6 +101,23 @@ suite "clang on macOS (Mach-O)":
       if "mul" in l.text: mulLine = l.src
     check mulLine == 1
     for l in r.lines: check "debug_abbrev" notin l.text and ".byte" notin l.text
+  test "clang's own labels (Ltmp0, LBB0_2) are no functions; code inlined from the system at the program's line":
+    # (Nim 2.4 on an arm64 Mac: num * num is nimMulInt of system/integerops.nim, inlined — its .loc there, and
+    # clang's comment says where it was inlined)
+    const MachOInl = "\t.section\t__TEXT,__text,regular,pure_instructions\n" &
+      "\t.file\t5 \"/w\" \"ex.nim\"\n__ZN2ex6squareE3int:                    ; @_ZN2ex6squareE3int\n" &
+      "Lfunc_begin0:\n\t.loc\t5 1 0                           ; ex.nim:1:0\n\tmov\tx8, x0\nLtmp0:\n" &
+      "\t.file\t6 \"/n\" \"lib/system/integerops.nim\"\n" &
+      "\t.loc\t6 94 45 prologue_end            ; lib/system/integerops.nim:94:45 @[ ex.nim:2:7 ]\n" &
+      "\tmul\tx0, x0, x0\nLtmp1:\n\t.loc\t6 96 7                          ; lib/system/integerops.nim:96:7\n" &
+      "\tb.hi\tLBB0_2\n\tret\nLBB0_2:\n\tbl\t_raiseOverflow\n"
+    let r = parseGas(MachOInl, "/w/ex.nim", AllFilters)
+    check r.functions == @["square"]
+    var mulAt = (-2, "")
+    for l in r.lines:
+      if l.text.strip.startsWith("mul"): mulAt = (l.src, l.fn)
+    check mulAt == (1, "square")
+    for l in r.lines: check "Ltmp" notin l.text and "Lfunc_begin" notin l.text
 
 suite "names, instructions, registers":
   test "Nim's names as Nim writes them":

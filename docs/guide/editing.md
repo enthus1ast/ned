@@ -15,6 +15,10 @@ also in the **Edit** menu and the palette (Ctrl+E). With vim, Emacs or Helix key
   block, the block with its header, the whole declaration (with the comments above it) and the file;
   Alt+Shift+← goes back a step. It goes by brackets, quotes and indentation, so it works in every language.
 - **Copy and cut with nothing selected** take the whole line, and paste puts it back as a line.
+- **Copying by touch** (Termux): a double tap selects a word, a triple tap the whole line — a long one too, all of
+  its rows — and while something is selected, **⧉ Copy** in the status bar puts it on Android's clipboard as it is
+  in the file. Termux's own long press copies what the screen shows instead: a long line comes with a line break
+  where it wraps, and the ↪ and the line numbers.
 - **Jump labels** (Alt+Shift+J): a letter appears over every word on the screen; type it to go there.
 - **Bookmarks**: Alt+' marks the line (a sign in the gutter), Alt+; and Alt+: go to the next and the one before,
   *Bookmarks: list…* shows them all. They are kept with the folder's session.

@@ -314,12 +314,13 @@ proc lspHandle(s: LspServer, m: JsonNode) =
     of lrRename: previewWorkspaceEdit(s, res, req.extra, req.extra2)
     of lrFormat:
       let b = bufById(req.bufId)
-      if b != nil and res != nil and res.kind == JArray:
+      if b != nil and b.changeId != req.version:
+        # (changed while the server worked: its edits are for the text it was given, they would land in the wrong place)
+        info("Not formatted: the file changed while " & s.name & " formatted it — format it again")
+      elif b != nil and res != nil and res.kind == JArray:
         # applied as a line diff, so the cursor and the view stay on the code you were at
         var edits: seq[(Pos, Pos, string)]
-        for e in res:
-          edits.add (fromLspPos(s, b, e{"range", "start"}), fromLspPos(s, b, e{"range", "end"}),
-                     e{"newText"}.getStr.replace("\r\n", "\n"))
+        for e in res: edits.add lspEditOf(s, b, e)
         if edits.len > 0: b.setTextMinimal(b.textWithEdits(edits))
         info("Formatted (" & s.name & ")")
     of lrSymbols:

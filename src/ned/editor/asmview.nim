@@ -134,7 +134,24 @@ proc parseGas*(text, mainPath: string, f: AsmFilters): AsmResult =
   var curFn = ""
   let mainN = normalizedPath(mainPath)
   let mainBase = extractFilename(mainPath)
+  proc isMain(p: string): bool =
+    ## is the path (as a `.file` or a comment names it) the program's file?
+    let pn = normalizedPath(p)
+    pn == mainN or (not p.isAbsolute and extractFilename(p) == mainBase) or
+      (pn.endsWith("/" & mainBase) and mainN.endsWith(pn))
+  proc inlinedAt(t: string): (string, int) =
+    ## where clang's comment on a `.loc` says the code was inlined, the outermost place ("… @[ a.nim:3:1 @[ ex.nim:2:7
+    ## ] ]" — the last): (its file, its line); ("", 0) when it says none
+    let k = t.rfind("@[ ")
+    if k < 0: return ("", 0)
+    var e = k + 3
+    while e < t.len and t[e] notin {' ', ']'}: inc e
+    let parts = t[k + 3 ..< e].rsplit(':', maxsplit = 2)
+    if parts.len < 3: return ("", 0)
+    try: result = (parts[0], parseInt(parts[1]))
+    except ValueError: result = ("", 0)
   var arm = false
+  var machO = false                  # (clang on macOS: Mach-O sections, its own labels start with L)
   let allLines = text.splitLines
   result.total = allLines.len
   for raw0 in allLines:
@@ -143,7 +160,10 @@ proc parseGas*(text, mainPath: string, f: AsmFilters): AsmResult =
     if t.len == 0: continue
     let lab = labelOf(raw)
     if lab.len > 0:
-      if section == 0 and (lab in fnTypes or not lab.startsWith(".")): curFn = lab
+      # (a function's name — not a label of the assembler's own: .L5 here, and on macOS every name without the `_`
+      # C names have there: Ltmp0, LBB0_2, Lfunc_begin0)
+      let local = lab.startsWith(".") or (machO and not lab.startsWith("_"))
+      if section == 0 and (lab in fnTypes or not local): curFn = lab
       raws.add Raw(t: lab & ":", kind: akLabel, src: -1, fn: curFn, section: section, label: lab)
       continue
     if t.startsWith("#") or t.startsWith("//") or (arm and t.startsWith("@")) or t.startsWith(";"):
@@ -166,10 +186,7 @@ proc parseGas*(text, mainPath: string, f: AsmFilters): AsmResult =
           if n == 0 and q.len >= 1: compDir = q[0]
           if not p.isAbsolute and compDir.len > 0: p = compDir / p
           files[n] = p
-          let pn = normalizedPath(p)
-          if pn == mainN or (not p.isAbsolute and extractFilename(p) == mainBase) or
-             (pn.endsWith("/" & mainBase) and mainN.endsWith(pn)):
-            mainFiles.incl n
+          if isMain(p): mainFiles.incl n
       of ".loc":
         let ps = args.split({' ', '\t'})
         var n, ln: int
@@ -178,6 +195,12 @@ proc parseGas*(text, mainPath: string, f: AsmFilters): AsmResult =
           ln = parseInt(ps[1])
         except CatchableError: continue
         curSrc = if n in mainFiles and ln > 0: ln - 1 else: -1
+        if curSrc < 0:
+          # code of another file inlined into the program's — Nim's nimMulInt into `num * num` (clang on macOS):
+          # the line of the program it is inlined at, from clang's comment "… @[ ex.nim:2:7 ]"
+          let (f, l) = inlinedAt(t)
+          if l > 0 and isMain(f): curSrc = l - 1
+      of ".build_version", ".macosx_version_min", ".ios_version_min": machO = true
       of ".text": section = 0
       of ".data", ".bss": section = 1
       of ".section", ".pushsection":
@@ -185,6 +208,7 @@ proc parseGas*(text, mainPath: string, f: AsmFilters): AsmResult =
         # (Mach-O, clang on macOS: a segment and a section — __TEXT,__text is the code, __TEXT,__cstring or
         # __DATA,__data the data, __DWARF … never shown)
         let machSect = if nm.startsWith("__"): args.split({','})[min(1, args.split({','}).high)].strip else: ""
+        if nm.startsWith("__"): machO = true
         section = if nm == "__TEXT" and machSect == "__text": 0
                   elif nm in ["__TEXT", "__DATA", "__DATA_CONST"] and machSect in
                        ["__cstring", "__const", "__literal4", "__literal8", "__literal16", "__data", "__bss",

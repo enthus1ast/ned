@@ -226,6 +226,22 @@ Under load (a build running, a busy CI machine) timing-sensitive UI tests fail a
 expect with `wait_for` and `wait_until` rather than sleeping; run a failed test alone before calling it a bug. The first
 `tests/perf/rounds.py` after a build can be slow (cold caches): run it again.
 
+### What the machine has
+
+A test passes or fails by what is installed. GitHub's runners have clangd, gh, the HTML, CSS, JSON and SQL language
+servers, Nim 2.4 and the newest git; your machine may have none of them, or prettier and an older git. A test of
+ned's own engine or of a tool missing starts ned without the others (`path_without`, `no_web_servers`,
+`usr_bin_without` in `tests/ui/harness.py`); a test of a server says it `need`s it. Run a test that fails only on
+GitHub with the runner's tools first: Nim 2.4 on PATH, `NED_TEST_PATH` at the language servers, `GITHUB_ACTIONS=true`
+(the runner takes it out, as GitHub sets it). With `NED_UI_FULL=1`, which CI sets, a failure's whole screen is in the
+log.
+
+### Other programs change their words
+
+ned reads what git, nimble and compilers print. git 2.56 quotes the end of a bisect (`is the first 'bad' commit`), and
+ned missed it; clang on macOS names its own labels `Ltmp0`, not `.L0`. Read both the old and the new wording, and
+test with the newest version of the tool as well (building git from its source takes a few minutes).
+
 ### The fuzzer as root
 
 Random keys can save files anywhere ned may write. As root the fuzzer refuses to start without a throwaway user

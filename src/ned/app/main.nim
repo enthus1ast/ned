@@ -526,6 +526,7 @@ proc mainLoop() =
             let why = lspDeathReason(s)
             if n >= 3:
               lspFailed.incl s.langId
+              webChkAt.clear()      # (ned's own CSS, HTML, SQL checks take its place: found again for the text as it is)
               warn(s.name & " keeps exiting" & (if s.langId == "nim" and haveExe("nimsuggest"):
                      " — using the built-in nimsuggest client instead" else: " — disabled") &
                    (if why.len > 0: " (" & truncTo(why, 90) & ")" else: "") & " · palette: Restart language server")

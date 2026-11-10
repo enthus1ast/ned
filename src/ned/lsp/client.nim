@@ -156,7 +156,9 @@ proc lspInstallCmd(exe: string): string =
   of "intelephense": npmPre & "npm install -g intelephense"
   of "csharp-ls": (if haveExe("dotnet"): "dotnet tool install --global csharp-ls" else: "")
   of "sqls": (if haveExe("go"): "go install github.com/sqls-server/sqls@latest" else: "")
-  of "sql-language-server": npmPre & "npm install -g sql-language-server"
+  # (sql-language-server: what npm installs today does not start — a library it takes the newest of moved its files —
+  # so it is not offered; ned's own SQL answers)
+  of "sql-language-server": ""
   of "kotlin-lsp", "kotlin-language-server": (if haveExe("brew"): "brew install kotlin-language-server" else: "")
   of "vscode-css-language-server", "vscode-json-language-server", "vscode-html-language-server":
     npmPre & "npm install -g vscode-langservers-extracted"
@@ -715,14 +717,29 @@ var
   docHl: tuple[bufId, change: int, pos: Pos, ranges: seq[(Pos, Pos)]]   # the language server's highlights
   typeHier: tuple[name: string, items: seq[PickItem], waiting: int]
 
+proc lspEditOf(s: LspServer, b: Buffer, e: JsonNode): (Pos, Pos, string) =
+  ## one LSP text edit as positions in the buffer and its new text. The server was given the text with its last line
+  ## end (b.allText & "\n"), so a position on the line after the last is the end of that text: the end of the last
+  ## line, past its line end — what the edit puts there comes after that line end, and a line end it finishes with
+  ## is the one the buffer keeps apart (a formatter replacing the whole file: its last line not left over)
+  var t = e{"newText"}.getStr.replace("\r\n", "\n")
+  let sj = e{"range", "start"}
+  let ej = e{"range", "end"}
+  let eob = Pos(line: b.lines.high, col: b.lines[^1].len)
+  let startPast = sj != nil and sj{"line"}.getInt > b.lines.high
+  let endPast = ej != nil and ej{"line"}.getInt > b.lines.high
+  let a = if startPast: eob else: fromLspPos(s, b, sj)
+  let c = if endPast: eob else: fromLspPos(s, b, ej)
+  if startPast: t = "\n" & t                   # (after the last line end: on a line of its own)
+  if endPast and t.endsWith("\n"): t.setLen(t.len - 1)
+  (a, c, t)
+
 proc applyTextEdits(s: LspServer, b: Buffer, edits: JsonNode) =
   ## applies a list of LSP text edits to the buffer as one undo step, the last in the text first so that the earlier
   ## positions still hold
   if edits == nil or edits.kind != JArray: return
   var list: seq[(Pos, Pos, string)]
-  for e in edits:
-    list.add (fromLspPos(s, b, e{"range", "start"}), fromLspPos(s, b, e{"range", "end"}),
-              e{"newText"}.getStr.replace("\r\n", "\n"))
+  for e in edits: list.add lspEditOf(s, b, e)
   list.sort(proc(x, y: (Pos, Pos, string)): int =
     if x[0] < y[0]: 1 elif y[0] < x[0]: -1 else: 0)
   b.beginEdit()
