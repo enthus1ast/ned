@@ -631,12 +631,13 @@ proc aiLine(line: string) =
   try: j = parseJson(data)
   except CatchableError: return
   if aiInlineMode:
-    let r = if cfgAiProvider == "anthropic": j{"delta", "thinking"}.getStr
-            elif aiRespApi: (if j{"type"}.getStr in ["response.reasoning_summary_text.delta", "response.reasoning_text.delta"]:
-                               j{"delta"}.getStr else: "")
-            elif j{"choices"} != nil and j["choices"].kind == JArray and j["choices"].len > 0:
-              aiDeltaThought(j["choices"][0]{"delta"})
-            else: ""
+    var r = ""                           # (the thinking in this piece, if the model thinks)
+    if cfgAiProvider == "anthropic": r = j{"delta", "thinking"}.getStr
+    elif aiRespApi:
+      if j{"type"}.getStr in ["response.reasoning_summary_text.delta", "response.reasoning_text.delta"]:
+        r = j{"delta"}.getStr
+    elif j{"choices"} != nil and j["choices"].kind == JArray and j["choices"].len > 0:
+      r = aiDeltaThought(j["choices"][0]{"delta"})
     aiInlineThink.add r
     let t = if cfgAiProvider == "anthropic": j{"delta", "text"}.getStr
             elif aiRespApi: (if j{"type"}.getStr == "response.output_text.delta": j{"delta"}.getStr else: "")

@@ -3,7 +3,9 @@
 ## a string of a tool call's arguments while the call is still being written (its JSON not whole yet); and how many
 ## words a text has, without splitting it. Run its tests: nim r tests/unit/tstreamparts.nim
 
-import std/[strutils, unicode]
+import std/strutils
+from std/unicode import Rune, toUTF8   # (only these: all of unicode would make strutils' splitWhitespace ambiguous where
+                                       # ned is merged into one file)
 
 type ThinkSplit* = object
   ## splits a streamed answer into its thinking and the answer: give it each piece with `feed`, then `finish`

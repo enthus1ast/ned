@@ -55,6 +55,11 @@ The UI test `t_521_format_self` merges all of ned — every included file and ev
 same name at the top level (a proc with the same parameters, a type, a variable or constant), even a private one,
 compile on their own but clash in the merged file. Give helpers names with the module's prefix.
 
+The same goes for what a module imports: all of `std/unicode` beside `std/strutils` makes `splitWhitespace`
+ambiguous in the merged file. Import only what is used (`from std/unicode import Rune, toUTF8`). And the formatter
+must format the merged file as well: when it refuses ("would change the block structure"), the new code has a shape
+it gets wrong. That is a formatter bug to report, and meanwhile the code is written more plainly.
+
 The merging understands the shapes the source uses: `include x` at the left margin, `import` lists of ned's own
 modules (a list may go on to the next line after a trailing comma), `export` lists, `staticRead("file")` next to the
 source, and `currentSourcePath().parentDir`, `.plugSrcUp(n)` and `.nxSrcUp` to find files at compile time. A new way of
