@@ -100,6 +100,14 @@ proc vimYank(text: string, linewise: bool) =
     clipLineMode = linewise
 
 
+const vimBlank = {' ', '\t', '\0', '\x0b', '\x0c', '\r', '\n'}   # (vim's iswhite(): what ^ and gg/G skip)
+
+func vimCharClass(c: char): int {.inline.} =
+  ## vim's class of a character for its word motions: 0 a blank (vim's iswhite()), 1 a character of a word, 2
+  ## punctuation. The editor's own charClass counts only a space and a tab as blanks, which is right for its word moves
+  ## and not for vim's (a leading tab is blank, not punctuation, so `w` crosses it)
+  if c in vimBlank: 0 elif isWordByte(c): 1 else: 2
+
 proc nextWordStart(b: Buffer, p: Pos, big: bool): Pos =
   ## vim's w / W: leaves the run of characters of the same class (any non-blank for a WORD) under the position, skips
   ## blanks and line breaks, and stops at the next word's start — or on an empty line
@@ -107,11 +115,11 @@ proc nextWordStart(b: Buffer, p: Pos, big: bool): Pos =
   var c = p.col
   let s0 = b.lines[l]
   if c < s0.len:
-    let cls = if big: (if s0[c] in {' ', '\t'}: 0 else: 1) else: charClass(s0[c])
-    while c < s0.len and (if big: (if s0[c] in {' ', '\t'}: 0 else: 1) else: charClass(s0[c])) == cls and cls != 0: inc c
+    let cls = if big: (if s0[c] in vimBlank: 0 else: 1) else: vimCharClass(s0[c])
+    while c < s0.len and (if big: (if s0[c] in vimBlank: 0 else: 1) else: vimCharClass(s0[c])) == cls and cls != 0: inc c
   while true:
     let s = b.lines[l]
-    while c < s.len and s[c] in {' ', '\t'}: inc c
+    while c < s.len and s[c] in vimBlank: inc c
     if c < s.len: return Pos(line: l, col: c)
     if l >= b.lines.high: return Pos(line: l, col: s.len)
     inc l
@@ -125,7 +133,7 @@ func prevWordStart(b: Buffer, p: Pos, big: bool): Pos =
   var c = min(p.col, b.lines[l].len) - 1
   while true:
     let s = b.lines[l]
-    while c >= 0 and s[c] in {' ', '\t'}: dec c
+    while c >= 0 and s[c] in vimBlank: dec c
     if c >= 0:
       let cls = if big: 1 else: charClass(s[c])
       while c > 0 and (if big: (if s[c - 1] in {' ', '\t'}: 0 else: 1) else: charClass(s[c - 1])) == cls: dec c
@@ -141,10 +149,10 @@ proc wordEnd(b: Buffer, p: Pos, big: bool): Pos =
   var c = p.col + 1
   while true:
     let s = b.lines[l]
-    while c < s.len and s[c] in {' ', '\t'}: inc c
+    while c < s.len and s[c] in vimBlank: inc c
     if c < s.len:
-      let cls = if big: 1 else: charClass(s[c])
-      while c + 1 < s.len and (if big: (if s[c + 1] in {' ', '\t'}: 0 else: 1) else: charClass(s[c + 1])) == cls: inc c
+      let cls = if big: 1 else: vimCharClass(s[c])
+      while c + 1 < s.len and (if big: (if s[c + 1] in vimBlank: 0 else: 1) else: vimCharClass(s[c + 1])) == cls: inc c
       return Pos(line: l, col: c)
     if l >= b.lines.high: return Pos(line: l, col: max(0, s.len - 1))
     inc l
@@ -153,7 +161,6 @@ proc wordEnd(b: Buffer, p: Pos, big: bool): Pos =
 # the position of the first character of the line that is not a space or tab (the line's end for a blank line)
 func firstNonBlank(b: Buffer, l: int): Pos = Pos(line: l, col: leadingWs(b.lines[l]).len)
 
-const vimBlank = {' ', '\t', '\0', '\x0b', '\x0c', '\r', '\n'}   # (vim's iswhite(): what ^ and gg/G skip)
 
 proc firstNonBlankVim(b: Buffer, l: int): Pos =
   ## vim's first non-blank: a space, a tab, a form feed, a vertical tab and a carriage return are blanks there (ned's

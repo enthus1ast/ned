@@ -102,9 +102,9 @@ class Ned:
         return self
 
     def dialog_open(self):
-        """whether a prompt or a picker is on the screen — a case's keys would go there instead of the editor"""
+        """whether Go to line's prompt is still open — its keys would go there instead of the editor"""
         s = self.h['screen']()
-        return '╭─' in s or 'Type a line number' in s
+        return 'Go to line' in s or 'Type a line number' in s
 
     def goto(self, line, col):
         """the cursor at a line and a column, both from 1, as vim counts them — with Go to line (a dialog, ~0.6 s, so a
