@@ -1,6 +1,6 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-643). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-6431). Older releases:
 
 ## What's new in 6.42.1
 

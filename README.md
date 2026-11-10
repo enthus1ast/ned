@@ -24,7 +24,7 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## Contents
 
-- [What's new in 6.43](#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.43.1](#whats-new-in-6431) · [6.43](#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -32,6 +32,28 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 - [Contributing](#contributing)
 
 ---
+
+## What's new in 6.43.1
+
+**Copying a long line in Termux.** Termux's long press copies what the screen shows, so a line too long for it came
+with a line break where it wraps, and pasted into the shell the command failed. Select in ned instead — a triple
+tap takes the whole line — and **⧉ Copy** in the status bar puts it on the clipboard as it is in the file. The FAQ
+also says what to do when swiping no longer scrolls after Android ended ned.
+
+**Formatting with a language server.** With the HTML or CSS server (and any server that replaces the whole file),
+the file's old last line was left at the end of the formatted text. It no longer is, and a file you change while
+the server formats it is left alone.
+
+**Bisect with a recent git.** git 2.56 words the end of a bisect differently, and ned did not see that it had found
+the commit. It does now, with every git.
+
+**ned's own checks where a server is installed but does not do them.** `ned --lint` checks the HTML, CSS and SQL in
+strings even when their language servers are installed (none runs during the lint, so nothing checked them). A
+server that keeps exiting is turned off and ned's own checks take its place. sql-language-server is no longer
+offered: what npm installs of it today does not start.
+
+**The assembly view on macOS.** clang's own labels are no longer taken for functions, so each function is shown
+whole, and what Nim's overflow checks inline into a line shows under that line.
 
 ## What's new in 6.43
 
@@ -214,7 +236,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or a ready-made package,
-`pkg install ./ned_6.43.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
+`pkg install ./ned_6.43.1_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
 `nimble termuxdeb` makes it on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
