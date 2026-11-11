@@ -35,7 +35,10 @@ SIMPLE = [('x', (1, 1)), ('X', (1, 5)), ('xx', (1, 1)), ('dd', (1, 1)), ('2dd', 
           ('Y P', (1, 1)), ('D', (1, 5)), ('C', (1, 5)), ('s', (1, 1)), ('S', (2, 1)), ('A', (1, 1)),
           ('I', (2, 1)), ('a', (1, 1)), ('i', (1, 1)), ('o', (1, 1)), ('O', (2, 1)), ('J', (1, 1)),
           ('r Z', (1, 1)), ('~', (1, 1)), ('>>', (1, 1)), ('<<', (4, 1)), ('vip d', (1, 1)), ('V d', (1, 1)),
-          ('dw .', (1, 1)), ('i hello', (1, 1)), ('a hello', (1, 1))]
+          ('dw .', (1, 1)), ('i hello', (1, 1)), ('a hello', (1, 1)),
+          # (visual-line takes whole lines, its own line included — the last line of the selection is not left out when
+          # the head stands at its start: `G` `k` `V` `j` `>` indents two lines, not one)
+          ('G k V j >', (1, 1)), ('G V k >', (1, 1)), ('V j >', (1, 1))]
 
 ESC = '\x1b'          # (every edit ends in normal mode: what is typed leaves insert mode)
 TAB = 4               # (how wide a tab is drawn: ned's default and the oracle's `tabstop`, so a display column is the

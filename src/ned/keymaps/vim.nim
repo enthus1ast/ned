@@ -441,7 +441,10 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
     # character of the line)
     let want = a0.minP(e0)
     let vcol = b.visColAt(want.line, want.col) + 1
-    b.setSingle(Pos(line: e0.line, col: 0), Pos(line: a0.line, col: 0))
+    # (the lines the widened range covers, both ends included: the selection must not end at column 0 of a line, which
+    # the editor reads as "that line is not selected" — `V` `j` `>` on the last two lines of the file)
+    let lastL = (if linewise and e.col == 0 and e.line > a.line: e.line - 1 else: e.line)
+    b.setSingle(Pos(line: lastL, col: max(0, b.lines[lastL].len - 1)), Pos(line: a.line, col: 0))
     b.indentLines(if op == ">": 1 else: -1)
     let line = if linewise: min(a0.line, e0.line) else: want.line
     b.setSingle(b.clampNormal(Pos(line: line, col: b.colAtVis(line, vcol))))

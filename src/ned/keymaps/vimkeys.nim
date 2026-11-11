@@ -457,10 +457,13 @@ proc vimKey(k: Key): bool =
   let m = b.vimMotion($ch, count, p)
   if m.ok and ch notin {'d', 'c', 'y'}:
     if visual:
-      b.cursors[b.prim].head = m.p
-      if vimMode == vmVLine:
-        let anc = b.cursors[b.prim].anchor
-        discard anc
+      # (visual-line takes whole lines: the head stands on the last character of the line it is on, so that the line is
+      # inside the selection by the editor's own rule — a head at column 0 would leave that line out, and `V` `j` `>`
+      # would not indent the line the cursor is on)
+      b.cursors[b.prim].head = if vimMode == vmVLine:
+                                 let l = m.p.line
+                                 Pos(line: l, col: max(0, b.lines[l].len - 1))
+                               else: m.p
     else:
       var np = m.p
       if m.keepCol:
@@ -524,7 +527,9 @@ proc vimKey(k: Key): bool =
     if vimMode == vmVLine: vimSetMode(vmNormal)
     else:
       vimSetMode(vmVLine)
-      b.setSingle(p)
+      # (the head on the line's last character: visual-line takes whole lines, and a head at column 0 would leave its
+      # own line out of the selection — see the plain motions above)
+      b.setSingle(Pos(line: p.line, col: max(0, b.lines[p.line].len - 1)))
   of 'x', 'X', 's', 'S', 'C', 'D', 'Y':
     if visual and ch == 'S':
       vimPending = "S"                    # (vim-surround: S{char} puts a pair around the selection)
