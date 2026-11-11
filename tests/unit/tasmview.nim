@@ -165,9 +165,28 @@ suite "a real program (nim and a C compiler at hand)":
       let r = parseGas(readFile(dir / "ex.s"), dir / "ex.nim", AllFilters)
       check "square" in r.functions
       var mulOnLine2 = false
+      var seen: seq[string]                            # (what the view made of square, said when it fails)
       for l in r.lines:
         let mnemonic = l.text.strip.split({' ', '\t'})[0]
         if l.fn == "square" and mnemonic in ["imul", "mul", "madd"] and l.src == 1: mulOnLine2 = true
+        if l.fn == "square": seen.add $l.src & " " & l.text.strip
+      if not mulOnLine2:
+        checkpoint "square: " & seen.join(" | ")
+        for x in readFile(dir / "ex.s").splitLines:
+          if x.strip.startsWith(".file") or "square" in x or ".loc" in x and "ex.nim" in x: checkpoint x
       check mulOnLine2
       check r.lines.len < r.total div 4               # (most of it is the runtime and the debug info)
+      # the program's folder by a symbolic link (macOS's /var is /private/var, Termux's /sdcard another folder): the
+      # compiler names the file by its real path, the editor by the link — still the program's lines
+      when defined(posix):
+        let link = dir & "-link"
+        removeFile(link)
+        createSymlink(dir, link)
+        let r2 = parseGas(readFile(dir / "ex.s"), link / "ex.nim", AllFilters)
+        var onLine2 = false
+        for l in r2.lines:
+          if l.fn == "square" and l.text.strip.split({' ', '\t'})[0] in ["imul", "mul", "madd"] and l.src == 1:
+            onLine2 = true
+        check onLine2
+        removeFile(link)
       removeDir(dir)

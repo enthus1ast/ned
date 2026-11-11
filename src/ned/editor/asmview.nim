@@ -134,11 +134,16 @@ proc parseGas*(text, mainPath: string, f: AsmFilters): AsmResult =
   var curFn = ""
   let mainN = normalizedPath(mainPath)
   let mainBase = extractFilename(mainPath)
+  let mainReal = try: expandFilename(mainPath) except OSError: mainN
   proc isMain(p: string): bool =
-    ## is the path (as a `.file` or a comment names it) the program's file?
+    ## is the path (as a `.file` or a comment names it) the program's file? Also through a symbolic link: on macOS
+    ## /var is /private/var, and the compiler may name the file by one, the editor by the other
     let pn = normalizedPath(p)
-    pn == mainN or (not p.isAbsolute and extractFilename(p) == mainBase) or
-      (pn.endsWith("/" & mainBase) and mainN.endsWith(pn))
+    if pn == mainN or (not p.isAbsolute and extractFilename(p) == mainBase) or
+       (pn.endsWith("/" & mainBase) and mainN.endsWith(pn)):
+      return true
+    extractFilename(p) == mainBase and p.isAbsolute and fileExists(p) and
+      (try: expandFilename(p) == mainReal except OSError: false)
   proc inlinedAt(t: string): (string, int) =
     ## where clang's comment on a `.loc` says the code was inlined, the outermost place ("… @[ a.nim:3:1 @[ ex.nim:2:7
     ## ] ]" — the last): (its file, its line); ("", 0) when it says none

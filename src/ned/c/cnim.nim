@@ -22,6 +22,7 @@ type CnCtx = object
   opaque: seq[string]                  # names used but declared by no one here: declared opaque
   known: HashSet[string]               # C type names this header declares
   anonN: int
+  constCallback: bool                  # a pointer to a function takes a const pointer (Nim's proc type: a plain one)
 
 func cnNorm(s: string): string =
   ## Nim's identity of a name: its first letter as it is, the rest without case and underscores
@@ -148,6 +149,7 @@ proc cnFnPtr(cx: var CnCtx, ret, params: string): string =
       continue
     let (n, t) = cx.cnParamOf(p, i)
     ps.add n & ": " & (if t.len > 0: t else: "pointer")
+    if "const" in p and '*' in p: cx.constCallback = true
   let r = cx.cnType(ret)
   "proc (" & ps.join(", ") & ")" & (if r.len > 0: ": " & r else: "") & " {.cdecl" & (if va: ", varargs" else: "") & ".}"
 
@@ -466,6 +468,11 @@ proc cxNimBindings*(f: CxFile, headerPath, headerSpec: string): (string, int) =
     out0.add ""
     out0.add "const " & cx.hdr & " = currentSourcePath().parentDir() / \"" & headerSpec & "\""
   out0.add "# {.passL: \"-l" & stem & "\".}   # (the library these functions are in, when they are not compiled in)"
+  if cx.constCallback:
+    # (`const void *` in a callback is `pointer` here: clang 16 and gcc 14 refuse a Nim proc for it unless told)
+    out0.add "when defined(gcc) or defined(clang):"
+    out0.add "  # (a callback's const pointers are plain ones in Nim: the C compiler is told they are the same)"
+    out0.add "  {.passC: \"-Wno-incompatible-function-pointer-types -Wno-incompatible-pointer-types\".}"
   out0.add ""
   if types.len > 0 or opaqueDecl.len > 0:
     out0.add "type"

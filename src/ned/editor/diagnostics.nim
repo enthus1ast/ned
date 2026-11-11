@@ -8,7 +8,8 @@ proc diagText(d: Diag, path: string): string =
   else: d.msg.splitLines()[0]
 
 proc lspAndBuildDiags(path: string): seq[Diag] =
-  ## the language server's problems and those of the last build or check; one the two both report shows once
+  ## the language server's problems and those of the last build or check; one the two both report shows once, and so
+  ## does one ned's own CSS, HTML or SQL engine finds where the server does
   result = diagsLsp.getOrDefault(path)
   let fromServer = result.len
   if fromServer > 0 and path in diagsBuild and diagsBuild[path].len > 0:
@@ -27,7 +28,24 @@ proc lspAndBuildDiags(path: string): seq[Diag] =
   for d in diagsFfi.getOrDefault(path): result.add d
   for d in diagsTest.getOrDefault(path): result.add d
   for d in diagsExt.getOrDefault(path): result.add d
-  for d in diagsWeb.getOrDefault(path): result.add d
+  let web = diagsWeb.getOrDefault(path)
+  if web.len > 0 and fromServer > 0:
+    # (ned's own engine beside a language server — web.engine on: a problem both find at the same place shows once,
+    # in ned's words, which name what was meant, kept as the server's, whose fixes Alt+Enter asks it for)
+    var at: Table[(int, int), int]
+    for k in countdown(fromServer - 1, 0): at[(result[k].line, result[k].col)] = k
+    for d in web:
+      let k = at.getOrDefault((d.line, d.col), -1)
+      if k < 0:
+        result.add d
+        continue
+      if result[k].raw.len == 0: result[k].raw = result[k].msg
+      result[k].msg = d.msg
+      result[k].sev = min(result[k].sev, d.sev)
+      if result[k].rule.len == 0: result[k].rule = d.rule
+      if result[k].fixes == nil: result[k].fixes = d.fixes
+  else:
+    for d in web: result.add d
   let em = diagsEmit.getOrDefault(path)
   if em.len > 0:
     var k = 0

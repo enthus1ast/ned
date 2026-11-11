@@ -29,7 +29,7 @@ const
     "bprevious", "bdelete", "buffer", "ls", "tabnew", "tabnext", "tabprevious", "tabclose", "new", "vnew", "split",
     "vsplit", "only", "set", "setlocal", "colorscheme", "nohlsearch", "substitute", "global", "vglobal", "sort",
     "delete", "yank", "move", "copy", "join", "undo", "redo", "cnext", "cprevious", "copen", "Explore", "terminal",
-    "make", "run", "zen", "pwd", "registers", "help"]
+    "make", "run", "zen", "pwd", "registers", "help", "suspend", "stop"]
 
 var
   vimGdefault = false       # :set gdefault — :s replaces every match on a line, and g then only the first
@@ -726,6 +726,7 @@ proc vimEx(cmd: string) =
   of "cp", "cprevious", "cN", "cNext": gotoDiag(-1)
   of "copen", "cope", "cw", "cwindow", "cl", "clist": showProblems()
   of "u", "undo": b.undo()
+  of "sus", "suspend", "st", "stop": suspendNed()
   of "red", "redo": b.redo()
   of "h", "help": vimHelp(arg)
   of "pwd": info(rootDir)

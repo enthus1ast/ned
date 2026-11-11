@@ -106,4 +106,15 @@ suite "a C header as Nim":
       if code != 0: echo o
       check code == 0 and o.strip.endsWith("ok")
 
+  test "… with clang too, which refuses a callback whose const pointers differ unless told (macOS's)":
+    if findExe("nim").len == 0 or findExe("clang").len == 0:
+      skip()
+    else:
+      writeFile(dir / "use.nim", Use)
+      let (o, code) = execCmdEx("nim c -r --cc:clang --hints:off --nimcache:" & quoteShell(dir / "cache-clang") & " " &
+                                quoteShell(dir / "use.nim"))
+      if code != 0: echo o
+      check code == 0 and o.strip.endsWith("ok")
+      check "-Wno-incompatible-function-pointer-types" in readFile(dir / "t.nim")
+
   removeDir(dir)

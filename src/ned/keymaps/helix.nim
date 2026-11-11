@@ -123,6 +123,9 @@ proc helixKey(k: Key): bool =
       b.prim = 0
     b.setSingle(b.primary.head)
     return true
+  if k.kind == kChar and k.mods == {mCtrl} and k.ch in [ord('z'), ord('Z')]:
+    suspendNed()                             # (as Helix: back to the shell, fg returns)
+    return true
   # ordinary shortcuts (Ctrl+…, Alt+…, F-keys, arrows) keep working
   if k.kind != kChar or k.mods - {mShift} != {} or k.ch >= 128:
     if k.kind in {kLeft, kRight, kUp, kDown} and k.mods == {}:

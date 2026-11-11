@@ -384,7 +384,9 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
       b.setSingle(if op == "d": b.clampNormal(if linewise: b.firstNonBlank(min(p.line, b.lines.high)) else: p) else: p)
     if op == "c": vimSetMode(vmInsert)
   of ">", "<":
-    b.setSingle(Pos(line: e0.line, col: 0), Pos(line: a0.line, col: 0))
+    # (the range as worked out above — whole lines, up to the start of the line after the last: from the start of the
+    # last line, that line was left out, as a selection ending at a line's start leaves it)
+    b.setSingle(e, a)
     b.indentLines(if op == ">": 1 else: -1)
     b.setSingle(b.firstNonBlank(min(a0.line, e0.line)))
   of "~", "gu", "gU":

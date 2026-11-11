@@ -490,6 +490,7 @@ Every command of the palette (Ctrl+E, or Ctrl+P and `>`), with its key or what i
 | Spell check: where (off · Markdown · also code comments and strings)… |  |
 | Stop running process |  |
 | Surround with… | Alt+Shift+S |
+| Suspend ned (fg brings it back) | Ctrl+Z with the vim, helix and emacs keys |
 | Switch buffer… |  |
 | Tasks: run a task… | Shift+F4 |
 | Tasks: run the last task again | F4 |

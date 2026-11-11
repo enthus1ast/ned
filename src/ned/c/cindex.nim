@@ -1270,8 +1270,14 @@ proc cxPPCond(text: string, look: CxLook, fromDir: string): int =
       while j < raw.len and raw[j] != ")":
         name.add raw[j]
         inc j
-      let found = name.len > 2 and name[0] in {'<', '"'} and t == "__has_include" and cxFindInclude(name, fromDir).len > 0
-      ts.add CxPT(t: (if found: "1" else: "__ned_not_known__"), src: -1)
+      let next = t == "__has_include_next"           # (the folders after this header's, as #include_next looks)
+      let found = name.len > 2 and name[0] in {'<', '"'} and
+                  cxFindInclude((if next: "next" else: "") & name, fromDir).len > 0
+      # (a <header> not in the folders the compiler itself named is not there: macOS's headers ask for ones only
+      # some systems have — `#if __has_include(<ptrcheck.h>)` — and a header that seemed to miss one was not read
+      # whole)
+      let absent = not found and name.len > 2 and name[0] == '<' and cxSysDirs.len > 0
+      ts.add CxPT(t: (if found: "1" elif absent: "0" else: "__ned_not_known__"), src: -1)
       i = j + 1
       continue
     if t.startsWith("__has_") and i + 1 < raw.len and raw[i + 1] == "(":
@@ -3215,6 +3221,16 @@ proc cxParse*(text, path: string, full = true, cpp = false): CxFile =
   var transparent = 0                       # extern "C" { … }: its braces are not a body
   while k < toks.len:
     let t = toks[k]
+    if k == st and t.kind == ctWord and k + 1 < toks.len and toks[k + 1].text == "(" and t.text in cxMNames:
+      # a macro's call alone on its line, at the start of a declaration, not expanded (two #defines in branches not
+      # known: macOS's `_LIBC_SINGLE_BY_DEFAULT()` before `int printf(…);`): a statement of its own — not the
+      # beginning of the declaration after it
+      let e = cxSkipGroup(toks, k + 1)
+      if e > k + 1 and e < toks.len and toks[e].line > toks[e - 1].line and
+         toks[e].text notin ["{", ";", "=", ",", "(", ")", ":"]:
+        k = e
+        st = e
+        continue
     if t.kind == ctPunct and t.text == ";":
       if k > st: parseDecl(st, k)
       st = k + 1

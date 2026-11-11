@@ -90,6 +90,7 @@ proc initCommands() =
   add("Toggle output panel", "Alt+O", togglePanel())
   add("Open shell", "", toggleTerminal())
   add("Open shell full screen (leave ned temporarily)", "", runInTerminal(getEnv("SHELL", "sh"), rootDir, false))
+  add("Suspend ned (fg brings it back)", "Ctrl+Z with the vim, helix and emacs keys", suspendNed())
   add("Toggle file tree", "", toggleTree())
   add("Nim: exports nothing uses…", "", cmdUnusedExports())
   add("Nim: change signature…", "", cmdChangeSignature())

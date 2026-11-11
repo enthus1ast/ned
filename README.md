@@ -24,7 +24,7 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## Contents
 
-- [What's new in 6.43.1](#whats-new-in-6431) · [6.43](#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.44](#whats-new-in-644) · [6.43.1](CHANGELOG.md#whats-new-in-6431) · [6.43](CHANGELOG.md#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -33,51 +33,27 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ---
 
-## What's new in 6.43.1
+## What's new in 6.44
 
-**Copying a long line in Termux.** Termux's long press copies what the screen shows, so a line too long for it came
-with a line break where it wraps, and pasted into the shell the command failed. Select in ned instead — a triple
-tap takes the whole line — and **⧉ Copy** in the status bar puts it on the clipboard as it is in the file. The FAQ
-also says what to do when swiping no longer scrolls after Android ended ned.
+**Ctrl+Z goes back to the shell** with the vim, Helix and emacs keys, as those editors do: ned stops, and `fg` brings
+it back as it was, its terminals still running. `:suspend` does it too. ned's own keys keep Ctrl+Z for undo;
+`"keys": {"ctrl+z": "Suspend ned (fg brings it back)"}` makes it suspend there as well
+([#3](https://github.com/foxoman/ned/issues/3)).
 
-**Formatting with a language server.** With the HTML or CSS server (and any server that replaces the whole file),
-the file's old last line was left at the end of the formatted text. It no longer is, and a file you change while
-the server formats it is left alone.
+**`>` and `<` in vim mode take every line.** With `V` or `v` over lines, a motion (`>j`, `>G`) or a count (`3>>`),
+the last line was left as it was ([#4](https://github.com/foxoman/ned/issues/4)).
 
-**Bisect with a recent git.** git 2.56 words the end of a bisect differently, and ned did not see that it had found
-the commit. It does now, with every git.
+**One problem, once.** With `web.engine` on and a language server for CSS, HTML or SQL, a mistake both of them found
+was listed twice. It is shown once now, in ned's words, which name what was meant, and Alt+Enter still has the
+server's fixes.
 
-**ned's own checks where a server is installed but does not do them.** `ned --lint` checks the HTML, CSS and SQL in
-strings even when their language servers are installed (none runs during the lint, so nothing checked them). A
-server that keeps exiting is turned off and ned's own checks take its place. sql-language-server is no longer
-offered: what npm installs of it today does not start.
+**C on macOS.** The C engine reads macOS's system headers whole, so `printf` and the rest of what they declare are
+known, and an `#include` nothing is used from is found there as on Linux. A header made into Nim (*Nim: wrap a C
+header*) whose callbacks take `const` pointers compiles with clang now, and with gcc 14. And the assembly view finds
+the program's lines when its folder is reached through a symbolic link (macOS's `/var`, Termux's `/sdcard`).
 
-**The assembly view on macOS.** clang's own labels are no longer taken for functions, so each function is shown
-whole, and what Nim's overflow checks inline into a line shows under that line.
-
-## What's new in 6.43
-
-**Watch a thinking model think.** A local model through llama.cpp, Ollama, LM Studio or vLLM — or DeepSeek, or a
-thinking model on OpenRouter — can think for minutes before it answers. The chat now shows its thinking as it comes,
-under ▾ Thinking, with the seconds it has taken, so you see early when it is on the wrong track and can stop it with
-Esc. Once it answers, the thinking folds to one line, ▸ Thought · 312 words, and a tap opens it again. A server that
-leaves the thinking in the answer between `<think>` and `</think>` (Qwen, QwQ, DeepSeek R1 …) is read the same way:
-the tags and the thinking no longer end up in the answer, an inline edit or a suggestion. `ai.showThinking` turns the
-live view off.
-
-**A tool call as the model writes it.** An edit, a new file or a command the model is still writing shows what it is
-for and its last lines as they come. It asks for your approval only once it is whole: before, *Allow* was there while
-it was half written, and `y` could run half a command.
-
-**The request log.** With `ai.log` on, what the assistant sends to the model and what comes back — the thinking, the
-answer, each tool call with its arguments — go into a log only you can read; *AI: open the request log* opens it. To
-see what a local model was given, or to attach to a bug report. Secrets are hidden in it as they are in the request,
-and the API key is never written.
-
-**The formatter refuses less.** The built-in Nim formatter left two kinds of file alone and asked for a report: an
-if-expression with an `(if x:` broken over lines in one branch and a block in a later one, and an `=` with no space
-after it (`const s ="a"`). Both are formatted now; the if-expression is kept as you wrote it, only moved to its
-indentation.
+**The dependency tree with NIMBLE_DIR.** With NIMBLE_DIR set, the tree no longer lists the packages in `~/.nimble`,
+which nimble does not use then.
 
 ## Features
 
@@ -236,7 +212,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or a ready-made package,
-`pkg install ./ned_6.43.1_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
+`pkg install ./ned_6.44.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
 `nimble termuxdeb` makes it on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.

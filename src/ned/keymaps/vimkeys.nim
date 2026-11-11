@@ -155,6 +155,9 @@ proc vimKey(k: Key): bool =
     of 'v':
       vimSetMode(vmVisual)
       return true
+    of 'z':
+      suspendNed()                           # (as vim: back to the shell, fg returns)
+      return true
     else: return false
   elif k.kind == kEnter:
     if plugVimKey(b, '\r', visual): return true       # (a plugin's <CR>: the folder view's "open this")

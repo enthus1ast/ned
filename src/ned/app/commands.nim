@@ -101,6 +101,33 @@ proc runInTerminal(cmd, cwd: string, wait = true) =
   gridResize()
   needRender = true
 
+proc canSuspend(): bool =
+  ## can ned be stopped and brought back with `fg`? Only from a shell with job control: ned's process group a job of
+  ## its own, in the terminal's foreground — not the session's first process (ned started as the terminal's own
+  ## program, or by a script, has no shell to come back to)
+  when defined(windows): false
+  else: getpgrp() != getsid(0) and tcgetpgrp(0) == getpgrp()
+
+proc suspendNed() =
+  ## stops ned and gives the terminal back to the shell it was started from; `fg` brings it back as it was (Ctrl+Z with
+  ## the vim, helix and emacs keys, as those editors have it; :suspend). Its terminals and kept terminals run on
+  when defined(windows):
+    info("Windows has no suspending — Open shell full screen leaves ned for a while")
+  else:
+    if not canSuspend():
+      info("Not suspended: ned was not started from a shell that can bring it back with fg — Open shell full screen " &
+           "leaves ned for a while")
+      return
+    leaveRaw()
+    writeAll("\e[?25h")
+    stdout.flushFile()
+    # (ned's job, the programs it runs with it too: the shell stops them all, and fg sends them on. Not the terminal
+    # taken back here: after bg, ned stops again at its first write, as vim does)
+    discard posix.kill(0, SIGTSTP)
+    enterRaw()
+    gridResize()
+    needRender = true
+
 proc transformSel(f: proc(s: string): string) =
   ## replaces the text of each selection — the word at the cursor where nothing is selected — with what `f` makes of it,
   ## in one undo step, and selects the new text

@@ -1061,3 +1061,37 @@ suite "go to type definition; C++: bases, derived classes, overrides":
     names.setLen(0)
     for (_, x) in cxxOverrides(@[f], f, 3, ls[3].find("draw"))[1]: names.add x.owner
     check names == @["Circle", "Big"]
+
+suite "headers that test the compiler (macOS's)":
+  test "a macro's call alone on its line, its #define not known, does not swallow the declaration after it":
+    let d = getTempDir() / "ned-tcindex-mac"
+    createDir(d)
+    for src in ["#ifdef __X\n#define M() foo()\n#else\n#define M()\n#endif\nM()\nint printf2(const char *, ...);\n",
+                "#ifdef __X\n#define M() foo()\n#else\n#define M()\n#endif\nM();\nint printf2(const char *, ...);\n"]:
+      let f = cxLoad(d / "m.h", src, "mac:" & $src.len & src)
+      var fns: seq[string]
+      for s in f.syms:
+        if s.kind == cxFunc: fns.add s.name
+      check fns == @["printf2"]
+    # (a call that does start a declaration still does: `M(int) x;` on one line, or its body after it)
+    let g = cxLoad(d / "g.h", "#define T(x) x\nT(int)\nshout(void) { return 1; }\n", "mac:g")
+    var gs: seq[string]
+    for s in g.syms:
+      if s.kind == cxFunc: gs.add s.name
+    check gs == @["shout"]
+    removeDir(d)
+
+  test "__has_include of a header not in the compiler's own folders: false — the header it guards is not missing":
+    let d = getTempDir() / "ned-tcindex-hasinc"
+    createDir(d / "sys")
+    writeFile(d / "sys" / "a.h", "#if __has_include(<nowhere_ptrcheck.h>)\n#include <nowhere_ptrcheck.h>\n#endif\n" &
+              "int a_fn(void);\n")
+    let was = (cxDirs, cxSysDirs)
+    cxDirs = @[d, d / "sys"]
+    cxSysDirs = @[d / "sys"]
+    let f = cxLoad(d / "u.c", "#include <a.h>\nint main(void) { return a_fn(); }\n", "hasinc:u")
+    var missing = 0
+    for g in cxClosure(f): missing += g.missing
+    check missing == 0
+    (cxDirs, cxSysDirs) = was
+    removeDir(d)

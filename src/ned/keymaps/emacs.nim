@@ -118,6 +118,7 @@ proc emacsKey(k: Key): bool =
       closeComp()
       info("Quit")
     of 's', 'r': runCmd("Find")
+    of 'z': suspendNed()                       # (as emacs in a terminal: back to the shell, fg returns)
     of '/', '_', '7': b.undo()
     of 'l': b.centerOn(b.primary.head)
     of 'o':

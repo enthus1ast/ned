@@ -48,7 +48,7 @@ can add your own (see [Settings](settings.md#settings)).
 
 | keys | action |
 |---|---|
-| Ctrl+Z / Ctrl+Y | undo / redo |
+| Ctrl+Z / Ctrl+Y | undo / redo (with the vim, Helix and emacs keys Ctrl+Z [suspends](vim-and-zen.md#your-own-keys)) |
 | Ctrl+C / X / V | copy / cut / paste (whole line when nothing is selected) |
 | Ctrl+A · Ctrl+L | select all · select line |
 | Ctrl+D · Alt+A | next occurrence · all occurrences (multi-cursor) |

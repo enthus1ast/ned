@@ -72,13 +72,20 @@ proc depRoots(): seq[string] =
   for d in [rootDir / "nimbledeps" / "pkgs2", rootDir / "nimbledeps" / "pkgs", rootDir / "deps", rootDir / "vendor"]:
     if dirExists(d): result.add d
   let nd = getEnv("NIMBLE_DIR")
+  let home = normalizedPath(getHomeDir() / ".nimble")
   if nd.len > 0:
     for d in [nd / "pkgs2", nd / "pkgs"]:
       if dirExists(d) and d notin result: result.add d
+  # (NIMBLE_DIR set: nimble uses that folder instead of ~/.nimble — the compiler's own paths may still name it)
+  proc inHome(d: string): bool =
+    ## is `d` ~/.nimble or in it, when NIMBLE_DIR names another folder?
+    let n = normalizedPath(d)
+    nd.len > 0 and normalizedPath(nd) != home and (n == home or n.startsWith(home & "/"))
   for d in nxDumpLazy:
-    if dirExists(d) and d notin result: result.add d
-  for d in [getHomeDir() / ".nimble" / "pkgs2", getHomeDir() / ".nimble" / "pkgs"]:
-    if dirExists(d) and d notin result: result.add d
+    if dirExists(d) and d notin result and not inHome(d): result.add d
+  if nd.len == 0:
+    for d in [home / "pkgs2", home / "pkgs"]:
+      if dirExists(d) and d notin result: result.add d
 
 proc depInstalled(): Table[string, seq[DepPkg]] =
   ## every installed package version: pkgs2/name-1.2.3-<checksum>, pkgs/name-1.2.3, atlas's deps/name

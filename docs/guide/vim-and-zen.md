@@ -32,6 +32,7 @@ and their values, themes, files and tabs; Tab again steps through the choices. `
 |---|---|
 | `:w` `:w file` `:up` `:sav file` | save · save as · save if changed · save under another name |
 | `:q` `:q!` `:wq` `:x` `:wa` `:qa` `:wqa` | write, quit — one file or all |
+| Ctrl+Z · `:suspend` `:stop` | back to the shell you started ned from; `fg` brings ned back as it was |
 | `:e file` · `:e!` · `:r file` | open a file · read it from disk again · put a file's lines below the cursor |
 | `:tabnew [file]` `:tabn` `:tabp` `:tabc` · `:bn` `:bp` `:bd` | tabs |
 | `:ls` · `:b 3` · `:b name` | the tabs · the third · the one whose name starts with (or has) that |
@@ -75,15 +76,16 @@ and `f{char}` too.
 `"editor.keymap": "emacs"`: `C-f C-b C-n C-p`, `C-a C-e`, `M-f M-b`, `C-v M-v`, `M-< M->`; `C-k` (again: adds to
 the same kill), `C-w M-w C-y`; `C-SPC` sets the mark, `C-g` quits; `C-s` searches, `M-%` replaces; `C-/` undoes;
 `C-l C-o C-t`, `M-u M-l M-c`, `M-;` comments, `M-/` completes, `M-x` is the palette, `M-g g` goes to a line;
-`C-x C-s` / `C-f` / `C-w` / `C-c` / `C-x`, and `C-x b` / `k` / `u` / `h` / `o` / `1` / `2` / `3`. The status bar
-shows a prefix you have started (`C-x-`) and when the mark is set.
+`C-x C-s` / `C-f` / `C-w` / `C-c` / `C-x`, and `C-x b` / `k` / `u` / `h` / `o` / `1` / `2` / `3`; `C-z` goes back to
+the shell (`fg` returns). The status bar shows a prefix you have started (`C-x-`) and when the mark is set.
 
 ## Helix
 
 `"editor.keymap": "helix"` — select first, then act: `h j k l`, `w b e W B E`, `x` selects the line, `%` all, `v`
 extends, `;` collapses, `,` keeps one cursor, `C` adds a cursor below; `d c y p P`, `i a I A o O`, `u U`, `r<c>`,
 `~`, `> <`, `J`; `/ ? n N *`; `g` goes (`g e h l s d r y i n p` — `gn` and `gp` are the next and the previous tab),
-space opens the space menu (`f b s S / k a r c y p d ?`), and `:w :q`. `vim.escapeSequence` (`"jj"`) leaves insert
+space opens the space menu (`f b s S / k a r c y p d ?`), `:w :q`, and Ctrl+Z goes back to the shell (`fg` returns).
+`vim.escapeSequence` (`"jj"`) leaves insert
 mode as Esc does, and `helix.keys` adds your own keys ([below](#your-own-keys)).
 
 ## Your own keys
@@ -102,6 +104,11 @@ and `<C-a>` … `<C-z>` Ctrl and a letter. Yours come before ned's own use of th
 their first keys are typed, ned waits for the rest (the **which-key** plugin shows what can follow), and a count
 before them runs the command that many times (`3<leader>n`: three tabs on). A key with Ctrl or Alt that should work
 in every mode goes in the `keys` setting instead (`{"alt+w": "Close tab"}`).
+
+**Suspending.** With the vim, Helix and emacs keys, Ctrl+Z stops ned and gives you the shell you started it from, as
+those editors do; `fg` brings it back as it was, its terminals still running. With ned's own keys Ctrl+Z is undo — to
+have it suspend there too: `"keys": {"ctrl+z": "Suspend ned (fg brings it back)"}`. It needs a shell that can bring
+ned back: started some other way (as Termux's own program, from a script), ned says so and stays.
 
 ## Zen mode
 

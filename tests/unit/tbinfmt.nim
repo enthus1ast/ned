@@ -42,7 +42,7 @@ suite "Nim's names":
     for n in ["main", "__libc_start_main", "_init", "memcpy", "my_func", "sqlite3_open_v2", "_ZN", "_ZN4demoE"]:
       check nimDemangle(n) == ("", "")
 
-suite "ELF":
+suite "ELF (Mach-O on a Mac)":
   test "a program Nim built: sections, symbols in the file, Nim's procs and modules":
     let dir = getTempDir() / "ned-tbinfmt"
     createDir(dir)
@@ -54,12 +54,13 @@ suite "ELF":
     if code != 0: echo o
     let d = readFile(dir / "app")
     let r = binParse(d)
-    check r.format == "ELF"
+    # (what this machine's programs are: ELF, or Mach-O with its code in __TEXT,__text)
+    check r.format == (when defined(macosx): "Mach-O" else: "ELF")
     check r.nim
     check r.arch.len > 0 and r.kind.startsWith("executable")
     var names: seq[string]
     for s in r.sections: names.add s.name
-    check ".text" in names
+    check (when defined(macosx): "__TEXT,__text" else: ".text") in names
     var shout = false
     for s in r.symbols:
       if s.nimName == "shout" and s.nimModule == "app":
