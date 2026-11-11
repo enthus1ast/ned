@@ -126,6 +126,19 @@ A column (`Pos.col`) is a byte offset into the line's UTF-8, also in the plugin 
 Language Server Protocol counts UTF-16 units unless both sides agree on UTF-8: convert with `lspPos` /
 `fromLspPos` (the editor) or `lsToPos` (nedls).
 
+### A server's "end of the file"
+
+A language server is given the text with its last line end (`allText & "\n"`), so the end of the file is, for it,
+the line after ned's last: `(lines.len, 0)`. A whole-file edit ends there (the HTML and CSS servers' formatting).
+`lspEditOf` turns a server's edit into ned's positions with that in mind; use it for any edit a server sends.
+
+### The same file by two paths
+
+macOS's `/var` is `/private/var`, Termux's `/sdcard` is `/storage/emulated/0`, and a project may be reached through a
+symbolic link: a compiler names a file by its real path, the editor by the one it was given. Where a path from a
+program is compared with a file of ned's, compare their real paths too (`expandFilename`), as the assembly view
+does.
+
 ### Windows
 
 On Windows `std/os` is replaced by `src/ned/sys/winos.nim` (paths with `/`) and `std/posix` by

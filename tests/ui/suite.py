@@ -2831,7 +2831,8 @@ def t_521_git():
     # bisect by hand: say good or bad until it names the commit
     def bisect_start(how):
         palette('Git: find the commit that broke it'); time.sleep(0.8)
-        text('c1'); time.sleep(0.3); keys('Enter'); time.sleep(0.4)
+        # (c1 by its own hash: "c1" also picks a commit whose hash starts so — then the bisect starts from that one)
+        text(sh(G + "log --format=%h --grep=^c1$").stdout.strip()); time.sleep(0.3); keys('Enter'); time.sleep(0.4)
         text(how); time.sleep(0.3); keys('Enter'); time.sleep(0.4)
     bisect_start("I'll say")
     ok = wait_for('BISECTING|testing', 10)
