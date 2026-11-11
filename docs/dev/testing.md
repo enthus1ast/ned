@@ -83,12 +83,13 @@ movements by where the cursor and the mode end up, the edits by the text they le
 seconds; its answers are cached for as long as `vim --version` and the cases are the same. The cases are made from lists
 in [`tests/ui/vimcases.py`](../../tests/ui/vimcases.py) (the motions, the counts, the operator × motion grid, the edits),
 and a case ned and vim are known to differ on goes in its `KNOWN_DIFFERS` with the reason. The score — how many cases
-agree — is what the report of [`tests/ui/vimdiff.py`](../../tests/ui/vimdiff.py) says; it only goes down.
+agree — is what [`tests/ui/vimdiff.py`](../../tests/ui/vimdiff.py) shows: a page (written where you ask for it) with
+every difference, both answers side by side, and the first lines where two texts part.
 
 ```sh
 python3 tests/ui/run.py ./ned t_65_vim_oracle    # ned against vim (the cases are in its scratch folder's log)
 python3 tests/ui/vimoracle.py --json /tmp/vim.json   # what vim alone answers, for every case
-python3 tests/ui/vimdiff.py                      # the report, tests/ui/vimdiff.md
+python3 tests/ui/vimdiff.py --html tests/ui/vimdiff.html   # the report, a page to open in a browser
 ```
 
 A case starts where its own line and column say: ned is put there with Go to line, and between two cases the file is
