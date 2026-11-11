@@ -1141,3 +1141,25 @@ suite "C: clang-format's styles in ned's own formatter (6.23)":
     check fmtC("int f() { if (a) b(); c(); }\n")[0] == "int f() { if (a) b(); c(); }\n"
     check cStyleFor("", "auto", @[]).name == "keep"
     check cStyleFor("", "keep", @[("ColumnLimit", "100")]).colLimit == 100
+
+suite "Nesting far deeper than code a person writes (6.45)":
+  test "Nim: brackets 10 000 deep: the code the same (reading and wrapping them took the stack: nedfmt crashed)":
+    let deep = "let x = " & "(".repeat(10_000) & "1" & ")".repeat(10_000) & "\n"
+    var err = ""
+    let r = fFormat(deep, err)
+    # (the code without its spaces and line breaks: what wrapping may change)
+    template bare(s: string): string = s.multiReplace((" ", ""), ("\n", ""))
+    check err.len > 0 or bare(r) == bare(deep)          # (wrapped as far as it goes, the code the same)
+    let lines = "let y = " & "(\n".repeat(10_000) & "1" & "\n)".repeat(10_000) & "\n"
+    let r2 = fFormat(lines, err)
+    check err.len > 0 or bare(r2) == bare(lines)
+
+  test "JSON and CSS nested past 500: left as they are, with the reason (each level indented grew with its square)":
+    let (j, je) = fmtJson("[".repeat(1000) & "]".repeat(1000) & "\n")
+    check "nested 1000 deep" in je and j.startsWith("[[[")
+    check fmtJson("[".repeat(400) & "1" & "]".repeat(400) & "\n")[1].len == 0
+    var css = ""
+    for i in 0 ..< 600: css.add "a" & $i & " {"
+    css.add "}".repeat(600) & "\n"
+    let (c, ce) = fmtCss(css, 2, lineComments = true)
+    check "nested more than 500" in ce and c == css

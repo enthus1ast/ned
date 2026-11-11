@@ -16,6 +16,7 @@ type
     pr: Proc
     inFd, outFd, errFd: cint
     rbuf, wbuf, errPart: string
+    wpos: int                      # how much of wbuf is written (pipeWrite)
     errTail: seq[string]
     nextId: int
     pending: Table[int, (McpCb, MonoTime)]
@@ -36,20 +37,13 @@ var
 proc mcpFlush(s: McpServer) =
   ## writes as much of the server's waiting output as its pipe takes now (the pipe never blocks), keeps the rest for the
   ## next time; a failed write marks the server dead
-  var off = 0
-  while off < s.wbuf.len:
-    let n = posix.write(s.inFd, addr s.wbuf[off], s.wbuf.len - off)
-    if n > 0: off += n
-    elif n < 0 and (errno == EAGAIN or errno == EINTR): break
-    else:
-      s.dead = true
-      break
-  if off > 0: s.wbuf = s.wbuf[off .. ^1]
+  if not pipeWrite(s.inFd, s.wbuf, s.wpos): s.dead = true
 
 proc mcpSend(s: McpServer, j: JsonNode) =
   ## queues one JSON message for the server — one line, as MCP over stdio wants — and writes what it can
   if s.dead: return
-  s.wbuf.add $j & "\n"                      # MCP over stdio: one JSON message per line
+  s.wbuf.add $j
+  s.wbuf.add '\n'                           # MCP over stdio: one JSON message per line
   s.mcpFlush()
 
 proc mcpRequest(s: McpServer, meth: string, params: JsonNode, cb: McpCb) =
@@ -154,14 +148,11 @@ proc mcpRead(s: McpServer) =
       s.dead = true
       break
     else: break
-  while true:
-    let nl = s.rbuf.find('\n')
-    if nl < 0: break
-    let line = s.rbuf[0 ..< nl].strip
-    s.rbuf = s.rbuf[nl + 1 .. ^1]
-    if line.len == 0 or line[0] != '{': continue
-    try: mcpHandle(s, parseJson(line))
-    except CatchableError: discard
+  eachLine(s.rbuf, raw):
+    let line = raw.strip
+    if line.len > 0 and line[0] == '{':
+      try: mcpHandle(s, parseJson(line))
+      except CatchableError: discard
 
 proc mcpReadErr(s: McpServer) =
   ## reads the server's error output into a short list of its last lines (each cut to 300 characters, about 40 kept),

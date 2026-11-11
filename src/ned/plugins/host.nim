@@ -142,6 +142,7 @@ type
     pr: Proc
     fdIn, fdOut, fdErr: cint
     rbuf, wbuf, errPart: string
+    wpos: int                             # how much of wbuf is written (pipeWrite)
     state: string                         # off · building · starting · ready · failed: … · stopped (idle)
     startedAt, lastUse: MonoTime
     sig: string                           # the plugins (and their files' stamps) it runs
@@ -925,23 +926,20 @@ proc plugSendRaw(h: PlugHost, j: JsonNode) =
   ## puts a message for the process (as one line of JSON) in its write queue; plugFlush sends it. Nothing when the
   ## process is not running
   if h.fdIn < 0: return
-  h.wbuf.add $j & "\n"
+  h.wbuf.add $j
+  h.wbuf.add '\n'
 
 proc plugFlush(h: PlugHost, block_ms = 0) =
   ## what is waiting for the process, written (block_ms > 0: until it is all gone, that long at most)
   let t0 = getMonoTime()
   while h.wbuf.len > 0 and h.fdIn >= 0:
-    let n = posix.write(h.fdIn, addr h.wbuf[0], h.wbuf.len)
-    if n > 0:
-      h.wbuf = h.wbuf[n .. ^1]
-      continue
-    if n < 0 and errno in [EAGAIN, EINTR]:
-      if block_ms <= 0 or msSince(t0) > block_ms: break
-      var pf = TPollfd(fd: h.fdIn, events: POLLOUT)
-      discard poll(addr pf, 1, 20)
-      continue
-    h.wbuf.setLen(0)                       # (the process is gone)
-    break
+    if not pipeWrite(h.fdIn, h.wbuf, h.wpos):
+      h.wbuf = ""                          # (the process is gone)
+      h.wpos = 0
+      break
+    if h.wbuf.len == 0 or block_ms <= 0 or msSince(t0) > block_ms: break
+    var pf = TPollfd(fd: h.fdIn, events: POLLOUT)    # (the pipe is full: wait for room, block_ms at most)
+    discard poll(addr pf, 1, 20)
 
 proc plugStop(h: PlugHost, why = "off") =
   ## stops a process: asks it to quit, ends it and what it started, closes its pipes, and answers the calls waiting on
@@ -959,7 +957,8 @@ proc plugStop(h: PlugHost, why = "off") =
   h.fdErr = -1
   h.pr = Proc(pid: -1, inFd: -1, outFd: -1, errFd: -1)
   h.rbuf.setLen(0)
-  h.wbuf.setLen(0)
+  h.wbuf = ""
+  h.wpos = 0
   let calls = h.calls
   h.calls.clear()
   for rid, c in calls:
@@ -1248,12 +1247,7 @@ proc plugReadOut(h: PlugHost) =
       gone = true
       break
     else: break
-  while true:
-    let nl = h.rbuf.find('\n')
-    if nl < 0: break
-    let line = h.rbuf[0 ..< nl]
-    h.rbuf = h.rbuf[nl + 1 .. ^1]
-    plugLineOut(h, line)
+  eachLine(h.rbuf, line): plugLineOut(h, line)
   if gone and h.pr.pid > 0: plugHostDied(h)
 
 proc plugReadErr(h: PlugHost) =

@@ -151,6 +151,12 @@ proc lspHandle(s: LspServer, m: JsonNode) =
     of lrInit:
       s.caps = res{"capabilities"}
       s.utf8 = res{"capabilities", "positionEncoding"}.getStr == "utf-8"
+      let sync = res{"capabilities", "textDocumentSync"}
+      # (a number, or an object whose `change` says it: 2 — the file's changes, not its whole text each time)
+      s.incremental = sync != nil and ((sync.kind == JInt and sync.getInt == 2) or
+                                       (sync.kind == JObject and sync{"change"}.getInt == 2))
+      s.saveText = sync != nil and sync.kind == JObject and sync{"save"} != nil and sync{"save"}.kind == JObject and
+                   sync{"save", "includeText"}.getBool
       let tc = res{"capabilities", "completionProvider", "triggerCharacters"}
       if tc != nil:
         for t in jitems(tc):

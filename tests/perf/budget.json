@@ -1,6 +1,6 @@
 {
-  "_": "Limits for tests/perf/rounds.py: the longest round of ned's main loop (a moment it did not read a key) in each step, on ned's own source, and the time a completion takes — roomy enough for a busy CI machine (about twice what two cores of a laptop measure). memory_mb: what the editor and its engine worker hold at the end, together.",
-  "longest_round_ms": {"default": 100},
+  "_": "Limits for tests/perf/rounds.py: the longest round of ned's main loop (a moment it did not read a key) in each step, on ned's own source, and the time a completion takes — roomy enough for a busy CI machine (about twice what two cores of a laptop measure). memory_mb: what the editor and its engine worker hold at the end, together. (6.45: the longest round 100 → 60 ms once the engine stopped counting a scope's names from the start each slice; memory 160 → 130 MB.)",
+  "longest_round_ms": {"default": 60},
   "completion_ms": {"median": 30, "max": 80},
-  "memory_mb": {"editor_and_worker": 160}
+  "memory_mb": {"editor_and_worker": 130}
 }

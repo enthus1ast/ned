@@ -7,9 +7,10 @@ nim c -d:release --opt:speed -d:strip -o:ned src/ned.nim      # what you need
 `src/ned.nims` (picked up automatically) turns on `--opt:speed` for release builds. Add `-d:lto` for link-time
 optimisation: 5–10% less time in the engine and the formatter, a 7% smaller binary and 1.5 MB less memory at
 start, for a build that takes about twice as long (gcc, or clang with a linker that does LTO); the release binaries
-are built with it. `-d:useMalloc` (the C library's allocator) saves about 3 MB with a big file open but makes the
-engine and the formatter 20% slower: not used, but yours to add where memory matters most. The nimble file has
-tasks:
+are built with it. On Linux and macOS ned uses the system's memory allocator and gives back to the system what it no
+longer uses — Nim's own allocator keeps everything it once had; formatting a whole big file takes about 20% longer on
+it. On Android and Windows ned keeps Nim's allocator. `-d:nedNimAlloc` builds on Nim's allocator everywhere,
+`-d:useMalloc` on the system's everywhere (on musl, as on Alpine, Nim's is faster). The nimble file has tasks:
 
 | task | |
 |---|---|

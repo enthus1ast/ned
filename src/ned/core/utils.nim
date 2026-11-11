@@ -196,6 +196,70 @@ template compFilter(it: CompItem): string = (if it.filter.len > 0: it.filter els
 # the text a completion item puts in the buffer: its own insert text, or its label when it has none
 template compInsert(it: CompItem): string = (if it.insert.len > 0: it.insert else: it.label)
 
+# ── pipes to the programs ned talks to (language servers, MCP servers, plugins, notebooks, the engine worker,
+#    debuggers): what waits to be written, and the lines that came. A big message (a whole file) goes out in many
+#    writes and a burst of output holds many lines: neither copies what is left at each step ──
+
+proc pipeWrite(fd: cint, buf: var string, pos: var int): bool =
+  ## writes what waits in buf from pos to fd, as much as the pipe takes now (it never blocks); false when the write
+  ## failed (the program is gone). pos moves on instead of the rest being copied to the front at each write; once all
+  ## is sent the buffer is let go (the room a whole file took goes back), and most of a big one sent, cut down
+  result = true
+  while pos < buf.len:
+    let n = posix.write(fd, addr buf[pos], buf.len - pos)
+    if n > 0: pos += n
+    elif n < 0 and (errno == EAGAIN or errno == EWOULDBLOCK or errno == EINTR): break
+    else: return false
+  if pos >= buf.len:
+    buf = ""
+    pos = 0
+  elif pos > 1_048_576 and pos > buf.len div 2:
+    buf = buf[pos .. ^1]
+    pos = 0
+
+template eachLine(buf: untyped, line: untyped, body: untyped) =
+  ## runs body for each whole line at the start of buf (`line`: without its '\n'), then takes those lines out of buf
+  ## in one move — cut one at a time, the rest was copied for each line. When body empties buf (the program ended),
+  ## it stops there
+  var lineAt = 0
+  while true:
+    let lineEnd = buf.find('\n', lineAt)
+    if lineEnd < 0: break
+    let line = buf[lineAt ..< lineEnd]
+    lineAt = lineEnd + 1
+    body
+    if buf.len < lineAt:
+      lineAt = 0
+      break
+  if lineAt > 0 and lineAt <= buf.len: buf = buf[lineAt .. ^1]
+
+func toU16(s: string, col: int): int =
+  ## a byte column of a UTF-8 line as the number of UTF-16 code units before it (a character beyond the basic plane
+  ## counts two) — the unit servers count in unless they agreed to UTF-8
+  var i = 0
+  while i < col and i < s.len:
+    let (cp, n) = runeAt(s, i)
+    result += (if cp >= 0x10000: 2 else: 1)
+    i += n
+
+var heapTidyAt: MonoTime         # when the heap last gave memory back (heapTidy)
+
+proc heapTidy(minGapMs = 10_000) =
+  ## gives back to the system what the heap holds but no longer uses (ned/sys/heap) when that is more than 4 MB — or
+  ## when the sizes are not known here — at most every minGapMs: in quiet moments (the main loop's idle tick, the
+  ## engine worker between tasks), after a big file, a search, a session's work
+  if msSince(heapTidyAt) < minGapMs: return
+  heapTidyAt = getMonoTime()
+  let held = heapHeld()
+  let used = heapInUse()
+  if held < 0 or used < 0 or held - used > 4 * 1048576: discard heapGiveBack()
+
+proc heapMB(): string =
+  ## the heap for a report: "N MB in use of M MB", or "not known here"
+  let used = heapInUse()
+  let held = heapHeld()
+  if used < 0 or held < 0: "not known here" else: $(used div 1048576) & " MB in use of " & $(held div 1048576) & " MB"
+
 func gitArgSafe*(s: string): bool =
   ## a URL, folder or revision a project or a link gives that git can take as itself — not as one of its options
   ## (`--upload-pack=…` runs a command: what nimble 0.26.1 closed in its own git calls), nor two lines

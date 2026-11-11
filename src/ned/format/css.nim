@@ -186,6 +186,8 @@ proc fmtCss*(s: string, indent = 2, lineComments = false): (string, string) =
           o.add (if pt.len > 0: pt & " {" else: "{")
           o.add "\n"
       inc depth
+      if depth > FmtMaxNest:
+        return (s, "nested more than " & $FmtMaxNest & " deep: left as it is")
       nls = 0
     of '}':
       o.flushDecl()

@@ -16,7 +16,7 @@ work. A job's output is collected as it comes; its `onDone` callback runs when i
 
 | file | what it does |
 |---|---|
-| [`lsp/client.nim`](../../src/ned/lsp/client.nim) | starting a server (`lspSpawn`: the `initialize` request, the client's capabilities), finding the server for a buffer (`lspFor`), opening and syncing documents (`lspAttach`, `lspSync`: the whole text after a 120 ms pause), positions (UTF-8 or UTF-16, whichever the server takes), completion's answers, workspace edits |
+| [`lsp/client.nim`](../../src/ned/lsp/client.nim) | starting a server (`lspSpawn`: the `initialize` request, the client's capabilities), finding the server for a buffer (`lspFor`), opening and syncing documents (`lspAttach`, `lspSync`: after a 120 ms pause, the edits since the text the server has — `b.lspLog`, kept by `rawReplace` — when it takes them, else the whole text; the whole text with a save notice only when it asks for it), positions (UTF-8 or UTF-16, whichever the server takes), completion's answers, workspace edits |
 | `lsp/handlers.nim` | reading answers (`lspRead`: `Content-Length` framing, at most 8 ms a round) and handling them by the kind of request they answer (`LspReq`); the server's own requests (`workspace/configuration`, `workspace/applyEdit` …); a polite shutdown, then the whole process group |
 | `lsp/codeactions.nim`, `lsp/inlays.nim`, `lsp/doclinks.nim`, `lsp/renamepreview.nim` | quick fixes, inlay hints, pull diagnostics, document links, formatting as you type, the rename preview |
 | `lsp/embedded.nim` | HTML, CSS, SQL and JSON inside Nim strings through their servers: hidden documents with that code at the same lines |

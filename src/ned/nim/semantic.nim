@@ -11,7 +11,7 @@ type SemImports = ref object
   fields, calls, macros: HashSet[string]
   globalVars, globalLets, deprecated, undeprecated: HashSet[string]
   done: bool
-  pos: int                       # (how far through the scope's names it got)
+  at: NxRefsAt                   # (how far through the scope's names it got)
   scope: NxScope                 # (the scope gone through, while it is made)
   own: string                    # (the file whose own names are left out)
 
@@ -78,10 +78,10 @@ proc semImportKey(sc: NxScope, f: NxFile): uint64 =
 proc semImportStep(m: SemImports, budgetMs: int): bool =
   ## a slice of the rest of the scope's names gone through; true when all are
   let t0 = getMonoTime()
-  let refs = addr m.scope.refs
-  while m.pos < refs[].len:
-    let r = refs[][m.pos]
-    inc m.pos
+  var r: NxRef
+  var n = 0
+  while nxNext(m.scope.refs, m.at, r):
+    inc n
     if r.file.path == m.own: continue
     semAdd(m.kinds, m.fields, m.calls, m.macros, r.sym)
     if m.rich:
@@ -91,7 +91,7 @@ proc semImportStep(m: SemImports, budgetMs: int): bool =
       if not r.sym.local:
         if r.sym.kind == nxVar: m.globalVars.incl n
         elif r.sym.kind == nxLet: m.globalLets.incl n
-    if (m.pos and 1023) == 0 and msSince(t0) >= budgetMs: return false
+    if (n and 1023) == 0 and msSince(t0) >= budgetMs: return false
   m.done = true
   m.scope = nil
   semImportsMade.add m

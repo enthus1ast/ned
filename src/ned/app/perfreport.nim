@@ -67,8 +67,7 @@ proc perfReport(): string =
              " not needed (only a comment or spacing had changed)\n"
   result.add "Git: git status ran " & $gitStatusRuns & " times since ned started (" & $gitWatchRuns &
              " after a change it saw" & (if gitWatchOn(): "; the repository is watched" else: "") & ")\n\n"
-  result.add "Memory: ned " & $procRssMB(getpid().int) & " MB (its heap: " & $(getOccupiedMem() div 1048576) &
-             " MB in use of " & $(getTotalMem() div 1048576) & " MB)\n\n"
+  result.add "Memory: ned " & $procRssMB(getpid().int) & " MB (its heap: " & heapMB() & ")\n\n"
   result.add "Running in the background\n"
   var any = false
   for j in jobs:

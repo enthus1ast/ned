@@ -69,25 +69,28 @@ proc wkFlush() =
   ## dead if the write fails, and the buffer is cut back once sent
   let w = wkp
   if w == nil or w.dead or w.wpos >= w.wbuf.len: return
-  while w.wpos < w.wbuf.len:
-    let n = posix.write(w.inFd, unsafeAddr w.wbuf[w.wpos], w.wbuf.len - w.wpos)
-    if n > 0: w.wpos += n
-    elif n < 0 and (errno == EAGAIN or errno == EWOULDBLOCK or errno == EINTR): break
-    else:
-      w.dead = true
-      return
-  if w.wpos >= w.wbuf.len:
-    w.wbuf.setLen(0)
-    w.wpos = 0
-  elif w.wpos > 1_000_000:
-    w.wbuf = w.wbuf[w.wpos .. ^1]
-    w.wpos = 0
+  if not pipeWrite(w.inFd, w.wbuf, w.wpos): w.dead = true
 
 proc wkSend(j: JsonNode) =
   ## queues a message (one JSON object and a newline) for the worker and tries to send it at once
   if wkp == nil or wkp.dead: return
   wkp.wbuf.add $j
   wkp.wbuf.add '\n'
+  wkFlush()
+
+proc wkSendDoc(b: Buffer) =
+  ## sends a file's whole text to the worker (`doc`), written straight into the queue a line at a time, its text last —
+  ## joined and put in a JSON tree first, a file of 7 MB took 54 MB more for a moment (and the worker reads it the same
+  ## way: wkDocInPlace)
+  if wkp == nil or wkp.dead: return
+  var head = $(%*{"op": "doc", "id": b.id, "path": b.path, "lang": b.lang.name, "v": b.changeId})
+  head.setLen(head.len - 1)                       # (its closing brace: the text comes after)
+  wkp.wbuf.add head
+  wkp.wbuf.add ",\"text\":\""
+  for i, l in b.lines:
+    if i > 0: wkp.wbuf.add "\\n"
+    escapeJsonUnquoted(l, wkp.wbuf)
+  wkp.wbuf.add "\"}\n"
   wkFlush()
 
 proc wkStop(why = "") =
@@ -181,8 +184,7 @@ proc wkSync(b: Buffer) =
               "h": fnv(b.lines[hl])})
     inc w.editSends
   else:
-    wkSend(%*{"op": "doc", "id": b.id, "path": b.path, "lang": b.lang.name, "v": b.changeId,
-              "text": b.lines.join("\n")})
+    wkSendDoc(b)
     inc w.fullSends
   w.sent[b.id] = b.changeId
   b.wkLog.setLen(0)
@@ -558,6 +560,7 @@ type WkTask = object
 var
   wkIn, wkOut: cint
   wkInBuf: string
+  wkInScanned: int                 # (in the worker) how far wkInBuf was searched for a newline: a whole file comes in many reads
   wkTasks: seq[WkTask]
   wkQuit = false
 
@@ -591,6 +594,98 @@ proc wkApplySettings(j: JsonNode) =
   nxApplyToolchain()
   ecLast.clear()
   typosLast.clear()
+
+proc wkTakeDoc(j: JsonNode, lines: sink seq[string]) =
+  ## (in the worker) a file's whole text from the editor (`doc`: id, path, lang, v in j): its copy made or replaced, and
+  ## the tasks asked for an older text of it dropped
+  let id = j{"id"}.getInt
+  var b = wkDoc(id)
+  if b == nil:
+    b = newBuffer()
+    dec nextBufId
+    b.id = id
+    bufs.add b
+  b.path = j{"path"}.getStr
+  b.lang = langByName(j{"lang"}.getStr)
+  if b.lang == nil or b.lang.name == "Text": b.lang = detectLang(b.path, "")
+  b.lines = lines
+  if b.lines.len == 0: b.lines = @[""]
+  b.hlStart = newSeq[LexSt](b.lines.len + 1)
+  b.hlValid = 0
+  b.git = newSeq[uint8](b.lines.len)
+  b.changeId = j{"v"}.getInt
+  b.savedSeq = -1                   # (dirty: its text is not the file's)
+  var keep: seq[WkTask]
+  for t in wkTasks:
+    if not (t.id == id and t.v < b.changeId): keep.add t
+  wkTasks = keep
+
+proc wkJsonLines(s: string, i: var int, stop: int, lines: var seq[string]): bool =
+  ## (in the worker) the JSON string whose text starts at s[i] (after its opening quote) read straight into lines, cut
+  ## at each \n in it — a whole file without a JSON tree and the copies it takes; i ends after the closing quote. false
+  ## when the string is broken (the message then goes the usual way, and says what is wrong)
+  var cur = ""
+  while i < stop:
+    let c = s[i]
+    if c == '"':
+      inc i
+      lines.add move(cur)
+      return true
+    if c != '\\':
+      var k = i                       # (a run of plain bytes, added at once)
+      while k < stop and s[k] != '"' and s[k] != '\\': inc k
+      let old = cur.len
+      cur.setLen(old + k - i)
+      copyMem(addr cur[old], unsafeAddr s[i], k - i)
+      i = k
+      continue
+    if i + 1 >= stop: return false
+    let e = s[i + 1]
+    i += 2
+    case e
+    of 'n':
+      lines.add move(cur)
+      cur = ""
+    of 't': cur.add '\t'
+    of 'r': cur.add '\r'
+    of '"': cur.add '"'
+    of '\\': cur.add '\\'
+    of '/': cur.add '/'
+    of 'b': cur.add '\b'
+    of 'f': cur.add '\f'
+    of 'u':
+      if i + 4 > stop: return false
+      var cp = 0
+      try: cp = parseHexInt(s[i ..< i + 4])
+      except ValueError: return false
+      i += 4
+      if cp >= 0xD800 and cp <= 0xDBFF and i + 6 <= stop and s[i] == '\\' and s[i + 1] == 'u':
+        var lo = 0
+        try: lo = parseHexInt(s[i + 2 ..< i + 6])
+        except ValueError: return false
+        if lo >= 0xDC00 and lo <= 0xDFFF:
+          cp = 0x10000 + ((cp - 0xD800) shl 10) + (lo - 0xDC00)
+          i += 6
+      cur.addUtf8(cp)
+    else: return false
+  false
+
+proc wkDocInPlace(s: string, a, e: int): bool =
+  ## (in the worker) a `doc` message (s[a ..< e], as wkSendDoc writes it: its text last) handled where it lies in what
+  ## was read — its fields parsed, its text read straight into lines; false when it is not one (handled as any other)
+  const Head = "{\"op\":\"doc\","
+  const TextKey = ",\"text\":\""
+  if e - a < Head.len or s[e - 1] != '}' or not s.continuesWith(Head, a): return false
+  let k = s.find(TextKey, a)
+  if k < 0 or k >= e: return false
+  var head: JsonNode
+  try: head = parseJson(s[a ..< k] & "}")
+  except CatchableError: return false
+  var i = k + TextKey.len
+  var lines: seq[string]
+  if not wkJsonLines(s, i, e, lines) or i != e - 1: return false
+  wkTakeDoc(head, lines)
+  true
 
 proc wkHandle(line: string) =
   ## (in the worker) acts on one message from the editor: init, settings, macros, dump and packages set up its view of
@@ -632,27 +727,7 @@ proc wkHandle(line: string) =
   of "packages":
     nxApplyToolchain()                   # (packages installed or removed: read again, what was resolved forgotten)
     ecLast.clear()
-  of "doc":
-    var b = wkDoc(id)
-    if b == nil:
-      b = newBuffer()
-      dec nextBufId
-      b.id = id
-      bufs.add b
-    b.path = j{"path"}.getStr
-    b.lang = langByName(j{"lang"}.getStr)
-    if b.lang == nil or b.lang.name == "Text": b.lang = detectLang(b.path, "")
-    b.lines = j{"text"}.getStr.split('\n')
-    if b.lines.len == 0: b.lines = @[""]
-    b.hlStart = newSeq[LexSt](b.lines.len + 1)
-    b.hlValid = 0
-    b.git = newSeq[uint8](b.lines.len)
-    b.changeId = j{"v"}.getInt
-    b.savedSeq = -1                   # (dirty: its text is not the file's)
-    var keep: seq[WkTask]
-    for t in wkTasks:
-      if not (t.id == id and t.v < b.changeId): keep.add t
-    wkTasks = keep
+  of "doc": wkTakeDoc(j, j{"text"}.getStr.split('\n'))
   of "edits":
     let b = wkDoc(id)
     if b == nil or b.changeId != j{"from"}.getInt:
@@ -757,20 +832,27 @@ proc wkDrain(wait: bool) =
   while true:
     let n = posix.read(wkIn, addr buf[0], buf.len)
     if n > 0:
-      wkInBuf.add buf[0 ..< n]
+      let old = wkInBuf.len
+      wkInBuf.setLen(old + n)
+      copyMem(addr wkInBuf[old], addr buf[0], n)
       continue
     if n == 0: wkQuit = true
     elif errno != EINTR and errno != EAGAIN and errno != EWOULDBLOCK: wkQuit = true
     break
   var start = 0
   while true:
-    let nl = wkInBuf.find('\n', start)
-    if nl < 0: break
+    let nl = wkInBuf.find('\n', max(start, wkInScanned))
+    if nl < 0:
+      wkInScanned = wkInBuf.len           # (a line not yet whole: the next read searches only what it adds)
+      break
     if nl > start:
-      try: wkHandle(wkInBuf[start ..< nl])
+      try:
+        if not wkDocInPlace(wkInBuf, start, nl): wkHandle(wkInBuf[start ..< nl])
       except CatchableError as e: wkWrite(%*{"op": "error", "m": "handling: " & e.msg})
     start = nl + 1
-  if start > 0: wkInBuf = wkInBuf[start .. ^1]
+  if start > 0:
+    wkInBuf = wkInBuf[start .. ^1]
+    wkInScanned = max(0, wkInScanned - start)
 
 proc wkRunHints(t: WkTask) =
   ## (in the worker) works out the type, parameter and raises hints for one chunk of lines and sends them back with the
@@ -830,7 +912,7 @@ proc wkRunChecks(t: WkTask) =
   for _, sc in nxScopes: scopeRefs += sc.refs.len
   let held = $(nxFilesBytes div 1048576) & " MB of " & $nxFiles.len & " parsed files, " & $nxScopes.len & " scopes (" &
              $(scopeRefs div 1000) & "k names), the project's words: " & $refFilePath.len & " files · heap " &
-             $(getOccupiedMem() div 1048576) & " MB in use of " & $(getTotalMem() div 1048576) & " MB · " & nxCacheStats()
+             heapMB() & " · " & nxCacheStats()
   wkWrite(%*{"op": "checks", "id": t.id, "v": t.v, "typos": typos, "diags": diags, "on": cfgEngineChecks,
              "ms": int(msSince(t0)), "held": held})
 
@@ -903,6 +985,7 @@ proc workerMain() =
   curBuf = 0
   while not wkQuit:
     when defined(nedMemProbe): memProbeTick(".worker")      # (tests/memory/memprobe.py: the worker's tables too)
+    if wkTasks.len == 0: heapTidy(5000)    # (its work done: what it took for it given back, before it waits)
     wkDrain(wait = wkTasks.len == 0)
     if wkQuit: break
     if wkTasks.len == 0: continue

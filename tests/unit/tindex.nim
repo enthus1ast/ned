@@ -141,6 +141,27 @@ suite "definitions and types":
     check "doubles it" in h
     check "overloads" notin h
 
+  test "a scope's names walked a slice at a time (nxNext) are the same as all at once, in an included file too":
+    # (an included file's scope hides its own names in its includer's layer: indexing them one by one counted from
+    # the start each time — 20–40 ms a slice in ned's own source; nxNext comes back where it stopped)
+    let m = dir / ("walk" & $getCurrentProcessId())
+    createDir(m)
+    writeFile(m / "part.nim", "proc partProc(): int = 1\nlet partVal = partProc()\n")
+    writeFile(m / "main.nim", "import std/[strutils, os]\nproc mainProc() = discard\ninclude part\nmainProc()\n")
+    discard nxScope(nxLoad(m / "main.nim"))
+    nxFocusPath = m / "part.nim"          # (the file being edited: its scope is made over its includer's)
+    defer: nxFocusPath = ""
+    for f in [nxLoad(m / "main.nim"), nxLoad(m / "part.nim")]:
+      let sc = nxScope(f)
+      var all, walked: seq[(string, int32)]
+      for r in sc.refs: all.add (r.file.path, r.idx)
+      var at: NxRefsAt
+      var r: NxRef
+      while nxNext(sc.refs, at, r): walked.add (r.file.path, r.idx)
+      check all.len == sc.refs.len and all.len > 100
+      check walked == all
+    check nxScope(nxLoad(m / "part.nim")).refs.hide.len > 0      # (the case that was slow)
+
   test "typedesc receivers, numbers next to other types, newException, @(…)":
     let (f, ls) = fixture("type Color = enum red, green\nlet q: int32 = 3\nlet z = 0\n")
     let sc = nxScope(f)

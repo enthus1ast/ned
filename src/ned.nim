@@ -37,7 +37,7 @@ from std/math import pow, round
 # the parts that stand on their own (modules: compiled separately, in parallel)
 import ned/core/images, ned/core/text, ned/core/editorconfig, ned/editor/regex, ned/format/formatters, ned/format/fmtcli, ned/nim/index,
        ned/nim/arccopies, ned/c/cindex, ned/c/cnim, ned/nim/nifread, ned/version, ned/testing/gcovdata, ned/editor/binfmt, ned/web/web, ned/core/encodings,
-       ned/editor/asmview, ned/core/secrets, ned/sys/landlock, ned/app/releasecheck, ned/debug/clines, ned/ai/streamparts
+       ned/editor/asmview, ned/core/secrets, ned/sys/landlock, ned/sys/heap, ned/app/releasecheck, ned/debug/clines, ned/ai/streamparts
 
 const
   Version = NedVersion
@@ -97,6 +97,7 @@ include ned/config/settings
 include ned/config/session
 include ned/project/files
 include ned/editor/safewrite
+include ned/app/crash
 include ned/editor/swap
 include ned/editor/localhistory
 include ned/editor/linediff

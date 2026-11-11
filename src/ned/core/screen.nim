@@ -269,12 +269,29 @@ proc perfRoundStart() =
   ## loop starts
   if perfTraceOn: perfRoundCpu0 = threadCpuUs()
 
+var
+  crashWork: array[4, array[64, char]]     # what runs now, by depth (timedWork's names: what a crash note says ned
+  crashWorkLen: array[4, int]              #   was doing), in memory a signal handler can read without allocating
+  crashDepth = -1                          # (-1: nothing named runs)
+
+proc noteWorking(depth: int, name: string) {.inline.} =
+  ## (timedWork) the name of what runs at that depth, for a crash note (app/crash.nim)
+  if depth < crashWork.len:
+    let n = min(name.len, crashWork[depth].len)
+    if n > 0: copyMem(addr crashWork[depth][0], unsafeAddr name[0], n)
+    crashWorkLen[depth] = n
+  crashDepth = depth
+
 template timedWork(name: string, body: untyped) =
-  ## `body`, noted when it takes over 30 ms (what kept ned busy: the performance report names it)
+  ## `body`, noted when it takes over 30 ms (what kept ned busy: the performance report names it), and named while it
+  ## runs for a crash note
   let twT0 = getMonoTime()
+  noteWorking(perfTraceDepth, name)
   inc perfTraceDepth
   try: body
-  finally: dec perfTraceDepth
+  finally:
+    dec perfTraceDepth
+    crashDepth = perfTraceDepth - 1
   let twUs = int((getMonoTime() - twT0).inMicroseconds)
   if twUs > 30_000:
     slowWork.add (getMonoTime(), name, twUs)
@@ -300,7 +317,7 @@ proc noteBusy(us: int) =
   if perfTraceOn:
     if us >= 4000 and perfTrace.len < 200_000:
       var l = $((getMonoTime() - perfTraceT0).inMilliseconds) & " " & $us & " " & $(threadCpuUs() - perfRoundCpu0) &
-              " " & $(getOccupiedMem() div 1024) & " " & $(getTotalMem() div 1024)     # (the heap: in use, held, KB)
+              " " & $(heapInUse() div 1024) & " " & $(heapHeld() div 1024)     # (the heap: in use, held, KB; -1 not known)
       var own = 0
       for (n, t) in perfTraceItems:
         l.add "\t" & n & "=" & $t

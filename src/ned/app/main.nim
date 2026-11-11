@@ -331,6 +331,7 @@ proc mainLoop() =
       timedWork("nimble packages"): pkgWatchPump()
       batteryPump()
       lowMemPump()
+      if msSince(lastInputAt) > 2000: timedWork("memory given back"): heapTidy()
       if astOn: astPump()
       if docPvSrc >= 0: docPvPump()
       if mcpWaitReq and not mcpStarting():
@@ -1017,6 +1018,8 @@ proc main() =
   if rootDir != "/" and rootDir.len > 1: startScan()
   smark("file list started")
   ctlListen()                          # (`ned FILE` in its terminal, git's editor, scripts: see control)
+  let crashed = crashNoted()           # (a crash last time: its note, said below once the screen is up)
+  crashGuard()                         # (a crash from now on gives the terminal back and leaves a note)
   enterRaw()
   gridResize()
   loadingHook = showLoading            # from now on a big file shows "Opening …" while it loads
@@ -1041,6 +1044,9 @@ proc main() =
     panelOpen = false
     focus = fEditor
   checkRecoveryAtStart()
+  if crashed.len > 0:
+    warn("ned stopped unexpectedly last time: " & crashed & " — your unsaved changes were kept. Please report it: " &
+         "the details are in " & stateDir() / "errors.log")
   keysCheckAtStart()                   # (the "keys" setting: an unknown command, a key no terminal sends)
   smark("session restored")
   if gitRepoRoots().len > 0: refreshGitStatus()

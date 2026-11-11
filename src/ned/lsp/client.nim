@@ -5,15 +5,7 @@
 proc lspFlush(s: LspServer) =
   ## writes what is queued for the server (wbuf) to its stdin without blocking: the part that did not fit stays queued
   ## for the next time; a write error marks the server dead
-  var off = 0
-  while off < s.wbuf.len:
-    let n = posix.write(s.inFd, addr s.wbuf[off], s.wbuf.len - off)
-    if n > 0: off += n
-    elif n < 0 and (errno == EAGAIN or errno == EINTR): break
-    else:
-      s.dead = true
-      break
-  if off > 0: s.wbuf = s.wbuf[off .. ^1]
+  if not pipeWrite(s.inFd, s.wbuf, s.wpos): s.dead = true
 
 # ── a remote folder's language server, run on the server: the paths in what goes there are the server's, the
 #    paths in what comes back the local copy's — and a file of the server's outside the folder (a definition in
@@ -73,7 +65,10 @@ proc lspSend(s: LspServer, j: JsonNode) =
     s.lspMapJson(c, true)
     body = $c
   else: body = $j
-  s.wbuf.add "Content-Length: " & $body.len & "\r\n\r\n" & body
+  s.wbuf.add "Content-Length: "
+  s.wbuf.add $body.len
+  s.wbuf.add "\r\n\r\n"
+  s.wbuf.add body
   s.lspFlush()
 
 proc lspRequest(s: LspServer, meth: string, params: JsonNode, req: LspReq): int =
@@ -88,18 +83,34 @@ proc lspNotify(s: LspServer, meth: string, params: JsonNode) =
   ## sends a notification (a message that takes no answer)
   s.lspSend(%*{"jsonrpc": "2.0", "method": meth, "params": params})
 
+const LspTextMark = "\x01ned: the text\x01"    # (stands for a buffer's whole text in what lspNotifyText sends)
+
+proc lspNotifyText(s: LspServer, meth: string, params: JsonNode, b: Buffer) =
+  ## a notification that carries the buffer's whole text (with a newline at its end) where `params` has LspTextMark: the
+  ## text written into the queue a line at a time — joined and put in the JSON tree first, a file of megabytes took
+  ## several copies of itself for a moment
+  if s.dead: return
+  let body = $(%*{"jsonrpc": "2.0", "method": meth, "params": params})
+  let mark = escapeJson(LspTextMark)
+  let k = body.find(mark)
+  if k < 0 or s.remoteMap.len > 0:
+    # (a remote folder's server: every string of the message has its paths mapped, so it goes the usual way)
+    s.lspSend(parseJson(body.replace(mark, escapeJson(b.allText & "\n"))))
+    return
+  let at = s.wbuf.len
+  s.wbuf.add body[0 ..< k]
+  s.wbuf.add '"'
+  for l in b.lines:
+    escapeJsonUnquoted(l, s.wbuf)
+    s.wbuf.add "\\n"
+  s.wbuf.add '"'
+  s.wbuf.add body[k + mark.len .. ^1]
+  s.wbuf.insert("Content-Length: " & $(s.wbuf.len - at) & "\r\n\r\n", at)
+  s.lspFlush()
+
 proc lspReply(s: LspServer, id: JsonNode, res: JsonNode) =
   ## answers a request the server made, with the same id
   s.lspSend(%*{"jsonrpc": "2.0", "id": id, "result": res})
-
-func toU16(s: string, col: int): int =
-  ## a byte column of a UTF-8 line as the number of UTF-16 code units before it (a character beyond the basic plane
-  ## counts two) — the unit servers count in unless they agreed to UTF-8
-  var i = 0
-  while i < col and i < s.len:
-    let (cp, n) = runeAt(s, i)
-    result += (if cp >= 0x10000: 2 else: 1)
-    i += n
 
 func fromU16(s: string, u: int): int =
   ## the reverse of toU16: the byte column in the line that is `u` UTF-16 code units in (the line's end when it is
@@ -131,6 +142,11 @@ proc fromLspPos(s: LspServer, b: Buffer, j: JsonNode): Pos =
 
 # the buffer's file as an LSP text document identifier
 proc docId(b: Buffer): JsonNode = %*{"uri": uriFromPath(b.path)}
+
+proc lspSaved(s: LspServer, b: Buffer) =
+  ## tells the server the buffer was saved — with its whole text only when the server asked for it (includeText)
+  if s.saveText: s.lspNotifyText("textDocument/didSave", %*{"textDocument": b.docId, "text": LspTextMark}, b)
+  else: s.lspNotify("textDocument/didSave", %*{"textDocument": b.docId})
 
 proc isTermux(): bool
 proc installHint(termuxPkg, linuxPkg: string): string
@@ -397,13 +413,13 @@ proc lspMoreSync(b: Buffer, start = false) =
     if v < 0:
       s.docVer[b.id] = b.changeId
       b.lspMore = true
-      s.lspNotify("textDocument/didOpen", %*{"textDocument": {"uri": uriFromPath(b.path),
-        "languageId": b.lang.id, "version": b.changeId + 1, "text": b.allText & "\n"}})
+      s.lspNotifyText("textDocument/didOpen", %*{"textDocument": {"uri": uriFromPath(b.path),
+        "languageId": b.lang.id, "version": b.changeId + 1, "text": LspTextMark}}, b)
       lspPullDiags(s, b)
     elif v != b.changeId:
       s.docVer[b.id] = b.changeId
-      s.lspNotify("textDocument/didChange", %*{"textDocument": {"uri": uriFromPath(b.path),
-        "version": b.changeId + 1}, "contentChanges": [{"text": b.allText & "\n"}]})
+      s.lspNotifyText("textDocument/didChange", %*{"textDocument": {"uri": uriFromPath(b.path),
+        "version": b.changeId + 1}, "contentChanges": [{"text": LspTextMark}]}, b)
       lspPullDiags(s, b)
 
 proc lspMoreSaved(b: Buffer) =
@@ -411,7 +427,7 @@ proc lspMoreSaved(b: Buffer) =
   for s in lspMoreFor(b, false):
     if s.ready and not s.dead and b.id in s.docVer:
       lspMoreSync(b)
-      s.lspNotify("textDocument/didSave", %*{"textDocument": b.docId, "text": b.allText & "\n"})
+      s.lspSaved(b)
       lspPullDiags(s, b)
 
 proc lspMoreClosed(b: Buffer) =
@@ -424,6 +440,13 @@ proc lspMoreClosed(b: Buffer) =
 
 var lspHoldAttach = initTable[int, MonoTime]()   # buffer id → open it once nimlangserver has its new mapping
 var nimCfgWaitUntil: MonoTime   # a fresh nimlangserver pulls its settings first: files open after that
+
+proc lspLogStart(s: LspServer, b: Buffer) =
+  ## the server has the buffer's text as it is now: the edits from here on are kept for it when it takes changes
+  ## (in the units it counts columns in), else none are
+  b.lspLog.setLen(0)
+  b.lspLogFrom = if s.incremental: b.changeId else: -1
+  b.lspLogU16 = not s.utf8
 
 proc lspAttach(b: Buffer) =
   ## opens the buffer on its main language server (didOpen with the whole text) once that is ready, then asks for the
@@ -450,15 +473,17 @@ proc lspAttach(b: Buffer) =
   b.lspOpen = true
   b.lspDirty = false
   inc b.lspVersion
-  s.lspNotify("textDocument/didOpen", %*{"textDocument": {"uri": uriFromPath(b.path),
-    "languageId": b.lang.id, "version": b.lspVersion, "text": b.allText & "\n"}})
+  s.lspNotifyText("textDocument/didOpen", %*{"textDocument": {"uri": uriFromPath(b.path),
+    "languageId": b.lang.id, "version": b.lspVersion, "text": LspTextMark}}, b)
+  s.lspLogStart(b)
   lspPullDiags(s, b)
   lspLinksAsk(s, b)
 
 proc lspSync(b: Buffer) =
   ## brings the servers up to date with the buffer: a second server's copy, then the main server's — the file opened if
-  ## it is not yet, else, when it changed, a didChange with the whole text under a new version — and asks again for the
-  ## problems and links
+  ## it is not yet, else, when it changed, a didChange under a new version: the edits since the text it has when it
+  ## takes changes and they are all kept (and not too many), else the whole text — and asks again for the problems and
+  ## links
   if b.lspMore: lspMoreSync(b)
   let s = lspFor(b, false)
   if s == nil or not s.ready:
@@ -470,8 +495,20 @@ proc lspSync(b: Buffer) =
   if not b.lspDirty: return
   b.lspDirty = false
   inc b.lspVersion
-  s.lspNotify("textDocument/didChange", %*{"textDocument": {"uri": uriFromPath(b.path),
-    "version": b.lspVersion}, "contentChanges": [{"text": b.allText & "\n"}]})
+  var bytes = 0
+  for e in b.lspLog: bytes += e.text.len
+  if s.incremental and b.lspLogFrom >= 0 and b.lspLog.len > 0 and b.lspLog.len == b.changeId - b.lspLogFrom and
+     bytes < 200_000 and s.remoteMap.len == 0:
+    var changes = newJArray()
+    for e in b.lspLog:
+      changes.add %*{"range": {"start": {"line": e.a.line, "character": e.a.col},
+                               "end": {"line": e.c.line, "character": e.c.col}}, "text": e.text}
+    s.lspNotify("textDocument/didChange", %*{"textDocument": {"uri": uriFromPath(b.path),
+      "version": b.lspVersion}, "contentChanges": changes})
+  else:
+    s.lspNotifyText("textDocument/didChange", %*{"textDocument": {"uri": uriFromPath(b.path),
+      "version": b.lspVersion}, "contentChanges": [{"text": LspTextMark}]}, b)
+  s.lspLogStart(b)
   lspPullDiags(s, b)
   lspLinksAsk(s, b)
 
@@ -482,7 +519,7 @@ proc lspDidSave(b: Buffer) =
   let s = lspFor(b, false)
   if s == nil or not s.ready or not b.lspOpen: return
   lspSync(b)
-  s.lspNotify("textDocument/didSave", %*{"textDocument": b.docId, "text": b.allText & "\n"})
+  s.lspSaved(b)
   lspPullDiags(s, b)
 
 proc lspDidClose(b: Buffer) =
@@ -492,6 +529,8 @@ proc lspDidClose(b: Buffer) =
   if s == nil or not s.ready or not b.lspOpen: return
   s.lspNotify("textDocument/didClose", %*{"textDocument": b.docId})
   b.lspOpen = false
+  b.lspLog.setLen(0)
+  b.lspLogFrom = -1
 
 proc lspReady(b: Buffer): LspServer =
   ## the buffer's main server when it is running and ready, after it has been sent the buffer's latest text — what a

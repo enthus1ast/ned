@@ -8,6 +8,10 @@ proc msgs(ds: seq[WebDiag]): seq[string] =
   for d in ds: result.add $(d.line + 1) & ":" & $(d.col + 1) & " " & d.msg
 
 suite "reading":
+  test "nested past 200: one problem said, not every bracket around it as not closed (6.45)":
+    let ms = msgs(jsonChecks(@["[".repeat(300) & "]".repeat(300)]))
+    check ms.len == 1 and "nested too deep" in ms[0]
+
   test "a valid file has nothing to say":
     check jsonChecks(@["{", "  \"a\": [1, 2.5, -3e2, true, null],", "  \"b\": {\"c\": \"\\u00e9\\n\"}", "}"]).len == 0
     check jsonChecks(@[""]).len == 0

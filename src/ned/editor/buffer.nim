@@ -15,7 +15,7 @@ proc newBuffer(): Buffer =
   ## is not added to the tabs)
   result = Buffer(id: nextBufId, lines: @[""], cursors: @[cur(Pos())], indent: "  ",
                   lang: langByName("Text"), hlStart: @[0'u32, 0'u32], git: @[0'u8], ecTrim: -1, ecFinalNl: -1,
-                  wkLogFrom: -1)
+                  wkLogFrom: -1, lspLogFrom: -1)
   inc nextBufId
 
 # the number of the latest undo step (0 when there is none) — what `savedSeq` is compared with to tell whether the text
@@ -134,6 +134,17 @@ proc rawReplace(b: Buffer, a, c: Pos, text: string): Pos =
     else:
       b.wkLog.setLen(0)
       b.wkLogFrom = -1
+  if b.lspLogFrom >= 0:
+    # (the language server has the text of change lspLogFrom and takes changes: these bring it up to date, their
+    # columns counted in the lines as they are before this edit — too many, the whole text)
+    if b.lspLog.len < 2000:
+      if b.lspLogU16:
+        b.lspLog.add WkEdit(a: Pos(line: a.line, col: toU16(b.lines[a.line], a.col)),
+                            c: Pos(line: c.line, col: toU16(b.lines[c.line], c.col)), text: text)
+      else: b.lspLog.add WkEdit(a: a, c: c, text: text)
+    else:
+      b.lspLog.setLen(0)
+      b.lspLogFrom = -1
   if b.hlStart.len != b.lines.len + 1: b.hlStart.setLen(b.lines.len + 1)
   if b.git.len != b.lines.len: b.git.setLen(b.lines.len)
   if a.line == c.line and '\n' notin text and b.lines[a.line].len > 4096:

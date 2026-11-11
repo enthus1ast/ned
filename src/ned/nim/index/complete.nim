@@ -246,7 +246,7 @@ proc nxRestOf(items: sink seq[NxItem]): NxRest =
 # the position of the item of that name (a routine or not) in the shared list, or -1
 proc nxRestFind(r: NxRest, label: string, routine: bool): int = r.ix.nxIxFind(r.items, label, routine)
 
-var nxPrep: tuple[key: Hash, sc: NxScope, pos: int, items: seq[NxItem], ix: NxItemIx]   # (made a slice at a time)
+var nxPrep: tuple[key: Hash, sc: NxScope, at: NxRefsAt, items: seq[NxItem], ix: NxItemIx]   # (made a slice at a time)
 
 # whether the list of the rest of the scope is half made (nxCompletionPrepare has more to do)
 proc nxCompletionPending*(): bool = nxPrep.sc != nil
@@ -265,11 +265,9 @@ proc nxCompletionPrepare*(f: NxFile, budgetMs: int): bool =
     nxPrep.sc = sc
     nxPrep.ix = nxIxOf(@[], 8192)
   let t0 = getMonoTime()
-  let refs = addr nxPrep.sc.refs
   var chunk: seq[NxRef]
-  while nxPrep.pos < refs[].len:
-    let r = refs[][nxPrep.pos]
-    inc nxPrep.pos
+  var r: NxRef
+  while nxNext(nxPrep.sc.refs, nxPrep.at, r):
     if not (r.sym.kind == nxField or r.sym.local or r.file == f or r.file.path == f.path): chunk.add r
     if chunk.len >= 1024:
       nxAddRefsIx(nxPrep.items, nxPrep.ix, f, chunk, lazy = true)

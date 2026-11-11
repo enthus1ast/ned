@@ -141,6 +141,23 @@ What lasts between sessions is written by [`config/session.nim`](../../src/ned/c
 `config.json` ([Recipes › Add a setting](recipes.md#add-a-setting)). Where every file lives:
 [Files ned uses](../guide/files.md).
 
+## Memory
+
+On Linux and macOS ned is built on the system's memory allocator (`-d:useMalloc`, set in `src/ned.nims`), not Nim's
+own, which never gives memory back to the system once it has it: after a big file, or a long session, ned held three
+times what it used (a 7 MB file open: 69 MB, and still 69 once it was closed; now 35, and 22 once closed).
+[`sys/heap.nim`](../../src/ned/sys/heap.nim) says what the heap holds and uses (`heapHeld`, `heapInUse`: glibc's
+`mallinfo2`, Android's `mallinfo`; -1 where the C library does not say) and gives back what it no longer uses
+(`heapGiveBack`: `malloc_trim`, Android's `M_PURGE`, macOS's pressure relief, Windows's `_heapmin`) — calls looked up
+when ned runs, so a C library without them (musl) only goes without. `heapTidy` does it in quiet moments: the main
+loop's idle tick (two seconds without a key, at most every ten) and the engine worker before it waits, when the heap
+holds over 4 MB more than it uses. *Help › Performance* and `NED_PERF_TRACE` show the heap's two sizes.
+
+On Android (the Termux package is linked with musl; a build in Termux uses bionic) and Windows ned stays on Nim's
+allocator: musl's kept 50 MB with the same file (Nim's 65), more than Nim's after a session, and its calls took 15–40%
+longer. `-d:nedNimAlloc` builds on Nim's everywhere, `-d:useMalloc` on the system's everywhere. Whatever the allocator,
+what keeps memory low is not taking it: see [Big texts: no copies on the way](pitfalls.md#big-texts-no-copies-on-the-way).
+
 ## Starting
 
 `main` in [`app/main.nim`](../../src/ned/app/main.nim), in order:
@@ -155,7 +172,8 @@ What lasts between sessions is written by [`config/session.nim`](../../src/ned/c
    the settings, the project's Nim toolchain, the theme, the commands (`initCommands`);
 4. the files opened, the signal handlers (`SIGWINCH` for a resize; `SIGHUP` and `SIGTERM` keep every unsaved edit
    in its recovery file and quit; `SIGQUIT` and `SIGPIPE` ignored), the tools looked up, the project's file list
-   started in the background, the remote-control socket opened;
+   started in the background, the remote-control socket opened, the fatal signals handled
+   ([below](#when-ned-itself-fails));
 5. raw mode (`enterRaw`: the alternate screen, the mouse, bracketed paste, focus events, and the questions to the
    terminal about what it can do — `core/termcaps.nim`);
 6. the last session, the layout, the kept terminals, the unsaved edits of last time (hot exit), recovery files;
@@ -198,12 +216,27 @@ runs — so everything slow is either another process or done a slice at a time.
     checks, the compiler oracle, the names macros make, the web engines' checks.
 12. **git**: `git status` when the watcher saw a change (or every few seconds while the Git or Files dock shows it).
 13. **Language servers**: their answers read (8 ms at most), what waits written, a server that died started again
-    (after three deaths it is given up), the buffers changed 120 ms ago sent to them.
+    (after three deaths it is given up), the buffers changed 120 ms ago sent to them — only the edits to a server
+    that takes them (`textDocumentSync` 2), else the whole text.
 14. **Recovery files** for buffers changed and left alone for 600 ms; every two seconds the files changed on disk,
-    the theme's clock and auto-save.
+    the theme's clock and auto-save; after two seconds without a key, the memory the heap holds but no longer uses
+    given back to the system ([Memory](#memory)).
 
 Every round is inside a `try`: an exception becomes `internalError` (written to `errors.log` in the state folder,
 said once on the status bar), never a crash. Key handling and drawing have the same guard.
+
+### When ned itself fails
+
+What no `try` catches — a fatal signal: `SIGSEGV` (a stack run out, memory out of bounds), `SIGBUS`, `SIGFPE`,
+`SIGILL`, `SIGABRT` — goes to `onCrash` in [`app/crash.nim`](../../src/ned/app/crash.nim), on a stack of its own
+(`sigaltstack`: a stack run out has no room left for it). It gives the terminal back as `leaveRaw` does (its own
+screen left, the mouse, paste and keyboard modes off, the old settings), writes `crash.txt` in the state folder —
+the signal and what was running, from the names `timedWork` keeps in fixed memory (`noteWorking`) — says so in the
+shell, and lets the signal end the program. It may only call what is safe in a signal handler: nothing that
+allocates (the note's path is made at start), so the unsaved edits are not written there: they are in the recovery
+files already (600 ms after the last change). The next start reads the note (`crashNoted`), adds it to `errors.log`
+and says what happened. Before 6.45 the terminal stayed in ned's modes: no scrolling, the mouse's codes typed into the
+shell.
 
 With nothing due, `poll` waits two seconds and nothing is drawn: ned uses no CPU while idle.
 
@@ -221,6 +254,12 @@ files, a chunk of lines) and remembers where it stopped. The main loop calls it 
 while there is more (a condition in the timeout list, or a `…NextDueMs` / `…Pending` proc of the part). Examples:
 `pumpScan`, `pumpSearch`, `hlPump`, `todoPump`, `plugPump`, `lfPump`, `semImportsPump`. What cannot be cut into
 slices goes to another process: a job (`startJob`), the engine worker, a language server.
+
+What goes to these programs and comes back goes through `pipeWrite` and `eachLine`
+([`core/utils.nim`](../../src/ned/core/utils.nim)): a big message (a whole file for a language server, the engine
+worker or a plugin) leaves in many writes, a position moving on — not the rest copied to the front after each, which
+for a file of 7 MB copied hundreds of megabytes — and the buffer is let go once it is sent; the lines of a burst of
+output are taken out at once, not one at a time with a copy of the rest each time.
 
 ned has one other thread: the recovery files' writer ([`editor/swap.nim`](../../src/ned/editor/swap.nim)), because an
 `fsync` on a phone's flash can take hundreds of milliseconds. Programs are started with `spawnProc` and `startJob`

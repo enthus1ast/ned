@@ -104,6 +104,31 @@ Two things follow:
 - Work that needs another round soon must say so in the main loop's wait (a condition in `mainLoop`'s timeout list,
   or a `…NextDueMs` proc of its part). Otherwise the loop may sleep for two seconds.
 
+### A slice must not start from the beginning
+
+A pump that does a bounded amount each round (`if msSince(t0) >= budget: return false`) is only as short as the step
+between two looks at the clock — and that step must not grow with how far it got. A scope's names (`sc.refs`, an
+`NxRefs`) are its own list and its layers': `sc.refs[i]` counts through the layers to the i-th each time, one at a
+time past a layer the scope partly hides (an included file's). Walked that way a slice at a time, the completion
+list and the semantic colours took 20–40 ms a round on ned's own source, more the further they got (6.45). Walk them
+with `for r in sc.refs`, or, across rounds, with `nxNext(sc.refs, at, r)` and an `NxRefsAt` kept between them.
+
+### Big texts: no copies on the way
+
+A whole file is easily megabytes. Joining its lines (`allText`), putting the result in a `JsonNode`, turning that
+into a string with `$` and adding it to a write buffer is four copies at once — for 7 MB, 54 MB for a moment — and
+memory taken is not always given back (see [Memory](architecture.md#memory)). What sends a whole file writes it
+straight into the queue a line at a time: `wkSendDoc` (the engine worker, which reads it back the same way:
+`wkDocInPlace`) and `lspNotifyText` (a language server: `LspTextMark` stands for the text in the message). Write
+buffers go through `pipeWrite`, read buffers through `eachLine` (`core/utils.nim`).
+
+### Deep nesting needs a limit
+
+A reader that calls itself for each bracket inside a bracket runs out of stack on input no person writes but a
+program might (minified data, a fuzzer): the Nim formatter stopped with a crash at about 10 000 nested brackets
+(6.45). Give such a reader a depth (`XMaxDepth`, `FmtMaxNest`, the JSON check's 200) past which it gives up on that
+part — and says so once, not once for every bracket around it.
+
 ### applySettings runs in other processes too
 
 The engine worker (`ned --engine-worker`) and nedls apply the settings with the same `applySettings`. Nothing there may
@@ -124,7 +149,9 @@ write to the terminal or open the interface unless `gRaw` is set (ned is in raw 
 A column (`Pos.col`) is a byte offset into the line's UTF-8, also in the plugin API. Screen columns come from
 `visColOf` / `colAtVis`; whole characters (an emoji sequence, an accent) from `nextCluster` / `prevCluster`. The
 Language Server Protocol counts UTF-16 units unless both sides agree on UTF-8: convert with `lspPos` /
-`fromLspPos` (the editor) or `lsToPos` (nedls).
+`fromLspPos` (the editor) or `lsToPos` (nedls). An edit sent to a server that takes changes is converted when it is
+made (`rawReplace` keeps it in `b.lspLog`), in the line as it was before it: by the time it is sent, the line may
+have changed again.
 
 ### A server's "end of the file"
 

@@ -37,6 +37,7 @@ type JLex = object
   l, c: int
   comments: bool                 # (JSONC: // and /* */ allowed)
   diags: seq[WebDiag]
+  tooDeep: bool                  # (nested past 200: reading stopped there — the brackets around it are not "not closed")
 
 proc jErr(x: var JLex, l, c, e: int, msg: string, sev = 1, rule = "json") =
   ## notes a problem at line l from column c to e (at least one column wide); the same message at the same place is
@@ -167,6 +168,7 @@ proc jValue(x: var JLex, depth: int): JNode =
   if depth > 200:
     x.jErr(x.l, x.c, x.c + 1, "nested too deep")
     x.l = x.lines.len
+    x.tooDeep = true
     return JNode(kind: jkBad)
   let ch = x.jPeek()
   case ch
@@ -181,7 +183,8 @@ proc jValue(x: var JLex, depth: int): JNode =
     while true:
       x.jSkip()
       if x.l >= x.lines.len:
-        x.jErr(result.line, result.col, result.col + 1, "the " & (if obj: "{" else: "[") & " is not closed (" & $close & ")")
+        if not x.tooDeep:
+          x.jErr(result.line, result.col, result.col + 1, "the " & (if obj: "{" else: "[") & " is not closed (" & $close & ")")
         result.eline = max(0, x.lines.high)
         result.ecol = if x.lines.len > 0: x.lines[^1].len else: 0
         return

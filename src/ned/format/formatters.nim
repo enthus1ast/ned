@@ -8,6 +8,10 @@ when defined(windows): import ../sys/winposix as posix
 else: import std/posix
 import ../core/text
 
+const FmtMaxNest = 500     # (JSON's and CSS's nesting past which a file is left as it is: each level is indented, so
+                           # the result grows with the square of the depth — 30 000 deep took more memory than a phone
+                           # has — and no file a person writes nests that deep)
+
 include nimlex
 include nimspacing
 include nim

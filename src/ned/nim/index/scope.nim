@@ -72,6 +72,41 @@ iterator items*(r: NxRefs): NxRef =
       for x in l.refs:
         if not r.nxHidden(li, x): yield x
 
+type NxRefsAt* = object
+  ## a place in a scope's names that a walk done a slice at a time comes back to (nxNext). Indexing them (`refs[i]`)
+  ## counts from the start each time — past a layer whose names the scope partly hides, one at a time: a slice of a
+  ## big program's names took 20–40 ms of a round, more the further it got
+  part*: int                   # 0 the scope's own names; n the layer n - 1
+  k*: int                      # the position in that list
+  hidesIn: int                 # (the part `hides` was worked out for, plus one: 0 none yet)
+  hides: bool                  # (whether the scope hides some of that layer's names)
+
+proc nxNext*(r: NxRefs, at: var NxRefsAt, x: var NxRef): bool =
+  ## the next of the scope's names from `at`, in the order `for x in r` gives them, and `at` moved past it; false at
+  ## the end. A fresh NxRefsAt starts at the first
+  while true:
+    if at.part == 0:
+      if at.k < r.own.len:
+        x = r.own[at.k]
+        inc at.k
+        return true
+      at.part = 1
+      at.k = 0
+    let li = at.part - 1
+    if li >= r.layers.len: return false
+    let l = r.layers[li]
+    if at.hidesIn != at.part:
+      at.hidesIn = at.part
+      at.hides = r.hide.len > 0 and r.nxHides(li, l)
+    while at.k < l.refs.len:
+      let y = l.refs[at.k]
+      inc at.k
+      if not at.hides or not r.nxHidden(li, y):
+        x = y
+        return true
+    inc at.part
+    at.k = 0
+
 proc `[]`*(r: NxRefs, i: int): NxRef =
   ## the i-th name of the scope, counting its own and then the layers' as one list; raises when i is past the end
   if i < r.own.len: return r.own[i]

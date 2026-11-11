@@ -270,23 +270,32 @@ proc dapReadFd(fd: cint): bool =
   let old = dapRbuf.len
   dapRbuf.setLen(old + n)
   copyMem(addr dapRbuf[old], addr tmp[0], n)
+  # (the messages handled are taken out at the end, at once: cut one by one, the rest was copied each time)
+  var at = 0
+  template cutHandled() =
+    ## takes the messages handled out of dapRbuf (unless handling one emptied it: the session ended)
+    if at > 0 and at <= dapRbuf.len: dapRbuf = dapRbuf[at .. ^1]
   while true:
-    let he = dapRbuf.find("\r\n\r\n")
+    let he = dapRbuf.find("\r\n\r\n", at)
     if he < 0: break
     var clen = -1
-    for h in dapRbuf[0 ..< he].split("\r\n"):
+    for h in dapRbuf[at ..< he].split("\r\n"):
       if h.toLowerAscii.startsWith("content-length:"):
         try: clen = parseInt(h[15 .. ^1].strip)
         except ValueError: discard
     if clen < 0:
-      dapRbuf = dapRbuf[he + 4 .. ^1]
+      at = he + 4
       continue
     if dapRbuf.len < he + 4 + clen: break
     let body = dapRbuf[he + 4 ..< he + 4 + clen]
-    dapRbuf = dapRbuf[he + 4 + clen .. ^1]
+    at = he + 4 + clen
     try: dapHandle(parseJson(body))
     except CatchableError: discard
-    if not dbgOn: return true
+    if not dbgOn:
+      cutHandled()
+      return true
+    if at > dapRbuf.len: break               # (handling it emptied the buffer)
+  cutHandled()
   true
 
 proc dapFromMi(cmd: string) =

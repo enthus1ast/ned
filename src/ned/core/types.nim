@@ -123,7 +123,8 @@ type
     time: MonoTime
     seqId: int
   WkEdit = object
-    ## a change to a buffer's text, kept for the engine worker (nim/worker.nim): lines a..c replaced with text
+    ## a change to a buffer's text, kept for the engine worker (nim/worker.nim) and the language server: lines a..c
+    ## replaced with text
     a, c: Pos
     text: string
   UndoBranch = object
@@ -160,6 +161,9 @@ type
     undoBranches: seq[UndoBranch]      # the undo tree's other branches (editor/undotree.nim)
     wkLog: seq[WkEdit]                 # the engine worker: the edits since it last had the text (nim/worker.nim)
     wkLogFrom: int                     #   … the change they start from (-1: none kept — the whole text next time)
+    lspLog: seq[WkEdit]                # the main language server, when it takes changes (lsp/client.nim): the edits
+    lspLogFrom: int                    #   since the text it has, which is change lspLogFrom (-1: none kept)
+    lspLogU16: bool                    #   … their columns in UTF-16 code units (the server did not take UTF-8)
     nesHas: bool                       # next-edit suggestions: the line being edited, as it was before
     nesLine: int
     nesBefore: string
@@ -357,10 +361,13 @@ type
     pr: Proc
     inFd, outFd, errFd: cint
     rbuf, wbuf: string
+    wpos: int                          # how much of wbuf is written (core/utils.nim: pipeWrite)
     nextId: int
     pending: Table[int, LspReq]
     ready, dead: bool
     utf8: bool
+    incremental: bool                  # it takes a file's changes (textDocumentSync 2), not only its whole text
+    saveText: bool                     # it wants the whole text with the notice that a file was saved
     triggers: set[char]
     sigTriggers: set[char]
     caps: JsonNode

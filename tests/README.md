@@ -47,7 +47,9 @@ NED_UI_FULL=1 python3 tests/ui/run.py ./ned t_622_nimscript   # a failure prints
 They need **tmux**, **git**, **python3** and **nim** on PATH. Each test starts ned in a private tmux server, in a
 scratch copy of [`ui/fixtures/demo`](ui/fixtures/demo) (made a git repository on the fly), with settings of its own,
 and talks to it the way a person would. A mock AI server ([`ui/mocks/mockai.py`](ui/mocks/mockai.py)) answers the
-assistant like the real APIs do — including their refusals — so the AI features are tested without a key.
+assistant like the real APIs do — including their refusals — so the AI features are tested without a key. Mock
+language servers stand in for real ones where a test needs a server's exact answers: `mocklsp.py` (fixed answers),
+`mocksync.py` (takes a file's changes, not its whole text, and writes its copy out to be compared with the file).
 
 Some tests use optional tools; when one is missing, the test is skipped and says what it needs:
 

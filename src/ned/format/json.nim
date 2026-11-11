@@ -73,6 +73,14 @@ proc fmtJson*(s: string, indent = 2, maxW = 80): (string, string) =
   var err = ""
   let t = jsonToks(s, err)
   if err.len > 0: return (s, err)
+  var nest, most = 0
+  for k in t:
+    if k.kind in {'{', '['}:
+      inc nest
+      most = max(most, nest)
+    elif k.kind in {'}', ']'}: dec nest
+  if most > FmtMaxNest:
+    return (s, "nested " & $most & " deep: left as it is (more than " & $FmtMaxNest & ")")
   var o = ""
   var depth = 0
   var pending = false          # the next token starts a new line

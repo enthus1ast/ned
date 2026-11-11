@@ -24,7 +24,7 @@ proc mutate(r: var Rand, s: string): string =
   result = s
   for _ in 0 ..< r.rand(1 .. 8):
     let at = if result.len > 0: r.rand(result.len) else: 0
-    case r.rand(5)
+    case r.rand(6)
     of 0:
       if result.len > 0: result[min(at, result.high)] = char(r.rand(255))
     of 1, 2: result.insert(Tokens[r.rand(Tokens.high)], at)
@@ -36,6 +36,13 @@ proc mutate(r: var Rand, s: string): string =
       if result.len > 0 and result.len < 200_000:
         let e = min(result.len, at + r.rand(200))
         result.insert(result[min(at, result.high) ..< e], r.rand(result.len))
+    of 5:
+      if r.rand(20) == 0 and result.len < 200_000:
+        # (brackets nested thousands deep: what reads them one inside the other runs out of stack — 6.45)
+        let (o, c) = [("(", ")"), ("[", "]"), ("{", "}"), ("{.", ".}")][r.rand(3)]
+        let n = r.rand(1000 .. 12_000)
+        result.insert(o.repeat(n) & "1" & c.repeat(n), at)
+      elif result.len > 0: result.setLen(r.rand(result.len))
     else:
       if result.len > 0: result.setLen(r.rand(result.len))
 

@@ -28,6 +28,7 @@ type
     pr: Proc
     fdIn, fdOut: cint
     wbuf, rbuf: string
+    wpos: int                              # how much of wbuf is written (pipeWrite)
     queue: seq[NbRun]
     cur: NbRun
     busy, dead: bool
@@ -356,20 +357,13 @@ proc nbPump(ready: HashSet[cint]) =
       nbStop(s)
       gone.add s
       continue
-    while s.wbuf.len > 0 and s.fdIn >= 0:
-      let n = posix.write(s.fdIn, addr s.wbuf[0], s.wbuf.len)
-      if n > 0: s.wbuf = s.wbuf[n .. ^1]
-      else: break
+    if s.wbuf.len > 0 and s.fdIn >= 0: discard pipeWrite(s.fdIn, s.wbuf, s.wpos)   # (a session gone shows below)
     if s.fdOut >= 0 and s.fdOut in ready:
       var chunk = newString(65536)
       let n = posix.read(s.fdOut, addr chunk[0], chunk.len)
       if n > 0:
         s.rbuf.add chunk[0 ..< n]
-        while true:
-          let nl = s.rbuf.find('\n')
-          if nl < 0: break
-          let line = s.rbuf[0 ..< nl]
-          s.rbuf = s.rbuf[nl + 1 .. ^1]
+        eachLine(s.rbuf, line):
           let m = line.find(NbMark & s.cur.token)
           if s.busy and m >= 0 and line[m + 1 .. ^1].strip == s.cur.token:
             if m > 0: s.got.add line[0 ..< m]

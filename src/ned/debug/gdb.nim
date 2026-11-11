@@ -722,12 +722,7 @@ proc dbgRead() =
   let old = dbgRbuf.len
   dbgRbuf.setLen(old + n)
   copyMem(addr dbgRbuf[old], addr tmp[0], n)
-  while true:
-    let e = dbgRbuf.find('\n')
-    if e < 0: break
-    let line = dbgRbuf[0 ..< e].strip(leading = false, chars = {'\r'})
-    dbgRbuf = dbgRbuf[e + 1 .. ^1]
-    dbgLine(line)
+  eachLine(dbgRbuf, raw): dbgLine(raw.strip(leading = false, chars = {'\r'}))
 
 proc toggleBreakpoint() =
   ## sets or removes a breakpoint on the cursor's line of the current file (the file must be saved). Removing also drops

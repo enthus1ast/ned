@@ -1299,9 +1299,17 @@ proc fSimpleElem(e: openArray[FTok]): bool =
 
 proc fRenderLine*(o0: FOut, lines: seq[string]): seq[string]
 
+const XMaxDepth = 200      # (brackets nested deeper than any code a person writes: reading or wrapping them one
+                           # inside the other took the stack — nedfmt stopped with a crash at about 10 000)
+var fWrapNest = 0          # (bracket groups being wrapped one inside the other: fWrapElem)
+
 proc fWrapElem(e: seq[FTok], ind: int, importish: bool): seq[string] =
   ## an element still too long on its own line: the bracket group it ends with wrapped in turn (nph wraps all the
-  ## way down) — @[] when it does not end with one
+  ## way down) — @[] when it does not end with one, or when the groups are nested past XMaxDepth (wrapping them one
+  ## inside the other took the stack)
+  if fWrapNest >= XMaxDepth: return
+  inc fWrapNest
+  defer: dec fWrapNest
   var last = e.high
   while last >= 0 and e[last].kind == fkComma: dec last
   for t in e:
@@ -1959,6 +1967,8 @@ type
     brk: seq[int]          # a line starts at the token: its indentation (-1: none)
     comma: seq[char]       # a separator added after the token: ',' (';' after a parameter without a type)
     lineLen, indent, pendingNL: int
+    depth: int             # brackets open while reading (xList): past XMaxDepth the statement is left as it is
+
 
 proc xNew(x: var XTree, nd: XNode): int =
   ## adds a node to the tree and gives its index
@@ -2004,7 +2014,13 @@ func xCmdStart(x: XTree, k: int): bool =
 proc xExpr(x: var XTree, i, e, limit: int, next: var int, cmd = true): int
 
 proc xList(x: var XTree, open, e: int, next: var int): int =
-  ## the bracket group at `open` (or the pragmas `{.….}`): its elements (`a`, `k: v`, `k = v`)
+  ## the bracket group at `open` (or the pragmas `{.….}`): its elements (`a`, `k: v`, `k = v`); nested past
+  ## XMaxDepth, it fails (the statement is kept as it is)
+  if x.depth >= XMaxDepth:
+    x.fail = true
+    return -1
+  inc x.depth
+  defer: dec x.depth
   var d = 0
   var close = -1
   for k in open ..< e:
