@@ -24,7 +24,7 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## Contents
 
-- [What's new in 6.44](#whats-new-in-644) · [6.43.1](CHANGELOG.md#whats-new-in-6431) · [6.43](CHANGELOG.md#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.45](#whats-new-in-645) · [6.44](CHANGELOG.md#whats-new-in-644) · [6.43.1](CHANGELOG.md#whats-new-in-6431) · [6.43](CHANGELOG.md#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -33,27 +33,32 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ---
 
-## What's new in 6.44
+## What's new in 6.45
 
-**Ctrl+Z goes back to the shell** with the vim, Helix and emacs keys, as those editors do: ned stops, and `fg` brings
-it back as it was, its terminals still running. `:suspend` does it too. ned's own keys keep Ctrl+Z for undo;
-`"keys": {"ctrl+z": "Suspend ned (fg brings it back)"}` makes it suspend there as well
-([#3](https://github.com/foxoman/ned/issues/3)).
+**Less memory.** With a file of 7 MB open, ned and its engine worker took 155 MB; now about 90 in Termux and 66 on
+Linux. Sending a file to the engine worker or to a language server no longer makes several copies of it at once, and
+on Linux and macOS ned gives memory back to the system once it has finished with it — when a big file is closed, too.
+Before, what a big file or a long session had taken stayed taken until ned quit: after half an hour on ned's own
+source it held 79 MB and used 27.
 
-**`>` and `<` in vim mode take every line.** With `V` or `v` over lines, a motion (`>j`, `>G`) or a count (`3>>`),
-the last line was left as it was ([#4](https://github.com/foxoman/ned/issues/4)).
+**No stutter when a file of a big project opens.** Reading what the file's imports bring, for completion and for the
+colours, kept the keys waiting 25 to 40 ms a dozen times or more, longer the further it got. It is done in short
+pieces now.
 
-**One problem, once.** With `web.engine` on and a language server for CSS, HTML or SQL, a mistake both of them found
-was listed twice. It is shown once now, in ned's words, which name what was meant, and Alt+Enter still has the
-server's fixes.
+**Language servers get only what changed.** After each pause in typing ned sent the server the whole file again. A
+server that takes changes — clangd, and the HTML, CSS and JSON servers, among others — now gets just the edits, and
+the whole file goes with a save only to a server that asks for it.
 
-**C on macOS.** The C engine reads macOS's system headers whole, so `printf` and the rest of what they declare are
-known, and an `#include` nothing is used from is found there as on Linux. A header made into Nim (*Nim: wrap a C
-header*) whose callbacks take `const` pointers compiles with clang now, and with gcc 14. And the assembly view finds
-the program's lines when its folder is reached through a symbolic link (macOS's `/var`, Termux's `/sdcard`).
+**Big messages to other programs.** A big file sent to a language server, an MCP server, a plugin or the engine
+worker, and a flood of output from gdb, a debugger or a plugin, are no longer copied over and over on the way.
 
-**The dependency tree with NIMBLE_DIR.** With NIMBLE_DIR set, the tree no longer lists the packages in `~/.nimble`,
-which nimble does not use then.
+**If ned crashes, the terminal is yours again.** A crash left the terminal in ned's modes: in Termux no scrolling, and
+the mouse typing codes into the shell. Now the terminal is put back as ned found it, the shell says ned stopped, and
+the next start says so too and offers your unsaved changes. Please report it: the details are in `errors.log`.
+
+**Deeply nested code.** nedfmt no longer crashes on brackets nested thousands deep, the JSON check says "nested too
+deep" once instead of once for every bracket around it, and JSON or CSS nested more than 500 deep is left as it is
+rather than formatted into gigabytes.
 
 ## Features
 
@@ -212,7 +217,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or a ready-made package,
-`pkg install ./ned_6.44.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
+`pkg install ./ned_6.45.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
 `nimble termuxdeb` makes it on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.

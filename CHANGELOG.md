@@ -1,6 +1,28 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-644). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-645). Older releases:
+
+## What's new in 6.44
+
+**Ctrl+Z goes back to the shell** with the vim, Helix and emacs keys, as those editors do: ned stops, and `fg` brings
+it back as it was, its terminals still running. `:suspend` does it too. ned's own keys keep Ctrl+Z for undo;
+`"keys": {"ctrl+z": "Suspend ned (fg brings it back)"}` makes it suspend there as well
+([#3](https://github.com/foxoman/ned/issues/3)).
+
+**`>` and `<` in vim mode take every line.** With `V` or `v` over lines, a motion (`>j`, `>G`) or a count (`3>>`),
+the last line was left as it was ([#4](https://github.com/foxoman/ned/issues/4)).
+
+**One problem, once.** With `web.engine` on and a language server for CSS, HTML or SQL, a mistake both of them found
+was listed twice. It is shown once now, in ned's words, which name what was meant, and Alt+Enter still has the
+server's fixes.
+
+**C on macOS.** The C engine reads macOS's system headers whole, so `printf` and the rest of what they declare are
+known, and an `#include` nothing is used from is found there as on Linux. A header made into Nim (*Nim: wrap a C
+header*) whose callbacks take `const` pointers compiles with clang now, and with gcc 14. And the assembly view finds
+the program's lines when its folder is reached through a symbolic link (macOS's `/var`, Termux's `/sdcard`).
+
+**The dependency tree with NIMBLE_DIR.** With NIMBLE_DIR set, the tree no longer lists the packages in `~/.nimble`,
+which nimble does not use then.
 
 ## What's new in 6.43.1
 

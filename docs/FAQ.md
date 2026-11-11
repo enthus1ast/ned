@@ -24,7 +24,7 @@ found and how to install the rest. See [Installing](../README.md#installing).
 **How do I install it on Termux?** Build it on the device: `curl -fsSL
 https://raw.githubusercontent.com/foxoman/ned/main/install.sh | sh` does it with nimble, or by hand `pkg install nim
 git`, then `nim c -d:release --opt:speed -d:strip -o:$PREFIX/bin/ned src/ned.nim` (or `nimble termux` in the project
-folder). A ready-made package, if you have one — `pkg install ./ned_6.44.0_aarch64.deb` — brings ned, nedls and
+folder). A ready-made package, if you have one — `pkg install ./ned_6.45.0_aarch64.deb` — brings ned, nedls and
 nedfmt, and the example plugins in `$PREFIX/share/ned/plugins`.
 
 **And on Linux, macOS, Windows?** Linux and macOS build from the source with one `nim c` (or `nimble install`).
@@ -63,8 +63,9 @@ Copy in ned instead: a triple tap selects the line, then **⧉ Copy** in the sta
 it on the clipboard whole.
 
 **Swiping no longer scrolls in Termux after ned.** While ned runs it has the mouse, so a swipe goes to ned; it
-gives the mouse back when it quits. When Android ended it instead (see *Termux closed by itself* below), the
-terminal stays as ned left it: `reset`, or
+gives the mouse back when it quits, and since 6.45 when it stops with a crash too (the shell then says ned stopped).
+When Android ended it instead (see *Termux closed by itself* below), nothing can give it back and the terminal stays
+as ned left it: `reset`, or
 `printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l\e[?1049l'`, and a swipe scrolls again. In ned's own Terminal panel a
 swipe scrolls what the command printed (Shift+PgUp too).
 
