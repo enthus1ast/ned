@@ -28,18 +28,22 @@ COUNTS = [2]
 # the operators and the motions they are tried with (a text object after an operator is one dialog: `diw`, `ci"`)
 OPERATORS = ['d', 'c', 'y', '>', '<']
 OP_MOTIONS = ['w', 'e', 'b', '$', 'j', 'k', 'iw', 'aw', 'i(', 'i"', 'ip', 'ap', 'G']
+# the motions a `c` is tried with: ones that find something from the grid's start, since a failed motion leaves what it
+# typed as normal-mode keys (`cb`/`ck` from 1,1 fail, and vim then reads the typed text as commands)
+C_MOTIONS = ['w', 'e', '$', 'j', 'iw', 'aw', 'ip', 'ap', 'G']
 OP_STARTS = [(1, 1)]
 # what a `c` case types once its motion took the text
 TYPED = {'c': 'typed'}
-# the edits vim's own single keys do
-SIMPLE = [('x', (1, 1)), ('X', (1, 5)), ('xx', (1, 1)), ('dd', (1, 1)), ('2dd', (1, 1)), ('yy p', (1, 1)),
-          ('Y P', (1, 1)), ('D', (1, 5)), ('C', (1, 5)), ('s', (1, 1)), ('S', (2, 1)), ('A', (1, 1)),
+# the edits vim's own single keys do (the keys are written as they are typed — no spaces to separate parts: a space
+# is a key of its own, `l` in vim's normal mode)
+SIMPLE = [('x', (1, 1)), ('X', (1, 5)), ('xx', (1, 1)), ('dd', (1, 1)), ('2dd', (1, 1)), ('yyp', (1, 1)),
+          ('yyP', (1, 1)), ('D', (1, 5)), ('C', (1, 5)), ('s', (1, 1)), ('S', (2, 1)), ('A', (1, 1)),
           ('I', (2, 1)), ('a', (1, 1)), ('i', (1, 1)), ('o', (1, 1)), ('O', (2, 1)), ('J', (1, 1)),
-          ('r Z', (1, 1)), ('~', (1, 1)), ('>>', (1, 1)), ('<<', (4, 1)), ('vip d', (1, 1)), ('V d', (1, 1)),
-          ('dw .', (1, 1)), ('i hello', (1, 1)), ('a hello', (1, 1)),
+          ('rZ', (1, 1)), ('~', (1, 1)), ('>>', (1, 1)), ('<<', (4, 1)), ('Vd', (1, 1)),
+          ('dw.', (1, 1)), ('ihello', (1, 1)), ('ahello', (1, 1)),
           # (visual-line takes whole lines, its own line included — the last line of the selection is not left out when
           # the head stands at its start: `G` `k` `V` `j` `>` indents two lines, not one)
-          ('G k V j >', (1, 1)), ('G V k >', (1, 1)), ('V j >', (1, 1))]
+          ('GkVj>', (1, 1)), ('GVk>', (1, 1)), ('Vj>', (1, 1))]
 
 # the text objects, after an operator (`diw`, `dap` …) and in visual mode (`vip`, then `d`), each from a place it is
 # at. The fixture gives them something to work on: a paragraph and words on line 1, brackets, quotes and punctuation on
@@ -56,9 +60,9 @@ ESC = '\x1b'          # (every edit ends in normal mode: what is typed leaves in
 
 
 def vim_keys(keys):
-    """a case's keys as vim's `feedkeys` takes them: the same characters — `<Esc>` as the Escape key, and the keys of one
-    dialog ('2 f j' is `2f j`) as one string. `ned -es` takes the same string (src/ned/app/headless.nim)"""
-    return keys.replace('<Esc>', ESC)
+    """a case's keys as vim's `feedkeys` takes them: the characters as they are, `<Esc>` as the Escape key and
+    `<Space>` as a space. `ned -es` takes the same string (src/ned/app/headless.nim)"""
+    return keys.replace('<Space>', ' ').replace('<Esc>', ESC)
 
 
 def _build():
@@ -70,13 +74,13 @@ def _build():
             cases.append((m, line, col, False))
             if m in COUNTED:
                 for n in COUNTS: cases.append(('%d%s' % (n, m), line, col, False))
-    # (a count of a find: f and its character once)
-    for m in ['f o', 't o', 'F o', 'T o', '2f o', '2f j', 'f o ;', 'f o ,']:
+    # (a count of a find: f or t, its character, then ; or , to repeat it)
+    for m in ['fo', 'to', 'Fo', 'To', '2fo', '2to', 'fo;', 'fo,']:
         cases.append((m, 1, 1, False))
     for op in OPERATORS:
-        for m in OP_MOTIONS:
+        for m in (C_MOTIONS if op == 'c' else OP_MOTIONS):
             for line, col in OP_STARTS:
-                body = op + ' ' + m + (' ' + TYPED[op] if op in TYPED else '')
+                body = op + m + (TYPED[op] if op in TYPED else '')
                 cases.append((body, line, col, True))
     # the text objects: `d` and `y` with each, `c` with a few, and `v` + the object + `d` (vim's `vip`, `vap`)
     for op in ['d', 'y']:

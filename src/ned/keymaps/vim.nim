@@ -19,6 +19,7 @@ var
   vimSurRange: (Pos, Pos)          # (vim-surround: what ys{motion} goes around, until its character)
   vimDesiredCol = -1               # (vim's remembered *display* column, counted from 1 as virtcol is: j and k go back
                                    # to it over short lines and past a tab; -1: none)
+  vimVLineCol = 0                  # (visual-line: the display column `V` was pressed at, which `>` and `<` keep)
 
 proc vimModeName(): string =
   ## the mode shown in the status bar for the keymap in use: NORMAL / INSERT / VISUAL / V-LINE / REPLACE for vim (with
@@ -194,11 +195,26 @@ proc visColOfPos(b: Buffer, p: Pos): int =
   b.visColAt(p.line, c) + 1
 
 proc paragraphMove(b: Buffer, p: Pos, d: int): Pos =
-  ## vim's } and { (d is 1 or -1): over the blank lines and then the text lines in that direction to the start of the
-  ## next blank run, or to the buffer's first or last line
-  var l = p.line + d
-  while l > 0 and l < b.lines.high and isBlank(b.lines[l]): l += d
-  while l > 0 and l < b.lines.high and not isBlank(b.lines[l]): l += d
+  ## vim's } and { (d is 1 or -1): to the paragraph boundary in that direction — the blank line after (before) the
+  ## paragraph, or the buffer's first (last) line; from a blank line, over the blanks and the next paragraph to the
+  ## boundary beyond it. At the buffer's end the cursor goes to the last character, as vim's }
+  var l = p.line
+  let blank = isBlank(b.lines[l])
+  if d > 0:
+    if blank:
+      while l + 1 <= b.lines.high and isBlank(b.lines[l + 1]): inc l
+      while l + 1 <= b.lines.high and not isBlank(b.lines[l + 1]): inc l
+    else:
+      while l + 1 <= b.lines.high and not isBlank(b.lines[l + 1]): inc l
+    if l + 1 <= b.lines.high: inc l                      # (onto the blank line after the paragraph)
+    else: return Pos(line: l, col: max(0, b.lines[l].len - 1))   # (no blank line after it: the buffer's end)
+  else:
+    if blank:
+      while l - 1 >= 0 and isBlank(b.lines[l - 1]): dec l
+      while l - 1 >= 0 and not isBlank(b.lines[l - 1]): dec l
+    else:
+      while l - 1 >= 0 and not isBlank(b.lines[l - 1]): dec l
+    if l - 1 >= 0: dec l
   Pos(line: clamp(l, 0, b.lines.high), col: 0)
 
 func findChar(b: Buffer, p: Pos, cmd, ch: char): (bool, Pos) =
@@ -236,12 +252,18 @@ proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
   of "l", " ":
     q.col = min(max(0, b.lines[p.line].len - (if vimPending.len > 0: 0 else: 1)), p.col + count)
   of "j", "+":
+    if key == "j" and p.line >= b.lines.high:
+      result.ok = false                    # (no line below: vim's dj does nothing)
+      return
     q.line = min(b.lines.high, p.line + count)
     result.linewise = true
     result.keepCol = true
     if key == "+": q = b.firstNonBlank(q.line)
     elif vimDesiredCol >= 0: q.col = b.colAtVis(q.line, vimDesiredCol)
   of "k", "-":
+    if key == "k" and p.line <= 0:
+      result.ok = false                    # (no line above: vim's dk does nothing)
+      return
     q.line = max(0, p.line - count)
     result.linewise = true
     result.keepCol = true
@@ -270,15 +292,39 @@ proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
                             b.visColOfPos(p)))
     result.linewise = true
   of "}":
-    for _ in 0 ..< count: q = b.paragraphMove(q, 1)
+    for _ in 0 ..< count:
+      let nq = b.paragraphMove(q, 1)
+      if count > 1 and nq == q:
+        result.ok = false                    # (a counted motion that cannot finish: vim leaves the cursor)
+        return
+      q = nq
   of "{":
-    for _ in 0 ..< count: q = b.paragraphMove(q, -1)
+    for _ in 0 ..< count:
+      let nq = b.paragraphMove(q, -1)
+      if count > 1 and nq == q:
+        result.ok = false
+        return
+      q = nq
   of "%":
-    let (ok, a, e) = b.matchBracket(p)
+    var at = p
+    var (ok, a, e) = b.matchBracket(at)
     if not ok:
-      result.ok = false
-      return
-    q = if p == a or p.col == a.col + 1: e else: a
+      # (not on a bracket: vim goes to the next one on the line — or a later line — and to its match)
+      let s = b.lines[p.line]
+      var found = -1
+      for c in min(p.col + 1, s.len) ..< s.len:
+        if s[c] in {'(', ')', '[', ']', '{', '}'}:
+          found = c
+          break
+      if found < 0:
+        result.ok = false
+        return
+      at = Pos(line: p.line, col: found)
+      (ok, a, e) = b.matchBracket(at)
+      if not ok:
+        result.ok = false
+        return
+    q = if at == a or at.col == a.col + 1: e else: a
     result.inclusive = true
   of "H": q = b.firstNonBlank(clamp(b.topLine + cfgScrollOff, 0, b.lines.high))
   of "M": q = b.firstNonBlank(clamp(b.topLine + textH div 2, 0, b.lines.high))
@@ -322,11 +368,40 @@ func objLinewise(b: Buffer, obj: char, a, e: Pos): bool =
   obj == 'p' or (a.col == 0 and e.line > a.line and
                  (e.col == 0 or (e.line == b.lines.high and e.col == b.lines[e.line].len)))
 
+func tagRange(b: Buffer, p: Pos, inner: bool): (bool, Pos, Pos) =
+  ## vim's `at` (the whole element around p) or `it` (what is inside its tags): the nearest enclosing element, found
+  ## by walking back to an opening tag whose closing tag is after p
+  var l = p.line
+  var depth: Table[string, int]
+  while l >= 0 and p.line - l < 2000:
+    let ts = htmlTagsOn(b.lines[l])
+    for k in countdown(ts.high, 0):
+      let (na, ne, cl, selfc) = ts[k]
+      if l == p.line and na > p.col: continue
+      let name = b.lines[l][na ..< ne].toLowerAscii
+      if selfc or name in VoidTags: continue
+      if cl: depth[name] = depth.getOrDefault(name) + 1
+      elif depth.getOrDefault(name) > 0: depth[name] = depth[name] - 1
+      else:
+        let (pl, pa, pe) = b.htmlPartner(l, na, ne, false)
+        if pl < 0: continue
+        let gt = b.lines[l].find('>', ne)
+        let cgt = b.lines[pl].find('>', pe)
+        if gt < 0 or cgt < 0: continue
+        let openEnd = Pos(line: l, col: gt + 1)
+        let closeStart = Pos(line: pl, col: pa - 2)
+        if closeStart < p: continue
+        if inner: return (true, openEnd, closeStart)
+        return (true, Pos(line: l, col: na - 1), Pos(line: pl, col: cgt + 1))
+    dec l
+  (false, p, p)
+
 proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
-  ## iw aw i( a( i[ i{ i< i" i' i` ip ap  (returns a half-open range) — and plugins' (ie …)
+  ## iw aw i( a( i[ i{ i< i" i' i` ip ap it at  (returns a half-open range) — and plugins' (ie …)
   if plugTextObjKeys.len > 0 and ($kind & $obj) in plugTextObjKeys:
     let (_, ok, a, e) = plugTextObject(b, kind, obj, p)
     return (ok, a, e)
+  if obj == 't': return b.tagRange(p, kind == 'i')
   if obj == 'p':
     # a paragraph: the lines around that are not blank (on a blank line: the blank ones); ap with the blank lines
     # after it (or before it, at the end)
@@ -350,6 +425,13 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
     if kind == 'a':
       while e.col < s.len and s[e.col] in {' ', '\t'}: inc e.col
     return (true, a, e)
+  of '<', '>':
+    # (the nearest < before and the nearest > after, on the line — not b.matchBracket, which pairs () [] {} only)
+    let i = s.rfind('<', last = max(0, min(p.col, s.len - 1)))
+    let j = if i >= 0: s.find('>', max(i + 1, p.col)) else: -1
+    if i < 0 or j < 0: return (false, p, p)
+    if kind == 'i': return (true, Pos(line: p.line, col: i + 1), Pos(line: p.line, col: j))
+    return (true, Pos(line: p.line, col: i), Pos(line: p.line, col: j + 1))
   of '"', '\'', '`':
     if s.len == 0: return (false, p, p)
     var i = s.rfind(obj, last = min(p.col, s.len - 1))
@@ -394,6 +476,19 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
       if not found:
         dec l
         if l >= 0: c = b.lines[l].len - 1
+    if not found:
+      # (not inside a bracket: vim goes forward to the next one on the line or a later line)
+      var fl = p.line
+      while fl < b.lines.len and not found:
+        let t = b.lines[fl]
+        var c = if fl == p.line: p.col else: 0
+        while c < t.len:
+          if t[c] == op:
+            oa = Pos(line: fl, col: c)
+            found = true
+            break
+          inc c
+        inc fl
     if not found: return (false, p, p)
     let (ok, a, e) = b.matchBracket(oa)
     if not ok: return (false, p, p)
@@ -405,12 +500,18 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
       return (true, ia, ie)
     (true, oa, Pos(line: closeP.line, col: closeP.col + 1))
 
-proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
+proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool, cursorCol = -1) =
   ## does a vim operator on a range: y (yank), d and c (delete, c then enters insert mode), > and < (indent), ~ gu gU
-  ## (case) and gc (comment); a linewise range is widened to whole lines, and d / c also fill the unnamed register
+  ## (case) and gc (comment); a linewise range is widened to whole lines, and d / c also fill the unnamed register.
+  ## `cursorCol` (a display column from 1) is where the cursor stood before a `>` or `<`: vim moves the text, not the
+  ## cursor
   var a = b.clampPos(a0)            # "one past the selection" may lie past the end of the line
   var e = b.clampPos(e0)
   if e < a: swap(a, e)
+  if op in [">", "<"] and not linewise and a == e:
+    return                          # (a motion that did not move: vim's > and < do nothing)
+  # (a motion to the end of the line — `>$` — leaves the cursor at that end after the shift, as vim does)
+  let toEol = op in [">", "<"] and not linewise and e.col >= b.lines[min(e.line, b.lines.high)].len
   if linewise:
     a = Pos(line: a.line, col: 0)
     e = if e.line < b.lines.high: Pos(line: e.line + 1, col: 0) else: Pos(line: e.line, col: b.lines[e.line].len)
@@ -444,18 +545,19 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
                                   else: p)
     if op == "c": vimSetMode(vmInsert)
   of ">", "<":
-    # (vim moves the text under the cursor, not the cursor: it stays in the display column it was drawn at — `>>` on the
-    # first non-blank of the line, `> w` and `> j` wherever the motion put it. A cell the shift made empty is the last
-    # character of the line)
+    # (vim moves the text under the cursor, not the cursor: it stays in the display column it was drawn at. The line is
+    # the first of the range — a text object on another line puts the cursor there, at the same column. A cell the shift
+    # made empty is the last character of the line)
     let want = a0.minP(e0)
-    let vcol = b.visColAt(want.line, want.col) + 1
+    let vcol = if cursorCol > 0: cursorCol else: b.visColAt(want.line, want.col) + 1
     # (the lines the widened range covers, both ends included: the selection must not end at column 0 of a line, which
     # the editor reads as "that line is not selected" — `V` `j` `>` on the last two lines of the file)
     let lastL = (if linewise and e.col == 0 and e.line > a.line: e.line - 1 else: e.line)
     b.setSingle(Pos(line: lastL, col: max(0, b.lines[lastL].len - 1)), Pos(line: a.line, col: 0))
-    b.indentLines(if op == ">": 1 else: -1)
+    b.indentLines(if op == ">": 1 else: -1, expandTabs = true)
     let line = if linewise: min(a0.line, e0.line) else: want.line
-    b.setSingle(b.clampNormal(Pos(line: line, col: b.colAtVis(line, vcol))))
+    if toEol: b.setSingle(b.clampNormal(Pos(line: line, col: max(0, b.lines[line].len - 1))))
+    else: b.setSingle(b.clampNormal(Pos(line: line, col: b.colAtVis(line, vcol))))
   of "~", "gu", "gU":
     if not b.canEdit(): return
     var t = ""

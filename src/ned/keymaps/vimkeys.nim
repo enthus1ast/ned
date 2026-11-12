@@ -397,20 +397,26 @@ proc vimKey(k: Key): bool =
       let key = $ch
       if op.endsWith("g") and op.len == 2 and op[0] in {'d', 'c', 'y', '>', '<'}:
         discard
-      let m = b.vimMotion(key, n, p)
+      # (vim's cw and cW are ce and cE on a word — the word to its end, the space after it kept; dw and dW take it)
+      let motionKey = if op == "c" and ch in {'w', 'W'} and p.col < b.lines[p.line].len and
+                         b.lines[p.line][p.col] notin {' ', '\t'}:
+                        (if ch == 'w': "e" else: "E")
+                      else: key
+      let m = b.vimMotion(motionKey, n, p)
       vimPending = ""
       vimCount = ""
       vimOpCount = ""
       if not m.ok: return true
       var e = m.p
       if m.inclusive: e.col += 1
-      b.vimApply(op, p, e, m.linewise)
+      b.vimApply(op, p, e, m.linewise, b.visColOfPos(p))
       if op != "y": vimIsChange = true
       if vimIsChange and vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
       return true
   # text objects / find chars after an operator
   if vimPending.len == 2 and vimPending[1] in {'i', 'a'} and vimPending[0] in {'d', 'c', 'y', '>', '<'}:
     let op = $vimPending[0]
+    let kind = vimPending[1]
     let (ok, a, e) = b.textObject(vimPending[1], ch, p)
     vimPending = ""
     vimCount = ""
@@ -418,7 +424,11 @@ proc vimKey(k: Key): bool =
     if ok:
       # (whole lines — a paragraph, a plugin's line object —: linewise, as vim's own ip)
       let lw = b.objLinewise(ch, a, e)
-      b.vimApply(op, a, (if lw: Pos(line: (if e.col == 0: e.line - 1 else: e.line), col: 0) else: e), lw)
+      b.vimApply(op, a, (if lw: Pos(line: (if e.col == 0: e.line - 1 else: e.line), col: 0) else: e), lw,
+                  b.visColOfPos(p))
+      if op == "d" and kind == 'a' and ch == 'p':
+        # (vim's dap keeps the cursor's column on the line it lands on; dip goes to the first non-blank)
+        b.setSingle(b.clampNormal(Pos(line: b.primary.head.line, col: p.col)))
       if op != "y":
         vimIsChange = true
         if vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
@@ -445,7 +455,7 @@ proc vimKey(k: Key): bool =
     if op.len > 0:
       var e = m.p
       if m.inclusive: e.col += 1
-      b.vimApply(op, p, e, false)
+      b.vimApply(op, p, e, false, b.visColOfPos(p))
       if op != "y":
         vimIsChange = true
         if vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
@@ -529,6 +539,7 @@ proc vimKey(k: Key): bool =
     if vimMode == vmVLine: vimSetMode(vmNormal)
     else:
       vimSetMode(vmVLine)
+      vimVLineCol = b.visColOfPos(p)     # (where the cursor was drawn: `>` and `<` keep it)
       # (the head on the line's last character: visual-line takes whole lines, and a head at column 0 would leave its
       # own line out of the selection — see the plain motions above)
       b.setSingle(Pos(line: p.line, col: max(0, b.lines[p.line].len - 1)))
@@ -582,7 +593,8 @@ proc vimKey(k: Key): bool =
       let lw = vimMode == vmVLine
       vimSetMode(vmNormal)
       if ch != 'y': vimIsChange = true
-      b.vimApply($ch, a, (if lw: e else: Pos(line: e.line, col: e.col + 1)), lw)
+      b.vimApply($ch, a, (if lw: e else: Pos(line: e.line, col: e.col + 1)), lw,
+                 (if lw: vimVLineCol else: b.visColOfPos(b.primary.head)))
       if vimIsChange and vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
       return true
     if ch == '~':
