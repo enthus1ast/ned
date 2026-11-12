@@ -32,10 +32,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # `%(out)s` the file the answer goes to.
 SCRIPT = r"""
 let v:errmsg = ''
-" (the settings a case is about — the ones ned starts with unless the test set them: 4-space indents, a tab four
-" columns wide, no autoindent. A bare `-u NONE` vim shifts by a tab, autoindents and draws a tab eight columns wide, which
-" is not the vim ned is checked against)
-set expandtab shiftwidth=4 softtabstop=0 tabstop=4 noautoindent nosmartindent nocindent
+" (the settings a case is about — the ones ned has unless the test set them: 4-space indents, a tab four columns
+" wide, autoindent (ned's Enter keeps the line's indentation). A bare `-u NONE` vim shifts by a tab, draws a tab eight
+" columns wide and has no autoindent, which is not the vim ned is checked against)
+set expandtab shiftwidth=4 softtabstop=0 tabstop=4 autoindent nosmartindent nocindent
 call cursor(%(line)d, %(col)d)
 " (one string, one go: in ex mode vim's own key reading never echoes a pending operator between two feedkeys calls, so
 " a text object's `i` and `(` would be read as motions — one string is the case as it is typed)

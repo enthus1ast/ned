@@ -59,6 +59,12 @@ TEXT_OBJECTS = [('iw', 1, 5), ('aw', 1, 5), ('iW', 10, 3), ('aW', 10, 3), ('ip',
 GV_EDITS = [('vll<Esc>gvd', 1, 1), ('Vj<Esc>gvd', 1, 1), ('viw<Esc>gvd', 1, 1), ('vj<Esc>gv>', 1, 1),
             ('Vjj<Esc>gv>', 1, 1)]
 GV_MOVES = [('vll<Esc>gvl<Esc>', 1, 1), ('vll<Esc>gvh<Esc>', 1, 1)]
+# . : the last change again — a count before it sets the change's count (`3.` after `>>` is `3>>`, three lines; after
+# `cw` it is `3cw`), an insert is repeated that many times, and the change may be a motion, a join, a paste or an undo
+DOT = [('x.', 1, 1), ('3x.', 1, 1), ('x3.', 1, 1), ('x..', 1, 1), ('dd.', 1, 1), ('2dd.', 1, 1),
+       ('A!<Esc>j.', 1, 1), ('cwfoo<Esc>.', 1, 1), ('cwfoo<Esc>2.', 1, 1), ('2cwX<Esc>3.', 1, 1),
+       ('>>3.', 1, 1), ('J3.', 1, 1), ('diw.', 1, 1), ('ciwfoo<Esc>j.', 1, 1), ('yyp3.', 1, 1),
+       ('~3.', 1, 1), ('d$j.', 1, 1), ('dwj.', 1, 1), ('x<Esc>u.', 1, 1)]
 # the objects a `c` is tried with (what it types once the object is gone)
 C_OBJECTS = ['iw', 'aw', 'ip', 'ap', 'i(', 'i"']
 
@@ -103,6 +109,8 @@ def _build():
         cases.append((keys, line, col, True))
     for keys, line, col in GV_MOVES:
         cases.append((keys, line, col, False))
+    for keys, line, col in DOT:
+        cases.append((keys, line, col, True))
     # (an edit ends by leaving insert mode: `Esc` is added to those and to nothing else — a movement is not ended. No
     # space before it: a space is a key of its own in vim (it moves), and would be compared on the two sides)
     return [(k + '<Esc>' if e else k, l, c, e) for (k, l, c, e) in cases]

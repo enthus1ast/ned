@@ -409,12 +409,17 @@ proc vimKey(k: Key): bool =
       let key = $ch
       if op.endsWith("g") and op.len == 2 and op[0] in {'d', 'c', 'y', '>', '<'}:
         discard
-      # (vim's cw and cW are ce and cE on a word — the word to its end, the space after it kept; dw and dW take it)
-      let motionKey = if op == "c" and ch in {'w', 'W'} and p.col < b.lines[p.line].len and
-                         b.lines[p.line][p.col] notin {' ', '\t'}:
-                        (if ch == 'w': "e" else: "E")
-                      else: key
-      let m = b.vimMotion(motionKey, n, p)
+      # (vim's cw and cW change to the end of the word under the cursor — not ce, which runs on to the next word when
+      # the cursor is already on this one's last character; the count counts words, so `2cw` on "the quick" changes
+      # both and keeps the space after)
+      var m: MotionRes
+      if op == "c" and ch in {'w', 'W'} and p.col < b.lines[p.line].len and
+         b.lines[p.line][p.col] notin {' ', '\t'}:
+        var wend = b.currentWordEnd(p, ch == 'W')
+        for _ in 1 ..< n: wend = b.wordEnd(wend, ch == 'W')
+        m = MotionRes(ok: true, p: wend, inclusive: true)
+      else:
+        m = b.vimMotion(key, n, p)
       vimPending = ""
       vimCount = ""
       vimOpCount = ""
@@ -641,10 +646,12 @@ proc vimKey(k: Key): bool =
       b.vimApply("gU", a, Pos(line: e.line, col: e.col + 1), false)
   of 'J':
     vimIsChange = true
-    # (vim leaves the cursor where the join met: just after the text of the first line)
-    let at = Pos(line: p.line, col: b.lines[p.line].len)
-    b.joinLines()
-    for _ in 1 ..< max(1, count): b.joinLines()
+    # (vim's count joins count lines — J two, 3J three — so count-1 joins, at least one. The cursor is left where the
+    # last join met: the end of the line before it)
+    var at = Pos(line: p.line, col: b.lines[p.line].len)
+    for _ in 0 ..< max(1, count - 1):
+      at = Pos(line: b.primary.head.line, col: b.lines[b.primary.head.line].len)
+      b.joinLines()
     b.setSingle(b.clampNormal(at))
     if not vimReplaying: vimLastChange = vimRec
   of 'r':
@@ -662,10 +669,27 @@ proc vimKey(k: Key): bool =
   of '.':
     # never inside a replay (a recorded '.' would repeat itself forever), and bounded: 99999. must not hang
     if vimLastChange.len > 0 and not vimReplaying:
-      let keys = vimLastChange
+      # (a count before `.` sets the count of the change, as typing it would: `3.` after `>>` is `3>>` — three lines —
+      # and after `cw` it is `3cw`, the change's own count replaced. An insert is the exception: its count repeats the
+      # text inserted, so its keys are played again `count` times)
+      var keys = vimLastChange
+      var first = 0
+      while first < keys.len and keys[first].kind == kChar and keys[first].mods == {} and
+            keys[first].ch in ord('0')..ord('9'):
+        inc first
+      let insertLike = first < keys.len and keys[first].kind == kChar and keys[first].mods == {} and
+                       keys[first].ch in [ord('i'), ord('a'), ord('I'), ord('A'), ord('o'), ord('O')]
+      var times = 1
+      if hadCount:
+        if insertLike: times = count
+        else:
+          var nk: seq[Key]
+          for d in $count: nk.add Key(kind: kChar, ch: ord(d))
+          for q in first ..< keys.len: nk.add keys[q]
+          keys = nk
       vimReplaying = true
       try:
-        for _ in 0 ..< min(count, max(1, 200_000 div keys.len)):
+        for _ in 0 ..< min(times, max(1, 200_000 div max(1, keys.len))):
           for kk in keys:
             let k2 = kk
             if not vimKey(k2): editorKey(k2)

@@ -161,6 +161,19 @@ proc wordEnd(b: Buffer, p: Pos, big: bool): Pos =
     inc l
     c = 0
 
+func currentWordEnd(b: Buffer, p: Pos, big: bool): Pos =
+  ## the last character of the run of the same class (a WORD for big) under the cursor — what vim's cw and cW change
+  ## to, which is not ce when the cursor is already on a word's last character
+  let s = b.lines[p.line]
+  if p.col >= s.len: return p
+  let cls = if big: (if s[p.col] in vimBlank: 0 else: 1) else: vimCharClass(s[p.col])
+  if cls == 0: return p
+  var c = p.col
+  while c + 1 < s.len and
+        (if big: (if s[c + 1] in vimBlank: 0 else: 1) else: vimCharClass(s[c + 1])) == cls:
+    inc c
+  Pos(line: p.line, col: c)
+
 # the position of the first character of the line that is not a space or tab (the line's end for a blank line)
 func firstNonBlank(b: Buffer, l: int): Pos = Pos(line: l, col: leadingWs(b.lines[l]).len)
 
@@ -423,7 +436,20 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
   case obj
   of 'w', 'W':
     var (a, e) = b.wordRangeAt(p)
-    if a == e: return (false, p, p)
+    if a == e:
+      # (on blanks: vim's iw is the run of them, aw that run and the word after it)
+      let isBlk = func(c: char): bool = (if obj == 'W': c in vimBlank else: c in {' ', '\t'})
+      if p.col >= s.len or not isBlk(s[p.col]): return (false, p, p)
+      a = Pos(line: p.line, col: p.col)
+      e = a
+      while e.col < s.len and isBlk(s[e.col]): inc e.col
+      if kind == 'a' and e.col < s.len:
+        if obj == 'W':
+          while e.col < s.len and not isBlk(s[e.col]): inc e.col
+        else:
+          let cls = vimCharClass(s[e.col])
+          while e.col < s.len and vimCharClass(s[e.col]) == cls: inc e.col
+      return (true, a, e)
     if kind == 'a':
       while e.col < s.len and s[e.col] in {' ', '\t'}: inc e.col
     return (true, a, e)
