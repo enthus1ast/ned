@@ -24,7 +24,7 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## Contents
 
-- [What's new in 6.45](#whats-new-in-645) · [6.44](CHANGELOG.md#whats-new-in-644) · [6.43.1](CHANGELOG.md#whats-new-in-6431) · [6.43](CHANGELOG.md#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
+- [What's new in 6.46](#whats-new-in-646) · [6.45](CHANGELOG.md#whats-new-in-645) · [6.44](CHANGELOG.md#whats-new-in-644) · [6.43.1](CHANGELOG.md#whats-new-in-6431) · [6.43](CHANGELOG.md#whats-new-in-643) · [6.42.1](CHANGELOG.md#whats-new-in-6421) · [6.42](CHANGELOG.md#whats-new-in-642) · [6.41.1](CHANGELOG.md#whats-new-in-6411) · [6.41](CHANGELOG.md#whats-new-in-641) · [6.40](CHANGELOG.md#whats-new-in-640) · [6.39](CHANGELOG.md#whats-new-in-639) · [6.38](CHANGELOG.md#whats-new-in-638) · [6.37](CHANGELOG.md#whats-new-in-637) · [6.36](CHANGELOG.md#whats-new-in-636) · [6.35](CHANGELOG.md#whats-new-in-635) · [6.34](CHANGELOG.md#whats-new-in-634) · [6.33](CHANGELOG.md#whats-new-in-633) · [6.32](CHANGELOG.md#whats-new-in-632) · [older releases](CHANGELOG.md)
 - [Features](#features)
 - [Installing](#installing)
 - [First steps](#first-steps)
@@ -33,32 +33,34 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ---
 
-## What's new in 6.45
+## What's new in 6.46
 
-**Less memory.** With a file of 7 MB open, ned and its engine worker took 155 MB; now about 90 in Termux and 66 on
-Linux. Sending a file to the engine worker or to a language server no longer makes several copies of it at once, and
-on Linux and macOS ned gives memory back to the system once it has finished with it — when a big file is closed, too.
-Before, what a big file or a long session had taken stayed taken until ned quit: after half an hour on ned's own
-source it held 79 MB and used 27.
+**Vim mode is measured against vim itself.** The suite asks a real vim — headless, the same file, the same place, the
+same keys — where the cursor, the mode and the text end up, and compares ned's answer. 427 cases; every one agrees.
+What got there is what you feel:
 
-**No stutter when a file of a big project opens.** Reading what the file's imports bring, for completion and for the
-colours, kept the keys waiting 25 to 40 ms a dozen times or more, longer the further it got. It is done in short
-pieces now.
+**Text objects.** `cw` changes to the end of the word under the cursor (`2cw`: two words, the space after kept), `iw`
+and `aw` work on the blanks (`aw` at the end of a line takes the blanks before it, as the quote objects do), the quote
+objects search forward to the next string when the cursor is before it, and `<…>` (`i<`, `a<`) and `it`/`at` (a tag)
+are there.
 
-**Language servers get only what changed.** After each pause in typing ned sent the server the whole file again. A
-server that takes changes — clangd, and the HTML, CSS and JSON servers, among others — now gets just the edits, and
-the whole file goes with a save only to a server that asks for it.
+**`.` with a count** gives the count to the change, as typing it would: after `>>` it is `3>>` — three lines — not one
+line three times, and after `cw` it is `3cw`, the change's own count replaced. A count on an insert repeats the text.
 
-**Big messages to other programs.** A big file sent to a language server, an MCP server, a plugin or the engine
-worker, and a flood of output from gdb, a debugger or a plugin, are no longer copied over and over on the way.
+**`gv`** takes the last visual selection again, after `Esc` or after an operator on it. `Esc` leaves insert mode in one
+press even with the completion list open, and a key typed right after `Esc` is that key: `Esc` `u` is undo, not Alt+U,
+which turns the mouse off.
 
-**If ned crashes, the terminal is yours again.** A crash left the terminal in ned's modes: in Termux no scrolling, and
-the mouse typing codes into the shell. Now the terminal is put back as ned found it, the shell says ned stopped, and
-the next start says so too and offers your unsaved changes. Please report it: the details are in `errors.log`.
+**Characters above ASCII.** `l`, `h`, `x`, `X`, `s`, `r` and the end-of-line motions step characters, not bytes; `~`,
+`gu`, `gU` and the new `g~` map case rune by rune (`ü` ↔ `Ü`, `ß` ↔ `ẞ`); `r€` replaces with a multi-byte character and
+`f•` finds one.
 
-**Deeply nested code.** nedfmt no longer crashes on brackets nested thousands deep, the JSON check says "nested too
-deep" once instead of once for every bracket around it, and JSON or CSS nested more than 500 deep is left as it is
-rather than formatted into gigabytes.
+**And the rest.** `dw` on a line's last word keeps the line break, a linewise delete keeps the cursor's column, `J`
+joins the lines its count says, `d}` takes the last character at the end of the file, and `>`/`<` keep the cursor's
+column (with `$` they go to the end, as vim).
+
+**`ned -es`** runs vim mode with no terminal: a file and a case of keys per line on stdin, the cursor, the mode and the
+text back per line — how the tests ask ned, and scripts can too.
 
 ## Features
 
@@ -217,7 +219,7 @@ ned
 ```
 
 or, from the project folder: `nimble termux` (ned, with `nedfmt` and `nedls` beside it) — or a ready-made package,
-`pkg install ./ned_6.45.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
+`pkg install ./ned_6.46.0_aarch64.deb` (ned, nedls, nedfmt; the example plugins in `$PREFIX/share/ned/plugins`):
 `nimble termuxdeb` makes it on a Linux machine (with zig).
 
 The Nim IDE features need nothing more: the engine is built in, and `nim check` does the rest.
