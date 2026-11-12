@@ -353,4 +353,5 @@ include ned/app/lowmem
 include ned/nim/warmindex
 include ned/editor/bufforget
 when defined(nedMemProbe): include ned/app/memprobe_gen   # (tests/memory/memprobe.py: how big each table is)
+include ned/app/headless
 include ned/app/main

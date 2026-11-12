@@ -11336,31 +11336,33 @@ def t_65_vim_oracle():
     # the same keys — the movements by where the cursor and the mode end up, the edits by the text they left. Vim answers
     # from a cache while its version and the cases are the same; every difference is a failure unless the case is in
     # vimcases.KNOWN_DIFFERS and says who is right (vimdiff.py writes the report of the ones that are).
-    import vimoracle, vimcases, nedvim
+    # ned answers headless too (`ned -es`, src/ned/app/headless.nim): the same editor's vim keys with no terminal and no
+    # screen, a case per line of JSON — so a case costs a millisecond, not the two seconds a tmux editor and a screen
+    # read cost. What still walks the real terminal's keys is the rest of the suite (t_vim, t_zen_vim, the surround,
+    # filter and plugin-vim tests).
+    import vimoracle, vimcases, nedheadless
     o = vimoracle.Oracle()
     o.need()
+    if not nedheadless.available(BIN):
+        check('vim oracle: this ned has -es (a build before it has not)', False, BIN)
+        return
     asked = [(vimcases.vim_keys(k), l, c) for (k, l, c, _) in vimcases.CASES]
     answers = o.answers(asked, vimcases.FIXTURE, cache=os.path.join(TMP, 'vim-answers.json'))
-    n = nedvim.Ned(setup, start, keys, text, screen, tm, W)
-    lines = vimcases.read_lines(vimcases.FIXTURE)
+    n = nedheadless.Headless(BIN, vimcases.FIXTURE)
     differs, agree, skipped = [], 0, 0
     case_log = os.path.join(TMP, 'vim-cases.log')      # (each case as it goes: a stall is seen at once, not at the end)
     log = open(case_log, 'w', encoding='utf-8')
     try:
-        n.start(vimcases.FIXTURE)
+        n.start()
         for n_case, ((case, line, col, edit), want) in enumerate(zip(vimcases.CASES, answers), 1):
             if want['err'] or want['pending']:
                 skipped += 1                     # (vim itself does not finish the case: nothing to compare)
                 continue
-            got = n.case(vimcases.keys_of(case), line, col, edit)
+            got = n.case(case, line, col, edit)     # (line and col from 1; col a character column, as vim's)
             log.write('%d/%d %r %d,%d -> %r vim %r\n' % (n_case, len(vimcases.CASES), case, line, col, got,
                                                           {k: want[k] for k in ('line', 'col')}))
             log.flush()
-            # (ned's `Col` is a display column, vim's is a character column: both are compared in vim's, and on the line
-            # vim is on — a case that went to another line is measured where it stands, there being no vim column then)
-            vline = lines[want['line'] - 1] if want['line'] <= len(lines) else ''
-            vcol = (got['col'] or 0) if got['line'] != want['line'] else vimcases.ned_to_vim(vline, got['col'] or 0)
-            same_col = vcol == want['col']
+            same_col = got['col'] == want['col']
             same_text = (not edit) or got['text'] == want['text']
             if same_col and got['line'] == want['line'] and same_text: agree += 1
             else: differs.append((case, line, col, edit, got, want, same_col))

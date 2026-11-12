@@ -4,14 +4,16 @@
     python3 tests/ui/vimdiff.py --html OUT.html          # ask both, and write the page (plus OUT.html.json)
 
 The run is the same comparison `t_65_vim_oracle` makes: every case of vimcases.py asked of vim (headless, and cached
-while vim is unchanged) and of ned (one running editor, the file put back between cases). A movement is compared by
-where the cursor and the mode end up; an edit by the text it left as well. The page says the score, what the
-differences are made of, and lists every one with both answers side by side; the cases that agree are folded away
-below, so a difference can be read against its neighbours.
+while vim is unchanged) and of ned (headless too, `ned -es`: one process, the file put back between cases — a case in a
+millisecond, not the two seconds a tmux editor and a screen read cost). A movement is compared by where the cursor and
+the mode end up; an edit by the text it left as well. The page says the score, what the differences are made of, and
+lists every one with both answers side by side; the cases that agree are folded away below, so a difference can be read
+against its neighbours.
 """
 import html
 import json
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -70,25 +72,29 @@ line is not a difference of its own. made by <code>tests/ui/vimdiff.py</code>.</
 
 
 def compare(o, vimcases, ned):
-    """every case asked of vim (once, cached) and of ned: both answers, and the cases vim itself cannot finish"""
+    """every case asked of vim (once, cached) and of ned (headless, `ned -es`): both answers, and the cases vim itself
+    cannot finish"""
+    total = len(vimcases.CASES)
+    print("oracle: %d cases to compare" % total)
     asked = [(vimcases.vim_keys(k), l, c) for (k, l, c, _) in vimcases.CASES]
     answers = o.answers(asked, vimcases.FIXTURE, cache=os.path.join(HERE, '..', '..', '.vim-answers.json'))
-    lines = vimcases.read_lines(vimcases.FIXTURE)
+    print("oracle done, asking ned")
     out = []
-    for (case, line, col, edit), want in zip(vimcases.CASES, answers):
+    for i, ((case, line, col, edit), want) in enumerate(zip(vimcases.CASES, answers), 1):
+        if i % 50 == 0 or i == total: print("case %d / %d" % (i, total))
         if want['err'] or want['pending']:
             out.append({'case': case, 'start': [line, col], 'edit': edit, 'skip': want['err'] or 'pending'})
             continue
-        got = ned.case(vimcases.keys_of(case), line, col, edit)
-        vline = lines[want['line'] - 1] if want['line'] <= len(lines) else ''
-        vcol = (got['col'] or 0) if got['line'] != want['line'] else vimcases.ned_to_vim(vline, got['col'] or 0)
+        # (the headless editor answers in vim's own words: a line and a character column, both from 1)
+        got = ned.case(case, line, col, edit)
         out.append({
             'case': case, 'start': [line, col], 'edit': edit,
-            'ned': {'line': got['line'], 'col': vcol, 'shown': got['col'], 'visual': got['visual'],
+            'ned': {'line': got['line'], 'col': got['col'], 'shown': got['shown'], 'visual': got['visual'],
                     'text': got['text']},
             'vim': {'line': want['line'], 'col': want['col'], 'visual': want['visual'],
                     'text': want['text'] if edit else None},
         })
+    print("ned done, %d cases processed" % len(out))
     return out
 
 
@@ -167,24 +173,23 @@ def main(argv):
     """`--html OUT` writes the page (and OUT.json, its data) — the only mode: it asks ned and vim itself"""
     sys.path.insert(0, HERE)
     out = argv[argv.index('--html') + 1] if '--html' in argv else os.path.join(HERE, 'vimdiff.html')
-    for env, val in (('NED_TEST_TMP', '/tmp/ned-vimdiff'),
-                     ('NEDBIN', os.path.abspath(os.path.join(HERE, '..', '..', 'ned')))):
-        os.environ.setdefault(env, val)
-    os.makedirs(os.environ['NED_TEST_TMP'], exist_ok=True)
-    src = open(os.path.join(HERE, 'harness.py')).read()
-    h = {'__name__': 'harness', '__file__': os.path.join(HERE, 'harness.py')}
-    exec(compile(src, 'harness.py', 'exec'), h)
-    import vimoracle, vimcases, nedvim
+    bin = os.environ.get('NEDBIN') or os.path.abspath(os.path.join(HERE, '..', '..', 'ned'))
+    import vimoracle, vimcases, nedheadless
+    if not nedheadless.available(bin):
+        print('ned -es is not in %s: build it first (nim c -d:release --opt:speed -d:strip -o:ned src/ned.nim) — '
+              'it is the headless vim mode the cases are asked of' % bin, file=sys.stderr)
+        return 2
     o = vimoracle.Oracle()
     o.need()
-    n = nedvim.Ned(h['setup'], h['start'], h['keys'], h['text'], h['screen'], h['tm'], h['W'])
+    print("asking ned headless (ned -es)")
+    n = nedheadless.Headless(bin, vimcases.FIXTURE)
     try:
-        n.start(vimcases.FIXTURE)
+        n.start()
         answers = compare(o, vimcases, n)
     finally:
         n.stop()
+    nedv = subprocess.run([bin, '--version'], capture_output=True, text=True).stdout.strip()
     vimv = vimoracle.vim_version(o.editor)
-    nedv = h['sh'](h['BIN'] + ' --version').stdout.strip()
     json.dump({'vim': vimv, 'ned': nedv, 'answers': answers}, open(out + '.json', 'w', encoding='utf-8'), indent=1)
     open(out, 'w', encoding='utf-8').write(page(answers, vimv, nedv))
     live = [a for a in answers if 'skip' not in a]

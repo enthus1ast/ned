@@ -357,7 +357,14 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
     let j = s.find(obj, max(i + 1, if i == p.col: p.col + 1 else: p.col))
     if i < 0 or j < 0 or j <= i: return (false, p, p)
     if kind == 'i': return (true, Pos(line: p.line, col: i + 1), Pos(line: p.line, col: j))
-    return (true, Pos(line: p.line, col: i), Pos(line: p.line, col: j + 1))
+    # (vim's `a"`: the quotes and the blanks after them — at a line's end, the blanks before them instead)
+    var ae = j + 1
+    while ae < s.len and s[ae] in {' ', '\t'}: inc ae
+    if ae == j + 1:
+      var a0 = i
+      while a0 > 0 and s[a0 - 1] in {' ', '\t'}: dec a0
+      return (true, Pos(line: p.line, col: a0), Pos(line: p.line, col: ae))
+    return (true, Pos(line: p.line, col: i), Pos(line: p.line, col: ae))
   else:
     let (op, cl) = case obj
       of '(', ')', 'b': ('(', ')')
@@ -429,10 +436,11 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool) =
     else:
       let p = b.replaceText(a, e, "")
       b.endEdit()
-      # (vim leaves the cursor on the last character of what is left before the deletion — `D` from column 5 on
-      # "abcdef" is column 4 — and a `c` leaves it where the change starts, for the text about to be typed)
+      # (vim leaves the cursor where the text after the deletion now is — at the start of what went, so `diw` on
+      # "quick" leaves it on the space after it; at a line's end, on the character before, so `D` from column 5 on
+      # "abcdef" is column 4. A `c` leaves it where the change starts, for the text about to be typed)
       b.setSingle(if op == "d": b.clampNormal(if linewise: b.firstNonBlank(min(p.line, b.lines.high))
-                                              else: Pos(line: a.line, col: max(0, a.col - 1)))
+                                              else: Pos(line: a.line, col: a.col))
                                   else: p)
     if op == "c": vimSetMode(vmInsert)
   of ">", "<":

@@ -207,7 +207,14 @@ proc surroundingPairs(b: Buffer, p: Pos, which = '\0'): seq[(Pos, int, Pos, int)
   if which == '\0' or which in {'"', '\'', '`'}:
     for q in (if which == '\0': @['"', '\'', '`'] else: @[which]):
       let (ok, x, y) = b.textObject('a', q, p)
-      if ok and x.col < y.col: found.add (x, 1, Pos(line: y.line, col: y.col - 1), 1)
+      if ok and x.col < y.col:
+        # (the `a"` range takes the blanks after the quotes — or, at a line's end, the ones before: the quotes are the
+        # first and last characters of it that are not blanks)
+        var a = x.col
+        while a < y.col and b.lines[x.line][a] in {' ', '\t'}: inc a
+        var e = y.col - 1
+        while e > a and b.lines[y.line][e] in {' ', '\t'}: dec e
+        found.add (Pos(line: x.line, col: a), 1, Pos(line: y.line, col: e), 1)
   if which in {'\0', 't', '<'}:
     # the element around p: back to an opening tag whose closing tag is after p
     var l = p.line

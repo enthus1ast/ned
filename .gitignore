@@ -22,6 +22,10 @@ tests/unit/t*
 *.zip
 # python
 __pycache__/
+# the vim oracle: vim's answers (a cache) and the report page vimdiff.py writes
+/.vim-answers.json
+/tests/ui/vimdiff.html
+/tests/ui/vimdiff.html.json
 /tests/fuzz/found/
 /tests/fuzz/parsers
 /src/ned/app/memprobe_gen.nim

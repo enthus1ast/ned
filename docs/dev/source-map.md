@@ -52,7 +52,8 @@ The program as a whole: start, the main loop, the command list, input, updates, 
 | [`app/update.nim`](../../src/ned/app/update.nim) | include 297 | ned --update: the newest release (GitHub's newest release, else its newest version tag), installed the way this ned was — built with nimble, a checkout built in … |
 | [`app/battery.nim`](../../src/ned/app/battery.nim) | include 298 | (6.32) battery saver (ui.batterySaver): on a battery, ned does less — no cursor glide, the compiler checks on save rather than while you type, no AI completion as you … |
 | [`app/lowmem.nim`](../../src/ned/app/lowmem.nim) | include 299 | (6.37) short of memory (ui.lowMemory): when the system has little left to give — on a phone, Android then closes apps, Termux among them, with ned and its terminal — … |
-| [`app/main.nim`](../../src/ned/app/main.nim) | include 302 | The main loop (input, jobs, language servers, timers, drawing) and the command line: --help, --bench, --update, files formatted, the remote socket |
+| [`app/headless.nim`](../../src/ned/app/headless.nim) | include 302 | Headless vim mode (`ned -es`): the editor's own keys with no terminal and no screen |
+| [`app/main.nim`](../../src/ned/app/main.nim) | include 303 | The main loop (input, jobs, language servers, timers, drawing) and the command line: --help, --bench, --update, files formatted, the remote socket |
 
 ## c
 

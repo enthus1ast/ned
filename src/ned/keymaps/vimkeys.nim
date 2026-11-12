@@ -363,6 +363,8 @@ proc vimKey(k: Key): bool =
           vimIsChange = true
           if vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
       return true
+    elif visual and pend.len == 1 and pend[0] in {'i', 'a'}:
+      discard                                # (a visual text object: `vi` `w` — the branch below it reads the object)
     else:
       # operator pending: d c y > < gu gU gc
       let op = pend

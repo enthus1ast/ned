@@ -604,6 +604,9 @@ proc usage() =
   echo "  --doc-settings, --doc-commands  every setting, every command of the palette, as Markdown (the docs)"
   echo "  --reset [--yes] [--keep-plugins]  remove ned's settings, sessions, history, caches and downloads: ned"
   echo "                        starts as on its first run (asks first; --yes does not ask)"
+  echo "  -es, --headless FILE  vim mode with no terminal: a case of keys per line on stdin (JSON), where it left"
+  echo "                        the cursor, the mode and the text back per line — --keys KEYS, --start LINE:COL do one"
+  echo "                        case and exit (tests/ui/vimdiff.py asks ned this, and vim the same cases)"
   echo "  --bench FILE          render FILE off-screen and print timings (performance check)"
   echo "  --format [options] FILE|FOLDER…|-  format with ned's own formatters: Nim (nph style), JSON, Markdown"
   echo "                        tables, CSS, C, YAML, TOML; a folder: every such file in it (not what git ignores)."
@@ -818,6 +821,8 @@ proc main() =
   var pendingLine = -1
   var optsDone, wantStdin, doCheck = false
   var wantNew, wantWait, wantRemote = false
+  var headless = false                      # -es: no terminal, a case of keys in, its answer out
+  var headlessKeys, headlessStart = ""      # --keys KEYS, --start LINE:COL
   var remoteOp, remoteArg = ""            # --remote-command NAME, --remote-message TEXT, --remote-get WHAT …
   let cl = commandLineParams()
   var ai = 0
@@ -878,6 +883,16 @@ proc main() =
         # (a language server written in NimScript — nedlsp — given the protocol's framing: for ned and other editors)
         if ai >= cl.len: quit "ned: --lsp-bridge needs a .nims file", 2
         quit lspBridge(cl[ai])
+      of "-es", "--headless": headless = true
+      of "--keys":
+        if ai >= cl.len: quit "ned: --keys needs a value — see ned --help", 2
+        headless = true
+        headlessKeys = cl[ai]
+        inc ai
+      of "--start":
+        if ai >= cl.len: quit "ned: --start needs LINE:COL — see ned --help", 2
+        headlessStart = cl[ai]
+        inc ai
       of "--new": wantNew = true
       of "--wait": wantWait = true
       of "--remote": wantRemote = true
@@ -917,6 +932,8 @@ proc main() =
         if parts.len >= 3 and parts[2].allDigits: col = argNum(parts[2]) - 1
     targets.add (path, line, col)
   smark("command line")
+  if headless:
+    quit headlessMain(targets, headlessKeys, headlessStart)
   if remoteOp.len > 0 or wantRemote or (not wantNew and not doCheck and not startTrace and getEnv("NED_SOCKET").len > 0):
     let code = remoteMain(targets, remoteOp, remoteArg, wantRemote, wantWait, wantStdin)
     if code >= 0: quit code
