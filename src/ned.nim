@@ -27,6 +27,7 @@
 
 {.warning[BareExcept]: off.}
 import std/[strutils, tables, sets, algorithm, json, times, monotimes, base64, sugar, editdistance]
+from std/unicode import nil    # (unicode.toLower/toUpper: the case mapping of vim's ~, gu and gU, rune by rune)
 when defined(windows): import ned/sys/winos as os   # (std/os, with '/' in the paths it makes)
 else: import std/os
 when defined(windows): import ned/sys/winposix as posix   # (Win32 and the C runtime behind the same names)
@@ -354,4 +355,5 @@ include ned/app/lowmem
 include ned/nim/warmindex
 include ned/editor/bufforget
 when defined(nedMemProbe): include ned/app/memprobe_gen   # (tests/memory/memprobe.py: how big each table is)
+include ned/app/headless
 include ned/app/main
