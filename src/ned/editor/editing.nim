@@ -313,15 +313,22 @@ proc lineBlocks(b: Buffer): seq[(int, int)] =
     if result.len > 0 and result[^1][1] + 1 >= l: result[^1][1] = l
     else: result.add (l, l)
 
-proc indentLines(b: Buffer, dir: int) =
+proc indentLines(b: Buffer, dir: int, expandTabs = false) =
   ## indents the selected lines one level (dir > 0, empty lines left alone) or takes one level off (a tab, or up to one
-  ## indent's spaces)
+  ## indent's spaces). With `expandTabs`, a file that indents with spaces has its leading tabs written as the spaces they
+  ## cover (as vim's > does with 'expandtab')
   if not b.canEdit(): return
   b.beginEdit()
   for l in b.selectedLines():
     let s = b.lines[l]
     if dir > 0:
-      if s.len > 0: discard b.replaceText(Pos(line: l, col: 0), Pos(line: l, col: 0), b.indent)
+      if s.len > 0:
+        if expandTabs and b.indent != "\t" and '\t' in s[0 ..< leadingWs(s).len]:
+          var n = 0
+          while n < s.len and s[n] in {' ', '\t'}: inc n
+          discard b.replaceText(Pos(line: l, col: 0), Pos(line: l, col: n), spaces(visColOf(s, n) + b.indentW()))
+        else:
+          discard b.replaceText(Pos(line: l, col: 0), Pos(line: l, col: 0), b.indent)
     else:
       var n = 0
       if s.len > 0 and s[0] == '\t': n = 1

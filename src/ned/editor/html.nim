@@ -90,6 +90,33 @@ proc htmlPartner(b: Buffer, line, a, e: int, closing: bool): (int, int, int) =
 var htmlLink, htmlLinkLast: tuple[bufId, line, a: int, closing: bool, name: string, pl, pa, pe: int] =
   (0, 0, 0, false, "", -1, 0, 0)
 
+proc htmlElementAround(b: Buffer, p: Pos): (bool, Pos, Pos, Pos, Pos) =
+  ## the nearest element around p: (found, the opening tag's start, the end after its `>`, the closing tag's start,
+  ## the end after its `>`) — found by walking back to an opening tag whose closing tag is after p. Each tag's start
+  ## and end are on one line.
+  var l = p.line
+  var depth: Table[string, int]
+  while l >= 0 and p.line - l < 2000:
+    let ts = htmlTagsOn(b.lines[l])
+    for k in countdown(ts.high, 0):
+      let (na, ne, cl, selfc) = ts[k]
+      if l == p.line and na > p.col: continue
+      let name = b.lines[l][na ..< ne].toLowerAscii
+      if selfc or name in VoidTags: continue
+      if cl: depth[name] = depth.getOrDefault(name) + 1
+      elif depth.getOrDefault(name) > 0: depth[name] = depth[name] - 1
+      else:
+        let (pl, pa, pe) = b.htmlPartner(l, na, ne, false)
+        if pl < 0: continue
+        let gt = b.lines[l].find('>', ne)
+        let cgt = b.lines[pl].find('>', pe)
+        if gt < 0 or cgt < 0: continue
+        let closeStart = Pos(line: pl, col: pa - 2)
+        if closeStart < p: continue
+        return (true, Pos(line: l, col: na - 1), Pos(line: l, col: gt + 1),
+                closeStart, Pos(line: pl, col: cgt + 1))
+    dec l
+  (false, p, p, p, p)
 proc htmlLinkBefore(b: Buffer) =
   ## run before an edit: when the cursor is in a tag's name, remembers that name and where the matching opening or
   ## closing tag's name is (in htmlLink), so htmlLinkAfter can rename it; with the whole name deleted, the partner from
