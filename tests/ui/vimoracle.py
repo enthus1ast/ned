@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""A real vim as ned's oracle: the same file, the same keys — where vim's cursor, text and register end up.
+"""A real Neovim as ned's oracle: the same file, the same keys — where vim's cursor, text and register end up.
 
-vim runs headless (`nvim -es`, or `vim`, whichever is on PATH) with a small script: it puts the cursor where a case
+The cases were written against Neovim (`nvim -es`, the editor on PATH): a plain Vim disagrees with it on a few — `gg`,
+`G` and `2G` go to the first non-blank where nvim keeps the column, and `>`/`<` leave the cursor on the first non-blank
+of the shifted line — so `need` asks for nvim (`Oracle('vim')` still answers, with `-N`: a vim started with `-u NONE`
+is in compatible mode, where this script answers nothing at all).
+
+It runs headless with a small script: it puts the cursor where a case
 starts, gives it the case's keys (`feedkeys(..., 'xt')`, which reads them as normal-mode keys and waits for each), and
 writes down what the state was after them — the line, the column, the whole text, the unnamed register and whether it
 was linewise, and the visual mode. Nothing is timed and nothing is read from a screen, so a case answers the same thing
 every run: 300 cases take a few seconds, not minutes.
 
     o = Oracle()
-    o.need()                        # the UI suite's Skip when there is no vim to ask
+    o.need()                        # the UI suite's Skip when there is no nvim to ask
     a = o.ask('d j', 1, 1, path=f)  # one case: what vim left behind, as a dict
     o.answers(cases, path, cache)   # many (keys, line, col) cases, kept in a JSON file while vim is the same
 
@@ -17,7 +22,7 @@ ned's status bar counts characters — `vimcases.vcol` turns one into the other.
 
     python3 tests/ui/vimoracle.py --json OUT    # every case of vimcases.py, answered by vim, written to OUT
 
-Exit status: 0 when every case answered, 2 when there is no vim, 1 when one case did not answer.
+Exit status: 0 when every case answered, 2 when there is no editor, 1 when one case did not answer.
 """
 import json
 import os
@@ -101,14 +106,25 @@ class Oracle:
         self.editor = editor or which_editor()
 
     def need(self):
-        """raise the UI suite's Skip when there is no vim to ask (a test that needs the oracle says so)"""
+        """raise the UI suite's Skip when there is no Neovim to ask: the cases are nvim's (a plain vim goes to the
+        first non-blank on gg/G and after >/<), and a probe case says whether it answers at all"""
         if not self.editor:
-            raise _skip('nvim or vim on PATH (the vim oracle)')
+            raise _skip('nvim on PATH (the vim oracle)')
+        if os.path.basename(self.editor) != 'nvim':
+            raise _skip('nvim, not %s (the vim oracle: the cases are Neovim\'s, and vim differs on a few)' %
+                        os.path.basename(self.editor))
+        try:
+            a = self.ask('h', 1, 1, text='one two\n')
+        except RuntimeError as e:
+            raise _skip('a working nvim (the vim oracle: %s)' % str(e).splitlines()[0])
+        if a['err'] or a['pending'] or (a['line'], a['col']) != (1, 1):
+            raise _skip('a working nvim (the vim oracle answered %r)' % a)
 
     def ask(self, keys, line=1, col=1, text=None, path=None):
         """one case in one vim: the file's `text` (or a copy of `path`), the cursor at `line`/`col` from 1, the case's
         `keys` as vim writes them ('d j', 'x', 'yi('), and what vim's state was after them"""
-        self.need()
+        if not self.editor:
+            raise _skip('nvim on PATH (the vim oracle)')
         d = tempfile.mkdtemp(prefix='ned-vimoracle-')
         try:
             f = os.path.join(d, 'file.txt')
@@ -119,7 +135,7 @@ class Oracle:
             script = os.path.join(d, 'case.vim')
             with open(script, 'w', encoding='utf-8') as fh:
                 fh.write(SCRIPT % {'line': line, 'col': col, 'keys': vim_str(keys), 'out': vim_str(out)})
-            r = subprocess.run([self.editor, '--clean', '-u', 'NONE', '-i', 'NONE', '-n', '-es', '-S', script, f],
+            r = subprocess.run([self.editor, '--clean', '-u', 'NONE', '-N', '-i', 'NONE', '-n', '-es', '-S', script, f],
                                capture_output=True, text=True, timeout=120, cwd=d)
             if not os.path.exists(out):
                 raise RuntimeError('%s gave no answer to %r:\n%s%s' % (self.editor, keys, r.stdout[-300:],

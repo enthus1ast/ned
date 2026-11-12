@@ -108,7 +108,11 @@ def main(argv):
               'it is the headless vim mode the cases are asked of' % bin, file=sys.stderr)
         return 2
     o = vimoracle.Oracle()
-    o.need()
+    try:
+        o.need()
+    except Exception as e:
+        print('the vim oracle is not available: %s' % e, file=sys.stderr)
+        return 2
     print('asking ned headless (ned -es)')
     n = nedheadless.Headless(bin, vimcases.FIXTURE)
     try:

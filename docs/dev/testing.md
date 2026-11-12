@@ -78,7 +78,10 @@ NED_UI_FULL=1 python3 tests/ui/run.py ./ned t_vim       # a failure prints the w
 ### Vim mode, against a real vim
 
 `t_65_vim_oracle` checks ned's vim mode against vim itself: the same file, the same place, the same keys — the
-movements by where the cursor and the mode end up, the edits by the text they left. Both sides run headless. vim is
+movements by where the cursor and the mode end up, the edits by the text they left. The vim is Neovim, which the cases
+are calibrated to: a plain Vim goes to the first non-blank on `gg`/`G` where nvim keeps the column, and leaves the
+cursor on the first non-blank of the shifted line after `>`/`<`. Without `nvim` on `PATH` the test is skipped, like
+the other tools it needs. Both sides run headless. vim is
 `tests/ui/vimoracle.py` (`nvim -es` with `feedkeys`), so a case answers the same thing every run and the whole set takes
 seconds; its answers are cached for as long as `vim --version` and the cases are the same. ned is `ned -es`
 (`src/ned/app/headless.nim`): the editor's own vim keys with no terminal and no screen, one long-running process that a

@@ -35,7 +35,7 @@ Made by **Sultan Al Isaiee** ([@foxoman](https://github.com/foxoman)) — [www.f
 
 ## What's new in 6.46
 
-**Vim mode is measured against vim itself.** The suite asks a real vim — headless, the same file, the same place, the
+**Vim mode is measured against vim itself.** The suite asks a real vim — Neovim, headless, the same file, the same place, the
 same keys — where the cursor, the mode and the text end up, and compares ned's answer. 427 cases; every one agrees.
 What got there is what you feel:
 

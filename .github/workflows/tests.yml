@@ -140,6 +140,14 @@ jobs:
           tests/ui/ssh-setup.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Neovim for the vim oracle
+        # (the cases are Neovim's: a plain Vim goes to the first non-blank on gg/G where nvim keeps the column, and
+        # leaves the cursor elsewhere after >/< — pinned so the oracle answers the same thing every run)
+        run: |
+          curl -fsSL -o /tmp/nvim.tar.gz \
+            https://github.com/neovim/neovim/releases/download/v0.12.4/nvim-linux-x86_64.tar.gz
+          tar -C /tmp -xzf /tmp/nvim.tar.gz
+          echo /tmp/nvim-linux-x86_64/bin >> "$GITHUB_PATH"
       - name: Build
         run: nim c -d:release --hints:off -o:ned src/ned.nim
       - name: UI tests
