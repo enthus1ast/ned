@@ -268,17 +268,18 @@ proc editorKey(k: Key) =
     if k.kind == kTab and k.mods == {} and not compOpen and ghostAccept(): return
     if k.kind == kEsc:
       ghostClear()
-      return
+      # (vim's insert mode: the Esc leaves it too — it is not spent on the suggestion, so one press and NORMAL is back)
+      if not (cfgVim and vimMode in {vmInsert, vmReplace}): return
   if nesVisible(b) and not compOpen and k.mods == {}:
     # a next-edit suggestion: Tab goes to it, then makes it; Esc says no
     if k.kind == kTab and b.nesTab(): return
     if k.kind == kEsc:
       nesClear()
       info("")
-      return
+      if not (cfgVim and vimMode in {vmInsert, vmReplace}): return
   if hoverOpen:
     hoverOpen = false
-    if k.kind == kEsc: return
+    if k.kind == kEsc and not (cfgVim and vimMode in {vmInsert, vmReplace}): return
   if b.isWelcome() and welcomeKey(k): return
   if vimEditorKey(k): return
   if helixEditorKey(k): return
