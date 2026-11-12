@@ -208,7 +208,8 @@ proc vimKey(k: Key): bool =
         b.beginEdit()
         discard b.replaceText(p, Pos(line: p.line, col: e), repeat(ch, n))
         b.endEdit()
-        b.setSingle(Pos(line: p.line, col: p.col))     # (vim's r leaves the cursor where it was)
+        # (vim's r leaves the cursor where it was; with a count, on the last character it replaced)
+        b.setSingle(b.clampNormal(Pos(line: p.line, col: p.col + k - 1)))
         vimIsChange = true
         if not vimReplaying: vimLastChange = vimRec
       return true
@@ -577,17 +578,23 @@ proc vimKey(k: Key): bool =
     of 'x':
       vimIsChange = true
       if b.lines[p.line].len > 0:
-        b.vimApply("d", p, Pos(line: p.line, col: min(b.lines[p.line].len, p.col + count)), false)
+        # (characters, not bytes: a multi-byte character is one, so x on `•` takes all of it)
+        let e = rightRunes(b.lines[p.line], p.col, count, b.lines[p.line].len)
+        b.vimApply("d", p, Pos(line: p.line, col: e), false)
     of 'X':
       vimIsChange = true
       if p.col > 0:
         # (vim's X leaves the cursor where it was, which is the last character when the line got shorter: column 5 of a
         # line that lost two characters is its new last one)
-        b.vimApply("d", Pos(line: p.line, col: max(0, p.col - count)), p, false)
-        b.setSingle(b.clampNormal(Pos(line: p.line, col: max(0, p.col - 1))))   # (vim: col 5 of 1,5 -> 4)
+        let s = b.lines[p.line]
+        let a = leftRunes(s, p.col, count)
+        b.vimApply("d", Pos(line: p.line, col: a), p, false)
+        # (the cursor stays on the character it was on, which the new line has at the deletion's start)
+        b.setSingle(b.clampNormal(Pos(line: p.line, col: a)))
     of 's':
       vimIsChange = true
-      b.vimApply("c", p, Pos(line: p.line, col: min(b.lines[p.line].len, p.col + count)), false)
+      let e = rightRunes(b.lines[p.line], p.col, count, b.lines[p.line].len)
+      b.vimApply("c", p, Pos(line: p.line, col: e), false)
     of 'S':
       vimIsChange = true
       b.vimApply("c", p, Pos(line: min(b.lines.high, p.line + count - 1), col: 0), true)
@@ -613,8 +620,9 @@ proc vimKey(k: Key): bool =
       return true
     if ch == '~':
       vimIsChange = true
-      b.vimApply("~", p, Pos(line: p.line, col: min(b.lines[p.line].len, p.col + count)), false)
-      b.setSingle(b.clampNormal(Pos(line: p.line, col: p.col + count)))
+      let e = rightRunes(b.lines[p.line], p.col, count, b.lines[p.line].len)
+      b.vimApply("~", p, Pos(line: p.line, col: e), false)
+      b.setSingle(b.clampNormal(Pos(line: p.line, col: e)))
       if not vimReplaying: vimLastChange = vimRec
       return true
     vimPending = $ch

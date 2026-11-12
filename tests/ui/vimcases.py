@@ -65,6 +65,13 @@ DOT = [('x.', 1, 1), ('3x.', 1, 1), ('x3.', 1, 1), ('x..', 1, 1), ('dd.', 1, 1),
        ('A!<Esc>j.', 1, 1), ('cwfoo<Esc>.', 1, 1), ('cwfoo<Esc>2.', 1, 1), ('2cwX<Esc>3.', 1, 1),
        ('>>3.', 1, 1), ('J3.', 1, 1), ('diw.', 1, 1), ('ciwfoo<Esc>j.', 1, 1), ('yyp3.', 1, 1),
        ('~3.', 1, 1), ('d$j.', 1, 1), ('dwj.', 1, 1), ('x<Esc>u.', 1, 1)]
+# multi-byte characters (line 16: the two bullets are three bytes each, ü and ï two): l, h, x, X, r and the motions
+# step characters, not bytes, as vim does — the cursor used to stop dead on a bullet because it landed in the middle of it
+MULTI = [('l', 16, 1, False), ('ll', 16, 1, False), ('l', 16, 12, False), ('l', 16, 20, False),
+         ('h', 16, 15, False), ('2l', 16, 1, False), ('2h', 16, 22, False), ('w', 16, 1, False), ('b', 16, 5, False),
+         ('x', 16, 1, True), ('x', 16, 20, True), ('X', 16, 22, True), ('2x', 16, 1, True), ('2X', 16, 22, True),
+         ('rZ', 16, 1, True), ('rZ', 16, 20, True), ('2rZ', 16, 1, True), ('2rZ', 16, 20, True),
+         ('dl', 16, 20, True), ('dh', 16, 22, True), ('d2l', 16, 1, True), ('c2lZ<Esc>', 16, 1, True)]
 # the objects a `c` is tried with (what it types once the object is gone)
 C_OBJECTS = ['iw', 'aw', 'ip', 'ap', 'i(', 'i"']
 
@@ -111,6 +118,8 @@ def _build():
         cases.append((keys, line, col, False))
     for keys, line, col in DOT:
         cases.append((keys, line, col, True))
+    for keys, line, col, edit in MULTI:
+        cases.append((keys, line, col, edit))
     # (an edit ends by leaving insert mode: `Esc` is added to those and to nothing else — a movement is not ended. No
     # space before it: a space is a key of its own in vim (it moves), and would be compared on the two sides)
     return [(k + '<Esc>' if e else k, l, c, e) for (k, l, c, e) in cases]

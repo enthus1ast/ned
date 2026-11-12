@@ -174,6 +174,21 @@ func currentWordEnd(b: Buffer, p: Pos, big: bool): Pos =
     inc c
   Pos(line: p.line, col: c)
 
+func rightRunes(s: string, col, n, limit: int): int =
+  ## the byte column `n` characters to the right of `col` — a multi-byte character counts as one, as vim's l does —
+  ## not past `limit`
+  result = col
+  for _ in 0 ..< n:
+    if result >= limit: break
+    result = nextRune(s, result)
+
+func leftRunes(s: string, col, n: int): int =
+  ## the byte column `n` characters to the left of `col`, a multi-byte character counting as one (vim's h)
+  result = col
+  for _ in 0 ..< n:
+    if result <= 0: break
+    result = prevRune(s, result)
+
 # the position of the first character of the line that is not a space or tab (the line's end for a blank line)
 func firstNonBlank(b: Buffer, l: int): Pos = Pos(line: l, col: leadingWs(b.lines[l]).len)
 
@@ -263,9 +278,13 @@ proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
   var q = p
   case key
   of "h":
-    q.col = max(0, p.col - count)
+    q.col = leftRunes(b.lines[p.line], p.col, count)
   of "l", " ":
-    q.col = min(max(0, b.lines[p.line].len - (if vimPending.len > 0: 0 else: 1)), p.col + count)
+    # (the last column l may stand on: the start of the line's last character — or one past it, for an operator's
+    # motion, so that dl deletes the character under the cursor)
+    let s = b.lines[p.line]
+    let limit = if vimPending.len > 0: s.len else: max(0, prevRune(s, s.len))
+    q.col = rightRunes(s, p.col, count, limit)
   of "j", "+":
     if key == "j" and p.line >= b.lines.high:
       result.ok = false                    # (no line below: vim's dj does nothing)
