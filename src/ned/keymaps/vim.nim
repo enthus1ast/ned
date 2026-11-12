@@ -6,7 +6,7 @@ var
   vimPending = ""
   vimCount = ""
   vimOpCount = ""
-  vimLastFind = ('\0', '\0')
+  vimLastFind = ('\0', "")          # (the f/t command and its target, which may be a multi-byte character)
   vimReg = ""
   vimRegLine = false
   vimRec: seq[Key]
@@ -189,6 +189,29 @@ func leftRunes(s: string, col, n: int): int =
     if result <= 0: break
     result = prevRune(s, result)
 
+func vimUpperRune(r: unicode.Rune): unicode.Rune =
+  ## vim's upper case for one rune: Nim's Unicode table, and ß → ẞ, which it leaves (vim does not)
+  let u = unicode.toUpper(r)
+  if u.int != r.int: return u
+  if r.int == 0x00DF: return unicode.Rune(0x1E9E)
+  r
+
+func vimToggleRune(r: unicode.Rune): unicode.Rune =
+  ## vim's ~ for one rune: the upper case of a lower one, the lower case of an upper one, itself otherwise
+  let up = vimUpperRune(r)
+  if up.int != r.int: return up
+  unicode.toLower(r)
+
+func vimCaseMap(s: string, op: string): string =
+  ## `s` with vim's case mapping: gu lower, gU upper, ~ and g~ swapped — rune by rune, so ü ↔ Ü and ß ↔ ẞ
+  var i = 0
+  while i < s.len:
+    let (cp, n) = runeAt(s, i)
+    let r = unicode.Rune(cp)
+    let m = (if op == "gu": unicode.toLower(r) elif op == "gU": vimUpperRune(r) else: vimToggleRune(r))
+    result.addUtf8(m.int)
+    i += n
+
 # the position of the first character of the line that is not a space or tab (the line's end for a blank line)
 func firstNonBlank(b: Buffer, l: int): Pos = Pos(line: l, col: leadingWs(b.lines[l]).len)
 
@@ -247,22 +270,29 @@ proc paragraphMove(b: Buffer, p: Pos, d: int): Pos =
     if l - 1 >= 0: dec l
   Pos(line: clamp(l, 0, b.lines.high), col: 0)
 
-func findChar(b: Buffer, p: Pos, cmd, ch: char): (bool, Pos) =
-  ## vim's f, t, F and T on the cursor's line: (found, where the cursor goes) — t and T stop one short of the character,
-  ## and when already next to it look for the one after
+func findChar(b: Buffer, p: Pos, cmd: char, target: string): (bool, Pos) =
+  ## vim's f, t, F and T on the cursor's line: (found, where the cursor goes) — t and T stop one character short of
+  ## the target, and when already next to it look for the one after. The target is a string, so a multi-byte
+  ## character is one character, not its bytes
   let s = b.lines[p.line]
   let col = min(p.col, s.len)          # (a cursor past the end of a line that got shorter)
+  if target.len == 0: return (false, p)
   case cmd
   of 'f', 't':
-    let i = s.find(ch, col + 1 + (if cmd == 't' and col + 1 < s.len and s[col + 1] == ch: 1 else: 0))
+    var start = if col < s.len: nextRune(s, col) else: s.len
+    if cmd == 't' and start < s.len and s.continuesWith(target, start): start += target.len
+    let i = s.find(target, start)
     if i < 0: return (false, p)
-    (true, Pos(line: p.line, col: (if cmd == 't': i - 1 else: i)))
+    (true, Pos(line: p.line, col: (if cmd == 't': prevRune(s, i) else: i)))
   else:
-    let start = col - 1 - (if cmd == 'T' and col - 1 >= 0 and s[col - 1] == ch: 1 else: 0)
-    if start < 0: return (false, p)
-    let i = s.rfind(ch, last = start)
+    var last = col - 1
+    if cmd == 'T' and col > 0:
+      let pr = prevRune(s, col)
+      if pr + target.len == col and s.continuesWith(target, pr): last = pr - 1
+    if last < 0: return (false, p)
+    let i = s.rfind(target, last = last)
     if i < 0: return (false, p)
-    (true, Pos(line: p.line, col: (if cmd == 'T': i + 1 else: i)))
+    (true, Pos(line: p.line, col: (if cmd == 'T': nextRune(s, i) else: i)))
 
 type MotionRes = object
   ok: bool
@@ -364,10 +394,11 @@ proc vimMotion(b: Buffer, key: string, count: int, p0: Pos): MotionRes =
   of "M": q = b.firstNonBlank(clamp(b.topLine + textH div 2, 0, b.lines.high))
   of "L": q = b.firstNonBlank(clamp(b.topLine + textH - 1 - cfgScrollOff, 0, b.lines.high))
   else:
-    if key.len == 2 and key[0] in {'f', 't', 'F', 'T'}:
-      vimLastFind = (key[0], key[1])
+    if key.len >= 2 and key[0] in {'f', 't', 'F', 'T'}:
+      let target = key[1 .. ^1]
+      vimLastFind = (key[0], target)
       for _ in 0 ..< count:
-        let (ok, np) = b.findChar(q, key[0], key[1])
+        let (ok, np) = b.findChar(q, key[0], target)
         if not ok:
           result.ok = false
           return
@@ -621,14 +652,10 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool, cursorCol = -1
     let line = if linewise: min(a0.line, e0.line) else: want.line
     if toEol: b.setSingle(b.clampNormal(Pos(line: line, col: max(0, b.lines[line].len - 1))))
     else: b.setSingle(b.clampNormal(Pos(line: line, col: b.colAtVis(line, vcol))))
-  of "~", "gu", "gU":
+  of "~", "g~", "gu", "gU":
     if not b.canEdit(): return
-    var t = ""
-    for ch in text:
-      t.add (if op == "gu": toLowerAscii(ch) elif op == "gU": toUpperAscii(ch)
-             elif ch in {'a'..'z'}: toUpperAscii(ch) elif ch in {'A'..'Z'}: toLowerAscii(ch) else: ch)
     b.beginEdit()
-    discard b.replaceText(a, e, t)
+    discard b.replaceText(a, e, vimCaseMap(text, op))
     b.endEdit()
     b.setSingle(b.clampNormal(a))
   of "gc":

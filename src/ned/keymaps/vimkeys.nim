@@ -126,7 +126,10 @@ proc vimKey(k: Key): bool =
     return true
   # let ordinary shortcuts (Ctrl+S, Alt+…, F-keys, arrows) keep working
   var ch = '\0'
-  if k.kind == kChar and k.ch < 128 and (k.mods == {} or k.mods == {mShift}): ch = char(k.ch)
+  var plainChar = false                    # (a character key, ASCII or not: r, f and t take any character)
+  if k.kind == kChar and (k.mods == {} or k.mods == {mShift}):
+    plainChar = true
+    if k.ch < 128: ch = char(k.ch)
   elif k.kind == kChar and mCtrl in k.mods and k.ch < 128:
     let c = toLowerAscii(char(k.ch))
     let p = b.primary.head
@@ -176,7 +179,7 @@ proc vimKey(k: Key): bool =
         else: '\0'
       if ch == '\0': return false
     else: return false
-  if ch == '\0': return false
+  if ch == '\0' and not plainChar: return false
   if plugVimKey(b, ch, visual): return true          # (a plugin's mapping, operator or what it waits for)
   # (where the cursor is after it: keys it held back that were not a mapping after all, given back to vim, may have
   # moved it — space then l went one to the right, not two)
@@ -200,16 +203,21 @@ proc vimKey(k: Key): bool =
       let n = max(1, (if vimCount.len > 0: parseInt(vimCount) else: 1))
       vimCount = ""
       var e = p.col                         # n characters, not n bytes
-      var k = 0
-      while k < n and e < b.lines[p.line].len:
+      var cnt = 0
+      while cnt < n and e < b.lines[p.line].len:
         e = nextCluster(b.lines[p.line], e)
-        inc k
-      if k == n and b.canEdit():
+        inc cnt
+      if cnt == n and b.canEdit():
+        # (the character typed may be a multi-byte one: r takes any character, not just an ASCII byte)
+        var one = ""
+        if k.kind == kChar: one.addUtf8(k.ch) else: one.add ch
+        var rep = ""
+        for _ in 0 ..< n: rep.add one
         b.beginEdit()
-        discard b.replaceText(p, Pos(line: p.line, col: e), repeat(ch, n))
+        discard b.replaceText(p, Pos(line: p.line, col: e), rep)
         b.endEdit()
         # (vim's r leaves the cursor where it was; with a count, on the last character it replaced)
-        b.setSingle(b.clampNormal(Pos(line: p.line, col: p.col + k - 1)))
+        b.setSingle(b.clampNormal(Pos(line: p.line, col: p.col + rep.len - one.len)))
         vimIsChange = true
         if not vimReplaying: vimLastChange = vimRec
       return true
@@ -274,7 +282,7 @@ proc vimKey(k: Key): bool =
       of 'T':
         switchTab(-1)
         return true
-      of 'u', 'U', 'c':
+      of 'u', 'U', 'c', '~':
         if visual:
           let (a, e) = b.primary.range
           b.vimApply("g" & $ch, a, (if vimMode == vmVLine: e else: Pos(line: e.line, col: e.col)), vimMode == vmVLine)
@@ -361,7 +369,8 @@ proc vimKey(k: Key): bool =
             vimIsChange = true
             if not vimReplaying: vimLastChange = vimRec
       return true
-    elif pend.len == 2 and pend[1] in {'i', 'a'} and pend[0] in {'d', 'c', 'y', '>', '<'}:
+    elif pend.len >= 2 and pend[^1] in {'i', 'a'} and
+         pend[0 ..< pend.len - 1] in ["d", "c", "y", ">", "<", "gu", "gU", "g~", "gc"]:
       discard
     elif pend.len == 2 and pend[1] == 'g' and pend[0] in {'d', 'c', 'y', '>', '<'}:
       vimPending = ""
@@ -384,7 +393,8 @@ proc vimKey(k: Key): bool =
       let n1 = if vimOpCount.len > 0: parseInt(vimOpCount) else: 1
       let n2 = if vimCount.len > 0: parseInt(vimCount) else: 1
       let n = min(1_000_000, n1 * n2)
-      if (op.len == 1 and ch == op[0]) or (op == "gc" and ch == 'c') or (op in ["gu", "gU"] and ch in {'u', 'U'}):
+      if (op.len == 1 and ch == op[0]) or (op == "gc" and ch == 'c') or (op in ["gu", "gU"] and ch in {'u', 'U'}) or
+         (op == "g~" and ch == '~'):
         # dd cc yy >> << gcc guu
         vimPending = ""
         vimCount = ""
@@ -432,9 +442,11 @@ proc vimKey(k: Key): bool =
       if vimIsChange and vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
       return true
   # text objects / find chars after an operator
-  if vimPending.len == 2 and vimPending[1] in {'i', 'a'} and vimPending[0] in {'d', 'c', 'y', '>', '<'}:
-    let op = $vimPending[0]
-    let (ok, a, e) = b.textObject(vimPending[1], ch, p)
+  if vimPending.len >= 2 and vimPending[^1] in {'i', 'a'} and
+     vimPending[0 ..< vimPending.len - 1] in ["d", "c", "y", ">", "<", "gu", "gU", "g~", "gc"]:
+    let kind = vimPending[^1]
+    let op = vimPending[0 ..< vimPending.len - 1]
+    let (ok, a, e) = b.textObject(kind, ch, p)
     vimPending = ""
     vimCount = ""
     vimOpCount = ""
@@ -464,7 +476,9 @@ proc vimKey(k: Key): bool =
                            max(1, (if vimOpCount.len > 0: parseInt(vimOpCount) else: 1)))
     vimCount = ""
     vimOpCount = ""
-    let m = b.vimMotion($fk & $ch, n, p)
+    var target = ""
+    if k.kind == kChar and k.mods == {}: target.addUtf8(k.ch) else: target.add ch
+    let m = b.vimMotion($fk & target, n, p)
     if not m.ok: return true
     if op.len > 0:
       var e = m.p
@@ -621,8 +635,10 @@ proc vimKey(k: Key): bool =
     if ch == '~':
       vimIsChange = true
       let e = rightRunes(b.lines[p.line], p.col, count, b.lines[p.line].len)
+      # (the toggled text may be a different length — ß and ẞ — so the cursor goes after it in the new text)
+      let after = p.col + vimCaseMap(b.getText(p, Pos(line: p.line, col: e)), "~").len
       b.vimApply("~", p, Pos(line: p.line, col: e), false)
-      b.setSingle(b.clampNormal(Pos(line: p.line, col: e)))
+      b.setSingle(b.clampNormal(Pos(line: p.line, col: after)))
       if not vimReplaying: vimLastChange = vimRec
       return true
     vimPending = $ch
@@ -653,6 +669,7 @@ proc vimKey(k: Key): bool =
       vimSetMode(vmNormal)
       b.vimApply("gU", a, Pos(line: e.line, col: e.col + 1), false)
   of 'J':
+    if not visual and p.line >= b.lines.high: return true     # (no line below: vim's J does nothing)
     vimIsChange = true
     # (vim's count joins count lines — J two, 3J three — so count-1 joins, at least one. The cursor is left where the
     # last join met: the end of the line before it)

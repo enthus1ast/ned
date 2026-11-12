@@ -72,6 +72,13 @@ MULTI = [('l', 16, 1, False), ('ll', 16, 1, False), ('l', 16, 12, False), ('l', 
          ('x', 16, 1, True), ('x', 16, 20, True), ('X', 16, 22, True), ('2x', 16, 1, True), ('2X', 16, 22, True),
          ('rZ', 16, 1, True), ('rZ', 16, 20, True), ('2rZ', 16, 1, True), ('2rZ', 16, 20, True),
          ('dl', 16, 20, True), ('dh', 16, 22, True), ('d2l', 16, 1, True), ('c2lZ<Esc>', 16, 1, True)]
+# the case operators and finds on the multi-byte line: ~ gu gU g~ go rune by rune (ü ↔ Ü, ß ↔ ẞ), r replaces with a
+# multi-byte character, f and t find one
+MULTI_OPS = [('~', 16, 20, True), ('2~', 16, 20, True), ('gUU', 16, 1, True), ('guu', 16, 1, True),
+             ('g~~', 16, 1, True), ('gUiw', 16, 20, True), ('guw', 16, 1, True), ('g~w', 16, 1, True),
+             ('g~iw', 16, 20, True), ('gU2w', 16, 1, True), ('r€', 16, 20, True), ('2r•', 16, 1, True),
+             ('f•', 16, 1, False), ('t•', 16, 1, False), ('fï', 16, 15, False), ('Fü', 16, 22, False),
+             ('f•;', 16, 1, False), ('fï,', 16, 25, False)]
 # the objects a `c` is tried with (what it types once the object is gone)
 C_OBJECTS = ['iw', 'aw', 'ip', 'ap', 'i(', 'i"']
 
@@ -119,6 +126,8 @@ def _build():
     for keys, line, col in DOT:
         cases.append((keys, line, col, True))
     for keys, line, col, edit in MULTI:
+        cases.append((keys, line, col, edit))
+    for keys, line, col, edit in MULTI_OPS:
         cases.append((keys, line, col, edit))
     # (an edit ends by leaving insert mode: `Esc` is added to those and to nothing else — a movement is not ended. No
     # space before it: a space is a key of its own in vim (it moves), and would be compared on the two sides)
