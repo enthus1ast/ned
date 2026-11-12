@@ -3,10 +3,12 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 var ttyGone = false     # stdin hit end-of-file or an I/O error: the terminal is gone
+var inFresh = 0         # where the bytes of the last read begin in inBuf: an Escape before it is one on its own
 
 proc readInput(): bool =
   ## reads whatever the terminal has sent into the input buffer without waiting; true when some bytes came. End of file
   ## or a real read error marks the terminal as gone (ttyGone)
+  let start = inBuf.len            # (what was pending before this read: an Escape there came on its own)
   var tmp: array[8192, char]
   while true:
     let n = posix.read(0.cint, addr tmp[0], tmp.len)
@@ -15,6 +17,7 @@ proc readInput(): bool =
       break
     if n <= 0: break
     result = true
+    if inBuf.len == start: inFresh = start
     let old = inBuf.len
     inBuf.setLen(old + n)
     copyMem(addr inBuf[old], addr tmp[0], n)
@@ -281,6 +284,13 @@ proc parseKey(force: bool, k: var Key): bool =
       inc inOff
       k.kind = kEsc
       return true
+    # (an Escape that was already waiting before this read, then a key typed after it: Escape. A terminal sends Alt+key
+    # in one read, and the Escape a person pressed on its own arrives on its own — so `Esc` `u` in vim mode is undo, not
+    # Alt+U, which toggles the mouse)
+    if inOff < inFresh:
+      inc inOff
+      k.kind = kEsc
+      return true
     # Alt + key
     let saved = inOff
     inc inOff
@@ -308,4 +318,5 @@ proc compactInput() {.inline.} =
   if inOff > 0:
     if inOff >= inBuf.len: inBuf.setLen(0)
     else: inBuf = inBuf[inOff .. ^1]
+    inFresh = max(0, inFresh - inOff)
     inOff = 0

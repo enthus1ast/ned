@@ -13,9 +13,14 @@ palette (Ctrl+E) and the mouse work the same in all of them.
 **Moving**: `h j k l`, `w b e` and `W B E`, `0 ^ $`, `gg G`, `{ }`, `%`, `H M L`, `f t F T` with `; ,` — all with
 counts (`3w`, `5j`).
 
-**Operators** `d c y > < gu gU gc` take a motion or a text object (`iw aw`, `i( a(`, `i" a"`, `i{ a{`, `ip ap`
-— a paragraph, as whole lines …): `dw`, `ci"`, `yap`, `>ip`, `gUiw`; `vip` selects the paragraph's lines. Also `x X s S C D Y p P J r R ~`, `.` (repeat), `u` and Ctrl+R (undo, redo),
-and `g-` `g+`, which go back and forth in time across the [undo tree](editing.md#undo)'s branches.
+**Operators** `d c y > < gu gU g~ gc` take a motion or a text object (`iw aw`, `i( a(`, `i[ a[`, `i{ a{`, `iB aB`,
+`i< a<`, `i" a"`, `i' a'`, ``i` a` ``, `ip ap` — a paragraph, as whole lines —, `it at` — a tag): `dw`, `ci"`, `yap`,
+`>ip`, `gUiw`, `g~w`; `vip` selects the paragraph's lines, and `gv` takes the last visual selection again. Also
+`x X s S C D Y p P J r R ~`, `.` (repeat — a count before it is the change's count: `3.` after `>>` is `3>>`), `u` and
+Ctrl+R (undo, redo), and `g-` `g+`, which go back and forth in time across the [undo tree](editing.md#undo)'s branches.
+
+**Characters above ASCII** are one character, as vim has them: `l h x X s r`, the motions and the case operators
+(`~`, `gu`, `gU`, `g~`) work on `ü`, `ß` or `•`, not on their bytes.
 
 **vim-surround**: `ys{motion}{char}`, `yss{char}`, `cs{old}{new}`, `ds{char}`, and `S{char}` in visual mode — `t` or
 `<` for an HTML tag.

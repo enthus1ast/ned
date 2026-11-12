@@ -74,6 +74,34 @@ python3 tests/ui/run.py ./ned t_528_refs t_57_ai        # some
 python3 tests/ui/run.py --list                         # the names
 python3 tests/ui/run.py ./ned --shard 2/4              # every 4th test from the 2nd (CI runs four parts at once)
 NED_UI_FULL=1 python3 tests/ui/run.py ./ned t_vim       # a failure prints the whole screen (not 400 characters)
+
+### Vim mode, against a real vim
+
+`t_65_vim_oracle` checks ned's vim mode against vim itself: the same file, the same place, the same keys — the
+movements by where the cursor and the mode end up, the edits by the text they left. Both sides run headless. vim is
+`tests/ui/vimoracle.py` (`nvim -es` with `feedkeys`), so a case answers the same thing every run and the whole set takes
+seconds; its answers are cached for as long as `vim --version` and the cases are the same. ned is `ned -es`
+(`src/ned/app/headless.nim`): the editor's own vim keys with no terminal and no screen, one long-running process that a
+case per line of JSON goes into and an answer per line comes out of (`tests/ui/nedheadless.py`) — a case in a
+millisecond, not the two seconds a tmux editor and a screen read cost. The cases are made from lists
+in [`tests/ui/vimcases.py`](../../tests/ui/vimcases.py) (the motions, the counts, the operator × motion grid, the text
+objects after an operator and in visual mode — `diw`, `dap`, `vip` … — and the edits),
+and a case ned and vim are known to differ on goes in its `KNOWN_DIFFERS` with the reason. The score — how many cases
+agree — is what [`tests/ui/vimdiff.py`](../../tests/ui/vimdiff.py) prints, with every case that differs, both answers
+side by side, and the first lines where two texts part.
+
+```sh
+python3 tests/ui/run.py ./ned t_65_vim_oracle    # ned against vim (the cases are in its scratch folder's log)
+python3 tests/ui/vimoracle.py --json /tmp/vim.json   # what vim alone answers, for every case
+python3 tests/ui/vimdiff.py                      # the score and the differences
+ned -es --keys "dw" src/ned.nim    # one case: where the keys left the cursor, the mode and the text, as JSON
+ned -es src/ned.nim                 # a request per line on stdin: {"keys":"2j","line":1,"col":1}, {"quit":true}
+```
+
+A case starts where its own line and column say. Both answer in vim's own words — the line and a *character* column,
+from 1 — so nothing is converted; ned's display column (a tab takes the columns it is drawn over) comes back as
+`viscol`. The real terminal's keys are still walked by the rest of the suite (`t_vim`, `t_zen_vim`, the surround, the
+filter and the plugin-vim tests), which drive a ned in tmux.
 ```
 
 It needs tmux, git, python3 and nim on `PATH`. Language servers, clangd, gdb, lldb, debugpy, zsh, fish, a hunspell

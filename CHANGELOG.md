@@ -1,6 +1,33 @@
 # ned changelog
 
-The newest release is described in the [README](README.md#whats-new-in-645). Older releases:
+The newest release is described in the [README](README.md#whats-new-in-646). Older releases:
+
+## What's new in 6.45
+
+**Less memory.** With a file of 7 MB open, ned and its engine worker took 155 MB; now about 90 in Termux and 66 on
+Linux. Sending a file to the engine worker or to a language server no longer makes several copies of it at once, and
+on Linux and macOS ned gives memory back to the system once it has finished with it — when a big file is closed, too.
+Before, what a big file or a long session had taken stayed taken until ned quit: after half an hour on ned's own
+source it held 79 MB and used 27.
+
+**No stutter when a file of a big project opens.** Reading what the file's imports bring, for completion and for the
+colours, kept the keys waiting 25 to 40 ms a dozen times or more, longer the further it got. It is done in short
+pieces now.
+
+**Language servers get only what changed.** After each pause in typing ned sent the server the whole file again. A
+server that takes changes — clangd, and the HTML, CSS and JSON servers, among others — now gets just the edits, and
+the whole file goes with a save only to a server that asks for it.
+
+**Big messages to other programs.** A big file sent to a language server, an MCP server, a plugin or the engine
+worker, and a flood of output from gdb, a debugger or a plugin, are no longer copied over and over on the way.
+
+**If ned crashes, the terminal is yours again.** A crash left the terminal in ned's modes: in Termux no scrolling, and
+the mouse typing codes into the shell. Now the terminal is put back as ned found it, the shell says ned stopped, and
+the next start says so too and offers your unsaved changes. Please report it: the details are in `errors.log`.
+
+**Deeply nested code.** nedfmt no longer crashes on brackets nested thousands deep, the JSON check says "nested too
+deep" once instead of once for every bracket around it, and JSON or CSS nested more than 500 deep is left as it is
+rather than formatted into gigabytes.
 
 ## What's new in 6.44
 

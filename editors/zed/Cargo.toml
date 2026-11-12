@@ -1,6 +1,6 @@
 [package]
 name = "nedls_language_server"
-version = "6.45.0"
+version = "6.46.0"
 edition = "2021"
 authors = ["Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"]
 publish = false

@@ -207,33 +207,18 @@ proc surroundingPairs(b: Buffer, p: Pos, which = '\0'): seq[(Pos, int, Pos, int)
   if which == '\0' or which in {'"', '\'', '`'}:
     for q in (if which == '\0': @['"', '\'', '`'] else: @[which]):
       let (ok, x, y) = b.textObject('a', q, p)
-      if ok and x.col < y.col: found.add (x, 1, Pos(line: y.line, col: y.col - 1), 1)
+      if ok and x.col < y.col:
+        # (the `a"` range takes the blanks after the quotes — or, at a line's end, the ones before: the quotes are the
+        # first and last characters of it that are not blanks)
+        var a = x.col
+        while a < y.col and b.lines[x.line][a] in {' ', '\t'}: inc a
+        var e = y.col - 1
+        while e > a and b.lines[y.line][e] in {' ', '\t'}: dec e
+        found.add (Pos(line: x.line, col: a), 1, Pos(line: y.line, col: e), 1)
   if which in {'\0', 't', '<'}:
-    # the element around p: back to an opening tag whose closing tag is after p
-    var l = p.line
-    var depth: Table[string, int]
-    block search:
-      while l >= 0 and p.line - l < 2000:
-        let ts = htmlTagsOn(b.lines[l])
-        for k in countdown(ts.high, 0):
-          let (na, ne, cl, selfc) = ts[k]
-          if l == p.line and na > p.col: continue
-          let name = b.lines[l][na ..< ne].toLowerAscii
-          if selfc or name in VoidTags: continue
-          if cl:
-            depth[name] = depth.getOrDefault(name) + 1
-          elif depth.getOrDefault(name) > 0: depth[name] = depth[name] - 1
-          else:
-            let (pl, pa, pe) = b.htmlPartner(l, na, ne, false)
-            if pl < 0: continue
-            let gt = b.lines[l].find('>', ne)
-            let cgt = b.lines[pl].find('>', pe)
-            if gt < 0 or cgt < 0: continue
-            let closeAt = Pos(line: pl, col: pa - 2)
-            if closeAt < p: continue
-            found.add (Pos(line: l, col: na - 1), gt + 1 - (na - 1), closeAt, cgt + 1 - (pa - 2))
-            break search
-        dec l
+    # (the element around p: back to an opening tag whose closing tag is after p)
+    let (ok, os, oe, cs, ce) = b.htmlElementAround(p)
+    if ok: found.add (os, oe.col - os.col, cs, ce.col - cs.col)
   if which notin {'\0', '(', ')', 'b', '[', ']', 'r', '{', '}', 'B', '"', '\'', '`', 't', '<'}:
     # any other character: the nearest ones on the line around p
     let s = b.lines[p.line]

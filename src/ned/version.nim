@@ -1,5 +1,5 @@
 ## ned's version — one place for ned, nedfmt and nedls (and ned.nimble's `version`, kept the same)
-const NedVersion* = "6.45.0"
+const NedVersion* = "6.46.0"
 const
   NedAuthor* = "Sultan Al Isaiee (@foxoman)"   ## who makes ned: shown in About ned and ned --help
   NedSite* = "www.foxoman.net"
