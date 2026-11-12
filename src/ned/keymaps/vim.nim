@@ -20,6 +20,8 @@ var
   vimDesiredCol = -1               # (vim's remembered *display* column, counted from 1 as virtcol is: j and k go back
                                    # to it over short lines and past a tab; -1: none)
   vimVLineCol = 0                  # (visual-line: the display column `V` was pressed at, which `>` and `<` keep)
+  vimPrevSel: tuple[ok: bool, mode: VimMode, anchor, head: Pos, vcol: int] = (false, vmVisual, Pos(), Pos(), 0)
+                                   # (the last visual selection, for gv)
 
 proc vimModeName(): string =
   ## the mode shown in the status bar for the keymap in use: NORMAL / INSERT / VISUAL / V-LINE / REPLACE for vim (with
@@ -550,10 +552,15 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool, cursorCol = -1
       b.endEdit()
       # (vim leaves the cursor where the text after the deletion now is — at the start of what went, so `diw` on
       # "quick" leaves it on the space after it; at a line's end, on the character before, so `D` from column 5 on
-      # "abcdef" is column 4. A `c` leaves it where the change starts, for the text about to be typed)
-      b.setSingle(if op == "d": b.clampNormal(if linewise: b.firstNonBlank(min(p.line, b.lines.high))
-                                              else: Pos(line: a.line, col: a.col))
-                                  else: p)
+      # "abcdef" is column 4. A whole-line deletion keeps the display column the cursor was drawn at — `dd` from
+      # column 5 of an indented line below is still column 5 — and a `c` leaves it where the change starts)
+      b.setSingle(if op == "d":
+                    if linewise:
+                      let line = min(p.line, b.lines.high)
+                      b.clampNormal(Pos(line: line, col: (if cursorCol > 0: b.colAtVis(line, cursorCol)
+                                                           else: b.firstNonBlank(line).col)))
+                    else: b.clampNormal(Pos(line: a.line, col: a.col))
+                  else: p)
     if op == "c": vimSetMode(vmInsert)
   of ">", "<":
     # (vim moves the text under the cursor, not the cursor: it stays in the display column it was drawn at. The line is

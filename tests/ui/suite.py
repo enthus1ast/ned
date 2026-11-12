@@ -195,6 +195,17 @@ def t_vim():
     check('624 vim :vs splits the editor', s.count('│') > bars + 20 and 'one editor pane' not in s, s[:400])
     text(':only'); keys('Enter'); time.sleep(0.5)
     check('624 vim :only closes the split', screen().count('│') <= bars + 2, screen()[:400])
+    # 6.5x: a completion popup must not take the first Esc from vim's insert mode — one press leaves it, and NORMAL is
+    # back (it used to take two)
+    tm('kill-server'); time.sleep(0.3)
+    open(W + '/ve.nim', 'w').write('let width = 1\necho width\n')
+    start('ve.nim', w=100, h=24); time.sleep(0.6)
+    keys('C-g'); text('1:5'); keys('Enter'); keys('c'); keys('w'); time.sleep(0.2); text('size'); time.sleep(0.8)
+    popup = 'sizeof' in screen()                       # (the completion list, opened by the typing)
+    keys('Escape'); time.sleep(0.4)
+    sc = screen()
+    check('vim: one Esc leaves insert mode (a completion popup does not take it)',
+          'NORMAL' in sc and 'INSERT' not in sc, ('popup open: %s\n' % popup) + sc)
 
 def t_recovery():
     setup(); start('src/demo.nim')

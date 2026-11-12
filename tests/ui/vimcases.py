@@ -55,6 +55,10 @@ TEXT_OBJECTS = [('iw', 1, 5), ('aw', 1, 5), ('iW', 10, 3), ('aW', 10, 3), ('ip',
                 ('i<', 15, 5), ('a<', 15, 5), ('it', 15, 20), ('at', 15, 20),
                 # (before the line's first quote: vim's text object searches forward to the next string)
                 ('i"', 15, 1), ("i'", 15, 1)]
+# gv: the last visual selection again, after Esc and after an operator on it, then an operator or a motion on it
+GV_EDITS = [('vll<Esc>gvd', 1, 1), ('Vj<Esc>gvd', 1, 1), ('viw<Esc>gvd', 1, 1), ('vj<Esc>gv>', 1, 1),
+            ('Vjj<Esc>gv>', 1, 1)]
+GV_MOVES = [('vll<Esc>gvl<Esc>', 1, 1), ('vll<Esc>gvh<Esc>', 1, 1)]
 # the objects a `c` is tried with (what it types once the object is gone)
 C_OBJECTS = ['iw', 'aw', 'ip', 'ap', 'i(', 'i"']
 
@@ -95,6 +99,10 @@ def _build():
         cases.append(('v' + obj + 'd', line, col, True))
     for keys, (line, col) in SIMPLE:
         cases.append((keys, line, col, True))
+    for keys, line, col in GV_EDITS:
+        cases.append((keys, line, col, True))
+    for keys, line, col in GV_MOVES:
+        cases.append((keys, line, col, False))
     # (an edit ends by leaving insert mode: `Esc` is added to those and to nothing else — a movement is not ended. No
     # space before it: a space is a key of its own in vim (it moves), and would be compared on the two sides)
     return [(k + '<Esc>' if e else k, l, c, e) for (k, l, c, e) in cases]

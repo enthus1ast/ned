@@ -122,6 +122,7 @@ proc hlReset(b: Buffer) =
   vimReg = ""
   vimRegLine = false
   vimDesiredCol = -1
+  vimPrevSel = (false, vmVisual, Pos(), Pos(), 0)
   vimSetMode(vmNormal)
   findQuery = ""
   findWord = false

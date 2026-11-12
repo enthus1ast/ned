@@ -66,6 +66,10 @@ proc vimKey(k: Key): bool =
   ## true when vim consumed the key
   let b = buf()
   if b.isWelcome(): return false
+  if vimMode in {vmVisual, vmVLine}:
+    # (what gv brings back: the selection as it stands before this key — an operator or Esc then acts on it, and it is
+    # still the last one afterwards)
+    vimPrevSel = (true, vimMode, b.cursors[b.prim].anchor, b.cursors[b.prim].head, vimVLineCol)
   if not vimReplaying:
     if vimMode == vmNormal and vimPending.len == 0 and vimCount.len == 0:
       vimRec.setLen(0)
@@ -282,6 +286,14 @@ proc vimKey(k: Key): bool =
       of 'J':
         b.joinLines()
         return true
+      of 'v':
+        # (gv: the last visual selection again, in its mode — after Esc, or after an operator on it)
+        if vimPrevSel.ok:
+          vimSetMode(vimPrevSel.mode)
+          b.cursors = @[Cursor(anchor: b.clampPos(vimPrevSel.anchor), head: b.clampPos(vimPrevSel.head), goalX: -1)]
+          b.prim = 0
+          if vimPrevSel.mode == vmVLine: vimVLineCol = vimPrevSel.vcol
+        return true
       of '-', '+':
         for _ in 0 ..< max(1, (if vimCount.len > 0: parseInt(vimCount) else: 1)): b.undoChrono(if ch == '-': -1 else: 1)
         vimCount = ""
@@ -358,7 +370,7 @@ proc vimKey(k: Key): bool =
       vimOpCount = ""
       if ch == 'g':
         let target = if hadC: clamp(cnt - 1, 0, b.lines.high) else: 0
-        b.vimApply($pend[0], p, Pos(line: target, col: 0), true)
+        b.vimApply($pend[0], p, Pos(line: target, col: 0), true, b.visColOfPos(p))
         if pend[0] != 'y':
           vimIsChange = true
           if vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
@@ -377,7 +389,7 @@ proc vimKey(k: Key): bool =
         vimCount = ""
         vimOpCount = ""
         let e = min(b.lines.high, p.line + n - 1)
-        b.vimApply(op, Pos(line: p.line, col: 0), Pos(line: e, col: 0), true)
+        b.vimApply(op, Pos(line: p.line, col: 0), Pos(line: e, col: 0), true, b.visColOfPos(p))
         if op != "y": vimIsChange = true
         if vimIsChange and vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
         return true
@@ -416,7 +428,6 @@ proc vimKey(k: Key): bool =
   # text objects / find chars after an operator
   if vimPending.len == 2 and vimPending[1] in {'i', 'a'} and vimPending[0] in {'d', 'c', 'y', '>', '<'}:
     let op = $vimPending[0]
-    let kind = vimPending[1]
     let (ok, a, e) = b.textObject(vimPending[1], ch, p)
     vimPending = ""
     vimCount = ""
@@ -426,9 +437,6 @@ proc vimKey(k: Key): bool =
       let lw = b.objLinewise(ch, a, e)
       b.vimApply(op, a, (if lw: Pos(line: (if e.col == 0: e.line - 1 else: e.line), col: 0) else: e), lw,
                   b.visColOfPos(p))
-      if op == "d" and kind == 'a' and ch == 'p':
-        # (vim's dap keeps the cursor's column on the line it lands on; dip goes to the first non-blank)
-        b.setSingle(b.clampNormal(Pos(line: b.primary.head.line, col: p.col)))
       if op != "y":
         vimIsChange = true
         if vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
@@ -556,7 +564,8 @@ proc vimKey(k: Key): bool =
         of 's', 'S', 'C': "c"
         else: "y"
       if op != "y": vimIsChange = true
-      b.vimApply(op, a, Pos(line: e.line, col: e.col + (if lw: 0 else: 1)), lw)
+      b.vimApply(op, a, Pos(line: e.line, col: e.col + (if lw: 0 else: 1)), lw,
+                 (if vimMode == vmVLine: vimVLineCol else: b.visColOfPos(b.primary.head)))
       if vimIsChange and vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
       return true
     case ch
@@ -694,10 +703,11 @@ proc vimEditorKey(k: Key): bool =
   ## entry from editorKey; false = let the normal editor handle the key
   if not cfgVim: return false
   if compOpen and vimMode == vmInsert:
-    # (the completion list takes the keys typed — but the escape sequence still leaves insert mode: its first key
-    # may have opened the list)
-    if not vimEscapeSeq(buf(), k): return false
-    result = vimKey(Key(kind: kEsc))
+    # (the completion list takes the keys typed — but Esc, Ctrl+[ and the escape sequence still leave insert mode in one
+    # press, the list closing with it, as vim does; its first key may have opened the list)
+    let esc = k.kind == kEsc or (k.kind == kChar and mCtrl in k.mods and k.ch in [ord('['), ord('c')])
+    if not esc and not vimEscapeSeq(buf(), k): return false
+    result = vimKey(if esc: k else: Key(kind: kEsc))
     vimShape()
     return
   result = vimKey(k)
