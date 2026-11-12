@@ -434,9 +434,20 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
     return (true, Pos(line: p.line, col: i), Pos(line: p.line, col: j + 1))
   of '"', '\'', '`':
     if s.len == 0: return (false, p, p)
-    var i = s.rfind(obj, last = min(p.col, s.len - 1))
-    if i < 0 or (i == p.col and s.find(obj, p.col + 1) < 0): i = s.rfind(obj, last = clamp(p.col - 1, 0, s.len - 1))
-    let j = s.find(obj, max(i + 1, if i == p.col: p.col + 1 else: p.col))
+    # (the two quotes around the cursor. On one, an even number of that quote before it means it opens a string and an
+    # odd one that it closes it; with none around the cursor, vim takes the pair it is in and, before the line's first,
+    # the next pair — `vi"` at the start of `x = "foo"` goes to the string)
+    var i = -1
+    if p.col < s.len and s[p.col] == obj:
+      var n = 0
+      for c in 0 ..< p.col:
+        if s[c] == obj: inc n
+      if (n and 1) == 0: i = p.col
+      else: i = s.rfind(obj, last = p.col - 1)
+    else:
+      i = s.rfind(obj, last = min(p.col, s.len - 1))
+      if i < 0: i = s.find(obj, p.col)
+    let j = if i >= 0: s.find(obj, if i == p.col: p.col + 1 else: max(i + 1, p.col)) else: -1
     if i < 0 or j < 0 or j <= i: return (false, p, p)
     if kind == 'i': return (true, Pos(line: p.line, col: i + 1), Pos(line: p.line, col: j))
     # (vim's `a"`: the quotes and the blanks after them — at a line's end, the blanks before them instead)

@@ -52,7 +52,9 @@ TEXT_OBJECTS = [('iw', 1, 5), ('aw', 1, 5), ('iW', 10, 3), ('aW', 10, 3), ('ip',
                 ('i(', 2, 55), ('a(', 2, 55), ('ib', 2, 55), ('ab', 2, 55),
                 ('i[', 2, 66), ('a[', 2, 66), ('i{', 2, 74), ('a{', 2, 74), ('iB', 2, 74), ('aB', 2, 74),
                 ('i"', 2, 83), ('a"', 2, 83), ("i'", 15, 24), ("a'", 15, 24), ('i`', 15, 36), ('a`', 15, 36),
-                ('i<', 15, 5), ('a<', 15, 5), ('it', 15, 20), ('at', 15, 20)]
+                ('i<', 15, 5), ('a<', 15, 5), ('it', 15, 20), ('at', 15, 20),
+                # (before the line's first quote: vim's text object searches forward to the next string)
+                ('i"', 15, 1), ("i'", 15, 1)]
 # the objects a `c` is tried with (what it types once the object is gone)
 C_OBJECTS = ['iw', 'aw', 'ip', 'ap', 'i(', 'i"']
 
