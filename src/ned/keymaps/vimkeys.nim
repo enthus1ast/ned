@@ -437,7 +437,12 @@ proc vimKey(k: Key): bool =
       if not m.ok: return true
       var e = m.p
       if m.inclusive: e.col += 1
-      b.vimApply(op, p, e, m.linewise, b.visColOfPos(p))
+      elif key in ["w", "W"] and e.col == 0 and e.line > p.line:
+        # (w and W ending at a line's start stop at the previous line's end: `dw` on a line's last word deletes the
+        # word, not the line break)
+        e = Pos(line: e.line - 1, col: b.lines[e.line - 1].len)
+      # (`$` — a to-the-line's-end motion — leaves the cursor at that end after a shift)
+      b.vimApply(op, p, e, m.linewise, b.visColOfPos(p), toEol = key == "$")
       if op != "y": vimIsChange = true
       if vimIsChange and vimMode == vmNormal and not vimReplaying: vimLastChange = vimRec
       return true

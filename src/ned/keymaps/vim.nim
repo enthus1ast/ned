@@ -501,7 +501,11 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
           while e.col < s.len and vimCharClass(s[e.col]) == cls: inc e.col
       return (true, a, e)
     if kind == 'a':
+      let e0 = e.col
       while e.col < s.len and s[e.col] in {' ', '\t'}: inc e.col
+      if e.col == e0 and a.col > 0:
+        # (a word at the end of a line: aw takes the blanks before it, as the quote objects do at a line's end)
+        while a.col > 0 and s[a.col - 1] in {' ', '\t'}: dec a.col
     return (true, a, e)
   of '<', '>':
     # (the nearest < before and the nearest > after, on the line — not b.matchBracket, which pairs () [] {} only)
@@ -589,7 +593,7 @@ proc textObject(b: Buffer, kind, obj: char, p: Pos): (bool, Pos, Pos) =
       return (true, ia, ie)
     (true, oa, Pos(line: closeP.line, col: closeP.col + 1))
 
-proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool, cursorCol = -1) =
+proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool, cursorCol = -1, toEol = false) =
   ## does a vim operator on a range: y (yank), d and c (delete, c then enters insert mode), > and < (indent), ~ gu gU
   ## (case) and gc (comment); a linewise range is widened to whole lines, and d / c also fill the unnamed register.
   ## `cursorCol` (a display column from 1) is where the cursor stood before a `>` or `<`: vim moves the text, not the
@@ -599,8 +603,7 @@ proc vimApply(b: Buffer, op: string, a0, e0: Pos, linewise: bool, cursorCol = -1
   if e < a: swap(a, e)
   if op in [">", "<"] and not linewise and a == e:
     return                          # (a motion that did not move: vim's > and < do nothing)
-  # (a motion to the end of the line — `>$` — leaves the cursor at that end after the shift, as vim does)
-  let toEol = op in [">", "<"] and not linewise and e.col >= b.lines[min(e.line, b.lines.high)].len
+  let toEol = op in [">", "<"] and not linewise and toEol
   if linewise:
     a = Pos(line: a.line, col: 0)
     e = if e.line < b.lines.high: Pos(line: e.line + 1, col: 0) else: Pos(line: e.line, col: b.lines[e.line].len)

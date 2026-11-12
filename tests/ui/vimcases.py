@@ -79,6 +79,14 @@ MULTI_OPS = [('~', 16, 20, True), ('2~', 16, 20, True), ('gUU', 16, 1, True), ('
              ('g~iw', 16, 20, True), ('gU2w', 16, 1, True), ('r€', 16, 20, True), ('2r•', 16, 1, True),
              ('f•', 16, 1, False), ('t•', 16, 1, False), ('fï', 16, 15, False), ('Fü', 16, 22, False),
              ('f•;', 16, 1, False), ('fï,', 16, 25, False)]
+# a line's last word: an exclusive motion that would cross the line break stops at the line's end (`dw` deletes the
+# word, not the line break), and `>`/`<` stay in the cursor's own column
+_LINES = open(FIXTURE, encoding='utf-8').read().split('\n')
+DOG = _LINES[0].find('dog') + 1        # (the last word of line 1)
+QUOTES = _LINES[1].find('quotes') + 1  # (the last word of line 2, in quotes)
+LAST_WORD = [('dw', 1, DOG), ('d2w', 1, DOG), ('d3w', 1, DOG), ('daw', 1, DOG), ('daW', 1, DOG),
+             ('cwX<Esc>', 1, DOG), ('>w', 1, DOG), ('>e', 1, DOG), ('>2w', 1, DOG), ('dw', 2, QUOTES),
+             ('d}', 1, 1), ('d}', 8, 1), ('d{', 8, 1)]
 # the objects a `c` is tried with (what it types once the object is gone)
 C_OBJECTS = ['iw', 'aw', 'ip', 'ap', 'i(', 'i"']
 
@@ -129,6 +137,8 @@ def _build():
         cases.append((keys, line, col, edit))
     for keys, line, col, edit in MULTI_OPS:
         cases.append((keys, line, col, edit))
+    for keys, line, col in LAST_WORD:
+        cases.append((keys, line, col, True))
     # (an edit ends by leaving insert mode: `Esc` is added to those and to nothing else — a movement is not ended. No
     # space before it: a space is a key of its own in vim (it moves), and would be compared on the two sides)
     return [(k + '<Esc>' if e else k, l, c, e) for (k, l, c, e) in cases]
