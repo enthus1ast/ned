@@ -47,7 +47,7 @@ when not defined(windows):
       crashPut(2, ", while: ")
       crashPutWork(2)
     crashPut(2, ".\r\nYour unsaved changes are kept: ned offers them when it starts again.\r\n")
-    discard posix.signal(sig, SIG_DFL)
+    posix.signal(sig, SIG_DFL)
     discard posix.kill(getpid(), sig)
 
   proc crashGuard() =
