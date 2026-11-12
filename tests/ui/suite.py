@@ -206,6 +206,18 @@ def t_vim():
     sc = screen()
     check('vim: one Esc leaves insert mode (a completion popup does not take it)',
           'NORMAL' in sc and 'INSERT' not in sc, ('popup open: %s\n' % popup) + sc)
+    # 6.5x: Esc and Alt+u are both `\e u` in a terminal without the kitty protocol: the Escape is read first, the key
+    # typed after it comes in a later read, and must not become Alt+key — `Esc` `u` in vim is an undo, not Alt+U (which
+    # turns the mouse off)
+    tm('kill-server'); time.sleep(0.3)
+    open(W + '/ea.txt', 'w').write('one two\n')
+    start('ea.txt', w=100, h=20); time.sleep(0.6)
+    keys('i'); text('abc'); time.sleep(0.3)
+    tm('send-keys', '-t', 'f', 'Escape'); tm('send-keys', '-t', 'f', 'u')     # (two writes, ~10 ms apart)
+    time.sleep(0.5)
+    sc = screen()
+    check('vim: Esc then u is an Escape and an undo, not Alt+U (the mouse)',
+          'NORMAL' in sc and 'Mouse off' not in sc and 'abcone' not in sc, sc)
 
 def t_recovery():
     setup(); start('src/demo.nim')
